@@ -11,7 +11,7 @@
 //// for whatever identity it needs; what it may not ask for is the root.
 ////
 //// ```gleam
-//// let #(panel, fx) = component.init(doc, playlist_map, user_id)
+//// let #(panel, fx) = component.init(document, playlist_map, user_id)
 //// let #(panel, fx) = component.update(panel, inner)
 //// component.view(panel) |> element.map(PlaylistMsg)
 //// ```
@@ -31,7 +31,7 @@ import watershed.{type Document, type SharedSequence, type TypedMap}
 import watershed/sequence_kernel
 import watershed_lustre
 
-import playlist_lustre/doc_schema
+import playlist_lustre/document_schema
 import playlist_lustre/track.{type Track, Track}
 
 // ── Model ────────────────────────────────────────────────────────────────────
@@ -65,7 +65,7 @@ pub opaque type Msg {
 /// this before its handshake completes.
 pub fn init(
   document: Document(root),
-  map: TypedMap(doc_schema.PlaylistDoc),
+  map: TypedMap(document_schema.PlaylistDocument),
   user_id: String,
 ) -> #(Model, Effect(Msg)) {
   let model =
@@ -82,13 +82,13 @@ pub fn init(
     effect.batch([
       watershed_lustre.ensure_field(
         map,
-        doc_schema.title(),
+        document_schema.title(),
         "watershed shared playlist",
       ),
       watershed_lustre.ensure_sequence(
         document,
         map,
-        doc_schema.tracks(),
+        document_schema.tracks(),
         EnsuredTracks,
       ),
     ]),

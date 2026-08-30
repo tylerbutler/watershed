@@ -52,7 +52,7 @@ import watershed/sluice/core
 import watershed_beam
 
 @target(erlang)
-const call_timeout_ms = 5000
+const call_timeout_milliseconds = 5000
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API
@@ -109,9 +109,11 @@ pub fn connect(
       // `settle` can barrier it and `pause` can target it.
       let subject = watershed_beam.runtime_subject(document)
       let _ =
-        process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
-          Bind(subject, reply)
-        })
+        process.call(
+          sluice.actor,
+          waiting: call_timeout_milliseconds,
+          sending: fn(reply) { Bind(subject, reply) },
+        )
       Ok(document)
     }
   }
@@ -168,9 +170,11 @@ pub fn reconnect(
 pub fn drop(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
   let subject = watershed_beam.runtime_subject(document)
   let _ =
-    process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
-      DropConn(subject, reply)
-    })
+    process.call(
+      sluice.actor,
+      waiting: call_timeout_milliseconds,
+      sending: fn(reply) { DropConn(subject, reply) },
+    )
   Nil
 }
 
@@ -182,9 +186,11 @@ pub fn drop(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
 pub fn rejoin(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
   let subject = watershed_beam.runtime_subject(document)
   case
-    process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
-      TakeDropped(subject, reply)
-    })
+    process.call(
+      sluice.actor,
+      waiting: call_timeout_milliseconds,
+      sending: fn(reply) { TakeDropped(subject, reply) },
+    )
   {
     Error(_) -> Nil
     Ok(on_close) -> {
@@ -193,9 +199,11 @@ pub fn rejoin(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
       // find the new connection as `last_registered`.
       let _ = runtime_beam.is_synced(subject)
       let _ =
-        process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
-          Bind(subject, reply)
-        })
+        process.call(
+          sluice.actor,
+          waiting: call_timeout_milliseconds,
+          sending: fn(reply) { Bind(subject, reply) },
+        )
       Nil
     }
   }
@@ -232,28 +240,34 @@ pub fn step(sluice: Sluice) -> Bool {
 /// frames of the other clients.
 pub fn pause(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
   let subject = watershed_beam.runtime_subject(document)
-  process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
-    Pause(subject, reply)
-  })
+  process.call(
+    sluice.actor,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { Pause(subject, reply) },
+  )
 }
 
 @target(erlang)
 /// Return the held frames of a paused client to the deliverable queue.
 pub fn resume(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
   let subject = watershed_beam.runtime_subject(document)
-  process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
-    Resume(subject, reply)
-  })
+  process.call(
+    sluice.actor,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { Resume(subject, reply) },
+  )
 }
 
 @target(erlang)
 /// Advance the logical clock of the sluice. A test can thus check the logic
 /// that depends on a time-to-live (TTL), for example the presence prune,
 /// without a wait for the real time.
-pub fn advance(sluice: Sluice, ms: Int) -> Nil {
-  process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
-    Advance(ms, reply)
-  })
+pub fn advance(sluice: Sluice, milliseconds: Int) -> Nil {
+  process.call(
+    sluice.actor,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { Advance(milliseconds, reply) },
+  )
 }
 
 @target(erlang)
@@ -261,9 +275,11 @@ pub fn advance(sluice: Sluice, ms: Int) -> Nil {
 /// selects the ripple fallback, and a client that forces `Server` mode fails.
 /// Call this function before `connect`.
 pub fn disable_presence(sluice: Sluice) -> Nil {
-  process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
-    SetPresenceSupported(False, reply)
-  })
+  process.call(
+    sluice.actor,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { SetPresenceSupported(False, reply) },
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -283,9 +299,11 @@ fn drain(sluice: Sluice) -> Nil {
 
 @target(erlang)
 fn take_and_deliver(sluice: Sluice) -> Bool {
-  process.call(sluice.actor, waiting: call_timeout_ms, sending: fn(reply) {
-    TakeAndDeliver(reply)
-  })
+  process.call(
+    sluice.actor,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { TakeAndDeliver(reply) },
+  )
 }
 
 @target(erlang)
@@ -294,7 +312,11 @@ fn take_and_deliver(sluice: Sluice) -> Bool {
 /// thus pushed its operation into the core before this function returns.
 fn barrier_all(sluice: Sluice) -> Nil {
   let subjects =
-    process.call(sluice.actor, waiting: call_timeout_ms, sending: Subjects)
+    process.call(
+      sluice.actor,
+      waiting: call_timeout_milliseconds,
+      sending: Subjects,
+    )
   list.each(subjects, fn(subject) {
     let _ = runtime_beam.is_synced(subject)
     Nil
@@ -310,15 +332,21 @@ fn sluice_transport(actor: Subject(Message)) -> runtime_beam.Transport {
   runtime_beam.Transport(
     connect: fn(callbacks: runtime_beam.TransportCallbacks) -> Nil {
       let client_id =
-        process.call(actor, waiting: call_timeout_ms, sending: fn(reply) {
-          Register(callbacks.on_event, callbacks.on_close, reply)
-        })
+        process.call(
+          actor,
+          waiting: call_timeout_milliseconds,
+          sending: fn(reply) {
+            Register(callbacks.on_event, callbacks.on_close, reply)
+          },
+        )
       let handle =
         runtime_beam.TransportHandle(
           push: fn(event, payload) {
-            process.call(actor, waiting: call_timeout_ms, sending: fn(reply) {
-              Push(client_id, event, payload, reply)
-            })
+            process.call(
+              actor,
+              waiting: call_timeout_milliseconds,
+              sending: fn(reply) { Push(client_id, event, payload, reply) },
+            )
           },
           close: fn() { Nil },
           drop: fn() { Nil },
@@ -363,7 +391,7 @@ type Message {
   TakeAndDeliver(reply: Subject(Bool))
   Pause(subject: Subject(runtime_beam.Msg), reply: Subject(Nil))
   Resume(subject: Subject(runtime_beam.Msg), reply: Subject(Nil))
-  Advance(ms: Int, reply: Subject(Nil))
+  Advance(milliseconds: Int, reply: Subject(Nil))
   SetPresenceSupported(supported: Bool, reply: Subject(Nil))
   /// The subjects of the connected runtimes, for the barrier sweep of the
   /// caller.
@@ -517,9 +545,11 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
       actor.continue(State(..state, core: core))
     }
 
-    Advance(ms, reply) -> {
+    Advance(milliseconds, reply) -> {
       process.send(reply, Nil)
-      actor.continue(State(..state, core: core.advance(state.core, ms)))
+      actor.continue(
+        State(..state, core: core.advance(state.core, milliseconds)),
+      )
     }
 
     SetPresenceSupported(supported, reply) -> {

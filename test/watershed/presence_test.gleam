@@ -441,8 +441,8 @@ pub fn sessions_expire_independently_at_the_ttl_boundary_test() -> Nil {
       100,
     )
 
-  // now=6600: client-1 is 6600ms stale (> 6500 ttl) and expires; client-2 is
-  // 6500ms stale (== ttl) and survives.
+  // now=6600: client-1 is 6600milliseconds stale (> 6500 ttl) and expires;
+  // client-2 is 6500milliseconds stale (== ttl) and survives.
   let #(sessions, diff) = presence.expire_sessions(sessions, 6500, 6600)
 
   keys_and_sessions(presence.diff_leaves(diff))

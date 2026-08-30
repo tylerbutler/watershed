@@ -21,10 +21,10 @@ fn init(_) {
 
 fn update(model, msg) {
   case msg {
-    GotHandle(doc) -> #(
-      Model(..model, doc: Some(doc)),
+    GotHandle(document) -> #(
+      Model(..model, document: Some(document)),
       // local + remote edits arrive as MapChanged
-      watershed_lustre.subscribe(watershed.root(doc), fn(_) { MapChanged }),
+      watershed_lustre.subscribe(watershed.root(document), fn(_) { MapChanged }),
     )
     // …
   }

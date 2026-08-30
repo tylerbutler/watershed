@@ -10,7 +10,7 @@
 //// ```gleam
 //// // in the parent's update, once the child map is in hand:
 //// PanelOpened -> {
-////   let #(panel, panel_effect) = component.init(doc, text_map)
+////   let #(panel, panel_effect) = component.init(document, text_map)
 ////   #(Model(..model, text: Some(panel)), effect.map(panel_effect, TextMsg))
 //// }
 //// TextMsg(inner) -> {
@@ -26,10 +26,10 @@
 //// `update`, so read [`length`](#length), [`error`](#error), and
 //// [`cursor`](#cursor) off the model after each call.
 ////
-//// **`init` takes a `TypedMap(TextDoc)`, never a `Document`'s root.** The map
-//// is the editor's whole world — standalone it happens to *be* the root, and
-//// composed it is a child of a showcase root, and nothing in here can tell the
-//// difference. That is what makes the same code a whole app and a panel in
+//// **`init` takes a `TypedMap(TextDocument)`, never a `Document`'s root.** The
+//// map is the editor's whole world — standalone it happens to *be* the root,
+//// and composed it is a child of a showcase root, and nothing in here can tell
+//// the difference. That is what makes the same code a whole app and a panel in
 //// one. The `Document` parameter is only what `ensure_text` needs to attach a
 //// channel; it is never used to reach the root.
 ////
@@ -52,7 +52,7 @@ import watershed/text_kernel
 import watershed_lustre
 import watershed_lustre/textarea
 
-import text_lustre/doc_schema
+import text_lustre/document_schema
 
 // ── Model ────────────────────────────────────────────────────────────────────
 
@@ -86,7 +86,7 @@ pub opaque type Msg {
 /// its handshake completes.
 pub fn init(
   document: Document(root),
-  map: TypedMap(doc_schema.TextDoc),
+  map: TypedMap(document_schema.TextDocument),
 ) -> #(Model, Effect(Msg)) {
   let model =
     Model(
@@ -101,13 +101,13 @@ pub fn init(
     effect.batch([
       watershed_lustre.ensure_field(
         map,
-        doc_schema.title(),
+        document_schema.title(),
         "watershed shared document",
       ),
       watershed_lustre.ensure_text(
         document,
         map,
-        doc_schema.body(),
+        document_schema.body(),
         EnsuredBody,
       ),
     ]),

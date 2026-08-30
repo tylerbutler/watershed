@@ -169,7 +169,7 @@ pub opaque type ChannelField(schema, kind) {
 
 /// Define a typed channel field. Write the kind in an annotation, or let the
 /// inference find it:
-/// `let notes: ChannelField(Doc, OrSetChannel) = channel_field("notes")`.
+/// `let notes: ChannelField(Document, OrSetChannel) = channel_field("notes")`.
 pub fn channel_field(key: String) -> ChannelField(schema, kind) {
   ChannelField(key: key)
 }

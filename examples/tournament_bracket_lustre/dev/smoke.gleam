@@ -10,7 +10,7 @@ import gleam/javascript/promise.{type Promise}
 import gleam/option.{Some}
 
 import tournament_bracket_lustre/bracket
-import tournament_bracket_lustre/doc_schema
+import tournament_bracket_lustre/document_schema
 import watershed.{type Document, type RegisterCollection, WatershedConfig}
 import watershed/register_collection_kernel.{Atomic}
 
@@ -22,16 +22,16 @@ const secret = "levee-dev-secret-change-in-production"
 
 const readiness_attempts = 100
 
-const readiness_poll_ms = 100
+const readiness_poll_milliseconds = 100
 
 const root_channel_adoption_attempts = 50
 
-const root_channel_adoption_poll_ms = 100
+const root_channel_adoption_poll_milliseconds = 100
 
 const wait_attempts = 30
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -63,7 +63,7 @@ type Readiness {
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.BracketDoc)) {
+) -> Promise(Document(document_schema.BracketDocument)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -99,10 +99,10 @@ pub fn main() -> Nil {
     let user_a = "user-a"
     let user_b = "user-b"
 
-    use doc_a <- promise.await(connect_client(document, user_a))
-    use doc_b <- promise.map(connect_client(document, user_b))
+    use document_a <- promise.await(connect_client(document, user_a))
+    use document_b <- promise.map(connect_client(document, user_b))
     await_readiness(user_a, user_b, readiness_attempts, fn() {
-      bootstrap(doc_a, doc_b)
+      bootstrap(document_a, document_b)
     })
   }
   Nil
@@ -143,7 +143,7 @@ fn readiness_retry(
   case attempts <= 0 {
     True -> fail(readiness_timeout_message(user_a, user_b))
     False -> {
-      use <- delay(readiness_poll_ms)
+      use <- delay(readiness_poll_milliseconds)
       await_readiness(user_a, user_b, attempts - 1, then)
     }
   }
@@ -181,16 +181,16 @@ fn fail_ready(user: String, reason: String) -> Nil {
 }
 
 fn bootstrap(
-  doc_a: Document(doc_schema.BracketDoc),
-  doc_b: Document(doc_schema.BracketDoc),
+  document_a: Document(document_schema.BracketDocument),
+  document_b: Document(document_schema.BracketDocument),
 ) -> Nil {
   log("smoke: ensuring matches channel on A")
-  use matches_a <- ensure_matches(doc_a, "A")
+  use matches_a <- ensure_matches(document_a, "A")
 
   use adoption_ok <- wait_until_polling(
     root_channel_adoption_attempts,
-    root_channel_adoption_poll_ms,
-    fn() { root_channel_field_present(doc_b) },
+    root_channel_adoption_poll_milliseconds,
+    fn() { root_channel_field_present(document_b) },
   )
   case adoption_ok {
     False -> fail("root-channel adoption timeout waiting for matches on B")
@@ -198,7 +198,7 @@ fn bootstrap(
   }
 
   log("smoke: adopting matches channel on B")
-  use matches_b <- ensure_matches(doc_b, "B")
+  use matches_b <- ensure_matches(document_b, "B")
 
   report_phase(matches_a, matches_b)
 }
@@ -228,14 +228,14 @@ fn report_phase(
 }
 
 fn ensure_matches(
-  doc: Document(doc_schema.BracketDoc),
+  document: Document(document_schema.BracketDocument),
   who: String,
   then: fn(RegisterCollection) -> Nil,
 ) -> Nil {
   watershed.ensure_register_collection(
-    doc,
-    watershed.root_typed(doc),
-    doc_schema.matches(),
+    document,
+    watershed.root_typed(document),
+    document_schema.matches(),
     fn(result) {
       case result {
         Ok(collection) -> then(collection)
@@ -246,8 +246,10 @@ fn ensure_matches(
   )
 }
 
-fn root_channel_field_present(doc: Document(doc_schema.BracketDoc)) -> Bool {
-  let root = watershed.untyped(watershed.root_typed(doc))
+fn root_channel_field_present(
+  document: Document(document_schema.BracketDocument),
+) -> Bool {
+  let root = watershed.untyped(watershed.root_typed(document))
   watershed.has(root, "matches")
 }
 
@@ -271,7 +273,7 @@ fn wait_until(
 
 fn wait_until_polling(
   attempts: Int,
-  poll_ms: Int,
+  poll_milliseconds: Int,
   check: fn() -> Bool,
   then: fn(Bool) -> Nil,
 ) -> Nil {
@@ -281,8 +283,8 @@ fn wait_until_polling(
       case attempts <= 0 {
         True -> then(False)
         False -> {
-          use <- delay(poll_ms)
-          wait_until_polling(attempts - 1, poll_ms, check, then)
+          use <- delay(poll_milliseconds)
+          wait_until_polling(attempts - 1, poll_milliseconds, check, then)
         }
       }
   }

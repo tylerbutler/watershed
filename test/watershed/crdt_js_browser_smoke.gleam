@@ -57,15 +57,15 @@ const compatibility = "clap-counter/v1"
 /// How long a wait may take before the page gives up. Generous: a
 /// headless browser gathering host candidates is not fast, and a hang is
 /// far more useful reported than timed out at the first hiccup.
-const wait_ms = 20_000
+const wait_milliseconds = 20_000
 
 @target(javascript)
 @external(javascript, "./p2p_browser_smoke_ffi.mjs", "sleep")
-fn sleep(ms: Int) -> Promise(Nil)
+fn sleep(milliseconds: Int) -> Promise(Nil)
 
 @target(javascript)
 @external(javascript, "./p2p_browser_smoke_ffi.mjs", "nowMs")
-fn now_ms() -> Int
+fn now_milliseconds() -> Int
 
 @target(javascript)
 type Peer {
@@ -354,7 +354,7 @@ fn statuses(peer: Peer) -> List(String) {
 
 @target(javascript)
 fn wait_until(condition: fn() -> Bool) -> Promise(Bool) {
-  wait_from(now_ms(), condition)
+  wait_from(now_milliseconds(), condition)
 }
 
 @target(javascript)
@@ -362,7 +362,7 @@ fn wait_from(started: Int, condition: fn() -> Bool) -> Promise(Bool) {
   case condition() {
     True -> promise.resolve(True)
     False ->
-      case now_ms() - started > wait_ms {
+      case now_milliseconds() - started > wait_milliseconds {
         True -> promise.resolve(False)
         False -> {
           use _ <- promise.await(sleep(50))

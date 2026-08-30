@@ -278,7 +278,7 @@ pnpm run serve      # then open http://localhost:8080/element.html twice
 ## Bootstrapping — one channel, many tabs
 
 The root map is typed
-([`src/text_lustre/doc_schema.gleam`](src/text_lustre/doc_schema.gleam)) with
+([`src/text_lustre/document_schema.gleam`](src/text_lustre/document_schema.gleam)) with
 one plain field and one channel field:
 
 ```text

@@ -1,8 +1,8 @@
 //// Ungated convergence tests driving real `watershed` documents against the
 //// in-memory `sluice` (plan HM3). These mirror the core subset of
-//// `integration_test.gleam` — but run with no floodgate server and no env gate,
-//// and assert *deterministically* after an explicit `settle` rather than
-//// polling with `wait_until`.
+//// `integration_test.gleam` — but run with no floodgate server and no
+//// environment gate, and assert *deterministically* after an explicit `settle`
+//// rather than polling with `wait_until`.
 
 @target(erlang)
 import gleam/dynamic/decode
@@ -110,13 +110,13 @@ fn rich_text_delta(raw: String) -> rich_text.Delta {
 @target(erlang)
 pub fn map_lww_converges_test() -> Nil {
   let sluice = start("map-lww")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   // Complete both handshakes before editing.
   sluice.settle(sluice)
 
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Concurrent edits, including a same-key race the sequencer resolves.
   watershed_beam.set(map_a, "die", json.int(4))
@@ -139,9 +139,9 @@ pub fn map_lww_converges_test() -> Nil {
   |> expect.to_be_true()
 
   // A late joiner replays history and lands on the same map.
-  let doc_c = connect(sluice, "user-c")
+  let document_c = connect(sluice, "user-c")
   sluice.settle(sluice)
-  let map_c = watershed_beam.root(doc_c)
+  let map_c = watershed_beam.root(document_c)
   same_entries(watershed_beam.entries(map_c), watershed_beam.entries(map_a))
   |> expect.to_be_true()
 }
@@ -149,15 +149,15 @@ pub fn map_lww_converges_test() -> Nil {
 @target(erlang)
 pub fn counter_sum_converges_test() -> Nil {
   let sluice = start("counter-sum")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Attach a shared counter via the root map.
-  let assert Ok(counter_a) = watershed_beam.create_counter(doc_a)
+  let assert Ok(counter_a) = watershed_beam.create_counter(document_a)
   watershed_beam.increment(counter_a, 2)
   watershed_beam.set(
     map_a,
@@ -166,7 +166,7 @@ pub fn counter_sum_converges_test() -> Nil {
   )
   sluice.settle(sluice)
 
-  let counter_b = resolve_counter(doc_b, map_b, "tally")
+  let counter_b = resolve_counter(document_b, map_b, "tally")
   watershed_beam.counter_value(counter_b) |> expect.to_equal(Ok(2))
 
   // Concurrent increments commute to the same sum on both sides.
@@ -179,12 +179,12 @@ pub fn counter_sum_converges_test() -> Nil {
 
 @target(erlang)
 fn resolve_counter(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.SharedCounter {
   let assert Ok(value) = watershed_beam.get(map, key)
-  let assert Ok(counter) = watershed_beam.resolve_counter(doc, value)
+  let assert Ok(counter) = watershed_beam.resolve_counter(document, value)
   counter
 }
 
@@ -193,15 +193,15 @@ pub fn pause_holds_delivery_until_resume_test() -> Nil {
   // Explicit delivery makes "who has seen what, when" scriptable. Here a peer
   // is held while another edits, then released — deterministically.
   let sluice = start("pause-delivery")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Hold B, then let A author an edit.
-  sluice.pause(sluice, doc_b)
+  sluice.pause(sluice, document_b)
   watershed_beam.set(map_a, "k", json.string("v"))
   sluice.settle(sluice)
 
@@ -210,7 +210,7 @@ pub fn pause_holds_delivery_until_resume_test() -> Nil {
   watershed_beam.get(map_b, "k") |> expect.to_equal(Error(Nil))
 
   // Releasing B delivers the held operation.
-  sluice.resume(sluice, doc_b)
+  sluice.resume(sluice, document_b)
   sluice.settle(sluice)
   watershed_beam.get(map_b, "k") |> expect.to_equal(Ok(json.string("v")))
 }
@@ -218,19 +218,19 @@ pub fn pause_holds_delivery_until_resume_test() -> Nil {
 @target(erlang)
 pub fn claims_first_writer_wins_test() -> Nil {
   let sluice = start("claims-race")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Attach a claims register and let B resolve its handle.
-  let assert Ok(claims_a) = watershed_beam.create_claims(doc_a)
+  let assert Ok(claims_a) = watershed_beam.create_claims(document_a)
   watershed_beam.set(map_a, "locks", watershed_beam.claims_handle_of(claims_a))
   sluice.settle(sluice)
   let assert Ok(handle) = watershed_beam.get(map_b, "locks")
-  let assert Ok(claims_b) = watershed_beam.resolve_claims(doc_b, handle)
+  let assert Ok(claims_b) = watershed_beam.resolve_claims(document_b, handle)
   sluice.settle(sluice)
 
   // Both submit the same key before any delivery. Each `claim_once`
@@ -265,15 +265,15 @@ fn await_claim(
 @target(erlang)
 pub fn ripple_broadcasts_to_peers_test() -> Nil {
   let sluice = start("ripple-presence")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
   // Both listen for ripples; A broadcasts one ephemeral signal.
-  let ripples_a = watershed_beam.subscribe_ripples(doc_a)
-  let ripples_b = watershed_beam.subscribe_ripples(doc_b)
+  let ripples_a = watershed_beam.subscribe_ripples(document_a)
+  let ripples_b = watershed_beam.subscribe_ripples(document_b)
   watershed_beam.submit_ripple(
-    doc_a,
+    document_a,
     ripple_type: "cursor",
     content: json.object([#("x", json.int(7))]),
   )
@@ -293,8 +293,8 @@ pub fn ripple_broadcasts_to_peers_test() -> Nil {
   // A never hears its own ripple, and ripples are not persisted — a late
   // joiner replays no history for them.
   process.receive(from: ripples_a, within: 10) |> expect.to_equal(Error(Nil))
-  let doc_c = connect(sluice, "user-c")
-  let ripples_c = watershed_beam.subscribe_ripples(doc_c)
+  let document_c = connect(sluice, "user-c")
+  let ripples_c = watershed_beam.subscribe_ripples(document_c)
   sluice.settle(sluice)
   process.receive(from: ripples_c, within: 10) |> expect.to_equal(Error(Nil))
 }
@@ -318,24 +318,24 @@ pub fn sequence_subscription_narrows_local_events_test() -> Nil {
 @target(erlang)
 pub fn ensure_sequence_adopts_stored_field_test() -> Nil {
   let sluice = start("ensure-sequence")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   let field: schema.ChannelField(SequenceFields, schema.SequenceChannel) =
     schema.channel_field("items")
   let root_a: watershed_beam.TypedMap(SequenceFields) =
-    watershed_beam.root_typed(doc_a)
+    watershed_beam.root_typed(document_a)
   let root_b: watershed_beam.TypedMap(SequenceFields) =
-    watershed_beam.root_typed(doc_b)
+    watershed_beam.root_typed(document_b)
   sluice.settle(sluice)
 
-  let assert Ok(sequence_a) = watershed_beam.create_sequence(doc_a)
+  let assert Ok(sequence_a) = watershed_beam.create_sequence(document_a)
   watershed_beam.set_sequence_field(root_a, field, sequence_a)
   sluice.settle(sluice)
 
   let assert Ok(sequence_b) =
-    watershed_beam.ensure_sequence(doc_b, root_b, field)
+    watershed_beam.ensure_sequence(document_b, root_b, field)
   let assert Ok(Some(resolved)) =
-    watershed_beam.resolve_sequence_field(doc_b, root_b, field)
+    watershed_beam.resolve_sequence_field(document_b, root_b, field)
   let assert Ok(Nil) =
     watershed_beam.sequence_insert(sequence_a, 0, json.string("ensured"))
   sluice.settle(sluice)
@@ -346,28 +346,28 @@ pub fn ensure_sequence_adopts_stored_field_test() -> Nil {
 @target(erlang)
 pub fn shared_sequence_converges_test() -> Nil {
   let sluice = start("shared-sequence")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  let assert Ok(sequence_a) = watershed_beam.create_sequence(doc_a)
+  let assert Ok(sequence_a) = watershed_beam.create_sequence(document_a)
   let assert Ok(Nil) =
     watershed_beam.sequence_insert(sequence_a, 0, json.string("base"))
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "items",
     watershed_beam.sequence_handle_of(sequence_a),
   )
   sluice.settle(sluice)
 
   let assert Ok(sequence_handle) =
-    watershed_beam.get(watershed_beam.root(doc_b), "items")
+    watershed_beam.get(watershed_beam.root(document_b), "items")
   let assert Ok(sequence_b) =
-    watershed_beam.resolve_sequence(doc_b, sequence_handle)
+    watershed_beam.resolve_sequence(document_b, sequence_handle)
   case
     watershed_beam.resolve_sequence(
-      doc_b,
-      watershed_beam.handle_of(watershed_beam.root(doc_b)),
+      document_b,
+      watershed_beam.handle_of(watershed_beam.root(document_b)),
     )
   {
     Error(_) -> Nil
@@ -397,11 +397,11 @@ pub fn shared_sequence_converges_test() -> Nil {
 @target(erlang)
 pub fn shared_rich_text_create_resolve_submit_view_subscribe_test() -> Nil {
   let sluice = start("shared-rich-text")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  let assert Ok(rich_text_a) = watershed_beam.create_rich_text(doc_a)
+  let assert Ok(rich_text_a) = watershed_beam.create_rich_text(document_a)
   let events = watershed_beam.subscribe_rich_text(rich_text_a)
   let first = rich_text_delta("[{\"insert\":\"A\"}]")
   watershed_beam.submit_rich_text(rich_text_a, first)
@@ -412,11 +412,12 @@ pub fn shared_rich_text_create_resolve_submit_view_subscribe_test() -> Nil {
   |> expect.to_equal(Ok(rich_text_document("[{\"insert\":\"A\"}]")))
 
   let handle = watershed_beam.rich_text_handle_of(rich_text_a)
-  watershed_beam.set(watershed_beam.root(doc_a), "rich", handle)
+  watershed_beam.set(watershed_beam.root(document_a), "rich", handle)
   sluice.settle(sluice)
-  watershed_beam.get(watershed_beam.root(doc_b), "rich")
+  watershed_beam.get(watershed_beam.root(document_b), "rich")
   |> expect.to_equal(Ok(handle))
-  let assert Ok(rich_text_b) = watershed_beam.resolve_rich_text(doc_b, handle)
+  let assert Ok(rich_text_b) =
+    watershed_beam.resolve_rich_text(document_b, handle)
   watershed_beam.rich_text_view(rich_text_b)
   |> expect.to_equal(Ok(rich_text_document("[{\"insert\":\"A\"}]")))
 
@@ -434,21 +435,21 @@ pub fn shared_rich_text_create_resolve_submit_view_subscribe_test() -> Nil {
 @target(erlang)
 pub fn typed_rich_text_field_set_resolve_and_ensure_test() -> Nil {
   let sluice = start("typed-rich-text")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   let field: schema.ChannelField(RichTextFields, schema.RichTextChannel) =
     schema.channel_field("rich")
   let root_a: watershed_beam.TypedMap(RichTextFields) =
-    watershed_beam.root_typed(doc_a)
+    watershed_beam.root_typed(document_a)
   let root_b: watershed_beam.TypedMap(RichTextFields) =
-    watershed_beam.root_typed(doc_b)
+    watershed_beam.root_typed(document_b)
   sluice.settle(sluice)
 
-  let assert Ok(rich_text_a) = watershed_beam.create_rich_text(doc_a)
+  let assert Ok(rich_text_a) = watershed_beam.create_rich_text(document_a)
   watershed_beam.set_rich_text_field(root_a, field, rich_text_a)
   sluice.settle(sluice)
   let assert Ok(Some(rich_text_b)) =
-    watershed_beam.resolve_rich_text_field(doc_b, root_b, field)
+    watershed_beam.resolve_rich_text_field(document_b, root_b, field)
 
   watershed_beam.submit_rich_text(
     rich_text_a,
@@ -461,9 +462,9 @@ pub fn typed_rich_text_field_set_resolve_and_ensure_test() -> Nil {
   let empty_field: schema.ChannelField(RichTextFields, schema.RichTextChannel) =
     schema.channel_field("ensured")
   let assert Ok(ensured) =
-    watershed_beam.ensure_rich_text(doc_b, root_b, empty_field)
+    watershed_beam.ensure_rich_text(document_b, root_b, empty_field)
   let assert Ok(Some(resolved)) =
-    watershed_beam.resolve_rich_text_field(doc_b, root_b, empty_field)
+    watershed_beam.resolve_rich_text_field(document_b, root_b, empty_field)
   watershed_beam.rich_text_view(ensured)
   |> expect.to_equal(watershed_beam.rich_text_view(resolved))
 }
@@ -475,27 +476,27 @@ pub fn typed_rich_text_field_set_resolve_and_ensure_test() -> Nil {
 @target(erlang)
 pub fn shared_text_converges_test() -> Nil {
   let sluice = start("shared-text")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  let assert Ok(text_a) = watershed_beam.create_text(doc_a)
+  let assert Ok(text_a) = watershed_beam.create_text(document_a)
   let assert Ok(Nil) = watershed_beam.text_insert(text_a, 0, "base")
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "doc",
     watershed_beam.text_handle_of(text_a),
   )
   sluice.settle(sluice)
 
   let assert Ok(text_handle) =
-    watershed_beam.get(watershed_beam.root(doc_b), "doc")
-  let assert Ok(text_b) = watershed_beam.resolve_text(doc_b, text_handle)
+    watershed_beam.get(watershed_beam.root(document_b), "doc")
+  let assert Ok(text_b) = watershed_beam.resolve_text(document_b, text_handle)
   // A map handle does not resolve as text.
   case
     watershed_beam.resolve_text(
-      doc_b,
-      watershed_beam.handle_of(watershed_beam.root(doc_b)),
+      document_b,
+      watershed_beam.handle_of(watershed_beam.root(document_b)),
     )
   {
     Error(_) -> Nil
@@ -541,11 +542,11 @@ pub fn shared_text_converges_test() -> Nil {
   |> expect.to_equal(watershed_beam.text_value(text_b))
 
   // A late joiner replays history and lands on the same text.
-  let doc_c = connect(sluice, "user-c")
+  let document_c = connect(sluice, "user-c")
   sluice.settle(sluice)
   let assert Ok(handle_for_c) =
-    watershed_beam.get(watershed_beam.root(doc_c), "doc")
-  let assert Ok(text_c) = watershed_beam.resolve_text(doc_c, handle_for_c)
+    watershed_beam.get(watershed_beam.root(document_c), "doc")
+  let assert Ok(text_c) = watershed_beam.resolve_text(document_c, handle_for_c)
   watershed_beam.text_value(text_c)
   |> expect.to_equal(watershed_beam.text_value(text_a))
 }
@@ -556,25 +557,26 @@ pub fn shared_text_emoji_and_combining_graphemes_converge_test() -> Nil {
   // ZWJ-joined family emoji is a single grapheme despite many codepoints —
   // both must survive concurrent edits and index math intact.
   let sluice = start("shared-text-emoji")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  let assert Ok(text_a) = watershed_beam.create_text(doc_a)
+  let assert Ok(text_a) = watershed_beam.create_text(document_a)
   let combining_e = "e\u{0301}"
   let family =
     "👩" <> "\u{200D}" <> "👩" <> "\u{200D}" <> "👧" <> "\u{200D}" <> "👦"
   let assert Ok(Nil) =
     watershed_beam.text_insert(text_a, 0, combining_e <> family)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "doc",
     watershed_beam.text_handle_of(text_a),
   )
   sluice.settle(sluice)
 
-  let assert Ok(handle) = watershed_beam.get(watershed_beam.root(doc_b), "doc")
-  let assert Ok(text_b) = watershed_beam.resolve_text(doc_b, handle)
+  let assert Ok(handle) =
+    watershed_beam.get(watershed_beam.root(document_b), "doc")
+  let assert Ok(text_b) = watershed_beam.resolve_text(document_b, handle)
   watershed_beam.text_length(text_b) |> expect.to_equal(2)
   watershed_beam.text_value(text_b) |> expect.to_equal(combining_e <> family)
   watershed_beam.text_substring(text_b, 0, 1)
@@ -627,21 +629,22 @@ pub fn shared_text_no_operation_edits_do_not_submit_test() -> Nil {
   // event, and a peer that never delivers anything still converges since
   // nothing was ever sent.
   let sluice = start("shared-text-no-op")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  let assert Ok(text_a) = watershed_beam.create_text(doc_a)
+  let assert Ok(text_a) = watershed_beam.create_text(document_a)
   let assert Ok(Nil) = watershed_beam.text_insert(text_a, 0, "hello")
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "doc",
     watershed_beam.text_handle_of(text_a),
   )
   sluice.settle(sluice)
 
-  let assert Ok(handle) = watershed_beam.get(watershed_beam.root(doc_b), "doc")
-  let assert Ok(text_b) = watershed_beam.resolve_text(doc_b, handle)
+  let assert Ok(handle) =
+    watershed_beam.get(watershed_beam.root(document_b), "doc")
+  let assert Ok(text_b) = watershed_beam.resolve_text(document_b, handle)
   let events_a = watershed_beam.subscribe_text(text_a)
 
   // An empty insert at a valid index is a no-operation: it returns Ok(Nil),
@@ -680,23 +683,23 @@ pub fn shared_text_subscription_narrows_local_events_test() -> Nil {
 @target(erlang)
 pub fn ensure_text_adopts_stored_field_test() -> Nil {
   let sluice = start("ensure-text")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   let field: schema.ChannelField(TextFields, schema.TextChannel) =
     schema.channel_field("body")
   let root_a: watershed_beam.TypedMap(TextFields) =
-    watershed_beam.root_typed(doc_a)
+    watershed_beam.root_typed(document_a)
   let root_b: watershed_beam.TypedMap(TextFields) =
-    watershed_beam.root_typed(doc_b)
+    watershed_beam.root_typed(document_b)
   sluice.settle(sluice)
 
-  let assert Ok(text_a) = watershed_beam.create_text(doc_a)
+  let assert Ok(text_a) = watershed_beam.create_text(document_a)
   watershed_beam.set_text_field(root_a, field, text_a)
   sluice.settle(sluice)
 
-  let assert Ok(text_b) = watershed_beam.ensure_text(doc_b, root_b, field)
+  let assert Ok(text_b) = watershed_beam.ensure_text(document_b, root_b, field)
   let assert Ok(Some(resolved)) =
-    watershed_beam.resolve_text_field(doc_b, root_b, field)
+    watershed_beam.resolve_text_field(document_b, root_b, field)
   let assert Ok(Nil) = watershed_beam.text_insert(text_a, 0, "ensured")
   sluice.settle(sluice)
   watershed_beam.text_value(text_b)
@@ -716,35 +719,35 @@ pub fn ensure_text_adopts_stored_field_test() -> Nil {
 /// test.
 pub fn client_id_matches_the_id_kernels_report_test() -> Nil {
   let sluice = start("client-id-beam")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
-  let doc_c = connect(sluice, "user-c")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
+  let document_c = connect(sluice, "user-c")
 
   // Before the handshake there is no server-assigned id to report, and the
   // honest answer is `None` rather than a placeholder that would quietly
   // match nothing.
-  watershed_beam.client_id(doc_a) |> expect.to_equal(None)
+  watershed_beam.client_id(document_a) |> expect.to_equal(None)
 
   sluice.settle(sluice)
-  let assert Some(id_a) = watershed_beam.client_id(doc_a)
-  let assert Some(id_c) = watershed_beam.client_id(doc_c)
+  let assert Some(id_a) = watershed_beam.client_id(document_a)
+  let assert Some(id_c) = watershed_beam.client_id(document_c)
   { id_a != id_c } |> expect.to_be_true()
 
-  let assert Ok(pact_a) = watershed_beam.create_pact_map(doc_a)
+  let assert Ok(pact_a) = watershed_beam.create_pact_map(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "tempo",
     watershed_beam.pact_map_handle_of(pact_a),
   )
   sluice.settle(sluice)
   let assert Ok(handle) =
-    watershed_beam.get(watershed_beam.root(doc_b), "tempo")
-  let assert Ok(_pact_c) = watershed_beam.resolve_pact_map(doc_c, handle)
+    watershed_beam.get(watershed_beam.root(document_b), "tempo")
+  let assert Ok(_pact_c) = watershed_beam.resolve_pact_map(document_c, handle)
 
   // Hold C, propose, and the outstanding signoff list names exactly C — which
   // C can now recognise as itself, going through the public derivation an app
   // would use.
-  sluice.pause(sluice, doc_c)
+  sluice.pause(sluice, document_c)
   watershed_beam.pact_map_set(pact_a, "bpm", json.int(128))
   sluice.settle(sluice)
 
@@ -761,26 +764,26 @@ pub fn client_id_matches_the_id_kernels_report_test() -> Nil {
 /// identity, and the document it was editing is still there.
 pub fn reconnect_rejoins_under_a_fresh_client_id_test() -> Nil {
   let sluice = start("reconnect-identity")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  watershed_beam.set(watershed_beam.root(doc_a), "before", json.int(1))
+  watershed_beam.set(watershed_beam.root(document_a), "before", json.int(1))
   sluice.settle(sluice)
-  let assert Some(was) = watershed_beam.client_id(doc_a)
+  let assert Some(was) = watershed_beam.client_id(document_a)
 
-  sluice.reconnect(sluice, doc_a)
+  sluice.reconnect(sluice, document_a)
   sluice.settle(sluice)
 
-  let assert Some(now) = watershed_beam.client_id(doc_a)
+  let assert Some(now) = watershed_beam.client_id(document_a)
   { now != was } |> expect.to_be_true()
 
   // The core survived the drop, and the link is live in both directions again.
-  watershed_beam.get(watershed_beam.root(doc_a), "before")
+  watershed_beam.get(watershed_beam.root(document_a), "before")
   |> expect.to_equal(Ok(json.int(1)))
-  watershed_beam.set(watershed_beam.root(doc_a), "after", json.int(2))
+  watershed_beam.set(watershed_beam.root(document_a), "after", json.int(2))
   sluice.settle(sluice)
-  watershed_beam.get(watershed_beam.root(doc_b), "after")
+  watershed_beam.get(watershed_beam.root(document_b), "after")
   |> expect.to_equal(Ok(json.int(2)))
 }
 
@@ -789,16 +792,16 @@ pub fn reconnect_rejoins_under_a_fresh_client_id_test() -> Nil {
 /// them, which is what makes the gap a gap and not a reset.
 pub fn reconnect_replays_the_operations_missed_while_away_test() -> Nil {
   let sluice = start("reconnect-gap")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  sluice.reconnect(sluice, doc_a)
+  sluice.reconnect(sluice, document_a)
   // B edits while A is between connections. A must not see it yet.
-  watershed_beam.set(watershed_beam.root(doc_b), "during", json.int(7))
+  watershed_beam.set(watershed_beam.root(document_b), "during", json.int(7))
   sluice.settle(sluice)
 
-  watershed_beam.get(watershed_beam.root(doc_a), "during")
+  watershed_beam.get(watershed_beam.root(document_a), "during")
   |> expect.to_equal(Ok(json.int(7)))
 }
 
@@ -808,25 +811,25 @@ pub fn reconnect_replays_the_operations_missed_while_away_test() -> Nil {
 /// wait forever on a client that cannot answer.
 pub fn reconnect_sequences_a_leave_for_the_old_identity_test() -> Nil {
   let sluice = start("reconnect-roster")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
-  let doc_c = connect(sluice, "user-c")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
+  let document_c = connect(sluice, "user-c")
   sluice.settle(sluice)
 
-  let assert Ok(pact_a) = watershed_beam.create_pact_map(doc_a)
+  let assert Ok(pact_a) = watershed_beam.create_pact_map(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "tempo",
     watershed_beam.pact_map_handle_of(pact_a),
   )
   sluice.settle(sluice)
   let assert Ok(handle) =
-    watershed_beam.get(watershed_beam.root(doc_b), "tempo")
-  let assert Ok(pact_b) = watershed_beam.resolve_pact_map(doc_b, handle)
-  let assert Ok(_) = watershed_beam.resolve_pact_map(doc_c, handle)
+    watershed_beam.get(watershed_beam.root(document_b), "tempo")
+  let assert Ok(pact_b) = watershed_beam.resolve_pact_map(document_b, handle)
+  let assert Ok(_) = watershed_beam.resolve_pact_map(document_c, handle)
 
-  let assert Some(gone) = watershed_beam.client_id(doc_c)
-  sluice.reconnect(sluice, doc_c)
+  let assert Some(gone) = watershed_beam.client_id(document_c)
+  sluice.reconnect(sluice, document_c)
   sluice.settle(sluice)
 
   // A proposal now must not be waiting on the identity that dropped.
@@ -856,40 +859,40 @@ pub fn reconnect_sequences_a_leave_for_the_old_identity_test() -> Nil {
 /// `AckMismatch("expected ack for csn N, got csn M")`, killing its runtime_beam.
 pub fn a_released_accept_is_not_sent_twice_across_a_reconnect_test() -> Nil {
   let sluice = start("reconnect-released-accept")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
-  let doc_c = connect(sluice, "user-c")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
+  let document_c = connect(sluice, "user-c")
   sluice.settle(sluice)
 
-  let assert Ok(pact_a) = watershed_beam.create_pact_map(doc_a)
+  let assert Ok(pact_a) = watershed_beam.create_pact_map(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "settings",
     watershed_beam.pact_map_handle_of(pact_a),
   )
   sluice.settle(sluice)
   let assert Ok(handle) =
-    watershed_beam.get(watershed_beam.root(doc_b), "settings")
-  let assert Ok(pact_b) = watershed_beam.resolve_pact_map(doc_b, handle)
-  let assert Ok(pact_c) = watershed_beam.resolve_pact_map(doc_c, handle)
+    watershed_beam.get(watershed_beam.root(document_b), "settings")
+  let assert Ok(pact_b) = watershed_beam.resolve_pact_map(document_b, handle)
+  let assert Ok(pact_c) = watershed_beam.resolve_pact_map(document_c, handle)
 
   // Put C far enough behind that its catch-up comes back as one batch.
-  sluice.pause(sluice, doc_c)
-  watershed_beam.set(watershed_beam.root(doc_a), "filler", json.int(1))
+  sluice.pause(sluice, document_c)
+  watershed_beam.set(watershed_beam.root(document_a), "filler", json.int(1))
   watershed_beam.pact_map_set(pact_a, "bpm", json.int(128))
-  watershed_beam.set(watershed_beam.root(doc_b), "more", json.int(2))
+  watershed_beam.set(watershed_beam.root(document_b), "more", json.int(2))
   sluice.settle(sluice)
 
   // C's held frames die with the socket; everything it missed arrives through
   // the post-reconnect catch-up instead.
-  sluice.reconnect(sluice, doc_c)
+  sluice.reconnect(sluice, document_c)
   sluice.settle(sluice)
 
   // C survived, and the room agrees. Under the double-send C's runtime was
   // already dead by here.
-  watershed_beam.get(watershed_beam.root(doc_c), "filler")
+  watershed_beam.get(watershed_beam.root(document_c), "filler")
   |> expect.to_equal(Ok(json.int(1)))
-  watershed_beam.get(watershed_beam.root(doc_c), "more")
+  watershed_beam.get(watershed_beam.root(document_c), "more")
   |> expect.to_equal(Ok(json.int(2)))
 
   watershed_beam.pact_map_get(pact_a, "bpm")
@@ -913,42 +916,42 @@ pub fn a_released_accept_is_not_sent_twice_across_a_reconnect_test() -> Nil {
 /// rejects as `AckMismatch("client was not expected to sign off")`.
 pub fn a_proposal_made_while_away_does_not_gain_the_returning_client_test() -> Nil {
   let sluice = start("reconnect-window-proposal")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
-  let doc_c = connect(sluice, "user-c")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
+  let document_c = connect(sluice, "user-c")
   sluice.settle(sluice)
 
-  let assert Ok(pact_a) = watershed_beam.create_pact_map(doc_a)
+  let assert Ok(pact_a) = watershed_beam.create_pact_map(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "settings",
     watershed_beam.pact_map_handle_of(pact_a),
   )
   sluice.settle(sluice)
   let assert Ok(handle) =
-    watershed_beam.get(watershed_beam.root(doc_b), "settings")
-  let assert Ok(pact_b) = watershed_beam.resolve_pact_map(doc_b, handle)
-  let assert Ok(_) = watershed_beam.resolve_pact_map(doc_c, handle)
+    watershed_beam.get(watershed_beam.root(document_b), "settings")
+  let assert Ok(pact_b) = watershed_beam.resolve_pact_map(document_b, handle)
+  let assert Ok(_) = watershed_beam.resolve_pact_map(document_c, handle)
 
   // Hold B, so the proposal is still outstanding when C comes back. A settled
   // pact ignores a stray `Accept`; a pending one rejects it, and rejecting it
   // is fatal to the connection that sent it.
-  sluice.pause(sluice, doc_b)
+  sluice.pause(sluice, document_b)
 
   // C's socket goes, and the proposal is sequenced in the window before it is
   // let back. A froze a signoff list of A and B — C had already left.
-  sluice.drop(sluice, doc_c)
+  sluice.drop(sluice, document_c)
   watershed_beam.pact_map_set(pact_a, "bpm", json.int(128))
   sluice.settle(sluice)
   watershed_beam.pact_map_is_pending(pact_a, "bpm") |> expect.to_be_true()
 
   // C returns and replays it.
-  sluice.rejoin(sluice, doc_c)
+  sluice.rejoin(sluice, document_c)
   sluice.settle(sluice)
-  sluice.resume(sluice, doc_b)
+  sluice.resume(sluice, document_b)
   sluice.settle(sluice)
 
-  let assert Ok(pact_c) = watershed_beam.resolve_pact_map(doc_c, handle)
+  let assert Ok(pact_c) = watershed_beam.resolve_pact_map(document_c, handle)
   watershed_beam.pact_map_get(pact_c, "bpm")
   |> expect.to_equal(Ok(json.int(128)))
   watershed_beam.pact_map_is_pending(pact_c, "bpm") |> expect.to_be_false()
@@ -1050,26 +1053,27 @@ fn panel_decoder() -> decode.Decoder(PresencePanel) {
 /// queue" from.
 pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() -> Nil {
   let sluice = start("ordered-lifecycle")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  let assert Ok(queue_a) = watershed_beam.create_ordered_collection(doc_a)
+  let assert Ok(queue_a) = watershed_beam.create_ordered_collection(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "jobs",
     watershed_beam.ordered_collection_handle_of(queue_a),
   )
   sluice.settle(sluice)
-  let assert Ok(handle) = watershed_beam.get(watershed_beam.root(doc_b), "jobs")
+  let assert Ok(handle) =
+    watershed_beam.get(watershed_beam.root(document_b), "jobs")
   let assert Ok(queue_b) =
-    watershed_beam.resolve_ordered_collection(doc_b, handle)
+    watershed_beam.resolve_ordered_collection(document_b, handle)
 
   let events_a = watershed_beam.subscribe_ordered_collection(queue_a)
   let events_b = watershed_beam.subscribe_ordered_collection(queue_b)
 
   let job = json.string("job1")
-  let assert Some(id_a) = watershed_beam.client_id(doc_a)
+  let assert Some(id_a) = watershed_beam.client_id(document_a)
   let owner = Some(client_id.to_int(id_a))
 
   watershed_beam.ordered_add(queue_a, job)
@@ -1146,17 +1150,18 @@ pub fn operations_since_summary_counts_the_unsummarized_log_test() -> Nil {
   // policy thresholds on, and it is the one thing about summaries visible
   // from the facade without a storage server.
   let sluice = start("summary-drift")
-  let doc_a = connect(sluice, "user-a")
+  let document_a = connect(sluice, "user-a")
   sluice.settle(sluice)
 
-  let before = watershed_beam.operations_since_summary(doc_a)
+  let before = watershed_beam.operations_since_summary(document_a)
   { before > 0 } |> expect.to_be_true()
 
-  watershed_beam.set(watershed_beam.root(doc_a), "a", json.int(1))
-  watershed_beam.set(watershed_beam.root(doc_a), "b", json.int(2))
+  watershed_beam.set(watershed_beam.root(document_a), "a", json.int(1))
+  watershed_beam.set(watershed_beam.root(document_a), "b", json.int(2))
   sluice.settle(sluice)
 
-  watershed_beam.operations_since_summary(doc_a) |> expect.to_equal(before + 2)
+  watershed_beam.operations_since_summary(document_a)
+  |> expect.to_equal(before + 2)
 }
 
 @target(erlang)
@@ -1166,8 +1171,8 @@ pub fn a_failing_automatic_summary_leaves_the_document_working_test() -> Nil {
   // a summarize operation has no ack and no rollback, so a failed attempt must
   // be inert — the document keeps converging and the client keeps writing.
   let sluice = start("summary-attempt")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
   // Threshold 1 with no jitter: an attempt is armed by the next sequenced
@@ -1175,29 +1180,34 @@ pub fn a_failing_automatic_summary_leaves_the_document_working_test() -> Nil {
   let policy =
     summary_policy.policy()
     |> summary_policy.with_threshold(1)
-    |> summary_policy.with_jitter_ms(0)
-  watershed_beam.auto_summarize(doc_a, policy)
+    |> summary_policy.with_jitter_milliseconds(0)
+  watershed_beam.auto_summarize(document_a, policy)
 
-  watershed_beam.set(watershed_beam.root(doc_a), "die", json.int(4))
-  watershed_beam.set(watershed_beam.root(doc_b), "color", json.string("blue"))
+  watershed_beam.set(watershed_beam.root(document_a), "die", json.int(4))
+  watershed_beam.set(
+    watershed_beam.root(document_b),
+    "color",
+    json.string("blue"),
+  )
   sluice.settle(sluice)
   // The wake-up is a timer message rather than a delivered frame, so it lands
   // outside the sluice's own barrier.
   process.sleep(50)
   sluice.settle(sluice)
 
-  watershed_beam.set(watershed_beam.root(doc_a), "after", json.int(1))
+  watershed_beam.set(watershed_beam.root(document_a), "after", json.int(1))
   sluice.settle(sluice)
 
   same_entries(
-    watershed_beam.entries(watershed_beam.root(doc_a)),
-    watershed_beam.entries(watershed_beam.root(doc_b)),
+    watershed_beam.entries(watershed_beam.root(document_a)),
+    watershed_beam.entries(watershed_beam.root(document_b)),
   )
   |> expect.to_be_true()
-  watershed_beam.get(watershed_beam.root(doc_b), "after")
+  watershed_beam.get(watershed_beam.root(document_b), "after")
   |> expect.to_equal(Ok(json.int(1)))
   // The attempt failed, so nothing moved the checkpoint.
-  { watershed_beam.operations_since_summary(doc_a) > 0 } |> expect.to_be_true()
+  { watershed_beam.operations_since_summary(document_a) > 0 }
+  |> expect.to_be_true()
 }
 
 @target(erlang)
@@ -1213,13 +1223,13 @@ pub fn a_failing_automatic_summary_leaves_the_document_working_test() -> Nil {
 /// order, so the replacement that sequenced first wins everywhere.
 pub fn concurrent_json_ot_replace_across_a_reconnect_converges_test() -> Nil {
   let sluice = start("json-ot-replace-reconnect")
-  let doc_a = connect(sluice, "user-a")
-  let doc_b = connect(sluice, "user-b")
+  let document_a = connect(sluice, "user-a")
+  let document_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  let assert Ok(json_a) = watershed_beam.create_json_ot(doc_a)
+  let assert Ok(json_a) = watershed_beam.create_json_ot(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "notes",
     watershed_beam.json_ot_handle_of(json_a),
   )
@@ -1229,13 +1239,13 @@ pub fn concurrent_json_ot_replace_across_a_reconnect_converges_test() -> Nil {
   sluice.settle(sluice)
 
   let assert Ok(handle) =
-    watershed_beam.get(watershed_beam.root(doc_b), "notes")
-  let assert Ok(json_b) = watershed_beam.resolve_json_ot(doc_b, handle)
+    watershed_beam.get(watershed_beam.root(document_b), "notes")
+  let assert Ok(json_b) = watershed_beam.resolve_json_ot(document_b, handle)
   sluice.settle(sluice)
 
   // Both sockets go, so neither replacement can read the other one.
-  sluice.drop(sluice, doc_a)
-  sluice.drop(sluice, doc_b)
+  sluice.drop(sluice, document_a)
+  sluice.drop(sluice, document_b)
   watershed_beam.submit_json_ot(json_a, [
     json_ot.obj_replace(
       [json_ot.Key("title")],
@@ -1252,8 +1262,8 @@ pub fn concurrent_json_ot_replace_across_a_reconnect_converges_test() -> Nil {
   ])
   sluice.settle(sluice)
 
-  sluice.rejoin(sluice, doc_a)
-  sluice.rejoin(sluice, doc_b)
+  sluice.rejoin(sluice, document_a)
+  sluice.rejoin(sluice, document_b)
   sluice.settle(sluice)
 
   let seen_by_a = watershed_beam.json_ot_view(json_a)

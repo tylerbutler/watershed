@@ -1,9 +1,9 @@
 //// The board's three fixed columns.
 ////
-//// `id` values double as the schema channel keys (`doc_schema.went_well` etc.)
-//// and as the value of a note's `column` register — the render rule matches
-//// the two by string equality, so this module is the single source of truth
-//// for column identity.
+//// `id` values double as the schema channel keys (`document_schema.went_well`
+//// etc.) and as the value of a note's `column` register — the render rule
+//// matches the two by string equality, so this module is the single source of
+//// truth for column identity.
 
 pub type Column {
   WentWell

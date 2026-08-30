@@ -13,9 +13,10 @@
 //// adds `AddClient` (summary joins via `load_from_synced`); F3 adds
 //// `Disconnect` / `Reconnect` (resend-queue semantics) and the
 //// capability-gated `RollbackOperation` / `StashedOperation`; F4 adds
-//// `FUZZ_SEED` / `FUZZ_ITERATIONS` env config (`config_from_env`) and JSON
-//// failure fixtures (`dump_failure` / `script_decoder`) so a captured failing
-//// script survives as a permanent regression test with no transcription.
+//// `FUZZ_SEED` / `FUZZ_ITERATIONS` environment config
+//// (`config_from_environment`) and JSON failure fixtures (`dump_failure` /
+//// `script_decoder`) so a captured failing script survives as a permanent
+//// regression test with no transcription.
 ////
 //// The interpreter is written against `Result(Simulation, String)` internally
 //// (`try_run_script`) so tests can assert on a specific failure without
@@ -1082,14 +1083,14 @@ pub fn script_decoder(
 /// Directory permanent regression fixtures live in. Populated by
 /// `dump_failure`; every file here is replayed by the fixtures replay test
 /// (see `test/watershed/fuzz_replay_test.gleam`).
-pub const fixtures_dir = "test/fixtures/fuzz_failures"
+pub const fixtures_directory = "test/fixtures/fuzz_failures"
 
 /// Path `dump_failure` writes/overwrites for a given model. One fixture per
 /// model name: the newest captured failure for that model is what's on
 /// disk, matching upstream's `saveFailures` idea of resurfacing the latest
 /// counterexample without hand transcription.
 pub fn fixture_path(model_name: String) -> String {
-  fixtures_dir <> "/" <> model_name <> "_failure.json"
+  fixtures_directory <> "/" <> model_name <> "_failure.json"
 }
 
 /// Dump a failing script to `fixture_path(model.name)` as JSON: model name,
@@ -1112,7 +1113,7 @@ pub fn dump_failure(
       #("detail", json.string(detail)),
       #("script", script_to_json(model.operation_to_json, script)),
     ])
-  use _ <- result.try(simplifile.create_directory_all(fixtures_dir))
+  use _ <- result.try(simplifile.create_directory_all(fixtures_directory))
   use _ <- result.try(simplifile.write(path, json.to_string(payload)))
   Ok(path)
 }
@@ -1170,7 +1171,7 @@ pub fn run_script(
 /// `test/fixtures/fuzz_failures/` on failure (see `dump_failure`) and the
 /// replay test that reads it back — that's the fallback this harness uses
 /// instead of relying on a seed round-trip qcheck doesn't expose.
-pub fn config_from_env() -> qcheck.Config {
+pub fn config_from_environment() -> qcheck.Config {
   let test_count = case envoy.get("FUZZ_ITERATIONS") {
     Ok(value) ->
       case int.parse(value) {
@@ -1191,8 +1192,8 @@ pub fn config_from_env() -> qcheck.Config {
 }
 
 /// Run `client_count`-client scripts drawn from `script_generator` against
-/// `model`, using `config` (see `config_from_env` for the seeded/env-driven
-/// default).
+/// `model`, using `config` (see `config_from_environment` for the
+/// seeded/environment-driven default).
 pub fn run(
   model: KernelModel(state, operation, view),
   config: qcheck.Config,

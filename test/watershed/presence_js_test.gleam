@@ -316,7 +316,10 @@ pub fn stopping_leaves_immediately_in_server_mode_test() -> Nil {
 fn ripple_config() -> presence.Config(Panel) {
   presence.config(encode_panel, panel_decoder())
   |> presence.with_mode(presence.Ripple)
-  |> presence.with_ripple_timing(heartbeat_ms: 2000, ttl_ms: 6500)
+  |> presence.with_ripple_timing(
+    heartbeat_milliseconds: 2000,
+    ttl_milliseconds: 6500,
+  )
 }
 
 @target(javascript)

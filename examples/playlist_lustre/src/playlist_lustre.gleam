@@ -22,9 +22,9 @@
 //// addressed operations on a shared list.
 ////
 //// All of that lives in `playlist_lustre/component`, a nested MVU triple that
-//// takes a `TypedMap(PlaylistDoc)` and never reaches for a root. This module
-//// is what an application owns and a panel must not: the connection, the
-//// runtime diagnostics, and force reconnect — every one of them
+//// takes a `TypedMap(PlaylistDocument)` and never reaches for a root. This
+//// module is what an application owns and a panel must not: the connection,
+//// the runtime diagnostics, and force reconnect — every one of them
 //// document-scoped. Mounted in `showcase_lustre`, the same component is handed
 //// a child map instead of this document's root, and nothing else changes.
 ////
@@ -50,7 +50,7 @@ import watershed/sequence_kernel
 import watershed_lustre
 
 import playlist_lustre/component
-import playlist_lustre/doc_schema
+import playlist_lustre/document_schema
 import playlist_lustre/track
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
@@ -79,7 +79,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.PlaylistDoc)),
+    document: Option(Document(document_schema.PlaylistDocument)),
     /// The playlist panel. `None` until the handshake completes.
     playlist: Option(component.Model),
     /// Whether this app has taken its own subscription on the tracks channel.
@@ -92,7 +92,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.PlaylistDoc))
+  GotHandle(Document(document_schema.PlaylistDocument))
   Connected(Result(Nil, String))
   DiagnosticsTick
   TracksChanged(sequence_kernel.SequenceEvent)
@@ -106,7 +106,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       playlist: None,
       traced: False,
       user_id: user_id,
@@ -133,10 +133,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
     // The handle arrives before the handshake completes, so it can be retained
     // for diagnostics but cannot create the tracks sequence yet.
-    GotHandle(doc) -> {
-      let diagnostics = watershed.diagnostics(doc)
+    GotHandle(document) -> {
+      let diagnostics = watershed.diagnostics(document)
       let model =
-        Model(..model, doc: Some(doc), diagnostics: Some(diagnostics))
+        Model(..model, document: Some(document), diagnostics: Some(diagnostics))
         |> add_diagnostic(
           "document handle acquired · " <> diagnostic_line(diagnostics),
         )
@@ -149,11 +149,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let model =
         Model(..model, status: Ready)
         |> add_diagnostic("initial handshake complete")
-      case model.doc {
+      case model.document {
         None -> #(model, effect.none())
-        Some(doc) -> {
+        Some(document) -> {
           let #(playlist, playlist_effect) =
-            component.init(doc, watershed.root_typed(doc), model.user_id)
+            component.init(
+              document,
+              watershed.root_typed(document),
+              model.user_id,
+            )
           #(
             Model(..model, playlist: Some(playlist)),
             effect.map(playlist_effect, Playlist),
@@ -182,8 +186,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // The app's share of a sequence event: the diagnostics trace. The component
     // re-renders itself off its own subscription.
     TracksChanged(event) -> {
-      let diagnostics = case model.doc {
-        Some(doc) -> Some(watershed.diagnostics(doc))
+      let diagnostics = case model.document {
+        Some(document) -> Some(watershed.diagnostics(document))
         None -> None
       }
       let detail = case diagnostics {
@@ -198,8 +202,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     DiagnosticsTick -> {
-      let next = case model.doc {
-        Some(doc) -> Some(watershed.diagnostics(doc))
+      let next = case model.document {
+        Some(document) -> Some(watershed.diagnostics(document))
         None -> None
       }
       let model = case next, model.diagnostics {
@@ -212,10 +216,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(
+      case model.document {
+        Some(document) -> #(
           add_diagnostic(model, "force reconnect requested"),
-          watershed_lustre.force_reconnect(doc),
+          watershed_lustre.force_reconnect(document),
         )
         None -> #(model, effect.none())
       }

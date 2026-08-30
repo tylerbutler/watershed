@@ -8,8 +8,8 @@ fn parse(raw: String) -> JsonValue {
   value
 }
 
-fn apply_ok(doc: JsonValue, operation: json_ot.Operation) -> JsonValue {
-  let assert Ok(result) = json_ot.apply(doc, operation)
+fn apply_ok(document: JsonValue, operation: json_ot.Operation) -> JsonValue {
+  let assert Ok(result) = json_ot.apply(document, operation)
   result
 }
 

@@ -18,9 +18,9 @@ fn t0(components: List(JsonValue)) -> JsonValue {
   json_ot.VArray(components)
 }
 
-fn apply0(doc: String, operation: JsonValue) -> JsonValue {
+fn apply0(document: String, operation: JsonValue) -> JsonValue {
   let assert Ok(result) =
-    json_ot.apply_subtype("text0", VString(doc), operation)
+    json_ot.apply_subtype("text0", VString(document), operation)
   result
 }
 
@@ -52,21 +52,25 @@ pub fn text0_apply_delete_mismatch_errors_test() -> Nil {
 // ── invert ───────────────────────────────────────────────────────────────────
 
 pub fn text0_invert_round_trips_test() -> Nil {
-  let doc = VObject([#("t", VString("hello"))])
+  let document = VObject([#("t", VString("hello"))])
   let operation = text_edit(t0([ins(5, " world"), del(0, "he")]))
-  let assert Ok(edited) = json_ot.apply(doc, operation)
+  let assert Ok(edited) = json_ot.apply(document, operation)
   let inverse = json_ot.invert(operation)
   let assert Ok(back) = json_ot.apply(edited, inverse)
-  back |> expect.to_equal(doc)
+  back |> expect.to_equal(document)
 }
 
 // ── transform (TP1) ──────────────────────────────────────────────────────────
 
 /// TP1 for the embedded subtype: applying `a` then `b` transformed past `a`
 /// must equal applying `b` then `a` transformed past `b`.
-fn tp1(doc: JsonValue, a: Operation, b: Operation) -> #(JsonValue, JsonValue) {
-  let assert Ok(after_a) = json_ot.apply(doc, a)
-  let assert Ok(after_b) = json_ot.apply(doc, b)
+fn tp1(
+  document: JsonValue,
+  a: Operation,
+  b: Operation,
+) -> #(JsonValue, JsonValue) {
+  let assert Ok(after_a) = json_ot.apply(document, a)
+  let assert Ok(after_b) = json_ot.apply(document, b)
   let assert Ok(b_star) = json_ot.transform(b, a, Rgt)
   let assert Ok(a_star) = json_ot.transform(a, b, Lft)
   let assert Ok(left) = json_ot.apply(after_a, b_star)
@@ -79,36 +83,36 @@ fn text_edit(operation: JsonValue) -> Operation {
 }
 
 pub fn text0_concurrent_inserts_converge_test() -> Nil {
-  let doc = VObject([#("t", VString("hello"))])
+  let document = VObject([#("t", VString("hello"))])
   let a = text_edit(t0([ins(0, "A")]))
   let b = text_edit(t0([ins(0, "B")]))
-  let #(left, right) = tp1(doc, a, b)
+  let #(left, right) = tp1(document, a, b)
   left |> expect.to_equal(right)
 }
 
 pub fn text0_insert_vs_delete_converge_test() -> Nil {
-  let doc = VObject([#("t", VString("hello world"))])
+  let document = VObject([#("t", VString("hello world"))])
   let a = text_edit(t0([ins(5, "XYZ")]))
   let b = text_edit(t0([del(0, "hello")]))
-  let #(left, right) = tp1(doc, a, b)
+  let #(left, right) = tp1(document, a, b)
   left |> expect.to_equal(right)
 }
 
 pub fn text0_overlapping_deletes_converge_test() -> Nil {
-  let doc = VObject([#("t", VString("abcdef"))])
+  let document = VObject([#("t", VString("abcdef"))])
   let a = text_edit(t0([del(1, "bcd")]))
   let b = text_edit(t0([del(2, "cde")]))
-  let #(left, right) = tp1(doc, a, b)
+  let #(left, right) = tp1(document, a, b)
   left |> expect.to_equal(right)
 }
 
 pub fn text0_multi_component_operations_converge_test() -> Nil {
-  let doc = VObject([#("t", VString("the quick brown fox"))])
+  let document = VObject([#("t", VString("the quick brown fox"))])
   // a: drop the leading "the ", then append "!" (positions are sequential).
   let a = text_edit(t0([del(0, "the "), ins(15, "!")]))
   // b: prepend ">> ", then drop the now-shifted "the ".
   let b = text_edit(t0([ins(0, ">> "), del(3, "the ")]))
-  let #(left, right) = tp1(doc, a, b)
+  let #(left, right) = tp1(document, a, b)
   left |> expect.to_equal(right)
 }
 
@@ -116,10 +120,10 @@ pub fn text0_multi_component_operations_converge_test() -> Nil {
 /// order but each pair (a then b*) vs (b then a*) still converges — verified
 /// above. Here we pin the concrete resolved string for the insert tie.
 pub fn text0_insert_tie_resolves_by_side_test() -> Nil {
-  let doc = VObject([#("t", VString(""))])
+  let document = VObject([#("t", VString(""))])
   let a = text_edit(t0([ins(0, "A")]))
   let b = text_edit(t0([ins(0, "B")]))
-  let #(left, _right) = tp1(doc, a, b)
+  let #(left, _right) = tp1(document, a, b)
   // a is transformed with side Lft (stays put), b with Rgt (pushed after) when
   // applied second, so "A" precedes "B".
   left |> expect.to_equal(VObject([#("t", VString("AB"))]))

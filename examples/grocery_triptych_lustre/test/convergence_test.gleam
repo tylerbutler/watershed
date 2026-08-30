@@ -4,7 +4,7 @@ import gleam/string
 import gleeunit
 import gleeunit/should
 
-import grocery_triptych_lustre/doc_schema
+import grocery_triptych_lustre/document_schema
 import watershed.{type Document, type GSet, type OrSet, type TwoPSet}
 import watershed/sluice_js.{type Sluice}
 
@@ -26,30 +26,34 @@ type Snapshot {
 
 fn room(name: String) -> #(Sluice, Client, Client) {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root_a = watershed.root_typed(doc_a)
-  let assert Ok(grow_only) = watershed.create_g_set(doc_a)
-  watershed.set_g_set_field(root_a, doc_schema.grow_only(), grow_only)
-  let assert Ok(two_phase) = watershed.create_two_p_set(doc_a)
-  watershed.set_two_p_set_field(root_a, doc_schema.two_phase(), two_phase)
-  let assert Ok(observed) = watershed.create_or_set(doc_a)
-  watershed.set_or_set_field(root_a, doc_schema.observed(), observed)
+  let root_a = watershed.root_typed(document_a)
+  let assert Ok(grow_only) = watershed.create_g_set(document_a)
+  watershed.set_g_set_field(root_a, document_schema.grow_only(), grow_only)
+  let assert Ok(two_phase) = watershed.create_two_p_set(document_a)
+  watershed.set_two_p_set_field(root_a, document_schema.two_phase(), two_phase)
+  let assert Ok(observed) = watershed.create_or_set(document_a)
+  watershed.set_or_set_field(root_a, document_schema.observed(), observed)
   sluice_js.settle(sluice)
 
-  #(sluice, client(doc_a), client(doc_b))
+  #(sluice, client(document_a), client(document_b))
 }
 
-fn client(doc: Document(doc_schema.Pantry)) -> Client {
-  let root = watershed.root_typed(doc)
+fn client(document: Document(document_schema.Pantry)) -> Client {
+  let root = watershed.root_typed(document)
   let assert Ok(Some(grow_only)) =
-    watershed.resolve_g_set_field(doc, root, doc_schema.grow_only())
+    watershed.resolve_g_set_field(document, root, document_schema.grow_only())
   let assert Ok(Some(two_phase)) =
-    watershed.resolve_two_p_set_field(doc, root, doc_schema.two_phase())
+    watershed.resolve_two_p_set_field(
+      document,
+      root,
+      document_schema.two_phase(),
+    )
   let assert Ok(Some(observed)) =
-    watershed.resolve_or_set_field(doc, root, doc_schema.observed())
+    watershed.resolve_or_set_field(document, root, document_schema.observed())
 
   Client(grow_only: grow_only, two_phase: two_phase, observed: observed)
 }

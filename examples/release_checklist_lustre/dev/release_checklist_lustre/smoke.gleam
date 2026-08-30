@@ -22,7 +22,7 @@ import gleam/json
 import gleam/list
 import gleam/string
 
-import release_checklist_lustre/doc_schema
+import release_checklist_lustre/document_schema
 import watershed.{
   type Claims, type Document, type OrSet, type PactMap, WatershedConfig,
 }
@@ -42,7 +42,7 @@ const captain_key = "captain"
 const target_key = "target"
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -53,7 +53,7 @@ fn exit(code: Int) -> Nil
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.Checklist)) {
+) -> Promise(Document(document_schema.Checklist)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -78,10 +78,10 @@ pub fn main() -> Nil {
   log("smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.await(connect_client(document, "user-b"))
-    use doc_c <- promise.map(connect_client(document, "user-c"))
-    start(doc_a, doc_b, doc_c)
+    use document_a <- promise.await(connect_client(document, "user-a"))
+    use document_b <- promise.await(connect_client(document, "user-b"))
+    use document_c <- promise.map(connect_client(document, "user-c"))
+    start(document_a, document_b, document_c)
   }
   Nil
 }
@@ -92,58 +92,59 @@ type Handles {
   Handles(checks: OrSet, captain: Claims, release: PactMap)
 }
 
-/// Ensure (and, for the first caller, seed) all three channels on `doc`, in
-/// the same order `release_checklist_lustre.bootstrap_effect` does. Every
-/// `ensure_*` here is the same one the app calls — idempotent, so seeding on
-/// A and adopting on B and C is only a matter of which one gets there first.
+/// Ensure (and, for the first caller, seed) all three channels on `document`,
+/// in the same order `release_checklist_lustre.bootstrap_effect` does. Every
+/// `ensure_*` here is the same one the app calls — idempotent, so seeding on A
+/// and adopting on B and C is only a matter of which one gets there first.
 fn bootstrap(
-  doc: Document(doc_schema.Checklist),
+  document: Document(document_schema.Checklist),
   label: String,
   on_ready: fn(Handles) -> Nil,
 ) -> Nil {
   watershed.ensure_or_set(
-    doc,
-    watershed.root_typed(doc),
-    doc_schema.checks(),
+    document,
+    watershed.root_typed(document),
+    document_schema.checks(),
     fn(result) {
       case result {
         Error(reason) -> fail(label <> " could not ensure checks: " <> reason)
-        Ok(checks) -> bootstrap_captain(doc, label, checks, on_ready)
+        Ok(checks) -> bootstrap_captain(document, label, checks, on_ready)
       }
     },
   )
 }
 
 fn bootstrap_captain(
-  doc: Document(doc_schema.Checklist),
+  document: Document(document_schema.Checklist),
   label: String,
   checks: OrSet,
   on_ready: fn(Handles) -> Nil,
 ) -> Nil {
   watershed.ensure_claims(
-    doc,
-    watershed.root_typed(doc),
-    doc_schema.captain(),
+    document,
+    watershed.root_typed(document),
+    document_schema.captain(),
     fn(result) {
       case result {
         Error(reason) -> fail(label <> " could not ensure captain: " <> reason)
-        Ok(captain) -> bootstrap_release(doc, label, checks, captain, on_ready)
+        Ok(captain) ->
+          bootstrap_release(document, label, checks, captain, on_ready)
       }
     },
   )
 }
 
 fn bootstrap_release(
-  doc: Document(doc_schema.Checklist),
+  document: Document(document_schema.Checklist),
   label: String,
   checks: OrSet,
   captain: Claims,
   on_ready: fn(Handles) -> Nil,
 ) -> Nil {
   watershed.ensure_pact_map(
-    doc,
-    watershed.root_typed(doc),
-    doc_schema.release(),
+    document,
+    watershed.root_typed(document),
+    document_schema.release(),
     fn(result) {
       case result {
         Error(reason) -> fail(label <> " could not ensure release: " <> reason)
@@ -160,21 +161,21 @@ fn fail(reason: String) -> Nil {
 }
 
 fn start(
-  doc_a: Document(doc_schema.Checklist),
-  doc_b: Document(doc_schema.Checklist),
-  doc_c: Document(doc_schema.Checklist),
+  document_a: Document(document_schema.Checklist),
+  document_b: Document(document_schema.Checklist),
+  document_c: Document(document_schema.Checklist),
 ) -> Nil {
   // Let all three handshakes land before anyone attaches a channel.
   use <- delay(2000)
 
   log("smoke: A seeds checks/captain/release")
-  bootstrap(doc_a, "A", fn(a) {
+  bootstrap(document_a, "A", fn(a) {
     use <- delay(1500)
     log("smoke: B adopts checks/captain/release")
-    bootstrap(doc_b, "B", fn(b) {
+    bootstrap(document_b, "B", fn(b) {
       use <- delay(1500)
       log("smoke: C adopts checks/captain/release")
-      bootstrap(doc_c, "C", fn(c) { run_scenario(a, b, c) })
+      bootstrap(document_c, "C", fn(c) { run_scenario(a, b, c) })
     })
   })
 }

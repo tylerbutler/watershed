@@ -11,7 +11,7 @@ pub fn converges_and_matches_oracle_test() -> Nil {
   let model = register_collection_model.model()
   kernel_fuzz.run(
     model,
-    kernel_fuzz.config_from_env(),
+    kernel_fuzz.config_from_environment(),
     client_count,
     script_gen.script_generator(
       model.gen_operation,

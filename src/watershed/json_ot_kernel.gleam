@@ -92,7 +92,7 @@ pub type JsonOtWireOperation {
 /// The kernel emits this event when the observable document changes. There is
 /// one event for each operation component.
 pub type JsonOtEvent {
-  DocChanged(path: List(PathKey), local: Bool)
+  DocumentChanged(path: List(PathKey), local: Bool)
 }
 
 pub type KernelError {
@@ -113,15 +113,20 @@ pub fn new() -> JsonOtState {
 }
 
 /// A new kernel with an initial document value.
-pub fn from_value(doc: JsonValue) -> JsonOtState {
-  JsonOtState(sequenced: doc, log: [], pending: ot_client.Idle, outbound: None)
+pub fn from_value(document: JsonValue) -> JsonOtState {
+  JsonOtState(
+    sequenced: document,
+    log: [],
+    pending: ot_client.Idle,
+    outbound: None,
+  )
 }
 
 /// Load a state that contains sequenced data only, from a stored summary. A
 /// summary never contains a local edit, and the concurrency window starts
 /// empty.
-pub fn from_summary(doc: JsonValue) -> JsonOtState {
-  from_value(doc)
+pub fn from_summary(document: JsonValue) -> JsonOtState {
+  from_value(document)
 }
 
 /// The confirmed document that a summary captures. It contains the sequenced
@@ -156,10 +161,10 @@ pub fn view(state: JsonOtState) -> Result(JsonValue, KernelError) {
 
 /// Apply an operation to a document. This is json0 J2 to J4.
 pub fn apply_operation(
-  doc: JsonValue,
+  document: JsonValue,
   operation: Operation,
 ) -> Result(JsonValue, KernelError) {
-  json_ot.apply(doc, operation) |> result.map_error(OtFailure)
+  json_ot.apply(document, operation) |> result.map_error(OtFailure)
 }
 
 /// Transform `a` past `b` for the supplied side. This is json0 J5 to J8, and
@@ -342,5 +347,5 @@ pub fn take_outbound(
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn events_for(operation: Operation, local: Bool) -> List(JsonOtEvent) {
-  list.map(operation, fn(component) { DocChanged(component.path, local) })
+  list.map(operation, fn(component) { DocumentChanged(component.path, local) })
 }

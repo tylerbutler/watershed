@@ -225,7 +225,7 @@ pub fn duplicate_create_does_not_duplicate_test() -> Nil {
   directory_kernel.subdirectories(state, "/") |> expect.to_equal(["a"])
 }
 
-pub fn invalid_subdir_name_errors_test() -> Nil {
+pub fn invalid_subdirectory_name_errors_test() -> Nil {
   case
     directory_kernel.create_subdirectory(directory_kernel.new(), "/", "a/b", 0)
   {

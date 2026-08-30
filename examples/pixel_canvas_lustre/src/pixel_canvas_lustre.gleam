@@ -42,7 +42,7 @@ import watershed.{type Document}
 import watershed_lustre
 
 import pixel_canvas_lustre/component
-import pixel_canvas_lustre/doc_schema
+import pixel_canvas_lustre/document_schema
 
 // ── Dev config for `just integration-up` (floodgate dev mode) ────────────────
 
@@ -71,7 +71,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.CanvasDoc)),
+    document: Option(Document(document_schema.CanvasDocument)),
     /// The canvas panel. `None` until the handshake completes.
     canvas: Option(component.Model),
     user_id: String,
@@ -82,7 +82,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.CanvasDoc))
+  GotHandle(Document(document_schema.CanvasDocument))
   Connected(Result(Nil, String))
   DiagnosticsTick
   Canvas(component.Msg)
@@ -95,7 +95,7 @@ fn init(_arguments: Nil) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       canvas: None,
       user_id: user_id,
       offline: False,
@@ -122,11 +122,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
     // The handle exists, but the handshake has not landed yet — so there is
     // nothing to bootstrap on here, only diagnostics to start polling.
-    GotHandle(doc) -> #(
+    GotHandle(document) -> #(
       Model(
         ..model,
-        doc: Some(doc),
-        diagnostics: Some(watershed.diagnostics(doc)),
+        document: Some(document),
+        diagnostics: Some(watershed.diagnostics(document)),
       ),
       watershed_lustre.after(250, DiagnosticsTick),
     )
@@ -134,11 +134,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // `root_typed` is the line that makes this the standalone app rather than a
     // panel: it is the only place the document's root is named.
     Connected(Ok(_)) ->
-      case model.doc {
+      case model.document {
         None -> #(Model(..model, status: Ready), effect.none())
-        Some(doc) -> {
+        Some(document) -> {
           let #(canvas, canvas_effect) =
-            component.init(doc, watershed.root_typed(doc))
+            component.init(document, watershed.root_typed(document))
           #(
             Model(..model, status: Ready, canvas: Some(canvas)),
             effect.map(canvas_effect, Canvas),
@@ -163,21 +163,21 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     DiagnosticsTick ->
-      case model.doc {
+      case model.document {
         None -> #(model, effect.none())
-        Some(doc) -> #(
-          Model(..model, diagnostics: Some(watershed.diagnostics(doc))),
+        Some(document) -> #(
+          Model(..model, diagnostics: Some(watershed.diagnostics(document))),
           watershed_lustre.after(250, DiagnosticsTick),
         )
       }
 
     // Document-scoped, and therefore this module's. See the note at the top.
     ToggledOffline(offline) ->
-      case model.doc {
+      case model.document {
         None -> #(model, effect.none())
-        Some(doc) -> #(Model(..model, offline: offline), case offline {
-          True -> watershed_lustre.go_offline(doc)
-          False -> watershed_lustre.go_online(doc)
+        Some(document) -> #(Model(..model, offline: offline), case offline {
+          True -> watershed_lustre.go_offline(document)
+          False -> watershed_lustre.go_online(document)
         })
       }
   }
@@ -209,7 +209,7 @@ fn panel_view(model: Model) -> Element(Msg) {
 }
 
 fn toolbar(model: Model) -> Element(Msg) {
-  let connected = option.is_some(model.doc)
+  let connected = option.is_some(model.document)
   html.div([attribute.class("toolbar")], [
     html.button(
       [

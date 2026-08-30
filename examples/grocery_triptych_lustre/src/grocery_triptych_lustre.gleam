@@ -22,7 +22,7 @@ import watershed_lustre
 import grocery_triptych_lustre/bootstrap_guard.{
   type Feedback, type FeedbackKind, Info, Warning,
 }
-import grocery_triptych_lustre/doc_schema
+import grocery_triptych_lustre/document_schema
 import grocery_triptych_lustre/pantry_snapshot.{
   type DiffCounts, type Row, type Snapshots,
 }
@@ -40,24 +40,24 @@ const tenant_secret = "levee-dev-secret-change-in-production"
 /// UI debounce window for grouping independently delivered pantry-channel
 /// operation frames into one snapshot refresh. This smooths transport timing
 /// without implying atomic multi-channel delivery.
-const shared_refresh_debounce_ms = 75
+const shared_refresh_debounce_milliseconds = 75
 
-const tombstone_start_delay_ms = 250
+const tombstone_start_delay_milliseconds = 250
 
-const tombstone_step_ms = 650
+const tombstone_step_milliseconds = 650
 
-const concurrent_prepare_ms = 350
+const concurrent_prepare_milliseconds = 350
 
 /// The peer must stay Go-eligible for the initiator's full acknowledgement
 /// window plus a delivery margin, or a late ack can be selected after the
 /// peer has already returned Idle.
-const concurrent_invite_timeout_ms = 1600
+const concurrent_invite_timeout_milliseconds = 1600
 
-const concurrent_ack_delivery_margin_ms = 600
+const concurrent_ack_delivery_margin_milliseconds = 600
 
-const concurrent_peer_go_timeout_ms = 2200
+const concurrent_peer_go_timeout_milliseconds = 2200
 
-const concurrent_verify_retry_ms = 125
+const concurrent_verify_retry_milliseconds = 125
 
 const concurrent_verify_attempts = 12
 
@@ -73,7 +73,7 @@ type Model {
     document_name: String,
     user_id: String,
     readiness: Readiness,
-    doc: Option(Document(doc_schema.Pantry)),
+    document: Option(Document(document_schema.Pantry)),
     ready_callback_seen: Bool,
     bootstrap_requested: Bool,
     pending: PendingPantry,
@@ -174,7 +174,7 @@ type Panel {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.Pantry))
+  GotHandle(Document(document_schema.Pantry))
   Connected(Result(Nil, String))
   EnsuredGrowOnly(Result(GSet, String))
   EnsuredTwoPhase(Result(TwoPSet, String))
@@ -203,7 +203,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       document_name: document,
       user_id: user_id,
       readiness: WaitingForHandleAndReady,
-      doc: None,
+      document: None,
       ready_callback_seen: False,
       bootstrap_requested: False,
       pending: PendingPantry(None, None, None),
@@ -237,25 +237,25 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   )
 }
 
-fn bootstrap_effect(doc: Document(doc_schema.Pantry)) -> Effect(Msg) {
-  let root = watershed.root_typed(doc)
+fn bootstrap_effect(document: Document(document_schema.Pantry)) -> Effect(Msg) {
+  let root = watershed.root_typed(document)
   effect.batch([
     watershed_lustre.ensure_g_set(
-      doc,
+      document,
       root,
-      doc_schema.grow_only(),
+      document_schema.grow_only(),
       EnsuredGrowOnly,
     ),
     watershed_lustre.ensure_two_p_set(
-      doc,
+      document,
       root,
-      doc_schema.two_phase(),
+      document_schema.two_phase(),
       EnsuredTwoPhase,
     ),
     watershed_lustre.ensure_or_set(
-      doc,
+      document,
       root,
-      doc_schema.observed(),
+      document_schema.observed(),
       EnsuredObserved,
     ),
   ])
@@ -270,11 +270,11 @@ fn subscribe_shared_effect(shared: SharedPantry) -> Effect(Msg) {
 }
 
 fn ready_effect(model: Model, shared: SharedPantry) -> Effect(Msg) {
-  case model.doc {
-    Some(doc) ->
+  case model.document {
+    Some(document) ->
       effect.batch([
         subscribe_shared_effect(shared),
-        watershed_lustre.subscribe_ripples(doc, ScenarioRippleReceived),
+        watershed_lustre.subscribe_ripples(document, ScenarioRippleReceived),
       ])
 
     None -> subscribe_shared_effect(shared)
@@ -288,8 +288,12 @@ fn maybe_bootstrap(model: Model) -> #(Model, Effect(Msg)) {
       case model.shared {
         Some(_) -> #(Model(..model, readiness: Ready), effect.none())
         None ->
-          case model.doc, model.ready_callback_seen, model.bootstrap_requested {
-            Some(doc), True, False -> {
+          case
+            model.document,
+            model.ready_callback_seen,
+            model.bootstrap_requested
+          {
+            Some(document), True, False -> {
               let model =
                 Model(
                   ..model,
@@ -299,7 +303,7 @@ fn maybe_bootstrap(model: Model) -> #(Model, Effect(Msg)) {
                     "bootstrapping pantry channels",
                   )),
                 )
-              #(model, bootstrap_effect(doc))
+              #(model, bootstrap_effect(document))
             }
             Some(_), True, True -> #(
               Model(..model, readiness: Bootstrapping),
@@ -427,7 +431,7 @@ fn schedule_shared_refresh(model: Model) -> #(Model, Effect(Msg)) {
       #(
         Model(..model, shared_refresh: shared_refresh),
         watershed_lustre.after(
-          shared_refresh_debounce_ms,
+          shared_refresh_debounce_milliseconds,
           FlushSharedRefresh(generation),
         ),
       )
@@ -502,7 +506,7 @@ fn feedback_of_kind(kind: FeedbackKind, message: String) -> Feedback {
 }
 
 fn own_client_id(model: Model) -> Option(String) {
-  model.doc
+  model.document
   |> option.then(watershed.client_id)
 }
 
@@ -605,10 +609,10 @@ fn submit_scenario_ripple(
   model: Model,
   message: scenario_protocol.Message,
 ) -> Effect(Msg) {
-  case model.doc {
-    Some(doc) ->
+  case model.document {
+    Some(document) ->
       watershed_lustre.submit_ripple(
-        doc,
+        document,
         ripple_type: scenario_protocol.ripple_type,
         content: scenario_protocol.encode(message),
       )
@@ -618,12 +622,16 @@ fn submit_scenario_ripple(
 }
 
 fn schedule_concurrent_verification(run_id: String) -> Effect(Msg) {
-  watershed_lustre.after(concurrent_verify_retry_ms, VerifyConcurrent(run_id))
+  watershed_lustre.after(
+    concurrent_verify_retry_milliseconds,
+    VerifyConcurrent(run_id),
+  )
 }
 
 pub fn concurrent_peer_go_timeout_covers_ack_window() -> Bool {
-  concurrent_peer_go_timeout_ms
-  >= concurrent_invite_timeout_ms + concurrent_ack_delivery_margin_ms
+  concurrent_peer_go_timeout_milliseconds
+  >= concurrent_invite_timeout_milliseconds
+  + concurrent_ack_delivery_margin_milliseconds
 }
 
 fn set_concurrent_timeout_state(
@@ -689,20 +697,32 @@ fn refresh_live_shared(model: Model) -> Result(Model, String) {
 }
 
 fn resolve_live_shared(model: Model) -> Result(SharedPantry, String) {
-  case model.doc {
-    Some(doc) -> {
-      let root = watershed.root_typed(doc)
+  case model.document {
+    Some(document) -> {
+      let root = watershed.root_typed(document)
       use grow_only <- result.try(require_live_channel(
         "grow_only",
-        watershed.resolve_g_set_field(doc, root, doc_schema.grow_only()),
+        watershed.resolve_g_set_field(
+          document,
+          root,
+          document_schema.grow_only(),
+        ),
       ))
       use two_phase <- result.try(require_live_channel(
         "two_phase",
-        watershed.resolve_two_p_set_field(doc, root, doc_schema.two_phase()),
+        watershed.resolve_two_p_set_field(
+          document,
+          root,
+          document_schema.two_phase(),
+        ),
       ))
       use observed <- result.try(require_live_channel(
         "observed",
-        watershed.resolve_or_set_field(doc, root, doc_schema.observed()),
+        watershed.resolve_or_set_field(
+          document,
+          root,
+          document_schema.observed(),
+        ),
       ))
       Ok(SharedPantry(grow_only:, two_phase:, observed:))
     }
@@ -888,7 +908,7 @@ fn schedule_tombstone_start(model: Model) -> #(Model, Effect(Msg)) {
   #(
     model,
     watershed_lustre.after(
-      tombstone_start_delay_ms,
+      tombstone_start_delay_milliseconds,
       TombstoneStepDue(TombstoneAddStep),
     ),
   )
@@ -953,7 +973,7 @@ fn advance_tombstone(
                           #(
                             model,
                             watershed_lustre.after(
-                              tombstone_step_ms,
+                              tombstone_step_milliseconds,
                               TombstoneStepDue(TombstoneRemoveStep),
                             ),
                           )
@@ -993,7 +1013,7 @@ fn advance_tombstone(
               #(
                 model,
                 watershed_lustre.after(
-                  tombstone_step_ms,
+                  tombstone_step_milliseconds,
                   TombstoneStepDue(TombstoneReAddStep),
                 ),
               )
@@ -1134,7 +1154,7 @@ fn prepare_concurrent_start(model: Model) -> #(Model, Effect(Msg)) {
       #(
         model,
         watershed_lustre.after(
-          concurrent_prepare_ms,
+          concurrent_prepare_milliseconds,
           ConcurrentInvitePeers(run_id),
         ),
       )
@@ -1186,7 +1206,7 @@ fn invite_concurrent_peers(
                     scenario_protocol.Invitation(run_id),
                   ),
                   watershed_lustre.after(
-                    concurrent_invite_timeout_ms,
+                    concurrent_invite_timeout_milliseconds,
                     ConcurrentInviteTimedOut(run_id),
                   ),
                 ]),
@@ -1325,7 +1345,7 @@ fn handle_invitation(
                             scenario_protocol.Acknowledgement(run_id),
                           ),
                           watershed_lustre.after(
-                            concurrent_peer_go_timeout_ms,
+                            concurrent_peer_go_timeout_milliseconds,
                             ConcurrentPeerGoTimedOut(run_id),
                           ),
                         ]),
@@ -1928,11 +1948,11 @@ fn verify_concurrent(model: Model, run_id: String) -> #(Model, Effect(Msg)) {
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    GotHandle(doc) -> {
+    GotHandle(document) -> {
       let model =
         Model(
           ..model,
-          doc: Some(doc),
+          document: Some(document),
           feedback: Some(bootstrap_guard.info("document handle acquired")),
         )
       maybe_bootstrap(model)
@@ -2193,7 +2213,7 @@ fn connection_view(model: Model) -> Element(Msg) {
         <> "and all three pantry channels are available.",
       ),
     ]),
-    fact("document handle", yes_no(option.is_some(model.doc))),
+    fact("document handle", yes_no(option.is_some(model.document))),
     fact("ready callback", yes_no(model.ready_callback_seen)),
     fact("handles requested", yes_no(model.bootstrap_requested)),
     fact("shared handles", yes_no(option.is_some(model.shared))),

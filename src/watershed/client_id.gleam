@@ -28,9 +28,10 @@ pub fn to_int(client_id: String) -> Int {
 
 fn stable_hash(client_id: String) -> Int {
   string.to_utf_codepoints(client_id)
-  |> list.fold(216_613_626, fn(acc, cp) {
+  |> list.fold(216_613_626, fn(acc, codepoint) {
     let next =
-      { acc * 16_777_619 + string.utf_codepoint_to_int(cp) } % 2_147_483_647
+      { acc * 16_777_619 + string.utf_codepoint_to_int(codepoint) }
+      % 2_147_483_647
     case next < 0 {
       True -> 0 - next
       False -> next

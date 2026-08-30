@@ -65,8 +65,8 @@ pub opaque type Config(a) {
     encode: fn(a) -> Json,
     decode: Decoder(a),
     mode: Mode,
-    heartbeat_ms: Int,
-    ttl_ms: Int,
+    heartbeat_milliseconds: Int,
+    ttl_milliseconds: Int,
   )
 }
 
@@ -79,8 +79,8 @@ pub fn config(encode: fn(a) -> Json, decode: Decoder(a)) -> Config(a) {
     encode: encode,
     decode: decode,
     mode: Auto,
-    heartbeat_ms: 2000,
-    ttl_ms: 6500,
+    heartbeat_milliseconds: 2000,
+    ttl_milliseconds: 6500,
   )
 }
 
@@ -93,10 +93,14 @@ pub fn with_mode(config: Config(a), mode: Mode) -> Config(a) {
 /// connection *is* the liveness signal.
 pub fn with_ripple_timing(
   config: Config(a),
-  heartbeat_ms heartbeat_ms: Int,
-  ttl_ms ttl_ms: Int,
+  heartbeat_milliseconds heartbeat_milliseconds: Int,
+  ttl_milliseconds ttl_milliseconds: Int,
 ) -> Config(a) {
-  Config(..config, heartbeat_ms: heartbeat_ms, ttl_ms: ttl_ms)
+  Config(
+    ..config,
+    heartbeat_milliseconds: heartbeat_milliseconds,
+    ttl_milliseconds: ttl_milliseconds,
+  )
 }
 
 pub fn config_mode(config: Config(a)) -> Mode {
@@ -111,12 +115,12 @@ pub fn config_decoder(config: Config(a)) -> Decoder(a) {
   config.decode
 }
 
-pub fn config_heartbeat_ms(config: Config(a)) -> Int {
-  config.heartbeat_ms
+pub fn config_heartbeat_milliseconds(config: Config(a)) -> Int {
+  config.heartbeat_milliseconds
 }
 
-pub fn config_ttl_ms(config: Config(a)) -> Int {
-  config.ttl_ms
+pub fn config_ttl_milliseconds(config: Config(a)) -> Int {
+  config.ttl_milliseconds
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -424,13 +428,15 @@ pub fn observe_session(
 /// the old `prune` function.
 pub fn expire_sessions(
   sessions: Sessions(a),
-  ttl_ms: Int,
+  ttl_milliseconds: Int,
   now: Int,
 ) -> #(Sessions(a), Diff(a)) {
   let #(kept, expired) =
     sessions.entries
     |> dict.to_list
-    |> list.partition(fn(entry) { now - { entry.1 }.last_seen <= ttl_ms })
+    |> list.partition(fn(entry) {
+      now - { entry.1 }.last_seen <= ttl_milliseconds
+    })
   case expired {
     [] -> #(sessions, empty_diff())
     _ -> #(
@@ -681,6 +687,8 @@ pub fn short_name(user: String) -> String {
 fn hash(text: String) -> Int {
   text
   |> string.to_utf_codepoints
-  |> list.fold(0, fn(acc, cp) { acc + string.utf_codepoint_to_int(cp) })
+  |> list.fold(0, fn(acc, codepoint) {
+    acc + string.utf_codepoint_to_int(codepoint)
+  })
   |> int.absolute_value
 }

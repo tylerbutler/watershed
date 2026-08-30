@@ -316,7 +316,7 @@ fn run(seed: Int) -> Result(Nil, String) {
 }
 
 pub fn clients_converge_with_text_formatting_deletes_emoji_and_embeds_test() -> Nil {
-  let config = kernel_fuzz.config_from_env()
+  let config = kernel_fuzz.config_from_environment()
   qcheck.run(config, qcheck.uniform_int(), fn(seed) {
     case run(seed) {
       Ok(Nil) -> Nil

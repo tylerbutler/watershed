@@ -17,9 +17,9 @@ import watershed/timer_js
 @target(javascript)
 import watershed/transport_js.{type Cell, type Scheduler}
 
-const debounce_ms = 500
+const debounce_milliseconds = 500
 
-const sweep_ms = 5000
+const sweep_milliseconds = 5000
 
 @target(javascript)
 pub type Status {
@@ -146,7 +146,7 @@ fn arm_debounce(controller: Controller(root)) -> Nil {
     False -> {
       timer_js.arm(
         scheduler: state.scheduler,
-        delay_ms: debounce_ms,
+        delay_milliseconds: debounce_milliseconds,
         action: fn() {
           update(controller, fn(current) { State(..current, debounce: None) })
           save_if_changed(controller)
@@ -175,7 +175,7 @@ fn arm_sweep(controller: Controller(root)) -> Nil {
     False ->
       timer_js.arm(
         scheduler: state.scheduler,
-        delay_ms: sweep_ms,
+        delay_milliseconds: sweep_milliseconds,
         action: fn() {
           let armed_asynchronously = option.is_some(get(controller).sweep)
           update(controller, fn(current) { State(..current, sweep: None) })

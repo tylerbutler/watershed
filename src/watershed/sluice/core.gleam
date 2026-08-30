@@ -74,15 +74,15 @@ pub opaque type Sluice {
     /// control this set.
     paused: Set(String),
     next_client_number: Int,
-    now_ms: Int,
+    now_milliseconds: Int,
     /// The frames that wait for delivery, oldest first.
     outbox: List(Outbound),
   )
 }
 
-/// A new sluice for one document. `now_ms` starts at 0, and only `advance`
-/// moves it. The timestamps on the protocol frames thus stay deterministic in
-/// a test.
+/// A new sluice for one document. `now_milliseconds` starts at 0, and only
+/// `advance` moves it. The timestamps on the protocol frames thus stay
+/// deterministic in a test.
 pub fn new(
   tenant_id tenant_id: String,
   document_id document_id: String,
@@ -98,7 +98,7 @@ pub fn new(
     presence_supported: True,
     paused: set.new(),
     next_client_number: 1,
-    now_ms: 0,
+    now_milliseconds: 0,
     outbox: [],
   )
 }
@@ -117,12 +117,12 @@ pub fn set_presence_supported(sluice: Sluice, supported: Bool) -> Sluice {
 /// The logical wall clock of the sluice, in milliseconds. Only `advance` moves
 /// it.
 pub fn now(sluice: Sluice) -> Int {
-  sluice.now_ms
+  sluice.now_milliseconds
 }
 
 /// Advance the logical clock used for protocol frame timestamps.
-pub fn advance(sluice: Sluice, ms: Int) -> Sluice {
-  Sluice(..sluice, now_ms: sluice.now_ms + ms)
+pub fn advance(sluice: Sluice, milliseconds: Int) -> Sluice {
+  Sluice(..sluice, now_milliseconds: sluice.now_milliseconds + milliseconds)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -263,7 +263,7 @@ fn on_connect_document(
           // exist. It costs a reconnecting client nothing either way: its
           // `adopt_reconnect` never replays `initial_messages`.
           initial_messages: log_since(sluice.log, 0),
-          timestamp: sluice.now_ms,
+          timestamp: sluice.now_milliseconds,
           presence_v1: sluice.presence_supported,
         )
       // The joiner's own join is *not* pushed back to it as a live operation.
@@ -326,7 +326,7 @@ fn sequence_operation(
           operation_type: operation.operation_type,
           contents: operation.contents,
           metadata: operation.metadata,
-          timestamp: sluice.now_ms,
+          timestamp: sluice.now_milliseconds,
           data: None,
         )
       let event = frame.encode_operation_event([sequenced])
@@ -672,7 +672,7 @@ fn sequence_system(
       operation_type: message_type,
       contents: json.null(),
       metadata: None,
-      timestamp: sluice.now_ms,
+      timestamp: sluice.now_milliseconds,
       data: Some(data),
     )
   #(

@@ -1,0 +1,3 @@
+package = "watershed"
+kind = "Breaking"
+body = "Expand the remaining unit and shorthand identifiers: every `*_ms` name becomes `*_milliseconds`, `dir` becomes `directory` and `subdir` becomes `subdirectory`, `doc` becomes `document` (including the `*Doc` schema tags and each example `doc_schema` module, now `document_schema`), `env` becomes `environment`, and the `cp` codepoint folds in `client_id`/`presence` are named for what they carry."

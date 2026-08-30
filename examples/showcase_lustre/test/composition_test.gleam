@@ -24,12 +24,12 @@ import watershed/or_map_kernel
 import watershed/schema.{type ChildField}
 import watershed/sluice_js.{type Sluice}
 
-import pixel_canvas_lustre/doc_schema as canvas_schema
+import pixel_canvas_lustre/document_schema as canvas_schema
 import pixel_canvas_lustre/grid
-import playlist_lustre/doc_schema as playlist_schema
-import showcase_lustre/doc_schema
-import sudoku_lustre/doc_schema as sudoku_schema
-import text_lustre/doc_schema as text_schema
+import playlist_lustre/document_schema as playlist_schema
+import showcase_lustre/document_schema
+import sudoku_lustre/document_schema as sudoku_schema
+import text_lustre/document_schema as text_schema
 
 // ── Harness ──────────────────────────────────────────────────────────────────
 
@@ -40,41 +40,43 @@ import text_lustre/doc_schema as text_schema
 /// timer. That is right in a browser and wrong here — the sluice's whole point
 /// is synchronous, deterministic delivery — so this seeds the handles directly
 /// and keeps the assertions free of waiting.
-fn room(name: String) -> #(Sluice, Document(doc_schema.Showcase)) {
+fn room(name: String) -> #(Sluice, Document(document_schema.Showcase)) {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let doc = sluice_js.connect(sluice, "user-a")
+  let document = sluice_js.connect(sluice, "user-a")
   sluice_js.settle(sluice)
-  seed_children(doc)
+  seed_children(document)
   sluice_js.settle(sluice)
-  #(sluice, doc)
+  #(sluice, document)
 }
 
 /// Seed one child map per declared key, the way `bootstrap_effect` does.
-fn seed_children(doc: Document(doc_schema.Showcase)) -> Nil {
-  let root = watershed.root_typed(doc)
-  seed_child(doc, root, doc_schema.text())
-  seed_child(doc, root, doc_schema.playlist())
-  seed_child(doc, root, doc_schema.sudoku())
-  seed_child(doc, root, doc_schema.canvas())
+fn seed_children(document: Document(document_schema.Showcase)) -> Nil {
+  let root = watershed.root_typed(document)
+  seed_child(document, root, document_schema.text())
+  seed_child(document, root, document_schema.playlist())
+  seed_child(document, root, document_schema.sudoku())
+  seed_child(document, root, document_schema.canvas())
 }
 
 fn seed_child(
-  doc: Document(doc_schema.Showcase),
-  root: TypedMap(doc_schema.Showcase),
-  field: ChildField(doc_schema.Showcase, c),
+  document: Document(document_schema.Showcase),
+  root: TypedMap(document_schema.Showcase),
+  field: ChildField(document_schema.Showcase, c),
 ) -> Nil {
-  let assert Ok(child) = watershed.create_map(doc)
+  let assert Ok(child) = watershed.create_map(document)
   watershed.set_child(root, field, watershed.typed(child))
 }
 
 /// The root's keys, sorted — what the root-purity assertion compares.
-fn root_keys(doc: Document(doc_schema.Showcase)) -> List(String) {
-  watershed.keys(watershed.root(doc)) |> list.sort(string.compare)
+fn root_keys(document: Document(document_schema.Showcase)) -> List(String) {
+  watershed.keys(watershed.root(document)) |> list.sort(string.compare)
 }
 
 /// The root's handles, keyed, so two clients can be compared handle for handle.
-fn root_handles(doc: Document(doc_schema.Showcase)) -> List(#(String, String)) {
-  watershed.entries(watershed.root(doc))
+fn root_handles(
+  document: Document(document_schema.Showcase),
+) -> List(#(String, String)) {
+  watershed.entries(watershed.root(document))
   |> list.map(fn(entry) { #(entry.0, json.to_string(entry.1)) })
   |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
 }
@@ -88,24 +90,25 @@ fn root_handles(doc: Document(doc_schema.Showcase)) -> List(#(String, String)) {
 /// a panel — a stray `title` or `pixels` key at the root shows up here as an
 /// extra entry, whatever else still works.
 pub fn root_holds_exactly_the_declared_children_test() -> Nil {
-  let #(_sluice, doc) = room("purity")
+  let #(_sluice, document) = room("purity")
 
-  root_keys(doc)
-  |> should.equal(list.sort(doc_schema.keys(), string.compare))
+  root_keys(document)
+  |> should.equal(list.sort(document_schema.keys(), string.compare))
 }
 
 /// Every declared key resolves to a map, not to a leftover scalar.
 pub fn every_child_key_resolves_to_a_map_test() -> Nil {
-  let #(_sluice, doc) = room("purity-resolves")
-  let root = watershed.root_typed(doc)
+  let #(_sluice, document) = room("purity-resolves")
+  let root = watershed.root_typed(document)
 
-  let assert Ok(Some(_)) = watershed.resolve_child(doc, root, doc_schema.text())
   let assert Ok(Some(_)) =
-    watershed.resolve_child(doc, root, doc_schema.playlist())
+    watershed.resolve_child(document, root, document_schema.text())
   let assert Ok(Some(_)) =
-    watershed.resolve_child(doc, root, doc_schema.sudoku())
+    watershed.resolve_child(document, root, document_schema.playlist())
   let assert Ok(Some(_)) =
-    watershed.resolve_child(doc, root, doc_schema.canvas())
+    watershed.resolve_child(document, root, document_schema.sudoku())
+  let assert Ok(Some(_)) =
+    watershed.resolve_child(document, root, document_schema.canvas())
   Nil
 }
 
@@ -115,13 +118,13 @@ pub fn every_child_key_resolves_to_a_map_test() -> Nil {
 /// panel's `title` and the sudoku panel's `title` are different keys in
 /// different maps, and neither is a root key at all.
 pub fn panel_keys_do_not_leak_into_the_root_test() -> Nil {
-  let #(sluice, doc) = room("no-leak")
-  let root = watershed.root_typed(doc)
+  let #(sluice, document) = room("no-leak")
+  let root = watershed.root_typed(document)
 
   let assert Ok(Some(text_map)) =
-    watershed.resolve_child(doc, root, doc_schema.text())
+    watershed.resolve_child(document, root, document_schema.text())
   let assert Ok(Some(sudoku_map)) =
-    watershed.resolve_child(doc, root, doc_schema.sudoku())
+    watershed.resolve_child(document, root, document_schema.sudoku())
 
   watershed.set_field(text_map, text_schema.title(), "a document")
   watershed.set_field(sudoku_map, sudoku_schema.title(), "a puzzle")
@@ -129,8 +132,8 @@ pub fn panel_keys_do_not_leak_into_the_root_test() -> Nil {
 
   // Both panels wrote a key called `title`. Neither reached the root, and
   // neither overwrote the other.
-  root_keys(doc)
-  |> should.equal(list.sort(doc_schema.keys(), string.compare))
+  root_keys(document)
+  |> should.equal(list.sort(document_schema.keys(), string.compare))
   watershed.get_field(text_map, text_schema.title())
   |> should.equal(Ok(Some("a document")))
   watershed.get_field(sudoku_map, sudoku_schema.title())
@@ -151,19 +154,19 @@ pub fn panel_keys_do_not_leak_into_the_root_test() -> Nil {
 /// than a paragraph.
 pub fn racing_clients_agree_on_one_set_of_children_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "cold-race")
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
   // Both clients bootstrap before either has seen the other's writes.
-  seed_children(doc_a)
-  seed_children(doc_b)
+  seed_children(document_a)
+  seed_children(document_b)
   sluice_js.settle(sluice)
 
-  root_keys(doc_a)
-  |> should.equal(list.sort(doc_schema.keys(), string.compare))
-  root_handles(doc_a)
-  |> should.equal(root_handles(doc_b))
+  root_keys(document_a)
+  |> should.equal(list.sort(document_schema.keys(), string.compare))
+  root_handles(document_a)
+  |> should.equal(root_handles(document_b))
 }
 
 // ── Per-panel convergence, from inside a child map ───────────────────────────
@@ -173,8 +176,8 @@ pub fn racing_clients_agree_on_one_set_of_children_test() -> Nil {
 /// This is the same claim `playlist_lustre` already makes standalone, run
 /// against the nested map — the point being that nesting changed nothing.
 pub fn playlist_converges_inside_its_child_map_test() -> Nil {
-  let #(sluice, doc_a, doc_b) = two_client_room("playlist-nested")
-  let #(tracks_a, tracks_b) = playlist_channels(sluice, doc_a, doc_b)
+  let #(sluice, document_a, document_b) = two_client_room("playlist-nested")
+  let #(tracks_a, tracks_b) = playlist_channels(sluice, document_a, document_b)
 
   let assert Ok(_) =
     watershed.sequence_insert(tracks_a, 0, json.string("first"))
@@ -195,8 +198,8 @@ pub fn playlist_converges_inside_its_child_map_test() -> Nil {
 /// takes the *document*, so this is also the setup for
 /// `offline_partitions_every_panel_test` below.
 pub fn canvas_converges_inside_its_child_map_test() -> Nil {
-  let #(sluice, doc_a, doc_b) = two_client_room("canvas-nested")
-  let #(pixels_a, pixels_b) = canvas_channels(sluice, doc_a, doc_b)
+  let #(sluice, document_a, document_b) = two_client_room("canvas-nested")
+  let #(pixels_a, pixels_b) = canvas_channels(sluice, document_a, document_b)
 
   watershed.or_map_set(pixels_a, grid.encode(1, 1), "3")
   watershed.or_map_set(pixels_b, grid.encode(2, 2), "4")
@@ -219,11 +222,11 @@ pub fn canvas_converges_inside_its_child_map_test() -> Nil {
 /// join the canvas exists to demonstrate: the offline client's cells are not
 /// replayed on return, the two states join.
 pub fn offline_partitions_every_panel_test() -> Nil {
-  let #(sluice, doc_a, doc_b) = two_client_room("partition")
-  let #(pixels_a, pixels_b) = canvas_channels(sluice, doc_a, doc_b)
-  let #(tracks_a, tracks_b) = playlist_channels(sluice, doc_a, doc_b)
+  let #(sluice, document_a, document_b) = two_client_room("partition")
+  let #(pixels_a, pixels_b) = canvas_channels(sluice, document_a, document_b)
+  let #(tracks_a, tracks_b) = playlist_channels(sluice, document_a, document_b)
 
-  watershed.go_offline(doc_a)
+  watershed.go_offline(document_a)
 
   // A writes to two different panels while partitioned; B writes to both too.
   watershed.or_map_set(pixels_a, grid.encode(5, 5), "7")
@@ -254,7 +257,7 @@ pub fn offline_partitions_every_panel_test() -> Nil {
   |> list.length
   |> should.equal(1)
 
-  watershed.go_online(doc_a)
+  watershed.go_online(document_a)
   sluice_js.settle(sluice)
 
   // And so is the reconciliation: every panel converges, in one reconnect.
@@ -271,86 +274,90 @@ pub fn offline_partitions_every_panel_test() -> Nil {
 
 fn two_client_room(
   name: String,
-) -> #(Sluice, Document(doc_schema.Showcase), Document(doc_schema.Showcase)) {
+) -> #(
+  Sluice,
+  Document(document_schema.Showcase),
+  Document(document_schema.Showcase),
+) {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
-  seed_children(doc_a)
+  seed_children(document_a)
   sluice_js.settle(sluice)
-  #(sluice, doc_a, doc_b)
+  #(sluice, document_a, document_b)
 }
 
 fn canvas_channels(
   sluice: Sluice,
-  doc_a: Document(doc_schema.Showcase),
-  doc_b: Document(doc_schema.Showcase),
+  document_a: Document(document_schema.Showcase),
+  document_b: Document(document_schema.Showcase),
 ) -> #(watershed.OrMap, watershed.OrMap) {
   let assert Ok(Some(map_a)) =
     watershed.resolve_child(
-      doc_a,
-      watershed.root_typed(doc_a),
-      doc_schema.canvas(),
+      document_a,
+      watershed.root_typed(document_a),
+      document_schema.canvas(),
     )
   let assert Ok(Some(map_b)) =
     watershed.resolve_child(
-      doc_b,
-      watershed.root_typed(doc_b),
-      doc_schema.canvas(),
+      document_b,
+      watershed.root_typed(document_b),
+      document_schema.canvas(),
     )
   let assert Ok(seed) =
-    watershed.create_or_map(doc_a, or_map_kernel.RegisterMode)
+    watershed.create_or_map(document_a, or_map_kernel.RegisterMode)
   watershed.set(
     watershed.untyped(map_a),
     "pixels",
     watershed.or_map_handle_of(seed),
   )
   sluice_js.settle(sluice)
-  #(or_map_of(doc_a, map_a), or_map_of(doc_b, map_b))
+  #(or_map_of(document_a, map_a), or_map_of(document_b, map_b))
 }
 
 fn or_map_of(
-  doc: Document(doc_schema.Showcase),
-  map: TypedMap(canvas_schema.CanvasDoc),
+  document: Document(document_schema.Showcase),
+  map: TypedMap(canvas_schema.CanvasDocument),
 ) -> watershed.OrMap {
   let assert Ok(handle) = watershed.get(watershed.untyped(map), "pixels")
-  let assert Ok(pixels) = watershed.resolve_or_map(doc, handle)
+  let assert Ok(pixels) = watershed.resolve_or_map(document, handle)
   pixels
 }
 
 fn playlist_channels(
   sluice: Sluice,
-  doc_a: Document(doc_schema.Showcase),
-  doc_b: Document(doc_schema.Showcase),
+  document_a: Document(document_schema.Showcase),
+  document_b: Document(document_schema.Showcase),
 ) -> #(watershed.SharedSequence, watershed.SharedSequence) {
   let assert Ok(Some(map_a)) =
     watershed.resolve_child(
-      doc_a,
-      watershed.root_typed(doc_a),
-      doc_schema.playlist(),
+      document_a,
+      watershed.root_typed(document_a),
+      document_schema.playlist(),
     )
   let assert Ok(Some(map_b)) =
     watershed.resolve_child(
-      doc_b,
-      watershed.root_typed(doc_b),
-      doc_schema.playlist(),
+      document_b,
+      watershed.root_typed(document_b),
+      document_schema.playlist(),
     )
-  let assert Ok(seed) = watershed.create_sequence(doc_a)
+  let assert Ok(seed) = watershed.create_sequence(document_a)
   watershed.set(
     watershed.untyped(map_a),
     "tracks",
     watershed.sequence_handle_of(seed),
   )
   sluice_js.settle(sluice)
-  #(sequence_of(doc_a, map_a), sequence_of(doc_b, map_b))
+  #(sequence_of(document_a, map_a), sequence_of(document_b, map_b))
 }
 
 fn sequence_of(
-  doc: Document(doc_schema.Showcase),
-  map: TypedMap(playlist_schema.PlaylistDoc),
+  document: Document(document_schema.Showcase),
+  map: TypedMap(playlist_schema.PlaylistDocument),
 ) -> watershed.SharedSequence {
   let assert Ok(handle) = watershed.get(watershed.untyped(map), "tracks")
-  let assert Ok(sequence) = watershed.resolve_sequence(doc, handle)
+  let assert Ok(sequence) = watershed.resolve_sequence(document, handle)
   sequence
 }
 

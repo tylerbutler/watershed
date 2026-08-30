@@ -742,7 +742,13 @@ pub fn or_map_set(
   value: String,
 ) -> Nil {
   edit(runtime.cell, fn(core) {
-    runtime_core.or_map_set(core, address, key, value, transport_js.now_ms())
+    runtime_core.or_map_set(
+      core,
+      address,
+      key,
+      value,
+      transport_js.now_milliseconds(),
+    )
   })
 }
 
@@ -1974,7 +1980,7 @@ fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
           let _ =
             state.scheduler.schedule(
               fn() { attempt_summary(cell) },
-              runtime_core.summary_jitter_ms(core, policy),
+              runtime_core.summary_jitter_milliseconds(core, policy),
             )
           Nil
         }

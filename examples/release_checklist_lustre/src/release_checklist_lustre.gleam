@@ -40,7 +40,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import release_checklist_lustre/doc_schema
+import release_checklist_lustre/document_schema
 import release_checklist_lustre/release_readiness
 import watershed.{type Claims, type Document, type OrSet, type PactMap}
 import watershed/browser
@@ -66,7 +66,7 @@ const target_key = "target"
 /// How often to re-read a pending release proposal's signoff list. The kernel
 /// emits an event when a pact goes pending and when it is accepted, but
 /// nothing in between, so watching the list drain means asking.
-const signoff_poll_ms = 250
+const signoff_poll_milliseconds = 250
 
 pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
@@ -143,7 +143,7 @@ type Proposal {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.Checklist)),
+    document: Option(Document(document_schema.Checklist)),
     shared: Option(SharedState),
     pending: PendingShared,
     user_id: String,
@@ -172,7 +172,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.Checklist))
+  GotHandle(Document(document_schema.Checklist))
   Connected(Result(Nil, String))
   EnsuredChecks(Result(OrSet, String))
   EnsuredCaptain(Result(Claims, String))
@@ -196,7 +196,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       shared: None,
       pending: PendingShared(None, None, None),
       user_id: user_id,
@@ -230,29 +230,37 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// idempotent — safe to run again on every `GotHandle`/`Connected` that finds
 /// `shared` still unset, which is how this bootstrap survives a reconnect
 /// without double-seeding anything.
-fn bootstrap_effect(doc: Document(doc_schema.Checklist)) -> Effect(Msg) {
-  let root = watershed.root_typed(doc)
+fn bootstrap_effect(
+  document: Document(document_schema.Checklist),
+) -> Effect(Msg) {
+  let root = watershed.root_typed(document)
   effect.batch([
-    watershed_lustre.ensure_field(root, doc_schema.title(), "Release checklist"),
-    watershed_lustre.ensure_or_set(
-      doc,
+    watershed_lustre.ensure_field(
       root,
-      doc_schema.checks(),
+      document_schema.title(),
+      "Release checklist",
+    ),
+    watershed_lustre.ensure_or_set(
+      document,
+      root,
+      document_schema.checks(),
       EnsuredChecks,
     ),
     watershed_lustre.ensure_claims(
-      doc,
+      document,
       root,
-      doc_schema.captain(),
+      document_schema.captain(),
       EnsuredCaptain,
     ),
     watershed_lustre.ensure_pact_map(
-      doc,
+      document,
       root,
-      doc_schema.release(),
+      document_schema.release(),
       EnsuredRelease,
     ),
-    watershed_lustre.subscribe(watershed.root(doc), fn(_event) { ChecksChanged }),
+    watershed_lustre.subscribe(watershed.root(document), fn(_event) {
+      ChecksChanged
+    }),
   ])
 }
 
@@ -294,18 +302,18 @@ fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    GotHandle(doc) -> {
-      let model = Model(..model, doc: Some(doc))
+    GotHandle(document) -> {
+      let model = Model(..model, document: Some(document))
       case model.status, model.shared {
-        Ready, None -> #(model, bootstrap_effect(doc))
+        Ready, None -> #(model, bootstrap_effect(document))
         _, _ -> #(model, effect.none())
       }
     }
 
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
-      case model.doc, model.shared {
-        Some(doc), None -> #(model, bootstrap_effect(doc))
+      case model.document, model.shared {
+        Some(document), None -> #(model, bootstrap_effect(document))
         _, _ -> #(model, effect.none())
       }
     }
@@ -473,15 +481,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           // disabled forever on a rejection.
           #(
             Model(..model, proposing: True),
-            watershed_lustre.after(signoff_poll_ms, PollSignoffs),
+            watershed_lustre.after(signoff_poll_milliseconds, PollSignoffs),
           )
         }
         _, _ -> #(model, effect.none())
       }
 
     ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
+      case model.document {
+        Some(document) -> #(model, watershed_lustre.force_reconnect(document))
         None -> #(model, effect.none())
       }
   }
@@ -553,7 +561,7 @@ fn read_release(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
     )
 
   #(model, case proposal {
-    Some(_) -> watershed_lustre.after(signoff_poll_ms, PollSignoffs)
+    Some(_) -> watershed_lustre.after(signoff_poll_milliseconds, PollSignoffs)
     None -> effect.none()
   })
 }
@@ -609,7 +617,7 @@ fn client_label(model: Model, id: Int) -> String {
 }
 
 fn own_client_id(model: Model) -> Option(Int) {
-  model.doc
+  model.document
   |> option.then(watershed.client_id)
   |> option.map(client_id.to_int)
 }

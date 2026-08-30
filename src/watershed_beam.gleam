@@ -2,12 +2,12 @@
 //// SharedMap. The JavaScript counterpart is `watershed`.
 ////
 //// ```gleam
-//// use doc <- result.try(watershed_beam.connect(
+//// use document <- result.try(watershed_beam.connect(
 ////   host: "localhost", port: 4000,
 ////   tenant: "default", document: "dice",
 ////   token: jwt, user_id: "user-1",
 //// ))
-//// let map = watershed_beam.root(doc)
+//// let map = watershed_beam.root(document)
 //// watershed_beam.set(map, "die", json.int(4))
 //// let value = watershed_beam.get(map, "die")
 //// let events = watershed_beam.subscribe(map)
@@ -114,7 +114,7 @@ import watershed/wire/summary_blob.{type SummaryBlob}
 const socket_path = "/socket/websocket?vsn=2.0.0"
 
 @target(erlang)
-const call_timeout_ms = 5000
+const call_timeout_milliseconds = 5000
 
 @target(erlang)
 pub opaque type Document(root) {
@@ -349,7 +349,7 @@ pub fn root(document: Document(root)) -> SharedMap {
 pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateMap,
   )
   |> result.map(fn(address) {
@@ -386,7 +386,7 @@ pub fn resolve(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -434,7 +434,7 @@ pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
 /// document, or the state record that holds it:
 ///
 /// ```gleam
-/// fn run(doc: watershed_beam.Document(GameRoot)) -> Nil
+/// fn run(document: watershed_beam.Document(GameRoot)) -> Nil
 /// ```
 ///
 /// Every `root_typed` call on that document then agrees. A second schema at the
@@ -888,13 +888,13 @@ pub fn resolve_two_p_set_field(
 }
 
 @target(erlang)
-/// Store a handle to `dir` under a typed channel field.
+/// Store a handle to `directory` under a typed channel field.
 pub fn set_directory_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.DirectoryChannel),
-  dir: SharedDirectory,
+  directory: SharedDirectory,
 ) -> Nil {
-  put_channel_field(typed_map, field, directory_handle_of(dir))
+  put_channel_field(typed_map, field, directory_handle_of(directory))
 }
 
 @target(erlang)
@@ -979,7 +979,7 @@ pub fn resolve_ordered_collection_field(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-const resolve_retry_ms = 200
+const resolve_retry_milliseconds = 200
 
 @target(erlang)
 const resolve_attempts = 25
@@ -991,7 +991,7 @@ fn await_synced(document: Document(root), attempts: Int) -> Nil {
   case attempts <= 0 || is_synced(document) {
     True -> Nil
     False -> {
-      process.sleep(resolve_retry_ms)
+      process.sleep(resolve_retry_milliseconds)
       await_synced(document, attempts - 1)
     }
   }
@@ -1010,7 +1010,7 @@ fn resolve_with_retry(
       Error("ensure: no channel handle appeared under the field")
     Error(reason), n if n <= 1 -> Error(reason)
     _, _ -> {
-      process.sleep(resolve_retry_ms)
+      process.sleep(resolve_retry_milliseconds)
       resolve_with_retry(resolve, attempts - 1)
     }
   }
@@ -1300,8 +1300,8 @@ pub fn ensure_directory(
     typed_map,
     schema.channel_field_key(field),
     fn() {
-      use dir <- result.map(create_directory(document))
-      set_directory_field(typed_map, field, dir)
+      use directory <- result.map(create_directory(document))
+      set_directory_field(typed_map, field, directory)
     },
     fn() { resolve_directory_field(document, typed_map, field) },
   )
@@ -1412,7 +1412,7 @@ pub fn create_counter(
 ) -> Result(SharedCounter, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateCounter,
   )
   |> result.map(fn(address) {
@@ -1441,7 +1441,7 @@ pub fn resolve_counter(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -1463,9 +1463,11 @@ pub fn increment(counter: SharedCounter, amount: Int) -> Nil {
 /// The current optimistic value of the counter. The result is `Error(Nil)` when the
 /// address does not name a counter channel.
 pub fn counter_value(counter: SharedCounter) -> Result(Int, Nil) {
-  process.call(counter.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetCounterValue(counter.address, reply)
-  })
+  process.call(
+    counter.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetCounterValue(counter.address, reply) },
+  )
 }
 
 @target(erlang)
@@ -1518,7 +1520,7 @@ pub fn subscribe_counter(
 pub fn create_json_ot(document: Document(root)) -> Result(JsonOt, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateJsonOt,
   )
   |> result.map(fn(address) {
@@ -1546,7 +1548,7 @@ pub fn resolve_json_ot(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -1569,9 +1571,11 @@ pub fn submit_json_ot(json_ot: JsonOt, operation: json_ot.Operation) -> Nil {
 /// The current optimistic document of the json0 channel. The result is `Error(Nil)`
 /// when the address does not name a json0 channel.
 pub fn json_ot_view(json_ot: JsonOt) -> Result(json_ot.JsonValue, Nil) {
-  process.call(json_ot.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetJsonOtView(json_ot.address, reply)
-  })
+  process.call(
+    json_ot.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetJsonOtView(json_ot.address, reply) },
+  )
 }
 
 @target(erlang)
@@ -1599,7 +1603,7 @@ pub fn create_rich_text(
 ) -> Result(SharedRichText, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateRichText,
   )
   |> result.map(fn(address) {
@@ -1627,7 +1631,7 @@ pub fn resolve_rich_text(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -1654,9 +1658,13 @@ pub fn submit_rich_text(
 pub fn rich_text_view(
   rich_text: SharedRichText,
 ) -> Result(rich_text.Document, Nil) {
-  process.call(rich_text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetRichTextView(rich_text.address, reply)
-  })
+  process.call(
+    rich_text.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetRichTextView(rich_text.address, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -1684,9 +1692,11 @@ pub fn create_or_map(
   document: Document(root),
   mode: OrMapMode,
 ) -> Result(OrMap, String) {
-  process.call(document.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.CreateOrMap(mode, reply)
-  })
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.CreateOrMap(mode, reply) },
+  )
   |> result.map(fn(address) {
     OrMap(runtime: document.runtime, address: address)
   })
@@ -1707,7 +1717,7 @@ pub fn resolve_or_map(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) { OrMap(runtime: document.runtime, address: address) })
@@ -1742,23 +1752,31 @@ pub fn or_map_remove(or_map: OrMap, key: String) -> Nil {
 
 @target(erlang)
 pub fn or_map_value(or_map: OrMap, key: String) -> Result(OrMapValue, Nil) {
-  process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetOrMapValue(or_map.address, key, reply)
-  })
+  process.call(
+    or_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetOrMapValue(or_map.address, key, reply)
+    },
+  )
 }
 
 @target(erlang)
 pub fn or_map_entries(or_map: OrMap) -> List(#(String, OrMapValue)) {
-  process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetOrMapEntries(or_map.address, reply)
-  })
+  process.call(
+    or_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetOrMapEntries(or_map.address, reply) },
+  )
 }
 
 @target(erlang)
 pub fn or_map_keys(or_map: OrMap) -> List(String) {
-  process.call(or_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetOrMapKeys(or_map.address, reply)
-  })
+  process.call(
+    or_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetOrMapKeys(or_map.address, reply) },
+  )
 }
 
 @target(erlang)
@@ -1779,7 +1797,7 @@ pub fn subscribe_or_map(or_map: OrMap) -> Subject(or_map_kernel.OrMapEvent) {
 pub fn create_or_set(document: Document(root)) -> Result(OrSet, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateOrSet,
   )
   |> result.map(fn(address) {
@@ -1802,7 +1820,7 @@ pub fn resolve_or_set(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) { OrSet(runtime: document.runtime, address: address) })
@@ -1827,16 +1845,22 @@ pub fn or_set_remove(or_set: OrSet, element: String) -> Nil {
 
 @target(erlang)
 pub fn or_set_contains(or_set: OrSet, element: String) -> Bool {
-  process.call(or_set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.OrSetContains(or_set.address, element, reply)
-  })
+  process.call(
+    or_set.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.OrSetContains(or_set.address, element, reply)
+    },
+  )
 }
 
 @target(erlang)
 pub fn or_set_values(or_set: OrSet) -> List(String) {
-  process.call(or_set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetOrSetValues(or_set.address, reply)
-  })
+  process.call(
+    or_set.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetOrSetValues(or_set.address, reply) },
+  )
 }
 
 @target(erlang)
@@ -1858,7 +1882,7 @@ pub fn create_sequence(
 ) -> Result(SharedSequence, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateSequence,
   )
   |> result.map(fn(address) {
@@ -1894,9 +1918,13 @@ pub fn sequence_insert(
   index: Int,
   value: Json,
 ) -> Result(Nil, String) {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.InsertSequenceItem(sequence.address, index, value, reply)
-  })
+  process.call(
+    sequence.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.InsertSequenceItem(sequence.address, index, value, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -1906,9 +1934,13 @@ pub fn sequence_delete(
   sequence: SharedSequence,
   index: Int,
 ) -> Result(Nil, String) {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.DeleteSequenceItem(sequence.address, index, reply)
-  })
+  process.call(
+    sequence.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.DeleteSequenceItem(sequence.address, index, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -1919,9 +1951,18 @@ pub fn sequence_move(
   from_index: Int,
   to_index: Int,
 ) -> Result(Nil, String) {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.MoveSequenceItem(sequence.address, from_index, to_index, reply)
-  })
+  process.call(
+    sequence.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.MoveSequenceItem(
+        sequence.address,
+        from_index,
+        to_index,
+        reply,
+      )
+    },
+  )
 }
 
 @target(erlang)
@@ -1932,23 +1973,35 @@ pub fn sequence_replace(
   index: Int,
   value: Json,
 ) -> Result(Nil, String) {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.ReplaceSequenceItem(sequence.address, index, value, reply)
-  })
+  process.call(
+    sequence.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.ReplaceSequenceItem(sequence.address, index, value, reply)
+    },
+  )
 }
 
 @target(erlang)
 pub fn sequence_values(sequence: SharedSequence) -> List(Json) {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetSequenceValues(sequence.address, reply)
-  })
+  process.call(
+    sequence.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetSequenceValues(sequence.address, reply)
+    },
+  )
 }
 
 @target(erlang)
 pub fn sequence_length(sequence: SharedSequence) -> Int {
-  process.call(sequence.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetSequenceLength(sequence.address, reply)
-  })
+  process.call(
+    sequence.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetSequenceLength(sequence.address, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -1970,7 +2023,7 @@ pub fn subscribe_sequence(
 pub fn create_text(document: Document(root)) -> Result(SharedText, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateText,
   )
   |> result.map(fn(address) {
@@ -2007,9 +2060,13 @@ pub fn text_insert(
   index: Int,
   value: String,
 ) -> Result(Nil, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.InsertText(text.address, index, value, reply)
-  })
+  process.call(
+    text.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.InsertText(text.address, index, value, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -2020,9 +2077,13 @@ pub fn text_delete_range(
   start: Int,
   end: Int,
 ) -> Result(Nil, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.DeleteRangeText(text.address, start, end, reply)
-  })
+  process.call(
+    text.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.DeleteRangeText(text.address, start, end, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -2034,33 +2095,43 @@ pub fn text_replace_range(
   end: Int,
   value: String,
 ) -> Result(Nil, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.ReplaceRangeText(text.address, start, end, value, reply)
-  })
+  process.call(
+    text.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.ReplaceRangeText(text.address, start, end, value, reply)
+    },
+  )
 }
 
 @target(erlang)
 /// Append `value` to the end of the text. To append `""` changes nothing.
 pub fn text_append(text: SharedText, value: String) -> Result(Nil, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.AppendText(text.address, value, reply)
-  })
+  process.call(
+    text.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.AppendText(text.address, value, reply) },
+  )
 }
 
 @target(erlang)
 /// The current visible optimistic string of the text.
 pub fn text_value(text: SharedText) -> String {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetTextValue(text.address, reply)
-  })
+  process.call(
+    text.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetTextValue(text.address, reply) },
+  )
 }
 
 @target(erlang)
 /// The current optimistic grapheme count of the text.
 pub fn text_length(text: SharedText) -> Int {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetTextLength(text.address, reply)
-  })
+  process.call(
+    text.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetTextLength(text.address, reply) },
+  )
 }
 
 @target(erlang)
@@ -2071,9 +2142,13 @@ pub fn text_substring(
   start: Int,
   end: Int,
 ) -> Result(String, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetTextSubstring(text.address, start, end, reply)
-  })
+  process.call(
+    text.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetTextSubstring(text.address, start, end, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -2085,9 +2160,13 @@ pub fn text_anchor_at(
   index: Int,
   bias: Bias,
 ) -> Result(TextAnchor, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.TextAnchorAt(text.address, index, bias, reply)
-  })
+  process.call(
+    text.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.TextAnchorAt(text.address, index, bias, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -2098,9 +2177,13 @@ pub fn text_resolve_anchor(
   text: SharedText,
   anchor: TextAnchor,
 ) -> Result(Int, String) {
-  process.call(text.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.TextResolveAnchor(text.address, anchor, reply)
-  })
+  process.call(
+    text.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.TextResolveAnchor(text.address, anchor, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -2156,7 +2239,7 @@ pub fn create_register_collection(
 ) -> Result(RegisterCollection, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateRegisterCollection,
   )
   |> result.map(fn(address) {
@@ -2179,7 +2262,7 @@ pub fn resolve_register_collection(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -2206,9 +2289,13 @@ pub fn register_read(
   key: String,
   policy: ReadPolicy,
 ) -> Result(Json, Nil) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetRegisterValue(collection.address, key, policy, reply)
-  })
+  process.call(
+    collection.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetRegisterValue(collection.address, key, policy, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -2224,16 +2311,24 @@ pub fn register_versions(
   collection: RegisterCollection,
   key: String,
 ) -> Result(List(Json), Nil) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetRegisterVersions(collection.address, key, reply)
-  })
+  process.call(
+    collection.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetRegisterVersions(collection.address, key, reply)
+    },
+  )
 }
 
 @target(erlang)
 pub fn register_keys(collection: RegisterCollection) -> List(String) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetRegisterKeys(collection.address, reply)
-  })
+  process.call(
+    collection.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetRegisterKeys(collection.address, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -2255,7 +2350,7 @@ pub fn subscribe_register_collection(
 pub fn create_claims(document: Document(root)) -> Result(Claims, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateClaims,
   )
   |> result.map(fn(address) {
@@ -2278,7 +2373,7 @@ pub fn resolve_claims(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -2334,7 +2429,7 @@ pub fn create_task_manager(
 ) -> Result(TaskManager, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateTaskManager,
   )
   |> result.map(fn(address) {
@@ -2357,7 +2452,7 @@ pub fn resolve_task_manager(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -2426,7 +2521,7 @@ pub fn subscribe_task_manager(
 pub fn create_g_set(document: Document(root)) -> Result(GSet, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateGSet,
   )
   |> result.map(fn(address) {
@@ -2453,7 +2548,7 @@ pub fn resolve_g_set(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) { GSet(runtime: document.runtime, address: address) })
@@ -2469,17 +2564,23 @@ pub fn g_set_add(set: GSet, element: String) -> Nil {
 @target(erlang)
 /// Whether `element` is in the current optimistic state of the set.
 pub fn g_set_contains(set: GSet, element: String) -> Bool {
-  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GSetContains(set.address, element, reply)
-  })
+  process.call(
+    set.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GSetContains(set.address, element, reply)
+    },
+  )
 }
 
 @target(erlang)
 /// The current optimistic members of the set.
 pub fn g_set_values(set: GSet) -> List(String) {
-  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetGSetValues(set.address, reply)
-  })
+  process.call(
+    set.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetGSetValues(set.address, reply) },
+  )
 }
 
 @target(erlang)
@@ -2505,7 +2606,7 @@ pub fn subscribe_g_set(set: GSet) -> Subject(g_set_kernel.GSetEvent) {
 pub fn create_two_p_set(document: Document(root)) -> Result(TwoPSet, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateTwoPSet,
   )
   |> result.map(fn(address) {
@@ -2532,7 +2633,7 @@ pub fn resolve_two_p_set(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -2564,17 +2665,23 @@ pub fn two_p_set_remove(set: TwoPSet, element: String) -> Nil {
 @target(erlang)
 /// Whether `element` is in the current optimistic state of the set.
 pub fn two_p_set_contains(set: TwoPSet, element: String) -> Bool {
-  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.TwoPSetContains(set.address, element, reply)
-  })
+  process.call(
+    set.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.TwoPSetContains(set.address, element, reply)
+    },
+  )
 }
 
 @target(erlang)
 /// The current optimistic members of the set.
 pub fn two_p_set_values(set: TwoPSet) -> List(String) {
-  process.call(set.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetTwoPSetValues(set.address, reply)
-  })
+  process.call(
+    set.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetTwoPSetValues(set.address, reply) },
+  )
 }
 
 @target(erlang)
@@ -2603,7 +2710,7 @@ pub fn create_directory(
 ) -> Result(SharedDirectory, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateDirectory,
   )
   |> result.map(fn(address) {
@@ -2612,10 +2719,10 @@ pub fn create_directory(
 }
 
 @target(erlang)
-/// The Fluid handle marker that references `dir`. Store it as a value in a map.
-/// See `handle_of`.
-pub fn directory_handle_of(dir: SharedDirectory) -> Json {
-  handle.encode_handle(dir.address)
+/// The Fluid handle marker that references `directory`. Store it as a value in
+/// a map. See `handle_of`.
+pub fn directory_handle_of(directory: SharedDirectory) -> Json {
+  handle.encode_handle(directory.address)
 }
 
 @target(erlang)
@@ -2630,7 +2737,7 @@ pub fn resolve_directory(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -2644,46 +2751,49 @@ pub fn resolve_directory(
 /// path is `"/"`. This function attaches each detached channel referenced by
 /// `value` before it submits the directory operation.
 pub fn directory_set(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   key: String,
   value: Json,
 ) -> Nil {
   process.send(
-    dir.runtime,
-    runtime_beam.DirectorySet(dir.address, path, key, value),
+    directory.runtime,
+    runtime_beam.DirectorySet(directory.address, path, key, value),
   )
 }
 
 @target(erlang)
 /// Remove `key` from the subdirectory at `path`, optimistically.
 pub fn directory_delete(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   key: String,
 ) -> Nil {
   process.send(
-    dir.runtime,
-    runtime_beam.DirectoryDelete(dir.address, path, key),
+    directory.runtime,
+    runtime_beam.DirectoryDelete(directory.address, path, key),
   )
 }
 
 @target(erlang)
 /// Remove every key from the subdirectory at `path`, optimistically.
-pub fn directory_clear(dir: SharedDirectory, path: String) -> Nil {
-  process.send(dir.runtime, runtime_beam.DirectoryClear(dir.address, path))
+pub fn directory_clear(directory: SharedDirectory, path: String) -> Nil {
+  process.send(
+    directory.runtime,
+    runtime_beam.DirectoryClear(directory.address, path),
+  )
 }
 
 @target(erlang)
 /// Create a subdirectory named `name` under `path`, optimistically.
 pub fn directory_create_subdirectory(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   name: String,
 ) -> Nil {
   process.send(
-    dir.runtime,
-    runtime_beam.DirectoryCreateSubdirectory(dir.address, path, name),
+    directory.runtime,
+    runtime_beam.DirectoryCreateSubdirectory(directory.address, path, name),
   )
 }
 
@@ -2691,13 +2801,13 @@ pub fn directory_create_subdirectory(
 /// Delete the subdirectory named `name` under `path`, optimistically. The
 /// delete also removes every value in that subdirectory.
 pub fn directory_delete_subdirectory(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   name: String,
 ) -> Nil {
   process.send(
-    dir.runtime,
-    runtime_beam.DirectoryDeleteSubdirectory(dir.address, path, name),
+    directory.runtime,
+    runtime_beam.DirectoryDeleteSubdirectory(directory.address, path, name),
   )
 }
 
@@ -2705,57 +2815,78 @@ pub fn directory_delete_subdirectory(
 /// The current optimistic value at `key`, in the subdirectory at `path`. The
 /// result is `Error(Nil)` when the key is absent.
 pub fn directory_get(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   key: String,
 ) -> Result(Json, Nil) {
-  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.DirectoryGet(dir.address, path, key, reply)
-  })
+  process.call(
+    directory.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.DirectoryGet(directory.address, path, key, reply)
+    },
+  )
 }
 
 @target(erlang)
 /// The current optimistic `#(key, value)` entries in the subdirectory at
 /// `path`.
 pub fn directory_entries(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
 ) -> List(#(String, Json)) {
-  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.DirectoryEntries(dir.address, path, reply)
-  })
+  process.call(
+    directory.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.DirectoryEntries(directory.address, path, reply)
+    },
+  )
 }
 
 @target(erlang)
 /// The names of the direct subdirectories under `path`.
 pub fn directory_subdirectories(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
 ) -> List(String) {
-  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.DirectorySubdirectories(dir.address, path, reply)
-  })
+  process.call(
+    directory.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.DirectorySubdirectories(directory.address, path, reply)
+    },
+  )
 }
 
 @target(erlang)
 /// Whether a subdirectory named `name` exists under `path`.
 pub fn directory_has_subdirectory(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   name: String,
 ) -> Bool {
-  process.call(dir.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.DirectoryHasSubdirectory(dir.address, path, name, reply)
-  })
+  process.call(
+    directory.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.DirectoryHasSubdirectory(
+        directory.address,
+        path,
+        name,
+        reply,
+      )
+    },
+  )
 }
 
 @target(erlang)
 /// Subscribe the calling process to this directory's events, local and remote
 /// alike.
 pub fn subscribe_directory(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
 ) -> Subject(directory_kernel.DirectoryEvent) {
-  use event <- subscribe_narrowed(dir.runtime, dir.address)
+  use event <- subscribe_narrowed(directory.runtime, directory.address)
   case event {
     channel.DirectoryEvent(inner) -> Some(inner)
     _ -> None
@@ -2775,7 +2906,7 @@ pub fn create_pn_counter(
 ) -> Result(PnCounter, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreatePnCounter,
   )
   |> result.map(fn(address) {
@@ -2798,7 +2929,7 @@ pub fn resolve_pn_counter(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -2820,9 +2951,13 @@ pub fn pn_counter_update(pn_counter: PnCounter, amount: Int) -> Nil {
 /// The current optimistic value of the counter. The result is `Error(Nil)` when the
 /// address does not name a PN-counter channel.
 pub fn pn_counter_value(pn_counter: PnCounter) -> Result(Int, Nil) {
-  process.call(pn_counter.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetPnCounterValue(pn_counter.address, reply)
-  })
+  process.call(
+    pn_counter.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetPnCounterValue(pn_counter.address, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -2848,7 +2983,7 @@ pub fn subscribe_pn_counter(
 pub fn create_pact_map(document: Document(root)) -> Result(PactMap, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreatePactMap,
   )
   |> result.map(fn(address) {
@@ -2871,7 +3006,7 @@ pub fn resolve_pact_map(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -2905,17 +3040,23 @@ pub fn pact_map_delete(pact_map: PactMap, key: String) -> Nil {
 /// pending, when the key is absent, and when the address does not name a
 /// PactMap channel.
 pub fn pact_map_get(pact_map: PactMap, key: String) -> Result(Json, Nil) {
-  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetPactMapValue(pact_map.address, key, reply)
-  })
+  process.call(
+    pact_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetPactMapValue(pact_map.address, key, reply)
+    },
+  )
 }
 
 @target(erlang)
 /// Every key with an accepted pact or a pending pact.
 pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
-  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetPactMapKeys(pact_map.address, reply)
-  })
+  process.call(
+    pact_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetPactMapKeys(pact_map.address, reply) },
+  )
 }
 
 @target(erlang)
@@ -2941,9 +3082,13 @@ pub fn subscribe_pact_map(
 /// Whether `key` has a proposal now that no room has settled, which is a
 /// pending proposal.
 pub fn pact_map_is_pending(pact_map: PactMap, key: String) -> Bool {
-  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetPactMapPending(pact_map.address, key, reply)
-  })
+  process.call(
+    pact_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetPactMapPending(pact_map.address, key, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -2972,9 +3117,13 @@ pub fn pact_map_pending(
   pact_map: PactMap,
   key: String,
 ) -> Result(pact_map_kernel.Pending, Nil) {
-  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetPactMapPendingDetails(pact_map.address, key, reply)
-  })
+  process.call(
+    pact_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetPactMapPendingDetails(pact_map.address, key, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -2985,9 +3134,13 @@ pub fn pact_map_get_with_details(
   pact_map: PactMap,
   key: String,
 ) -> Result(pact_map_kernel.Accepted, Nil) {
-  process.call(pact_map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetPactMapAccepted(pact_map.address, key, reply)
-  })
+  process.call(
+    pact_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetPactMapAccepted(pact_map.address, key, reply)
+    },
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3002,7 +3155,7 @@ pub fn create_ordered_collection(
 ) -> Result(OrderedCollection, String) {
   process.call(
     document.runtime,
-    waiting: call_timeout_ms,
+    waiting: call_timeout_milliseconds,
     sending: runtime_beam.CreateOrderedCollection,
   )
   |> result.map(fn(address) {
@@ -3025,7 +3178,7 @@ pub fn resolve_ordered_collection(
     Ok(address) ->
       process.call(
         document.runtime,
-        waiting: call_timeout_ms,
+        waiting: call_timeout_milliseconds,
         sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
       )
       |> result.map(fn(_) {
@@ -3047,9 +3200,13 @@ pub fn ordered_add(collection: OrderedCollection, value: Json) -> Nil {
 /// Acquire the head item, and return the acquire id. A later `complete` call or
 /// `release` call uses that id.
 pub fn ordered_acquire(collection: OrderedCollection) -> String {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.AcquireOrderedItem(collection.address, reply)
-  })
+  process.call(
+    collection.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.AcquireOrderedItem(collection.address, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -3065,7 +3222,7 @@ pub fn ordered_acquire_with_outcome(
   let acquire_id =
     process.call(
       collection.runtime,
-      waiting: call_timeout_ms,
+      waiting: call_timeout_milliseconds,
       sending: fn(reply) {
         runtime_beam.AcquireOrderedItemWithOutcome(
           collection.address,
@@ -3105,17 +3262,25 @@ pub fn ordered_release(
 /// The number of items in the collection now. The result is `Error(Nil)` when the
 /// address does not name an ordered-collection channel.
 pub fn ordered_size(collection: OrderedCollection) -> Result(Int, Nil) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetOrderedSize(collection.address, reply)
-  })
+  process.call(
+    collection.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetOrderedSize(collection.address, reply)
+    },
+  )
 }
 
 @target(erlang)
 /// The values in the queue, which no client acquired yet, front first.
 pub fn ordered_queue(collection: OrderedCollection) -> List(Json) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetOrderedQueue(collection.address, reply)
-  })
+  process.call(
+    collection.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetOrderedQueue(collection.address, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -3123,9 +3288,13 @@ pub fn ordered_queue(collection: OrderedCollection) -> List(Json) {
 pub fn ordered_jobs(
   collection: OrderedCollection,
 ) -> List(#(String, ordered_collection_kernel.JobEntry)) {
-  process.call(collection.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetOrderedJobs(collection.address, reply)
-  })
+  process.call(
+    collection.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetOrderedJobs(collection.address, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -3233,7 +3402,8 @@ pub fn force_reconnect(document: Document(root)) -> Nil {
 /// agree.
 ///
 /// ```gleam
-/// let mine = watershed_beam.client_id(doc) |> option.map(client_id.to_int)
+/// let mine =
+///   watershed_beam.client_id(document) |> option.map(client_id.to_int)
 /// let waiting_on_me = case mine, pact_map_pending_signoffs(pact, "bpm") {
 ///   Some(me), Some(ids) -> list.contains(ids, me)
 ///   _, _ -> False
@@ -3357,9 +3527,11 @@ pub fn clear(map: SharedMap) -> Nil {
 
 @target(erlang)
 pub fn get(map: SharedMap, key: String) -> Result(Json, Nil) {
-  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetValue(map.address, key, reply)
-  })
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetValue(map.address, key, reply) },
+  )
 }
 
 @target(erlang)
@@ -3369,23 +3541,29 @@ pub fn has(map: SharedMap, key: String) -> Bool {
 
 @target(erlang)
 pub fn entries(map: SharedMap) -> List(#(String, Json)) {
-  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetEntries(map.address, reply)
-  })
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetEntries(map.address, reply) },
+  )
 }
 
 @target(erlang)
 pub fn keys(map: SharedMap) -> List(String) {
-  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetKeys(map.address, reply)
-  })
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetKeys(map.address, reply) },
+  )
 }
 
 @target(erlang)
 pub fn size(map: SharedMap) -> Int {
-  process.call(map.runtime, waiting: call_timeout_ms, sending: fn(reply) {
-    runtime_beam.GetSize(map.address, reply)
-  })
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetSize(map.address, reply) },
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

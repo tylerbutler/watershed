@@ -117,10 +117,10 @@ import watershed/wire/socket
 import watershed/wire/summary_blob
 
 @target(erlang)
-const connect_timeout_ms = 10_000
+const connect_timeout_milliseconds = 10_000
 
 @target(erlang)
-const heartbeat_interval_ms = 30_000
+const heartbeat_interval_milliseconds = 30_000
 
 @target(erlang)
 /// The server nacks a submission of more than 100 operations. Split a resubmit
@@ -702,7 +702,7 @@ pub fn start_with_transport(
         summary_armed: False,
         self: self,
       )
-    let _ = process.send_after(self, heartbeat_interval_ms, Heartbeat)
+    let _ = process.send_after(self, heartbeat_interval_milliseconds, Heartbeat)
     connect_transport(transport, self)
     Ok(actor.initialised(state) |> actor.returning(self))
   })
@@ -714,7 +714,11 @@ pub fn start_with_transport(
 @target(erlang)
 /// Wait until the handshake completes or fails.
 pub fn await_ready(runtime: Subject(Msg)) -> Result(Nil, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: AwaitReady)
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: AwaitReady,
+  )
 }
 
 @target(erlang)
@@ -722,9 +726,11 @@ pub fn resolve_sequence(
   runtime: Subject(Msg),
   address: String,
 ) -> Result(Nil, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    ResolveSequence(address, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { ResolveSequence(address, reply) },
+  )
 }
 
 @target(erlang)
@@ -732,9 +738,11 @@ pub fn resolve_text(
   runtime: Subject(Msg),
   address: String,
 ) -> Result(Nil, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    ResolveText(address, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { ResolveText(address, reply) },
+  )
 }
 
 @target(erlang)
@@ -775,7 +783,11 @@ pub fn text_anchor_from_json(
 /// The connection must be fully synchronized, and the token must carry the
 /// `summary:write` scope.
 pub fn summarize(runtime: Subject(Msg)) -> Result(String, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: Summarize)
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: Summarize,
+  )
 }
 
 @target(erlang)
@@ -793,7 +805,7 @@ pub fn auto_summarize(
 pub fn operations_since_summary(runtime: Subject(Msg)) -> Int {
   process.call(
     runtime,
-    waiting: connect_timeout_ms,
+    waiting: connect_timeout_milliseconds,
     sending: OperationsSinceSummary,
   )
 }
@@ -802,7 +814,11 @@ pub fn operations_since_summary(runtime: Subject(Msg)) -> Int {
 /// Whether the client is caught up, which is true when the server acked every
 /// local edit. The confirmed state is then complete and stable.
 pub fn is_synced(runtime: Subject(Msg)) -> Bool {
-  process.call(runtime, waiting: connect_timeout_ms, sending: IsSynced)
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: IsSynced,
+  )
 }
 
 @target(erlang)
@@ -814,7 +830,11 @@ pub fn is_synced(runtime: Subject(Msg)) -> Bool {
 /// That id can differ from the previous one. A caller that holds the id across
 /// a disconnect must read it again. It must not use a cached value.
 pub fn client_id(runtime: Subject(Msg)) -> Option(String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: ClientId)
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: ClientId,
+  )
 }
 
 @target(erlang)
@@ -834,9 +854,11 @@ pub fn claim_once(
   value: Json,
 ) -> ClaimSubmitReply {
   let outcome = process.new_subject()
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    ClaimOnce(address, key, value, outcome, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { ClaimOnce(address, key, value, outcome, reply) },
+  )
 }
 
 @target(erlang)
@@ -847,9 +869,13 @@ pub fn compare_and_set_claim(
   value: Json,
 ) -> ClaimSubmitReply {
   let outcome = process.new_subject()
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    CompareAndSetClaim(address, key, value, outcome, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) {
+      CompareAndSetClaim(address, key, value, outcome, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -858,16 +884,20 @@ pub fn get_claim(
   address: String,
   key: String,
 ) -> Result(Json, Nil) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    GetClaim(address, key, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { GetClaim(address, key, reply) },
+  )
 }
 
 @target(erlang)
 pub fn has_claim(runtime: Subject(Msg), address: String, key: String) -> Bool {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    HasClaim(address, key, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { HasClaim(address, key, reply) },
+  )
 }
 
 @target(erlang)
@@ -876,9 +906,11 @@ pub fn task_manager_volunteer(
   address: String,
   task_id: String,
 ) -> task_manager_kernel.VolunteerOutcome {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    VolunteerTask(address, task_id, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { VolunteerTask(address, task_id, reply) },
+  )
 }
 
 @target(erlang)
@@ -896,9 +928,11 @@ pub fn task_manager_complete(
   address: String,
   task_id: String,
 ) -> Result(Nil, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    CompleteTask(address, task_id, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { CompleteTask(address, task_id, reply) },
+  )
 }
 
 @target(erlang)
@@ -907,9 +941,11 @@ pub fn task_manager_assigned(
   address: String,
   task_id: String,
 ) -> Bool {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    TaskAssigned(address, task_id, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TaskAssigned(address, task_id, reply) },
+  )
 }
 
 @target(erlang)
@@ -918,9 +954,11 @@ pub fn task_manager_queued(
   address: String,
   task_id: String,
 ) -> Bool {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    TaskQueued(address, task_id, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TaskQueued(address, task_id, reply) },
+  )
 }
 
 @target(erlang)
@@ -928,9 +966,11 @@ pub fn task_manager_queues(
   runtime: Subject(Msg),
   address: String,
 ) -> List(#(String, List(Int))) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    TaskQueues(address, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { TaskQueues(address, reply) },
+  )
 }
 
 @target(erlang)
@@ -941,9 +981,11 @@ pub fn get_versions(
   runtime: Subject(Msg),
   count: Int,
 ) -> Result(List(git_storage.SummaryVersion), String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    GetVersions(count, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { GetVersions(count, reply) },
+  )
 }
 
 @target(erlang)
@@ -955,9 +997,11 @@ pub fn load_version(
   runtime: Subject(Msg),
   handle: String,
 ) -> Result(summary_blob.SummaryBlob, String) {
-  process.call(runtime, waiting: connect_timeout_ms, sending: fn(reply) {
-    LoadVersion(handle, reply)
-  })
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: fn(reply) { LoadVersion(handle, reply) },
+  )
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1065,7 +1109,12 @@ fn aquamarine_push(channel: Channel, event: String, payload: Json) -> Nil {
 fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
   case msg {
     Heartbeat -> {
-      let _ = process.send_after(state.self, heartbeat_interval_ms, Heartbeat)
+      let _ =
+        process.send_after(
+          state.self,
+          heartbeat_interval_milliseconds,
+          Heartbeat,
+        )
       case state.phase, state.channel {
         Ready(core, None), Some(channel) ->
           push(
@@ -1258,7 +1307,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       })
     SetOrMapKey(address, key, value) ->
       edit(state, fn(core) {
-        runtime_core.or_map_set(core, address, key, value, now_ms())
+        runtime_core.or_map_set(core, address, key, value, now_milliseconds())
       })
     RemoveOrMapKey(address, key) ->
       edit(state, fn(core) { runtime_core.or_map_remove(core, address, key) })
@@ -2818,7 +2867,7 @@ fn arm_summary(state: State, core: runtime_core.Core) -> State {
           let _ =
             process.send_after(
               state.self,
-              runtime_core.summary_jitter_ms(core, policy),
+              runtime_core.summary_jitter_milliseconds(core, policy),
               MaybeSummarize,
             )
           State(..state, summary_armed: True)
@@ -3137,7 +3186,7 @@ fn require(result: Result(t, e), context: String) -> t {
 }
 
 @target(erlang)
-fn now_ms() -> Int {
+fn now_milliseconds() -> Int {
   system_time(Millisecond)
 }
 

@@ -39,9 +39,9 @@ const die_key = "die"
 
 const user_id = "dice-cli-user"
 
-const first_roll_delay_ms = 1000
+const first_roll_delay_milliseconds = 1000
 
-const roll_interval_ms = 5000
+const roll_interval_milliseconds = 5000
 
 type CliMsg {
   MapChanged(MapEvent)
@@ -51,7 +51,7 @@ type CliMsg {
 /// Phantom tag naming the dice root map. The CLI reads the root through
 /// untyped keys, so there are no fields to declare — but naming the tag is
 /// what keeps a second schema from claiming this same root map.
-type DiceDoc
+type DiceDocument
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
@@ -79,13 +79,13 @@ pub fn main() -> Nil {
     Error(reason) -> {
       io.println("Connection failed: " <> reason)
     }
-    Ok(doc) -> run(doc)
+    Ok(document) -> run(document)
   }
 }
 
-fn run(doc: watershed_beam.Document(DiceDoc)) -> Nil {
+fn run(document: watershed_beam.Document(DiceDocument)) -> Nil {
   io.println("Connected. Subscribing to events…")
-  let map = watershed_beam.root(doc)
+  let map = watershed_beam.root(document)
   let events = watershed_beam.subscribe(map)
 
   // Print current state
@@ -110,10 +110,10 @@ fn run(doc: watershed_beam.Document(DiceDoc)) -> Nil {
 
   io.println(
     "Rolling every "
-    <> int.to_string(roll_interval_ms / 1000)
+    <> int.to_string(roll_interval_milliseconds / 1000)
     <> "s; press Ctrl+C to stop.",
   )
-  schedule_roll(roll_due, first_roll_delay_ms)
+  schedule_roll(roll_due, first_roll_delay_milliseconds)
   event_loop(map, selector, roll_due)
 }
 
@@ -132,7 +132,7 @@ fn event_loop(
     }
     RollDue -> {
       roll(map)
-      schedule_roll(roll_due, roll_interval_ms)
+      schedule_roll(roll_due, roll_interval_milliseconds)
       event_loop(map, selector, roll_due)
     }
   }
@@ -147,8 +147,11 @@ fn roll(map: watershed_beam.SharedMap) -> Nil {
   print_die("Optimistic die", map)
 }
 
-fn schedule_roll(roll_due: process.Subject(Nil), delay_ms: Int) -> Nil {
-  let _timer = process.send_after(roll_due, delay_ms, Nil)
+fn schedule_roll(
+  roll_due: process.Subject(Nil),
+  delay_milliseconds: Int,
+) -> Nil {
+  let _timer = process.send_after(roll_due, delay_milliseconds, Nil)
   Nil
 }
 

@@ -21,7 +21,7 @@ import gleam/option
 import gleam/result
 import gleam/string
 import gleeunit/should
-import retro_board_lustre/doc_schema
+import retro_board_lustre/document_schema
 
 import watershed.{type Document}
 import watershed/or_map_kernel
@@ -49,24 +49,25 @@ fn room(
   name: String,
 ) -> #(
   Sluice,
-  Document(doc_schema.BoardDoc),
-  Document(doc_schema.BoardDoc),
+  Document(document_schema.BoardDocument),
+  Document(document_schema.BoardDocument),
   Channels,
   Channels,
 ) {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root = watershed.root(doc_a)
+  let root = watershed.root(document_a)
   let assert Ok(notes) =
-    watershed.create_or_map(doc_a, or_map_kernel.RegisterMode)
+    watershed.create_or_map(document_a, or_map_kernel.RegisterMode)
   watershed.set(root, "notes", watershed.or_map_handle_of(notes))
-  let assert Ok(votes) = watershed.create_or_map(doc_a, or_map_kernel.TallyMode)
+  let assert Ok(votes) =
+    watershed.create_or_map(document_a, or_map_kernel.TallyMode)
   watershed.set(root, "votes", watershed.or_map_handle_of(votes))
   list.each(column.all(), fn(column) {
-    let assert Ok(sequence) = watershed.create_sequence(doc_a)
+    let assert Ok(sequence) = watershed.create_sequence(document_a)
     watershed.set(
       root,
       column.id(column),
@@ -75,19 +76,25 @@ fn room(
   })
   sluice_js.settle(sluice)
 
-  #(sluice, doc_a, doc_b, channels_of(doc_a), channels_of(doc_b))
+  #(
+    sluice,
+    document_a,
+    document_b,
+    channels_of(document_a),
+    channels_of(document_b),
+  )
 }
 
-fn channels_of(doc: Document(doc_schema.BoardDoc)) -> Channels {
-  let root = watershed.root(doc)
+fn channels_of(document: Document(document_schema.BoardDocument)) -> Channels {
+  let root = watershed.root(document)
   let assert Ok(notes_handle) = watershed.get(root, "notes")
-  let assert Ok(notes) = watershed.resolve_or_map(doc, notes_handle)
+  let assert Ok(notes) = watershed.resolve_or_map(document, notes_handle)
   let assert Ok(votes_handle) = watershed.get(root, "votes")
-  let assert Ok(votes) = watershed.resolve_or_map(doc, votes_handle)
+  let assert Ok(votes) = watershed.resolve_or_map(document, votes_handle)
   let assert [went_well, to_improve, action_items] =
     list.map(column.all(), fn(column) {
       let assert Ok(handle) = watershed.get(root, column.id(column))
-      let assert Ok(sequence) = watershed.resolve_sequence(doc, handle)
+      let assert Ok(sequence) = watershed.resolve_sequence(document, handle)
       sequence
     })
   Channels(notes:, votes:, went_well:, to_improve:, action_items:)
@@ -176,7 +183,7 @@ fn tally(channels: Channels, id: String) -> Int {
 /// The headline. Two people add a card in the same instant; under a naive
 /// last-writer-wins map one card disappears, under the OR-map both survive.
 pub fn concurrent_adds_in_same_column_both_survive_test() -> Nil {
-  let #(sluice, _doc_a, _doc_b, a, b) = room("retro-concurrent-add")
+  let #(sluice, _document_a, _document_b, a, b) = room("retro-concurrent-add")
 
   // Same tick, no coordination — neither client has seen the other's add.
   add_note(a, "note-a", "deploys got faster", column.WentWell)
@@ -197,7 +204,8 @@ pub fn concurrent_adds_in_same_column_both_survive_test() -> Nil {
 /// Two tabs reordering the same column at once land on one order — the
 /// sequence kernel's business; the board just has to agree with itself.
 pub fn concurrent_reorders_in_same_column_converge_test() -> Nil {
-  let #(sluice, _doc_a, _doc_b, a, b) = room("retro-concurrent-reorder")
+  let #(sluice, _document_a, _document_b, a, b) =
+    room("retro-concurrent-reorder")
 
   add_note(a, "note-1", "first", column.ActionItems)
   add_note(a, "note-2", "second", column.ActionItems)
@@ -263,7 +271,8 @@ fn remove_from_sequence(sequence: watershed.SharedSequence, id: String) -> Nil {
 /// same column. Which column wins is wall-clock LWW and deliberately not
 /// asserted.
 pub fn concurrent_cross_column_moves_render_the_note_exactly_once_test() -> Nil {
-  let #(sluice, _doc_a, _doc_b, a, b) = room("retro-cross-column-race")
+  let #(sluice, _document_a, _document_b, a, b) =
+    room("retro-cross-column-race")
 
   add_note(a, "note-1", "flaky tests", column.WentWell)
   sluice_js.settle(sluice)
@@ -279,7 +288,7 @@ pub fn concurrent_cross_column_moves_render_the_note_exactly_once_test() -> Nil 
 /// A third participant joining after the dust settles sees the same board —
 /// pins snapshot/replay of a five-channel document.
 pub fn late_joiner_sees_the_full_board_test() -> Nil {
-  let #(sluice, _doc_a, _doc_b, a, _b) = room("retro-late-joiner")
+  let #(sluice, _document_a, _document_b, a, _b) = room("retro-late-joiner")
 
   add_note(a, "note-1", "pairing worked", column.WentWell)
   add_note(a, "note-2", "docs lag", column.ToImprove)
@@ -288,11 +297,11 @@ pub fn late_joiner_sees_the_full_board_test() -> Nil {
   move_note(a, "note-2", column.ActionItems)
   sluice_js.settle(sluice)
 
-  let doc_c = sluice_js.connect(sluice, "user-c")
+  let document_c = sluice_js.connect(sluice, "user-c")
   sluice_js.settle(sluice)
 
-  board_of(channels_of(doc_c)) |> should.equal(board_of(a))
-  tally(channels_of(doc_c), "note-1") |> should.equal(1)
+  board_of(channels_of(document_c)) |> should.equal(board_of(a))
+  tally(channels_of(document_c), "note-1") |> should.equal(1)
 }
 
 // ── Edit vs delete ───────────────────────────────────────────────────────────
@@ -302,7 +311,7 @@ pub fn late_joiner_sees_the_full_board_test() -> Nil {
 /// after observing a real run): the outcome the kernel's add-wins bias
 /// produces.
 pub fn edit_vs_delete_converges_test() -> Nil {
-  let #(sluice, _doc_a, _doc_b, a, b) = room("retro-edit-vs-delete")
+  let #(sluice, _document_a, _document_b, a, b) = room("retro-edit-vs-delete")
 
   add_note(a, "note-1", "original text", column.WentWell)
   sluice_js.settle(sluice)
@@ -350,7 +359,8 @@ pub fn edit_vs_delete_converges_test() -> Nil {
 /// The counter-bug page's claim made executable: under `get → +1 → set` one of
 /// these upvotes is silently lost; under tally mode they sum.
 pub fn concurrent_upvotes_sum_to_two_test() -> Nil {
-  let #(sluice, _doc_a, _doc_b, a, b) = room("retro-concurrent-upvote")
+  let #(sluice, _document_a, _document_b, a, b) =
+    room("retro-concurrent-upvote")
 
   add_note(a, "note-1", "ship week went smoothly", column.WentWell)
   sluice_js.settle(sluice)
@@ -365,7 +375,8 @@ pub fn concurrent_upvotes_sum_to_two_test() -> Nil {
 }
 
 pub fn concurrent_up_and_down_net_zero_test() -> Nil {
-  let #(sluice, _doc_a, _doc_b, a, b) = room("retro-concurrent-up-down")
+  let #(sluice, _document_a, _document_b, a, b) =
+    room("retro-concurrent-up-down")
 
   add_note(a, "note-1", "retro ran long", column.ToImprove)
   sluice_js.settle(sluice)

@@ -128,14 +128,14 @@ const document_id = "dice-scores"
 
 const face_count = 6
 
-const first_roll_delay_ms = 1000
+const first_roll_delay_milliseconds = 1000
 
-const roll_interval_ms = 5000
+const roll_interval_milliseconds = 5000
 
 /// A handle read from a remote value can be transiently unresolvable while
 /// the referenced channel's attach operation is still in flight, so resolves
 /// retry.
-const resolve_retry_ms = 200
+const resolve_retry_milliseconds = 200
 
 const resolve_attempts = 25
 
@@ -150,7 +150,7 @@ type Msg {
 
 type State {
   State(
-    doc: watershed_beam.Document(GameRoot),
+    document: watershed_beam.Document(GameRoot),
     my_id: String,
     me: watershed_beam.TypedMap(Player),
     roster: watershed_beam.TypedMap(Roster),
@@ -200,8 +200,8 @@ pub fn main() -> Nil {
     Error(reason) -> {
       io.println("Connection failed: " <> reason)
     }
-    Ok(doc) -> {
-      case start(doc, player_id) {
+    Ok(document) -> {
+      case start(document, player_id) {
         Ok(Nil) -> Nil
         Error(reason) -> io.println("Setup failed: " <> reason)
       }
@@ -212,10 +212,11 @@ pub fn main() -> Nil {
 // ── Post-connect setup ────────────────────────────────────────────────────────
 
 fn start(
-  doc: watershed_beam.Document(GameRoot),
+  document: watershed_beam.Document(GameRoot),
   player_id: String,
 ) -> Result(Nil, String) {
-  let root: watershed_beam.TypedMap(GameRoot) = watershed_beam.root_typed(doc)
+  let root: watershed_beam.TypedMap(GameRoot) =
+    watershed_beam.root_typed(document)
 
   // The root map carries plain typed values alongside the roster handle.
   case watershed_beam.get_field(root, game()) {
@@ -230,8 +231,8 @@ fn start(
     }
   }
 
-  use roster <- result.try(ensure_roster(doc, root))
-  use me <- result.try(watershed_beam.create_typed_map(doc))
+  use roster <- result.try(ensure_roster(document, root))
+  use me <- result.try(watershed_beam.create_typed_map(document))
   use schema <- result.try(
     player_schema() |> result.map_error(fn(_) { "Schema build failed" }),
   )
@@ -256,7 +257,7 @@ fn start(
 
   let state =
     State(
-      doc: doc,
+      document: document,
       my_id: player_id,
       me: me,
       roster: roster,
@@ -271,7 +272,7 @@ fn start(
   // `typed_children` resolves each roster handle to a typed player map in
   // one pass — the typed view of a dynamic (id-keyed) collection.
   let state =
-    watershed_beam.typed_children(doc, roster)
+    watershed_beam.typed_children(document, roster)
     |> list.fold(state, fn(state, child) {
       case child.1 {
         Ok(map) -> adopt_player(state, child.0, map)
@@ -282,10 +283,10 @@ fn start(
 
   io.println(
     "Rolling every "
-    <> int.to_string(roll_interval_ms / 1000)
+    <> int.to_string(roll_interval_milliseconds / 1000)
     <> "s; press Ctrl+C to stop.",
   )
-  schedule_roll(roll_due, first_roll_delay_ms)
+  schedule_roll(roll_due, first_roll_delay_milliseconds)
   event_loop(state)
 
   Ok(Nil)
@@ -316,7 +317,7 @@ fn event_loop(state: State) -> Nil {
       }
       let state = State(..state, total: new_total, rolls: new_rolls)
       print_scoreboard(state)
-      schedule_roll(state.roll_due, roll_interval_ms)
+      schedule_roll(state.roll_due, roll_interval_milliseconds)
       event_loop(state)
     }
     RosterChanged(ValueChanged(key: player_id, ..)) -> {
@@ -351,18 +352,20 @@ fn event_loop(state: State) -> Nil {
 /// after writing we wait for our operation to be sequenced and adopt whichever
 /// handle the field holds.
 fn ensure_roster(
-  doc: watershed_beam.Document(GameRoot),
+  document: watershed_beam.Document(GameRoot),
   root: watershed_beam.TypedMap(GameRoot),
 ) -> Result(watershed_beam.TypedMap(Roster), String) {
-  case resolve_child_retry(doc, root, players(), resolve_attempts) {
+  case resolve_child_retry(document, root, players(), resolve_attempts) {
     Ok(Some(roster)) -> Ok(roster)
     _ -> {
-      case watershed_beam.create_typed_map(doc) {
+      case watershed_beam.create_typed_map(document) {
         Error(reason) -> Error("Roster map creation failed: " <> reason)
         Ok(created) -> {
           watershed_beam.set_child(root, players(), created)
-          wait_synced(doc)
-          case resolve_child_retry(doc, root, players(), resolve_attempts) {
+          wait_synced(document)
+          case
+            resolve_child_retry(document, root, players(), resolve_attempts)
+          {
             Ok(Some(roster)) -> Ok(roster)
             _ -> Error("Failed to resolve roster after creation")
           }
@@ -380,7 +383,7 @@ fn watch_player(state: State, player_id: String) -> State {
     False ->
       case
         resolve_child_retry(
-          state.doc,
+          state.document,
           state.roster,
           player_slot(player_id),
           resolve_attempts,
@@ -425,30 +428,30 @@ fn adopt_player(
 /// Resolve a child map, retrying transient not-yet-attached errors. `Ok(None)`
 /// (the key is simply absent) is returned immediately, not retried.
 fn resolve_child_retry(
-  doc: watershed_beam.Document(GameRoot),
+  document: watershed_beam.Document(GameRoot),
   parent: watershed_beam.TypedMap(s),
   field: ChildField(s, c),
   attempts: Int,
 ) -> Result(Option(watershed_beam.TypedMap(c)), String) {
-  case watershed_beam.resolve_child(doc, parent, field) {
+  case watershed_beam.resolve_child(document, parent, field) {
     Ok(value) -> Ok(value)
     Error(reason) ->
       case attempts <= 1 {
         True -> Error(reason)
         False -> {
-          process.sleep(resolve_retry_ms)
-          resolve_child_retry(doc, parent, field, attempts - 1)
+          process.sleep(resolve_retry_milliseconds)
+          resolve_child_retry(document, parent, field, attempts - 1)
         }
       }
   }
 }
 
-fn wait_synced(doc: watershed_beam.Document(GameRoot)) -> Nil {
-  case watershed_beam.is_synced(doc) {
+fn wait_synced(document: watershed_beam.Document(GameRoot)) -> Nil {
+  case watershed_beam.is_synced(document) {
     True -> Nil
     False -> {
       process.sleep(100)
-      wait_synced(doc)
+      wait_synced(document)
     }
   }
 }
@@ -488,7 +491,10 @@ fn player_line(map: watershed_beam.TypedMap(Player)) -> String {
   }
 }
 
-fn schedule_roll(roll_due: process.Subject(Nil), delay_ms: Int) -> Nil {
-  let _timer = process.send_after(roll_due, delay_ms, Nil)
+fn schedule_roll(
+  roll_due: process.Subject(Nil),
+  delay_milliseconds: Int,
+) -> Nil {
+  let _timer = process.send_after(roll_due, delay_milliseconds, Nil)
   Nil
 }

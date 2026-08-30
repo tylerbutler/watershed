@@ -5,9 +5,10 @@
 //// `just server` document and watch cells, notes, givens, and mistakes converge.
 ////
 //// The board itself is `sudoku_lustre/component`, a nested MVU triple that
-//// takes a `TypedMap(SudokuDoc)` — this document's root standalone, a child of
-//// the showcase root when mounted there. What is left here is the connection,
-//// the sync status, and the presence driver, all three document-scoped.
+//// takes a `TypedMap(SudokuDocument)` — this document's root standalone, a
+//// child of the showcase root when mounted there. What is left here is the
+//// connection, the sync status, and the presence driver, all three
+//// document-scoped.
 ////
 //// Presence is split across that seam. The driver and the identity half of the
 //// payload — name and colour — belong to this module, because they describe a
@@ -31,7 +32,7 @@ import lustre/element/html
 import lustre/event
 
 import sudoku_lustre/component
-import sudoku_lustre/doc_schema
+import sudoku_lustre/document_schema
 import watershed.{type Document}
 import watershed_lustre
 
@@ -92,7 +93,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.SudokuDoc)),
+    document: Option(Document(document_schema.SudokuDocument)),
     /// The board panel. `None` until the handshake completes.
     board: Option(component.Model),
     user_id: String,
@@ -108,7 +109,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.SudokuDoc))
+  GotHandle(Document(document_schema.SudokuDocument))
   Connected(Result(Nil, String))
   Board(component.Msg)
   ReconnectClicked
@@ -122,7 +123,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       board: None,
       user_id: user_id,
       color: presence.color_for(user_id),
@@ -150,13 +151,14 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
     // The handle arrives before the handshake completes; start presence now (it
-    // only needs the doc) and mount the board once Connected has made us Ready.
-    GotHandle(doc) -> {
-      let model = Model(..model, doc: Some(doc))
-      let presence = presence_effect(model, doc)
+    // only needs the document) and mount the board once Connected has made us
+    // Ready.
+    GotHandle(document) -> {
+      let model = Model(..model, document: Some(document))
+      let presence = presence_effect(model, document)
       case model.status, model.board {
         Ready, None -> {
-          let #(model, mount) = mount_board(model, doc)
+          let #(model, mount) = mount_board(model, document)
           #(model, effect.batch([mount, presence]))
         }
         _, _ -> #(model, presence)
@@ -165,8 +167,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
-      case model.doc, model.board {
-        Some(doc), None -> mount_board(model, doc)
+      case model.document, model.board {
+        Some(document), None -> mount_board(model, document)
         _, _ -> #(model, effect.none())
       }
     }
@@ -190,8 +192,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
+      case model.document {
+        Some(document) -> #(model, watershed_lustre.force_reconnect(document))
         None -> #(model, effect.none())
       }
 
@@ -227,9 +229,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 /// panel: it is the only place the document's root is named.
 fn mount_board(
   model: Model,
-  doc: Document(doc_schema.SudokuDoc),
+  document: Document(document_schema.SudokuDocument),
 ) -> #(Model, Effect(Msg)) {
-  let #(board, board_effect) = component.init(doc, watershed.root_typed(doc))
+  let #(board, board_effect) =
+    component.init(document, watershed.root_typed(document))
   #(
     push_peers(Model(..model, board: Some(board))),
     effect.map(board_effect, Board),
@@ -263,10 +266,10 @@ fn push_peers(model: Model) -> Model {
 /// reconnect; we only re-render on the roster it reports.
 fn presence_effect(
   model: Model,
-  doc: Document(doc_schema.SudokuDoc),
+  document: Document(document_schema.SudokuDocument),
 ) -> Effect(Msg) {
   watershed_lustre.presence(
-    document: doc,
+    document: document,
     config: presence.config(encode_presence, presence_decoder()),
     initial: current_presence(model),
     started: PresenceStarted,
@@ -391,9 +394,9 @@ fn status_line(model: Model) -> Element(Msg) {
   let text = case model.status {
     Connecting -> "connecting…"
     Ready ->
-      case model.doc {
-        Some(doc) ->
-          case watershed.is_synced(doc) {
+      case model.document {
+        Some(document) ->
+          case watershed.is_synced(document) {
             True -> "connected · synced · " <> puzzle
             False -> "connected · syncing… · " <> puzzle
           }

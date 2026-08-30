@@ -11,7 +11,8 @@ this file covers day-to-day reproduction and CI usage (F4).
 - `just fuzz` — deep profile, 5000 iterations per suite. Use for CI/nightly
   runs or when chasing a suspected rare failure.
 
-Both are driven by `kernel_fuzz.config_from_env`, which reads two env vars:
+Both are driven by `kernel_fuzz.config_from_environment`, which reads two
+environment variables:
 
 | Var               | Default | Effect                                   |
 | ------------------ | ------- | ----------------------------------------- |

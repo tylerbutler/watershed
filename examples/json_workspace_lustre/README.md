@@ -15,8 +15,13 @@ channel, and every document inside it is a separate `JsonOt` channel whose
 handle is stored as an ordinary directory *value*.** Creating a document is
 
 ```gleam
-let assert Ok(doc) = watershed.create_json_ot(document)
-watershed.directory_set(tree, path, name, watershed.json_ot_handle_of(doc))
+let assert Ok(json_document) = watershed.create_json_ot(document)
+watershed.directory_set(
+  tree,
+  path,
+  name,
+  watershed.json_ot_handle_of(json_document),
+)
 ```
 
 and opening one is `directory_get` followed by `resolve_json_ot`. Every

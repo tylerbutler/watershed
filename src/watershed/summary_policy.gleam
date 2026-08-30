@@ -37,7 +37,7 @@
 /// checkpoint, and how wide the window is that the room spreads its attempts
 /// over.
 pub opaque type Policy {
-  Policy(threshold: Int, jitter_ms: Int)
+  Policy(threshold: Int, jitter_milliseconds: Int)
 }
 
 /// The default policy. It summarizes after 500 operations sequence past the
@@ -55,7 +55,7 @@ pub opaque type Policy {
 /// not 0. A threshold of 1 would thus trigger again on its own announcement,
 /// without an end.
 pub fn policy() -> Policy {
-  Policy(threshold: 500, jitter_ms: 3000)
+  Policy(threshold: 500, jitter_milliseconds: 3000)
 }
 
 /// The number of operations past the checkpoint before the client attempts a
@@ -67,14 +67,17 @@ pub fn with_threshold(policy: Policy, threshold: Int) -> Policy {
 /// The window that the attempts spread across. A value of zero starts the
 /// attempt immediately. A test with one client needs that value. A room with
 /// many clients does not.
-pub fn with_jitter_ms(policy: Policy, jitter_ms: Int) -> Policy {
-  Policy(..policy, jitter_ms: jitter_ms)
+pub fn with_jitter_milliseconds(
+  policy: Policy,
+  jitter_milliseconds: Int,
+) -> Policy {
+  Policy(..policy, jitter_milliseconds: jitter_milliseconds)
 }
 
 pub fn policy_threshold(policy: Policy) -> Int {
   policy.threshold
 }
 
-pub fn policy_jitter_ms(policy: Policy) -> Int {
-  policy.jitter_ms
+pub fn policy_jitter_milliseconds(policy: Policy) -> Int {
+  policy.jitter_milliseconds
 }

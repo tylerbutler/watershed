@@ -33,9 +33,9 @@
 //// announces an empty document that a peer is about to fill.
 ////
 //// A roster that never arrives is a failure, the same as any other failure.
-//// The wait ends with a `Failed` result `roster_timeout_ms` after `join`. The
-//// adapter does not wait without an end on a service that accepted a socket
-//// and then sent nothing.
+//// The wait ends with a `Failed` result `roster_timeout_milliseconds` after
+//// `join`. The adapter does not wait without an end on a service that accepted
+//// a socket and then sent nothing.
 ////
 //// JavaScript target only.
 
@@ -58,7 +58,7 @@ import watershed/transport_js.{type Cell}
 /// The time that a service has to admit this peer before the join becomes a
 /// failure. The value is generous. It covers a socket handshake and one round
 /// trip. It does not cover a negotiation.
-pub const default_roster_timeout_ms = 10_000
+pub const default_roster_timeout_milliseconds = 10_000
 
 @target(javascript)
 /// An opaque native socket, which the FFI owns. It holds the browser
@@ -118,7 +118,7 @@ pub fn websocket_signaling(
   websocket_signaling_with_timeout(
     url: url,
     on_failure: on_failure,
-    roster_timeout_ms: default_roster_timeout_ms,
+    roster_timeout_milliseconds: default_roster_timeout_milliseconds,
   )
 }
 
@@ -129,7 +129,7 @@ pub fn websocket_signaling(
 pub fn websocket_signaling_with_timeout(
   url url: String,
   on_failure on_failure: fn(String) -> Nil,
-  roster_timeout_ms roster_timeout_ms: Int,
+  roster_timeout_milliseconds roster_timeout_milliseconds: Int,
 ) -> Signaling {
   // Every `join` allocates a state cell of its own, and the socket's
   // callbacks close over that cell — never a shared one. A dead socket
@@ -161,7 +161,7 @@ pub fn websocket_signaling_with_timeout(
           transport_js.set_cell(cell, State(..state, socket: Some(socket)))
           transport_js.set_cell(current, Some(cell))
           write(cell, crdt_signaling.Join(room: room, peer: peer))
-          arm(cell, roster_timeout_ms, on_signal, on_failure)
+          arm(cell, roster_timeout_milliseconds, on_signal, on_failure)
           Ok(p2p_transport_js.signaling_session(room: room, peer_id: peer))
         }
       }
@@ -211,11 +211,11 @@ fn with_current(
 /// or that left, thus has nothing to report when the timer runs.
 fn arm(
   cell: Cell(State),
-  timeout_ms: Int,
+  timeout_milliseconds: Int,
   on_signal: fn(Signal) -> Nil,
   on_failure: fn(String) -> Nil,
 ) -> Nil {
-  case timeout_ms > 0 {
+  case timeout_milliseconds > 0 {
     False -> Nil
     True -> {
       let timer =
@@ -227,14 +227,14 @@ fn arm(
                 fail(
                   cell,
                   "the signaling service did not admit this peer within "
-                    <> int.to_string(timeout_ms)
+                    <> int.to_string(timeout_milliseconds)
                     <> "ms",
                   on_signal,
                   on_failure,
                 )
             }
           },
-          timeout_ms,
+          timeout_milliseconds,
         )
       let state = transport_js.get_cell(cell)
       // A socket that failed or was admitted while the timer was being

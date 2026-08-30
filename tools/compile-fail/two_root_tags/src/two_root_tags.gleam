@@ -35,9 +35,9 @@ pub fn sudoku_title() -> Field(Sudoku, String) {
 /// The document is pinned to `Playlist` by this annotation, so the second read
 /// below cannot typecheck.
 pub fn read_both(
-  doc: Document(Playlist),
+  document: Document(Playlist),
 ) -> #(Result(Option(String), FieldError), Result(Option(String), FieldError)) {
-  let root = watershed.root_typed(doc)
+  let root = watershed.root_typed(document)
   let as_playlist = watershed.get_field(root, playlist_title())
 
   // Expected error: `root_typed` returns `TypedMap(Playlist)`, so a

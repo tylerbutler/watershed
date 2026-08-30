@@ -52,7 +52,7 @@ import watershed/sequence_kernel
 import watershed/task_manager_kernel.{type TaskManagerEvent}
 import watershed_lustre
 
-import work_queue_lustre/doc_schema
+import work_queue_lustre/document_schema
 import work_queue_lustre/job.{type Job, Job}
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
@@ -68,9 +68,9 @@ const dispatcher_role = "dispatcher"
 
 /// How long an acquired job "runs" before completing itself. The dwell exists
 /// to leave a window in which to kill the worker tab — the kill is the demo.
-const dwell_ms = 4000
+const dwell_milliseconds = 4000
 
-const generate_ms = 2500
+const generate_milliseconds = 2500
 
 /// Stop generating past this backlog so the board stays readable.
 const max_queued = 6
@@ -126,7 +126,7 @@ type ClaimState {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.Dispatch)),
+    document: Option(Document(document_schema.Dispatch)),
     shared: Option(Shared),
     pending: PendingShared,
     user_id: String,
@@ -145,7 +145,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.Dispatch))
+  GotHandle(Document(document_schema.Dispatch))
   Connected(Result(Nil, String))
   EnsuredQueue(Result(OrderedCollection, String))
   EnsuredRoles(Result(TaskManager, String))
@@ -169,7 +169,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       shared: None,
       pending: PendingShared(None, None, None),
       user_id: user_id,
@@ -204,12 +204,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
     // The handle arrives before the handshake completes; creating the nested
     // channels must wait for `Connected`.
-    GotHandle(doc) -> #(Model(..model, doc: Some(doc)), effect.none())
+    GotHandle(document) -> #(
+      Model(..model, document: Some(document)),
+      effect.none(),
+    )
 
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
-      case model.doc, model.shared {
-        Some(doc), None -> #(model, bootstrap_effect(doc))
+      case model.document, model.shared {
+        Some(document), None -> #(model, bootstrap_effect(document))
         _, _ -> #(snapshot(model), effect.none())
       }
     }
@@ -329,7 +332,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             }
             False -> model
           }
-          #(model, watershed_lustre.after(generate_ms, GenerateTick))
+          #(model, watershed_lustre.after(generate_milliseconds, GenerateTick))
         }
         // Lost the role (abandoned, completed, or this tab was never it):
         // stop, and let a later promotion re-arm via `maybe_start_generator`.
@@ -354,7 +357,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     ClaimSettled(ordered_collection_kernel.AcquiredItem(acquire_id, value)) -> {
       let model =
         Model(..model, claim: Working(acquire_id, job.from_json(value)))
-      #(snapshot(model), watershed_lustre.after(dwell_ms, WorkDone(acquire_id)))
+      #(
+        snapshot(model),
+        watershed_lustre.after(dwell_milliseconds, WorkDone(acquire_id)),
+      )
     }
     ClaimSettled(ordered_collection_kernel.QueueEmpty) -> #(
       snapshot(Model(..model, claim: Missed)),
@@ -416,25 +422,27 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
-fn bootstrap_effect(doc: Document(doc_schema.Dispatch)) -> Effect(Msg) {
-  let root = watershed.root_typed(doc)
+fn bootstrap_effect(
+  document: Document(document_schema.Dispatch),
+) -> Effect(Msg) {
+  let root = watershed.root_typed(document)
   effect.batch([
     watershed_lustre.ensure_ordered_collection(
-      doc,
+      document,
       root,
-      doc_schema.queue(),
+      document_schema.queue(),
       EnsuredQueue,
     ),
     watershed_lustre.ensure_task_manager(
-      doc,
+      document,
       root,
-      doc_schema.roles(),
+      document_schema.roles(),
       EnsuredRoles,
     ),
     watershed_lustre.ensure_sequence(
-      doc,
+      document,
       root,
-      doc_schema.completed(),
+      document_schema.completed(),
       EnsuredDone,
     ),
   ])
@@ -444,8 +452,9 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
   case model.shared, model.pending {
     None, PendingShared(Some(queue), Some(roles), Some(done)) -> {
       let shared = Shared(queue:, roles:, done:)
-      let my_client_id = case model.doc {
-        Some(doc) -> watershed.client_id(doc) |> option.map(client_id.to_int)
+      let my_client_id = case model.document {
+        Some(document) ->
+          watershed.client_id(document) |> option.map(client_id.to_int)
         None -> None
       }
       let model =
@@ -512,7 +521,7 @@ fn maybe_start_generator(model: Model) -> #(Model, Effect(Msg)) {
   case is_dispatcher(model) && !model.generator_running {
     True -> #(
       Model(..model, generator_running: True),
-      watershed_lustre.after(generate_ms, GenerateTick),
+      watershed_lustre.after(generate_milliseconds, GenerateTick),
     )
     False -> #(model, effect.none())
   }

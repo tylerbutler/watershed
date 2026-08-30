@@ -97,7 +97,7 @@ fn with_relay(
     }
     RollDue -> {
       roll(map)
-      schedule_roll(roll_due, roll_interval_ms)
+      schedule_roll(roll_due, roll_interval_milliseconds)
       event_loop(map, selector, roll_due)
     }
   }
@@ -164,7 +164,7 @@ BpmCommitted ->
       // forever on a rejection.
       #(
         Model(..model, proposing: True),
-        watershed_lustre.after(signoff_poll_ms, PollSignoffs),
+        watershed_lustre.after(signoff_poll_milliseconds, PollSignoffs),
       )
     }
     _, _, _ -> #(model, effect.none())
@@ -222,10 +222,10 @@ BpmCommitted ->
     ],
     snippet: `fn presence_effect(
   model: Model,
-  doc: Document(doc_schema.BoardDoc),
+  document: Document(document_schema.BoardDocument),
 ) -> Effect(Msg) {
   watershed_lustre.presence(
-    document: doc,
+    document: document,
     config: presence.config(encode_presence, presence_decoder()),
     initial: current_presence(model),
     started: PresenceStarted,
@@ -332,11 +332,11 @@ pub fn flush(state: State, generation: Int) -> #(State, Bool) {
       "Bootstrap belongs in the Connected arm, not GotHandle: attaching a channel needs a ready connection, while resolving a handle does not. Fire ensure_* early and the app paints locally while sharing nothing.",
     ],
     snippet: `Connected(Ok(_)) ->
-  case model.doc {
+  case model.document {
     None -> #(Model(..model, status: Ready), effect.none())
-    Some(doc) -> {
+    Some(document) -> {
       let #(canvas, canvas_effect) =
-        component.init(doc, watershed.root_typed(doc))
+        component.init(document, watershed.root_typed(document))
       #(
         Model(..model, status: Ready, canvas: Some(canvas)),
         effect.map(canvas_effect, Canvas),
@@ -454,7 +454,7 @@ fn render_column(
     ],
     snippet: `// attached — snapshot and all — by storing its handle in the roster.
 // A single \`write\` fills every key; \`stamp\` records the schema version.
-let assert Ok(me) = watershed.create_typed_map(doc)
+let assert Ok(me) = watershed.create_typed_map(document)
 watershed.write(
   me,
   player_schema(),
@@ -486,23 +486,23 @@ let selector =
 /// the key is absent, so two tabs opening a *cold* document can both create one
 /// and LWW settles a single handle — the loser is orphaned before anybody has
 /// interacted with it, and every tab converges on the same four handles.
-fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
-  let root = watershed.root_typed(doc)
+fn bootstrap_effect(document: Document(document_schema.Showcase)) -> Effect(Msg) {
+  let root = watershed.root_typed(document)
   effect.batch([
     watershed_lustre.auto_summarize(
-      document: doc,
+      document: document,
       policy: summary_policy.policy()
         |> summary_policy.with_threshold(summary_threshold),
     ),
-    watershed_lustre.ensure_child(doc, root, doc_schema.text(), EnsuredText),
+    watershed_lustre.ensure_child(document, root, document_schema.text(), EnsuredText),
     watershed_lustre.ensure_child(
-      doc,
+      document,
       root,
-      doc_schema.playlist(),
+      document_schema.playlist(),
       EnsuredPlaylist,
     ),
-    watershed_lustre.ensure_child(doc, root, doc_schema.sudoku(), EnsuredSudoku),
-    watershed_lustre.ensure_child(doc, root, doc_schema.canvas(), EnsuredCanvas),
+    watershed_lustre.ensure_child(document, root, document_schema.sudoku(), EnsuredSudoku),
+    watershed_lustre.ensure_child(document, root, document_schema.canvas(), EnsuredCanvas),
   ])
 }`,
     snippetLang: "gleam",
@@ -621,9 +621,9 @@ AtomicChanged(key, value, _local) -> {
       "sluice_js.disconnect sequences the same leave a real server would, so worker death becomes an ordinary in-process scenario. The suite is equally explicit about its limit: it cannot vouch that floodgate emits a leave for a vanished socket; that one claim is what the live smoke exists for.",
     ],
     snippet: `pub fn held_job_returns_to_queue_when_holder_disconnects_test() {
-  let #(sluice, doc_a, doc_b) = room("wq-worker-dies")
-  let queue_a = queue_of(doc_a)
-  let queue_b = queue_of(doc_b)
+  let #(sluice, document_a, document_b) = room("wq-worker-dies")
+  let queue_a = queue_of(document_a)
+  let queue_b = queue_of(document_b)
   let payload = job("doomed")
 
   watershed.ordered_add(queue_a, payload)
@@ -636,7 +636,7 @@ AtomicChanged(key, value, _local) -> {
   |> should.equal([AcquiredItem(id_a, payload)])
 
   // The tab holding the job goes away without completing or releasing.
-  sluice_js.disconnect(sluice, doc_a)
+  sluice_js.disconnect(sluice, document_a)
   sluice_js.settle(sluice)
 
   transport_js.get_cell(events_b)

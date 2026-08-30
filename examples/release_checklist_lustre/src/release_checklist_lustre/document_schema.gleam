@@ -12,7 +12,7 @@
 //// the release captain's client-assigned identity string. Claims give the
 //// room first-writer-wins election plus compare-and-set take-over, so a
 //// captain seat resolves to exactly one holder even when several people
-//// claim it in the same instant — see `release_checklist_lustre`'s doc
+//// claim it in the same instant — see `release_checklist_lustre`'s document
 //// comment for why this is a UI convenience, not an authorization boundary.
 ////
 //// `release` is a `PactMapChannel` holding one key, `"target"`. Like the drum

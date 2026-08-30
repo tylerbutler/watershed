@@ -27,7 +27,7 @@ import watershed/browser
 import watershed/map_kernel
 import watershed_lustre
 
-import dice_lustre/doc_schema
+import dice_lustre/document_schema
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -57,7 +57,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.DiceDoc)),
+    document: Option(Document(document_schema.DiceDocument)),
     user_id: String,
     die: Option(String),
     entries: List(#(String, String)),
@@ -67,7 +67,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.DiceDoc))
+  GotHandle(Document(document_schema.DiceDocument))
   Connected(Result(Nil, String))
   MapChanged(map_kernel.MapEvent)
   DiagnosticsTick
@@ -82,7 +82,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       user_id: user_id,
       die: None,
       entries: [],
@@ -110,17 +110,17 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // The handle is ready: subscribe to the root map. Local and remote edits
     // both surface as `MapChanged`; the binding defers each dispatch so a local
     // edit made from inside `update` can't clobber the running cycle.
-    GotHandle(doc) -> {
-      let diagnostics = watershed.diagnostics(doc)
+    GotHandle(document) -> {
+      let diagnostics = watershed.diagnostics(document)
       let model =
-        Model(..model, doc: Some(doc), diagnostics: Some(diagnostics))
+        Model(..model, document: Some(document), diagnostics: Some(diagnostics))
         |> add_diagnostic(
           "document handle acquired · " <> diagnostic_line(diagnostics),
         )
       #(
         model,
         effect.batch([
-          watershed_lustre.subscribe(watershed.root(doc), MapChanged),
+          watershed_lustre.subscribe(watershed.root(document), MapChanged),
           watershed_lustre.after(250, DiagnosticsTick),
         ]),
       )
@@ -141,8 +141,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     // A map event fired (local or remote): refresh our view of the state.
     MapChanged(event) -> {
-      let diagnostics = case model.doc {
-        Some(doc) -> Some(watershed.diagnostics(doc))
+      let diagnostics = case model.document {
+        Some(document) -> Some(watershed.diagnostics(document))
         None -> None
       }
       let detail = case diagnostics {
@@ -157,8 +157,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     DiagnosticsTick -> {
-      let next = case model.doc {
-        Some(doc) -> Some(watershed.diagnostics(doc))
+      let next = case model.document {
+        Some(document) -> Some(watershed.diagnostics(document))
         None -> None
       }
       let model = case next, model.diagnostics {
@@ -172,26 +172,27 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     RollClicked -> {
       let roll = 1 + int.random(6)
-      case model.doc {
-        Some(doc) -> watershed.set(watershed.root(doc), die_key, json.int(roll))
+      case model.document {
+        Some(document) ->
+          watershed.set(watershed.root(document), die_key, json.int(roll))
         None -> Nil
       }
       #(model, effect.none())
     }
 
     ClearClicked -> {
-      case model.doc {
-        Some(doc) -> watershed.clear(watershed.root(doc))
+      case model.document {
+        Some(document) -> watershed.clear(watershed.root(document))
         None -> Nil
       }
       #(model, effect.none())
     }
 
     ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(
+      case model.document {
+        Some(document) -> #(
           add_diagnostic(model, "force reconnect requested"),
-          watershed_lustre.force_reconnect(doc),
+          watershed_lustre.force_reconnect(document),
         )
         None -> #(model, effect.none())
       }
@@ -200,10 +201,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
 /// Re-read the optimistic map state into the model for rendering.
 fn snapshot(model: Model) -> Model {
-  case model.doc {
+  case model.document {
     None -> model
-    Some(doc) -> {
-      let map = watershed.root(doc)
+    Some(document) -> {
+      let map = watershed.root(document)
       let die =
         watershed.get(map, die_key)
         |> option.from_result

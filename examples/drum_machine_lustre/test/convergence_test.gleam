@@ -7,7 +7,7 @@
 //// Web Audio concern with no collaborative content, and a test that asserted
 //// step timings against a mocked clock would be testing the mock.
 
-import drum_machine_lustre/doc_schema
+import drum_machine_lustre/document_schema
 import gleam/list
 import gleam/string
 import gleeunit/should
@@ -34,27 +34,27 @@ type Client {
 /// seeds the handles directly and keeps the assertions free of waiting.
 fn room(name: String) -> #(Sluice, Client, Client) {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root_a = watershed.root(doc_a)
+  let root_a = watershed.root(document_a)
   list.each(track_keys, fn(key) {
-    let assert Ok(set) = watershed.create_or_set(doc_a)
+    let assert Ok(set) = watershed.create_or_set(document_a)
     watershed.set(root_a, key, watershed.or_set_handle_of(set))
   })
   sluice_js.settle(sluice)
 
-  #(sluice, client(doc_a), client(doc_b))
+  #(sluice, client(document_a), client(document_b))
 }
 
-fn client(doc: Document(doc_schema.Machine)) -> Client {
-  let root = watershed.root(doc)
+fn client(document: Document(document_schema.Machine)) -> Client {
+  let root = watershed.root(document)
   let tracks =
     track_keys
     |> list.map(fn(key) {
       let assert Ok(value) = watershed.get(root, key)
-      let assert Ok(set) = watershed.resolve_or_set(doc, value)
+      let assert Ok(set) = watershed.resolve_or_set(document, value)
       set
     })
   Client(tracks: tracks)
@@ -168,8 +168,8 @@ pub fn a_late_joiner_replays_the_pattern_test() -> Nil {
   sluice_js.settle(sluice)
 
   // Someone walking in halfway through hears what the room is already playing.
-  let doc_c = sluice_js.connect(sluice, "user-c")
+  let document_c = sluice_js.connect(sluice, "user-c")
   sluice_js.settle(sluice)
 
-  steps(track(client(doc_c), 0)) |> should.equal(["0", "8"])
+  steps(track(client(document_c), 0)) |> should.equal(["0", "8"])
 }

@@ -6,7 +6,7 @@ import gleeunit
 import gleeunit/should
 
 import tournament_bracket_lustre/bracket
-import tournament_bracket_lustre/doc_schema
+import tournament_bracket_lustre/document_schema
 import watershed.{type Document, type RegisterCollection}
 import watershed/register_collection_kernel.{Atomic}
 import watershed/sluice_js.{type Sluice}
@@ -17,22 +17,32 @@ pub fn main() -> Nil {
 
 fn room(name: String) -> #(Sluice, RegisterCollection, RegisterCollection) {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root_a = watershed.root_typed(doc_a)
-  let assert Ok(matches) = watershed.create_register_collection(doc_a)
-  watershed.set_register_collection_field(root_a, doc_schema.matches(), matches)
+  let root_a = watershed.root_typed(document_a)
+  let assert Ok(matches) = watershed.create_register_collection(document_a)
+  watershed.set_register_collection_field(
+    root_a,
+    document_schema.matches(),
+    matches,
+  )
   sluice_js.settle(sluice)
 
-  #(sluice, matches, matches_for(doc_b))
+  #(sluice, matches, matches_for(document_b))
 }
 
-fn matches_for(doc: Document(doc_schema.BracketDoc)) -> RegisterCollection {
-  let root = watershed.root_typed(doc)
+fn matches_for(
+  document: Document(document_schema.BracketDocument),
+) -> RegisterCollection {
+  let root = watershed.root_typed(document)
   let assert Ok(Some(matches)) =
-    watershed.resolve_register_collection_field(doc, root, doc_schema.matches())
+    watershed.resolve_register_collection_field(
+      document,
+      root,
+      document_schema.matches(),
+    )
   matches
 }
 

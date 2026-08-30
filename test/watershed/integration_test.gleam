@@ -341,12 +341,12 @@ pub fn load_version_multichannel_test() -> Nil {
 
 @target(erlang)
 fn run_nested_map_test() -> Nil {
-  let document = "watershed-nm-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-nm-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Establish the session.
   watershed_beam.set(map_a, "title", json.string("nested demo"))
@@ -355,20 +355,20 @@ fn run_nested_map_test() -> Nil {
 
   // Create a detached map and edit it: local-only, so no operations go out (the
   // in-flight queue stays empty) and B sees nothing.
-  let child_a = case watershed_beam.create_map(doc_a) {
+  let child_a = case watershed_beam.create_map(document_a) {
     Ok(child) -> child
     Error(reason) -> panic as { "create_map failed: " <> reason }
   }
   watershed_beam.set(child_a, "die", json.int(3))
   watershed_beam.set(child_a, "note", json.string("hi"))
-  watershed_beam.is_synced(doc_a) |> expect.to_be_true()
+  watershed_beam.is_synced(document_a) |> expect.to_be_true()
   watershed_beam.size(map_b) |> expect.to_equal(1)
 
   // Storing the handle attaches the child (snapshot included) and syncs it.
   watershed_beam.set(map_a, "child", watershed_beam.handle_of(child_a))
 
   // B resolves the handle and sees the detached-phase snapshot.
-  let child_b = resolve_key_or_panic(doc_b, map_b, "child")
+  let child_b = resolve_key_or_panic(document_b, map_b, "child")
   wait_until(50, fn() {
     watershed_beam.entries(child_b) == watershed_beam.entries(child_a)
   })
@@ -392,18 +392,18 @@ fn run_nested_map_test() -> Nil {
   watershed_beam.get(child_a, "raced")
   |> expect.to_equal(watershed_beam.get(child_b, "raced"))
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_mixed_counter_test() -> Nil {
-  let document = "watershed-cnt-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-cnt-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Establish the session.
   watershed_beam.set(map_a, "title", json.string("scoreboard"))
@@ -411,9 +411,9 @@ fn run_mixed_counter_test() -> Nil {
   |> expect.to_be_true()
 
   // Detached counter: local increments produce no operations.
-  let assert Ok(counter_a) = watershed_beam.create_counter(doc_a)
+  let assert Ok(counter_a) = watershed_beam.create_counter(document_a)
   watershed_beam.increment(counter_a, 2)
-  watershed_beam.is_synced(doc_a) |> expect.to_be_true()
+  watershed_beam.is_synced(document_a) |> expect.to_be_true()
   watershed_beam.counter_value(counter_a) |> expect.to_equal(Ok(2))
 
   // Storing the handle attaches the counter with its optimistic value.
@@ -424,7 +424,7 @@ fn run_mixed_counter_test() -> Nil {
   )
 
   // B resolves the handle and sees the detached-phase value.
-  let counter_b = resolve_counter_key_or_panic(doc_b, map_b, "tally")
+  let counter_b = resolve_counter_key_or_panic(document_b, map_b, "tally")
   wait_until(50, fn() { watershed_beam.counter_value(counter_b) == Ok(2) })
   |> expect.to_be_true()
 
@@ -438,36 +438,36 @@ fn run_mixed_counter_test() -> Nil {
   |> expect.to_be_true()
 
   // A mixed-channel summary bootstraps a fresh client.
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
-  case wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) }) {
+  case wait_until_ok(50, fn() { watershed_beam.summarize(document_a) }) {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
-  let counter_c = resolve_counter_key_or_panic(doc_c, map_c, "tally")
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
+  let counter_c = resolve_counter_key_or_panic(document_c, map_c, "tally")
   wait_until(50, fn() { watershed_beam.counter_value(counter_c) == Ok(6) })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn run_claims_race_test() -> Nil {
-  let document = "watershed-clm-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-clm-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(claims_a) = watershed_beam.create_claims(doc_a)
+  let assert Ok(claims_a) = watershed_beam.create_claims(document_a)
   watershed_beam.set(map_a, "locks", watershed_beam.claims_handle_of(claims_a))
 
-  let claims_b = resolve_claims_key_or_panic(doc_b, map_b, "locks")
+  let claims_b = resolve_claims_key_or_panic(document_b, map_b, "locks")
   wait_until(50, fn() {
     watershed_beam.has_claim(claims_a, "owner") == False
     && watershed_beam.has_claim(claims_b, "owner") == False
@@ -512,8 +512,8 @@ fn run_claims_race_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
@@ -545,7 +545,7 @@ fn await_claim_reply_or_panic(
 
 @target(erlang)
 fn resolve_claims_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.Claims {
@@ -553,7 +553,7 @@ fn resolve_claims_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_claims(doc, value)
+        Ok(value) -> watershed_beam.resolve_claims(document, value)
       }
     })
   case resolved {
@@ -565,7 +565,7 @@ fn resolve_claims_key_or_panic(
 
 @target(erlang)
 fn resolve_counter_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.SharedCounter {
@@ -573,7 +573,7 @@ fn resolve_counter_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_counter(doc, value)
+        Ok(value) -> watershed_beam.resolve_counter(document, value)
       }
     })
   case resolved {
@@ -585,33 +585,33 @@ fn resolve_counter_key_or_panic(
 
 @target(erlang)
 fn run_recursive_attach_test() -> Nil {
-  let document = "watershed-ra-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-ra-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Two detached maps referencing each other (a cycle).
-  let assert Ok(m1_a) = watershed_beam.create_map(doc_a)
-  let assert Ok(m2_a) = watershed_beam.create_map(doc_a)
+  let assert Ok(m1_a) = watershed_beam.create_map(document_a)
+  let assert Ok(m2_a) = watershed_beam.create_map(document_a)
   watershed_beam.set(m1_a, "name", json.string("m1"))
   watershed_beam.set(m1_a, "peer", watershed_beam.handle_of(m2_a))
   watershed_beam.set(m2_a, "name", json.string("m2"))
   watershed_beam.set(m2_a, "peer", watershed_beam.handle_of(m1_a))
-  watershed_beam.is_synced(doc_a) |> expect.to_be_true()
+  watershed_beam.is_synced(document_a) |> expect.to_be_true()
 
   // Storing one handle attaches the whole reachable closure.
   watershed_beam.set(map_a, "m1", watershed_beam.handle_of(m1_a))
 
   // B resolves transitively: root -> m1 -> m2 -> back to m1.
-  let m1_b = resolve_key_or_panic(doc_b, map_b, "m1")
-  let m2_b = resolve_key_or_panic(doc_b, m1_b, "peer")
+  let m1_b = resolve_key_or_panic(document_b, map_b, "m1")
+  let m2_b = resolve_key_or_panic(document_b, m1_b, "peer")
   wait_until(50, fn() {
     watershed_beam.get(m2_b, "name") == Ok(json.string("m2"))
   })
   |> expect.to_be_true()
-  let m1_again = resolve_key_or_panic(doc_b, m2_b, "peer")
+  let m1_again = resolve_key_or_panic(document_b, m2_b, "peer")
   watershed_beam.get(m1_again, "name")
   |> expect.to_equal(Ok(json.string("m1")))
 
@@ -620,18 +620,18 @@ fn run_recursive_attach_test() -> Nil {
   wait_until(50, fn() { watershed_beam.get(m2_a, "from-b") == Ok(json.int(2)) })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_reconnect_quiet_room_test() -> Nil {
-  let document = "watershed-rq-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-rq-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Establish the session and confirm both sides are live.
   watershed_beam.set(map_a, "k1", json.int(1))
@@ -642,7 +642,7 @@ fn run_reconnect_quiet_room_test() -> Nil {
   // B writes. The sleep is load-bearing: `force_reconnect` is a cast, so
   // without it B's edit races the teardown and may be delivered live, which
   // would leave A nothing to catch up on and quietly void the test.
-  watershed_beam.force_reconnect(doc_a)
+  watershed_beam.force_reconnect(document_a)
   process.sleep(500)
 
   // The only write in the whole scenario, and it lands squarely in A's gap.
@@ -663,18 +663,18 @@ fn run_reconnect_quiet_room_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_reconnect_nothing_missed_test() -> Nil {
-  let document = "watershed-rn-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-rn-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   watershed_beam.set(map_a, "k1", json.int(1))
   wait_until(50, fn() { watershed_beam.get(map_b, "k1") == Ok(json.int(1)) })
@@ -683,7 +683,7 @@ fn run_reconnect_nothing_missed_test() -> Nil {
   // Reconnect into total silence. Nobody writes during the gap, so the only
   // operation sequenced across it is A's own rejoin — which floodgate reports
   // as the handshake checkpoint and pointedly does not send to A.
-  watershed_beam.force_reconnect(doc_a)
+  watershed_beam.force_reconnect(document_a)
   process.sleep(500)
 
   // A's first edit after coming back is the whole assertion: while catching up
@@ -696,18 +696,18 @@ fn run_reconnect_nothing_missed_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_reconnect_mid_attach_test() -> Nil {
-  let document = "watershed-rma-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-rma-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Establish the session.
   watershed_beam.set(map_a, "k", json.int(1))
@@ -716,14 +716,14 @@ fn run_reconnect_mid_attach_test() -> Nil {
 
   // Detached edits, then drop the channel. The attach triggered while
   // reconnecting must survive as in-flight state and resubmit.
-  let assert Ok(child_a) = watershed_beam.create_map(doc_a)
+  let assert Ok(child_a) = watershed_beam.create_map(document_a)
   watershed_beam.set(child_a, "die", json.int(5))
-  watershed_beam.force_reconnect(doc_a)
+  watershed_beam.force_reconnect(document_a)
   watershed_beam.set(map_a, "child", watershed_beam.handle_of(child_a))
   watershed_beam.set(child_a, "during", json.string("reconnect"))
 
   // B converges on the attach and both edits once A is back.
-  let child_b = resolve_key_or_panic(doc_b, map_b, "child")
+  let child_b = resolve_key_or_panic(document_b, map_b, "child")
   wait_until(100, fn() {
     watershed_beam.entries(child_b) == watershed_beam.entries(child_a)
     && watershed_beam.get(child_b, "during") == Ok(json.string("reconnect"))
@@ -731,27 +731,27 @@ fn run_reconnect_mid_attach_test() -> Nil {
   |> expect.to_be_true()
   watershed_beam.get(child_b, "die") |> expect.to_equal(Ok(json.int(5)))
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_summary_nested_test() -> Nil {
-  let document = "watershed-s2-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-s2-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
   // Nested state: root -> child, both with confirmed entries.
-  let assert Ok(child_a) = watershed_beam.create_map(doc_a)
+  let assert Ok(child_a) = watershed_beam.create_map(document_a)
   watershed_beam.set(child_a, "die", json.int(3))
   watershed_beam.set(map_a, "title", json.string("doc"))
   watershed_beam.set(map_a, "child", watershed_beam.handle_of(child_a))
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
 
   let handle = case
-    wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) })
+    wait_until_ok(50, fn() { watershed_beam.summarize(document_a) })
   {
     Ok(handle) -> handle
     Error(reason) -> panic as { "summarize failed: " <> reason }
@@ -761,18 +761,18 @@ fn run_summary_nested_test() -> Nil {
   // A post-summary delta on the *child* channel: a fresh client can only
   // apply it if the summary taught it that channel.
   watershed_beam.set(child_a, "post", json.bool(True))
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
 
   // Fresh client: bootstraps from the summary blob (the attach operation
   // predates its post-summary history), resolves the child, sees everything.
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
   wait_until(50, fn() {
     same_entries(watershed_beam.entries(map_c), watershed_beam.entries(map_a))
   })
   |> expect.to_be_true()
-  let child_c = resolve_key_or_panic(doc_c, map_c, "child")
+  let child_c = resolve_key_or_panic(document_c, map_c, "child")
   wait_until(50, fn() {
     same_entries(
       watershed_beam.entries(child_c),
@@ -782,24 +782,25 @@ fn run_summary_nested_test() -> Nil {
   |> expect.to_be_true()
   watershed_beam.get(child_c, "post") |> expect.to_equal(Ok(json.bool(True)))
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn run_load_version_multichannel_test() -> Nil {
-  let document = "watershed-lvm-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-lvm-" <> int.to_string(system_time(Second))
 
-  let doc = connect_or_panic(document, "user-a")
-  let map = watershed_beam.root(doc)
+  let document = connect_or_panic(document_id, "user-a")
+  let map = watershed_beam.root(document)
 
-  let assert Ok(child) = watershed_beam.create_map(doc)
+  let assert Ok(child) = watershed_beam.create_map(document)
   watershed_beam.set(child, "die", json.int(4))
   watershed_beam.set(map, "child", watershed_beam.handle_of(child))
-  wait_until(50, fn() { watershed_beam.is_synced(doc) }) |> expect.to_be_true()
+  wait_until(50, fn() { watershed_beam.is_synced(document) })
+  |> expect.to_be_true()
 
   let tree_sha = case
-    wait_until_ok(50, fn() { watershed_beam.summarize(doc) })
+    wait_until_ok(50, fn() { watershed_beam.summarize(document) })
   {
     Ok(tree_sha) -> tree_sha
     Error(reason) -> panic as { "summarize failed: " <> reason }
@@ -807,7 +808,7 @@ fn run_load_version_multichannel_test() -> Nil {
 
   // The stored blob is multi-channel: root first, then the child address the
   // root's handle value points at, with the child's captured entries.
-  let assert Ok(blob) = watershed_beam.load_version(doc, handle: tree_sha)
+  let assert Ok(blob) = watershed_beam.load_version(document, handle: tree_sha)
   let assert Ok(handle_value) = watershed_beam.get(map, "child")
   let assert Ok(child_address) = handle.parse_handle(handle_value)
   case blob.channels {
@@ -822,7 +823,7 @@ fn run_load_version_multichannel_test() -> Nil {
     _ -> panic as "expected exactly two channels in the summary blob"
   }
 
-  watershed_beam.close(doc)
+  watershed_beam.close(document)
 }
 
 @target(erlang)
@@ -830,11 +831,11 @@ fn run_load_version_multichannel_test() -> Nil {
 /// Retries both the read (the set may not have arrived) and the resolve
 /// (the referenced channel's attach may still be in flight).
 fn resolve_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.SharedMap {
-  case try_resolve_key(50, doc, map, key) {
+  case try_resolve_key(50, document, map, key) {
     Ok(child) -> child
     Error(reason) ->
       panic as { "resolving handle at key " <> key <> " failed: " <> reason }
@@ -844,7 +845,7 @@ fn resolve_key_or_panic(
 @target(erlang)
 fn try_resolve_key(
   attempts: Int,
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> Result(watershed_beam.SharedMap, String) {
@@ -853,7 +854,7 @@ fn try_resolve_key(
     Ok(value) ->
       case watershed_beam.is_handle(value) {
         False -> Error("value is not a handle")
-        True -> watershed_beam.resolve(doc, value)
+        True -> watershed_beam.resolve(document, value)
       }
   }
   case attempt {
@@ -863,7 +864,7 @@ fn try_resolve_key(
         0 -> Error(reason)
         _ -> {
           process.sleep(100)
-          try_resolve_key(attempts - 1, doc, map, key)
+          try_resolve_key(attempts - 1, document, map, key)
         }
       }
   }
@@ -871,20 +872,21 @@ fn try_resolve_key(
 
 @target(erlang)
 fn run_versions_test() -> Nil {
-  let document = "watershed-ver-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-ver-" <> int.to_string(system_time(Second))
 
-  let doc = connect_or_panic(document, "user-a")
-  let map = watershed_beam.root(doc)
+  let document = connect_or_panic(document_id, "user-a")
+  let map = watershed_beam.root(document)
 
   // A document with no summaries yet lists no versions.
-  watershed_beam.get_versions(doc, count: 10) |> expect.to_equal(Ok([]))
+  watershed_beam.get_versions(document, count: 10) |> expect.to_equal(Ok([]))
 
   // First snapshot: {die: 4, color: blue}.
   watershed_beam.set(map, "die", json.int(4))
   watershed_beam.set(map, "color", json.string("blue"))
-  wait_until(50, fn() { watershed_beam.is_synced(doc) }) |> expect.to_be_true()
+  wait_until(50, fn() { watershed_beam.is_synced(document) })
+  |> expect.to_be_true()
   let handle_1 = case
-    wait_until_ok(50, fn() { watershed_beam.summarize(doc) })
+    wait_until_ok(50, fn() { watershed_beam.summarize(document) })
   {
     Ok(handle) -> handle
     Error(reason) -> panic as { "first summarize failed: " <> reason }
@@ -893,9 +895,10 @@ fn run_versions_test() -> Nil {
   // Second snapshot: color changed and a key added.
   watershed_beam.set(map, "color", json.string("green"))
   watershed_beam.set(map, "post", json.bool(True))
-  wait_until(50, fn() { watershed_beam.is_synced(doc) }) |> expect.to_be_true()
+  wait_until(50, fn() { watershed_beam.is_synced(document) })
+  |> expect.to_be_true()
   let handle_2 = case
-    wait_until_ok(50, fn() { watershed_beam.summarize(doc) })
+    wait_until_ok(50, fn() { watershed_beam.summarize(document) })
   {
     Ok(handle) -> handle
     Error(reason) -> panic as { "second summarize failed: " <> reason }
@@ -904,7 +907,7 @@ fn run_versions_test() -> Nil {
   // The server registers a version per summarize operation (async relative to
   // the summarize reply), newest first.
   wait_until(50, fn() {
-    case watershed_beam.get_versions(doc, count: 10) {
+    case watershed_beam.get_versions(document, count: 10) {
       Ok(versions) ->
         list.map(versions, fn(v: git_storage.SummaryVersion) { v.handle })
         == [handle_2, handle_1]
@@ -914,16 +917,17 @@ fn run_versions_test() -> Nil {
   |> expect.to_be_true()
 
   let assert Ok([latest, previous]) =
-    watershed_beam.get_versions(doc, count: 10)
+    watershed_beam.get_versions(document, count: 10)
   { latest.sequence_number > previous.sequence_number } |> expect.to_be_true()
 
   // `count` keeps only the newest versions.
-  let assert Ok([only]) = watershed_beam.get_versions(doc, count: 1)
+  let assert Ok([only]) = watershed_beam.get_versions(document, count: 1)
   only.handle |> expect.to_equal(handle_2)
 
   // Historical snapshot reads by handle: each version returns exactly the
   // confirmed state it captured, without affecting the live document.
-  let assert Ok(blob_1) = watershed_beam.load_version(doc, handle: handle_1)
+  let assert Ok(blob_1) =
+    watershed_beam.load_version(document, handle: handle_1)
   let entries_1 =
     list.flatten(
       list.map(blob_1.channels, fn(ch) { snapshot_entries(ch.snapshot) }),
@@ -933,7 +937,8 @@ fn run_versions_test() -> Nil {
     #("die", json.int(4)),
     #("color", json.string("blue")),
   ])
-  let assert Ok(blob_2) = watershed_beam.load_version(doc, handle: handle_2)
+  let assert Ok(blob_2) =
+    watershed_beam.load_version(document, handle: handle_2)
   let entries_2 =
     list.flatten(
       list.map(blob_2.channels, fn(ch) { snapshot_entries(ch.snapshot) }),
@@ -950,28 +955,28 @@ fn run_versions_test() -> Nil {
   watershed_beam.get(map, "color")
   |> expect.to_equal(Ok(json.string("green")))
 
-  watershed_beam.close(doc)
+  watershed_beam.close(document)
 }
 
 @target(erlang)
 fn run_large_history_test() -> Nil {
-  let document = "watershed-lh-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-lh-" <> int.to_string(system_time(Second))
   let operation_count = 1050
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
   // Write more distinct keys than the history window holds. The earliest
   // sets (k1, k2, ...) age out of the server's in-memory operation history, so
   // a later bootstrap can only recover them via the deltas REST endpoint.
   write_keys(map_a, 1, operation_count)
-  wait_until(600, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(600, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
 
   // A fresh client's initialMessages are missing the prefix; bootstrap must
   // page it in and converge on the full map.
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_b = watershed_beam.root(doc_b)
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_b = watershed_beam.root(document_b)
   wait_until(100, fn() {
     watershed_beam.size(map_b) == operation_count
     && same_entries(
@@ -985,8 +990,8 @@ fn run_large_history_test() -> Nil {
   watershed_beam.get(map_b, "k1") |> expect.to_equal(Ok(json.int(1)))
   watershed_beam.get(map_b, "k25") |> expect.to_equal(Ok(json.int(25)))
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
@@ -1024,10 +1029,10 @@ fn write_keys(map: watershed_beam.SharedMap, from: Int, to: Int) -> Nil {
 
 @target(erlang)
 fn run_summary_test() -> Nil {
-  let document = "watershed-sum-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-sum-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
   // Build up some confirmed state.
   watershed_beam.set(map_a, "die", json.int(4))
@@ -1036,14 +1041,14 @@ fn run_summary_test() -> Nil {
   watershed_beam.delete(map_a, "count")
   // Wait until every edit is acknowledged (in-flight drained) so the summary
   // captures the complete confirmed state.
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
 
   // Summarize once the client is caught up. Retrying is safe: attempts made
   // before the client is synced reply Error and submit nothing; only the
   // successful attempt uploads and submits the summarize operation.
   let handle = case
-    wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) })
+    wait_until_ok(50, fn() { watershed_beam.summarize(document_a) })
   {
     Ok(handle) -> handle
     Error(reason) -> panic as { "summarize failed: " <> reason }
@@ -1054,14 +1059,14 @@ fn run_summary_test() -> Nil {
   // the summary (history above SN 1), and wait until it too is sequenced so it
   // is guaranteed to appear in the fresh client's post-summary history.
   watershed_beam.set(map_a, "post", json.string("after-summary"))
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
 
   // A fresh client connects; the server serves the summaryContext + only the
   // post-summary deltas, so watershed must load the summary and apply the
   // delta rather than fail with a HistoryGap.
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_b = watershed_beam.root(doc_b)
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_b = watershed_beam.root(document_b)
   let converged =
     wait_until(50, fn() {
       same_entries(watershed_beam.entries(map_b), watershed_beam.entries(map_a))
@@ -1077,22 +1082,22 @@ fn run_summary_test() -> Nil {
   watershed_beam.get(map_b, "post")
   |> expect.to_equal(Ok(json.string("after-summary")))
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_auto_summary_test() -> Nil {
-  let document = "watershed-auto-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-auto-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
   watershed_beam.auto_summarize(
-    doc_a,
+    document_a,
     summary_policy.policy()
       |> summary_policy.with_threshold(4)
-      |> summary_policy.with_jitter_ms(0),
+      |> summary_policy.with_jitter_milliseconds(0),
   )
 
   // Nothing here calls `summarize`. The drift falling back under the threshold
@@ -1102,17 +1107,17 @@ fn run_auto_summary_test() -> Nil {
   // the policy arms on a sequenced message. A document that falls quiet just
   // over the threshold stays there until the next one arrives — correct, and
   // invisible in an app, but a test that stopped writing could wait forever.
-  summarizes_within(doc_a, map_a, 20, 4) |> expect.to_be_true()
+  summarizes_within(document_a, map_a, 20, 4) |> expect.to_be_true()
 
   // A post-checkpoint edit, so the fresh client has to apply a delta on top of
   // the summary rather than landing on it exactly.
   watershed_beam.set(map_a, "post", json.string("after-summary"))
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
 
   // The fresh client bootstraps from a summary nobody asked for.
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_b = watershed_beam.root(doc_b)
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_b = watershed_beam.root(document_b)
   wait_until(50, fn() {
     same_entries(watershed_beam.entries(map_b), watershed_beam.entries(map_a))
   })
@@ -1120,8 +1125,8 @@ fn run_auto_summary_test() -> Nil {
   watershed_beam.get(map_b, "post")
   |> expect.to_equal(Ok(json.string("after-summary")))
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
@@ -1153,48 +1158,50 @@ fn summarizes_within(
 
 @target(erlang)
 fn run_peer_summary_visibility_test() -> Nil {
-  let document = "watershed-peersum-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-peersum-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
 
-  write_keys_drained(doc_a, map_a, 1, 5)
+  write_keys_drained(document_a, map_a, 1, 5)
   // B has seen A's operations, so its drift is the whole log and nothing has
   // summarized.
-  wait_until(50, fn() { watershed_beam.operations_since_summary(doc_b) > 3 })
+  wait_until(50, fn() {
+    watershed_beam.operations_since_summary(document_b) > 3
+  })
   |> expect.to_be_true()
-  let drift_before = watershed_beam.operations_since_summary(doc_b)
+  let drift_before = watershed_beam.operations_since_summary(document_b)
 
   // Only A summarizes, by hand — this is about what B observes, not about the
   // policy's own trigger.
-  case wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) }) {
+  case wait_until_ok(50, fn() { watershed_beam.summarize(document_a) }) {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
-  watershed_beam.operations_since_summary(doc_a) |> expect.to_equal(0)
+  watershed_beam.operations_since_summary(document_a) |> expect.to_equal(0)
 
   // B never called `summarize` and never will — its checkpoint can only move
   // because the room was told. Compared against `drift_before`, since both
   // clients keep counting the messages that follow the checkpoint (the
   // summarize operation itself among them).
   wait_until(50, fn() {
-    watershed_beam.operations_since_summary(doc_b) < drift_before
+    watershed_beam.operations_since_summary(document_b) < drift_before
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_reconnect_test() -> Nil {
-  let document = "watershed-rc-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-rc-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Establish the session and confirm both sides are live.
   watershed_beam.set(map_a, "k1", json.int(1))
@@ -1208,7 +1215,7 @@ fn run_reconnect_test() -> Nil {
   watershed_beam.set(map_a, "k3", json.int(3))
   watershed_beam.set(map_a, "k4", json.int(4))
   watershed_beam.set(map_a, "k5", json.int(5))
-  watershed_beam.force_reconnect(doc_a)
+  watershed_beam.force_reconnect(document_a)
 
   // Edits issued while A is reconnecting must be preserved and resubmitted.
   watershed_beam.set(map_a, "k6", json.string("after-drop"))
@@ -1239,45 +1246,45 @@ fn run_reconnect_test() -> Nil {
   watershed_beam.get(map_b, "k2") |> expect.to_equal(Error(Nil))
 
   // A fresh client bootstrapping from history sees the identical converged map.
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
   wait_until(50, fn() {
     same_entries(watershed_beam.entries(map_c), watershed_beam.entries(map_a))
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn run_pact_map_quorum_test() -> Nil {
-  let document = "watershed-it-quorum-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-it-quorum-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let doc_c = connect_or_panic(document, "user-c")
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let document_c = connect_or_panic(document_id, "user-c")
 
-  let assert Ok(pact_a) = watershed_beam.create_pact_map(doc_a)
+  let assert Ok(pact_a) = watershed_beam.create_pact_map(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "tempo",
     watershed_beam.pact_map_handle_of(pact_a),
   )
 
   let assert Ok(pact_b) =
     wait_until_ok(50, fn() {
-      case watershed_beam.get(watershed_beam.root(doc_b), "tempo") {
+      case watershed_beam.get(watershed_beam.root(document_b), "tempo") {
         Error(Nil) -> Error("handle not replicated to B")
-        Ok(handle) -> watershed_beam.resolve_pact_map(doc_b, handle)
+        Ok(handle) -> watershed_beam.resolve_pact_map(document_b, handle)
       }
     })
   let assert Ok(pact_c) =
     wait_until_ok(50, fn() {
-      case watershed_beam.get(watershed_beam.root(doc_c), "tempo") {
+      case watershed_beam.get(watershed_beam.root(document_c), "tempo") {
         Error(Nil) -> Error("handle not replicated to C")
-        Ok(handle) -> watershed_beam.resolve_pact_map(doc_c, handle)
+        Ok(handle) -> watershed_beam.resolve_pact_map(document_c, handle)
       }
     })
 
@@ -1304,38 +1311,38 @@ fn run_pact_map_quorum_test() -> Nil {
   watershed_beam.pact_map_is_pending(pact_b, "bpm") |> expect.to_be_false()
   watershed_beam.pact_map_is_pending(pact_c, "bpm") |> expect.to_be_false()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn run_pact_map_disconnect_test() -> Nil {
-  let document = "watershed-it-drain-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-it-drain-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let doc_c = connect_or_panic(document, "user-c")
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let document_c = connect_or_panic(document_id, "user-c")
 
-  let assert Ok(pact_a) = watershed_beam.create_pact_map(doc_a)
+  let assert Ok(pact_a) = watershed_beam.create_pact_map(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "tempo",
     watershed_beam.pact_map_handle_of(pact_a),
   )
   let assert Ok(pact_b) =
     wait_until_ok(50, fn() {
-      case watershed_beam.get(watershed_beam.root(doc_b), "tempo") {
+      case watershed_beam.get(watershed_beam.root(document_b), "tempo") {
         Error(Nil) -> Error("handle not replicated to B")
-        Ok(handle) -> watershed_beam.resolve_pact_map(doc_b, handle)
+        Ok(handle) -> watershed_beam.resolve_pact_map(document_b, handle)
       }
     })
   // C resolves too, so it is a full participant rather than a passive reader.
   let assert Ok(_pact_c) =
     wait_until_ok(50, fn() {
-      case watershed_beam.get(watershed_beam.root(doc_c), "tempo") {
+      case watershed_beam.get(watershed_beam.root(document_c), "tempo") {
         Error(Nil) -> Error("handle not replicated to C")
-        Ok(handle) -> watershed_beam.resolve_pact_map(doc_c, handle)
+        Ok(handle) -> watershed_beam.resolve_pact_map(document_c, handle)
       }
     })
 
@@ -1344,8 +1351,8 @@ fn run_pact_map_disconnect_test() -> Nil {
   // `"leave"`. Wedging here is the failure this test exists to catch, and it is
   // the question that decides whether the protocol is usable in production.
   watershed_beam.pact_map_set(pact_a, "bpm", json.int(90))
-  watershed_beam.force_reconnect(doc_c)
-  watershed_beam.close(doc_c)
+  watershed_beam.force_reconnect(document_c)
+  watershed_beam.close(document_c)
 
   let settled =
     wait_until(100, fn() {
@@ -1368,18 +1375,18 @@ fn run_pact_map_disconnect_test() -> Nil {
     })
   resettled |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_convergence_test() -> Nil {
-  let document = "watershed-it-" <> int.to_string(system_time(Second))
+  let document_id = "watershed-it-" <> int.to_string(system_time(Second))
 
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
   // Concurrent edits from both clients, including a same-key race that
   // server sequencing must resolve identically on both sides.
@@ -1406,46 +1413,47 @@ fn run_convergence_test() -> Nil {
   |> expect.to_equal(watershed_beam.get(map_b, "shared"))
 
   // A third client bootstrapping from history alone must see the same map.
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
   same_entries(watershed_beam.entries(map_c), watershed_beam.entries(map_a))
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn run_restart_ghost_test() -> Nil {
-  let document = "watershed-it-restart-" <> int.to_string(system_time(Second))
+  let document_id =
+    "watershed-it-restart-" <> int.to_string(system_time(Second))
 
   // Three write-mode clients, so three sequenced joins land in the durable log.
   // A `PactMap` is created and agreed before the restart, which is what makes
   // the post-restart replay non-trivial: the joiner has a settled pact to
   // reconstruct as well as a roster.
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let doc_c = connect_or_panic(document, "user-c")
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let document_c = connect_or_panic(document_id, "user-c")
 
-  let assert Ok(pact_a) = watershed_beam.create_pact_map(doc_a)
+  let assert Ok(pact_a) = watershed_beam.create_pact_map(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "tempo",
     watershed_beam.pact_map_handle_of(pact_a),
   )
   let assert Ok(pact_b) =
     wait_until_ok(50, fn() {
-      case watershed_beam.get(watershed_beam.root(doc_b), "tempo") {
+      case watershed_beam.get(watershed_beam.root(document_b), "tempo") {
         Error(Nil) -> Error("handle not replicated to B")
-        Ok(handle) -> watershed_beam.resolve_pact_map(doc_b, handle)
+        Ok(handle) -> watershed_beam.resolve_pact_map(document_b, handle)
       }
     })
   let assert Ok(_) =
     wait_until_ok(50, fn() {
-      case watershed_beam.get(watershed_beam.root(doc_c), "tempo") {
+      case watershed_beam.get(watershed_beam.root(document_c), "tempo") {
         Error(Nil) -> Error("handle not replicated to C")
-        Ok(handle) -> watershed_beam.resolve_pact_map(doc_c, handle)
+        Ok(handle) -> watershed_beam.resolve_pact_map(document_c, handle)
       }
     })
 
@@ -1458,24 +1466,24 @@ fn run_restart_ghost_test() -> Nil {
   // A `TaskManager` role, held by A with B and C queued behind it. None of the
   // three ever releases: the restart is what takes them away, so their claims
   // on the role are only ever answered by a sequenced `leave`.
-  let assert Ok(tasks_a) = watershed_beam.create_task_manager(doc_a)
+  let assert Ok(tasks_a) = watershed_beam.create_task_manager(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "tasks",
     watershed_beam.task_manager_handle_of(tasks_a),
   )
   let assert Ok(tasks_b) =
     wait_until_ok(50, fn() {
-      case watershed_beam.get(watershed_beam.root(doc_b), "tasks") {
+      case watershed_beam.get(watershed_beam.root(document_b), "tasks") {
         Error(Nil) -> Error("task manager handle not replicated to B")
-        Ok(handle) -> watershed_beam.resolve_task_manager(doc_b, handle)
+        Ok(handle) -> watershed_beam.resolve_task_manager(document_b, handle)
       }
     })
   let assert Ok(tasks_c) =
     wait_until_ok(50, fn() {
-      case watershed_beam.get(watershed_beam.root(doc_c), "tasks") {
+      case watershed_beam.get(watershed_beam.root(document_c), "tasks") {
         Error(Nil) -> Error("task manager handle not replicated to C")
-        Ok(handle) -> watershed_beam.resolve_task_manager(doc_c, handle)
+        Ok(handle) -> watershed_beam.resolve_task_manager(document_c, handle)
       }
     })
   watershed_beam.volunteer_for_task(tasks_a, "summarizer")
@@ -1488,9 +1496,9 @@ fn run_restart_ghost_test() -> Nil {
 
   // The ids that must not survive in any replayed queue.
   let pre_restart_ids =
-    [doc_a, doc_b, doc_c]
-    |> list.filter_map(fn(doc) {
-      watershed_beam.client_id(doc) |> option.to_result(Nil)
+    [document_a, document_b, document_c]
+    |> list.filter_map(fn(document) {
+      watershed_beam.client_id(document) |> option.to_result(Nil)
     })
     |> list.map(client_id.to_int)
   list.length(pre_restart_ids) |> expect.to_equal(3)
@@ -1505,21 +1513,21 @@ fn run_restart_ghost_test() -> Nil {
   // reconnect instead would both mask that — a reconnected client re-joins
   // under a fresh id — and drag in an unrelated defect; see
   // `docs/plans/2026-08-09-summary-bootstrap-plan.md`.
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
+  watershed_beam.close(document_c)
 
   // Two fresh clients, both of which reconstruct the room by replaying a log
   // that contains three joins from before the restart.
-  let doc_d = connect_or_panic(document, "user-d")
-  let doc_e = connect_or_panic(document, "user-e")
+  let document_d = connect_or_panic(document_id, "user-d")
+  let document_e = connect_or_panic(document_id, "user-e")
 
   // The settled pact replays intact — the state half of the bootstrap.
   let assert Ok(pact_d) =
     wait_until_ok(50, fn() {
-      case watershed_beam.get(watershed_beam.root(doc_d), "tempo") {
+      case watershed_beam.get(watershed_beam.root(document_d), "tempo") {
         Error(Nil) -> Error("handle not replicated to D")
-        Ok(handle) -> watershed_beam.resolve_pact_map(doc_d, handle)
+        Ok(handle) -> watershed_beam.resolve_pact_map(document_d, handle)
       }
     })
   watershed_beam.pact_map_get(pact_d, "bpm")
@@ -1538,9 +1546,9 @@ fn run_restart_ghost_test() -> Nil {
   // included, queues behind a client that cannot release.
   let assert Ok(tasks_d) =
     wait_until_ok(50, fn() {
-      case watershed_beam.get(watershed_beam.root(doc_d), "tasks") {
+      case watershed_beam.get(watershed_beam.root(document_d), "tasks") {
         Error(Nil) -> Error("task manager handle not replicated to D")
-        Ok(handle) -> watershed_beam.resolve_task_manager(doc_d, handle)
+        Ok(handle) -> watershed_beam.resolve_task_manager(document_d, handle)
       }
     })
 
@@ -1556,8 +1564,8 @@ fn run_restart_ghost_test() -> Nil {
     wait_until(50, fn() { watershed_beam.task_assigned(tasks_d, "summarizer") })
   assigned |> expect.to_be_true()
 
-  watershed_beam.close(doc_d)
-  watershed_beam.close(doc_e)
+  watershed_beam.close(document_d)
+  watershed_beam.close(document_e)
 }
 
 @target(erlang)
@@ -1604,21 +1612,21 @@ fn os_cmd(command: Charlist) -> Charlist
 
 @target(erlang)
 fn connect_or_panic(
-  document: String,
+  document_id: String,
   user_id: String,
 ) -> watershed_beam.Document(root) {
-  let token = mint_token(tenant, document, user_id)
+  let token = mint_token(tenant, document_id, user_id)
   case
     watershed_beam.connect(
       host: host,
       port: port,
       tenant: tenant,
-      document: document,
+      document: document_id,
       token: token,
       user_id: user_id,
     )
   {
-    Ok(doc) -> doc
+    Ok(document) -> document
     Error(reason) -> panic as { "connect failed: " <> reason }
   }
 }
@@ -1657,8 +1665,9 @@ fn wait_until(attempts: Int, check: fn() -> Bool) -> Bool {
 }
 
 @target(erlang)
-/// Retry `check` until it returns `Ok`, polling every 100ms. Returns the last
-/// result (the successful `Ok`, or the final `Error` once attempts run out).
+/// Retry `check` until it returns `Ok`, polling every 100milliseconds. Returns
+/// the last result (the successful `Ok`, or the final `Error` once attempts run
+/// out).
 fn wait_until_ok(attempts: Int, check: fn() -> Result(a, b)) -> Result(a, b) {
   case check() {
     Ok(value) -> Ok(value)
@@ -1678,7 +1687,7 @@ fn wait_until_ok(attempts: Int, check: fn() -> Result(a, b)) -> Result(a, b) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-fn mint_token(tenant: String, document: String, user_id: String) -> String {
+fn mint_token(tenant: String, document_id: String, user_id: String) -> String {
   let now = system_time(Second)
   let header =
     json.object([
@@ -1687,7 +1696,7 @@ fn mint_token(tenant: String, document: String, user_id: String) -> String {
     ])
   let payload =
     json.object([
-      #("documentId", json.string(document)),
+      #("documentId", json.string(document_id)),
       #("tenantId", json.string(tenant)),
       #(
         "scopes",
@@ -1744,7 +1753,8 @@ pub fn json_ot_concurrent_conflict_test() -> Nil {
 }
 
 @target(erlang)
-/// A fresh client bootstraps a json0 child from a summary and reads the doc.
+/// A fresh client bootstraps a json0 child from a summary and reads the
+/// document.
 pub fn json_ot_summary_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_json_ot_summary_test()
@@ -1754,15 +1764,15 @@ pub fn json_ot_summary_bootstrap_test() -> Nil {
 
 @target(erlang)
 fn run_json_ot_converge_test() -> Nil {
-  let document = "ws-jot-cv-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-jot-cv-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(jot_a) = watershed_beam.create_json_ot(doc_a)
+  let assert Ok(jot_a) = watershed_beam.create_json_ot(document_a)
   watershed_beam.set(map_a, "doc", watershed_beam.json_ot_handle_of(jot_a))
-  let jot_b = resolve_json_ot_key_or_panic(doc_b, map_b, "doc")
+  let jot_b = resolve_json_ot_key_or_panic(document_b, map_b, "doc")
 
   watershed_beam.submit_json_ot(jot_a, [
     json_ot.obj_insert([json_ot.Key("a")], json_ot.VString("from-a")),
@@ -1784,21 +1794,21 @@ fn run_json_ot_converge_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_json_ot_conflict_test() -> Nil {
-  let document = "ws-jot-cf-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-jot-cf-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(jot_a) = watershed_beam.create_json_ot(doc_a)
+  let assert Ok(jot_a) = watershed_beam.create_json_ot(document_a)
   watershed_beam.set(map_a, "doc", watershed_beam.json_ot_handle_of(jot_a))
-  let jot_b = resolve_json_ot_key_or_panic(doc_b, map_b, "doc")
+  let jot_b = resolve_json_ot_key_or_panic(document_b, map_b, "doc")
 
   // Seed a numeric field and wait for both sides to see it.
   watershed_beam.submit_json_ot(jot_a, [
@@ -1823,43 +1833,43 @@ fn run_json_ot_conflict_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_json_ot_summary_test() -> Nil {
-  let document = "ws-jot-sm-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_id = "ws-jot-sm-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
-  let assert Ok(jot_a) = watershed_beam.create_json_ot(doc_a)
+  let assert Ok(jot_a) = watershed_beam.create_json_ot(document_a)
   watershed_beam.submit_json_ot(jot_a, [
     json_ot.obj_insert([json_ot.Key("title")], json_ot.VString("hello")),
   ])
   watershed_beam.set(map_a, "doc", watershed_beam.json_ot_handle_of(jot_a))
 
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
-  case wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) }) {
+  case wait_until_ok(50, fn() { watershed_beam.summarize(document_a) }) {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
 
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
-  let jot_c = resolve_json_ot_key_or_panic(doc_c, map_c, "doc")
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
+  let jot_c = resolve_json_ot_key_or_panic(document_c, map_c, "doc")
   let expected = Ok(json_ot.VObject([#("title", json_ot.VString("hello"))]))
   wait_until(50, fn() { watershed_beam.json_ot_view(jot_c) == expected })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn resolve_json_ot_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.JsonOt {
@@ -1867,7 +1877,7 @@ fn resolve_json_ot_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_json_ot(doc, value)
+        Ok(value) -> watershed_beam.resolve_json_ot(document, value)
       }
     })
   case resolved {
@@ -1898,15 +1908,15 @@ pub fn rich_text_converges_test() -> Nil {
 
 @target(erlang)
 fn run_rich_text_converge_test() -> Nil {
-  let document = "ws-rt-cv-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-rt-cv-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(rt_a) = watershed_beam.create_rich_text(doc_a)
+  let assert Ok(rt_a) = watershed_beam.create_rich_text(document_a)
   watershed_beam.set(map_a, "doc", watershed_beam.rich_text_handle_of(rt_a))
-  let rt_b = resolve_rich_text_key_or_panic(doc_b, map_b, "doc")
+  let rt_b = resolve_rich_text_key_or_panic(document_b, map_b, "doc")
 
   // Seed plain text and wait for both sides to see it before diverging.
   let assert Ok(seed) = rich_text.parse_delta("[{\"insert\":\"Hello World\"}]")
@@ -1948,13 +1958,13 @@ fn run_rich_text_converge_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn resolve_rich_text_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.SharedRichText {
@@ -1962,7 +1972,7 @@ fn resolve_rich_text_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_rich_text(doc, value)
+        Ok(value) -> watershed_beam.resolve_rich_text(document, value)
       }
     })
   case resolved {
@@ -2005,16 +2015,16 @@ pub fn or_map_summary_bootstrap_test() -> Nil {
 
 @target(erlang)
 fn run_or_map_converge_test() -> Nil {
-  let document = "ws-orm-cv-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-orm-cv-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(om_a) = watershed_beam.create_or_map(doc_a, TallyMode)
+  let assert Ok(om_a) = watershed_beam.create_or_map(document_a, TallyMode)
   watershed_beam.or_map_increment(om_a, "score", 2)
   watershed_beam.set(map_a, "board", watershed_beam.or_map_handle_of(om_a))
-  let om_b = resolve_or_map_key_or_panic(doc_b, map_b, "board")
+  let om_b = resolve_or_map_key_or_panic(document_b, map_b, "board")
   wait_until(50, fn() {
     watershed_beam.or_map_value(om_b, "score") == Ok(Tally(2))
   })
@@ -2028,21 +2038,21 @@ fn run_or_map_converge_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_or_map_conflict_test() -> Nil {
-  let document = "ws-orm-cf-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-orm-cf-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(om_a) = watershed_beam.create_or_map(doc_a, RegisterMode)
+  let assert Ok(om_a) = watershed_beam.create_or_map(document_a, RegisterMode)
   watershed_beam.set(map_a, "reg", watershed_beam.or_map_handle_of(om_a))
-  let om_b = resolve_or_map_key_or_panic(doc_b, map_b, "reg")
+  let om_b = resolve_or_map_key_or_panic(document_b, map_b, "reg")
 
   // Concurrent register writes to the same key: the CRDT picks a deterministic
   // winner, so both clients must converge on the same register value.
@@ -2056,37 +2066,37 @@ fn run_or_map_conflict_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_or_map_summary_test() -> Nil {
-  let document = "ws-orm-sm-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_id = "ws-orm-sm-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
-  let assert Ok(om_a) = watershed_beam.create_or_map(doc_a, TallyMode)
+  let assert Ok(om_a) = watershed_beam.create_or_map(document_a, TallyMode)
   watershed_beam.or_map_increment(om_a, "score", 9)
   watershed_beam.set(map_a, "board", watershed_beam.or_map_handle_of(om_a))
 
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
-  case wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) }) {
+  case wait_until_ok(50, fn() { watershed_beam.summarize(document_a) }) {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
 
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
-  let om_c = resolve_or_map_key_or_panic(doc_c, map_c, "board")
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
+  let om_c = resolve_or_map_key_or_panic(document_c, map_c, "board")
   wait_until(50, fn() {
     watershed_beam.or_map_value(om_c, "score") == Ok(Tally(9))
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
@@ -2100,7 +2110,7 @@ fn is_register(value: Result(or_map_kernel.OrMapValue, Nil)) -> Bool {
 
 @target(erlang)
 fn resolve_or_map_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.OrMap {
@@ -2108,7 +2118,7 @@ fn resolve_or_map_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_or_map(doc, value)
+        Ok(value) -> watershed_beam.resolve_or_map(document, value)
       }
     })
   case resolved {
@@ -2151,16 +2161,16 @@ pub fn or_set_summary_bootstrap_test() -> Nil {
 
 @target(erlang)
 fn run_or_set_converge_test() -> Nil {
-  let document = "ws-ors-cv-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-ors-cv-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(os_a) = watershed_beam.create_or_set(doc_a)
+  let assert Ok(os_a) = watershed_beam.create_or_set(document_a)
   watershed_beam.or_set_add(os_a, "alpha")
   watershed_beam.set(map_a, "set", watershed_beam.or_set_handle_of(os_a))
-  let os_b = resolve_or_set_key_or_panic(doc_b, map_b, "set")
+  let os_b = resolve_or_set_key_or_panic(document_b, map_b, "set")
   wait_until(50, fn() { watershed_beam.or_set_contains(os_b, "alpha") })
   |> expect.to_be_true()
 
@@ -2169,8 +2179,8 @@ fn run_or_set_converge_test() -> Nil {
   wait_until(50, fn() { or_set_has_all(os_a) && or_set_has_all(os_b) })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
@@ -2183,16 +2193,16 @@ fn or_set_has_all(os: watershed_beam.OrSet) -> Bool {
 
 @target(erlang)
 fn run_or_set_conflict_test() -> Nil {
-  let document = "ws-ors-cf-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-ors-cf-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(os_a) = watershed_beam.create_or_set(doc_a)
+  let assert Ok(os_a) = watershed_beam.create_or_set(document_a)
   watershed_beam.or_set_add(os_a, "x")
   watershed_beam.set(map_a, "set", watershed_beam.or_set_handle_of(os_a))
-  let os_b = resolve_or_set_key_or_panic(doc_b, map_b, "set")
+  let os_b = resolve_or_set_key_or_panic(document_b, map_b, "set")
   wait_until(50, fn() { watershed_beam.or_set_contains(os_b, "x") })
   |> expect.to_be_true()
 
@@ -2206,44 +2216,44 @@ fn run_or_set_conflict_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_or_set_summary_test() -> Nil {
-  let document = "ws-ors-sm-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_id = "ws-ors-sm-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
-  let assert Ok(os_a) = watershed_beam.create_or_set(doc_a)
+  let assert Ok(os_a) = watershed_beam.create_or_set(document_a)
   watershed_beam.or_set_add(os_a, "one")
   watershed_beam.or_set_add(os_a, "two")
   watershed_beam.set(map_a, "set", watershed_beam.or_set_handle_of(os_a))
 
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
-  case wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) }) {
+  case wait_until_ok(50, fn() { watershed_beam.summarize(document_a) }) {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
 
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
-  let os_c = resolve_or_set_key_or_panic(doc_c, map_c, "set")
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
+  let os_c = resolve_or_set_key_or_panic(document_c, map_c, "set")
   wait_until(50, fn() {
     watershed_beam.or_set_contains(os_c, "one")
     && watershed_beam.or_set_contains(os_c, "two")
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn resolve_or_set_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.OrSet {
@@ -2251,7 +2261,7 @@ fn resolve_or_set_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_or_set(doc, value)
+        Ok(value) -> watershed_beam.resolve_or_set(document, value)
       }
     })
   case resolved {
@@ -2294,20 +2304,20 @@ pub fn register_collection_summary_bootstrap_test() -> Nil {
 
 @target(erlang)
 fn run_register_converge_test() -> Nil {
-  let document = "ws-reg-cv-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-reg-cv-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(reg_a) = watershed_beam.create_register_collection(doc_a)
+  let assert Ok(reg_a) = watershed_beam.create_register_collection(document_a)
   watershed_beam.register_write(reg_a, "k1", json.string("v1"))
   watershed_beam.set(
     map_a,
     "reg",
     watershed_beam.register_collection_handle_of(reg_a),
   )
-  let reg_b = resolve_register_key_or_panic(doc_b, map_b, "reg")
+  let reg_b = resolve_register_key_or_panic(document_b, map_b, "reg")
   wait_until(50, fn() {
     watershed_beam.register_get(reg_b, "k1") == Ok(json.string("v1"))
   })
@@ -2320,25 +2330,25 @@ fn run_register_converge_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_register_conflict_test() -> Nil {
-  let document = "ws-reg-cf-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-reg-cf-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(reg_a) = watershed_beam.create_register_collection(doc_a)
+  let assert Ok(reg_a) = watershed_beam.create_register_collection(document_a)
   watershed_beam.set(
     map_a,
     "reg",
     watershed_beam.register_collection_handle_of(reg_a),
   )
-  let reg_b = resolve_register_key_or_panic(doc_b, map_b, "reg")
+  let reg_b = resolve_register_key_or_panic(document_b, map_b, "reg")
 
   // Concurrent writes to the same key: the consensus register resolves to a
   // single atomic value, so both clients must agree on the read.
@@ -2355,17 +2365,17 @@ fn run_register_conflict_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_register_summary_test() -> Nil {
-  let document = "ws-reg-sm-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_id = "ws-reg-sm-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
-  let assert Ok(reg_a) = watershed_beam.create_register_collection(doc_a)
+  let assert Ok(reg_a) = watershed_beam.create_register_collection(document_a)
   watershed_beam.register_write(reg_a, "persisted", json.string("kept"))
   watershed_beam.set(
     map_a,
@@ -2373,28 +2383,28 @@ fn run_register_summary_test() -> Nil {
     watershed_beam.register_collection_handle_of(reg_a),
   )
 
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
-  case wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) }) {
+  case wait_until_ok(50, fn() { watershed_beam.summarize(document_a) }) {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
 
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
-  let reg_c = resolve_register_key_or_panic(doc_c, map_c, "reg")
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
+  let reg_c = resolve_register_key_or_panic(document_c, map_c, "reg")
   wait_until(50, fn() {
     watershed_beam.register_get(reg_c, "persisted") == Ok(json.string("kept"))
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn resolve_register_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.RegisterCollection {
@@ -2402,7 +2412,7 @@ fn resolve_register_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_register_collection(doc, value)
+        Ok(value) -> watershed_beam.resolve_register_collection(document, value)
       }
     })
   case resolved {
@@ -2446,19 +2456,19 @@ pub fn task_manager_summary_bootstrap_test() -> Nil {
 
 @target(erlang)
 fn run_task_manager_converge_test() -> Nil {
-  let document = "ws-tsk-cv-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-tsk-cv-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(tm_a) = watershed_beam.create_task_manager(doc_a)
+  let assert Ok(tm_a) = watershed_beam.create_task_manager(document_a)
   watershed_beam.set(
     map_a,
     "tasks",
     watershed_beam.task_manager_handle_of(tm_a),
   )
-  let tm_b = resolve_task_manager_key_or_panic(doc_b, map_b, "tasks")
+  let tm_b = resolve_task_manager_key_or_panic(document_b, map_b, "tasks")
 
   // The optimistic outcome is Waiting; assignment is decided once the volunteer
   // operation sequences, so poll task_assigned rather than trusting the return
@@ -2471,25 +2481,25 @@ fn run_task_manager_converge_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_task_manager_race_test() -> Nil {
-  let document = "ws-tsk-rc-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-tsk-rc-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(tm_a) = watershed_beam.create_task_manager(doc_a)
+  let assert Ok(tm_a) = watershed_beam.create_task_manager(document_a)
   watershed_beam.set(
     map_a,
     "tasks",
     watershed_beam.task_manager_handle_of(tm_a),
   )
-  let tm_b = resolve_task_manager_key_or_panic(doc_b, map_b, "tasks")
+  let tm_b = resolve_task_manager_key_or_panic(document_b, map_b, "tasks")
 
   // Both volunteer for the same task; the server sequences the queue so exactly
   // one becomes the assignee.
@@ -2516,17 +2526,17 @@ fn run_task_manager_race_test() -> Nil {
     }
   }
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_task_manager_summary_test() -> Nil {
-  let document = "ws-tsk-sm-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_id = "ws-tsk-sm-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
-  let assert Ok(tm_a) = watershed_beam.create_task_manager(doc_a)
+  let assert Ok(tm_a) = watershed_beam.create_task_manager(document_a)
   watershed_beam.set(
     map_a,
     "tasks",
@@ -2536,16 +2546,16 @@ fn run_task_manager_summary_test() -> Nil {
   wait_until(50, fn() { watershed_beam.task_assigned(tm_a, "t1") })
   |> expect.to_be_true()
 
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
-  case wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) }) {
+  case wait_until_ok(50, fn() { watershed_beam.summarize(document_a) }) {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
 
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
-  let tm_c = resolve_task_manager_key_or_panic(doc_c, map_c, "tasks")
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
+  let tm_c = resolve_task_manager_key_or_panic(document_c, map_c, "tasks")
   // The fresh client is not the assignee, but it sees the same task queue.
   wait_until(50, fn() {
     watershed_beam.task_assigned(tm_c, "t1") == False
@@ -2553,13 +2563,13 @@ fn run_task_manager_summary_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn resolve_task_manager_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.TaskManager {
@@ -2567,7 +2577,7 @@ fn resolve_task_manager_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_task_manager(doc, value)
+        Ok(value) -> watershed_beam.resolve_task_manager(document, value)
       }
     })
   case resolved {
@@ -2612,15 +2622,15 @@ pub fn g_set_summary_bootstrap_test() -> Nil {
 
 @target(erlang)
 fn run_g_set_converge_test() -> Nil {
-  let document = "ws-gst-cv-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-gst-cv-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(set_a) = watershed_beam.create_g_set(doc_a)
+  let assert Ok(set_a) = watershed_beam.create_g_set(document_a)
   watershed_beam.set(map_a, "set", watershed_beam.g_set_handle_of(set_a))
-  let set_b = resolve_g_set_key_or_panic(doc_b, map_b, "set")
+  let set_b = resolve_g_set_key_or_panic(document_b, map_b, "set")
 
   watershed_beam.g_set_add(set_a, "alpha")
   watershed_beam.g_set_add(set_b, "beta")
@@ -2631,21 +2641,21 @@ fn run_g_set_converge_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_g_set_conflict_test() -> Nil {
-  let document = "ws-gst-cf-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-gst-cf-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(set_a) = watershed_beam.create_g_set(doc_a)
+  let assert Ok(set_a) = watershed_beam.create_g_set(document_a)
   watershed_beam.set(map_a, "set", watershed_beam.g_set_handle_of(set_a))
-  let set_b = resolve_g_set_key_or_panic(doc_b, map_b, "set")
+  let set_b = resolve_g_set_key_or_panic(document_b, map_b, "set")
 
   // Both add the shared element concurrently, plus one distinct element each.
   watershed_beam.g_set_add(set_a, "shared")
@@ -2667,43 +2677,43 @@ fn run_g_set_conflict_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_g_set_summary_test() -> Nil {
-  let document = "ws-gst-sm-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_id = "ws-gst-sm-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
-  let assert Ok(set_a) = watershed_beam.create_g_set(doc_a)
+  let assert Ok(set_a) = watershed_beam.create_g_set(document_a)
   watershed_beam.g_set_add(set_a, "one")
   watershed_beam.g_set_add(set_a, "two")
   watershed_beam.set(map_a, "set", watershed_beam.g_set_handle_of(set_a))
 
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
-  case wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) }) {
+  case wait_until_ok(50, fn() { watershed_beam.summarize(document_a) }) {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
 
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
-  let set_c = resolve_g_set_key_or_panic(doc_c, map_c, "set")
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
+  let set_c = resolve_g_set_key_or_panic(document_c, map_c, "set")
   wait_until(50, fn() {
     strings_eq(watershed_beam.g_set_values(set_c), ["one", "two"])
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn resolve_g_set_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.GSet {
@@ -2711,7 +2721,7 @@ fn resolve_g_set_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_g_set(doc, value)
+        Ok(value) -> watershed_beam.resolve_g_set(document, value)
       }
     })
   case resolved {
@@ -2754,15 +2764,15 @@ pub fn two_p_set_summary_bootstrap_test() -> Nil {
 
 @target(erlang)
 fn run_two_p_set_converge_test() -> Nil {
-  let document = "ws-tps-cv-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-tps-cv-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(set_a) = watershed_beam.create_two_p_set(doc_a)
+  let assert Ok(set_a) = watershed_beam.create_two_p_set(document_a)
   watershed_beam.set(map_a, "set", watershed_beam.two_p_set_handle_of(set_a))
-  let set_b = resolve_two_p_set_key_or_panic(doc_b, map_b, "set")
+  let set_b = resolve_two_p_set_key_or_panic(document_b, map_b, "set")
 
   watershed_beam.two_p_set_add(set_a, "alpha")
   watershed_beam.two_p_set_add(set_a, "beta")
@@ -2782,21 +2792,21 @@ fn run_two_p_set_converge_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_two_p_set_conflict_test() -> Nil {
-  let document = "ws-tps-cf-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-tps-cf-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(set_a) = watershed_beam.create_two_p_set(doc_a)
+  let assert Ok(set_a) = watershed_beam.create_two_p_set(document_a)
   watershed_beam.set(map_a, "set", watershed_beam.two_p_set_handle_of(set_a))
-  let set_b = resolve_two_p_set_key_or_panic(doc_b, map_b, "set")
+  let set_b = resolve_two_p_set_key_or_panic(document_b, map_b, "set")
 
   // Seed the element and wait for both sides to see it.
   watershed_beam.two_p_set_add(set_a, "x")
@@ -2815,45 +2825,45 @@ fn run_two_p_set_conflict_test() -> Nil {
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_two_p_set_summary_test() -> Nil {
-  let document = "ws-tps-sm-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_id = "ws-tps-sm-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
-  let assert Ok(set_a) = watershed_beam.create_two_p_set(doc_a)
+  let assert Ok(set_a) = watershed_beam.create_two_p_set(document_a)
   watershed_beam.two_p_set_add(set_a, "keep")
   watershed_beam.two_p_set_add(set_a, "drop")
   watershed_beam.two_p_set_remove(set_a, "drop")
   watershed_beam.set(map_a, "set", watershed_beam.two_p_set_handle_of(set_a))
 
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
-  case wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) }) {
+  case wait_until_ok(50, fn() { watershed_beam.summarize(document_a) }) {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
 
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
-  let set_c = resolve_two_p_set_key_or_panic(doc_c, map_c, "set")
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
+  let set_c = resolve_two_p_set_key_or_panic(document_c, map_c, "set")
   wait_until(50, fn() {
     strings_eq(watershed_beam.two_p_set_values(set_c), ["keep"])
     && watershed_beam.two_p_set_contains(set_c, "drop") == False
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn resolve_two_p_set_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.TwoPSet {
@@ -2861,7 +2871,7 @@ fn resolve_two_p_set_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_two_p_set(doc, value)
+        Ok(value) -> watershed_beam.resolve_two_p_set(document, value)
       }
     })
   case resolved {
@@ -2887,7 +2897,7 @@ pub fn directory_converges_test() -> Nil {
 @target(erlang)
 /// Both clients create the same subdirectory and write distinct keys into it;
 /// they converge to one subdirectory holding both keys.
-pub fn directory_nested_subdir_conflict_test() -> Nil {
+pub fn directory_nested_subdirectory_conflict_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_directory_conflict_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
@@ -2906,99 +2916,132 @@ pub fn directory_summary_bootstrap_test() -> Nil {
 
 @target(erlang)
 fn run_directory_converge_test() -> Nil {
-  let document = "ws-dir-cv-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-dir-cv-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(dir_a) = watershed_beam.create_directory(doc_a)
-  watershed_beam.set(map_a, "dir", watershed_beam.directory_handle_of(dir_a))
-  let dir_b = resolve_directory_key_or_panic(doc_b, map_b, "dir")
+  let assert Ok(directory_a) = watershed_beam.create_directory(document_a)
+  watershed_beam.set(
+    map_a,
+    "dir",
+    watershed_beam.directory_handle_of(directory_a),
+  )
+  let directory_b = resolve_directory_key_or_panic(document_b, map_b, "dir")
 
-  watershed_beam.directory_set(dir_a, "/", "from-a", json.string("a"))
-  watershed_beam.directory_set(dir_b, "/", "from-b", json.string("b"))
+  watershed_beam.directory_set(directory_a, "/", "from-a", json.string("a"))
+  watershed_beam.directory_set(directory_b, "/", "from-b", json.string("b"))
 
   let expected = [#("from-a", json.string("a")), #("from-b", json.string("b"))]
   wait_until(50, fn() {
-    entries_eq(watershed_beam.directory_entries(dir_a, "/"), expected)
-    && entries_eq(watershed_beam.directory_entries(dir_b, "/"), expected)
+    entries_eq(watershed_beam.directory_entries(directory_a, "/"), expected)
+    && entries_eq(watershed_beam.directory_entries(directory_b, "/"), expected)
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_directory_conflict_test() -> Nil {
-  let document = "ws-dir-cf-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let map_a = watershed_beam.root(doc_a)
-  let map_b = watershed_beam.root(doc_b)
+  let document_id = "ws-dir-cf-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(dir_a) = watershed_beam.create_directory(doc_a)
-  watershed_beam.set(map_a, "dir", watershed_beam.directory_handle_of(dir_a))
-  let dir_b = resolve_directory_key_or_panic(doc_b, map_b, "dir")
+  let assert Ok(directory_a) = watershed_beam.create_directory(document_a)
+  watershed_beam.set(
+    map_a,
+    "dir",
+    watershed_beam.directory_handle_of(directory_a),
+  )
+  let directory_b = resolve_directory_key_or_panic(document_b, map_b, "dir")
 
   // Both create the "plans" subdirectory and write a distinct key into it.
-  watershed_beam.directory_create_subdirectory(dir_a, "/", "plans")
-  watershed_beam.directory_set(dir_a, "/plans", "from-a", json.string("a"))
-  watershed_beam.directory_create_subdirectory(dir_b, "/", "plans")
-  watershed_beam.directory_set(dir_b, "/plans", "from-b", json.string("b"))
+  watershed_beam.directory_create_subdirectory(directory_a, "/", "plans")
+  watershed_beam.directory_set(
+    directory_a,
+    "/plans",
+    "from-a",
+    json.string("a"),
+  )
+  watershed_beam.directory_create_subdirectory(directory_b, "/", "plans")
+  watershed_beam.directory_set(
+    directory_b,
+    "/plans",
+    "from-b",
+    json.string("b"),
+  )
 
   let expected = [#("from-a", json.string("a")), #("from-b", json.string("b"))]
   wait_until(50, fn() {
-    watershed_beam.directory_subdirectories(dir_a, "/") == ["plans"]
-    && watershed_beam.directory_subdirectories(dir_b, "/") == ["plans"]
-    && entries_eq(watershed_beam.directory_entries(dir_a, "/plans"), expected)
-    && entries_eq(watershed_beam.directory_entries(dir_b, "/plans"), expected)
+    watershed_beam.directory_subdirectories(directory_a, "/") == ["plans"]
+    && watershed_beam.directory_subdirectories(directory_b, "/") == ["plans"]
+    && entries_eq(
+      watershed_beam.directory_entries(directory_a, "/plans"),
+      expected,
+    )
+    && entries_eq(
+      watershed_beam.directory_entries(directory_b, "/plans"),
+      expected,
+    )
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
 fn run_directory_summary_test() -> Nil {
-  let document = "ws-dir-sm-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_id = "ws-dir-sm-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
-  let assert Ok(dir_a) = watershed_beam.create_directory(doc_a)
-  watershed_beam.set(map_a, "dir", watershed_beam.directory_handle_of(dir_a))
-  watershed_beam.directory_set(dir_a, "/", "title", json.string("hello"))
-  watershed_beam.directory_create_subdirectory(dir_a, "/", "child")
-  watershed_beam.directory_set(dir_a, "/child", "note", json.string("nested"))
+  let assert Ok(directory_a) = watershed_beam.create_directory(document_a)
+  watershed_beam.set(
+    map_a,
+    "dir",
+    watershed_beam.directory_handle_of(directory_a),
+  )
+  watershed_beam.directory_set(directory_a, "/", "title", json.string("hello"))
+  watershed_beam.directory_create_subdirectory(directory_a, "/", "child")
+  watershed_beam.directory_set(
+    directory_a,
+    "/child",
+    "note",
+    json.string("nested"),
+  )
 
-  wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
+  wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
-  case wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) }) {
+  case wait_until_ok(50, fn() { watershed_beam.summarize(document_a) }) {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
 
-  let doc_c = connect_or_panic(document, "user-c")
-  let map_c = watershed_beam.root(doc_c)
-  let dir_c = resolve_directory_key_or_panic(doc_c, map_c, "dir")
+  let document_c = connect_or_panic(document_id, "user-c")
+  let map_c = watershed_beam.root(document_c)
+  let directory_c = resolve_directory_key_or_panic(document_c, map_c, "dir")
   wait_until(50, fn() {
-    watershed_beam.directory_get(dir_c, "/", "title")
+    watershed_beam.directory_get(directory_c, "/", "title")
     == Ok(json.string("hello"))
-    && watershed_beam.directory_has_subdirectory(dir_c, "/", "child")
-    && watershed_beam.directory_get(dir_c, "/child", "note")
+    && watershed_beam.directory_has_subdirectory(directory_c, "/", "child")
+    && watershed_beam.directory_get(directory_c, "/child", "note")
     == Ok(json.string("nested"))
   })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_c)
 }
 
 @target(erlang)
 fn resolve_directory_key_or_panic(
-  doc: watershed_beam.Document(root),
+  document: watershed_beam.Document(root),
   map: watershed_beam.SharedMap,
   key: String,
 ) -> watershed_beam.SharedDirectory {
@@ -3006,11 +3049,11 @@ fn resolve_directory_key_or_panic(
     wait_until_ok(50, fn() {
       case watershed_beam.get(map, key) {
         Error(Nil) -> Error("key absent")
-        Ok(value) -> watershed_beam.resolve_directory(doc, value)
+        Ok(value) -> watershed_beam.resolve_directory(document, value)
       }
     })
   case resolved {
-    Ok(dir) -> dir
+    Ok(directory) -> directory
     Error(reason) ->
       panic as { "resolving directory at key " <> key <> " failed: " <> reason }
   }
@@ -3042,7 +3085,7 @@ fn entries_eq(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Schema tag for the typed-channel-field round-trip test.
-type FieldDoc
+type FieldDocument
 
 @target(erlang)
 /// TX2 exit criterion: every channel kind round-trips through its typed
@@ -3069,149 +3112,164 @@ fn expect_resolves(check: fn() -> Result(Option(a), String)) -> Nil {
 
 @target(erlang)
 fn run_typed_channel_fields_test() -> Nil {
-  let document = "watershed-tcf-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let root_a: watershed_beam.TypedMap(FieldDoc) =
-    watershed_beam.typed(watershed_beam.root(doc_a))
-  let root_b: watershed_beam.TypedMap(FieldDoc) =
-    watershed_beam.typed(watershed_beam.root(doc_b))
+  let document_id = "watershed-tcf-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let root_a: watershed_beam.TypedMap(FieldDocument) =
+    watershed_beam.typed(watershed_beam.root(document_a))
+  let root_b: watershed_beam.TypedMap(FieldDocument) =
+    watershed_beam.typed(watershed_beam.root(document_b))
 
   // One field per channel kind.
-  let map_f: schema.ChannelField(FieldDoc, schema.MapChannel) =
+  let map_f: schema.ChannelField(FieldDocument, schema.MapChannel) =
     schema.channel_field("map")
-  let counter_f: schema.ChannelField(FieldDoc, schema.CounterChannel) =
+  let counter_f: schema.ChannelField(FieldDocument, schema.CounterChannel) =
     schema.channel_field("counter")
-  let json_ot_f: schema.ChannelField(FieldDoc, schema.JsonOtChannel) =
+  let json_ot_f: schema.ChannelField(FieldDocument, schema.JsonOtChannel) =
     schema.channel_field("json_ot")
-  let or_map_f: schema.ChannelField(FieldDoc, schema.OrMapChannel) =
+  let or_map_f: schema.ChannelField(FieldDocument, schema.OrMapChannel) =
     schema.channel_field("or_map")
-  let or_set_f: schema.ChannelField(FieldDoc, schema.OrSetChannel) =
+  let or_set_f: schema.ChannelField(FieldDocument, schema.OrSetChannel) =
     schema.channel_field("or_set")
   let registers_f: schema.ChannelField(
-    FieldDoc,
+    FieldDocument,
     schema.RegisterCollectionChannel,
   ) = schema.channel_field("registers")
-  let claims_f: schema.ChannelField(FieldDoc, schema.ClaimsChannel) =
+  let claims_f: schema.ChannelField(FieldDocument, schema.ClaimsChannel) =
     schema.channel_field("claims")
-  let tasks_f: schema.ChannelField(FieldDoc, schema.TaskManagerChannel) =
+  let tasks_f: schema.ChannelField(FieldDocument, schema.TaskManagerChannel) =
     schema.channel_field("tasks")
-  let g_set_f: schema.ChannelField(FieldDoc, schema.GSetChannel) =
+  let g_set_f: schema.ChannelField(FieldDocument, schema.GSetChannel) =
     schema.channel_field("g_set")
-  let two_p_set_f: schema.ChannelField(FieldDoc, schema.TwoPSetChannel) =
+  let two_p_set_f: schema.ChannelField(FieldDocument, schema.TwoPSetChannel) =
     schema.channel_field("two_p_set")
-  let directory_f: schema.ChannelField(FieldDoc, schema.DirectoryChannel) =
+  let directory_f: schema.ChannelField(FieldDocument, schema.DirectoryChannel) =
     schema.channel_field("directory")
-  let pn_counter_f: schema.ChannelField(FieldDoc, schema.PnCounterChannel) =
+  let pn_counter_f: schema.ChannelField(FieldDocument, schema.PnCounterChannel) =
     schema.channel_field("pn_counter")
-  let pact_map_f: schema.ChannelField(FieldDoc, schema.PactMapChannel) =
+  let pact_map_f: schema.ChannelField(FieldDocument, schema.PactMapChannel) =
     schema.channel_field("pact_map")
-  let ordered_f: schema.ChannelField(FieldDoc, schema.OrderedCollectionChannel) =
-    schema.channel_field("ordered")
+  let ordered_f: schema.ChannelField(
+    FieldDocument,
+    schema.OrderedCollectionChannel,
+  ) = schema.channel_field("ordered")
 
   // A creates one channel of every kind and stores each typed handle.
-  let assert Ok(child_map) = watershed_beam.create_map(doc_a)
+  let assert Ok(child_map) = watershed_beam.create_map(document_a)
   watershed_beam.set_map_field(root_a, map_f, child_map)
-  let assert Ok(counter) = watershed_beam.create_counter(doc_a)
+  let assert Ok(counter) = watershed_beam.create_counter(document_a)
   watershed_beam.set_counter_field(root_a, counter_f, counter)
-  let assert Ok(json_ot) = watershed_beam.create_json_ot(doc_a)
+  let assert Ok(json_ot) = watershed_beam.create_json_ot(document_a)
   watershed_beam.set_json_ot_field(root_a, json_ot_f, json_ot)
-  let assert Ok(or_map) = watershed_beam.create_or_map(doc_a, RegisterMode)
+  let assert Ok(or_map) = watershed_beam.create_or_map(document_a, RegisterMode)
   watershed_beam.set_or_map_field(root_a, or_map_f, or_map)
-  let assert Ok(or_set) = watershed_beam.create_or_set(doc_a)
+  let assert Ok(or_set) = watershed_beam.create_or_set(document_a)
   watershed_beam.set_or_set_field(root_a, or_set_f, or_set)
-  let assert Ok(registers) = watershed_beam.create_register_collection(doc_a)
+  let assert Ok(registers) =
+    watershed_beam.create_register_collection(document_a)
   watershed_beam.set_register_collection_field(root_a, registers_f, registers)
-  let assert Ok(claims) = watershed_beam.create_claims(doc_a)
+  let assert Ok(claims) = watershed_beam.create_claims(document_a)
   watershed_beam.set_claims_field(root_a, claims_f, claims)
-  let assert Ok(tasks) = watershed_beam.create_task_manager(doc_a)
+  let assert Ok(tasks) = watershed_beam.create_task_manager(document_a)
   watershed_beam.set_task_manager_field(root_a, tasks_f, tasks)
-  let assert Ok(g_set) = watershed_beam.create_g_set(doc_a)
+  let assert Ok(g_set) = watershed_beam.create_g_set(document_a)
   watershed_beam.set_g_set_field(root_a, g_set_f, g_set)
-  let assert Ok(two_p_set) = watershed_beam.create_two_p_set(doc_a)
+  let assert Ok(two_p_set) = watershed_beam.create_two_p_set(document_a)
   watershed_beam.set_two_p_set_field(root_a, two_p_set_f, two_p_set)
-  let assert Ok(directory) = watershed_beam.create_directory(doc_a)
+  let assert Ok(directory) = watershed_beam.create_directory(document_a)
   watershed_beam.set_directory_field(root_a, directory_f, directory)
-  let assert Ok(pn_counter) = watershed_beam.create_pn_counter(doc_a)
+  let assert Ok(pn_counter) = watershed_beam.create_pn_counter(document_a)
   watershed_beam.set_pn_counter_field(root_a, pn_counter_f, pn_counter)
-  let assert Ok(pact_map) = watershed_beam.create_pact_map(doc_a)
+  let assert Ok(pact_map) = watershed_beam.create_pact_map(document_a)
   watershed_beam.set_pact_map_field(root_a, pact_map_f, pact_map)
-  let assert Ok(ordered) = watershed_beam.create_ordered_collection(doc_a)
+  let assert Ok(ordered) = watershed_beam.create_ordered_collection(document_a)
   watershed_beam.set_ordered_collection_field(root_a, ordered_f, ordered)
 
   // B resolves every kind once the handles arrive.
   expect_resolves(fn() {
-    watershed_beam.resolve_map_field(doc_b, root_b, map_f)
+    watershed_beam.resolve_map_field(document_b, root_b, map_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_counter_field(doc_b, root_b, counter_f)
+    watershed_beam.resolve_counter_field(document_b, root_b, counter_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_json_ot_field(doc_b, root_b, json_ot_f)
+    watershed_beam.resolve_json_ot_field(document_b, root_b, json_ot_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_or_map_field(doc_b, root_b, or_map_f)
+    watershed_beam.resolve_or_map_field(document_b, root_b, or_map_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_or_set_field(doc_b, root_b, or_set_f)
+    watershed_beam.resolve_or_set_field(document_b, root_b, or_set_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_register_collection_field(doc_b, root_b, registers_f)
+    watershed_beam.resolve_register_collection_field(
+      document_b,
+      root_b,
+      registers_f,
+    )
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_claims_field(doc_b, root_b, claims_f)
+    watershed_beam.resolve_claims_field(document_b, root_b, claims_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_task_manager_field(doc_b, root_b, tasks_f)
+    watershed_beam.resolve_task_manager_field(document_b, root_b, tasks_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_g_set_field(doc_b, root_b, g_set_f)
+    watershed_beam.resolve_g_set_field(document_b, root_b, g_set_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_two_p_set_field(doc_b, root_b, two_p_set_f)
+    watershed_beam.resolve_two_p_set_field(document_b, root_b, two_p_set_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_directory_field(doc_b, root_b, directory_f)
+    watershed_beam.resolve_directory_field(document_b, root_b, directory_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_pn_counter_field(doc_b, root_b, pn_counter_f)
+    watershed_beam.resolve_pn_counter_field(document_b, root_b, pn_counter_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_pact_map_field(doc_b, root_b, pact_map_f)
+    watershed_beam.resolve_pact_map_field(document_b, root_b, pact_map_f)
   })
   expect_resolves(fn() {
-    watershed_beam.resolve_ordered_collection_field(doc_b, root_b, ordered_f)
+    watershed_beam.resolve_ordered_collection_field(
+      document_b,
+      root_b,
+      ordered_f,
+    )
   })
 
   // An absent key is Ok(None), not an error.
-  let missing: schema.ChannelField(FieldDoc, schema.CounterChannel) =
+  let missing: schema.ChannelField(FieldDocument, schema.CounterChannel) =
     schema.channel_field("missing")
-  watershed_beam.resolve_counter_field(doc_b, root_b, missing)
+  watershed_beam.resolve_counter_field(document_b, root_b, missing)
   |> expect.to_equal(Ok(None))
 
   // The resolved channel is live: an increment on A converges on B.
   watershed_beam.increment(counter, 5)
   let assert Ok(Some(counter_b)) =
-    watershed_beam.resolve_counter_field(doc_b, root_b, counter_f)
+    watershed_beam.resolve_counter_field(document_b, root_b, counter_f)
   wait_until(50, fn() { watershed_beam.counter_value(counter_b) == Ok(5) })
   |> expect.to_be_true()
 
   // The new kinds are equally live: a PN-counter delta on A converges on B.
   watershed_beam.pn_counter_update(pn_counter, 3)
   let assert Ok(Some(pn_counter_b)) =
-    watershed_beam.resolve_pn_counter_field(doc_b, root_b, pn_counter_f)
+    watershed_beam.resolve_pn_counter_field(document_b, root_b, pn_counter_f)
   wait_until(50, fn() { watershed_beam.pn_counter_value(pn_counter_b) == Ok(3) })
   |> expect.to_be_true()
 
   // An enqueue on the ordered collection is observed by B.
   watershed_beam.ordered_add(ordered, json.string("job-1"))
   let assert Ok(Some(ordered_b)) =
-    watershed_beam.resolve_ordered_collection_field(doc_b, root_b, ordered_f)
+    watershed_beam.resolve_ordered_collection_field(
+      document_b,
+      root_b,
+      ordered_f,
+    )
   wait_until(50, fn() { watershed_beam.ordered_size(ordered_b) == Ok(1) })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
@@ -3237,12 +3295,12 @@ fn receive_field_change(
 
 @target(erlang)
 fn run_typed_field_subscription_test() -> Nil {
-  let document = "watershed-fld-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let root_a: watershed_beam.TypedMap(FieldDoc) =
-    watershed_beam.typed(watershed_beam.root(doc_a))
-  let raw_a = watershed_beam.root(doc_a)
-  let score: schema.Field(FieldDoc, Int) =
+  let document_id = "watershed-fld-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let root_a: watershed_beam.TypedMap(FieldDocument) =
+    watershed_beam.typed(watershed_beam.root(document_a))
+  let raw_a = watershed_beam.root(document_a)
+  let score: schema.Field(FieldDocument, Int) =
     schema.field("score", json.int, decode.int)
 
   let changes = watershed_beam.subscribe_field(root_a, score)
@@ -3282,7 +3340,7 @@ fn run_typed_field_subscription_test() -> Nil {
   change.previous |> expect.to_equal(Ok(Some(9)))
   change.local |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
+  watershed_beam.close(document_a)
 }
 
 @target(erlang)
@@ -3297,11 +3355,11 @@ pub fn typed_map_subscription_test() -> Nil {
 
 @target(erlang)
 fn run_typed_map_subscription_test() -> Nil {
-  let document = "watershed-tms-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let root_a: watershed_beam.TypedMap(FieldDoc) =
-    watershed_beam.typed(watershed_beam.root(doc_a))
-  let score: schema.Field(FieldDoc, Int) =
+  let document_id = "watershed-tms-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let root_a: watershed_beam.TypedMap(FieldDocument) =
+    watershed_beam.typed(watershed_beam.root(document_a))
+  let score: schema.Field(FieldDocument, Int) =
     schema.field("score", json.int, decode.int)
 
   let events = watershed_beam.subscribe_typed(root_a)
@@ -3317,7 +3375,7 @@ fn run_typed_map_subscription_test() -> Nil {
     Error(_) -> panic as "timed out waiting for a typed-map event"
   }
 
-  watershed_beam.close(doc_a)
+  watershed_beam.close(document_a)
 }
 
 @target(erlang)
@@ -3334,11 +3392,11 @@ pub fn narrowed_counter_subscription_test() -> Nil {
 
 @target(erlang)
 fn run_narrowed_counter_subscription_test() -> Nil {
-  let document = "watershed-ncs-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let map_a = watershed_beam.root(doc_a)
+  let document_id = "watershed-ncs-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let map_a = watershed_beam.root(document_a)
 
-  let assert Ok(counter) = watershed_beam.create_counter(doc_a)
+  let assert Ok(counter) = watershed_beam.create_counter(document_a)
   watershed_beam.set(map_a, "tally", watershed_beam.counter_handle_of(counter))
 
   let events = watershed_beam.subscribe_counter(counter)
@@ -3351,7 +3409,7 @@ fn run_narrowed_counter_subscription_test() -> Nil {
     Error(_) -> panic as "timed out waiting for a counter event"
   }
 
-  watershed_beam.close(doc_a)
+  watershed_beam.close(document_a)
 }
 
 @target(erlang)
@@ -3368,38 +3426,40 @@ pub fn narrowed_subscriptions_observe_peer_mutations_test() -> Nil {
 
 @target(erlang)
 fn run_narrowed_subscriptions_test() -> Nil {
-  let document = "watershed-sub3-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
+  let document_id = "watershed-sub3-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
 
-  let assert Ok(counter_a) = watershed_beam.create_pn_counter(doc_a)
+  let assert Ok(counter_a) = watershed_beam.create_pn_counter(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "votes",
     watershed_beam.pn_counter_handle_of(counter_a),
   )
-  let assert Ok(queue_a) = watershed_beam.create_ordered_collection(doc_a)
+  let assert Ok(queue_a) = watershed_beam.create_ordered_collection(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "jobs",
     watershed_beam.ordered_collection_handle_of(queue_a),
   )
-  let assert Ok(pact_a) = watershed_beam.create_pact_map(doc_a)
+  let assert Ok(pact_a) = watershed_beam.create_pact_map(document_a)
   watershed_beam.set(
-    watershed_beam.root(doc_a),
+    watershed_beam.root(document_a),
     "tempo",
     watershed_beam.pact_map_handle_of(pact_a),
   )
 
   // B resolves each kind, then subscribes *before* A mutates.
   let assert Ok(counter_b) =
-    wait_until_ok(50, fn() { resolve_at(doc_b, "votes", resolve_pn_counter) })
+    wait_until_ok(50, fn() {
+      resolve_at(document_b, "votes", resolve_pn_counter)
+    })
   let assert Ok(queue_b) =
     wait_until_ok(50, fn() {
-      resolve_at(doc_b, "jobs", watershed_beam.resolve_ordered_collection)
+      resolve_at(document_b, "jobs", watershed_beam.resolve_ordered_collection)
     })
   let assert Ok(pact_b) =
-    wait_until_ok(50, fn() { resolve_at(doc_b, "tempo", resolve_pact_map) })
+    wait_until_ok(50, fn() { resolve_at(document_b, "tempo", resolve_pact_map) })
 
   let counter_events = watershed_beam.subscribe_pn_counter(counter_b)
   let queue_events = watershed_beam.subscribe_ordered_collection(queue_b)
@@ -3439,8 +3499,8 @@ fn run_narrowed_subscriptions_test() -> Nil {
     Error(_) -> panic as "timed out waiting for a pact-map accepted event"
   }
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
 }
 
 @target(erlang)
@@ -3486,25 +3546,25 @@ pub fn ensure_bootstrap_race_test() -> Nil {
 
 @target(erlang)
 fn run_ensure_bootstrap_race_test() -> Nil {
-  let document = "watershed-ens-" <> int.to_string(system_time(Second))
-  let doc_a = connect_or_panic(document, "user-a")
-  let doc_b = connect_or_panic(document, "user-b")
-  let root_a: watershed_beam.TypedMap(FieldDoc) =
-    watershed_beam.typed(watershed_beam.root(doc_a))
-  let root_b: watershed_beam.TypedMap(FieldDoc) =
-    watershed_beam.typed(watershed_beam.root(doc_b))
+  let document_id = "watershed-ens-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  let root_a: watershed_beam.TypedMap(FieldDocument) =
+    watershed_beam.typed(watershed_beam.root(document_a))
+  let root_b: watershed_beam.TypedMap(FieldDocument) =
+    watershed_beam.typed(watershed_beam.root(document_b))
 
-  let tally_f: schema.ChannelField(FieldDoc, schema.CounterChannel) =
+  let tally_f: schema.ChannelField(FieldDocument, schema.CounterChannel) =
     schema.channel_field("tally")
-  let title_f: schema.Field(FieldDoc, String) =
+  let title_f: schema.Field(FieldDocument, String) =
     schema.field("title", json.string, decode.string)
 
   // Both clients ensure the same slot on an empty document. Whoever seeds
   // first wins the root key; the other adopts that handle.
   let assert Ok(counter_a) =
-    watershed_beam.ensure_counter(doc_a, root_a, tally_f)
+    watershed_beam.ensure_counter(document_a, root_a, tally_f)
   let assert Ok(counter_b) =
-    watershed_beam.ensure_counter(doc_b, root_b, tally_f)
+    watershed_beam.ensure_counter(document_b, root_b, tally_f)
 
   // Adopting the same channel means an increment on A is seen through B.
   watershed_beam.increment(counter_a, 4)
@@ -3527,15 +3587,15 @@ fn run_ensure_bootstrap_race_test() -> Nil {
   |> expect.to_be_true()
 
   // A late joiner resolves the existing channel without seeding a new one.
-  let doc_c = connect_or_panic(document, "user-c")
-  let root_c: watershed_beam.TypedMap(FieldDoc) =
-    watershed_beam.typed(watershed_beam.root(doc_c))
+  let document_c = connect_or_panic(document_id, "user-c")
+  let root_c: watershed_beam.TypedMap(FieldDocument) =
+    watershed_beam.typed(watershed_beam.root(document_c))
   let assert Ok(counter_c) =
-    watershed_beam.ensure_counter(doc_c, root_c, tally_f)
+    watershed_beam.ensure_counter(document_c, root_c, tally_f)
   wait_until(50, fn() { watershed_beam.counter_value(counter_c) == Ok(4) })
   |> expect.to_be_true()
 
-  watershed_beam.close(doc_a)
-  watershed_beam.close(doc_b)
-  watershed_beam.close(doc_c)
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
+  watershed_beam.close(document_c)
 }

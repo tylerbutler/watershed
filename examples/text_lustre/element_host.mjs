@@ -9,7 +9,7 @@
 // speaks DOM: `change`/`error`/`cursor` events out, a `peers` property in.
 //
 // Everything imported below is compiled Gleam, bundled by esbuild — including
-// `doc_schema` from the Lustre app, so both hosts resolve the *same* `body`
+// `document_schema` from the Lustre app, so both hosts resolve the *same* `body`
 // channel and a tab of each converges with shared cursors across the pair.
 
 import { register } from "./build/dev/javascript/watershed_lustre/watershed_lustre/textarea_element.mjs";
@@ -18,7 +18,7 @@ import * as presence_js from "./build/dev/javascript/watershed/watershed/presenc
 import * as presence from "./build/dev/javascript/watershed/watershed/presence.mjs";
 import * as decode from "./build/dev/javascript/gleam_stdlib/gleam/dynamic/decode.mjs";
 import { Ok } from "./build/dev/javascript/prelude.mjs";
-import { body } from "./build/dev/javascript/text_lustre/text_lustre/doc_schema.mjs";
+import { body } from "./build/dev/javascript/text_lustre/text_lustre/document_schema.mjs";
 
 // Dev config for `just server` (levee dev mode) — matches src/text_lustre.gleam.
 const SOCKET_URL = "ws://localhost:4000/socket/websocket?vsn=2.0.0";

@@ -24,7 +24,7 @@ import watershed.{
 }
 import watershed/json_ot.{type JsonValue, Key}
 
-import json_workspace_lustre/doc_schema
+import json_workspace_lustre/document_schema
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -33,7 +33,7 @@ const tenant = "dev-tenant"
 const secret = "levee-dev-secret-change-in-production"
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -44,7 +44,7 @@ fn exit(code: Int) -> Nil
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.Workspace)) {
+) -> Promise(Document(document_schema.Workspace)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -69,64 +69,64 @@ pub fn main() -> Nil {
   log("smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    start(doc_a, doc_b)
+    use document_a <- promise.await(connect_client(document, "user-a"))
+    use document_b <- promise.map(connect_client(document, "user-b"))
+    start(document_a, document_b)
   }
   Nil
 }
 
 fn start(
-  doc_a: Document(doc_schema.Workspace),
-  doc_b: Document(doc_schema.Workspace),
+  document_a: Document(document_schema.Workspace),
+  document_b: Document(document_schema.Workspace),
 ) -> Nil {
   // Let both handshakes land before anyone attaches the tree channel.
   use <- delay(2000)
   log("smoke: A seeds the tree")
   watershed.ensure_directory(
-    doc_a,
-    watershed.root_typed(doc_a),
-    doc_schema.tree(),
+    document_a,
+    watershed.root_typed(document_a),
+    document_schema.tree(),
     fn(result) {
       case result {
         Error(reason) -> fail("A could not ensure the tree: " <> reason)
-        Ok(directory_a) -> adopt_on_b(doc_a, doc_b, directory_a)
+        Ok(directory_a) -> adopt_on_b(document_a, document_b, directory_a)
       }
     },
   )
 }
 
 fn adopt_on_b(
-  doc_a: Document(doc_schema.Workspace),
-  doc_b: Document(doc_schema.Workspace),
+  document_a: Document(document_schema.Workspace),
+  document_b: Document(document_schema.Workspace),
   directory_a: SharedDirectory,
 ) -> Nil {
   use <- delay(1500)
   log("smoke: B adopts the tree")
   watershed.ensure_directory(
-    doc_b,
-    watershed.root_typed(doc_b),
-    doc_schema.tree(),
+    document_b,
+    watershed.root_typed(document_b),
+    document_schema.tree(),
     fn(result) {
       case result {
         Error(reason) -> fail("B could not adopt the tree: " <> reason)
         Ok(directory_b) ->
-          create_and_open(doc_a, doc_b, directory_a, directory_b)
+          create_and_open(document_a, document_b, directory_a, directory_b)
       }
     },
   )
 }
 
 fn create_and_open(
-  doc_a: Document(doc_schema.Workspace),
-  doc_b: Document(doc_schema.Workspace),
+  document_a: Document(document_schema.Workspace),
+  document_b: Document(document_schema.Workspace),
   directory_a: SharedDirectory,
   directory_b: SharedDirectory,
 ) -> Nil {
   log("smoke: A creates /specs and /specs/api")
   watershed.directory_create_subdirectory(directory_a, "/", "specs")
 
-  let assert Ok(channel_a) = watershed.create_json_ot(doc_a)
+  let assert Ok(channel_a) = watershed.create_json_ot(document_a)
   watershed.directory_set(
     directory_a,
     "/specs",
@@ -138,8 +138,9 @@ fn create_and_open(
   log("smoke: B opens /specs/api")
   case watershed.directory_get(directory_b, "/specs", "api") {
     Ok(value) ->
-      case watershed.resolve_json_ot(doc_b, value) {
-        Ok(channel_b) -> run_scenario(doc_a, doc_b, channel_a, channel_b)
+      case watershed.resolve_json_ot(document_b, value) {
+        Ok(channel_b) ->
+          run_scenario(document_a, document_b, channel_a, channel_b)
         Error(reason) -> fail("B could not resolve the document: " <> reason)
       }
     Error(Nil) -> fail("B did not see /specs/api")
@@ -147,14 +148,14 @@ fn create_and_open(
 }
 
 fn run_scenario(
-  doc_a: Document(doc_schema.Workspace),
-  doc_b: Document(doc_schema.Workspace),
+  document_a: Document(document_schema.Workspace),
+  document_b: Document(document_schema.Workspace),
   channel_a: JsonOt,
   channel_b: JsonOt,
 ) -> Nil {
   log("smoke: both go offline and edit different keys")
-  watershed.go_offline(doc_a)
-  watershed.go_offline(doc_b)
+  watershed.go_offline(document_a)
+  watershed.go_offline(document_b)
   watershed.submit_json_ot(channel_a, [
     json_ot.obj_insert([Key("title")], json_ot.VString("field notes")),
   ])
@@ -169,8 +170,8 @@ fn run_scenario(
   log("  A while offline: " <> ok_or_missing(member(view(channel_a), "title")))
 
   log("smoke: both reconnect")
-  watershed.go_online(doc_a)
-  watershed.go_online(doc_b)
+  watershed.go_online(document_a)
+  watershed.go_online(document_b)
 
   use <- delay(3000)
   let converged_a =

@@ -26,7 +26,7 @@ import watershed.{
 import watershed/ordered_collection_kernel.{AcquiredItem}
 import watershed/transport_js
 
-import work_queue_lustre/doc_schema
+import work_queue_lustre/document_schema
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -41,7 +41,7 @@ const role = "dispatcher"
 const leave_poll_attempts = 100
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -52,7 +52,7 @@ fn exit(code: Int) -> Nil
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.Dispatch)) {
+) -> Promise(Document(document_schema.Dispatch)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -76,32 +76,32 @@ pub fn main() -> Nil {
   log("smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    bootstrap(doc_a, doc_b)
+    use document_a <- promise.await(connect_client(document, "user-a"))
+    use document_b <- promise.map(connect_client(document, "user-b"))
+    bootstrap(document_a, document_b)
   }
   Nil
 }
 
 /// A ensures both consensus channels; B adopts the handles A published.
 fn bootstrap(
-  doc_a: Document(doc_schema.Dispatch),
-  doc_b: Document(doc_schema.Dispatch),
+  document_a: Document(document_schema.Dispatch),
+  document_b: Document(document_schema.Dispatch),
 ) -> Nil {
   use <- delay(2000)
   log("smoke: ensuring the queue and roles channels on A")
-  use queue_a <- ensure_queue(doc_a, "A")
-  use roles_a <- ensure_roles(doc_a, "A")
+  use queue_a <- ensure_queue(document_a, "A")
+  use roles_a <- ensure_roles(document_a, "A")
   use <- delay(1500)
-  use queue_b <- ensure_queue(doc_b, "B")
-  use roles_b <- ensure_roles(doc_b, "B")
-  dispatch_phase(doc_a, queue_a, roles_a, queue_b, roles_b)
+  use queue_b <- ensure_queue(document_b, "B")
+  use roles_b <- ensure_roles(document_b, "B")
+  dispatch_phase(document_a, queue_a, roles_a, queue_b, roles_b)
 }
 
 /// Phase 1: A takes the dispatcher role and dispatches a job; B claims it
 /// through consensus and completes it.
 fn dispatch_phase(
-  doc_a: Document(doc_schema.Dispatch),
+  document_a: Document(document_schema.Dispatch),
   queue_a: OrderedCollection,
   roles_a: TaskManager,
   queue_b: OrderedCollection,
@@ -143,7 +143,7 @@ fn dispatch_phase(
           })
           case cleared {
             False -> fail("the completed job never left both replicas")
-            True -> kill_phase(doc_a, queue_a, roles_a, queue_b, roles_b)
+            True -> kill_phase(document_a, queue_a, roles_a, queue_b, roles_b)
           }
         }
       }
@@ -155,7 +155,7 @@ fn dispatch_phase(
 /// socket is torn down without a goodbye. The server's sequenced leave must
 /// return the job and hand over the role.
 fn kill_phase(
-  doc_a: Document(doc_schema.Dispatch),
+  document_a: Document(document_schema.Dispatch),
   queue_a: OrderedCollection,
   roles_a: TaskManager,
   queue_b: OrderedCollection,
@@ -175,8 +175,8 @@ fn kill_phase(
     True -> {
       // Tear the socket down and keep it down — an ungraceful death, not a
       // clean leave. Everything after this is the server's doing.
-      watershed.force_reconnect(doc_a)
-      watershed.close(doc_a)
+      watershed.force_reconnect(document_a)
+      watershed.close(document_a)
       let _ = roles_a
       let _ = queue_a
 
@@ -212,14 +212,14 @@ fn kill_phase(
 // ── Helpers ──────────────────────────────────────────────────────────────────
 
 fn ensure_queue(
-  doc: Document(doc_schema.Dispatch),
+  document: Document(document_schema.Dispatch),
   who: String,
   then: fn(OrderedCollection) -> Nil,
 ) -> Nil {
   watershed.ensure_ordered_collection(
-    doc,
-    watershed.root_typed(doc),
-    doc_schema.queue(),
+    document,
+    watershed.root_typed(document),
+    document_schema.queue(),
     fn(result) {
       case result {
         Ok(queue) -> then(queue)
@@ -230,14 +230,14 @@ fn ensure_queue(
 }
 
 fn ensure_roles(
-  doc: Document(doc_schema.Dispatch),
+  document: Document(document_schema.Dispatch),
   who: String,
   then: fn(TaskManager) -> Nil,
 ) -> Nil {
   watershed.ensure_task_manager(
-    doc,
-    watershed.root_typed(doc),
-    doc_schema.roles(),
+    document,
+    watershed.root_typed(document),
+    document_schema.roles(),
     fn(result) {
       case result {
         Ok(roles) -> then(roles)

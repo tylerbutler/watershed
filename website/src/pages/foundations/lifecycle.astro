@@ -10,7 +10,7 @@ import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tuto
 const connectFn = excerpt(watershedLustre, "pub fn connect(");
 const readiness = section(
   appSource,
-  "    GotDocument(doc) -> {",
+  "    GotDocument(document) -> {",
   "    EnsuredNotes(Ok(notes)) ->",
 );
 const ensureChannel = excerpt(watershedMain, "fn ensure_channel(");

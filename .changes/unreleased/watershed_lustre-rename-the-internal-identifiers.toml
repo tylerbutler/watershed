@@ -1,0 +1,3 @@
+package = "watershed_lustre"
+kind = "Changed"
+body = "Rename the internal identifiers and doc-comment examples that carried `op`, `seq`, and `doc` abbreviations, so they match the expanded `watershed` API. No public signature or labelled argument changed."

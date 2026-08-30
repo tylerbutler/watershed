@@ -38,7 +38,7 @@ import watershed/summary_policy
 import watershed_lustre
 
 import drum_machine_lustre/audio
-import drum_machine_lustre/doc_schema
+import drum_machine_lustre/document_schema
 
 // ── Dev config for the floodgate dev server (`just integration-up`) ──────────
 
@@ -65,7 +65,7 @@ const bpm_key = "bpm"
 /// How often to re-read a pending proposal's signoff list. The kernel emits an
 /// event when a pact goes pending and when it is accepted, but nothing in
 /// between, so watching the list drain means asking.
-const signoff_poll_ms = 250
+const signoff_poll_milliseconds = 250
 
 pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
@@ -179,7 +179,7 @@ type Proposal {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.Machine)),
+    document: Option(Document(document_schema.Machine)),
     shared: Option(SharedState),
     pending: PendingShared,
     user_id: String,
@@ -220,7 +220,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.Machine))
+  GotHandle(Document(document_schema.Machine))
   Connected(Result(Nil, String))
   EnsuredKick(Result(OrSet, String))
   EnsuredSnare(Result(OrSet, String))
@@ -249,7 +249,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       shared: None,
       pending: PendingShared(None, None, None, None, None),
       user_id: user_id,
@@ -289,29 +289,53 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// nested channel, and watch the root — all as one batch of effects. Each
 /// `ensure_*` dispatches its channel back as an `Ensured*` message; they
 /// assemble into `SharedState` once all five have arrived.
-fn bootstrap_effect(doc: Document(doc_schema.Machine)) -> Effect(Msg) {
-  let root = watershed.root_typed(doc)
+fn bootstrap_effect(
+  document: Document(document_schema.Machine),
+) -> Effect(Msg) {
+  let root = watershed.root_typed(document)
   effect.batch([
     // A jam session writes a lot of small operations — a step toggle apiece —
     // so this is the example where an unsummarized log grows fastest and a
     // later joiner pays for it. The threshold is well below floodgate's
     // 1000-operation in-band window, so a joiner's catch-up stays in band.
     watershed_lustre.auto_summarize(
-      document: doc,
+      document: document,
       policy: summary_policy.policy() |> summary_policy.with_threshold(200),
     ),
-    watershed_lustre.ensure_field(root, doc_schema.title(), "Drum machine"),
-    watershed_lustre.ensure_or_set(doc, root, doc_schema.kick(), EnsuredKick),
-    watershed_lustre.ensure_or_set(doc, root, doc_schema.snare(), EnsuredSnare),
-    watershed_lustre.ensure_or_set(doc, root, doc_schema.hat(), EnsuredHat),
-    watershed_lustre.ensure_or_set(doc, root, doc_schema.clap(), EnsuredClap),
-    watershed_lustre.ensure_pact_map(
-      doc,
+    watershed_lustre.ensure_field(root, document_schema.title(), "Drum machine"),
+    watershed_lustre.ensure_or_set(
+      document,
       root,
-      doc_schema.settings(),
+      document_schema.kick(),
+      EnsuredKick,
+    ),
+    watershed_lustre.ensure_or_set(
+      document,
+      root,
+      document_schema.snare(),
+      EnsuredSnare,
+    ),
+    watershed_lustre.ensure_or_set(
+      document,
+      root,
+      document_schema.hat(),
+      EnsuredHat,
+    ),
+    watershed_lustre.ensure_or_set(
+      document,
+      root,
+      document_schema.clap(),
+      EnsuredClap,
+    ),
+    watershed_lustre.ensure_pact_map(
+      document,
+      root,
+      document_schema.settings(),
       EnsuredSettings,
     ),
-    watershed_lustre.subscribe(watershed.root(doc), fn(_event) { SharedChanged }),
+    watershed_lustre.subscribe(watershed.root(document), fn(_event) {
+      SharedChanged
+    }),
   ])
 }
 
@@ -360,18 +384,18 @@ fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    GotHandle(doc) -> {
-      let model = Model(..model, doc: Some(doc))
+    GotHandle(document) -> {
+      let model = Model(..model, document: Some(document))
       case model.status, model.shared {
-        Ready, None -> #(model, bootstrap_effect(doc))
+        Ready, None -> #(model, bootstrap_effect(document))
         _, _ -> #(model, effect.none())
       }
     }
 
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
-      case model.doc, model.shared {
-        Some(doc), None -> #(model, bootstrap_effect(doc))
+      case model.document, model.shared {
+        Some(document), None -> #(model, bootstrap_effect(document))
         _, _ -> #(snapshot(model), effect.none())
       }
     }
@@ -434,8 +458,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     KeyPressed(key) -> handle_key(model, key)
 
     ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
+      case model.document {
+        Some(document) -> #(model, watershed_lustre.force_reconnect(document))
         None -> #(model, effect.none())
       }
 
@@ -492,7 +516,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           // forever on a rejection.
           #(
             Model(..model, proposing: True),
-            watershed_lustre.after(signoff_poll_ms, PollSignoffs),
+            watershed_lustre.after(signoff_poll_milliseconds, PollSignoffs),
           )
         }
         _, _, _ -> #(model, effect.none())
@@ -585,7 +609,7 @@ fn read_tempo(model: Model, shared: SharedState) -> #(Model, Effect(Msg)) {
     )
 
   #(model, case proposal {
-    Some(_) -> watershed_lustre.after(signoff_poll_ms, PollSignoffs)
+    Some(_) -> watershed_lustre.after(signoff_poll_milliseconds, PollSignoffs)
     None -> effect.none()
   })
 }
@@ -611,7 +635,7 @@ fn client_label(model: Model, id: Int) -> String {
 }
 
 fn own_client_id(model: Model) -> Option(Int) {
-  model.doc
+  model.document
   |> option.then(watershed.client_id)
   |> option.map(client_id.to_int)
 }

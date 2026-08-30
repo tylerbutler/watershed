@@ -10,7 +10,7 @@ import gleeunit/should
 
 import retro_tutorial_lustre/board
 import retro_tutorial_lustre/board_operations
-import retro_tutorial_lustre/doc_schema
+import retro_tutorial_lustre/document_schema
 import watershed.{type Document, type OrMap}
 import watershed/or_map_kernel
 import watershed/sluice_js.{type Sluice}
@@ -23,50 +23,58 @@ fn room(
   name: String,
 ) -> #(
   Sluice,
-  Document(doc_schema.BoardDoc),
-  Document(doc_schema.BoardDoc),
+  Document(document_schema.BoardDocument),
+  Document(document_schema.BoardDocument),
   Channels,
   Channels,
 ) {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root = watershed.root_typed(doc_a)
-  watershed.set_field(root, doc_schema.title(), "Sprint retro")
+  let root = watershed.root_typed(document_a)
+  watershed.set_field(root, document_schema.title(), "Sprint retro")
   let assert Ok(notes) =
-    watershed.create_or_map(doc_a, or_map_kernel.RegisterMode)
-  watershed.set_or_map_field(root, doc_schema.notes(), notes)
-  let assert Ok(votes) = watershed.create_or_map(doc_a, or_map_kernel.TallyMode)
-  watershed.set_or_map_field(root, doc_schema.votes(), votes)
+    watershed.create_or_map(document_a, or_map_kernel.RegisterMode)
+  watershed.set_or_map_field(root, document_schema.notes(), notes)
+  let assert Ok(votes) =
+    watershed.create_or_map(document_a, or_map_kernel.TallyMode)
+  watershed.set_or_map_field(root, document_schema.votes(), votes)
   sluice_js.settle(sluice)
 
-  #(sluice, doc_a, doc_b, channels_of(doc_a), channels_of(doc_b))
+  #(
+    sluice,
+    document_a,
+    document_b,
+    channels_of(document_a),
+    channels_of(document_b),
+  )
 }
 
-fn channels_of(doc: Document(doc_schema.BoardDoc)) -> Channels {
-  let root = watershed.root_typed(doc)
+fn channels_of(document: Document(document_schema.BoardDocument)) -> Channels {
+  let root = watershed.root_typed(document)
   let assert Ok(Some(notes)) =
-    watershed.resolve_or_map_field(doc, root, doc_schema.notes())
+    watershed.resolve_or_map_field(document, root, document_schema.notes())
   let assert Ok(Some(votes)) =
-    watershed.resolve_or_map_field(doc, root, doc_schema.votes())
+    watershed.resolve_or_map_field(document, root, document_schema.votes())
   Channels(notes:, votes:)
 }
 
 fn board_of(
-  doc: Document(doc_schema.BoardDoc),
+  document: Document(document_schema.BoardDocument),
   channels: Channels,
 ) -> board.Snapshot {
-  let root = watershed.root_typed(doc)
-  let assert Ok(Some(title)) = watershed.get_field(root, doc_schema.title())
+  let root = watershed.root_typed(document)
+  let assert Ok(Some(title)) =
+    watershed.get_field(root, document_schema.title())
   let assert Ok(board) =
     board_operations.snapshot(title, channels.notes, channels.votes)
   board
 }
 
 pub fn concurrent_adds_keep_both_notes_test() -> Nil {
-  let #(sluice, doc_a, doc_b, a, b) = room("retro-tutorial-adds")
+  let #(sluice, document_a, document_b, a, b) = room("retro-tutorial-adds")
 
   let first =
     board_operations.add_note(
@@ -88,8 +96,8 @@ pub fn concurrent_adds_keep_both_notes_test() -> Nil {
     )
   sluice_js.settle(sluice)
 
-  let board_a = board_of(doc_a, a)
-  let board_b = board_of(doc_b, b)
+  let board_a = board_of(document_a, a)
+  let board_b = board_of(document_b, b)
 
   board_a |> should.equal(board_b)
   board.note_count(board_a) |> should.equal(2)
@@ -101,7 +109,7 @@ pub fn concurrent_adds_keep_both_notes_test() -> Nil {
 }
 
 pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {
-  let #(sluice, doc_a, doc_b, a, b) = room("retro-tutorial-votes")
+  let #(sluice, document_a, document_b, a, b) = room("retro-tutorial-votes")
 
   let id =
     board_operations.add_note(
@@ -119,8 +127,8 @@ pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {
   board_operations.downvote(b.votes, id)
   sluice_js.settle(sluice)
 
-  let board_a = board_of(doc_a, a)
-  let board_b = board_of(doc_b, b)
+  let board_a = board_of(document_a, a)
+  let board_b = board_of(document_b, b)
 
   board_a |> should.equal(board_b)
   let assert Ok(card) = board.find_card(board_a, id)
@@ -130,12 +138,13 @@ pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {
 pub fn snapshot_returns_error_for_wrong_mode_notes_test() -> Nil {
   // notes must be RegisterMode; a TallyMode map with entries yields Error.
   let sluice = sluice_js.start(tenant: "default", document: "retro-bad-notes")
-  let doc = sluice_js.connect(sluice, "user-a")
+  let document = sluice_js.connect(sluice, "user-a")
   sluice_js.settle(sluice)
   let assert Ok(wrong_notes) =
-    watershed.create_or_map(doc, or_map_kernel.TallyMode)
+    watershed.create_or_map(document, or_map_kernel.TallyMode)
   watershed.or_map_increment(wrong_notes, "note-1", 1)
-  let assert Ok(votes) = watershed.create_or_map(doc, or_map_kernel.TallyMode)
+  let assert Ok(votes) =
+    watershed.create_or_map(document, or_map_kernel.TallyMode)
   board_operations.snapshot("test", wrong_notes, votes)
   |> result.is_error
   |> should.be_true
@@ -144,13 +153,13 @@ pub fn snapshot_returns_error_for_wrong_mode_notes_test() -> Nil {
 pub fn snapshot_returns_error_for_wrong_mode_votes_test() -> Nil {
   // votes must be TallyMode; a RegisterMode map with entries yields Error.
   let sluice = sluice_js.start(tenant: "default", document: "retro-bad-votes")
-  let doc = sluice_js.connect(sluice, "user-a")
+  let document = sluice_js.connect(sluice, "user-a")
   sluice_js.settle(sluice)
   let assert Ok(notes) =
-    watershed.create_or_map(doc, or_map_kernel.RegisterMode)
+    watershed.create_or_map(document, or_map_kernel.RegisterMode)
   // wrong_votes is RegisterMode — add_note populates it with Register entries.
   let assert Ok(wrong_votes) =
-    watershed.create_or_map(doc, or_map_kernel.RegisterMode)
+    watershed.create_or_map(document, or_map_kernel.RegisterMode)
   board_operations.add_note(
     wrong_votes,
     "user-a",

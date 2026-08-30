@@ -7,4 +7,4 @@
 //// through a foreign schema. A tag with no fields is exactly that identity.
 
 /// Phantom tag naming the dice root map. Declared, never constructed.
-pub type DiceDoc
+pub type DiceDocument

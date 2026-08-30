@@ -2,10 +2,10 @@
 ////
 //// This module is deliberately independent of watershed: the only
 //// collaborative state in this demo is *match results*, one per key in a
-//// `RegisterCollection` (see `doc_schema.matches`). Which seed plays which
-//// seed, and which match's winner advances into which later match, is a
-//// fixed table — the same for every room, every connection, forever — so it
-//// is plain data here rather than something stored in the document.
+//// `RegisterCollection` (see `document_schema.matches`). Which seed plays
+//// which seed, and which match's winner advances into which later match, is a
+//// fixed table — the same for every room, every connection, forever — so it is
+//// plain data here rather than something stored in the document.
 ////
 //// Fixed 8-player single-elimination: 4 quarterfinals -> 2 semifinals -> 1
 //// final, 7 matches total. Seeds pair up in adjacent order (1v2, 3v4, 5v6,

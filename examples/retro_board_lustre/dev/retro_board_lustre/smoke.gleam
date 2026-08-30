@@ -23,7 +23,7 @@ import watershed/or_map_kernel
 import watershed/summary_policy
 
 import retro_board_lustre/column
-import retro_board_lustre/doc_schema
+import retro_board_lustre/document_schema
 import retro_board_lustre/note.{Note}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -33,7 +33,7 @@ const tenant = "dev-tenant"
 const secret = "levee-dev-secret-change-in-production"
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -44,7 +44,7 @@ fn exit(code: Int) -> Nil
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.BoardDoc)) {
+) -> Promise(Document(document_schema.BoardDocument)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -68,16 +68,16 @@ pub fn main() -> Nil {
   log("smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    run_scenario(doc_a, doc_b)
+    use document_a <- promise.await(connect_client(document, "user-a"))
+    use document_b <- promise.map(connect_client(document, "user-b"))
+    run_scenario(document_a, document_b)
   }
   Nil
 }
 
 fn run_scenario(
-  doc_a: Document(doc_schema.BoardDoc),
-  doc_b: Document(doc_schema.BoardDoc),
+  document_a: Document(document_schema.BoardDocument),
+  document_b: Document(document_schema.BoardDocument),
 ) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
@@ -88,40 +88,45 @@ fn run_scenario(
   let policy =
     summary_policy.policy()
     |> summary_policy.with_threshold(6)
-    |> summary_policy.with_jitter_ms(0)
-  watershed.auto_summarize(doc_a, policy)
-  watershed.auto_summarize(doc_b, policy)
+    |> summary_policy.with_jitter_milliseconds(0)
+  watershed.auto_summarize(document_a, policy)
+  watershed.auto_summarize(document_b, policy)
 
   log("smoke: ensuring notes, votes, and went_well on A")
-  let root_a = watershed.root_typed(doc_a)
+  let root_a = watershed.root_typed(document_a)
   watershed.ensure_or_map(
-    doc_a,
+    document_a,
     root_a,
-    doc_schema.notes(),
+    document_schema.notes(),
     or_map_kernel.RegisterMode,
     fn(result) {
       case result {
         Error(reason) -> fail("A could not ensure notes: " <> reason)
         Ok(notes_a) ->
           watershed.ensure_or_map(
-            doc_a,
+            document_a,
             root_a,
-            doc_schema.votes(),
+            document_schema.votes(),
             or_map_kernel.TallyMode,
             fn(result) {
               case result {
                 Error(reason) -> fail("A could not ensure votes: " <> reason)
                 Ok(votes_a) ->
                   watershed.ensure_sequence(
-                    doc_a,
+                    document_a,
                     root_a,
-                    doc_schema.went_well(),
+                    document_schema.went_well(),
                     fn(result) {
                       case result {
                         Error(reason) ->
                           fail("A could not ensure went_well: " <> reason)
                         Ok(sequence_a) ->
-                          seed_then_resolve(doc_b, notes_a, votes_a, sequence_a)
+                          seed_then_resolve(
+                            document_b,
+                            notes_a,
+                            votes_a,
+                            sequence_a,
+                          )
                       }
                     },
                   )
@@ -136,7 +141,7 @@ fn run_scenario(
 /// A seeds one card, then B resolves the same channels from its own root —
 /// proving adoption rather than duplicate creation.
 fn seed_then_resolve(
-  doc_b: Document(doc_schema.BoardDoc),
+  document_b: Document(document_schema.BoardDocument),
   notes_a: OrMap,
   votes_a: OrMap,
   sequence_a: watershed.SharedSequence,
@@ -151,29 +156,29 @@ fn seed_then_resolve(
   )
 
   use <- delay(2000)
-  let root_b = watershed.root_typed(doc_b)
+  let root_b = watershed.root_typed(document_b)
   watershed.ensure_or_map(
-    doc_b,
+    document_b,
     root_b,
-    doc_schema.notes(),
+    document_schema.notes(),
     or_map_kernel.RegisterMode,
     fn(result) {
       case result {
         Error(reason) -> fail("B could not resolve notes: " <> reason)
         Ok(notes_b) ->
           watershed.ensure_or_map(
-            doc_b,
+            document_b,
             root_b,
-            doc_schema.votes(),
+            document_schema.votes(),
             or_map_kernel.TallyMode,
             fn(result) {
               case result {
                 Error(reason) -> fail("B could not resolve votes: " <> reason)
                 Ok(votes_b) ->
                   watershed.ensure_sequence(
-                    doc_b,
+                    document_b,
                     root_b,
-                    doc_schema.went_well(),
+                    document_schema.went_well(),
                     fn(result) {
                       case result {
                         Error(reason) ->

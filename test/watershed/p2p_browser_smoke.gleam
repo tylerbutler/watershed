@@ -62,15 +62,15 @@ const compatibility = "watershed-crdt-v1"
 /// How long each wait may take before the harness gives up. Generous: a
 /// headless browser gathering host candidates is not fast, and a hang is
 /// far more useful reported than timed out at the first hiccup.
-const wait_ms = 15_000
+const wait_milliseconds = 15_000
 
 @target(javascript)
 @external(javascript, "./p2p_browser_smoke_ffi.mjs", "sleep")
-fn sleep(ms: Int) -> Promise(Nil)
+fn sleep(milliseconds: Int) -> Promise(Nil)
 
 @target(javascript)
 @external(javascript, "./p2p_browser_smoke_ffi.mjs", "nowMs")
-fn now_ms() -> Int
+fn now_milliseconds() -> Int
 
 // ─────────────────────────────────────────────────────────────────────────────
 // In-memory signaling
@@ -625,7 +625,7 @@ fn report(failures: List(String), evidence: List(String)) -> String {
 
 @target(javascript)
 fn wait_until(predicate: fn() -> Bool) -> Promise(Bool) {
-  poll(predicate, now_ms() + wait_ms)
+  poll(predicate, now_milliseconds() + wait_milliseconds)
 }
 
 @target(javascript)
@@ -633,7 +633,7 @@ fn poll(predicate: fn() -> Bool, deadline: Int) -> Promise(Bool) {
   case predicate() {
     True -> promise.resolve(True)
     False ->
-      case now_ms() >= deadline {
+      case now_milliseconds() >= deadline {
         True -> promise.resolve(False)
         False -> {
           use _ <- promise.await(sleep(25))

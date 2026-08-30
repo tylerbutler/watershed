@@ -102,7 +102,7 @@ fn replay_with(
 }
 
 pub fn replays_every_saved_failure_fixture_test() -> Nil {
-  case simplifile.read_directory(kernel_fuzz.fixtures_dir) {
+  case simplifile.read_directory(kernel_fuzz.fixtures_directory) {
     // No fixtures yet is not a failure: the directory only gets populated
     // as real failures get captured.
     Error(_) -> Nil
@@ -110,7 +110,7 @@ pub fn replays_every_saved_failure_fixture_test() -> Nil {
       files
       |> list.filter(fn(f) { string.ends_with(f, ".json") })
       |> list.each(fn(f) {
-        let path = kernel_fuzz.fixtures_dir <> "/" <> f
+        let path = kernel_fuzz.fixtures_directory <> "/" <> f
         case replay_fixture(path) {
           Ok(Nil) -> Nil
           Error(detail) -> panic as detail

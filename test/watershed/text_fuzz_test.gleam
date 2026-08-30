@@ -35,7 +35,7 @@ pub fn converges_and_preserves_cache_invariant_test() -> Nil {
   let model = text_model.model()
   kernel_fuzz.run(
     model,
-    kernel_fuzz.config_from_env(),
+    kernel_fuzz.config_from_environment(),
     client_count,
     script_gen.script_generator(model.gen_operation, client_count, weights()),
   )
@@ -190,7 +190,7 @@ pub fn model_summary_load_rebrands_and_can_ack_test() -> Nil {
 
 /// Deterministic replay of a small planted script: two clients concurrently
 /// insert at index 0, a third overlapping delete-range/replace-range races,
-/// and an append races a concurrent insert — every scenario the design doc
+/// and an append races a concurrent insert — every scenario the design document
 /// calls out for convergence — then a summary-loaded late joiner (`AddClient`)
 /// must land on the exact same string. Fixed indices (no qcheck) make this
 /// reproducible byte-for-byte on every run, independent of any fuzzer seed.

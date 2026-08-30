@@ -167,9 +167,9 @@ pub opaque type Config(root) {
     /// The anti-entropy interval, which both lanes use. It is the interval at
     /// which the mesh heartbeat checks whether the peers need a digest. It is
     /// also the interval over which the relay path collects the peer digests
-    /// while that path is primary. The value is `default_anti_entropy_ms`
-    /// unless a caller replaces it.
-    anti_entropy_interval_ms: Int,
+    /// while that path is primary. The value is
+    /// `default_anti_entropy_milliseconds` unless a caller replaces it.
+    anti_entropy_interval_milliseconds: Int,
   )
 }
 
@@ -212,14 +212,14 @@ pub type TransportPath {
 @target(javascript)
 /// How to reach an optional sequencer relay, and how long to wait for it. The
 /// timing runs on the one scheduler and the one anti-entropy interval of the
-/// document, from `with_scheduler` and `with_anti_entropy_interval_ms`. That
-/// timing covers the reconnect backoff, the digest coalescer, and the readiness
-/// deadline.
+/// document, from `with_scheduler` and
+/// `with_anti_entropy_interval_milliseconds`. That timing covers the reconnect
+/// backoff, the digest coalescer, and the readiness deadline.
 pub opaque type SequencerConfig {
   SequencerConfig(
     url: String,
     driver: crdt_sequencer_js.Driver,
-    readiness_deadline_ms: Int,
+    readiness_deadline_milliseconds: Int,
   )
 }
 
@@ -227,7 +227,7 @@ pub opaque type SequencerConfig {
 /// How long `SequencedOnly` waits for a relay to become primary, before it
 /// stops. The value is generous. It covers a socket handshake, a capability
 /// exchange, a state replay, and a digest round trip.
-pub const default_readiness_deadline_ms = 10_000
+pub const default_readiness_deadline_milliseconds = 10_000
 
 @target(javascript)
 /// The anti-entropy interval, on both lanes.
@@ -252,13 +252,13 @@ pub const default_readiness_deadline_ms = 10_000
 /// that moved a repair in an interval that a person calls immediate.
 ///
 /// The value is one quarter of a second. A caller can replace it, with
-/// `with_anti_entropy_interval_ms`. The scheduler of the document measures it,
-/// so a test steps that scheduler and does not wait.
+/// `with_anti_entropy_interval_milliseconds`. The scheduler of the document
+/// measures it, so a test steps that scheduler and does not wait.
 ///
 /// A repair after a failover does not use this interval at all. That repair is
 /// a `stateRequest` message to every peer, which the module sends with the
 /// fallback, and with no delay.
-pub const default_anti_entropy_ms = 250
+pub const default_anti_entropy_milliseconds = 250
 
 @target(javascript)
 /// A relay at `url`, which uses `crdt_relay_v1` over a real `WebSocket`.
@@ -266,7 +266,7 @@ pub fn sequencer(url: String) -> SequencerConfig {
   SequencerConfig(
     url: url,
     driver: crdt_sequencer_js.native_driver(),
-    readiness_deadline_ms: default_readiness_deadline_ms,
+    readiness_deadline_milliseconds: default_readiness_deadline_milliseconds,
   )
 }
 
@@ -285,11 +285,14 @@ pub fn with_relay_driver(
 /// Change the time that `SequencedOnly` waits. A deadline of zero or less never
 /// expires. That value is correct only for a caller that limits the wait
 /// itself.
-pub fn with_readiness_deadline_ms(
+pub fn with_readiness_deadline_milliseconds(
   config: SequencerConfig,
-  deadline_ms: Int,
+  deadline_milliseconds: Int,
 ) -> SequencerConfig {
-  SequencerConfig(..config, readiness_deadline_ms: deadline_ms)
+  SequencerConfig(
+    ..config,
+    readiness_deadline_milliseconds: deadline_milliseconds,
+  )
 }
 
 @target(javascript)
@@ -324,7 +327,7 @@ pub fn config(
     policy: Auto,
     sequencer: None,
     scheduler: transport_js.real_scheduler(),
-    anti_entropy_interval_ms: default_anti_entropy_ms,
+    anti_entropy_interval_milliseconds: default_anti_entropy_milliseconds,
   )
 }
 
@@ -379,11 +382,11 @@ pub fn with_scheduler(
 /// digests while that path is primary. An interval of zero or less still goes
 /// through the scheduler, and the module does not send the message
 /// immediately.
-pub fn with_anti_entropy_interval_ms(
+pub fn with_anti_entropy_interval_milliseconds(
   config: Config(root),
-  interval_ms: Int,
+  interval_milliseconds: Int,
 ) -> Config(root) {
-  Config(..config, anti_entropy_interval_ms: interval_ms)
+  Config(..config, anti_entropy_interval_milliseconds: interval_milliseconds)
 }
 
 @target(javascript)
@@ -536,7 +539,7 @@ type State {
     /// coalescer and the backoff of the relay, and the readiness deadline. This
     /// field also holds the anti-entropy interval that both lanes share.
     scheduler: Scheduler,
-    anti_entropy_interval_ms: Int,
+    anti_entropy_interval_milliseconds: Int,
     /// Whether a mesh anti-entropy digest is armed already. There is one
     /// digest for each interval on the WebRTC path, whatever number of merges
     /// that interval held.
@@ -754,8 +757,8 @@ pub type Status {
   /// reads `PeerToPeer` when this status arrives. A mutation that races the
   /// drop is thus safe.
   RelayFallback(detail: String)
-  /// The module armed a reconnect, `delay_ms` milliseconds from now.
-  RelayRetry(delay_ms: Int)
+  /// The module armed a reconnect, `delay_milliseconds` milliseconds from now.
+  RelayRetry(delay_milliseconds: Int)
   /// The module refused one envelope from the relay, and the local document
   /// did not change. One replica that behaves incorrectly does not cost the
   /// lane. Unlike a peer, this module cannot close a relay client. To close the
@@ -887,7 +890,7 @@ pub fn new_document(
         nudge_timer: None,
         publish_owed: False,
         scheduler: config.scheduler,
-        anti_entropy_interval_ms: config.anti_entropy_interval_ms,
+        anti_entropy_interval_milliseconds: config.anti_entropy_interval_milliseconds,
         sync_armed: False,
         sync_timer: None,
         last_sync_digest: "",
@@ -1637,7 +1640,9 @@ fn schedule_resync(cell: Cell(State)) -> Nil {
       cancel(state.resync_timer)
       timer_js.arm(
         scheduler: state.scheduler,
-        delay_ms: crdt_sequencer_js.backoff_ms(state.resyncs),
+        delay_milliseconds: crdt_sequencer_js.backoff_milliseconds(
+          state.resyncs,
+        ),
         action: fn() { publish_state(cell) },
         wanted: fn() {
           let armed = transport_js.get_cell(cell)
@@ -1928,18 +1933,18 @@ fn arm_deadline(cell: Cell(State)) -> Nil {
   case state.sequencer {
     None -> Nil
     Some(config) ->
-      case config.readiness_deadline_ms > 0 {
+      case config.readiness_deadline_milliseconds > 0 {
         False -> Nil
         True ->
           timer_js.arm(
             scheduler: state.scheduler,
-            delay_ms: config.readiness_deadline_ms,
+            delay_milliseconds: config.readiness_deadline_milliseconds,
             action: fn() {
               abandon(
                 cell,
                 p2p.SequencerUnavailable(
                   "the sequencer did not become the durable path within "
-                  <> int.to_string(config.readiness_deadline_ms)
+                  <> int.to_string(config.readiness_deadline_milliseconds)
                   <> "ms",
                 ),
               )
@@ -2537,13 +2542,12 @@ fn broadcast(cell: Cell(State), message: Message) -> Nil {
 /// only.
 ///
 /// This function thus marks the document dirty, and it arms one flush
-/// `default_anti_entropy_ms` ahead, on the scheduler of the document. That
-/// value is 250 ms, and a caller can replace it. Edits across many tasks
+/// `default_anti_entropy_milliseconds` ahead, on the scheduler of the document.
+/// That value is 250 ms, and a caller can replace it. Edits across many tasks
 /// collect into that flush. The copy of each edit from the relay usually
 /// reaches the peers first. A peer that the relay could not reach receives a
-/// digest one quarter of a second later, instead of a stale digest
-/// immediately. Continuous editing thus costs exactly one digest for each
-/// interval.
+/// digest one quarter of a second later, instead of a stale digest immediately.
+/// Continuous editing thus costs exactly one digest for each interval.
 ///
 /// This function is anti-entropy, and it is not repair. A failover does not use
 /// it. The failover sends a `stateRequest` message to every peer, with the
@@ -2564,7 +2568,7 @@ fn nudge_peers(cell: Cell(State)) -> Nil {
           )
           timer_js.arm(
             scheduler: state.scheduler,
-            delay_ms: state.anti_entropy_interval_ms,
+            delay_milliseconds: state.anti_entropy_interval_milliseconds,
             action: fn() { flush_nudge(cell) },
             wanted: fn() {
               let armed = transport_js.get_cell(cell)
@@ -2705,13 +2709,14 @@ fn refresh_sync(cell: Cell(State)) -> Nil {
 /// them.
 ///
 /// Instead, while a validated peer exists, the document checks every
-/// `anti_entropy_interval_ms` whether its canonical digest moved after the last
-/// message to the peers. It broadcasts that digest when the digest moved. A peer
-/// whose digest matches answers nothing. A peer whose digest differs asks for
-/// the state, on the existing mismatch path of `crdt_core`, and it also clears
-/// its own gate. The side that is ahead thus continues to announce until the
-/// room agrees. An idle mesh that converged therefore costs one digest and then
-/// nothing, and not one broadcast in every interval.
+/// `anti_entropy_interval_milliseconds` whether its canonical digest moved
+/// after the last message to the peers. It broadcasts that digest when the
+/// digest moved. A peer whose digest matches answers nothing. A peer whose
+/// digest differs asks for the state, on the existing mismatch path of
+/// `crdt_core`, and it also clears its own gate. The side that is ahead thus
+/// continues to announce until the room agrees. An idle mesh that converged
+/// therefore costs one digest and then nothing, and not one broadcast in every
+/// interval.
 ///
 /// To reconnect one edge between two partitions thus repairs *every* remaining
 /// peer, and not the two endpoints only. A quiet mesh that merged a change with
@@ -2735,7 +2740,7 @@ fn arm_sync(cell: Cell(State)) -> Nil {
       // loop the synchronous case must avoid.
       timer_js.arm(
         scheduler: state.scheduler,
-        delay_ms: state.anti_entropy_interval_ms,
+        delay_milliseconds: state.anti_entropy_interval_milliseconds,
         action: fn() { tick_sync(cell) },
         wanted: fn() {
           let armed = transport_js.get_cell(cell)
@@ -3233,7 +3238,7 @@ pub fn or_map_set(
 ) -> Result(Nil, P2pError) {
   mutate(
     handle,
-    channel.OrMapSetRegisterEdit(key, value, transport_js.now_ms()),
+    channel.OrMapSetRegisterEdit(key, value, transport_js.now_milliseconds()),
   )
 }
 

@@ -51,7 +51,7 @@ type Msg {
 
 pub fn main() {
   // Blocks until the op history has replayed locally.
-  let assert Ok(doc) =
+  let assert Ok(document) =
     watershed_beam.connect(
       host: "127.0.0.1",
       port: 4000,
@@ -60,7 +60,7 @@ pub fn main() {
       token: token,
       user_id: "ada",
     )
-  let board = watershed_beam.root(doc)
+  let board = watershed_beam.root(document)
   let events = watershed_beam.subscribe(board)
   let selector =
     process.new_selector()
@@ -102,7 +102,7 @@ functions on both the Erlang (`watershed_beam`) and JavaScript (`watershed`)
 facades. For example:
 
 ```gleam
-let assert Ok(items) = watershed.create_sequence(doc)
+let assert Ok(items) = watershed.create_sequence(document)
 let assert Ok(Nil) = watershed.sequence_insert(items, 0, json.string("first"))
 let assert Ok(Nil) = watershed.sequence_insert(items, 1, json.string("second"))
 let assert Ok(Nil) = watershed.sequence_move(items, 0, 1)
@@ -164,12 +164,12 @@ Each slot is a field: a plain value, a nested typed map (`ChildField`), or a
 handle to any other channel kind (`ChannelField`).
 
 ```gleam
-pub type Doc
+pub type Document
 
-pub fn title() -> Field(Doc, String) {
+pub fn title() -> Field(Document, String) {
   schema.field("title", json.string, decode.string)
 }
-pub fn items() -> ChannelField(Doc, SequenceChannel) {
+pub fn items() -> ChannelField(Document, SequenceChannel) {
   schema.channel_field("items")
 }
 ```
@@ -178,9 +178,9 @@ pub fn items() -> ChannelField(Doc, SequenceChannel) {
 create / race / retry bootstrap apps otherwise write by hand:
 
 ```gleam
-let root = watershed.typed(watershed.root(doc))
+let root = watershed.typed(watershed.root(document))
 watershed.ensure_field(root, title(), "Untitled")
-let assert Ok(sequence) = watershed.ensure_sequence(doc, root, items())
+let assert Ok(sequence) = watershed.ensure_sequence(document, root, items())
 ```
 
 For a whole record spread across keys, the `record1`..`record9` builders plus
@@ -220,14 +220,14 @@ import watershed
 
 pub fn two_clients_converge_test() {
   let sluice = sluice_js.start(tenant: "default", document: "demo")
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)                       // complete both handshakes
 
-  watershed.set(watershed.root(doc_a), "k", json.int(1))
+  watershed.set(watershed.root(document_a), "k", json.int(1))
   sluice_js.settle(sluice)                       // deliver the edit everywhere
 
-  watershed.get(watershed.root(doc_b), "k")  // Some(json.int(1))
+  watershed.get(watershed.root(document_b), "k")  // Some(json.int(1))
 }
 ```
 

@@ -35,7 +35,7 @@ import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed_lustre
 
-import json_workspace_lustre/doc_schema
+import json_workspace_lustre/document_schema
 import json_workspace_lustre/tree
 
 // ── Dev config for the floodgate dev server (`just integration-up`) ────────
@@ -92,9 +92,9 @@ type Status {
 /// A document open in the editor: its full path, the folder it was opened
 /// from, the live channel, and the current view of it. `folder_deleted`
 /// tracks the one-way transition from "this folder exists" to "it does not
-/// any more" — see the doc comment's second behaviour.
-type OpenDoc {
-  OpenDoc(
+/// any more" — see the document comment's second behaviour.
+type OpenDocument {
+  OpenDocument(
     path: String,
     folder: String,
     name: String,
@@ -113,7 +113,7 @@ type AddForm {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.Workspace)),
+    document: Option(Document(document_schema.Workspace)),
     directory: Option(SharedDirectory),
     user_id: String,
     color: String,
@@ -122,8 +122,8 @@ type Model {
     subdirectories: List(String),
     entries: List(#(String, Json)),
     new_folder_draft: String,
-    new_doc_draft: String,
-    open: Option(OpenDoc),
+    new_document_draft: String,
+    open: Option(OpenDocument),
     /// In-flight text per editable leaf. The JSON path is the key.
     scalar_drafts: Dict(List(PathKey), String),
     /// Channel handles that already have a subscription.
@@ -140,7 +140,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.Workspace))
+  GotHandle(Document(document_schema.Workspace))
   Connected(Result(Nil, String))
   EnsuredTree(Result(SharedDirectory, String))
   DirectoryChanged(directory_kernel.DirectoryEvent)
@@ -148,10 +148,10 @@ type Msg {
   NewFolderDrafted(String)
   CreateFolderClicked
   DeleteFolderClicked(String)
-  NewDocDrafted(String)
-  CreateDocClicked
-  OpenDocClicked(String)
-  CloseDocClicked
+  NewDocumentDrafted(String)
+  CreateDocumentClicked
+  OpenDocumentClicked(String)
+  CloseDocumentClicked
   JsonOtChanged(json_ot_kernel.JsonOtEvent)
   ScalarDrafted(path: List(PathKey), text: String)
   ScalarCommitted(path: List(PathKey), old: JsonValue)
@@ -176,7 +176,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       directory: None,
       user_id: user_id,
       color: presence.color_for(user_id),
@@ -184,7 +184,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       subdirectories: [],
       entries: [],
       new_folder_draft: "",
-      new_doc_draft: "",
+      new_document_draft: "",
       open: None,
       scalar_drafts: dict.new(),
       subscribed: [],
@@ -219,11 +219,13 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// (`docs/plans/2026-08-09-ensure-channel-seed-needs-a-ready-connection.md`).
 /// `GotHandle` arrives first and only stashes the handle; this function does
 /// not run from it.
-fn bootstrap_effect(doc: Document(doc_schema.Workspace)) -> Effect(Msg) {
+fn bootstrap_effect(
+  document: Document(document_schema.Workspace),
+) -> Effect(Msg) {
   watershed_lustre.ensure_directory(
-    doc,
-    watershed.root_typed(doc),
-    doc_schema.tree(),
+    document,
+    watershed.root_typed(document),
+    document_schema.tree(),
     EnsuredTree,
   )
 }
@@ -232,15 +234,15 @@ fn bootstrap_effect(doc: Document(doc_schema.Workspace)) -> Effect(Msg) {
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    GotHandle(doc) -> {
-      let model = Model(..model, doc: Some(doc))
-      #(model, presence_effect(model, doc))
+    GotHandle(document) -> {
+      let model = Model(..model, document: Some(document))
+      #(model, presence_effect(model, document))
     }
 
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
-      case model.doc, model.directory {
-        Some(doc), None -> #(model, bootstrap_effect(doc))
+      case model.document, model.directory {
+        Some(document), None -> #(model, bootstrap_effect(document))
         _, _ -> #(model, effect.none())
       }
     }
@@ -317,11 +319,18 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         None -> #(model, effect.none())
       }
 
-    NewDocDrafted(text) -> #(Model(..model, new_doc_draft: text), effect.none())
+    NewDocumentDrafted(text) -> #(
+      Model(..model, new_document_draft: text),
+      effect.none(),
+    )
 
-    CreateDocClicked ->
-      case model.directory, model.doc, string.trim(model.new_doc_draft) {
-        Some(directory), Some(doc), name ->
+    CreateDocumentClicked ->
+      case
+        model.directory,
+        model.document,
+        string.trim(model.new_document_draft)
+      {
+        Some(directory), Some(document), name ->
           case tree.valid_name(name) {
             False -> #(
               Model(
@@ -331,7 +340,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               effect.none(),
             )
             True ->
-              case watershed.create_json_ot(doc) {
+              case watershed.create_json_ot(document) {
                 Ok(channel) -> {
                   watershed.directory_set(
                     directory,
@@ -342,7 +351,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                   let folder = model.path
                   let model =
                     refresh_listing(
-                      Model(..model, new_doc_draft: ""),
+                      Model(..model, new_document_draft: ""),
                       directory,
                     )
                   open_channel(
@@ -362,16 +371,16 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         _, _, _ -> #(model, effect.none())
       }
 
-    OpenDocClicked(name) ->
-      case model.directory, model.doc {
-        Some(directory), Some(doc) ->
+    OpenDocumentClicked(name) ->
+      case model.directory, model.document {
+        Some(directory), Some(document) ->
           case watershed.directory_get(directory, model.path, name) {
             Error(Nil) -> #(
               Model(..model, error: Some("no such document: " <> name)),
               effect.none(),
             )
             Ok(value) ->
-              case watershed.resolve_json_ot(doc, value) {
+              case watershed.resolve_json_ot(document, value) {
                 Ok(channel) ->
                   open_channel(
                     model,
@@ -389,7 +398,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         _, _ -> #(model, effect.none())
       }
 
-    CloseDocClicked -> {
+    CloseDocumentClicked -> {
       let model =
         Model(
           ..model,
@@ -563,17 +572,17 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     ToggledOffline(offline) ->
-      case model.doc {
-        Some(doc) -> #(Model(..model, offline: offline), case offline {
-          True -> watershed_lustre.go_offline(doc)
-          False -> watershed_lustre.go_online(doc)
+      case model.document {
+        Some(document) -> #(Model(..model, offline: offline), case offline {
+          True -> watershed_lustre.go_offline(document)
+          False -> watershed_lustre.go_online(document)
         })
         None -> #(model, effect.none())
       }
 
     ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
+      case model.document {
+        Some(document) -> #(model, watershed_lustre.force_reconnect(document))
         None -> #(model, effect.none())
       }
 
@@ -615,7 +624,7 @@ fn open_channel(
   let value =
     result.unwrap(watershed.json_ot_view(channel), json_ot.VObject([]))
   let open =
-    OpenDoc(path:, folder:, name:, channel:, value:, folder_deleted: False)
+    OpenDocument(path:, folder:, name:, channel:, value:, folder_deleted: False)
   let channel_id = json.to_string(watershed.json_ot_handle_of(channel))
   let #(subscribed, subscription_effect) = case
     list.contains(model.subscribed, channel_id)
@@ -645,15 +654,15 @@ fn open_channel(
   )
 }
 
-fn refresh_open(open: OpenDoc) -> OpenDoc {
-  OpenDoc(
+fn refresh_open(open: OpenDocument) -> OpenDocument {
+  OpenDocument(
     ..open,
     value: result.unwrap(watershed.json_ot_view(open.channel), open.value),
   )
 }
 
 fn current_at(
-  open: Option(OpenDoc),
+  open: Option(OpenDocument),
   path: List(PathKey),
 ) -> Result(JsonValue, Nil) {
   case open {
@@ -730,7 +739,7 @@ fn mark_deleted_if_covered(model: Model, deleted_path: String) -> Model {
     Some(open) if !open.folder_deleted ->
       case tree.path_covers(deleted_path, open.folder) {
         True ->
-          Model(..model, open: Some(OpenDoc(..open, folder_deleted: True)))
+          Model(..model, open: Some(OpenDocument(..open, folder_deleted: True)))
         False -> model
       }
     _ -> model
@@ -741,10 +750,10 @@ fn mark_deleted_if_covered(model: Model, deleted_path: String) -> Model {
 
 fn presence_effect(
   model: Model,
-  doc: Document(doc_schema.Workspace),
+  document: Document(document_schema.Workspace),
 ) -> Effect(Msg) {
   watershed_lustre.presence(
-    document: doc,
+    document: document,
     config: presence.config(encode_presence, presence_decoder()),
     initial: current_presence(model),
     started: PresenceStarted,
@@ -873,7 +882,7 @@ fn view(model: Model) -> Element(Msg) {
         [
           event.on_click(ToggledOffline(!model.offline)),
           attribute.aria_pressed(bool_to_string(model.offline)),
-          attribute.disabled(model.doc == None),
+          attribute.disabled(model.document == None),
         ],
         [
           html.text(case model.offline {
@@ -885,7 +894,7 @@ fn view(model: Model) -> Element(Msg) {
       html.button(
         [
           event.on_click(ReconnectClicked),
-          attribute.disabled(model.doc == None),
+          attribute.disabled(model.document == None),
         ],
         [html.text("Force reconnect")],
       ),
@@ -987,7 +996,7 @@ fn tree_row_view(model: Model, row: tree.Row) -> Element(Msg) {
           [html.text("Delete")],
         ),
       ])
-    tree.DocRow(name, path, corrupt) ->
+    tree.DocumentRow(name, path, corrupt) ->
       html.li(
         [attribute.classes([#("tree-row", True), #("corrupt", corrupt)])],
         [
@@ -998,7 +1007,10 @@ fn tree_row_view(model: Model, row: tree.Row) -> Element(Msg) {
               ])
             False ->
               html.button(
-                [attribute.class("name"), event.on_click(OpenDocClicked(name))],
+                [
+                  attribute.class("name"),
+                  event.on_click(OpenDocumentClicked(name)),
+                ],
                 [
                   html.text("📄 " <> name),
                 ],
@@ -1033,16 +1045,16 @@ fn create_row_view(model: Model) -> Element(Msg) {
     html.div([attribute.class("create-row")], [
       html.input([
         attribute.placeholder("new document"),
-        attribute.value(model.new_doc_draft),
-        event.on_input(NewDocDrafted),
+        attribute.value(model.new_document_draft),
+        event.on_input(NewDocumentDrafted),
       ]),
       html.button(
         [
-          event.on_click(CreateDocClicked),
+          event.on_click(CreateDocumentClicked),
           attribute.disabled(
             model.directory == None
-            || model.doc == None
-            || !tree.valid_name(model.new_doc_draft),
+            || model.document == None
+            || !tree.valid_name(model.new_document_draft),
           ),
         ],
         [html.text("New document")],
@@ -1058,7 +1070,9 @@ fn editor_view(model: Model) -> Element(Msg) {
       html.section([attribute.class("editor")], [
         html.div([attribute.class("toolbar")], [
           html.strong([], [html.text(open.path)]),
-          html.button([event.on_click(CloseDocClicked)], [html.text("Close")]),
+          html.button([event.on_click(CloseDocumentClicked)], [
+            html.text("Close"),
+          ]),
         ]),
         case open.folder_deleted {
           True ->

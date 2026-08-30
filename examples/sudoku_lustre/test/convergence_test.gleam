@@ -29,13 +29,13 @@ fn same_entries(
 
 pub fn two_clients_converge_on_a_shared_map_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "sudoku-conv")
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   // Complete both handshakes before editing.
   sluice_js.settle(sluice)
 
-  let board_a = watershed.root(doc_a)
-  let board_b = watershed.root(doc_b)
+  let board_a = watershed.root(document_a)
+  let board_b = watershed.root(document_b)
 
   // Two players fill cells concurrently, including a same-cell race.
   watershed.set(board_a, "r0c0", json.int(5))
@@ -54,10 +54,10 @@ pub fn two_clients_converge_on_a_shared_map_test() -> Nil {
   |> should.be_true
 
   // A third player joining later replays history to the same board.
-  let doc_c = sluice_js.connect(sluice, "user-c")
+  let document_c = sluice_js.connect(sluice, "user-c")
   sluice_js.settle(sluice)
   same_entries(
-    watershed.entries(watershed.root(doc_c)),
+    watershed.entries(watershed.root(document_c)),
     watershed.entries(board_a),
   )
   |> should.be_true

@@ -9,19 +9,19 @@ import gleam/json
 import watershed/schema.{type ChannelField, type Field, type OrMapChannel}
 
 /// Phantom tag for the root map.
-pub type BoardDoc
+pub type BoardDocument
 
 /// The board title shown in the header.
-pub fn title() -> Field(BoardDoc, String) {
+pub fn title() -> Field(BoardDocument, String) {
   schema.field("title", json.string, decode.string)
 }
 
 /// Note id → JSON note string in RegisterMode.
-pub fn notes() -> ChannelField(BoardDoc, OrMapChannel) {
+pub fn notes() -> ChannelField(BoardDocument, OrMapChannel) {
   schema.channel_field("notes")
 }
 
 /// Note id → signed tally in TallyMode.
-pub fn votes() -> ChannelField(BoardDoc, OrMapChannel) {
+pub fn votes() -> ChannelField(BoardDocument, OrMapChannel) {
   schema.channel_field("votes")
 }

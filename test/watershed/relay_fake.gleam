@@ -76,7 +76,7 @@ pub fn new_clock() -> Clock {
 /// The `Scheduler` this clock drives.
 pub fn scheduler(clock: Clock) -> Scheduler {
   Scheduler(
-    now_ms: fn() { transport_js.get_cell(clock.cell).now },
+    now_milliseconds: fn() { transport_js.get_cell(clock.cell).now },
     schedule: fn(action, delay) {
       let state = transport_js.get_cell(clock.cell)
       let id = state.next_id

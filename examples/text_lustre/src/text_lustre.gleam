@@ -62,7 +62,7 @@ import watershed_lustre
 import watershed_lustre/textarea
 
 import text_lustre/component
-import text_lustre/doc_schema
+import text_lustre/document_schema
 
 // ── Dev config for `just server` (levee dev mode) ────────────────────────────
 
@@ -136,7 +136,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.TextDoc)),
+    document: Option(Document(document_schema.TextDocument)),
     /// The editor panel. `None` until the handshake completes — the component
     /// is constructed with a live map, never an empty one.
     editor: Option(component.Model),
@@ -154,7 +154,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.TextDoc))
+  GotHandle(Document(document_schema.TextDocument))
   Connected(Result(Nil, String))
   DiagnosticsTick
   BodyChanged(text_kernel.TextEvent)
@@ -170,7 +170,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       editor: None,
       traced: False,
       user_id: user_id,
@@ -200,10 +200,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // The handle arrives before the handshake does, so it is good for reads and
     // optimistic edits but not yet for *creating* a channel. Start the
     // diagnostics poll and wait.
-    GotHandle(doc) -> {
-      let diagnostics = watershed.diagnostics(doc)
+    GotHandle(document) -> {
+      let diagnostics = watershed.diagnostics(document)
       let model =
-        Model(..model, doc: Some(doc), diagnostics: Some(diagnostics))
+        Model(..model, document: Some(document), diagnostics: Some(diagnostics))
         |> add_diagnostic(
           "document handle acquired · " <> diagnostic_line(diagnostics),
         )
@@ -219,17 +219,17 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let model =
         Model(..model, status: Ready)
         |> add_diagnostic("initial handshake complete")
-      case model.doc {
+      case model.document {
         None -> #(model, effect.none())
-        Some(doc) -> {
+        Some(document) -> {
           let #(editor, editor_effect) =
-            component.init(doc, watershed.root_typed(doc))
+            component.init(document, watershed.root_typed(document))
           #(
             Model(..model, editor: Some(editor)),
             effect.batch([
               effect.map(editor_effect, Editor),
               watershed_lustre.presence(
-                document: doc,
+                document: document,
                 config: presence.config(encode_editing, editing_decoder()),
                 initial: Editing(cursor: None),
                 started: PresenceStarted,
@@ -268,8 +268,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // The app's share of a text event: the diagnostics trace. The component
     // re-renders itself off its own subscription.
     BodyChanged(event) -> {
-      let diagnostics = case model.doc {
-        Some(doc) -> Some(watershed.diagnostics(doc))
+      let diagnostics = case model.document {
+        Some(document) -> Some(watershed.diagnostics(document))
         None -> None
       }
       let detail = case diagnostics {
@@ -284,8 +284,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     }
 
     DiagnosticsTick -> {
-      let next = case model.doc {
-        Some(doc) -> Some(watershed.diagnostics(doc))
+      let next = case model.document {
+        Some(document) -> Some(watershed.diagnostics(document))
         None -> None
       }
       let model = case next, model.diagnostics {
@@ -337,10 +337,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(
+      case model.document {
+        Some(document) -> #(
           add_diagnostic(model, "force reconnect requested"),
-          watershed_lustre.force_reconnect(doc),
+          watershed_lustre.force_reconnect(document),
         )
         None -> #(model, effect.none())
       }

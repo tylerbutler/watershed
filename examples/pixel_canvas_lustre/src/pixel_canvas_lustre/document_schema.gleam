@@ -18,10 +18,10 @@ import gleam/json
 import watershed/schema.{type ChannelField, type Field, type OrMapChannel}
 
 /// Phantom tag scoping every field below to the canvas's root map.
-pub type CanvasDoc
+pub type CanvasDocument
 
 /// The canvas's display name, shown in the header.
-pub fn title() -> Field(CanvasDoc, String) {
+pub fn title() -> Field(CanvasDocument, String) {
   schema.field("title", json.string, decode.string)
 }
 
@@ -31,6 +31,6 @@ pub fn title() -> Field(CanvasDoc, String) {
 /// The value is a `String` because that is what a register leaf holds, and
 /// keeping it to one or two characters matters here more than it does
 /// elsewhere — this is the one example that emits operations by the thousand.
-pub fn pixels() -> ChannelField(CanvasDoc, OrMapChannel) {
+pub fn pixels() -> ChannelField(CanvasDocument, OrMapChannel) {
   schema.channel_field("pixels")
 }

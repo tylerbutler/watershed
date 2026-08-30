@@ -40,8 +40,8 @@
 //// must be complete at admission. A medium with no membership cannot produce
 //// one. This adapter thus takes a census instead. It starts at the
 //// subscription acknowledgement of the first relay, collects the `hello`
-//// answers for `roster_window_ms`, and reports the set that it heard by the
-//// deadline as the roster.
+//// answers for `roster_window_milliseconds`, and reports the set that it heard
+//// by the deadline as the roster.
 ////
 //// ponytail: a census is not a guarantee. The adapter finds a member whose
 //// ack loses the race late, through the traffic of that member, which still
@@ -53,10 +53,10 @@
 ////
 //// A join that cannot take a census at all ends in `Failed`, so the wait
 //// always ends. That occurs when no relay is reachable, or when no relay
-//// acknowledges within `roster_timeout_ms`. The adapter *drops* traffic that
-//// it cannot decode, and it does not fail. `crdt_signaling_js` differs here.
-//// A public topic can carry the bytes of a stranger, and a stranger must not
-//// be able to end the signaling of a room.
+//// acknowledges within `roster_timeout_milliseconds`. The adapter *drops*
+//// traffic that it cannot decode, and it does not fail. `crdt_signaling_js`
+//// differs here. A public topic can carry the bytes of a stranger, and a
+//// stranger must not be able to end the signaling of a room.
 ////
 //// Signaling is one half of "nothing to deploy". NAT traversal is the other
 //// half. `p2p_transport_js.public_stun_servers` works with this adapter for a
@@ -104,13 +104,13 @@ pub const default_relays = [
 /// How long the census listens after the first relay acknowledges the
 /// subscription. The window gives one relay round trip for the `ack` of every
 /// member. A public relay needs much less time than this.
-pub const default_roster_window_ms = 1500
+pub const default_roster_window_milliseconds = 1500
 
 @target(javascript)
 /// How long the relays have to acknowledge a subscription before the join
 /// becomes a failure. This is the backstop for a relay that accepts a socket
 /// and then sends nothing.
-pub const default_roster_timeout_ms = 10_000
+pub const default_roster_timeout_milliseconds = 10_000
 
 @target(javascript)
 /// An opaque relay pool, which the FFI owns. It holds the sockets, the
@@ -180,8 +180,8 @@ pub fn nostr_signaling(
   nostr_signaling_with_timing(
     relays: relays,
     on_failure: on_failure,
-    roster_window_ms: default_roster_window_ms,
-    roster_timeout_ms: default_roster_timeout_ms,
+    roster_window_milliseconds: default_roster_window_milliseconds,
+    roster_timeout_milliseconds: default_roster_timeout_milliseconds,
   )
 }
 
@@ -192,8 +192,8 @@ pub fn nostr_signaling(
 pub fn nostr_signaling_with_timing(
   relays relays: List(String),
   on_failure on_failure: fn(String) -> Nil,
-  roster_window_ms roster_window_ms: Int,
-  roster_timeout_ms roster_timeout_ms: Int,
+  roster_window_milliseconds roster_window_milliseconds: Int,
+  roster_timeout_milliseconds roster_timeout_milliseconds: Int,
 ) -> Signaling {
   // As in `crdt_signaling_js`: every `join` allocates a state cell of its
   // own and the pool's callbacks close over it, so a replaced join's late
@@ -217,7 +217,7 @@ pub fn nostr_signaling_with_timing(
           relays,
           room,
           fn(raw) { receive(cell, peer, raw, on_signal) },
-          fn() { open_window(cell, roster_window_ms, on_signal) },
+          fn() { open_window(cell, roster_window_milliseconds, on_signal) },
           fn(detail) { fail(cell, detail, on_signal, on_failure) },
         )
       {
@@ -227,7 +227,7 @@ pub fn nostr_signaling_with_timing(
           transport_js.set_cell(cell, State(..state, pool: Some(pool)))
           transport_js.set_cell(current, Some(cell))
           write(cell, Hello(from: peer))
-          arm_backstop(cell, roster_timeout_ms, on_signal, on_failure)
+          arm_backstop(cell, roster_timeout_milliseconds, on_signal, on_failure)
           Ok(p2p_transport_js.signaling_session(room: room, peer_id: peer))
         }
       }
@@ -283,16 +283,16 @@ fn with_current(
 /// The first relay acknowledged the subscription, so the census can start.
 fn open_window(
   cell: Cell(State),
-  window_ms: Int,
+  window_milliseconds: Int,
   on_signal: fn(Signal) -> Nil,
 ) -> Nil {
-  case window_ms > 0 {
+  case window_milliseconds > 0 {
     False -> report_roster(cell, on_signal)
     True -> {
       let timer =
         transport_js.set_timer(
           fn() { report_roster(cell, on_signal) },
-          window_ms,
+          window_milliseconds,
         )
       let state = transport_js.get_cell(cell)
       case state.roster || state.failed || state.closed {
@@ -325,11 +325,11 @@ fn report_roster(cell: Cell(State), on_signal: fn(Signal) -> Nil) -> Nil {
 @target(javascript)
 fn arm_backstop(
   cell: Cell(State),
-  timeout_ms: Int,
+  timeout_milliseconds: Int,
   on_signal: fn(Signal) -> Nil,
   on_failure: fn(String) -> Nil,
 ) -> Nil {
-  case timeout_ms > 0 {
+  case timeout_milliseconds > 0 {
     False -> Nil
     True -> {
       let timer =
@@ -341,14 +341,14 @@ fn arm_backstop(
                 fail(
                   cell,
                   "no relay acknowledged the subscription within "
-                    <> int.to_string(timeout_ms)
+                    <> int.to_string(timeout_milliseconds)
                     <> "ms",
                   on_signal,
                   on_failure,
                 )
             }
           },
-          timeout_ms,
+          timeout_milliseconds,
         )
       let state = transport_js.get_cell(cell)
       case state.roster || state.failed || state.closed {

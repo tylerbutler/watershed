@@ -48,7 +48,7 @@ never uses `let assert` on an edit.
 ## Bootstrapping
 
 The root map is typed
-([`src/playlist_lustre/doc_schema.gleam`](src/playlist_lustre/doc_schema.gleam))
+([`src/playlist_lustre/document_schema.gleam`](src/playlist_lustre/document_schema.gleam))
 with one plain field and one channel field:
 
 ```text

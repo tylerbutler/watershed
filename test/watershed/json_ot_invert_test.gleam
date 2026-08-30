@@ -1,8 +1,8 @@
 //// Rung 6: rollback support. `invert(operation)` must produce an operation
-//// that, applied to `apply(doc, operation)`, restores the original `doc`.
-//// Deletes carry their pre-image (`od`/`ld`), so invert needs no external
-//// snapshot — the property that lets the runtime roll a nacked optimistic
-//// operation back to its prior state.
+//// that, applied to `apply(document, operation)`, restores the original
+//// `document`. Deletes carry their pre-image (`od`/`ld`), so invert needs no
+//// external snapshot — the property that lets the runtime roll a nacked
+//// optimistic operation back to its prior state.
 
 import startest/expect
 import watershed/json_ot.{
@@ -14,11 +14,11 @@ fn parse(raw: String) -> JsonValue {
   value
 }
 
-/// `apply(apply(doc, operation), invert(operation)) == doc`.
-fn round_trips(doc: JsonValue, operation: json_ot.Operation) -> Nil {
-  let assert Ok(edited) = json_ot.apply(doc, operation)
+/// `apply(apply(document, operation), invert(operation)) == document`.
+fn round_trips(document: JsonValue, operation: json_ot.Operation) -> Nil {
+  let assert Ok(edited) = json_ot.apply(document, operation)
   json_ot.apply(edited, json_ot.invert(operation))
-  |> expect.to_equal(Ok(doc))
+  |> expect.to_equal(Ok(document))
 }
 
 pub fn number_add_round_trips_test() -> Nil {

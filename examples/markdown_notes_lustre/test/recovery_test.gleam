@@ -14,7 +14,7 @@ import lustre/element.{type Element}
 @target(javascript)
 import markdown_notes_lustre
 @target(javascript)
-import markdown_notes_lustre/doc_schema
+import markdown_notes_lustre/document_schema
 @target(javascript)
 import markdown_notes_lustre/p2p_fake
 @target(javascript)
@@ -62,7 +62,7 @@ fn seeded_document() -> #(CrdtDocument(OrMapChannel), Channels) {
       room_id: "recovery-test-room",
       replica_label: "recovery-test",
       compatibility_tag: "markdown-notes/v2",
-      root: doc_schema.root(),
+      root: document_schema.root(),
       signaling: p2p_fake.signaling(p2p_fake.new_world()),
     )
   let assert Ok(document) = crdt_js.new_document(config)
@@ -74,19 +74,20 @@ fn seeded_document() -> #(CrdtDocument(OrMapChannel), Channels) {
 
 fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
   let root = crdt_js.root(document)
-  let assert Ok(tags) = crdt_js.create_channel(document, doc_schema.tags_kind())
+  let assert Ok(tags) =
+    crdt_js.create_channel(document, document_schema.tags_kind())
   let assert Ok(Nil) =
     crdt_js.or_map_set(
       root,
-      key: doc_schema.tags_key(),
+      key: document_schema.tags_key(),
       value: crdt_js.address(tags),
     )
   let assert Ok(order) =
-    crdt_js.create_channel(document, doc_schema.order_kind())
+    crdt_js.create_channel(document, document_schema.order_kind())
   let assert Ok(Nil) =
     crdt_js.or_map_set(
       root,
-      key: doc_schema.order_key(),
+      key: document_schema.order_key(),
       value: crdt_js.address(order),
     )
   Channels(root:, tags:, order:)
@@ -98,7 +99,8 @@ fn create_note(
   name: String,
   body: String,
 ) -> Handle(TextChannel) {
-  let assert Ok(text) = crdt_js.create_channel(document, doc_schema.text_kind())
+  let assert Ok(text) =
+    crdt_js.create_channel(document, document_schema.text_kind())
   let assert Ok(Nil) = crdt_js.text_append(text, body)
   let assert Ok(Nil) =
     crdt_js.or_map_set(channels.root, key: name, value: crdt_js.address(text))

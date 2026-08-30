@@ -724,7 +724,7 @@ pub fn a_late_close_from_an_old_socket_does_not_swallow_the_new_joins_failure_te
         ])
       },
       // No deadline timer: everything here is driven by hand.
-      roster_timeout_ms: 0,
+      roster_timeout_milliseconds: 0,
     )
 
   let first = transport_js.new_cell([])

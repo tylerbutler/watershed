@@ -7,10 +7,10 @@
 //// roster spans all four, so "Tyler is in the sudoku panel" is a sentence the
 //// gallery form cannot say.
 ////
-//// The mechanism is `ChildField` (`showcase_lustre/doc_schema`): the root map
-//// holds a handle to each panel's sub-document, each carrying its own phantom
-//// tag and its own decode boundary. Every panel is a nested MVU triple —
-//// `init(document, map)`, `update`, `view` — living in its own package and
+//// The mechanism is `ChildField` (`showcase_lustre/document_schema`): the root
+//// map holds a handle to each panel's sub-document, each carrying its own
+//// phantom tag and its own decode boundary. Every panel is a nested MVU triple
+//// — `init(document, map)`, `update`, `view` — living in its own package and
 //// still runnable on its own, exactly as `watershed_lustre/textarea` already
 //// works inside `text_lustre`.
 ////
@@ -49,15 +49,15 @@ import watershed/summary_policy
 import watershed_lustre
 
 import pixel_canvas_lustre/component as canvas_panel
-import pixel_canvas_lustre/doc_schema as canvas_schema
+import pixel_canvas_lustre/document_schema as canvas_schema
 import playlist_lustre/component as playlist_panel
-import playlist_lustre/doc_schema as playlist_schema
-import showcase_lustre/doc_schema
+import playlist_lustre/document_schema as playlist_schema
+import showcase_lustre/document_schema
 import showcase_lustre/roster.{type ShowcasePresence, ShowcasePresence}
 import sudoku_lustre/component as sudoku_panel
-import sudoku_lustre/doc_schema as sudoku_schema
+import sudoku_lustre/document_schema as sudoku_schema
 import text_lustre/component as text_panel
-import text_lustre/doc_schema as text_schema
+import text_lustre/document_schema as text_schema
 import watershed_lustre/textarea
 
 // ── Dev config for `just server` (floodgate dev mode) ────────────────────────
@@ -133,10 +133,10 @@ type Status {
 /// openable the moment its own map lands, not when the last one does.
 type Maps {
   Maps(
-    text: Option(TypedMap(text_schema.TextDoc)),
-    playlist: Option(TypedMap(playlist_schema.PlaylistDoc)),
-    sudoku: Option(TypedMap(sudoku_schema.SudokuDoc)),
-    canvas: Option(TypedMap(canvas_schema.CanvasDoc)),
+    text: Option(TypedMap(text_schema.TextDocument)),
+    playlist: Option(TypedMap(playlist_schema.PlaylistDocument)),
+    sudoku: Option(TypedMap(sudoku_schema.SudokuDocument)),
+    canvas: Option(TypedMap(canvas_schema.CanvasDocument)),
   )
 }
 
@@ -167,7 +167,7 @@ fn no_panels() -> Panels {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.Showcase)),
+    document: Option(Document(document_schema.Showcase)),
     user_id: String,
     panel: Panel,
     maps: Maps,
@@ -187,12 +187,12 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.Showcase))
+  GotHandle(Document(document_schema.Showcase))
   Connected(Result(Nil, String))
-  EnsuredText(Result(TypedMap(text_schema.TextDoc), String))
-  EnsuredPlaylist(Result(TypedMap(playlist_schema.PlaylistDoc), String))
-  EnsuredSudoku(Result(TypedMap(sudoku_schema.SudokuDoc), String))
-  EnsuredCanvas(Result(TypedMap(canvas_schema.CanvasDoc), String))
+  EnsuredText(Result(TypedMap(text_schema.TextDocument), String))
+  EnsuredPlaylist(Result(TypedMap(playlist_schema.PlaylistDocument), String))
+  EnsuredSudoku(Result(TypedMap(sudoku_schema.SudokuDocument), String))
+  EnsuredCanvas(Result(TypedMap(canvas_schema.CanvasDocument), String))
   PanelPicked(Panel)
   PresenceStarted(Handle(ShowcasePresence))
   PresenceEvent(presence.Event(ShowcasePresence))
@@ -210,7 +210,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       user_id: user_id,
       panel: TextPanel,
       maps: no_maps(),
@@ -244,17 +244,17 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // The handle arrives before the handshake. Good for reads, not yet for
     // *creating* channels — `ensure_child` attaches, so it waits for
     // `Connected`.
-    GotHandle(doc) -> {
+    GotHandle(document) -> {
       let model =
         Model(
           ..model,
-          doc: Some(doc),
-          diagnostics: Some(watershed.diagnostics(doc)),
+          document: Some(document),
+          diagnostics: Some(watershed.diagnostics(document)),
         )
       #(
         model,
         effect.batch([
-          presence_effect(model, doc),
+          presence_effect(model, document),
           watershed_lustre.after(250, DiagnosticsTick),
         ]),
       )
@@ -262,9 +262,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
-      case model.doc {
+      case model.document {
         None -> #(model, effect.none())
-        Some(doc) -> #(model, bootstrap_effect(doc))
+        Some(document) -> #(model, bootstrap_effect(document))
       }
     }
     Connected(Error(reason)) -> #(
@@ -391,19 +391,19 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     // Document-scoped, and therefore the shell's. As a panel button this would
     // disconnect the other three panels along with the one it appears in.
     ToggledOffline(offline) ->
-      case model.doc {
+      case model.document {
         None -> #(model, effect.none())
-        Some(doc) -> #(Model(..model, offline: offline), case offline {
-          True -> watershed_lustre.go_offline(doc)
-          False -> watershed_lustre.go_online(doc)
+        Some(document) -> #(Model(..model, offline: offline), case offline {
+          True -> watershed_lustre.go_offline(document)
+          False -> watershed_lustre.go_online(document)
         })
       }
 
     DiagnosticsTick ->
-      case model.doc {
+      case model.document {
         None -> #(model, effect.none())
-        Some(doc) -> #(
-          Model(..model, diagnostics: Some(watershed.diagnostics(doc))),
+        Some(document) -> #(
+          Model(..model, diagnostics: Some(watershed.diagnostics(document))),
           watershed_lustre.after(250, DiagnosticsTick),
         )
       }
@@ -417,14 +417,14 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 /// `init` — and therefore its subscriptions — waits until someone looks at it.
 /// Already-open panels are left exactly as they are.
 fn open_current(model: Model) -> #(Model, Effect(Msg)) {
-  case model.doc {
+  case model.document {
     None -> #(model, effect.none())
-    Some(doc) ->
+    Some(document) ->
       case model.panel {
         TextPanel ->
           case model.panels.text, model.maps.text {
             None, Some(map) -> {
-              let #(panel, panel_effect) = text_panel.init(doc, map)
+              let #(panel, panel_effect) = text_panel.init(document, map)
               #(
                 Model(
                   ..model,
@@ -439,7 +439,7 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
           case model.panels.playlist, model.maps.playlist {
             None, Some(map) -> {
               let #(panel, panel_effect) =
-                playlist_panel.init(doc, map, model.user_id)
+                playlist_panel.init(document, map, model.user_id)
               #(
                 Model(
                   ..model,
@@ -453,7 +453,7 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
         SudokuPanel ->
           case model.panels.sudoku, model.maps.sudoku {
             None, Some(map) -> {
-              let #(panel, panel_effect) = sudoku_panel.init(doc, map)
+              let #(panel, panel_effect) = sudoku_panel.init(document, map)
               #(
                 Model(
                   ..model,
@@ -467,7 +467,7 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
         CanvasPanel ->
           case model.panels.canvas, model.maps.canvas {
             None, Some(map) -> {
-              let #(panel, panel_effect) = canvas_panel.init(doc, map)
+              let #(panel, panel_effect) = canvas_panel.init(document, map)
               #(
                 Model(
                   ..model,
@@ -491,23 +491,40 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
 /// interacted with it, and every tab converges on the same four handles. That
 /// race predates the showcase; what is new is running it four times per cold
 /// start instead of once.
-fn bootstrap_effect(doc: Document(doc_schema.Showcase)) -> Effect(Msg) {
-  let root = watershed.root_typed(doc)
+fn bootstrap_effect(
+  document: Document(document_schema.Showcase),
+) -> Effect(Msg) {
+  let root = watershed.root_typed(document)
   effect.batch([
     watershed_lustre.auto_summarize(
-      document: doc,
+      document: document,
       policy: summary_policy.policy()
         |> summary_policy.with_threshold(summary_threshold),
     ),
-    watershed_lustre.ensure_child(doc, root, doc_schema.text(), EnsuredText),
     watershed_lustre.ensure_child(
-      doc,
+      document,
       root,
-      doc_schema.playlist(),
+      document_schema.text(),
+      EnsuredText,
+    ),
+    watershed_lustre.ensure_child(
+      document,
+      root,
+      document_schema.playlist(),
       EnsuredPlaylist,
     ),
-    watershed_lustre.ensure_child(doc, root, doc_schema.sudoku(), EnsuredSudoku),
-    watershed_lustre.ensure_child(doc, root, doc_schema.canvas(), EnsuredCanvas),
+    watershed_lustre.ensure_child(
+      document,
+      root,
+      document_schema.sudoku(),
+      EnsuredSudoku,
+    ),
+    watershed_lustre.ensure_child(
+      document,
+      root,
+      document_schema.canvas(),
+      EnsuredCanvas,
+    ),
   ])
 }
 
@@ -531,10 +548,10 @@ fn panel_ready(model: Model, panel: Panel) -> Bool {
 /// share a ripple kind and differ only in payload.
 fn presence_effect(
   model: Model,
-  doc: Document(doc_schema.Showcase),
+  document: Document(document_schema.Showcase),
 ) -> Effect(Msg) {
   watershed_lustre.presence(
-    document: doc,
+    document: document,
     config: presence.config(roster.encode, roster.decoder()),
     initial: current_presence(model),
     started: PresenceStarted,
@@ -818,7 +835,7 @@ fn connection_view(model: Model) -> Element(Msg) {
           True -> "true"
           False -> "false"
         }),
-        attribute.disabled(model.doc == None),
+        attribute.disabled(model.document == None),
       ],
       [
         html.text(case model.offline {

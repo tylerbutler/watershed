@@ -26,7 +26,7 @@ import gleam/string
 import watershed.{type Document, type OrMap, WatershedConfig}
 import watershed/or_map_kernel
 
-import pixel_canvas_lustre/doc_schema
+import pixel_canvas_lustre/document_schema
 import pixel_canvas_lustre/grid
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -36,7 +36,7 @@ const tenant = "dev-tenant"
 const secret = "levee-dev-secret-change-in-production"
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -47,7 +47,7 @@ fn exit(code: Int) -> Nil
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.CanvasDoc)) {
+) -> Promise(Document(document_schema.CanvasDocument)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -71,25 +71,25 @@ pub fn main() -> Nil {
   log("smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    run_scenario(doc_a, doc_b)
+    use document_a <- promise.await(connect_client(document, "user-a"))
+    use document_b <- promise.map(connect_client(document, "user-b"))
+    run_scenario(document_a, document_b)
   }
   Nil
 }
 
 fn run_scenario(
-  doc_a: Document(doc_schema.CanvasDoc),
-  doc_b: Document(doc_schema.CanvasDoc),
+  document_a: Document(document_schema.CanvasDocument),
+  document_b: Document(document_schema.CanvasDocument),
 ) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
   log("smoke: ensuring the pixels channel on A")
 
   watershed.ensure_or_map(
-    doc_a,
-    watershed.root_typed(doc_a),
-    doc_schema.pixels(),
+    document_a,
+    watershed.root_typed(document_a),
+    document_schema.pixels(),
     or_map_kernel.RegisterMode,
     fn(result) {
       case result {
@@ -97,24 +97,24 @@ fn run_scenario(
           log("SMOKE FAIL: A could not ensure the pixels channel: " <> reason)
           exit(1)
         }
-        Ok(pixels_a) -> adopt_on_b(doc_a, doc_b, pixels_a)
+        Ok(pixels_a) -> adopt_on_b(document_a, document_b, pixels_a)
       }
     },
   )
 }
 
 fn adopt_on_b(
-  doc_a: Document(doc_schema.CanvasDoc),
-  doc_b: Document(doc_schema.CanvasDoc),
+  document_a: Document(document_schema.CanvasDocument),
+  document_b: Document(document_schema.CanvasDocument),
   pixels_a: OrMap,
 ) -> Nil {
   // B adopts the same channel rather than creating its own — `ensure_or_map`
   // resolves the handle A just published.
   use <- delay(1500)
   watershed.ensure_or_map(
-    doc_b,
-    watershed.root_typed(doc_b),
-    doc_schema.pixels(),
+    document_b,
+    watershed.root_typed(document_b),
+    document_schema.pixels(),
     or_map_kernel.RegisterMode,
     fn(result) {
       case result {
@@ -122,14 +122,14 @@ fn adopt_on_b(
           log("SMOKE FAIL: B could not adopt the pixels channel: " <> reason)
           exit(1)
         }
-        Ok(pixels_b) -> paint_scenario(doc_a, pixels_a, pixels_b)
+        Ok(pixels_b) -> paint_scenario(document_a, pixels_a, pixels_b)
       }
     },
   )
 }
 
 fn paint_scenario(
-  doc_a: Document(doc_schema.CanvasDoc),
+  document_a: Document(document_schema.CanvasDocument),
   a: OrMap,
   b: OrMap,
 ) -> Nil {
@@ -164,9 +164,9 @@ fn paint_scenario(
   // to `docs/plans/2026-08-09-js-reconnect-catchup-defect.md`. The runtime now
   // requests its own gap on the handshake, so coming back is checked here too.
   log("smoke: A goes offline and keeps painting")
-  watershed.go_offline(doc_a)
+  watershed.go_offline(document_a)
   use <- delay(500)
-  let held = watershed.diagnostics(doc_a).phase == "reconnecting"
+  let held = watershed.diagnostics(document_a).phase == "reconnecting"
 
   let stroke = [20, 21, 22, 23]
   list.each(stroke, fn(x) { paint(a, x, 30, 6) })
@@ -177,17 +177,17 @@ fn paint_scenario(
   // Held means held: none of it has crossed, either way.
   let isolated =
     color_at(b, 21, 30) == option.None && color_at(a, 40, 40) == option.None
-  log("  A while offline: " <> diagnostic_line(doc_a))
+  log("  A while offline: " <> diagnostic_line(document_a))
 
   log("smoke: A comes back")
-  watershed.go_online(doc_a)
+  watershed.go_online(document_a)
   use <- delay(3000)
   // Every cell of the offline stroke arrives, not just the last one — a flush
   // that dropped all but the newest write per key would still look like a
   // convergence if only one cell were checked.
   let flushed = list.all(stroke, fn(x) { color_at(b, x, 30) == Some("6") })
   let caught_up = color_at(a, 40, 40) == Some("11")
-  log("  A after rejoin: " <> diagnostic_line(doc_a))
+  log("  A after rejoin: " <> diagnostic_line(document_a))
 
   case
     seeded && disjoint && erased && held && isolated && flushed && caught_up
@@ -246,8 +246,10 @@ fn summarise(pixels: OrMap) -> String {
   <> "]"
 }
 
-fn diagnostic_line(doc: Document(doc_schema.CanvasDoc)) -> String {
-  let diagnostics = watershed.diagnostics(doc)
+fn diagnostic_line(
+  document: Document(document_schema.CanvasDocument),
+) -> String {
+  let diagnostics = watershed.diagnostics(document)
   diagnostics.phase
   <> " last_seen="
   <> option_int(diagnostics.last_seen_sequence_number)

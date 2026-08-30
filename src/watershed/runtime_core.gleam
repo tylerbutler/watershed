@@ -463,8 +463,8 @@ pub fn wants_summary(core: Core, policy: Policy) -> Bool {
 /// the id first turns two adjacent ids into two distant delays, which is the
 /// purpose of the window. The `% 100_003` operation keeps the product inside the
 /// range of integers that JavaScript represents exactly.
-pub fn summary_jitter_ms(core: Core, policy: Policy) -> Int {
-  case summary_policy.policy_jitter_ms(policy) {
+pub fn summary_jitter_milliseconds(core: Core, policy: Policy) -> Int {
+  case summary_policy.policy_jitter_milliseconds(policy) {
     window if window <= 0 -> 0
     window -> {
       let id = int.absolute_value(client_id_to_int(core.client_id)) % 100_003
@@ -2088,7 +2088,7 @@ pub fn directory_create_subdirectory(
   CoreError,
 ) {
   let self = client_id_to_int(core.client_id)
-  directory_subdir_edit(core, address, fn(kernel) {
+  directory_subdirectory_edit(core, address, fn(kernel) {
     directory_kernel.create_subdirectory(kernel, path, name, self)
   })
 }
@@ -2102,7 +2102,7 @@ pub fn directory_delete_subdirectory(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
-  directory_subdir_edit(core, address, fn(kernel) {
+  directory_subdirectory_edit(core, address, fn(kernel) {
     directory_kernel.delete_subdirectory(kernel, path, name)
   })
 }
@@ -2176,7 +2176,7 @@ fn directory_storage_edit(
 /// outbound operation. A duplicate create, and a delete of a child that the
 /// optimistic view does not contain, both update the local state and emit
 /// events, and they send nothing.
-fn directory_subdir_edit(
+fn directory_subdirectory_edit(
   core: Core,
   address: String,
   run: fn(directory_kernel.DirectoryState) ->

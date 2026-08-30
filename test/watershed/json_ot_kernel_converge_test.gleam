@@ -51,11 +51,11 @@ type Simulation {
   Simulation(clients: List(ClientSimulation), log: List(Entry))
 }
 
-fn new_simulation(doc: JsonValue) -> Simulation {
+fn new_simulation(document: JsonValue) -> Simulation {
   Simulation(
     clients: ids()
       |> list.map(fn(_id) {
-        ClientSimulation(kernel.from_value(doc), delivered: 0, outbox: [])
+        ClientSimulation(kernel.from_value(document), delivered: 0, outbox: [])
       }),
     log: [],
   )
@@ -126,9 +126,9 @@ fn do_submit(
   let c = get(simulation, id)
   case kernel.view(c.state) {
     Error(e) -> panic as { "view failed: " <> string.inspect(e) }
-    Ok(view_doc) -> {
+    Ok(view_document) -> {
       let #(components, random) =
-        json_ot_gen.generate_operation(view_doc, random)
+        json_ot_gen.generate_operation(view_document, random)
       case components {
         [] -> #(simulation, random)
         _ ->
@@ -268,8 +268,8 @@ fn sequence_all(simulation: Simulation) -> Simulation {
 /// assert convergence.
 fn run(seed: Int, rounds: Int) -> Result(Nil, String) {
   let random = json_ot_gen.new_random(seed)
-  let #(doc, random) = json_ot_gen.random_doc(random)
-  let simulation = new_simulation(doc)
+  let #(document, random) = json_ot_gen.random_document(random)
+  let simulation = new_simulation(document)
   let #(simulation, _rng) = play_rounds(simulation, random, rounds)
   // Final synchronize: repeatedly sequence everything outstanding and deliver
   // to all. Acks release buffered operations into outboxes, so loop until the
@@ -325,10 +325,10 @@ fn play_one(simulation: Simulation, random: Random) -> #(Simulation, Random) {
 /// Every client's confirmed document must be byte-identical, with no operations
 /// left in flight, buffered, or unsequenced.
 fn converged(simulation: Simulation) -> Result(Nil, String) {
-  let docs = list.map(simulation.clients, fn(c) { c.state.sequenced })
+  let documents = list.map(simulation.clients, fn(c) { c.state.sequenced })
   let leftover_pending =
     list.any(simulation.clients, fn(c) { c.state.pending != ot_client.Idle })
-  case docs {
+  case documents {
     [] -> Ok(Nil)
     [first, ..rest] ->
       case list.all(rest, fn(d) { d == first }), leftover_pending {
@@ -357,7 +357,7 @@ fn converged(simulation: Simulation) -> Result(Nil, String) {
 }
 
 pub fn clients_converge_test() -> Nil {
-  let config = kernel_fuzz.config_from_env()
+  let config = kernel_fuzz.config_from_environment()
   qcheck.run(config, qcheck.uniform_int(), fn(seed) {
     case run(seed, 40) {
       Ok(Nil) -> Nil

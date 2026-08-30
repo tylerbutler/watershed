@@ -216,7 +216,7 @@ pub const max_reported_skips = 64
 /// The reconnect delay for the nth consecutive failure, counted from zero. The
 /// delays are 250 ms, 500 ms, 1 s, 2 s, and then 5 s for every later
 /// attempt.
-pub fn backoff_ms(attempt: Int) -> Int {
+pub fn backoff_milliseconds(attempt: Int) -> Int {
   case attempt {
     0 -> 250
     1 -> 500
@@ -247,7 +247,7 @@ type State {
     /// that it was created under, and the module ignores an older one.
     generation: Int,
     /// The number of consecutive failures after the last healthy session.
-    /// `backoff_ms` uses this number as its index.
+    /// `backoff_milliseconds` uses this number as its index.
     attempt: Int,
     /// The function that cancels a pending reconnect.
     pending: Option(fn() -> Nil),
@@ -758,11 +758,11 @@ fn schedule(cell: Cell(State)) -> Nil {
     True, _ -> Nil
     _, False -> Nil
     False, True -> {
-      let delay = backoff_ms(state.attempt)
+      let delay = backoff_milliseconds(state.attempt)
       let generation = state.generation
       timer_js.arm(
         scheduler: state.scheduler,
-        delay_ms: delay,
+        delay_milliseconds: delay,
         action: fn() {
           let armed = transport_js.get_cell(cell)
           case armed.closed, armed.generation == generation {

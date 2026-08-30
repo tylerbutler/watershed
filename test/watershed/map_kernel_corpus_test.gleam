@@ -29,10 +29,10 @@ import watershed/map_kernel.{
   type MapEvent, type MapOperation, type MapState, Cleared, ValueChanged,
 }
 
-const corpus_dir = "test/fixtures/corpus"
+const corpus_directory = "test/fixtures/corpus"
 
 pub fn map_kernel_corpus_tests() -> TestTree {
-  let assert Ok(files) = simplifile.read_directory(corpus_dir)
+  let assert Ok(files) = simplifile.read_directory(corpus_directory)
   let scenario_files =
     files
     |> list.filter(string.ends_with(_, ".json"))
@@ -82,7 +82,7 @@ type Scenario {
 }
 
 fn load_scenario(file: String) -> Scenario {
-  let assert Ok(text) = simplifile.read(corpus_dir <> "/" <> file)
+  let assert Ok(text) = simplifile.read(corpus_directory <> "/" <> file)
   case json.parse(text, scenario_decoder()) {
     Ok(scenario) -> scenario
     Error(error) ->

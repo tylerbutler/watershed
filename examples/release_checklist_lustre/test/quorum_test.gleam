@@ -15,7 +15,7 @@ import gleam/option.{type Option, None, Some}
 import gleeunit/should
 
 import gleam/dynamic/decode
-import release_checklist_lustre/doc_schema
+import release_checklist_lustre/document_schema
 import release_checklist_lustre/release_readiness
 import watershed.{type Document, type OrSet, type PactMap}
 import watershed/pact_map_kernel
@@ -31,7 +31,7 @@ const checks_key = "checks"
 type Room {
   Room(
     sluice: Sluice,
-    docs: List(Document(doc_schema.Checklist)),
+    documents: List(Document(document_schema.Checklist)),
     release: List(PactMap),
     events: List(fn() -> List(pact_map_kernel.PactMapEvent)),
   )
@@ -44,13 +44,13 @@ type Room {
 /// and every assertion can read straight after a `settle`.
 fn room(name: String, clients: Int) -> Room {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let docs =
+  let documents =
     int.range(from: 0, to: clients, with: [], run: fn(acc, n) { [n, ..acc] })
     |> list.reverse
     |> list.map(fn(n) { sluice_js.connect(sluice, "user-" <> int.to_string(n)) })
   sluice_js.settle(sluice)
 
-  let assert [first, ..] = docs
+  let assert [first, ..] = documents
   let assert Ok(seed) = watershed.create_pact_map(first)
   watershed.set(
     watershed.root(first),
@@ -60,14 +60,14 @@ fn room(name: String, clients: Int) -> Room {
   sluice_js.settle(sluice)
 
   let release =
-    docs
-    |> list.map(fn(doc) {
-      let assert Ok(value) = watershed.get(watershed.root(doc), target_key)
-      let assert Ok(pact) = watershed.resolve_pact_map(doc, value)
+    documents
+    |> list.map(fn(document) {
+      let assert Ok(value) = watershed.get(watershed.root(document), target_key)
+      let assert Ok(pact) = watershed.resolve_pact_map(document, value)
       pact
     })
   let events = list.map(release, recorder)
-  Room(sluice: sluice, docs: docs, release: release, events: events)
+  Room(sluice: sluice, documents: documents, release: release, events: events)
 }
 
 /// Subscribe and return a reader for everything seen so far. The two
@@ -116,7 +116,7 @@ fn target(room: Room, index: Int) -> Option(String) {
 /// root the app bootstraps, so a test that reopens a check exercises the real
 /// OR-set, not a stand-in for it.
 fn checks_channel(room: Room) -> List(OrSet) {
-  let assert [first, ..] = room.docs
+  let assert [first, ..] = room.documents
   let assert Ok(seed) = watershed.create_or_set(first)
   watershed.set(
     watershed.root(first),
@@ -125,10 +125,10 @@ fn checks_channel(room: Room) -> List(OrSet) {
   )
   sluice_js.settle(room.sluice)
 
-  room.docs
-  |> list.map(fn(doc: Document(doc_schema.Checklist)) {
-    let assert Ok(value) = watershed.get(watershed.root(doc), checks_key)
-    let assert Ok(set) = watershed.resolve_or_set(doc, value)
+  room.documents
+  |> list.map(fn(document: Document(document_schema.Checklist)) {
+    let assert Ok(value) = watershed.get(watershed.root(document), checks_key)
+    let assert Ok(set) = watershed.resolve_or_set(document, value)
     set
   })
 }
@@ -166,7 +166,7 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() -> Nil {
 
   // The third tab is backgrounded: its frames stop being delivered, so it
   // never sees the proposal and never acknowledges it.
-  sluice_js.pause(room.sluice, nth(room.docs, 2))
+  sluice_js.pause(room.sluice, nth(room.documents, 2))
   propose(room, from: 0, target: "v2.0.0-rc1")
   sluice_js.settle(room.sluice)
 
@@ -186,7 +186,7 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() -> Nil {
   list.length(waiting) |> should.equal(1)
 
   // Bringing the tab back resolves it — nothing was lost, only waiting.
-  sluice_js.resume(room.sluice, nth(room.docs, 2))
+  sluice_js.resume(room.sluice, nth(room.documents, 2))
   sluice_js.settle(room.sluice)
   target(room, 0) |> should.equal(Some("v2.0.0-rc1"))
   target(room, 2) |> should.equal(Some("v2.0.0-rc1"))
@@ -195,7 +195,7 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() -> Nil {
 pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() -> Nil {
   let room = room("checklist-drain", 3)
 
-  sluice_js.pause(room.sluice, nth(room.docs, 2))
+  sluice_js.pause(room.sluice, nth(room.documents, 2))
   propose(room, from: 0, target: "v1.9.0")
   sluice_js.settle(room.sluice)
   watershed.pact_map_is_pending(release_of(room, 0), target_key)
@@ -205,7 +205,7 @@ pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() -> Nil {
   // reconnect. A signoff list is not a deadlock: it drains as the sequenced
   // "leave" removes the client it was waiting on, and the target the
   // survivors were promised finally lands.
-  sluice_js.disconnect(room.sluice, nth(room.docs, 2))
+  sluice_js.disconnect(room.sluice, nth(room.documents, 2))
   sluice_js.settle(room.sluice)
 
   target(room, 0) |> should.equal(Some("v1.9.0"))
@@ -222,7 +222,7 @@ pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() -> Nil {
 pub fn a_second_proposal_while_one_is_pending_is_rejected_test() -> Nil {
   let room = room("checklist-collide", 3)
 
-  sluice_js.pause(room.sluice, nth(room.docs, 2))
+  sluice_js.pause(room.sluice, nth(room.documents, 2))
   propose(room, from: 0, target: "v3.0.0")
   sluice_js.settle(room.sluice)
 
@@ -233,7 +233,7 @@ pub fn a_second_proposal_while_one_is_pending_is_rejected_test() -> Nil {
   propose(room, from: 1, target: "v3.0.0-alt")
   sluice_js.settle(room.sluice)
 
-  sluice_js.resume(room.sluice, nth(room.docs, 2))
+  sluice_js.resume(room.sluice, nth(room.documents, 2))
   sluice_js.settle(room.sluice)
 
   // The first proposal wins; the second left no trace.
@@ -263,11 +263,11 @@ pub fn a_late_joiner_reads_the_accepted_target_without_a_false_pending_test() ->
   target(room, 0) |> should.equal(Some("v1.2.0"))
 
   // A fourth tab opens and replays the history: one `Set`, three `Accept`s.
-  let doc_d = sluice_js.connect(room.sluice, "user-late")
+  let document_d = sluice_js.connect(room.sluice, "user-late")
   sluice_js.settle(room.sluice)
 
-  let assert Ok(value) = watershed.get(watershed.root(doc_d), target_key)
-  let assert Ok(release_d) = watershed.resolve_pact_map(doc_d, value)
+  let assert Ok(value) = watershed.get(watershed.root(document_d), target_key)
+  let assert Ok(release_d) = watershed.resolve_pact_map(document_d, value)
 
   watershed.pact_map_get(release_d, target_key)
   |> should.equal(Ok(json.string("v1.2.0")))

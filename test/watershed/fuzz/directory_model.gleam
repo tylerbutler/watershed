@@ -23,10 +23,10 @@
 //// ## Observe / convergence
 ////
 //// `observe` renders the sequenced tree (`summary_tree`) as canonical JSON:
-//// per-node storage in insertion order, subdirs in `seqData` order, plus
-//// create info, detached flag, and the creator set (sorted, since concurrent
-//// same-name creates merge creators in author-delivery order and so may differ
-//// only in list order between clients).
+//// per-node storage in insertion order, subdirectories in `seqData` order,
+//// plus create info, detached flag, and the creator set (sorted, since
+//// concurrent same-name creates merge creators in author-delivery order and so
+//// may differ only in list order between clients).
 
 import gleam/dynamic/decode
 import gleam/int
@@ -395,8 +395,8 @@ fn apply_stashed(
 
 /// A wire operation that is a no-operation on every client: deleting a
 /// subdirectory whose name is never generated, so it exists nowhere.
-/// `apply_remote` and `ack_local` both treat a delete of an absent subdir as a
-/// no-operation, leaving `observe` unchanged everywhere.
+/// `apply_remote` and `ack_local` both treat a delete of an absent subdirectory
+/// as a no-operation, leaving `observe` unchanged everywhere.
 fn nop_command(meta: kernel_fuzz.SubmitMeta) -> DirectoryCommand {
   DirectoryCommand(
     DeleteSubDirectory("/", "\u{1}nop"),
@@ -422,21 +422,23 @@ fn child_path(path: String, name: String) -> String {
 /// optimistic view keeps `ack_local` transparent (a pending value is visible
 /// both before and after its ack); after a `Synchronize` drains all pending,
 /// this equals the sequenced tree the oracle computes.
-/// A structured view of the optimistic tree. Storage/subdirs preserve their
-/// visible order so convergence checks that ordering agrees after sync; the
-/// `canonicalize` hook sorts them for the ack-transparency check alone (acking
-/// a pending storage entry moves it from the pending bucket to the sequenced
-/// bucket, reordering `entries()` without changing content — see `map_model`).
+/// A structured view of the optimistic tree. Storage/subdirectories preserve
+/// their visible order so convergence checks that ordering agrees after sync;
+/// the `canonicalize` hook sorts them for the ack-transparency check alone
+/// (acking a pending storage entry moves it from the pending bucket to the
+/// sequenced bucket, reordering `entries()` without changing content — see
+/// `map_model`).
 pub type Tree {
-  Tree(storage: List(#(String, Json)), subdirs: List(#(String, Tree)))
+  Tree(storage: List(#(String, Json)), subdirectories: List(#(String, Tree)))
 }
 
 fn observe_node(state: DirectoryState, path: String) -> Tree {
   Tree(
     storage: directory_kernel.entries(state, path),
-    subdirs: list.map(directory_kernel.subdirectories(state, path), fn(name) {
-      #(name, observe_node(state, child_path(path, name)))
-    }),
+    subdirectories: list.map(
+      directory_kernel.subdirectories(state, path),
+      fn(name) { #(name, observe_node(state, child_path(path, name))) },
+    ),
   )
 }
 
@@ -447,7 +449,9 @@ fn observe(state: DirectoryState) -> Tree {
 fn canonicalize(tree: Tree) -> Tree {
   Tree(
     storage: list.sort(tree.storage, fn(a, b) { string.compare(a.0, b.0) }),
-    subdirs: list.sort(tree.subdirs, fn(a, b) { string.compare(a.0, b.0) })
+    subdirectories: list.sort(tree.subdirectories, fn(a, b) {
+      string.compare(a.0, b.0)
+    })
       |> list.map(fn(kv) { #(kv.0, canonicalize(kv.1)) }),
   )
 }

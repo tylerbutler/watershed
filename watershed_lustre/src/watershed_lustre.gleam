@@ -23,8 +23,8 @@
 ////   ))
 //// }
 ////
-//// // after GotHandle(doc): subscribe to the root map
-//// watershed_lustre.subscribe(watershed.root(doc), fn(_) { MapChanged })
+//// // after GotHandle(document): subscribe to the root map
+//// watershed_lustre.subscribe(watershed.root(document), fn(_) { MapChanged })
 //// ```
 ////
 //// The edits and the reads stay on `watershed`, which has `set`, `get`,
@@ -74,7 +74,7 @@ import watershed/two_p_set_kernel
 fn queue_microtask(action: fn() -> Nil) -> Nil
 
 @external(javascript, "./watershed_lustre_ffi.mjs", "set_timeout")
-fn set_timeout(action: fn() -> Nil, ms: Int) -> Nil
+fn set_timeout(action: fn() -> Nil, milliseconds: Int) -> Nil
 
 // ── Connect ────────────────────────────────────────────────────────────────
 
@@ -90,11 +90,11 @@ pub fn connect(
   connected connected: fn(Result(Nil, String)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  let doc =
+  let document =
     watershed.connect(config, on_ready: fn(result) {
       queue_microtask(fn() { dispatch(connected(result)) })
     })
-  queue_microtask(fn() { dispatch(got_document(doc)) })
+  queue_microtask(fn() { dispatch(got_document(document)) })
 }
 
 /// The development form of `connect`. It creates the HS256 development token
@@ -106,7 +106,7 @@ pub fn connect_dev(
   url url: String,
   tenant tenant: String,
   secret secret: String,
-  document document: String,
+  document document_id: String,
   user_id user_id: String,
   got_document got_document: fn(Document(root)) -> msg,
   connected connected: fn(Result(Nil, String)) -> msg,
@@ -116,22 +116,22 @@ pub fn connect_dev(
     use token <- promise.map(watershed.dev_token(
       secret: secret,
       tenant: tenant,
-      document: document,
+      document: document_id,
       user_id: user_id,
     ))
     let config =
       WatershedConfig(
         url: url,
         tenant: tenant,
-        document: document,
+        document: document_id,
         token: token,
         user_id: user_id,
       )
-    let doc =
+    let document =
       watershed.connect(config, on_ready: fn(result) {
         queue_microtask(fn() { dispatch(connected(result)) })
       })
-    queue_microtask(fn() { dispatch(got_document(doc)) })
+    queue_microtask(fn() { dispatch(got_document(document)) })
   }
   Nil
 }
@@ -443,8 +443,8 @@ pub fn subscribe_rich_text(
   })
 }
 
-/// Subscribe to a JSON-OT document. `DocChanged` carries the path that changed,
-/// and not the new value, so read the channel again to render it.
+/// Subscribe to a JSON-OT document. `DocumentChanged` carries the path that
+/// changed, and not the new value, so read the channel again to render it.
 pub fn subscribe_json_ot(
   json_ot: JsonOt,
   to_msg to_msg: fn(json_ot_kernel.JsonOtEvent) -> msg,
@@ -764,9 +764,9 @@ pub fn ensure_field(
 /// application uses for a heartbeat, a debounce, and a retry, and the
 /// application thus writes no `setTimeout` FFI. The timer runs outside every
 /// `update` call, so this effect needs no microtask.
-pub fn after(ms: Int, msg: msg) -> Effect(msg) {
+pub fn after(milliseconds: Int, msg: msg) -> Effect(msg) {
   use dispatch <- effect.from
-  set_timeout(fn() { dispatch(msg) }, ms)
+  set_timeout(fn() { dispatch(msg) }, milliseconds)
 }
 
 /// Broadcast an ephemeral ripple to every other connected client. The effect
@@ -798,8 +798,8 @@ pub fn force_reconnect(document: Document(root)) -> Effect(msg) {
 /// ToggledOffline(offline) -> #(
 ///   Model(..model, offline:),
 ///   case offline {
-///     True -> watershed_lustre.go_offline(doc)
-///     False -> watershed_lustre.go_online(doc)
+///     True -> watershed_lustre.go_offline(document)
+///     False -> watershed_lustre.go_online(document)
 ///   },
 /// )
 /// ```

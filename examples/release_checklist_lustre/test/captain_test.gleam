@@ -16,7 +16,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleeunit/should
 
-import release_checklist_lustre/doc_schema
+import release_checklist_lustre/document_schema
 import release_checklist_lustre/release_readiness
 import watershed.{type Claims, type Document}
 import watershed/sluice_js.{type Sluice}
@@ -32,10 +32,11 @@ const captain_key = "captain"
 /// and every assertion can read straight after a `settle`.
 fn room(name: String, clients: List(String)) -> #(Sluice, List(Claims)) {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let docs = list.map(clients, fn(user) { sluice_js.connect(sluice, user) })
+  let documents =
+    list.map(clients, fn(user) { sluice_js.connect(sluice, user) })
   sluice_js.settle(sluice)
 
-  let assert [first, ..] = docs
+  let assert [first, ..] = documents
   let assert Ok(seed) = watershed.create_claims(first)
   watershed.set(
     watershed.root(first),
@@ -45,10 +46,11 @@ fn room(name: String, clients: List(String)) -> #(Sluice, List(Claims)) {
   sluice_js.settle(sluice)
 
   let claims =
-    docs
-    |> list.map(fn(doc: Document(doc_schema.Checklist)) {
-      let assert Ok(value) = watershed.get(watershed.root(doc), captain_key)
-      let assert Ok(claims) = watershed.resolve_claims(doc, value)
+    documents
+    |> list.map(fn(document: Document(document_schema.Checklist)) {
+      let assert Ok(value) =
+        watershed.get(watershed.root(document), captain_key)
+      let assert Ok(claims) = watershed.resolve_claims(document, value)
       claims
     })
   #(sluice, claims)

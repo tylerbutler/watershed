@@ -65,8 +65,8 @@ view.initialize(
 
 const board = view.root; // typed Board, guaranteed to exist`;
 
-const gleamRoot = `fn bootstrap(doc: Document(doc_schema.Board)) -> Effect(Msg) {
-  let root = watershed.root_typed(doc)
+const gleamRoot = `fn bootstrap(document: Document(document_schema.Board)) -> Effect(Msg) {
+  let root = watershed.root_typed(document)
   effect.batch([
     // Idempotent, and run by every client on every boot. Each one
     // seeds a candidate and adopts the handle visible after its own
@@ -74,19 +74,19 @@ const gleamRoot = `fn bootstrap(doc: Document(doc_schema.Board)) -> Effect(Msg) 
     // so the channel handed back here isn't promised to be final.
     watershed_lustre.ensure_field(
       root,
-      doc_schema.title(),
+      document_schema.title(),
       "Sprint board",
     ),
     watershed_lustre.ensure_map(
-      doc,
+      document,
       root,
-      doc_schema.cards(),
+      document_schema.cards(),
       EnsuredCards,
     ),
     watershed_lustre.ensure_counter(
-      doc,
+      document,
       root,
-      doc_schema.wip_breaches(),
+      document_schema.wip_breaches(),
       EnsuredBreaches,
     ),
   ])
@@ -100,12 +100,12 @@ board.title = "Q3 sprint board";
 renderHeader(board.title);`;
 
 const gleamReadWrite = `// Writing is checked at the field — only a String is accepted here.
-watershed.set_field(root, doc_schema.title(), "Q3 sprint board")
+watershed.set_field(root, document_schema.title(), "Q3 sprint board")
 
 // Reading decodes at the boundary. A peer running an older build — or
 // a stale summary — could have written anything here, so the result is
 // a \`Result\`, never a raw value.
-case watershed.get_field(root, doc_schema.title()) {
+case watershed.get_field(root, document_schema.title()) {
   Ok(Some(title)) -> render_header(title)
   Ok(None) -> render_header("Untitled board")  // key absent
   Error(_) -> render_header("Untitled board")  // a peer wrote a number
@@ -149,21 +149,21 @@ board.cards.moveRangeToIndex(4, 0, 3);
 board.cards.removeAt(2);`;
 
 const gleamNest = `/// One root, four merge policies — named per slot, at declaration time.
-pub type SudokuDoc
+pub type SudokuDocument
 
-pub fn cells() -> ChannelField(SudokuDoc, MapChannel) {
+pub fn cells() -> ChannelField(SudokuDocument, MapChannel) {
   schema.channel_field("cells") // last write wins, per key
 }
 
-pub fn notes() -> ChannelField(SudokuDoc, OrSetChannel) {
+pub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) {
   schema.channel_field("notes") // add wins over a concurrent remove
 }
 
-pub fn givens() -> ChannelField(SudokuDoc, ClaimsChannel) {
+pub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) {
   schema.channel_field("givens") // the first writer owns the slot
 }
 
-pub fn mistakes() -> ChannelField(SudokuDoc, CounterChannel) {
+pub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) {
   schema.channel_field("mistakes") // commutative increments
 }`;
 
@@ -177,7 +177,7 @@ const stopAll = Tree.on(board, "treeChanged", renderEverything);
 const gleamEvents = `// Per field. The change carries the decoded previous value AND the
 // new one, plus whether this client made it — and a peer's
 // type-confused write surfaces here as \`Error(Invalid(_))\`.
-let changes = watershed.subscribe_field(root, doc_schema.title())
+let changes = watershed.subscribe_field(root, document_schema.title())
 
 case process.receive(from: changes, within: 5000) {
   Ok(FieldChange(value: Ok(Some(title)), local: False, ..)) ->
@@ -359,7 +359,7 @@ const rows = [
           <Code code={tsDeclare} lang="typescript" theme={watershedCodeTheme} />
         </figure>
         <figure class="g-code">
-          <figcaption class="annot">watershed · src/doc_schema.gleam</figcaption>
+          <figcaption class="annot">watershed · src/document_schema.gleam</figcaption>
           <Code code={gleamDeclare} lang="gleam" theme={watershedCodeTheme} />
         </figure>
       </div>
@@ -500,7 +500,7 @@ const rows = [
         </figure>
         <figure class="g-code">
           <figcaption class="annot"
-            >watershed · sudoku_lustre/doc_schema.gleam</figcaption
+            >watershed · sudoku_lustre/document_schema.gleam</figcaption
           >
           <Code code={gleamNest} lang="gleam" theme={watershedCodeTheme} />
         </figure>

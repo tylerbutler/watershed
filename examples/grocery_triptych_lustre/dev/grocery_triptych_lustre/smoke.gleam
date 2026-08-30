@@ -7,7 +7,7 @@ import watershed.{
   type Document, type GSet, type OrSet, type TwoPSet, WatershedConfig,
 }
 
-import grocery_triptych_lustre/doc_schema
+import grocery_triptych_lustre/document_schema
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -17,16 +17,16 @@ const secret = "levee-dev-secret-change-in-production"
 
 const readiness_attempts = 100
 
-const readiness_poll_ms = 100
+const readiness_poll_milliseconds = 100
 
 const root_channel_adoption_attempts = 50
 
-const root_channel_adoption_poll_ms = 100
+const root_channel_adoption_poll_milliseconds = 100
 
 const wait_attempts = 30
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -70,7 +70,7 @@ type Readiness {
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.Pantry)) {
+) -> Promise(Document(document_schema.Pantry)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -106,10 +106,10 @@ pub fn main() -> Nil {
     let user_a = "user-a"
     let user_b = "user-b"
 
-    use doc_a <- promise.await(connect_client(document, user_a))
-    use doc_b <- promise.map(connect_client(document, user_b))
+    use document_a <- promise.await(connect_client(document, user_a))
+    use document_b <- promise.map(connect_client(document, user_b))
     await_readiness(user_a, user_b, readiness_attempts, fn() {
-      bootstrap(doc_a, doc_b)
+      bootstrap(document_a, document_b)
     })
   }
   Nil
@@ -150,7 +150,7 @@ fn readiness_retry(
   case attempts <= 0 {
     True -> fail(readiness_timeout_message(user_a, user_b))
     False -> {
-      use <- delay(readiness_poll_ms)
+      use <- delay(readiness_poll_milliseconds)
       await_readiness(user_a, user_b, attempts - 1, then)
     }
   }
@@ -188,18 +188,18 @@ fn fail_ready(user: String, reason: String) -> Nil {
 }
 
 fn bootstrap(
-  doc_a: Document(doc_schema.Pantry),
-  doc_b: Document(doc_schema.Pantry),
+  document_a: Document(document_schema.Pantry),
+  document_b: Document(document_schema.Pantry),
 ) -> Nil {
   log("smoke: ensuring pantry channels on A")
-  use grow_only_a <- ensure_grow_only(doc_a, "A")
-  use two_phase_a <- ensure_two_phase(doc_a, "A")
-  use observed_a <- ensure_observed(doc_a, "A")
+  use grow_only_a <- ensure_grow_only(document_a, "A")
+  use two_phase_a <- ensure_two_phase(document_a, "A")
+  use observed_a <- ensure_observed(document_a, "A")
 
   use adoption_ok <- wait_until_polling(
     root_channel_adoption_attempts,
-    root_channel_adoption_poll_ms,
-    fn() { root_channel_fields_present(doc_b) },
+    root_channel_adoption_poll_milliseconds,
+    fn() { root_channel_fields_present(document_b) },
   )
   case adoption_ok {
     False ->
@@ -210,9 +210,9 @@ fn bootstrap(
   }
 
   log("smoke: adopting pantry channels on B")
-  use grow_only_b <- ensure_grow_only(doc_b, "B")
-  use two_phase_b <- ensure_two_phase(doc_b, "B")
-  use observed_b <- ensure_observed(doc_b, "B")
+  use grow_only_b <- ensure_grow_only(document_b, "B")
+  use two_phase_b <- ensure_two_phase(document_b, "B")
+  use observed_b <- ensure_observed(document_b, "B")
 
   milk_phase(
     Client(grow_only: grow_only_a, two_phase: two_phase_a, observed: observed_a),
@@ -330,14 +330,14 @@ fn eggs_phase(client_a: Client, client_b: Client) -> Nil {
 }
 
 fn ensure_grow_only(
-  doc: Document(doc_schema.Pantry),
+  document: Document(document_schema.Pantry),
   who: String,
   then: fn(GSet) -> Nil,
 ) -> Nil {
   watershed.ensure_g_set(
-    doc,
-    watershed.root_typed(doc),
-    doc_schema.grow_only(),
+    document,
+    watershed.root_typed(document),
+    document_schema.grow_only(),
     fn(result) {
       case result {
         Ok(set) -> then(set)
@@ -349,14 +349,14 @@ fn ensure_grow_only(
 }
 
 fn ensure_two_phase(
-  doc: Document(doc_schema.Pantry),
+  document: Document(document_schema.Pantry),
   who: String,
   then: fn(TwoPSet) -> Nil,
 ) -> Nil {
   watershed.ensure_two_p_set(
-    doc,
-    watershed.root_typed(doc),
-    doc_schema.two_phase(),
+    document,
+    watershed.root_typed(document),
+    document_schema.two_phase(),
     fn(result) {
       case result {
         Ok(set) -> then(set)
@@ -368,14 +368,14 @@ fn ensure_two_phase(
 }
 
 fn ensure_observed(
-  doc: Document(doc_schema.Pantry),
+  document: Document(document_schema.Pantry),
   who: String,
   then: fn(OrSet) -> Nil,
 ) -> Nil {
   watershed.ensure_or_set(
-    doc,
-    watershed.root_typed(doc),
-    doc_schema.observed(),
+    document,
+    watershed.root_typed(document),
+    document_schema.observed(),
     fn(result) {
       case result {
         Ok(set) -> then(set)
@@ -392,8 +392,10 @@ fn add_everywhere(client: Client, item: String) -> Nil {
   watershed.or_set_add(client.observed, item)
 }
 
-fn root_channel_fields_present(doc: Document(doc_schema.Pantry)) -> Bool {
-  let root = watershed.untyped(watershed.root_typed(doc))
+fn root_channel_fields_present(
+  document: Document(document_schema.Pantry),
+) -> Bool {
+  let root = watershed.untyped(watershed.root_typed(document))
 
   watershed.has(root, "grow_only")
   && watershed.has(root, "two_phase")
@@ -455,7 +457,7 @@ fn wait_until(
 
 fn wait_until_polling(
   attempts: Int,
-  poll_ms: Int,
+  poll_milliseconds: Int,
   check: fn() -> Bool,
   then: fn(Bool) -> Nil,
 ) -> Nil {
@@ -465,8 +467,8 @@ fn wait_until_polling(
       case attempts <= 0 {
         True -> then(False)
         False -> {
-          use <- delay(poll_ms)
-          wait_until_polling(attempts - 1, poll_ms, check, then)
+          use <- delay(poll_milliseconds)
+          wait_until_polling(attempts - 1, poll_milliseconds, check, then)
         }
       }
   }

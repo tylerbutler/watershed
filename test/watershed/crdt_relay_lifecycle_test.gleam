@@ -169,11 +169,11 @@ type Setup {
     relay: Option(Hub),
     clock: Clock,
     policy: crdt_js.TransportPolicy,
-    deadline_ms: Int,
+    deadline_milliseconds: Int,
     /// The anti-entropy interval every member here coalesces peer
     /// digests over. Injected rather than assumed, which is the point of
     /// it being a configuration value at all.
-    anti_entropy_ms: Int,
+    anti_entropy_milliseconds: Int,
   )
 }
 
@@ -185,25 +185,25 @@ fn setup(policy: crdt_js.TransportPolicy) -> Setup {
     relay: Some(relay_fake.new_hub()),
     clock: relay_fake.new_clock(),
     policy: policy,
-    deadline_ms: crdt_js.default_readiness_deadline_ms,
-    anti_entropy_ms: crdt_js.default_anti_entropy_ms,
+    deadline_milliseconds: crdt_js.default_readiness_deadline_milliseconds,
+    anti_entropy_milliseconds: crdt_js.default_anti_entropy_milliseconds,
   )
 }
 
 @target(javascript)
-fn spawn(env: Setup, label: String) -> Member {
-  spawn_as(env, label, env.policy)
+fn spawn(environment: Setup, label: String) -> Member {
+  spawn_as(environment, label, environment.policy)
 }
 
 @target(javascript)
 /// One member under a policy of its own, so a room can hold replicas of
 /// more than one — which is the case a relay has to keep converging.
 fn spawn_as(
-  env: Setup,
+  environment: Setup,
   label: String,
   policy: crdt_js.TransportPolicy,
 ) -> Member {
-  spawn_offline(env, label, policy, fn(_document) { Nil })
+  spawn_offline(environment, label, policy, fn(_document) { Nil })
 }
 
 @target(javascript)
@@ -213,7 +213,7 @@ fn spawn_as(
 /// transfer on the handshake rather than as deltas, which is a different
 /// merge path owing the same durability.
 fn spawn_offline(
-  env: Setup,
+  environment: Setup,
   label: String,
   policy: crdt_js.TransportPolicy,
   offline: fn(CrdtDocument(schema.PnCounterChannel)) -> Nil,
@@ -224,19 +224,23 @@ fn spawn_offline(
       replica_label: label,
       compatibility_tag: tag,
       root: p2p.pn_counter_root(),
-      signaling: hub_signaling(env.signals),
+      signaling: hub_signaling(environment.signals),
     )
     |> crdt_js.with_transport_policy(policy)
-    |> crdt_js.with_scheduler(relay_fake.scheduler(env.clock))
-    |> crdt_js.with_anti_entropy_interval_ms(env.anti_entropy_ms)
-  let config = case env.relay {
+    |> crdt_js.with_scheduler(relay_fake.scheduler(environment.clock))
+    |> crdt_js.with_anti_entropy_interval_milliseconds(
+      environment.anti_entropy_milliseconds,
+    )
+  let config = case environment.relay {
     None -> base
     Some(hub) ->
       crdt_js.with_sequencer(
         base,
         crdt_js.sequencer("ws://relay.test/")
           |> crdt_js.with_relay_driver(relay_fake.driver(hub))
-          |> crdt_js.with_readiness_deadline_ms(env.deadline_ms),
+          |> crdt_js.with_readiness_deadline_milliseconds(
+            environment.deadline_milliseconds,
+          ),
       )
   }
   let assert Ok(document) = crdt_js.new_document(config)
@@ -258,7 +262,7 @@ fn spawn_offline(
         push(statuses, render(status))
         push(paths, render(status) <> " @ " <> path_of(document))
       },
-      rtc: p2p_fake.rtc(env.world, crdt_js.replica_id(document)),
+      rtc: p2p_fake.rtc(environment.world, crdt_js.replica_id(document)),
     )
   let _ =
     crdt_js.subscribe_pn_counter(crdt_js.root(document), fn(event) {
@@ -352,25 +356,25 @@ fn render(status: Status) -> String {
 /// what the coalesced peer digest is armed on. Nothing here moves the
 /// clock forward: every backoff is still stepped explicitly with
 /// `relay_fake.advance`.
-fn settle(env: Setup) -> Nil {
-  settle_rounds(env, 12)
+fn settle(environment: Setup) -> Nil {
+  settle_rounds(environment, 12)
 }
 
 @target(javascript)
-fn settle_rounds(env: Setup, fuel: Int) -> Nil {
+fn settle_rounds(environment: Setup, fuel: Int) -> Nil {
   case fuel <= 0 {
     True -> panic as "crdt_relay_lifecycle_test: the world did not settle"
     False -> {
-      p2p_fake.settle(env.world)
-      case env.relay {
+      p2p_fake.settle(environment.world)
+      case environment.relay {
         None -> Nil
         Some(hub) -> {
           relay_fake.settle(hub)
-          let ticks = relay_fake.due(env.clock)
-          relay_fake.advance(env.clock, 0)
-          p2p_fake.settle(env.world)
+          let ticks = relay_fake.due(environment.clock)
+          relay_fake.advance(environment.clock, 0)
+          p2p_fake.settle(environment.world)
           case relay_fake.pending(hub) > 0 || ticks > 0 {
-            True -> settle_rounds(env, fuel - 1)
+            True -> settle_rounds(environment, fuel - 1)
             False -> Nil
           }
         }
@@ -386,21 +390,21 @@ fn settle_rounds(env: Setup, fuel: Int) -> Nil {
 /// merged, so neither can attest until the timer separates them — which
 /// is the design, not an accident, and a test that wants convergence has
 /// to let the clock run for it.
-fn converge(env: Setup) -> Nil {
-  settle(env)
+fn converge(environment: Setup) -> Nil {
+  settle(environment)
   list.each([250, 500, 1000, 2000], fn(delay) {
-    relay_fake.advance(env.clock, delay)
-    settle(env)
+    relay_fake.advance(environment.clock, delay)
+    settle(environment)
   })
 }
 
 @target(javascript)
 /// Settle, wait out one anti-entropy interval, and settle again — what a
 /// document does between an edit and its peers hearing about it.
-fn anti_entropy(env: Setup) -> Nil {
-  settle(env)
-  relay_fake.advance(env.clock, env.anti_entropy_ms)
-  settle(env)
+fn anti_entropy(environment: Setup) -> Nil {
+  settle(environment)
+  relay_fake.advance(environment.clock, environment.anti_entropy_milliseconds)
+  settle(environment)
 }
 
 @target(javascript)
@@ -408,8 +412,8 @@ fn anti_entropy(env: Setup) -> Nil {
 /// mesh, oldest first. The fake records every data-channel write, so
 /// "the peer never asked for state" is an assertion rather than an
 /// absence.
-fn mesh_types(env: Setup, from: String, to: String) -> List(String) {
-  p2p_fake.channel_payloads(env.world)
+fn mesh_types(environment: Setup, from: String, to: String) -> List(String) {
+  p2p_fake.channel_payloads(environment.world)
   |> list.filter(fn(entry) { entry.0 == from && entry.1 == to })
   |> list.map(fn(entry) {
     case crdt_relay.decode_client(entry.2) {
@@ -425,15 +429,19 @@ fn mesh_types(env: Setup, from: String, to: String) -> List(String) {
 /// mesh. A count rather than a membership test, because a room's
 /// handshake legitimately carries one of most of them and what a later
 /// assertion is about is what came *after* that.
-fn mesh_kinds(env: Setup, link: #(String, String), kind: String) -> Int {
-  mesh_types(env, link.0, link.1)
+fn mesh_kinds(
+  environment: Setup,
+  link: #(String, String),
+  kind: String,
+) -> Int {
+  mesh_types(environment, link.0, link.1)
   |> list.filter(fn(found) { found == kind })
   |> list.length
 }
 
 @target(javascript)
-fn hub_of(env: Setup) -> Hub {
-  let assert Some(hub) = env.relay
+fn hub_of(environment: Setup) -> Hub {
+  let assert Some(hub) = environment.relay
   hub
 }
 
@@ -446,8 +454,8 @@ fn hub_of(env: Setup) -> Hub {
 /// long as the room was open. Counting them is how "one per coalesced
 /// interval, from the replicas that merged the mesh, and none in answer
 /// to the relay's own fan-out" is a number rather than a hope.
-fn publications(env: Setup) -> Int {
-  relay_fake.inbound(hub_of(env))
+fn publications(environment: Setup) -> Int {
+  relay_fake.inbound(hub_of(environment))
   |> list.filter(fn(raw) {
     case crdt_relay.decode_client(raw) {
       Ok(crdt_relay.Document(_, _, _, _, crdt_relay.StateMessage)) -> True
@@ -483,16 +491,16 @@ fn clap(member: Member, amount: Int) -> Nil {
 @target(javascript)
 /// `P2pOnly` ignores a configured sequencer rather than contacting it.
 pub fn p2p_only_opens_no_relay_test() -> Nil {
-  let env = setup(P2pOnly)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(P2pOnly)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
 
   entries(alpha.readies) |> expect.to_equal(["ok"])
   crdt_js.relay_attached_lane(alpha.document) |> expect.to_be_false()
-  relay_fake.opens(hub_of(env)) |> expect.to_equal(0)
+  relay_fake.opens(hub_of(environment)) |> expect.to_equal(0)
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
   relay_statuses(alpha) |> expect.to_equal([])
-  relay_fake.delays(env.clock) |> expect.to_equal([])
+  relay_fake.delays(environment.clock) |> expect.to_equal([])
 }
 
 @target(javascript)
@@ -500,8 +508,8 @@ pub fn p2p_only_opens_no_relay_test() -> Nil {
 /// when the document is ready, and the relay has not even been asked for
 /// a socket by the time it is.
 pub fn auto_is_ready_before_the_relay_is_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
 
   // No settle: readiness did not wait for an event queue, let alone a
   // relay handshake.
@@ -510,7 +518,7 @@ pub fn auto_is_ready_before_the_relay_is_test() -> Nil {
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
   saw(alpha, "relayPrimary") |> expect.to_be_false()
 
-  settle(env)
+  settle(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   crdt_js.effective_path(alpha.document) |> expect.to_equal(Sequenced)
   relay_statuses(alpha)
@@ -521,10 +529,10 @@ pub fn auto_is_ready_before_the_relay_is_test() -> Nil {
 /// `Auto` with a relay that is down is `Auto` with no relay at all, as
 /// far as the document is concerned.
 pub fn auto_is_ready_with_a_relay_that_never_answers_test() -> Nil {
-  let env = setup(Auto)
-  relay_fake.stop(hub_of(env))
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(Auto)
+  relay_fake.stop(hub_of(environment))
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
 
   entries(alpha.readies) |> expect.to_equal(["ok"])
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
@@ -537,16 +545,16 @@ pub fn auto_is_ready_with_a_relay_that_never_answers_test() -> Nil {
 /// `SequencedOnly` joins no signaling and opens no data channel, and its
 /// readiness is the relay's alone.
 pub fn sequenced_only_skips_signaling_and_webrtc_test() -> Nil {
-  let env = setup(SequencedOnly)
-  let alpha = spawn(env, "alpha")
+  let environment = setup(SequencedOnly)
+  let alpha = spawn(environment, "alpha")
 
-  joins(env.signals) |> expect.to_equal(0)
+  joins(environment.signals) |> expect.to_equal(0)
   entries(alpha.readies) |> expect.to_equal([])
   crdt_js.peers(alpha.document) |> expect.to_equal([])
 
-  settle(env)
+  settle(environment)
   entries(alpha.readies) |> expect.to_equal(["ok"])
-  joins(env.signals) |> expect.to_equal(0)
+  joins(environment.signals) |> expect.to_equal(0)
   crdt_js.effective_path(alpha.document) |> expect.to_equal(Sequenced)
   // The document is the same one every other policy builds: same core,
   // same envelopes, same eligibility boundary.
@@ -557,9 +565,9 @@ pub fn sequenced_only_skips_signaling_and_webrtc_test() -> Nil {
 @target(javascript)
 /// `SequencedOnly` with nothing to sequence against fails once, at once.
 pub fn sequenced_only_without_a_sequencer_fails_once_test() -> Nil {
-  let env = Setup(..setup(SequencedOnly), relay: None)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = Setup(..setup(SequencedOnly), relay: None)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
 
   entries(alpha.readies)
   |> expect.to_equal([
@@ -567,25 +575,25 @@ pub fn sequenced_only_without_a_sequencer_fails_once_test() -> Nil {
     <> "was configured",
   ])
   crdt_js.is_closed(alpha.document) |> expect.to_be_true()
-  joins(env.signals) |> expect.to_equal(0)
+  joins(environment.signals) |> expect.to_equal(0)
 }
 
 @target(javascript)
 /// The readiness deadline is a bound on the whole attachment, and firing
 /// it is one failure and a close — not a retry loop nobody is watching.
 pub fn sequenced_only_fails_at_its_deadline_test() -> Nil {
-  let env = Setup(..setup(SequencedOnly), deadline_ms: 10_000)
-  relay_fake.stop(hub_of(env))
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = Setup(..setup(SequencedOnly), deadline_milliseconds: 10_000)
+  relay_fake.stop(hub_of(environment))
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
   entries(alpha.readies) |> expect.to_equal([])
 
-  relay_fake.advance(env.clock, 9999)
-  settle(env)
+  relay_fake.advance(environment.clock, 9999)
+  settle(environment)
   entries(alpha.readies) |> expect.to_equal([])
 
-  relay_fake.advance(env.clock, 1)
-  settle(env)
+  relay_fake.advance(environment.clock, 1)
+  settle(environment)
   entries(alpha.readies)
   |> expect.to_equal([
     "error sequencerUnavailable · the sequencer did not become the durable "
@@ -594,19 +602,19 @@ pub fn sequenced_only_fails_at_its_deadline_test() -> Nil {
   crdt_js.is_closed(alpha.document) |> expect.to_be_true()
 
   // Closed means closed: no further attempt, and no second result.
-  relay_fake.resume(hub_of(env))
-  relay_fake.advance(env.clock, 60_000)
-  settle(env)
+  relay_fake.resume(hub_of(environment))
+  relay_fake.advance(environment.clock, 60_000)
+  settle(environment)
   entries(alpha.readies) |> list.length |> expect.to_equal(1)
 }
 
 @target(javascript)
 /// A relay that answers without the lane is a status under `Auto`.
 pub fn auto_reports_an_unsupported_relay_and_stays_on_webrtc_test() -> Nil {
-  let env = setup(Auto)
-  relay_fake.set_capability(hub_of(env), False)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(Auto)
+  relay_fake.set_capability(hub_of(environment), False)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
 
   entries(alpha.readies) |> expect.to_equal(["ok"])
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
@@ -616,18 +624,18 @@ pub fn auto_reports_an_unsupported_relay_and_stays_on_webrtc_test() -> Nil {
   value(alpha) |> expect.to_equal(2)
 
   // Terminal: a capability does not appear by being asked for again.
-  relay_fake.advance(env.clock, 60_000)
-  settle(env)
-  relay_fake.opens(hub_of(env)) |> expect.to_equal(1)
+  relay_fake.advance(environment.clock, 60_000)
+  settle(environment)
+  relay_fake.opens(hub_of(environment)) |> expect.to_equal(1)
 }
 
 @target(javascript)
 /// The same answer is a readiness failure under `SequencedOnly`.
 pub fn sequenced_only_fails_when_the_lane_is_missing_test() -> Nil {
-  let env = setup(SequencedOnly)
-  relay_fake.set_capability(hub_of(env), False)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(SequencedOnly)
+  relay_fake.set_capability(hub_of(environment), False)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
 
   entries(alpha.readies) |> expect.to_equal(["error sequencerUnsupported"])
   crdt_js.is_closed(alpha.document) |> expect.to_be_true()
@@ -642,28 +650,28 @@ pub fn sequenced_only_fails_when_the_lane_is_missing_test() -> Nil {
 /// The handshake, in order: merge what the relay holds, publish the
 /// merged result, and claim the relay only once the digests agree.
 pub fn a_late_attachment_merges_publishes_then_claims_the_relay_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
   clap(alpha, 3)
-  settle(env)
+  settle(environment)
   crdt_js.close(alpha.connection)
-  settle(env)
+  settle(environment)
 
   // The relay is all that is left of the room: an attested checkpoint,
   // and the delta alpha authored after it.
-  relay_fake.log_size(hub_of(env), room) |> expect.to_equal(2)
+  relay_fake.log_size(hub_of(environment), room) |> expect.to_equal(2)
 
-  let beta = spawn(env, "beta")
+  let beta = spawn(environment, "beta")
   // Ready on its own empty root the instant it joins: nothing waited.
   entries(beta.readies) |> expect.to_equal(["ok"])
   value(beta) |> expect.to_equal(0)
 
-  settle(env)
+  settle(environment)
   value(beta) |> expect.to_equal(3)
   crdt_js.relay_is_primary(beta.document) |> expect.to_be_true()
   crdt_js.digest(beta.document)
-  |> expect.to_equal(relay_fake.attested(hub_of(env), room))
+  |> expect.to_equal(relay_fake.attested(hub_of(environment), room))
   relay_statuses(beta)
   |> expect.to_equal(["relayConnecting", "relaySyncing", "relayPrimary"])
   // The merge reached the subscriber exactly once, as a merge and not as
@@ -688,8 +696,8 @@ pub fn two_concurrent_attachments_converge_without_a_winner_test() -> Nil {
       relay: Some(hub),
       clock: clock,
       policy: Auto,
-      deadline_ms: crdt_js.default_readiness_deadline_ms,
-      anti_entropy_ms: crdt_js.default_anti_entropy_ms,
+      deadline_milliseconds: crdt_js.default_readiness_deadline_milliseconds,
+      anti_entropy_milliseconds: crdt_js.default_anti_entropy_milliseconds,
     )
   let two = Setup(..one, world: p2p_fake.new_world(), signals: new_signal_hub())
 
@@ -725,12 +733,12 @@ pub fn two_concurrent_attachments_converge_without_a_winner_test() -> Nil {
 /// its subscriptions, its replica identity and its message counter are
 /// the same objects before and after.
 pub fn attachment_replaces_nothing_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
   let root = crdt_js.root(alpha.document)
   let replica = crdt_js.replica_id(alpha.document)
   clap(alpha, 1)
-  settle(env)
+  settle(environment)
 
   crdt_js.replica_id(alpha.document) |> expect.to_equal(replica)
   crdt_js.address(root) |> expect.to_equal(crdt_wire.root_address)
@@ -753,10 +761,10 @@ pub fn a_duplicate_over_both_paths_changes_state_once_test() -> Nil {
 
 @target(javascript)
 fn duplicate_case(webrtc_first webrtc_first: Bool) -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  let carol = raw_peer(env, "carol")
-  settle(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  let carol = raw_peer(environment, "carol")
+  settle(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
 
   let target = crdt_js.replica_id(alpha.document)
@@ -765,13 +773,13 @@ fn duplicate_case(webrtc_first webrtc_first: Bool) -> Nil {
     target,
     crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
   )
-  settle(env)
+  settle(environment)
 
   let #(_carol, delta) = raw_delta(carol.document, 6)
-  let assert [connection] = relay_fake.open_sockets(hub_of(env))
+  let assert [connection] = relay_fake.open_sockets(hub_of(environment))
   let over_relay = fn() {
     relay_fake.inject(
-      hub_of(env),
+      hub_of(environment),
       connection,
       crdt_relay.server_to_string(crdt_relay.Frame(99, delta)),
     )
@@ -781,16 +789,16 @@ fn duplicate_case(webrtc_first webrtc_first: Bool) -> Nil {
   case webrtc_first {
     True -> {
       over_webrtc()
-      settle(env)
+      settle(environment)
       over_relay()
     }
     False -> {
       over_relay()
-      settle(env)
+      settle(environment)
       over_webrtc()
     }
   }
-  settle(env)
+  settle(environment)
 
   value(alpha) |> expect.to_equal(6)
   entries(alpha.events) |> expect.to_equal(["6->6"])
@@ -801,13 +809,13 @@ fn duplicate_case(webrtc_first webrtc_first: Bool) -> Nil {
 /// its own envelope and nothing else: the lane stays up, because closing
 /// it would punish every other replica for one replica's bad frame.
 pub fn a_refused_relay_envelope_does_not_cost_the_lane_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
   clap(alpha, 2)
-  settle(env)
+  settle(environment)
 
-  let assert [connection] = relay_fake.open_sockets(hub_of(env))
+  let assert [connection] = relay_fake.open_sockets(hub_of(environment))
   let assert Ok(mismatched) =
     crdt_core.new(crdt_core.config(
       room: room,
@@ -817,14 +825,14 @@ pub fn a_refused_relay_envelope_does_not_cost_the_lane_test() -> Nil {
       root: p2p.kind_init(p2p.pn_counter_root()),
     ))
   relay_fake.inject(
-    hub_of(env),
+    hub_of(environment),
     connection,
     crdt_relay.server_to_string(crdt_relay.Frame(
       99,
       crdt_core.encode(mismatched, crdt_core.hello_message(mismatched)),
     )),
   )
-  settle(env)
+  settle(environment)
 
   saw(alpha, "relayRejected") |> expect.to_be_true()
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
@@ -840,22 +848,22 @@ pub fn a_refused_relay_envelope_does_not_cost_the_lane_test() -> Nil {
 /// and pauses nothing. Every delta authored in the window reaches the
 /// peer over WebRTC, and the document never stops accepting writes.
 pub fn a_relay_failure_during_a_mutation_burst_loses_nothing_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  let beta = spawn(env, "beta")
-  converge(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  let beta = spawn(environment, "beta")
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   crdt_js.relay_is_primary(beta.document) |> expect.to_be_true()
 
   clap(alpha, 1)
-  relay_fake.stop(hub_of(env))
+  relay_fake.stop(hub_of(environment))
   // Authored with the socket already gone and the drop not yet observed.
   clap(alpha, 1)
   clap(alpha, 1)
-  settle(env)
+  settle(environment)
   clap(alpha, 1)
   clap(alpha, 1)
-  settle(env)
+  settle(environment)
 
   value(alpha) |> expect.to_equal(5)
   value(beta) |> expect.to_equal(5)
@@ -868,12 +876,12 @@ pub fn a_relay_failure_during_a_mutation_burst_loses_nothing_test() -> Nil {
 /// The path is the mesh again *before* the fallback is announced, so a
 /// mutation authored from a status handler takes the surviving route.
 pub fn the_path_flips_before_the_fallback_is_reported_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
 
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
 
   entries(alpha.paths)
   |> list.filter(fn(entry) { string.starts_with(entry, "relayFallback") })
@@ -888,22 +896,22 @@ pub fn the_path_flips_before_the_fallback_is_reported_test() -> Nil {
 /// address, same subscription, same counter — a transport changed, not
 /// an identity.
 pub fn a_switch_keeps_the_document_handles_and_identity_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
   let root = crdt_js.root(alpha.document)
-  settle(env)
+  settle(environment)
   let replica = crdt_js.replica_id(alpha.document)
   let label = crdt_js.replica_label(alpha.document)
 
   clap(alpha, 1)
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
   clap(alpha, 1)
-  relay_fake.resume(hub_of(env))
-  relay_fake.advance(env.clock, 250)
-  settle(env)
+  relay_fake.resume(hub_of(environment))
+  relay_fake.advance(environment.clock, 250)
+  settle(environment)
   clap(alpha, 1)
-  settle(env)
+  settle(environment)
 
   crdt_js.replica_id(alpha.document) |> expect.to_equal(replica)
   crdt_js.replica_label(alpha.document) |> expect.to_equal(label)
@@ -918,33 +926,33 @@ pub fn a_switch_keeps_the_document_handles_and_identity_test() -> Nil {
 /// Recovery merges the relay's state, the peers' state and the outage's
 /// edits, republishes the join, and only then claims the relay again.
 pub fn recovery_merges_both_sides_before_it_is_primary_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  let beta = spawn(env, "beta")
-  converge(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  let beta = spawn(environment, "beta")
+  converge(environment)
 
   clap(alpha, 1)
-  settle(env)
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  settle(environment)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
 
   // An outage's worth of edits, on both replicas, over WebRTC only.
   clap(alpha, 2)
   clap(beta, 4)
-  settle(env)
+  settle(environment)
   value(alpha) |> expect.to_equal(7)
   value(beta) |> expect.to_equal(7)
 
-  relay_fake.resume(hub_of(env))
-  relay_fake.advance(env.clock, 250)
-  converge(env)
+  relay_fake.resume(hub_of(environment))
+  relay_fake.advance(environment.clock, 250)
+  converge(environment)
 
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   crdt_js.effective_path(alpha.document) |> expect.to_equal(Sequenced)
   // Recovery, not a first attachment — and it says so.
   saw(alpha, "relayRecovering") |> expect.to_be_true()
   // The relay ended up holding exactly what the replicas hold.
-  relay_fake.attested(hub_of(env), room)
+  relay_fake.attested(hub_of(environment), room)
   |> expect.to_equal(crdt_js.digest(alpha.document))
   crdt_js.digest(alpha.document)
   |> expect.to_equal(crdt_js.digest(beta.document))
@@ -956,60 +964,60 @@ pub fn recovery_merges_both_sides_before_it_is_primary_test() -> Nil {
 /// the outage's edits are still on the replicas, the checkpoint is still
 /// on the relay, and the two are joined before anything is primary.
 pub fn a_restarted_relay_recovers_from_its_log_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
   clap(alpha, 3)
-  settle(env)
+  settle(environment)
   // A checkpoint, and the delta authored after it — which retires the
   // attestation, because the relay's content has moved past the state
   // that digest described.
-  relay_fake.log_size(hub_of(env), room) |> expect.to_equal(2)
-  relay_fake.attested(hub_of(env), room) |> expect.to_equal("")
-  { list.length(relay_fake.lines(hub_of(env), room)) > 0 }
+  relay_fake.log_size(hub_of(environment), room) |> expect.to_equal(2)
+  relay_fake.attested(hub_of(environment), room) |> expect.to_equal("")
+  { list.length(relay_fake.lines(hub_of(environment), room)) > 0 }
   |> expect.to_be_true()
 
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
   clap(alpha, 4)
-  settle(env)
+  settle(environment)
 
   // Back from disk, with no memory of any client.
-  relay_fake.restart(hub_of(env))
-  relay_fake.advance(env.clock, 250)
-  settle(env)
+  relay_fake.restart(hub_of(environment))
+  relay_fake.advance(environment.clock, 250)
+  settle(environment)
 
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   value(alpha) |> expect.to_equal(7)
-  relay_fake.attested(hub_of(env), room)
+  relay_fake.attested(hub_of(environment), room)
   |> expect.to_equal(crdt_js.digest(alpha.document))
-  relay_fake.log_size(hub_of(env), room) |> expect.to_equal(1)
+  relay_fake.log_size(hub_of(environment), room) |> expect.to_equal(1)
 }
 
 @target(javascript)
 /// A late client joining a restarted relay sees everything, including
 /// the edits made while the relay was not there to see them.
 pub fn a_late_client_after_a_restart_sees_everything_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
   clap(alpha, 3)
-  settle(env)
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  settle(environment)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
   clap(alpha, 4)
-  settle(env)
-  relay_fake.restart(hub_of(env))
-  relay_fake.advance(env.clock, 250)
-  settle(env)
+  settle(environment)
+  relay_fake.restart(hub_of(environment))
+  relay_fake.advance(environment.clock, 250)
+  settle(environment)
 
   // A different signaling room, so this replica has no peer at all: what
   // it learns, it learns from the relay.
   let elsewhere =
-    Setup(..env, signals: new_signal_hub(), world: p2p_fake.new_world())
+    Setup(..environment, signals: new_signal_hub(), world: p2p_fake.new_world())
   let gamma = spawn(elsewhere, "gamma")
   settle(elsewhere)
-  settle(env)
+  settle(environment)
   settle(elsewhere)
 
   value(gamma) |> expect.to_equal(7)
@@ -1022,18 +1030,20 @@ pub fn a_late_client_after_a_restart_sees_everything_test() -> Nil {
 /// Closing a connection closes its relay lane too, and schedules
 /// nothing more.
 pub fn closing_a_document_closes_its_relay_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  settle(env)
-  relay_fake.open_sockets(hub_of(env)) |> list.length |> expect.to_equal(1)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
+  relay_fake.open_sockets(hub_of(environment))
+  |> list.length
+  |> expect.to_equal(1)
 
   crdt_js.close(alpha.connection)
-  settle(env)
-  relay_fake.open_sockets(hub_of(env)) |> expect.to_equal([])
+  settle(environment)
+  relay_fake.open_sockets(hub_of(environment)) |> expect.to_equal([])
 
-  relay_fake.advance(env.clock, 60_000)
-  settle(env)
-  relay_fake.opens(hub_of(env)) |> expect.to_equal(1)
+  relay_fake.advance(environment.clock, 60_000)
+  settle(environment)
+  relay_fake.opens(hub_of(environment)) |> expect.to_equal(1)
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
 }
 
@@ -1047,7 +1057,7 @@ type RawPeer {
 }
 
 @target(javascript)
-fn raw_peer(env: Setup, peer_id: String) -> RawPeer {
+fn raw_peer(environment: Setup, peer_id: String) -> RawPeer {
   let assert Ok(document) =
     crdt_core.new(crdt_core.config(
       room: room,
@@ -1060,7 +1070,7 @@ fn raw_peer(env: Setup, peer_id: String) -> RawPeer {
     p2p_transport_js.start_with_rtc(
       room: room,
       peer_id: peer_id,
-      signaling: hub_signaling(env.signals),
+      signaling: hub_signaling(environment.signals),
       ice_servers: [],
       callbacks: Callbacks(
         on_peer_open: fn(_peer) { Nil },
@@ -1069,7 +1079,7 @@ fn raw_peer(env: Setup, peer_id: String) -> RawPeer {
         on_status: fn(_status) { Nil },
         on_error: fn(_error) { Nil },
       ),
-      rtc: p2p_fake.rtc(env.world, peer_id),
+      rtc: p2p_fake.rtc(environment.world, peer_id),
     )
   RawPeer(transport: transport, document: document)
 }
@@ -1154,18 +1164,18 @@ fn poisoned_hub(clock: Clock) -> #(Hub, Clock) {
 pub fn a_poisoned_log_entry_does_not_wedge_an_auto_document_test() -> Nil {
   let clock = relay_fake.new_clock()
   let #(hub, clock) = poisoned_hub(clock)
-  let env =
+  let environment =
     Setup(
       world: p2p_fake.new_world(),
       signals: new_signal_hub(),
       relay: Some(hub),
       clock: clock,
       policy: Auto,
-      deadline_ms: crdt_js.default_readiness_deadline_ms,
-      anti_entropy_ms: crdt_js.default_anti_entropy_ms,
+      deadline_milliseconds: crdt_js.default_readiness_deadline_milliseconds,
+      anti_entropy_milliseconds: crdt_js.default_anti_entropy_milliseconds,
     )
-  let alpha = spawn(env, "alpha")
-  converge(env)
+  let alpha = spawn(environment, "alpha")
+  converge(environment)
 
   saw(alpha, "relayRejected") |> expect.to_be_true()
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
@@ -1185,7 +1195,7 @@ pub fn a_poisoned_log_entry_does_not_wedge_an_auto_document_test() -> Nil {
 
   // And the document is entirely normal afterwards.
   clap(alpha, 3)
-  converge(env)
+  converge(environment)
   value(alpha) |> expect.to_equal(3)
   entries(alpha.events) |> expect.to_equal(["3->3"])
 }
@@ -1197,18 +1207,18 @@ pub fn a_poisoned_log_entry_does_not_wedge_an_auto_document_test() -> Nil {
 pub fn a_poisoned_log_entry_does_not_wedge_a_sequenced_only_document_test() -> Nil {
   let clock = relay_fake.new_clock()
   let #(hub, clock) = poisoned_hub(clock)
-  let env =
+  let environment =
     Setup(
       world: p2p_fake.new_world(),
       signals: new_signal_hub(),
       relay: Some(hub),
       clock: clock,
       policy: SequencedOnly,
-      deadline_ms: crdt_js.default_readiness_deadline_ms,
-      anti_entropy_ms: crdt_js.default_anti_entropy_ms,
+      deadline_milliseconds: crdt_js.default_readiness_deadline_milliseconds,
+      anti_entropy_milliseconds: crdt_js.default_anti_entropy_milliseconds,
     )
-  let alpha = spawn(env, "alpha")
-  converge(env)
+  let alpha = spawn(environment, "alpha")
+  converge(environment)
 
   entries(alpha.readies) |> expect.to_equal(["ok"])
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
@@ -1216,7 +1226,7 @@ pub fn a_poisoned_log_entry_does_not_wedge_a_sequenced_only_document_test() -> N
 
   // The deadline passes with nothing to fire on.
   relay_fake.advance(clock, 60_000)
-  converge(env)
+  converge(environment)
   entries(alpha.readies) |> expect.to_equal(["ok"])
   crdt_js.is_closed(alpha.document) |> expect.to_be_false()
 }
@@ -1229,18 +1239,18 @@ pub fn a_poisoned_log_entry_does_not_wedge_a_sequenced_only_document_test() -> N
 pub fn a_poisoned_entry_is_skipped_again_after_a_reconnect_test() -> Nil {
   let clock = relay_fake.new_clock()
   let #(hub, clock) = poisoned_hub(clock)
-  let env =
+  let environment =
     Setup(
       world: p2p_fake.new_world(),
       signals: new_signal_hub(),
       relay: Some(hub),
       clock: clock,
       policy: Auto,
-      deadline_ms: crdt_js.default_readiness_deadline_ms,
-      anti_entropy_ms: crdt_js.default_anti_entropy_ms,
+      deadline_milliseconds: crdt_js.default_readiness_deadline_milliseconds,
+      anti_entropy_milliseconds: crdt_js.default_anti_entropy_milliseconds,
     )
-  let alpha = spawn(env, "alpha")
-  converge(env)
+  let alpha = spawn(environment, "alpha")
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   let checkpointed = relay_fake.lines(hub, room)
   list.any(checkpointed, fn(line) { string.contains(line, "nonsense") })
@@ -1248,13 +1258,13 @@ pub fn a_poisoned_entry_is_skipped_again_after_a_reconnect_test() -> Nil {
 
   // A socket outage, and back: nothing about the room has changed.
   relay_fake.stop(hub)
-  converge(env)
+  converge(environment)
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
   clap(alpha, 2)
   relay_fake.resume(hub)
   // Long enough for whatever the backoff had reached while it was down.
   relay_fake.advance(clock, 5000)
-  converge(env)
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
 
   // A restart from the compacted log: the poison replays off disk, is
@@ -1262,10 +1272,10 @@ pub fn a_poisoned_entry_is_skipped_again_after_a_reconnect_test() -> Nil {
   // carries it forward once more.
   let before = list.length(relay_fake.inbound(hub))
   relay_fake.stop(hub)
-  converge(env)
+  converge(environment)
   relay_fake.restart(hub)
   relay_fake.advance(clock, 5000)
-  converge(env)
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   value(alpha) |> expect.to_equal(2)
   relay_fake.attested(hub, room)
@@ -1287,19 +1297,19 @@ pub fn a_poisoned_entry_is_skipped_again_after_a_reconnect_test() -> Nil {
 pub fn a_second_client_skips_the_same_entry_test() -> Nil {
   let clock = relay_fake.new_clock()
   let #(hub, clock) = poisoned_hub(clock)
-  let env =
+  let environment =
     Setup(
       world: p2p_fake.new_world(),
       signals: new_signal_hub(),
       relay: Some(hub),
       clock: clock,
       policy: Auto,
-      deadline_ms: crdt_js.default_readiness_deadline_ms,
-      anti_entropy_ms: crdt_js.default_anti_entropy_ms,
+      deadline_milliseconds: crdt_js.default_readiness_deadline_milliseconds,
+      anti_entropy_milliseconds: crdt_js.default_anti_entropy_milliseconds,
     )
-  let alpha = spawn(env, "alpha")
-  let beta = spawn(env, "beta")
-  converge(env)
+  let alpha = spawn(environment, "alpha")
+  let beta = spawn(environment, "beta")
+  converge(environment)
 
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   crdt_js.relay_is_primary(beta.document) |> expect.to_be_true()
@@ -1322,11 +1332,11 @@ pub fn a_second_client_skips_the_same_entry_test() -> Nil {
 /// out it is behind, asks, and converges. One state change, one event,
 /// one digest, everywhere.
 pub fn a_p2p_only_peer_converges_while_the_relay_is_primary_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  let beta = spawn(env, "beta")
-  let carol = spawn_as(env, "carol", P2pOnly)
-  converge(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  let beta = spawn(environment, "beta")
+  let carol = spawn_as(environment, "carol", P2pOnly)
+  converge(environment)
 
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   crdt_js.relay_is_primary(beta.document) |> expect.to_be_true()
@@ -1334,9 +1344,9 @@ pub fn a_p2p_only_peer_converges_while_the_relay_is_primary_test() -> Nil {
   crdt_js.effective_path(carol.document) |> expect.to_equal(PeerToPeer)
 
   clap(alpha, 3)
-  converge(env)
+  converge(environment)
   clap(carol, 4)
-  converge(env)
+  converge(environment)
 
   value(alpha) |> expect.to_equal(7)
   value(beta) |> expect.to_equal(7)
@@ -1361,31 +1371,31 @@ pub fn a_p2p_only_peer_converges_while_the_relay_is_primary_test() -> Nil {
 /// this replica is what owes the relay a publication, and the coalesced
 /// interval is when it pays.
 pub fn a_p2p_only_edit_reaches_the_relays_durable_history_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  let carol = spawn_as(env, "carol", P2pOnly)
-  converge(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  let carol = spawn_as(environment, "carol", P2pOnly)
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   crdt_js.effective_path(carol.document) |> expect.to_equal(PeerToPeer)
 
   // The only edit in the room is authored where the relay cannot see it.
   clap(carol, 4)
-  anti_entropy(env)
-  converge(env)
+  anti_entropy(environment)
+  converge(environment)
 
   value(alpha) |> expect.to_equal(4)
   // The room's checkpoint is the room's state — not the state the relay
   // held before a peer's edit crossed the mesh.
-  relay_fake.attested(hub_of(env), room)
+  relay_fake.attested(hub_of(environment), room)
   |> expect.to_equal(crdt_js.digest(alpha.document))
-  relay_fake.replayable(hub_of(env), room)
+  relay_fake.replayable(hub_of(environment), room)
   |> list.length
-  |> expect.to_equal(relay_fake.log_size(hub_of(env), room))
+  |> expect.to_equal(relay_fake.log_size(hub_of(environment), room))
 
   // And a replica with no mesh path at all, attaching afterwards, reads
   // it back from the relay alone.
-  let dave = spawn_as(env, "dave", SequencedOnly)
-  converge(env)
+  let dave = spawn_as(environment, "dave", SequencedOnly)
+  converge(environment)
   crdt_js.peers(dave.document) |> expect.to_equal([])
   crdt_js.effective_path(dave.document) |> expect.to_equal(Sequenced)
   value(dave) |> expect.to_equal(4)
@@ -1405,10 +1415,10 @@ pub fn a_p2p_only_edit_reaches_the_relays_durable_history_test() -> Nil {
 /// relay-primary document, the other goes down the relay itself. A late
 /// relay-only replica has to find both channels, with both edits.
 pub fn a_p2p_only_channel_reaches_the_relays_durable_history_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  let carol = spawn_as(env, "carol", P2pOnly)
-  converge(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  let carol = spawn_as(environment, "carol", P2pOnly)
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
 
   let assert Ok(theirs) =
@@ -1417,11 +1427,11 @@ pub fn a_p2p_only_channel_reaches_the_relays_durable_history_test() -> Nil {
     crdt_js.create_channel(alpha.document, p2p.or_set_root())
   let assert Ok(Nil) = crdt_js.or_set_add(theirs, "tent")
   let assert Ok(Nil) = crdt_js.or_set_add(ours, "map")
-  anti_entropy(env)
-  converge(env)
+  anti_entropy(environment)
+  converge(environment)
 
-  let dave = spawn_as(env, "dave", SequencedOnly)
-  converge(env)
+  let dave = spawn_as(environment, "dave", SequencedOnly)
+  converge(environment)
 
   crdt_js.addresses(dave.document)
   |> expect.to_equal(crdt_js.addresses(carol.document))
@@ -1449,32 +1459,32 @@ pub fn a_p2p_only_channel_reaches_the_relays_durable_history_test() -> Nil {
 /// brings what it holds on the handshake, as one `state` message and no
 /// deltas.
 pub fn a_peers_state_transfer_reaches_the_relays_durable_history_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  converge(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
 
   let carol =
-    spawn_offline(env, "carol", P2pOnly, fn(document) {
+    spawn_offline(environment, "carol", P2pOnly, fn(document) {
       let assert Ok(Nil) = crdt_js.pn_counter_update(crdt_js.root(document), 6)
       Nil
     })
-  anti_entropy(env)
-  converge(env)
+  anti_entropy(environment)
+  converge(environment)
 
   value(alpha) |> expect.to_equal(6)
   mesh_types(
-    env,
+    environment,
     crdt_js.replica_id(carol.document),
     crdt_js.replica_id(alpha.document),
   )
   |> list.contains("delta")
   |> expect.to_be_false()
-  relay_fake.attested(hub_of(env), room)
+  relay_fake.attested(hub_of(environment), room)
   |> expect.to_equal(crdt_js.digest(alpha.document))
 
-  let dave = spawn_as(env, "dave", SequencedOnly)
-  converge(env)
+  let dave = spawn_as(environment, "dave", SequencedOnly)
+  converge(environment)
   value(dave) |> expect.to_equal(6)
   crdt_js.digest(dave.document)
   |> expect.to_equal(crdt_js.digest(carol.document))
@@ -1491,61 +1501,61 @@ pub fn a_peers_state_transfer_reaches_the_relays_durable_history_test() -> Nil {
 /// arms nothing, and the interval that coalesces the mesh's digest
 /// coalesces this too.
 pub fn a_mesh_burst_publishes_once_per_client_and_does_not_echo_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  let beta = spawn(env, "beta")
-  let carol = spawn_as(env, "carol", P2pOnly)
-  converge(env)
-  let attached = publications(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  let beta = spawn(environment, "beta")
+  let carol = spawn_as(environment, "carol", P2pOnly)
+  converge(environment)
+  let attached = publications(environment)
   let alpha_to_carol = #(
     crdt_js.replica_id(alpha.document),
     crdt_js.replica_id(carol.document),
   )
   // The handshake's own `state` transfer, so what is counted afterwards
   // is what the burst added and not what joining the room cost.
-  let handshake_states = mesh_kinds(env, alpha_to_carol, "state")
+  let handshake_states = mesh_kinds(environment, alpha_to_carol, "state")
 
   // Four deltas from the mesh-only peer, all inside one interval.
   clap(carol, 1)
   clap(carol, 1)
   clap(carol, 1)
   clap(carol, 1)
-  converge(env)
+  converge(environment)
 
   value(alpha) |> expect.to_equal(4)
   value(beta) |> expect.to_equal(4)
   value(carol) |> expect.to_equal(4)
   // One each from the two replicas that merged the mesh, and none at all
   // in answer to the relay carrying them.
-  { publications(env) - attached } |> expect.to_equal(2)
+  { publications(environment) - attached } |> expect.to_equal(2)
 
   // The publication is durable traffic, not a mesh broadcast: the peer
   // that authored the deltas is sent no more of this document than it was
   // before, and certainly not the whole of it.
-  mesh_kinds(env, alpha_to_carol, "state")
+  mesh_kinds(environment, alpha_to_carol, "state")
   |> expect.to_equal(handshake_states)
 
   // Quiet room, quiet lane: nothing further is published for as long as
   // nothing changes.
-  let settled = publications(env)
+  let settled = publications(environment)
   list.each([250, 500, 1000], fn(delay) {
-    relay_fake.advance(env.clock, delay)
-    settle(env)
+    relay_fake.advance(environment.clock, delay)
+    settle(environment)
   })
-  publications(env) |> expect.to_equal(settled)
+  publications(environment) |> expect.to_equal(settled)
   // And an idle relay-primary document does not re-hash itself to say so.
   let hashes = crdt_js.digest_computations(alpha.document)
   list.each([250, 500], fn(delay) {
-    relay_fake.advance(env.clock, delay)
-    settle(env)
+    relay_fake.advance(environment.clock, delay)
+    settle(environment)
   })
   crdt_js.digest_computations(alpha.document) |> expect.to_equal(hashes)
 
   // Two concurrent publications may leave the room's attestation for the
   // next checkpoint to settle — but the history is complete either way,
   // which is what a replica that has only ever seen the relay reads.
-  let dave = spawn_as(env, "dave", SequencedOnly)
-  converge(env)
+  let dave = spawn_as(environment, "dave", SequencedOnly)
+  converge(environment)
   value(dave) |> expect.to_equal(4)
 }
 
@@ -1554,11 +1564,11 @@ pub fn a_mesh_burst_publishes_once_per_client_and_does_not_echo_test() -> Nil {
 /// relay is primary — the digest does. A raw peer, which records exactly
 /// what it was sent, is what proves it.
 pub fn a_primary_relay_sends_peers_a_digest_and_not_the_delta_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
   let heard = transport_js.new_cell([])
-  let carol = recording_peer(env, "carol", heard)
-  settle(env)
+  let carol = recording_peer(environment, "carol", heard)
+  settle(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
 
   send_raw(
@@ -1566,11 +1576,11 @@ pub fn a_primary_relay_sends_peers_a_digest_and_not_the_delta_test() -> Nil {
     crdt_js.replica_id(alpha.document),
     crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
   )
-  settle(env)
+  settle(environment)
   transport_js.set_cell(heard, [])
 
   clap(alpha, 2)
-  anti_entropy(env)
+  anti_entropy(environment)
 
   let kinds = entries(heard)
   list.contains(kinds, "digest") |> expect.to_be_true()
@@ -1578,11 +1588,11 @@ pub fn a_primary_relay_sends_peers_a_digest_and_not_the_delta_test() -> Nil {
 
   // And when the relay is gone, the delta goes to the mesh again — with
   // no interval to wait out, because that path is not anti-entropy.
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
   transport_js.set_cell(heard, [])
   clap(alpha, 1)
-  settle(env)
+  settle(environment)
   entries(heard) |> list.contains("delta") |> expect.to_be_true()
 }
 
@@ -1591,18 +1601,18 @@ pub fn a_primary_relay_sends_peers_a_digest_and_not_the_delta_test() -> Nil {
 /// carries on over WebRTC and a `P2pOnly` replica beside it converges,
 /// because the path never became `Sequenced`.
 pub fn an_unsupported_relay_leaves_a_mixed_room_converging_test() -> Nil {
-  let env = setup(Auto)
-  relay_fake.set_capability(hub_of(env), False)
-  let alpha = spawn(env, "alpha")
-  let carol = spawn_as(env, "carol", P2pOnly)
-  converge(env)
+  let environment = setup(Auto)
+  relay_fake.set_capability(hub_of(environment), False)
+  let alpha = spawn(environment, "alpha")
+  let carol = spawn_as(environment, "carol", P2pOnly)
+  converge(environment)
 
   saw(alpha, "relayUnsupported") |> expect.to_be_true()
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
 
   clap(alpha, 2)
   clap(carol, 5)
-  converge(env)
+  converge(environment)
 
   value(alpha) |> expect.to_equal(7)
   value(carol) |> expect.to_equal(7)
@@ -1622,15 +1632,15 @@ pub fn an_unsupported_relay_leaves_a_mixed_room_converging_test() -> Nil {
 /// fallback is reported, and the delta goes to the peers — all before the
 /// mutation returns.
 pub fn a_write_to_a_dead_socket_falls_back_at_once_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  let beta = spawn(env, "beta")
-  converge(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  let beta = spawn(environment, "beta")
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
 
   // The socket has left OPEN and its close has not been delivered: the
   // window in which a `send` that claimed success would lose the write.
-  relay_fake.set_writable(hub_of(env), False)
+  relay_fake.set_writable(hub_of(environment), False)
   clap(alpha, 4)
 
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
@@ -1639,11 +1649,13 @@ pub fn a_write_to_a_dead_socket_falls_back_at_once_test() -> Nil {
   |> list.filter(fn(entry) { string.starts_with(entry, "relayFallback") })
   |> expect.to_equal(["relayFallback @ p2p"])
 
-  settle(env)
+  settle(environment)
   value(beta) |> expect.to_equal(4)
   value(alpha) |> expect.to_equal(4)
   // And a reconnect was armed, exactly as a reported close would arm one.
-  relay_fake.delays(env.clock) |> list.contains(250) |> expect.to_be_true()
+  relay_fake.delays(environment.clock)
+  |> list.contains(250)
+  |> expect.to_be_true()
 }
 
 @target(javascript)
@@ -1653,21 +1665,23 @@ pub fn a_write_to_a_dead_socket_falls_back_at_once_test() -> Nil {
 /// `synced`, no publication and no retry is the one state this lane must
 /// never be able to sit in.
 pub fn an_attachment_write_that_fails_does_not_strand_the_lane_test() -> Nil {
-  let env = setup(Auto)
+  let environment = setup(Auto)
   // The greeting arrives; the first thing the client writes does not.
-  relay_fake.set_write_budget(hub_of(env), 0)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  relay_fake.set_write_budget(hub_of(environment), 0)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
 
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_false()
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
   saw(alpha, "relayFallback") |> expect.to_be_true()
-  relay_fake.delays(env.clock) |> list.contains(250) |> expect.to_be_true()
+  relay_fake.delays(environment.clock)
+  |> list.contains(250)
+  |> expect.to_be_true()
 
   // And it recovers on the retry, which is what "retry" has to mean.
-  relay_fake.set_write_budget(hub_of(env), -1)
-  relay_fake.advance(env.clock, 250)
-  converge(env)
+  relay_fake.set_write_budget(hub_of(environment), -1)
+  relay_fake.advance(environment.clock, 250)
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   crdt_js.effective_path(alpha.document) |> expect.to_equal(Sequenced)
 }
@@ -1677,17 +1691,19 @@ pub fn an_attachment_write_that_fails_does_not_strand_the_lane_test() -> Nil {
 /// handshake cannot be completed on a socket that cannot carry it, so it
 /// is retired rather than waited on.
 pub fn a_publication_that_fails_to_write_falls_back_test() -> Nil {
-  let env = setup(Auto)
+  let environment = setup(Auto)
   // `hello` and `stateRequest` land; the `state` does not.
-  relay_fake.set_write_budget(hub_of(env), 2)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  relay_fake.set_write_budget(hub_of(environment), 2)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
 
   relay_statuses(alpha) |> list.contains("relaySyncing") |> expect.to_be_true()
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_false()
   saw(alpha, "relayFallback") |> expect.to_be_true()
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
-  relay_fake.delays(env.clock) |> list.contains(250) |> expect.to_be_true()
+  relay_fake.delays(environment.clock)
+  |> list.contains(250)
+  |> expect.to_be_true()
 }
 
 @target(javascript)
@@ -1695,24 +1711,26 @@ pub fn a_publication_that_fails_to_write_falls_back_test() -> Nil {
 /// written, the echo can never come, and a lane waiting for it forever is
 /// a room that never checkpoints — so this one is retired too.
 pub fn an_attestation_that_fails_to_write_falls_back_test() -> Nil {
-  let env = setup(Auto)
+  let environment = setup(Auto)
   // `hello`, `stateRequest` and `state` land; the `attest` does not.
-  relay_fake.set_write_budget(hub_of(env), 3)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  relay_fake.set_write_budget(hub_of(environment), 3)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
 
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_false()
   saw(alpha, "relayFallback") |> expect.to_be_true()
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
-  relay_fake.delays(env.clock) |> list.contains(250) |> expect.to_be_true()
+  relay_fake.delays(environment.clock)
+  |> list.contains(250)
+  |> expect.to_be_true()
 
   // The room is not damaged by it: the state that *did* arrive is still
   // in the log, and the next attachment attests it.
-  relay_fake.set_write_budget(hub_of(env), -1)
-  relay_fake.advance(env.clock, 250)
-  converge(env)
+  relay_fake.set_write_budget(hub_of(environment), -1)
+  relay_fake.advance(environment.clock, 250)
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
-  relay_fake.attested(hub_of(env), room)
+  relay_fake.attested(hub_of(environment), room)
   |> expect.to_equal(crdt_js.digest(alpha.document))
 }
 
@@ -1731,11 +1749,11 @@ pub fn an_attestation_that_fails_to_write_falls_back_test() -> Nil {
 /// durable path arrive first and still tells a peer that is genuinely
 /// behind, one tick later.
 pub fn peer_digests_are_coalesced_while_the_relay_is_primary_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
   let heard = transport_js.new_cell([])
-  let carol = recording_peer(env, "carol", heard)
-  settle(env)
+  let carol = recording_peer(environment, "carol", heard)
+  settle(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
 
   send_raw(
@@ -1743,7 +1761,7 @@ pub fn peer_digests_are_coalesced_while_the_relay_is_primary_test() -> Nil {
     crdt_js.replica_id(alpha.document),
     crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
   )
-  settle(env)
+  settle(environment)
   transport_js.set_cell(heard, [])
 
   // A burst, authored inside one turn of the event loop. Draining the
@@ -1751,23 +1769,26 @@ pub fn peer_digests_are_coalesced_while_the_relay_is_primary_test() -> Nil {
   clap(alpha, 1)
   clap(alpha, 1)
   clap(alpha, 1)
-  p2p_fake.settle(env.world)
+  p2p_fake.settle(environment.world)
   entries(heard) |> expect.to_equal([])
 
   // Nor on the next task, nor on the one after that: a zero-delay tick
   // is not an interval, and the point is to be slower than the relay's
   // own fan-out rather than faster than a microtask.
-  settle(env)
+  settle(environment)
   entries(heard) |> expect.to_equal([])
 
   // Edits from *later* tasks join the same interval.
   clap(alpha, 1)
-  relay_fake.advance(env.clock, crdt_js.default_anti_entropy_ms - 1)
-  settle(env)
+  relay_fake.advance(
+    environment.clock,
+    crdt_js.default_anti_entropy_milliseconds - 1,
+  )
+  settle(environment)
   entries(heard) |> expect.to_equal([])
 
-  relay_fake.advance(env.clock, 1)
-  settle(env)
+  relay_fake.advance(environment.clock, 1)
+  settle(environment)
   entries(heard) |> expect.to_equal(["digest"])
 
   // The next burst gets its own, so this is coalescing and not a
@@ -1775,7 +1796,7 @@ pub fn peer_digests_are_coalesced_while_the_relay_is_primary_test() -> Nil {
   transport_js.set_cell(heard, [])
   clap(alpha, 1)
   clap(alpha, 1)
-  anti_entropy(env)
+  anti_entropy(environment)
   entries(heard) |> expect.to_equal(["digest"])
   value(alpha) |> expect.to_equal(6)
 }
@@ -1784,26 +1805,29 @@ pub fn peer_digests_are_coalesced_while_the_relay_is_primary_test() -> Nil {
 /// Sustained editing costs one digest per interval, not one per edit and
 /// not one per burst. Three intervals of continuous claps, three digests.
 pub fn sustained_edits_cost_one_digest_per_interval_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
   let heard = transport_js.new_cell([])
-  let carol = recording_peer(env, "carol", heard)
-  settle(env)
+  let carol = recording_peer(environment, "carol", heard)
+  settle(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
     crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
   )
-  settle(env)
+  settle(environment)
   transport_js.set_cell(heard, [])
 
   // Half an interval of editing, over and over, for three intervals.
   list.each([1, 2, 3, 4, 5, 6], fn(_step) {
     clap(alpha, 1)
-    settle(env)
-    relay_fake.advance(env.clock, crdt_js.default_anti_entropy_ms / 2)
-    settle(env)
+    settle(environment)
+    relay_fake.advance(
+      environment.clock,
+      crdt_js.default_anti_entropy_milliseconds / 2,
+    )
+    settle(environment)
   })
 
   entries(heard) |> expect.to_equal(["digest", "digest", "digest"])
@@ -1819,21 +1843,21 @@ pub fn sustained_edits_cost_one_digest_per_interval_test() -> Nil {
 /// answers a matching digest with nothing at all, and a peer that has not
 /// answers it with a `stateRequest` and pays for a whole `state` message.
 pub fn a_digest_that_follows_the_relays_fan_out_costs_nothing_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  let beta = spawn(env, "beta")
-  converge(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  let beta = spawn(environment, "beta")
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   crdt_js.relay_is_primary(beta.document) |> expect.to_be_true()
 
   // The ordinary case: the relay's copy lands first, because settling the
   // room is what a quarter of a second is long enough for.
   clap(alpha, 3)
-  settle(env)
+  settle(environment)
   value(beta) |> expect.to_equal(3)
   let asks = fn() {
     mesh_types(
-      env,
+      environment,
       crdt_js.replica_id(beta.document),
       crdt_js.replica_id(alpha.document),
     )
@@ -1842,7 +1866,7 @@ pub fn a_digest_that_follows_the_relays_fan_out_costs_nothing_test() -> Nil {
   }
   let transfers = fn() {
     mesh_types(
-      env,
+      environment,
       crdt_js.replica_id(alpha.document),
       crdt_js.replica_id(beta.document),
     )
@@ -1851,12 +1875,12 @@ pub fn a_digest_that_follows_the_relays_fan_out_costs_nothing_test() -> Nil {
   }
   let quiet = asks()
   let carried = transfers()
-  anti_entropy(env)
+  anti_entropy(environment)
 
   // The digest arrived, and cost nothing: no `stateRequest` back, and no
   // whole-state transfer out.
   mesh_types(
-    env,
+    environment,
     crdt_js.replica_id(alpha.document),
     crdt_js.replica_id(beta.document),
   )
@@ -1872,10 +1896,13 @@ pub fn a_digest_that_follows_the_relays_fan_out_costs_nothing_test() -> Nil {
   // asks — which is exactly the whole-state transfer a per-mutation
   // digest would buy on every single edit.
   clap(alpha, 1)
-  relay_fake.advance(env.clock, crdt_js.default_anti_entropy_ms)
-  p2p_fake.settle(env.world)
+  relay_fake.advance(
+    environment.clock,
+    crdt_js.default_anti_entropy_milliseconds,
+  )
+  p2p_fake.settle(environment.world)
   { asks() > quiet } |> expect.to_be_true()
-  converge(env)
+  converge(environment)
   { transfers() > carried } |> expect.to_be_true()
   value(beta) |> expect.to_equal(4)
 }
@@ -1885,29 +1912,29 @@ pub fn a_digest_that_follows_the_relays_fan_out_costs_nothing_test() -> Nil {
 /// deployment that wants a different one gets a different one, and the
 /// digest arrives on *its* schedule.
 pub fn the_anti_entropy_interval_is_injectable_test() -> Nil {
-  let env = Setup(..setup(Auto), anti_entropy_ms: 40)
-  let alpha = spawn(env, "alpha")
+  let environment = Setup(..setup(Auto), anti_entropy_milliseconds: 40)
+  let alpha = spawn(environment, "alpha")
   let heard = transport_js.new_cell([])
-  let carol = recording_peer(env, "carol", heard)
-  settle(env)
+  let carol = recording_peer(environment, "carol", heard)
+  settle(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
     crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
   )
-  settle(env)
+  settle(environment)
   transport_js.set_cell(heard, [])
 
   clap(alpha, 1)
-  relay_fake.advance(env.clock, 39)
-  settle(env)
+  relay_fake.advance(environment.clock, 39)
+  settle(environment)
   entries(heard) |> expect.to_equal([])
-  relay_fake.advance(env.clock, 1)
-  settle(env)
+  relay_fake.advance(environment.clock, 1)
+  settle(environment)
   entries(heard) |> expect.to_equal(["digest"])
   // And the default is the documented quarter of a second.
-  crdt_js.default_anti_entropy_ms |> expect.to_equal(250)
+  crdt_js.default_anti_entropy_milliseconds |> expect.to_equal(250)
 }
 
 @target(javascript)
@@ -1921,27 +1948,27 @@ pub fn the_anti_entropy_interval_is_injectable_test() -> Nil {
 /// contain them, merge nothing, and stay behind. The digest is what makes
 /// it ask.
 pub fn a_fallback_flushes_the_digest_it_owed_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
   let heard = transport_js.new_cell([])
-  let carol = recording_peer(env, "carol", heard)
-  settle(env)
+  let carol = recording_peer(environment, "carol", heard)
+  settle(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
     crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
   )
-  settle(env)
+  settle(environment)
 
   // An edit inside an armed anti-entropy window: the relay has it, the
   // peers do not, and the digest that would have told them is pending.
   clap(alpha, 1)
-  settle(env)
+  settle(environment)
   transport_js.set_cell(heard, [])
 
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
   crdt_js.effective_path(alpha.document) |> expect.to_equal(PeerToPeer)
   // One digest, and the repair, both immediately.
   entries(heard)
@@ -1951,8 +1978,11 @@ pub fn a_fallback_flushes_the_digest_it_owed_test() -> Nil {
 
   // And the timer that was armed never fires: one final push, not two.
   transport_js.set_cell(heard, [])
-  relay_fake.advance(env.clock, crdt_js.default_anti_entropy_ms * 4)
-  p2p_fake.settle(env.world)
+  relay_fake.advance(
+    environment.clock,
+    crdt_js.default_anti_entropy_milliseconds * 4,
+  )
+  p2p_fake.settle(environment.world)
   entries(heard) |> list.contains("digest") |> expect.to_be_false()
 }
 
@@ -1960,26 +1990,26 @@ pub fn a_fallback_flushes_the_digest_it_owed_test() -> Nil {
 /// A fallback with nothing owed says nothing extra: the digest is the
 /// window's, not a fallback ritual.
 pub fn a_fallback_with_a_clean_window_sends_no_digest_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
   let heard = transport_js.new_cell([])
-  let carol = recording_peer(env, "carol", heard)
-  settle(env)
+  let carol = recording_peer(environment, "carol", heard)
+  settle(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
     crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
   )
-  settle(env)
+  settle(environment)
 
   // The edit's window closes on its own, so nothing is outstanding.
   clap(alpha, 1)
-  anti_entropy(env)
+  anti_entropy(environment)
   transport_js.set_cell(heard, [])
 
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
   entries(heard) |> list.contains("digest") |> expect.to_be_false()
   entries(heard) |> list.contains("stateRequest") |> expect.to_be_true()
 }
@@ -1987,18 +2017,21 @@ pub fn a_fallback_with_a_clean_window_sends_no_digest_test() -> Nil {
 @target(javascript)
 /// A closed document leaves no timer behind, armed or otherwise.
 pub fn closing_cancels_the_armed_digest_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
 
   clap(alpha, 1)
-  let armed = relay_fake.armed(env.clock)
+  let armed = relay_fake.armed(environment.clock)
   { armed > 0 } |> expect.to_be_true()
   crdt_js.close(alpha.connection)
-  { relay_fake.armed(env.clock) < armed } |> expect.to_be_true()
-  relay_fake.advance(env.clock, crdt_js.default_anti_entropy_ms * 4)
-  settle(env)
+  { relay_fake.armed(environment.clock) < armed } |> expect.to_be_true()
+  relay_fake.advance(
+    environment.clock,
+    crdt_js.default_anti_entropy_milliseconds * 4,
+  )
+  settle(environment)
 }
 
 @target(javascript)
@@ -2006,26 +2039,26 @@ pub fn closing_cancels_the_armed_digest_test() -> Nil {
 /// asks its peers for state immediately, in the same breath as the
 /// fallback — no tick, no timer, no waiting.
 pub fn failover_repair_is_not_coalesced_test() -> Nil {
-  let env = setup(Auto)
-  let alpha = spawn(env, "alpha")
+  let environment = setup(Auto)
+  let alpha = spawn(environment, "alpha")
   let heard = transport_js.new_cell([])
-  let carol = recording_peer(env, "carol", heard)
-  settle(env)
+  let carol = recording_peer(environment, "carol", heard)
+  settle(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   send_raw(
     carol,
     crdt_js.replica_id(alpha.document),
     crdt_core.encode(carol.document, crdt_core.hello_message(carol.document)),
   )
-  settle(env)
+  settle(environment)
   transport_js.set_cell(heard, [])
 
-  relay_fake.set_writable(hub_of(env), False)
+  relay_fake.set_writable(hub_of(environment), False)
   clap(alpha, 4)
 
   // The mesh alone, with no tick of the clock at all: the state request
   // and the delta are already queued on it.
-  p2p_fake.settle(env.world)
+  p2p_fake.settle(environment.world)
   entries(heard) |> list.contains("stateRequest") |> expect.to_be_true()
   entries(heard) |> list.contains("delta") |> expect.to_be_true()
 }
@@ -2033,14 +2066,14 @@ pub fn failover_repair_is_not_coalesced_test() -> Nil {
 @target(javascript)
 /// Every relay connection attempt is reported, not only the first.
 pub fn every_relay_attempt_reports_itself_test() -> Nil {
-  let env = setup(Auto)
-  relay_fake.stop(hub_of(env))
-  let alpha = spawn(env, "alpha")
-  settle(env)
+  let environment = setup(Auto)
+  relay_fake.stop(hub_of(environment))
+  let alpha = spawn(environment, "alpha")
+  settle(environment)
 
   list.each([250, 500], fn(delay) {
-    relay_fake.advance(env.clock, delay)
-    settle(env)
+    relay_fake.advance(environment.clock, delay)
+    settle(environment)
   })
 
   let attempts =
@@ -2058,7 +2091,7 @@ pub fn every_relay_attempt_reports_itself_test() -> Nil {
 /// Its own document never merges anything: what is being asserted is
 /// what crossed the data channel, not what it made of it.
 fn recording_peer(
-  env: Setup,
+  environment: Setup,
   peer_id: String,
   heard: Cell(List(String)),
 ) -> RawPeer {
@@ -2074,7 +2107,7 @@ fn recording_peer(
     p2p_transport_js.start_with_rtc(
       room: room,
       peer_id: peer_id,
-      signaling: hub_signaling(env.signals),
+      signaling: hub_signaling(environment.signals),
       ice_servers: [],
       callbacks: Callbacks(
         on_peer_open: fn(_peer) { Nil },
@@ -2089,7 +2122,7 @@ fn recording_peer(
         on_status: fn(_status) { Nil },
         on_error: fn(_error) { Nil },
       ),
-      rtc: p2p_fake.rtc(env.world, peer_id),
+      rtc: p2p_fake.rtc(environment.world, peer_id),
     )
   RawPeer(transport: transport, document: document)
 }
@@ -2104,7 +2137,7 @@ fn recording_peer(
 /// are handed back: these tests read a kernel's own value and its digest,
 /// and nothing else.
 fn spawn_kind(
-  env: Setup,
+  environment: Setup,
   label: String,
   policy: crdt_js.TransportPolicy,
   kind: p2p.CrdtKind(root),
@@ -2115,19 +2148,23 @@ fn spawn_kind(
       replica_label: label,
       compatibility_tag: tag,
       root: kind,
-      signaling: hub_signaling(env.signals),
+      signaling: hub_signaling(environment.signals),
     )
     |> crdt_js.with_transport_policy(policy)
-    |> crdt_js.with_scheduler(relay_fake.scheduler(env.clock))
-    |> crdt_js.with_anti_entropy_interval_ms(env.anti_entropy_ms)
-  let config = case env.relay {
+    |> crdt_js.with_scheduler(relay_fake.scheduler(environment.clock))
+    |> crdt_js.with_anti_entropy_interval_milliseconds(
+      environment.anti_entropy_milliseconds,
+    )
+  let config = case environment.relay {
     None -> base
     Some(hub) ->
       crdt_js.with_sequencer(
         base,
         crdt_js.sequencer("ws://relay.test/")
           |> crdt_js.with_relay_driver(relay_fake.driver(hub))
-          |> crdt_js.with_readiness_deadline_ms(env.deadline_ms),
+          |> crdt_js.with_readiness_deadline_milliseconds(
+            environment.deadline_milliseconds,
+          ),
       )
   }
   let assert Ok(document) = crdt_js.new_document(config)
@@ -2136,7 +2173,7 @@ fn spawn_kind(
       document,
       on_ready: fn(_outcome) { Nil },
       on_status: fn(_status) { Nil },
-      rtc: p2p_fake.rtc(env.world, crdt_js.replica_id(document)),
+      rtc: p2p_fake.rtc(environment.world, crdt_js.replica_id(document)),
     )
   #(document, connection)
 }
@@ -2153,18 +2190,18 @@ fn spawn_kind(
 /// clock is advanced here past the settling of the mesh: convergence is
 /// the fallback's, not the interval's.
 pub fn an_or_set_peer_converges_when_the_relay_drops_test() -> Nil {
-  let env = setup(Auto)
-  let #(alpha, _) = spawn_kind(env, "alpha", Auto, p2p.or_set_root())
-  let #(carol, _) = spawn_kind(env, "carol", P2pOnly, p2p.or_set_root())
-  settle(env)
+  let environment = setup(Auto)
+  let #(alpha, _) = spawn_kind(environment, "alpha", Auto, p2p.or_set_root())
+  let #(carol, _) = spawn_kind(environment, "carol", P2pOnly, p2p.or_set_root())
+  settle(environment)
   crdt_js.relay_is_primary(alpha) |> expect.to_be_true()
 
   let assert Ok(Nil) = crdt_js.or_set_add(crdt_js.root(alpha), "tent")
-  settle(env)
+  settle(environment)
   crdt_js.or_set_values(crdt_js.root(carol)) |> expect.to_equal(Ok([]))
 
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
   crdt_js.or_set_values(crdt_js.root(carol)) |> expect.to_equal(Ok(["tent"]))
   crdt_js.digest(carol) |> expect.to_equal(crdt_js.digest(alpha))
 }
@@ -2174,22 +2211,23 @@ pub fn an_or_set_peer_converges_when_the_relay_drops_test() -> Nil {
 /// elements: the peer that never saw them rebuilds from the state it asks
 /// for, and the two agree.
 pub fn a_sequence_peer_converges_when_the_relay_drops_test() -> Nil {
-  let env = setup(Auto)
-  let #(alpha, _) = spawn_kind(env, "alpha", Auto, p2p.sequence_root())
-  let #(carol, _) = spawn_kind(env, "carol", P2pOnly, p2p.sequence_root())
-  settle(env)
+  let environment = setup(Auto)
+  let #(alpha, _) = spawn_kind(environment, "alpha", Auto, p2p.sequence_root())
+  let #(carol, _) =
+    spawn_kind(environment, "carol", P2pOnly, p2p.sequence_root())
+  settle(environment)
   crdt_js.relay_is_primary(alpha) |> expect.to_be_true()
 
   let assert Ok(Nil) =
     crdt_js.sequence_insert(crdt_js.root(alpha), 0, json.string("harbour"))
   let assert Ok(Nil) =
     crdt_js.sequence_insert(crdt_js.root(alpha), 1, json.string("ferry"))
-  settle(env)
+  settle(environment)
   let assert Ok(behind) = crdt_js.sequence_values(crdt_js.root(carol))
   list.length(behind) |> expect.to_equal(0)
 
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
   let assert Ok(caught_up) = crdt_js.sequence_values(crdt_js.root(carol))
   list.length(caught_up) |> expect.to_equal(2)
   crdt_js.digest(carol) |> expect.to_equal(crdt_js.digest(alpha))
@@ -2199,18 +2237,18 @@ pub fn a_sequence_peer_converges_when_the_relay_drops_test() -> Nil {
 /// And for text, where a peer that misses a delta and then merges a
 /// state has to end up with the same string rather than a plausible one.
 pub fn a_text_peer_converges_when_the_relay_drops_test() -> Nil {
-  let env = setup(Auto)
-  let #(alpha, _) = spawn_kind(env, "alpha", Auto, p2p.text_root())
-  let #(carol, _) = spawn_kind(env, "carol", P2pOnly, p2p.text_root())
-  settle(env)
+  let environment = setup(Auto)
+  let #(alpha, _) = spawn_kind(environment, "alpha", Auto, p2p.text_root())
+  let #(carol, _) = spawn_kind(environment, "carol", P2pOnly, p2p.text_root())
+  settle(environment)
   crdt_js.relay_is_primary(alpha) |> expect.to_be_true()
 
   let assert Ok(Nil) = crdt_js.text_append(crdt_js.root(alpha), "harbour")
-  settle(env)
+  settle(environment)
   crdt_js.text_value(crdt_js.root(carol)) |> expect.to_equal(Ok(""))
 
-  relay_fake.stop(hub_of(env))
-  settle(env)
+  relay_fake.stop(hub_of(environment))
+  settle(environment)
   crdt_js.text_value(crdt_js.root(carol)) |> expect.to_equal(Ok("harbour"))
   crdt_js.digest(carol) |> expect.to_equal(crdt_js.digest(alpha))
 }
@@ -2233,15 +2271,15 @@ pub fn a_text_peer_converges_when_the_relay_drops_test() -> Nil {
 /// bound at all.
 pub fn an_ordinary_session_past_the_bound_checkpoints_and_continues_test() -> Nil {
   let mutations = crdt_relay.max_room_records + 200
-  let env = setup(SequencedOnly)
-  let hub = hub_of(env)
-  let alpha = spawn(env, "alpha")
-  converge(env)
+  let environment = setup(SequencedOnly)
+  let hub = hub_of(environment)
+  let alpha = spawn(environment, "alpha")
+  converge(environment)
   crdt_js.relay_is_primary(alpha.document) |> expect.to_be_true()
   relay_fake.supports_checkpoints(hub, 1) |> expect.to_be_true()
 
-  claps(env, alpha, mutations)
-  converge(env)
+  claps(environment, alpha, mutations)
+  converge(environment)
 
   // The room asked, the client answered, and the log came back down.
   { relay_fake.checkpoint_requests(hub, room) >= 1 } |> expect.to_be_true()
@@ -2262,16 +2300,16 @@ pub fn an_ordinary_session_past_the_bound_checkpoints_and_continues_test() -> Ni
   // A restart replays what the checkpoints wrote, and a later client sees
   // every one of the edits they compacted.
   relay_fake.stop(hub)
-  converge(env)
+  converge(environment)
   relay_fake.restart(hub)
-  relay_fake.advance(env.clock, 5000)
-  converge(env)
+  relay_fake.advance(environment.clock, 5000)
+  converge(environment)
   { relay_fake.log_size(hub, room) < crdt_relay.max_room_records }
   |> expect.to_be_true()
   value(alpha) |> expect.to_equal(mutations)
 
-  let beta = spawn(env, "beta")
-  converge(env)
+  let beta = spawn(environment, "beta")
+  converge(environment)
   entries(beta.readies) |> expect.to_equal(["ok"])
   value(beta) |> expect.to_equal(mutations)
   crdt_js.digest(beta.document)
@@ -2279,13 +2317,13 @@ pub fn an_ordinary_session_past_the_bound_checkpoints_and_continues_test() -> Ni
 }
 
 @target(javascript)
-fn claps(env: Setup, member: Member, times: Int) -> Nil {
+fn claps(environment: Setup, member: Member, times: Int) -> Nil {
   case times <= 0 {
     True -> Nil
     False -> {
       clap(member, 1)
-      settle(env)
-      claps(env, member, times - 1)
+      settle(environment)
+      claps(environment, member, times - 1)
     }
   }
 }
@@ -2370,19 +2408,19 @@ pub fn a_valid_full_room_recovers_for_a_late_client_test() -> Nil {
   relay_fake.seed(hub, room, valid_lines(count))
   relay_fake.log_size(hub, room) |> expect.to_equal(count)
 
-  let env =
+  let environment =
     Setup(
       world: p2p_fake.new_world(),
       signals: new_signal_hub(),
       relay: Some(hub),
       clock: clock,
       policy: SequencedOnly,
-      deadline_ms: crdt_js.default_readiness_deadline_ms,
-      anti_entropy_ms: crdt_js.default_anti_entropy_ms,
+      deadline_milliseconds: crdt_js.default_readiness_deadline_milliseconds,
+      anti_entropy_milliseconds: crdt_js.default_anti_entropy_milliseconds,
     )
 
-  let honest = spawn(env, "honest")
-  converge(env)
+  let honest = spawn(environment, "honest")
+  converge(environment)
 
   // It came up on the relay, which under `SequencedOnly` it could not do
   // at all if the room had not drained: no reconnect-loop, no deadline.
@@ -2404,23 +2442,23 @@ pub fn a_valid_full_room_recovers_for_a_late_client_test() -> Nil {
   // Editing continues on the same connection, no reconnect: an ordinary
   // clap lands and the value moves on from the recovered total.
   clap(honest, 3)
-  converge(env)
+  converge(environment)
   value(honest) |> expect.to_equal(count + 3)
   crdt_js.relay_is_primary(honest.document) |> expect.to_be_true()
 
   // And it survives a restart: the compacted log replays, and a second
   // late client attaches to the same room and agrees on value and digest.
   relay_fake.stop(hub)
-  converge(env)
+  converge(environment)
   relay_fake.restart(hub)
   relay_fake.advance(clock, 5000)
-  converge(env)
+  converge(environment)
   crdt_js.relay_is_primary(honest.document) |> expect.to_be_true()
   value(honest) |> expect.to_equal(count + 3)
   { relay_fake.log_size(hub, room) < count } |> expect.to_be_true()
 
-  let late = spawn(env, "late")
-  converge(env)
+  let late = spawn(environment, "late")
+  converge(environment)
   entries(late.readies) |> expect.to_equal(["ok"])
   crdt_js.relay_is_primary(late.document) |> expect.to_be_true()
   value(late) |> expect.to_equal(count + 3)

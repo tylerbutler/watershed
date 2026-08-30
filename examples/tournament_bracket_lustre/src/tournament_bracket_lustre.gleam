@@ -57,7 +57,7 @@ import watershed_lustre
 import tournament_bracket_lustre/bracket.{
   type MatchId, type MatchResult, type Slot, MatchResult,
 }
-import tournament_bracket_lustre/doc_schema
+import tournament_bracket_lustre/document_schema
 
 // ── Dev config for `just integration-up` (levee/floodgate dev mode) ──────────
 
@@ -106,7 +106,7 @@ type Status {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(BracketDoc)),
+    document: Option(Document(BracketDocument)),
     matches: Option(RegisterCollection),
     /// The `Atomic` (official) result per match key, once reported.
     results: Dict(String, MatchResult),
@@ -130,7 +130,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(BracketDoc))
+  GotHandle(Document(BracketDocument))
   Connected(Result(Nil, String))
   EnsuredMatches(Result(RegisterCollection, String))
   MatchesChanged(RegisterEvent)
@@ -141,18 +141,18 @@ type Msg {
   ReconnectClicked
 }
 
-/// The root document's phantom schema type lives in `doc_schema`, but this
+/// The root document's phantom schema type lives in `document_schema`, but this
 /// module only ever holds one channel field off it, so a local alias keeps
 /// every signature below from spelling out the import.
-type BracketDoc =
-  doc_schema.BracketDoc
+type BracketDocument =
+  document_schema.BracketDocument
 
 fn init(document: String) -> #(Model, Effect(Msg)) {
   let user_id = "web-" <> int.to_string(1000 + int.random(9000))
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       matches: None,
       results: dict.new(),
       versions: dict.new(),
@@ -182,12 +182,12 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 /// Bootstrap the one channel this document needs. Unlike the other examples,
 /// there is nothing to seed: an empty register collection *is* the correct
 /// starting state — no match has a result until someone reports one.
-fn bootstrap_effect(doc: Document(BracketDoc)) -> Effect(Msg) {
-  let root = watershed.root_typed(doc)
+fn bootstrap_effect(document: Document(BracketDocument)) -> Effect(Msg) {
+  let root = watershed.root_typed(document)
   watershed_lustre.ensure_register_collection(
-    doc,
+    document,
     root,
-    doc_schema.matches(),
+    document_schema.matches(),
     EnsuredMatches,
   )
 }
@@ -200,12 +200,13 @@ fn subscribe_matches_effect(matches: RegisterCollection) -> Effect(Msg) {
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    GotHandle(doc) -> {
+    GotHandle(document) -> {
       let model =
-        Model(..model, doc: Some(doc)) |> log_line("document handle acquired")
+        Model(..model, document: Some(document))
+        |> log_line("document handle acquired")
       let presence_start =
         watershed_lustre.presence(
-          document: doc,
+          document: document,
           config: presence.config(encode_presence, presence_decoder()),
           initial: BracketPresence(
             color: model.color,
@@ -217,7 +218,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.status, model.matches {
         Ready, None -> #(
           model,
-          effect.batch([bootstrap_effect(doc), presence_start]),
+          effect.batch([bootstrap_effect(document), presence_start]),
         )
         _, _ -> #(model, presence_start)
       }
@@ -227,8 +228,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let model =
         Model(..model, status: Ready)
         |> log_line("initial handshake complete")
-      case model.doc, model.matches {
-        Some(doc), None -> #(model, bootstrap_effect(doc))
+      case model.document, model.matches {
+        Some(document), None -> #(model, bootstrap_effect(document))
         _, _ -> #(model, effect.none())
       }
     }
@@ -305,10 +306,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(
+      case model.document {
+        Some(document) -> #(
           log_line(model, "force reconnect requested"),
-          watershed_lustre.force_reconnect(doc),
+          watershed_lustre.force_reconnect(document),
         )
         None -> #(model, effect.none())
       }

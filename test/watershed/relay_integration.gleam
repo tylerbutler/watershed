@@ -95,7 +95,7 @@ pub fn start(
     label,
     signaling_url,
     relay_url,
-    crdt_js.default_readiness_deadline_ms,
+    crdt_js.default_readiness_deadline_milliseconds,
   )
 }
 
@@ -116,7 +116,7 @@ pub fn start_with_deadline(
   label: String,
   signaling_url: String,
   relay_url: String,
-  deadline_ms: Int,
+  deadline_milliseconds: Int,
 ) -> Client {
   let signaling =
     crdt_signaling_js.websocket_signaling(
@@ -142,7 +142,7 @@ pub fn start_with_deadline(
       crdt_js.with_sequencer(
         base,
         crdt_js.sequencer(url)
-          |> crdt_js.with_readiness_deadline_ms(deadline_ms),
+          |> crdt_js.with_readiness_deadline_milliseconds(deadline_milliseconds),
       )
   }
   let assert Ok(document) = crdt_js.new_document(config)

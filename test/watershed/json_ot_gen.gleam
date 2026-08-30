@@ -133,7 +133,7 @@ fn random_thing(random: Random, depth: Int) -> #(JsonValue, Random) {
 
 /// A random top-level document. Always a container so operations have somewhere
 /// to go.
-pub fn random_doc(random: Random) -> #(JsonValue, Random) {
+pub fn random_document(random: Random) -> #(JsonValue, Random) {
   let #(coin, random) = random_real(random)
   case coin <. 0.5 {
     True -> {
@@ -164,11 +164,14 @@ pub fn random_doc(random: Random) -> #(JsonValue, Random) {
 // Random operation generation (port of json0-generator.coffee)
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn value_at(doc: JsonValue, path: List(PathKey)) -> Result(JsonValue, Nil) {
+fn value_at(
+  document: JsonValue,
+  path: List(PathKey),
+) -> Result(JsonValue, Nil) {
   case path {
-    [] -> Ok(doc)
+    [] -> Ok(document)
     [step, ..rest] ->
-      case doc, step {
+      case document, step {
         VObject(members), Key(key) ->
           case list.key_find(members, key) {
             Ok(v) -> value_at(v, rest)
@@ -190,9 +193,12 @@ fn value_at(doc: JsonValue, path: List(PathKey)) -> Result(JsonValue, Nil) {
   }
 }
 
-/// Descend a random path into `doc`, mirroring json0's `randomPath`.
-fn random_path(doc: JsonValue, random: Random) -> #(List(PathKey), Random) {
-  random_path_loop(doc, random, [])
+/// Descend a random path into `document`, mirroring json0's `randomPath`.
+fn random_path(
+  document: JsonValue,
+  random: Random,
+) -> #(List(PathKey), Random) {
+  random_path_loop(document, random, [])
 }
 
 fn random_path_loop(
@@ -229,7 +235,7 @@ fn random_path_loop(
   }
 }
 
-/// Whether the parent container at `path` (given `doc`) is a list. `None`
+/// Whether the parent container at `path` (given `document`) is a list. `None`
 /// means the path is the root (no parent).
 fn parent_is_list(path: List(PathKey)) -> Option(Bool) {
   case list.last(path) {
@@ -264,25 +270,25 @@ fn random_new_key_loop(
   }
 }
 
-/// Generate a single valid component for `doc`, or `None` if the chosen spot
-/// affords no operation we model. String/bool/null leaves are handled via
+/// Generate a single valid component for `document`, or `None` if the chosen
+/// spot affords no operation we model. String/bool/null leaves are handled via
 /// replace.
 fn generate_component(
-  doc: JsonValue,
+  document: JsonValue,
   random: Random,
 ) -> #(Option(Component), Random) {
-  let #(path, random) = random_path(doc, random)
-  case value_at(doc, path) {
+  let #(path, random) = random_path(document, random)
+  case value_at(document, path) {
     Error(Nil) -> #(None, random)
     Ok(operand) -> {
       let is_list = parent_is_list(path)
-      generate_component_for(doc, path, operand, is_list, random)
+      generate_component_for(document, path, operand, is_list, random)
     }
   }
 }
 
 fn generate_component_for(
-  doc: JsonValue,
+  document: JsonValue,
   path: List(PathKey),
   operand: JsonValue,
   parent: Option(Bool),
@@ -294,7 +300,7 @@ fn generate_component_for(
   case parent == Some(True) && r1 <. 0.4 {
     True -> {
       // newIndex ranges over the parent list's length.
-      let parent_length = case value_at(doc, drop_last(path)) {
+      let parent_length = case value_at(document, drop_last(path)) {
         Ok(VArray(items)) -> list.length(items)
         Ok(VNull)
         | Ok(VBool(_))
@@ -496,13 +502,13 @@ fn int_max(a: Int, b: Int) -> Int {
   }
 }
 
-/// Generate a compound operation valid for `doc`, threading the working
+/// Generate a compound operation valid for `document`, threading the working
 /// document through `apply` so later components see earlier mutations.
 pub fn generate_operation(
-  doc: JsonValue,
+  document: JsonValue,
   random: Random,
 ) -> #(json_ot.Operation, Random) {
-  generate_operation_loop(doc, random, 0.95, [])
+  generate_operation_loop(document, random, 0.95, [])
 }
 
 fn generate_operation_loop(

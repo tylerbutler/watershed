@@ -10,9 +10,9 @@
 ////   `presence_diff` into a `presence.Tracker`. It has no heartbeat. The
 ////   connection is the liveness signal, and the server removes a presence when
 ////   its socket closes.
-//// - **Ripple mode** broadcasts its metadata every `heartbeat_ms`, and it
-////   removes a peer that has sent nothing for `ttl_ms`. It folds both events
-////   into a `presence.Sessions` value.
+//// - **Ripple mode** broadcasts its metadata every `heartbeat_milliseconds`,
+////   and it removes a peer that has sent nothing for `ttl_milliseconds`. It
+////   folds both events into a `presence.Sessions` value.
 ////
 //// After `Auto` resolves, the choice does not change. A later reconnect to a
 //// server without the capability reports `UnsupportedPresence`. It does not
@@ -440,7 +440,7 @@ fn on_ripple(cell: Cell(Driver(a)), ripple: Ripple) -> Nil {
         )
       {
         Some(session_id), Ok(#(key, meta)) -> {
-          let clock = driver.scheduler.now_ms
+          let clock = driver.scheduler.now_milliseconds
           let #(sessions, diff) =
             presence.observe_session(sessions, session_id, key, meta, clock())
           commit_ripple(cell, sessions, cancel)
@@ -464,7 +464,7 @@ fn tick(cell: Cell(Driver(a))) -> Nil {
   let driver = transport_js.get_cell(cell)
   case driver.stopped, driver.implementation {
     False, RipplePresence(sessions, cancel) -> {
-      let clock = driver.scheduler.now_ms
+      let clock = driver.scheduler.now_milliseconds
       let now = clock()
       let #(sessions, joined) = case driver.session {
         Some(session) ->
@@ -480,7 +480,7 @@ fn tick(cell: Cell(Driver(a))) -> Nil {
       let #(sessions, expired) =
         presence.expire_sessions(
           sessions,
-          presence.config_ttl_ms(driver.config),
+          presence.config_ttl_milliseconds(driver.config),
           now,
         )
       // Store once, then report both changes against the settled roster — an
@@ -508,7 +508,10 @@ fn schedule(cell: Cell(Driver(a))) -> Nil {
       }
       let arm = driver.scheduler.schedule
       let cancel =
-        arm(fn() { tick(cell) }, presence.config_heartbeat_ms(driver.config))
+        arm(
+          fn() { tick(cell) },
+          presence.config_heartbeat_milliseconds(driver.config),
+        )
       transport_js.set_cell(
         cell,
         Driver(..driver, implementation: RipplePresence(sessions, Some(cancel))),

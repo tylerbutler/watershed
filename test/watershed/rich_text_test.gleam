@@ -10,10 +10,10 @@ import watershed/json_ot.{type JsonValue, VObject}
 import watershed/rich_text
 import watershed/rich_text/utf16
 
-const fixture_dir = "test/fixtures/shared_rich_text"
+const fixture_directory = "test/fixtures/shared_rich_text"
 
 pub fn rich_text_fixture_tests() -> TestTree {
-  let assert Ok(files) = simplifile.read_directory(fixture_dir)
+  let assert Ok(files) = simplifile.read_directory(fixture_directory)
   let files =
     files
     |> list.filter(string.ends_with(_, ".json"))
@@ -134,7 +134,7 @@ pub fn same_position_side_and_selection_test() -> Nil {
 }
 
 fn replay_fixture(file: String) -> Nil {
-  let assert Ok(raw) = simplifile.read(fixture_dir <> "/" <> file)
+  let assert Ok(raw) = simplifile.read(fixture_directory <> "/" <> file)
   let assert Ok(VObject(root)) = json_ot.parse_json(raw)
   let base_json = required(root, "base")
   let deltas = object(required(root, "deltas"))

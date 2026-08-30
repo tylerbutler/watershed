@@ -401,11 +401,11 @@ pub fn sequence_number(sluice: Sluice) -> Int {
 /// The timers run one at a time, and the function reads the cell again between
 /// them. A heartbeat schedules itself again from inside its own callback, and
 /// this same `advance` call must not run that replacement.
-pub fn advance(sluice: Sluice, ms: Int) -> Nil {
+pub fn advance(sluice: Sluice, milliseconds: Int) -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   transport_js.set_cell(
     sluice.cell,
-    State(..state, core: core.advance(state.core, ms)),
+    State(..state, core: core.advance(state.core, milliseconds)),
   )
   fire_due(sluice)
 }
@@ -428,20 +428,29 @@ pub fn disable_presence(sluice: Sluice) -> Nil {
 /// of from the real elapsed time.
 pub fn scheduler(sluice: Sluice) -> transport_js.Scheduler {
   transport_js.Scheduler(
-    now_ms: fn() { core.now(transport_js.get_cell(sluice.cell).core) },
-    schedule: fn(action, ms) { schedule_timer(sluice, action, ms) },
+    now_milliseconds: fn() { core.now(transport_js.get_cell(sluice.cell).core) },
+    schedule: fn(action, milliseconds) {
+      schedule_timer(sluice, action, milliseconds)
+    },
   )
 }
 
 @target(javascript)
-fn schedule_timer(sluice: Sluice, action: fn() -> Nil, ms: Int) -> fn() -> Nil {
+fn schedule_timer(
+  sluice: Sluice,
+  action: fn() -> Nil,
+  milliseconds: Int,
+) -> fn() -> Nil {
   let state = transport_js.get_cell(sluice.cell)
   let id = state.next_timer_id
   transport_js.set_cell(
     sluice.cell,
     State(
       ..state,
-      timers: [#(core.now(state.core) + ms, id, action), ..state.timers],
+      timers: [
+        #(core.now(state.core) + milliseconds, id, action),
+        ..state.timers
+      ],
       next_timer_id: id + 1,
     ),
   )
@@ -659,8 +668,8 @@ type State {
     bindings: List(#(runtime.Runtime, String)),
     last_registered: Option(String),
     /// The timers that the driver scheduled against the logical clock, as
-    /// `#(due_at_ms, id, action)`. `advance` runs them. A heartbeat or a TTL
-    /// thus becomes a step that a test can script, and not a wait.
+    /// `#(due_at_milliseconds, id, action)`. `advance` runs them. A heartbeat
+    /// or a TTL thus becomes a step that a test can script, and not a wait.
     timers: List(#(Int, Int, fn() -> Nil)),
     next_timer_id: Int,
   )

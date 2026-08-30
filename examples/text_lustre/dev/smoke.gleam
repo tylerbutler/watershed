@@ -20,7 +20,7 @@ import gleam/string
 
 import watershed.{type Document, type SharedText, WatershedConfig}
 
-import text_lustre/doc_schema
+import text_lustre/document_schema
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -40,7 +40,7 @@ const tail_insert = "e\u{301}"
 const append_text = " ✨"
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -51,7 +51,7 @@ fn exit(code: Int) -> Nil
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.TextDoc)) {
+) -> Promise(Document(document_schema.TextDocument)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -75,32 +75,32 @@ pub fn main() -> Nil {
   log("smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    run_scenario(doc_a, doc_b)
+    use document_a <- promise.await(connect_client(document, "user-a"))
+    use document_b <- promise.map(connect_client(document, "user-b"))
+    run_scenario(document_a, document_b)
   }
   Nil
 }
 
 fn run_scenario(
-  doc_a: Document(doc_schema.TextDoc),
-  doc_b: Document(doc_schema.TextDoc),
+  document_a: Document(document_schema.TextDocument),
+  document_b: Document(document_schema.TextDocument),
 ) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
   log("smoke: ensuring the body text on A")
 
   watershed.ensure_text(
-    doc_a,
-    watershed.root_typed(doc_a),
-    doc_schema.body(),
+    document_a,
+    watershed.root_typed(document_a),
+    document_schema.body(),
     fn(result) {
       case result {
         Error(reason) -> {
           log("SMOKE FAIL: A could not ensure the text: " <> reason)
           exit(1)
         }
-        Ok(text_a) -> seed_then_resolve(doc_b, text_a)
+        Ok(text_a) -> seed_then_resolve(document_b, text_a)
       }
     },
   )
@@ -108,7 +108,7 @@ fn run_scenario(
 
 /// A seeds the document, then B resolves the same text from the root map.
 fn seed_then_resolve(
-  doc_b: Document(doc_schema.TextDoc),
+  document_b: Document(document_schema.TextDocument),
   text_a: SharedText,
 ) -> Nil {
   log("smoke: seeding text from A")
@@ -120,9 +120,9 @@ fn seed_then_resolve(
   // Wait for A's attach + insert to reach B, then resolve on B.
   use <- delay(2000)
   watershed.ensure_text(
-    doc_b,
-    watershed.root_typed(doc_b),
-    doc_schema.body(),
+    document_b,
+    watershed.root_typed(document_b),
+    document_schema.body(),
     fn(result) {
       case result {
         Error(reason) -> {

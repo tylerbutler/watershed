@@ -1,11 +1,11 @@
 //// TP1 convergence property for the json0 transform matrix.
 ////
 //// The json0 kernel rides the spillway central sequencer, so it only needs
-//// TP1 (single-pair transform property): for any doc and any concurrent
-//// operation pair `a`, `b` generated against that doc,
+//// TP1 (single-pair transform property): for any document and any concurrent
+//// operation pair `a`, `b` generated against that document,
 ////
-////   apply(apply(doc, a), transform(b, a, Lft))
-////     == apply(apply(doc, b), transform(a, b, Rgt))
+////   apply(apply(document, a), transform(b, a, Lft))
+////     == apply(apply(document, b), transform(a, b, Rgt))
 ////
 //// This mirrors `bootstrapTransform`/`transformX` in ottypes/json0. Documents
 //// and operations come from the shared `json_ot_gen` port of json0's fuzzer;
@@ -19,12 +19,12 @@ import watershed/json_ot.{type JsonValue, type Operation, Lft, Rgt}
 import watershed/json_ot_gen
 
 fn check_tp1(
-  doc: JsonValue,
+  document: JsonValue,
   a: Operation,
   b: Operation,
 ) -> Result(Bool, String) {
-  use sa <- try_map(json_ot.apply(doc, a), "apply(doc, a)")
-  use sb <- try_map(json_ot.apply(doc, b), "apply(doc, b)")
+  use sa <- try_map(json_ot.apply(document, a), "apply(doc, a)")
+  use sb <- try_map(json_ot.apply(document, b), "apply(doc, b)")
   use ba <- try_map(json_ot.transform(b, a, Lft), "transform(b, a, Lft)")
   use ab <- try_map(json_ot.transform(a, b, Rgt), "transform(a, b, Rgt)")
   use left <- try_map(json_ot.apply(sa, ba), "apply(apply(doc,a), b/a)")
@@ -44,13 +44,13 @@ fn try_map(
 }
 
 pub fn tp1_converges_test() -> Nil {
-  let config = kernel_fuzz.config_from_env()
+  let config = kernel_fuzz.config_from_environment()
   qcheck.run(config, qcheck.uniform_int(), fn(seed) {
     let random = json_ot_gen.new_random(seed)
-    let #(doc, random) = json_ot_gen.random_doc(random)
-    let #(a, random) = json_ot_gen.generate_operation(doc, random)
-    let #(b, _random) = json_ot_gen.generate_operation(doc, random)
-    case check_tp1(doc, a, b) {
+    let #(document, random) = json_ot_gen.random_document(random)
+    let #(a, random) = json_ot_gen.generate_operation(document, random)
+    let #(b, _random) = json_ot_gen.generate_operation(document, random)
+    case check_tp1(document, a, b) {
       Ok(True) -> Nil
       other -> {
         let detail = case other {
@@ -64,7 +64,7 @@ pub fn tp1_converges_test() -> Nil {
           <> ")\n  seed="
           <> int.to_string(seed)
           <> "\n  doc="
-          <> string.inspect(doc)
+          <> string.inspect(document)
           <> "\n  a="
           <> string.inspect(a)
           <> "\n  b="

@@ -8,7 +8,7 @@
 //// silently wrong the moment it has three. Two clients cannot distinguish a
 //// real roster from that hardcoding. Do not reduce these to two.
 
-import drum_machine_lustre/doc_schema
+import drum_machine_lustre/document_schema
 import gleam/dynamic/decode
 import gleam/int
 import gleam/json
@@ -28,7 +28,7 @@ const bpm_key = "bpm"
 type Room {
   Room(
     sluice: Sluice,
-    docs: List(Document(doc_schema.Machine)),
+    documents: List(Document(document_schema.Machine)),
     settings: List(PactMap),
     events: List(fn() -> List(pact_map_kernel.PactMapEvent)),
   )
@@ -41,13 +41,13 @@ type Room {
 /// and every assertion can read straight after a `settle`.
 fn room(name: String, clients: Int) -> Room {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let docs =
+  let documents =
     int.range(from: 0, to: clients, with: [], run: fn(acc, n) { [n, ..acc] })
     |> list.reverse
     |> list.map(fn(n) { sluice_js.connect(sluice, "user-" <> int.to_string(n)) })
   sluice_js.settle(sluice)
 
-  let assert [first, ..] = docs
+  let assert [first, ..] = documents
   let assert Ok(seed) = watershed.create_pact_map(first)
   watershed.set(
     watershed.root(first),
@@ -57,14 +57,14 @@ fn room(name: String, clients: Int) -> Room {
   sluice_js.settle(sluice)
 
   let settings =
-    docs
-    |> list.map(fn(doc) {
-      let assert Ok(value) = watershed.get(watershed.root(doc), "settings")
-      let assert Ok(pact) = watershed.resolve_pact_map(doc, value)
+    documents
+    |> list.map(fn(document) {
+      let assert Ok(value) = watershed.get(watershed.root(document), "settings")
+      let assert Ok(pact) = watershed.resolve_pact_map(document, value)
       pact
     })
   let events = list.map(settings, recorder)
-  Room(sluice: sluice, docs: docs, settings: settings, events: events)
+  Room(sluice: sluice, documents: documents, settings: settings, events: events)
 }
 
 /// Subscribe and return a reader for everything seen so far. The two
@@ -137,7 +137,7 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() -> Nil {
 
   // The third tab is backgrounded: its frames stop being delivered, so it
   // never sees the proposal and never acknowledges it.
-  sluice_js.pause(room.sluice, nth(room.docs, 2))
+  sluice_js.pause(room.sluice, nth(room.documents, 2))
   propose(room, from: 0, bpm: 96)
   sluice_js.settle(room.sluice)
 
@@ -157,7 +157,7 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() -> Nil {
   list.length(waiting) |> should.equal(1)
 
   // Bringing the tab back resolves it — nothing was lost, it was only waiting.
-  sluice_js.resume(room.sluice, nth(room.docs, 2))
+  sluice_js.resume(room.sluice, nth(room.documents, 2))
   sluice_js.settle(room.sluice)
   tempo(room, 0) |> should.equal(Some(96))
   tempo(room, 2) |> should.equal(Some(96))
@@ -166,7 +166,7 @@ pub fn a_proposal_stalls_while_one_client_is_not_acknowledging_test() -> Nil {
 pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() -> Nil {
   let room = room("drum-drain", 3)
 
-  sluice_js.pause(room.sluice, nth(room.docs, 2))
+  sluice_js.pause(room.sluice, nth(room.documents, 2))
   propose(room, from: 0, bpm: 108)
   sluice_js.settle(room.sluice)
   watershed.pact_map_is_pending(settings_of(room, 0), bpm_key)
@@ -175,7 +175,7 @@ pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() -> Nil {
   // The tab is closed rather than restored. A signoff list is not a deadlock:
   // it drains as the sequenced `"leave"` removes the client it was waiting on,
   // and the tempo the survivors were promised finally lands.
-  sluice_js.disconnect(room.sluice, nth(room.docs, 2))
+  sluice_js.disconnect(room.sluice, nth(room.documents, 2))
   sluice_js.settle(room.sluice)
 
   tempo(room, 0) |> should.equal(Some(108))
@@ -192,7 +192,7 @@ pub fn a_stalled_proposal_drains_when_the_silent_client_leaves_test() -> Nil {
 pub fn a_second_proposal_while_one_is_pending_is_rejected_test() -> Nil {
   let room = room("drum-collide", 3)
 
-  sluice_js.pause(room.sluice, nth(room.docs, 2))
+  sluice_js.pause(room.sluice, nth(room.documents, 2))
   propose(room, from: 0, bpm: 140)
   sluice_js.settle(room.sluice)
 
@@ -202,7 +202,7 @@ pub fn a_second_proposal_while_one_is_pending_is_rejected_test() -> Nil {
   propose(room, from: 1, bpm: 90)
   sluice_js.settle(room.sluice)
 
-  sluice_js.resume(room.sluice, nth(room.docs, 2))
+  sluice_js.resume(room.sluice, nth(room.documents, 2))
   sluice_js.settle(room.sluice)
 
   // The first proposal wins; the second left no trace.
@@ -236,11 +236,11 @@ pub fn a_late_joiner_reads_the_agreed_tempo_test() -> Nil {
   tempo(room, 0) |> should.equal(Some(128))
 
   // A fourth tab opens and replays the history: one `Set`, three `Accept`s.
-  let doc_d = sluice_js.connect(room.sluice, "user-late")
+  let document_d = sluice_js.connect(room.sluice, "user-late")
   sluice_js.settle(room.sluice)
 
-  let assert Ok(value) = watershed.get(watershed.root(doc_d), "settings")
-  let assert Ok(settings_d) = watershed.resolve_pact_map(doc_d, value)
+  let assert Ok(value) = watershed.get(watershed.root(document_d), "settings")
+  let assert Ok(settings_d) = watershed.resolve_pact_map(document_d, value)
 
   watershed.pact_map_get(settings_d, bpm_key)
   |> should.equal(Ok(json.int(128)))
@@ -260,16 +260,16 @@ pub fn tempo_is_agreed_while_the_pattern_is_not_test() -> Nil {
 
   // The contrast the demo is built to show, in one test: with a client not
   // acknowledging, a tempo change cannot land...
-  sluice_js.pause(room.sluice, nth(room.docs, 2))
+  sluice_js.pause(room.sluice, nth(room.documents, 2))
   propose(room, from: 0, bpm: 150)
   sluice_js.settle(room.sluice)
   tempo(room, 0) |> should.equal(None)
 
   // ...while the steps everyone can hear keep flowing between the clients
   // that are still talking, because nothing about them requires agreement.
-  let assert Ok(kick) = watershed.create_or_set(nth(room.docs, 0))
+  let assert Ok(kick) = watershed.create_or_set(nth(room.documents, 0))
   watershed.set(
-    watershed.root(nth(room.docs, 0)),
+    watershed.root(nth(room.documents, 0)),
     "kick",
     watershed.or_set_handle_of(kick),
   )
@@ -278,7 +278,8 @@ pub fn tempo_is_agreed_while_the_pattern_is_not_test() -> Nil {
   sluice_js.settle(room.sluice)
 
   let assert Ok(value) =
-    watershed.get(watershed.root(nth(room.docs, 1)), "kick")
-  let assert Ok(kick_b) = watershed.resolve_or_set(nth(room.docs, 1), value)
+    watershed.get(watershed.root(nth(room.documents, 1)), "kick")
+  let assert Ok(kick_b) =
+    watershed.resolve_or_set(nth(room.documents, 1), value)
   watershed.or_set_values(kick_b) |> should.equal(["0"])
 }

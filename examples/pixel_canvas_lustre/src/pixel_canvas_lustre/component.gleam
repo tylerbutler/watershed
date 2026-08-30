@@ -35,7 +35,7 @@ import watershed/or_map_kernel
 import watershed_lustre
 
 import pixel_canvas_lustre/canvas.{type Canvas}
-import pixel_canvas_lustre/doc_schema
+import pixel_canvas_lustre/document_schema
 import pixel_canvas_lustre/grid
 
 // ── Presence seam ────────────────────────────────────────────────────────────
@@ -90,7 +90,7 @@ pub opaque type Msg {
 /// between a canvas that shares and one that silently paints only for itself.
 pub fn init(
   document: Document(root),
-  map: TypedMap(doc_schema.CanvasDoc),
+  map: TypedMap(document_schema.CanvasDocument),
 ) -> #(Model, Effect(Msg)) {
   let model =
     Model(
@@ -107,13 +107,13 @@ pub fn init(
     effect.batch([
       watershed_lustre.ensure_field(
         map,
-        doc_schema.title(),
+        document_schema.title(),
         "watershed pixel canvas",
       ),
       watershed_lustre.ensure_or_map(
         document,
         map,
-        doc_schema.pixels(),
+        document_schema.pixels(),
         or_map_kernel.RegisterMode,
         EnsuredPixels,
       ),

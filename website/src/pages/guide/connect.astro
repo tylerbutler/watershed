@@ -4,7 +4,7 @@ import GuideLayout from "../../components/GuideLayout.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt, section } from "../../lib/excerpt";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
-import schemaSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/doc_schema.gleam?raw";
+import schemaSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam?raw";
 import gleamToml from "../../../../examples/retro_tutorial_lustre/gleam.toml?raw";
 
 const devConstants = section(
@@ -16,7 +16,7 @@ const start = excerpt(appSource, "pub fn main(");
 const connectEffect = excerpt(appSource, "fn init(");
 const readiness = section(
   appSource,
-  "    GotDocument(doc) -> {",
+  "    GotDocument(document) -> {",
   "    EnsuredNotes(Ok(notes)) ->",
 );
 const bootstrap = excerpt(appSource, "fn bootstrap_effect(");
@@ -50,7 +50,7 @@ const layout = `retro_tutorial_lustre/
 ├── build.mjs
 ├── index.html
 ├── src/
-│   ├── doc_schema.gleam            ← this sheet
+│   ├── document_schema.gleam       ← this sheet
 │   ├── note.gleam                  ← step 02
 │   ├── board.gleam                 ← step 02
 │   ├── board_operations.gleam      ← steps 02 and 04
@@ -156,13 +156,13 @@ const layout = `retro_tutorial_lustre/
     </p>
     <p>
       Keep these names in one file instead of repeating strings throughout the
-      app. The <code>BoardDoc</code> type also prevents code from using one of
+      app. The <code>BoardDocument</code> type also prevents code from using one of
       these fields with a different kind of document. For the full picture of
       what a field can be — a plain value, a handle to a nested map, or a
       handle to another channel kind entirely — see{" "}
       <a href="/foundations/schema">Foundations · schemas and fields</a>.
     </p>
-    <span class="g-file">src/doc_schema.gleam</span>
+    <span class="g-file">src/document_schema.gleam</span>
     <figure class="g-code">
       <Code code={schemaSource} lang="gleam" theme={watershedCodeTheme} />
     </figure>

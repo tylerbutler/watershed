@@ -22,7 +22,7 @@ import gleam/string
 import watershed.{type Document, type OrSet, WatershedConfig}
 import watershed/summary_policy
 
-import drum_machine_lustre/doc_schema
+import drum_machine_lustre/document_schema
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -31,7 +31,7 @@ const tenant = "dev-tenant"
 const secret = "levee-dev-secret-change-in-production"
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -42,7 +42,7 @@ fn exit(code: Int) -> Nil
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.Machine)) {
+) -> Promise(Document(document_schema.Machine)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -66,16 +66,16 @@ pub fn main() -> Nil {
   log("smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    run_scenario(doc_a, doc_b)
+    use document_a <- promise.await(connect_client(document, "user-a"))
+    use document_b <- promise.map(connect_client(document, "user-b"))
+    run_scenario(document_a, document_b)
   }
   Nil
 }
 
 fn run_scenario(
-  doc_a: Document(doc_schema.Machine),
-  doc_b: Document(doc_schema.Machine),
+  document_a: Document(document_schema.Machine),
+  document_b: Document(document_schema.Machine),
 ) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
@@ -87,54 +87,54 @@ fn run_scenario(
   let policy =
     summary_policy.policy()
     |> summary_policy.with_threshold(6)
-    |> summary_policy.with_jitter_ms(0)
-  watershed.auto_summarize(doc_a, policy)
-  watershed.auto_summarize(doc_b, policy)
+    |> summary_policy.with_jitter_milliseconds(0)
+  watershed.auto_summarize(document_a, policy)
+  watershed.auto_summarize(document_b, policy)
 
   log("smoke: ensuring the kick track on A")
 
   watershed.ensure_or_set(
-    doc_a,
-    watershed.root_typed(doc_a),
-    doc_schema.kick(),
+    document_a,
+    watershed.root_typed(document_a),
+    document_schema.kick(),
     fn(result) {
       case result {
         Error(reason) -> {
           log("SMOKE FAIL: A could not ensure the kick track: " <> reason)
           exit(1)
         }
-        Ok(kick_a) -> adopt_on_b(doc_a, doc_b, kick_a)
+        Ok(kick_a) -> adopt_on_b(document_a, document_b, kick_a)
       }
     },
   )
 }
 
 fn adopt_on_b(
-  doc_a: Document(doc_schema.Machine),
-  doc_b: Document(doc_schema.Machine),
+  document_a: Document(document_schema.Machine),
+  document_b: Document(document_schema.Machine),
   kick_a: OrSet,
 ) -> Nil {
   // B adopts the same channel rather than creating its own — `ensure_or_set`
   // resolves the handle A just published.
   use <- delay(1500)
   watershed.ensure_or_set(
-    doc_b,
-    watershed.root_typed(doc_b),
-    doc_schema.kick(),
+    document_b,
+    watershed.root_typed(document_b),
+    document_schema.kick(),
     fn(result) {
       case result {
         Error(reason) -> {
           log("SMOKE FAIL: B could not adopt the kick track: " <> reason)
           exit(1)
         }
-        Ok(kick_b) -> toggle_scenario(doc_a, kick_a, kick_b)
+        Ok(kick_b) -> toggle_scenario(document_a, kick_a, kick_b)
       }
     },
   )
 }
 
 fn toggle_scenario(
-  doc_a: Document(doc_schema.Machine),
+  document_a: Document(document_schema.Machine),
   kick_a: OrSet,
   kick_b: OrSet,
 ) -> Nil {
@@ -170,7 +170,7 @@ fn toggle_scenario(
   // A reconnect must not resurrect or drop anything: the pattern after the
   // handshake replays is the pattern before it.
   let before = steps(kick_a)
-  watershed.force_reconnect(doc_a)
+  watershed.force_reconnect(document_a)
   use <- delay(2500)
   let survived_reconnect = steps(kick_a) == before && steps(kick_b) == before
 
@@ -178,7 +178,7 @@ fn toggle_scenario(
   // been written without anything here asking for one. The observable is the
   // client's own drift falling back below the operations it has authored.
   use <- delay(1500)
-  let summarized = watershed.operations_since_summary(doc_a) < 6
+  let summarized = watershed.operations_since_summary(document_a) < 6
 
   case
     seeded

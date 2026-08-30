@@ -813,7 +813,7 @@ pub fn aborting_a_socket_drops_it_and_retries_test() -> Nil {
 @target(javascript)
 pub fn the_backoff_sequence_is_exactly_the_documented_one_test() -> Nil {
   [0, 1, 2, 3, 4, 5, 99]
-  |> list.map(crdt_sequencer_js.backoff_ms)
+  |> list.map(crdt_sequencer_js.backoff_milliseconds)
   |> expect.to_equal([250, 500, 1000, 2000, 5000, 5000, 5000])
 }
 

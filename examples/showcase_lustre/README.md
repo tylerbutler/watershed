@@ -33,16 +33,18 @@ That is the property the composition is built around, not a leftover.
 
 ## How composition works
 
-`showcase_lustre/doc_schema` declares one `ChildField` per panel. A child field
+`showcase_lustre/document_schema` declares one `ChildField` per panel. A child
+field
 is a key whose value is a handle to a nested typed map carrying a *different*
-phantom tag, so each panel's existing `doc_schema` works unchanged against its
+phantom tag, so each panel's existing `document_schema` works unchanged against
+its
 own map — those fields were always scoped to the panel's tag rather than to
 "the root".
 
 Each panel is a nested MVU triple in its own package:
 
 ```gleam
-let #(panel, fx) = text_component.init(doc, text_map)   // in the shell's update
+let #(panel, fx) = text_component.init(document, text_map)   // in the shell's update
 let #(panel, fx) = text_component.update(panel, inner)
 text_component.view(panel) |> element.map(TextMsg)      // in the shell's view
 ```

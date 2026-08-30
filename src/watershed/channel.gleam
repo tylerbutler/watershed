@@ -309,7 +309,7 @@ pub type Snapshot {
   ClaimsSnapshot(entries: List(#(String, Json, Int)))
   TaskManagerSnapshot(queues: List(#(String, List(Int))))
   PactMapSnapshot(entries: List(#(String, pact_map_kernel.Pact)))
-  JsonOtSnapshot(doc: json_ot.JsonValue)
+  JsonOtSnapshot(document: json_ot.JsonValue)
   DirectorySnapshot(summary: directory_kernel.DirectorySummary)
   OrderedCollectionSnapshot(
     queue: List(Json),
@@ -527,7 +527,8 @@ pub fn from_snapshot(
       Ok(TaskManagerState(task_manager_kernel.from_summary(queues)))
     PactMapSnapshot(entries) ->
       Ok(PactMapState(pact_map_kernel.from_summary(entries)))
-    JsonOtSnapshot(doc) -> Ok(JsonOtState(json_ot_kernel.from_summary(doc)))
+    JsonOtSnapshot(document) ->
+      Ok(JsonOtState(json_ot_kernel.from_summary(document)))
     DirectorySnapshot(summary) ->
       Ok(DirectoryState(directory_kernel.from_summary(summary)))
     OrderedCollectionSnapshot(queue, jobs) ->
@@ -631,7 +632,7 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
       PactMapSnapshot(pact_map_kernel.summary_entries(kernel))
     JsonOtState(kernel) ->
       case json_ot_kernel.view(kernel) {
-        Ok(doc) -> JsonOtSnapshot(doc)
+        Ok(document) -> JsonOtSnapshot(document)
         Error(_) -> JsonOtSnapshot(json_ot_kernel.summary(kernel))
       }
     // Directory attach carries the sequenced tree only; detached local edits
@@ -2271,7 +2272,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     ClaimsSnapshot(entries) -> encode_claims(entries)
     TaskManagerSnapshot(queues) -> encode_task_queues(queues)
     PactMapSnapshot(entries) -> encode_pact_entries(entries)
-    JsonOtSnapshot(doc) -> json_ot.to_json(doc)
+    JsonOtSnapshot(document) -> json_ot.to_json(document)
     DirectorySnapshot(summary) -> encode_directory_summary(summary)
     OrderedCollectionSnapshot(queue, jobs) ->
       encode_ordered_snapshot(queue, jobs)
@@ -2294,7 +2295,7 @@ fn encode_directory_summary(
     #("detachedCreated", json.bool(summary.detached_created)),
     #(
       "subdirs",
-      json.array(summary.subdirs, fn(entry) {
+      json.array(summary.subdirectories, fn(entry) {
         json.object([
           #("name", json.string(entry.0)),
           #("dir", encode_directory_summary(entry.1)),
@@ -2372,25 +2373,28 @@ fn directory_summary_decoder() -> Decoder(directory_kernel.DirectorySummary) {
   use create <- decode.field("create", create_info_decoder())
   use creators <- decode.field("creators", decode.list(decode.int))
   use detached_created <- decode.field("detachedCreated", decode.bool)
-  use subdirs <- decode.field(
+  use subdirectories <- decode.field(
     "subdirs",
-    decode.list(directory_subdir_decoder()),
+    decode.list(directory_subdirectory_decoder()),
   )
   decode.success(directory_kernel.DirectorySummary(
     storage: storage,
     create: create,
     creators: creators,
     detached_created: detached_created,
-    subdirs: subdirs,
+    subdirectories: subdirectories,
   ))
 }
 
-fn directory_subdir_decoder() -> Decoder(
+fn directory_subdirectory_decoder() -> Decoder(
   #(String, directory_kernel.DirectorySummary),
 ) {
   use name <- decode.field("name", decode.string)
-  use dir <- decode.field("dir", decode.recursive(directory_summary_decoder))
-  decode.success(#(name, dir))
+  use directory <- decode.field(
+    "dir",
+    decode.recursive(directory_summary_decoder),
+  )
+  decode.success(#(name, directory))
 }
 
 fn create_info_decoder() -> Decoder(directory_kernel.CreateInfo) {

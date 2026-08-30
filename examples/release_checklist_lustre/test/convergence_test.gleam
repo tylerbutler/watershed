@@ -6,7 +6,7 @@ import gleam/list
 import gleam/string
 import gleeunit/should
 
-import release_checklist_lustre/doc_schema
+import release_checklist_lustre/document_schema
 import watershed.{type Document, type OrSet}
 import watershed/sluice_js.{type Sluice}
 
@@ -23,24 +23,24 @@ const checks_key = "checks"
 /// seeds the handle directly and keeps the assertions free of waiting.
 fn room(name: String) -> #(Sluice, OrSet, OrSet) {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let assert Ok(seed) = watershed.create_or_set(doc_a)
+  let assert Ok(seed) = watershed.create_or_set(document_a)
   watershed.set(
-    watershed.root(doc_a),
+    watershed.root(document_a),
     checks_key,
     watershed.or_set_handle_of(seed),
   )
   sluice_js.settle(sluice)
 
-  #(sluice, checks_of(doc_a), checks_of(doc_b))
+  #(sluice, checks_of(document_a), checks_of(document_b))
 }
 
-fn checks_of(doc: Document(doc_schema.Checklist)) -> OrSet {
-  let assert Ok(value) = watershed.get(watershed.root(doc), checks_key)
-  let assert Ok(set) = watershed.resolve_or_set(doc, value)
+fn checks_of(document: Document(document_schema.Checklist)) -> OrSet {
+  let assert Ok(value) = watershed.get(watershed.root(document), checks_key)
+  let assert Ok(set) = watershed.resolve_or_set(document, value)
   set
 }
 
@@ -130,9 +130,9 @@ pub fn a_late_joiner_replays_the_checklist_test() -> Nil {
   sluice_js.settle(sluice)
 
   // Someone walking in halfway through sees what the room has already done.
-  let doc_c = sluice_js.connect(sluice, "user-c")
+  let document_c = sluice_js.connect(sluice, "user-c")
   sluice_js.settle(sluice)
 
-  completed(checks_of(doc_c))
+  completed(checks_of(document_c))
   |> should.equal(["docs_updated", "tests_passing"])
 }

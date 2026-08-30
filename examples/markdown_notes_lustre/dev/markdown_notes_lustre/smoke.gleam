@@ -8,7 +8,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 
 @target(javascript)
-import markdown_notes_lustre/doc_schema
+import markdown_notes_lustre/document_schema
 @target(javascript)
 import markdown_notes_lustre/p2p_fake
 @target(javascript)
@@ -171,52 +171,54 @@ fn config(
     room_id: room,
     replica_label: label,
     compatibility_tag: compatibility,
-    root: doc_schema.root(),
+    root: document_schema.root(),
     signaling: p2p_fake.signaling(world),
   )
 }
 
 fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
   let root = crdt_js.root(document)
-  let tags = case crdt_js.or_map_value(root, key: doc_schema.tags_key()) {
+  let tags = case crdt_js.or_map_value(root, key: document_schema.tags_key()) {
     Ok(Ok(or_map_kernel.Register(address))) -> {
       let assert Ok(tags) =
         crdt_js.resolve_channel(
           document,
-          doc_schema.tags_kind(),
+          document_schema.tags_kind(),
           address: address,
         )
       tags
     }
     _ -> {
       let assert Ok(tags) =
-        crdt_js.create_channel(document, doc_schema.tags_kind())
+        crdt_js.create_channel(document, document_schema.tags_kind())
       let assert Ok(Nil) =
         crdt_js.or_map_set(
           root,
-          key: doc_schema.tags_key(),
+          key: document_schema.tags_key(),
           value: crdt_js.address(tags),
         )
       tags
     }
   }
-  let order = case crdt_js.or_map_value(root, key: doc_schema.order_key()) {
+  let order = case
+    crdt_js.or_map_value(root, key: document_schema.order_key())
+  {
     Ok(Ok(or_map_kernel.Register(address))) -> {
       let assert Ok(order) =
         crdt_js.resolve_channel(
           document,
-          doc_schema.order_kind(),
+          document_schema.order_kind(),
           address: address,
         )
       order
     }
     _ -> {
       let assert Ok(order) =
-        crdt_js.create_channel(document, doc_schema.order_kind())
+        crdt_js.create_channel(document, document_schema.order_kind())
       let assert Ok(Nil) =
         crdt_js.or_map_set(
           root,
-          key: doc_schema.order_key(),
+          key: document_schema.order_key(),
           value: crdt_js.address(order),
         )
       order
@@ -228,19 +230,19 @@ fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
 fn channels_of(document: CrdtDocument(OrMapChannel)) -> Channels {
   let root = crdt_js.root(document)
   let assert Ok(Ok(or_map_kernel.Register(tags_address))) =
-    crdt_js.or_map_value(root, key: doc_schema.tags_key())
+    crdt_js.or_map_value(root, key: document_schema.tags_key())
   let assert Ok(tags) =
     crdt_js.resolve_channel(
       document,
-      doc_schema.tags_kind(),
+      document_schema.tags_kind(),
       address: tags_address,
     )
   let assert Ok(Ok(or_map_kernel.Register(order_address))) =
-    crdt_js.or_map_value(root, key: doc_schema.order_key())
+    crdt_js.or_map_value(root, key: document_schema.order_key())
   let assert Ok(order) =
     crdt_js.resolve_channel(
       document,
-      doc_schema.order_kind(),
+      document_schema.order_kind(),
       address: order_address,
     )
   Channels(root:, tags:, order:)
@@ -251,7 +253,8 @@ fn create_note(
   channels: Channels,
   name: String,
 ) -> Handle(TextChannel) {
-  let assert Ok(text) = crdt_js.create_channel(document, doc_schema.text_kind())
+  let assert Ok(text) =
+    crdt_js.create_channel(document, document_schema.text_kind())
   let assert Ok(Nil) =
     crdt_js.text_append(
       text,
@@ -277,7 +280,11 @@ fn open_note(
   let assert Ok(Ok(or_map_kernel.Register(address))) =
     crdt_js.or_map_value(channels.root, key: name)
   let assert Ok(text) =
-    crdt_js.resolve_channel(document, doc_schema.text_kind(), address: address)
+    crdt_js.resolve_channel(
+      document,
+      document_schema.text_kind(),
+      address: address,
+    )
   text
 }
 

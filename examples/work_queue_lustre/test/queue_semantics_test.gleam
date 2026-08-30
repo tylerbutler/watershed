@@ -20,7 +20,7 @@ import watershed/sluice_js.{type Sluice}
 import watershed/task_manager_kernel.{type TaskManagerEvent}
 import watershed/transport_js.{type Cell}
 
-import work_queue_lustre/doc_schema
+import work_queue_lustre/document_schema
 
 const role = "dispatcher"
 
@@ -31,36 +31,40 @@ const role = "dispatcher"
 /// browser, wrong here, where delivery is synchronous and deterministic.
 fn room(
   name: String,
-) -> #(Sluice, Document(doc_schema.Dispatch), Document(doc_schema.Dispatch)) {
+) -> #(
+  Sluice,
+  Document(document_schema.Dispatch),
+  Document(document_schema.Dispatch),
+) {
   let sluice = sluice_js.start(tenant: "default", document: name)
-  let doc_a = sluice_js.connect(sluice, "user-a")
-  let doc_b = sluice_js.connect(sluice, "user-b")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
   sluice_js.settle(sluice)
 
-  let root_a = watershed.root(doc_a)
-  let assert Ok(queue) = watershed.create_ordered_collection(doc_a)
+  let root_a = watershed.root(document_a)
+  let assert Ok(queue) = watershed.create_ordered_collection(document_a)
   watershed.set(root_a, "queue", watershed.ordered_collection_handle_of(queue))
-  let assert Ok(roles) = watershed.create_task_manager(doc_a)
+  let assert Ok(roles) = watershed.create_task_manager(document_a)
   watershed.set(root_a, "roles", watershed.task_manager_handle_of(roles))
   sluice_js.settle(sluice)
 
-  #(sluice, doc_a, doc_b)
+  #(sluice, document_a, document_b)
 }
 
-fn queue_of(doc: Document(doc_schema.Dispatch)) -> OrderedCollection {
-  let assert Ok(handle) = watershed.get(watershed.root(doc), "queue")
-  let assert Ok(queue) = watershed.resolve_ordered_collection(doc, handle)
+fn queue_of(document: Document(document_schema.Dispatch)) -> OrderedCollection {
+  let assert Ok(handle) = watershed.get(watershed.root(document), "queue")
+  let assert Ok(queue) = watershed.resolve_ordered_collection(document, handle)
   queue
 }
 
-fn roles_of(doc: Document(doc_schema.Dispatch)) -> TaskManager {
-  let assert Ok(handle) = watershed.get(watershed.root(doc), "roles")
-  let assert Ok(roles) = watershed.resolve_task_manager(doc, handle)
+fn roles_of(document: Document(document_schema.Dispatch)) -> TaskManager {
+  let assert Ok(handle) = watershed.get(watershed.root(document), "roles")
+  let assert Ok(roles) = watershed.resolve_task_manager(document, handle)
   roles
 }
 
-fn int_of(doc: Document(doc_schema.Dispatch)) -> Int {
-  let assert Some(id) = watershed.client_id(doc)
+fn int_of(document: Document(document_schema.Dispatch)) -> Int {
+  let assert Some(id) = watershed.client_id(document)
   client_id.to_int(id)
 }
 
@@ -103,9 +107,9 @@ fn job(label: String) -> Json {
 /// — the outcome is its only signal), and both replicas agree on who holds the
 /// job.
 pub fn two_claims_one_job_exactly_one_wins_test() -> Nil {
-  let #(sluice, doc_a, doc_b) = room("wq-race")
-  let queue_a = queue_of(doc_a)
-  let queue_b = queue_of(doc_b)
+  let #(sluice, document_a, document_b) = room("wq-race")
+  let queue_a = queue_of(document_a)
+  let queue_b = queue_of(document_b)
 
   watershed.ordered_add(queue_a, job("j1"))
   sluice_js.settle(sluice)
@@ -138,7 +142,7 @@ pub fn two_claims_one_job_exactly_one_wins_test() -> Nil {
   let jobs = watershed.ordered_jobs(queue_a)
   jobs |> should.equal(watershed.ordered_jobs(queue_b))
   let assert [#(_, JobEntry(_, Some(owner)))] = jobs
-  { owner == int_of(doc_a) || owner == int_of(doc_b) }
+  { owner == int_of(document_a) || owner == int_of(document_b) }
   |> should.be_true()
 }
 
@@ -149,9 +153,9 @@ pub fn two_claims_one_job_exactly_one_wins_test() -> Nil {
 /// signal the board renders "job returned" from — and the survivor can take it
 /// over. No client code participates in the recovery.
 pub fn held_job_returns_to_queue_when_holder_disconnects_test() -> Nil {
-  let #(sluice, doc_a, doc_b) = room("wq-worker-dies")
-  let queue_a = queue_of(doc_a)
-  let queue_b = queue_of(doc_b)
+  let #(sluice, document_a, document_b) = room("wq-worker-dies")
+  let queue_a = queue_of(document_a)
+  let queue_b = queue_of(document_b)
   let payload = job("doomed")
 
   watershed.ordered_add(queue_a, payload)
@@ -163,10 +167,10 @@ pub fn held_job_returns_to_queue_when_holder_disconnects_test() -> Nil {
   transport_js.get_cell(outcomes_a)
   |> should.equal([AcquiredItem(id_a, payload)])
   watershed.ordered_jobs(queue_b)
-  |> should.equal([#(id_a, JobEntry(payload, Some(int_of(doc_a))))])
+  |> should.equal([#(id_a, JobEntry(payload, Some(int_of(document_a))))])
 
   // The tab holding the job goes away without completing or releasing.
-  sluice_js.disconnect(sluice, doc_a)
+  sluice_js.disconnect(sluice, document_a)
   sluice_js.settle(sluice)
 
   transport_js.get_cell(events_b)
@@ -188,9 +192,9 @@ pub fn held_job_returns_to_queue_when_holder_disconnects_test() -> Nil {
 /// listens for. If the runtime ever starts emitting `Assigned` here, this test
 /// says the app's detection has a redundant leg.
 pub fn dispatcher_promotion_arrives_as_queue_changed_not_assigned_test() -> Nil {
-  let #(sluice, doc_a, doc_b) = room("wq-dispatcher-dies")
-  let roles_a = roles_of(doc_a)
-  let roles_b = roles_of(doc_b)
+  let #(sluice, document_a, document_b) = room("wq-dispatcher-dies")
+  let roles_a = roles_of(document_a)
+  let roles_b = roles_of(document_b)
 
   watershed.volunteer_for_task(roles_a, role)
   sluice_js.settle(sluice)
@@ -200,7 +204,7 @@ pub fn dispatcher_promotion_arrives_as_queue_changed_not_assigned_test() -> Nil 
   sluice_js.settle(sluice)
   watershed.task_assigned(roles_b, role) |> should.be_false()
 
-  sluice_js.disconnect(sluice, doc_a)
+  sluice_js.disconnect(sluice, document_a)
   sluice_js.settle(sluice)
 
   watershed.task_assigned(roles_b, role) |> should.be_true()
@@ -208,8 +212,8 @@ pub fn dispatcher_promotion_arrives_as_queue_changed_not_assigned_test() -> Nil 
   events
   |> list.contains(task_manager_kernel.QueueChanged(
     role,
-    Some(int_of(doc_a)),
-    Some(int_of(doc_b)),
+    Some(int_of(document_a)),
+    Some(int_of(document_b)),
   ))
   |> should.be_true()
   events
@@ -232,9 +236,9 @@ pub fn dispatcher_promotion_arrives_as_queue_changed_not_assigned_test() -> Nil 
 /// **tail** of the queue as the same `Added(newly_added: False)`, and behind
 /// any jobs added meanwhile.
 pub fn released_job_returns_to_the_tail_test() -> Nil {
-  let #(sluice, doc_a, doc_b) = room("wq-release")
-  let queue_a = queue_of(doc_a)
-  let queue_b = queue_of(doc_b)
+  let #(sluice, document_a, document_b) = room("wq-release")
+  let queue_a = queue_of(document_a)
+  let queue_b = queue_of(document_b)
   let first = job("first")
   let second = job("second")
 

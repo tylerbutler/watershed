@@ -74,7 +74,7 @@ pub fn set_cell(cell: Cell(a), value: a) -> Nil
 
 @target(javascript)
 @external(javascript, "./transport_ffi.mjs", "nowMs")
-pub fn now_ms() -> Int
+pub fn now_milliseconds() -> Int
 
 @target(javascript)
 /// A cancellable timer handle returned by `set_timer`.
@@ -83,7 +83,7 @@ pub type TimerId
 @target(javascript)
 /// Schedule `action` after `ms`, and return a handle for `clear_timer`.
 @external(javascript, "./transport_ffi.mjs", "setTimer")
-pub fn set_timer(action: fn() -> Nil, ms: Int) -> TimerId
+pub fn set_timer(action: fn() -> Nil, milliseconds: Int) -> TimerId
 
 @target(javascript)
 /// Cancel a pending timer.
@@ -99,16 +99,22 @@ pub fn clear_timer(id: TimerId) -> Nil
 /// scheduler needs no FFI type of its own. See `sluice_js.scheduler`, which
 /// builds one on the `advance` function of the sluice.
 pub type Scheduler {
-  Scheduler(now_ms: fn() -> Int, schedule: fn(fn() -> Nil, Int) -> fn() -> Nil)
+  Scheduler(
+    now_milliseconds: fn() -> Int,
+    schedule: fn(fn() -> Nil, Int) -> fn() -> Nil,
+  )
 }
 
 @target(javascript)
 /// The real clock and `setTimeout`.
 pub fn real_scheduler() -> Scheduler {
-  Scheduler(now_ms: now_ms, schedule: fn(action, ms) {
-    let id = set_timer(action, ms)
-    fn() { clear_timer(id) }
-  })
+  Scheduler(
+    now_milliseconds: now_milliseconds,
+    schedule: fn(action, milliseconds) {
+      let id = set_timer(action, milliseconds)
+      fn() { clear_timer(id) }
+    },
+  )
 }
 
 @target(javascript)

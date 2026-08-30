@@ -73,20 +73,20 @@ fn flush() -> Promise(Nil) {
 /// `settle`.
 fn room() -> #(sluice_js.Sluice, Claims, Claims) {
   let sluice = sluice_js.start(tenant: "default", document: "claims-binding")
-  let doc_a = sluice_js.connect(sluice, "alice")
-  let doc_b = sluice_js.connect(sluice, "bob")
+  let document_a = sluice_js.connect(sluice, "alice")
+  let document_b = sluice_js.connect(sluice, "bob")
   sluice_js.settle(sluice)
 
-  let assert Ok(claims_a) = watershed.create_claims(doc_a)
+  let assert Ok(claims_a) = watershed.create_claims(document_a)
   watershed.set(
-    watershed.root(doc_a),
+    watershed.root(document_a),
     captain_key,
     watershed.claims_handle_of(claims_a),
   )
   sluice_js.settle(sluice)
 
-  let assert Ok(handle) = watershed.get(watershed.root(doc_b), captain_key)
-  let assert Ok(claims_b) = watershed.resolve_claims(doc_b, handle)
+  let assert Ok(handle) = watershed.get(watershed.root(document_b), captain_key)
+  let assert Ok(claims_b) = watershed.resolve_claims(document_b, handle)
   #(sluice, claims_a, claims_b)
 }
 

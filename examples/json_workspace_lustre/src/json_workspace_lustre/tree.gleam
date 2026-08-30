@@ -73,7 +73,7 @@ pub fn breadcrumbs(path: String) -> List(#(String, String)) {
 /// listing marks the row rather than guessing at its shape.
 pub type Row {
   FolderRow(name: String, path: String)
-  DocRow(name: String, path: String, corrupt: Bool)
+  DocumentRow(name: String, path: String, corrupt: Bool)
 }
 
 /// Folders first, then documents, each block alphabetical — deterministic
@@ -87,14 +87,18 @@ pub fn rows(
     subdirectories
     |> list.sort(string.compare)
     |> list.map(fn(name) { FolderRow(name, join_path(path, name)) })
-  let docs =
+  let documents =
     entries
     |> list.sort(fn(a, b) { string.compare(a.0, b.0) })
     |> list.map(fn(pair) {
       let #(name, value) = pair
-      DocRow(name, join_path(path, name), corrupt: !watershed.is_handle(value))
+      DocumentRow(
+        name,
+        join_path(path, name),
+        corrupt: !watershed.is_handle(value),
+      )
     })
-  list.append(folders, docs)
+  list.append(folders, documents)
 }
 
 /// Whether `deleted_path` covers `target_path` — the same path, or an

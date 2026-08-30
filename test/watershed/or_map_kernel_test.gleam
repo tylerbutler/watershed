@@ -419,10 +419,11 @@ pub fn from_sequenced_rebrands_existing_map_test() -> Nil {
 // ── Same-millisecond writes ──────────────────────────────────────────────────
 //
 // The timestamp a register is stamped with comes from the wall clock
-// (`transport_js.now_ms`), and `lww_register` accepts a write only when the
-// timestamp is *strictly* greater than the one it holds. Two writes to one key
-// inside the same millisecond therefore used to drop the second — silently, and
-// even from the same replica, where "later" is not a matter of opinion.
+// (`transport_js.now_milliseconds`), and `lww_register` accepts a write only
+// when the timestamp is *strictly* greater than the one it holds. Two writes to
+// one key inside the same millisecond therefore used to drop the second —
+// silently, and even from the same replica, where "later" is not a matter of
+// opinion.
 //
 // The kernel now keeps a per-key clock and stamps every local write above
 // everything it has already seen for that key, from either end. That is a

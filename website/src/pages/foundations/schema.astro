@@ -5,15 +5,15 @@ import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt } from "../../lib/excerpt";
 import schemaModule from "../../../../src/watershed/schema.gleam?raw";
 import watershedMain from "../../../../src/watershed.gleam?raw";
-import retroSchema from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/doc_schema.gleam?raw";
-import showcaseSchema from "../../../../examples/showcase_lustre/src/showcase_lustre/doc_schema.gleam?raw";
-import sudokuSchema from "../../../../examples/sudoku_lustre/src/sudoku_lustre/doc_schema.gleam?raw";
+import retroSchema from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam?raw";
+import showcaseSchema from "../../../../examples/showcase_lustre/src/showcase_lustre/document_schema.gleam?raw";
+import sudokuSchema from "../../../../examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam?raw";
 import scoreboard from "../../../../examples/scoreboard_cli/src/scoreboard_cli.gleam?raw";
 
 const fieldType = excerpt(schemaModule, "pub opaque type Field(schema, a) {");
 const titleField = excerpt(
   retroSchema,
-  "pub fn title() -> Field(BoardDoc, String) {",
+  "pub fn title() -> Field(BoardDocument, String) {",
 );
 
 const childFieldType = excerpt(
@@ -22,7 +22,7 @@ const childFieldType = excerpt(
 );
 const textChild = excerpt(
   showcaseSchema,
-  "pub fn text() -> ChildField(Showcase, text_schema.TextDoc) {",
+  "pub fn text() -> ChildField(Showcase, text_schema.TextDocument) {",
 );
 
 const channelFieldType = excerpt(
@@ -31,10 +31,10 @@ const channelFieldType = excerpt(
 );
 const sudokuFields = excerpt(
   sudokuSchema,
-  "pub fn cells() -> ChannelField(SudokuDoc, MapChannel) {",
-  "pub fn notes() -> ChannelField(SudokuDoc, OrSetChannel) {",
-  "pub fn givens() -> ChannelField(SudokuDoc, ClaimsChannel) {",
-  "pub fn mistakes() -> ChannelField(SudokuDoc, CounterChannel) {",
+  "pub fn cells() -> ChannelField(SudokuDocument, MapChannel) {",
+  "pub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) {",
+  "pub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) {",
+  "pub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) {",
 );
 
 const fieldError = excerpt(schemaModule, "pub type FieldError {");
@@ -81,14 +81,14 @@ const stampFn = excerpt(watershedMain, "pub fn stamp(");
     <figure class="g-code">
       <Code code={titleField} lang="gleam" theme={watershedCodeTheme} />
       <figcaption class="annot">
-        watershed · examples/retro_tutorial_lustre/src/doc_schema.gleam
+        watershed · examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam
       </figcaption>
     </figure>
     <p>
-      <code>BoardDoc</code> is the tag. Nothing ever constructs a{" "}
-      <code>BoardDoc</code> value — it exists so <code>title()</code> can only
+      <code>BoardDocument</code> is the tag. Nothing ever constructs a{" "}
+      <code>BoardDocument</code> value — it exists so <code>title()</code> can only
       be set or read against a map that's been marked as a{" "}
-      <code>TypedMap(BoardDoc)</code>. Try it against a map of some other
+      <code>TypedMap(BoardDocument)</code>. Try it against a map of some other
       schema and the build refuses to compile, before your code ever reaches a
       server.
     </p>
@@ -97,7 +97,7 @@ const stampFn = excerpt(watershedMain, "pub fn stamp(");
   <div class="g-block">
     <h2>The tag is a label the compiler checks and the runtime never sees</h2>
     <p>
-      This is what people mean by a <em>phantom</em> type: <code>BoardDoc</code>
+      This is what people mean by a <em>phantom</em> type: <code>BoardDocument</code>
       shows up in a type signature and nowhere else. It isn't stored, isn't
       sent over the wire, and costs nothing at runtime. It's there purely so
       the type checker can catch the one bug that matters — reading a field
@@ -123,7 +123,7 @@ const stampFn = excerpt(watershedMain, "pub fn stamp(");
     <figure class="g-code">
       <Code code={textChild} lang="gleam" theme={watershedCodeTheme} />
       <figcaption class="annot">
-        watershed · examples/showcase_lustre/src/showcase_lustre/doc_schema.gleam
+        watershed · examples/showcase_lustre/src/showcase_lustre/document_schema.gleam
       </figcaption>
     </figure>
     <p>
@@ -151,7 +151,7 @@ const stampFn = excerpt(watershedMain, "pub fn stamp(");
     <figure class="g-code">
       <Code code={sudokuFields} lang="gleam" theme={watershedCodeTheme} />
       <figcaption class="annot">
-        watershed · examples/sudoku_lustre/src/sudoku_lustre/doc_schema.gleam —
+        watershed · examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam —
         four slots, four different merge rules
       </figcaption>
     </figure>

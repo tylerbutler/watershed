@@ -21,7 +21,7 @@ import lustre/element/html
 import lustre/element/svg
 import lustre/event
 
-import markdown_notes_lustre/doc_schema
+import markdown_notes_lustre/document_schema
 import markdown_notes_lustre/sidebar
 import markdown_notes_lustre/toolbar
 import watershed/browser
@@ -56,7 +56,7 @@ const nostr_display = "the public Nostr relays"
 
 const relay_param = "relay"
 
-const retry_ms = 50
+const retry_milliseconds = 50
 
 pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
@@ -302,7 +302,7 @@ fn open_room(room: String) -> Effect(Msg) {
       room_id: room,
       replica_label: "tab",
       compatibility_tag: compatibility,
-      root: doc_schema.root(),
+      root: document_schema.root(),
       signaling: signaling,
     )
     |> crdt_js.with_ice_servers(ice_servers())
@@ -390,7 +390,7 @@ fn focus_note_button(name: String) -> Nil
 fn copy_current_url() -> Nil
 
 @external(javascript, "./app_ffi.mjs", "afterMs")
-fn after_ms(delay: Int, run: fn() -> Nil) -> Nil
+fn after_milliseconds(delay: Int, run: fn() -> Nil) -> Nil
 
 // ── Update ───────────────────────────────────────────────────────────────────
 
@@ -904,7 +904,7 @@ fn copy_invite() -> Effect(Msg) {
 /// on its own or it reads as a permanent state.
 fn reset_invite_label() -> Effect(Msg) {
   use dispatch <- effect.from
-  after_ms(2000, fn() { dispatch(InviteCopyReset) })
+  after_milliseconds(2000, fn() { dispatch(InviteCopyReset) })
 }
 
 fn download_snapshot(room: String, contents: String) -> Effect(Msg) {
@@ -930,7 +930,7 @@ fn refresh_from_root(model: Model) -> #(Model, Effect(Msg)) {
       let #(model, shared_effect) = assemble(model, root)
       let #(model, open_effect) = retry_pending_open(model)
       let retry_effect = case retry_shared {
-        True -> watershed_lustre.after(retry_ms, RetryShared)
+        True -> watershed_lustre.after(retry_milliseconds, RetryShared)
         False -> effect.none()
       }
       #(model, effect.batch([shared_effect, open_effect, retry_effect]))
@@ -956,7 +956,7 @@ fn ensure_tags(
   root: Handle(OrMapChannel),
   create_missing create_missing: Bool,
 ) -> #(Model, Bool) {
-  case crdt_js.or_map_value(root, key: doc_schema.tags_key()) {
+  case crdt_js.or_map_value(root, key: document_schema.tags_key()) {
     Error(error) -> #(
       note_system(
         model,
@@ -969,7 +969,7 @@ fn ensure_tags(
       False,
     )
     Ok(Error(Nil)) ->
-      case crdt_js.create_channel(document, doc_schema.tags_kind()) {
+      case crdt_js.create_channel(document, document_schema.tags_kind()) {
         Error(error) -> #(
           note_system(
             model,
@@ -981,7 +981,7 @@ fn ensure_tags(
           case
             crdt_js.or_map_set(
               root,
-              key: doc_schema.tags_key(),
+              key: document_schema.tags_key(),
               value: crdt_js.address(tags),
             )
           {
@@ -1009,7 +1009,7 @@ fn ensure_tags(
       case
         crdt_js.resolve_channel(
           document,
-          doc_schema.tags_kind(),
+          document_schema.tags_kind(),
           address: address,
         )
       {
@@ -1044,7 +1044,7 @@ fn ensure_order(
   root: Handle(OrMapChannel),
   create_missing create_missing: Bool,
 ) -> #(Model, Bool) {
-  case crdt_js.or_map_value(root, key: doc_schema.order_key()) {
+  case crdt_js.or_map_value(root, key: document_schema.order_key()) {
     Error(error) -> #(
       note_system(
         model,
@@ -1057,7 +1057,7 @@ fn ensure_order(
       False,
     )
     Ok(Error(Nil)) ->
-      case crdt_js.create_channel(document, doc_schema.order_kind()) {
+      case crdt_js.create_channel(document, document_schema.order_kind()) {
         Error(error) -> #(
           note_system(
             model,
@@ -1069,7 +1069,7 @@ fn ensure_order(
           case
             crdt_js.or_map_set(
               root,
-              key: doc_schema.order_key(),
+              key: document_schema.order_key(),
               value: crdt_js.address(order),
             )
           {
@@ -1097,7 +1097,7 @@ fn ensure_order(
       case
         crdt_js.resolve_channel(
           document,
-          doc_schema.order_kind(),
+          document_schema.order_kind(),
           address: address,
         )
       {
@@ -1263,7 +1263,7 @@ fn create_note(
   case validate_name(model, name) {
     Error(reason) -> #(Model(..model, error: Some(reason)), effect.none())
     Ok(Nil) ->
-      case crdt_js.create_channel(document, doc_schema.text_kind()) {
+      case crdt_js.create_channel(document, document_schema.text_kind()) {
         Error(error) -> #(
           Model(
             ..model,
@@ -1375,7 +1375,7 @@ fn try_open(model: Model, name: String) -> #(Model, Effect(Msg)) {
           case
             crdt_js.resolve_channel(
               document,
-              doc_schema.text_kind(),
+              document_schema.text_kind(),
               address: address,
             )
           {
@@ -1384,7 +1384,7 @@ fn try_open(model: Model, name: String) -> #(Model, Effect(Msg)) {
               case retryable_missing_channel(error) {
                 True -> #(
                   Model(..model, pending_open: Some(name)),
-                  watershed_lustre.after(retry_ms, RetryOpen),
+                  watershed_lustre.after(retry_milliseconds, RetryOpen),
                 )
                 False -> #(
                   Model(
@@ -1445,7 +1445,7 @@ fn read_notes(model: Model, root: Handle(OrMapChannel)) -> Model {
         ..model,
         note_names: entries
           |> list.filter_map(fn(entry) {
-            case doc_schema.is_reserved(entry.0), entry.1 {
+            case document_schema.is_reserved(entry.0), entry.1 {
               True, _ -> Error(Nil)
               False, or_map_kernel.Register(_) -> Ok(entry.0)
               False, or_map_kernel.Tally(_) -> Error(Nil)

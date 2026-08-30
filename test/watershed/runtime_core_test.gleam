@@ -3719,9 +3719,9 @@ pub fn text_summary_round_trip_reload_with_new_replica_test() -> Nil {
   // The reloaded channel's sequenced summary is rebranded to the connecting
   // client's replica id (so future local deltas use the correct author),
   // even though the content and its original authorship are unchanged.
-  let assert [#("root", channel.MapSnapshot([])), #("doc", doc_snapshot)] =
+  let assert [#("root", channel.MapSnapshot([])), #("doc", document_snapshot)] =
     runtime_core.summary_channels(core)
-  let assert channel.TextSummary(reloaded) = doc_snapshot
+  let assert channel.TextSummary(reloaded) = document_snapshot
   text_kernel.from_sequenced(reloaded, replica_id.new("checker"))
   |> text_kernel.value
   |> expect.to_equal("hello")
@@ -4027,7 +4027,8 @@ pub fn summary_jitter_is_per_client_and_inside_the_window_test() -> Nil {
   // Every client in a room crosses the threshold on the same operation. A delay
   // derived from the client id spreads the attempts without an RNG, so the
   // first summary to land cancels the rest.
-  let policy = summary_policy.policy() |> summary_policy.with_jitter_ms(1000)
+  let policy =
+    summary_policy.policy() |> summary_policy.with_jitter_milliseconds(1000)
   let ours = bootstrap(initial_messages: [], checkpoint: 1)
   let theirs = case
     runtime_core.bootstrap(
@@ -4040,8 +4041,8 @@ pub fn summary_jitter_is_per_client_and_inside_the_window_test() -> Nil {
       panic as "expected bootstrap to succeed"
   }
 
-  let ours_jitter = runtime_core.summary_jitter_ms(ours, policy)
-  let theirs_jitter = runtime_core.summary_jitter_ms(theirs, policy)
+  let ours_jitter = runtime_core.summary_jitter_milliseconds(ours, policy)
+  let theirs_jitter = runtime_core.summary_jitter_milliseconds(theirs, policy)
 
   { ours_jitter >= 0 } |> expect.to_be_true()
   { ours_jitter < 1000 } |> expect.to_be_true()
@@ -4055,7 +4056,8 @@ pub fn consecutive_client_ids_spread_across_the_window_test() -> Nil {
   // a plain `id % window` would put a whole room within milliseconds of each
   // other and every one of them would summarize. Ten adjacent ids must land in
   // distinct thirds-of-a-second buckets across a 3 second window.
-  let policy = summary_policy.policy() |> summary_policy.with_jitter_ms(3000)
+  let policy =
+    summary_policy.policy() |> summary_policy.with_jitter_milliseconds(3000)
   let buckets =
     [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
     |> list.map(fn(n) {
@@ -4072,7 +4074,7 @@ pub fn consecutive_client_ids_spread_across_the_window_test() -> Nil {
         Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
           panic as "expected bootstrap to succeed"
       }
-      runtime_core.summary_jitter_ms(core, policy) / 300
+      runtime_core.summary_jitter_milliseconds(core, policy) / 300
     })
     |> list.unique
 
@@ -4081,14 +4083,15 @@ pub fn consecutive_client_ids_spread_across_the_window_test() -> Nil {
 
 pub fn a_zero_jitter_window_fires_immediately_test() -> Nil {
   // Turning jitter off must not divide by zero.
-  let policy = summary_policy.policy() |> summary_policy.with_jitter_ms(0)
+  let policy =
+    summary_policy.policy() |> summary_policy.with_jitter_milliseconds(0)
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  runtime_core.summary_jitter_ms(core, policy) |> expect.to_equal(0)
+  runtime_core.summary_jitter_milliseconds(core, policy) |> expect.to_equal(0)
 }
 
 pub fn policy_defaults_are_stated_once_test() -> Nil {
   // The defaults are the shipped policy; a change here is a behaviour change.
   let policy = summary_policy.policy()
   summary_policy.policy_threshold(policy) |> expect.to_equal(500)
-  summary_policy.policy_jitter_ms(policy) |> expect.to_equal(3000)
+  summary_policy.policy_jitter_milliseconds(policy) |> expect.to_equal(3000)
 }

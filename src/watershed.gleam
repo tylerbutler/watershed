@@ -6,7 +6,7 @@
 ////   secret: "levee-dev-secret-change-in-production",
 ////   tenant: "dev-tenant", document: "dice", user_id: "user-1",
 //// ))
-//// let doc =
+//// let document =
 ////   watershed.connect(
 ////     WatershedConfig(
 ////       url: "ws://localhost:4000/socket/websocket?vsn=2.0.0",
@@ -15,7 +15,7 @@
 ////     ),
 ////     on_ready: fn(result) { ... },
 ////   )
-//// let map = watershed.root(doc)
+//// let map = watershed.root(document)
 //// watershed.set(map, "die", json.int(4))
 //// watershed.subscribe(map, fn(event) { ... })
 //// ```
@@ -449,7 +449,7 @@ pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
 /// handle, or the `Model` field that holds it:
 ///
 /// ```gleam
-/// GotHandle(Document(doc_schema.Survey))
+/// GotHandle(Document(document_schema.Survey))
 /// ```
 ///
 /// Every `root_typed` call on that document then agrees. A second schema at the
@@ -962,13 +962,13 @@ pub fn resolve_two_p_set_field(
 }
 
 @target(javascript)
-/// Store a handle to `dir` under a typed channel field.
+/// Store a handle to `directory` under a typed channel field.
 pub fn set_directory_field(
   typed_map: TypedMap(s),
   field: ChannelField(s, schema.DirectoryChannel),
-  dir: SharedDirectory,
+  directory: SharedDirectory,
 ) -> Nil {
-  put_channel_field(typed_map, field, directory_handle_of(dir))
+  put_channel_field(typed_map, field, directory_handle_of(directory))
 }
 
 @target(javascript)
@@ -995,10 +995,10 @@ pub fn resolve_directory_field(
 
 @target(javascript)
 @external(javascript, "./watershed_ffi.mjs", "set_timeout")
-fn set_timeout(action: fn() -> Nil, ms: Int) -> Nil
+fn set_timeout(action: fn() -> Nil, milliseconds: Int) -> Nil
 
 @target(javascript)
-const resolve_retry_ms = 200
+const resolve_retry_milliseconds = 200
 
 @target(javascript)
 const resolve_attempts = 25
@@ -1016,7 +1016,7 @@ fn await_synced(
     False ->
       set_timeout(
         fn() { await_synced(document, attempts - 1, next) },
-        resolve_retry_ms,
+        resolve_retry_milliseconds,
       )
   }
 }
@@ -1038,7 +1038,7 @@ fn resolve_with_retry(
     _, _ ->
       set_timeout(
         fn() { resolve_with_retry(resolve, attempts - 1, done) },
-        resolve_retry_ms,
+        resolve_retry_milliseconds,
       )
   }
 }
@@ -1428,8 +1428,8 @@ pub fn ensure_directory(
     typed_map,
     schema.channel_field_key(field),
     fn() {
-      use dir <- result.map(create_directory(document))
-      set_directory_field(typed_map, field, dir)
+      use directory <- result.map(create_directory(document))
+      set_directory_field(typed_map, field, directory)
     },
     fn() { resolve_directory_field(document, typed_map, field) },
     done,
@@ -2820,10 +2820,10 @@ pub fn create_directory(
 }
 
 @target(javascript)
-/// The Fluid handle marker that references `dir`. Store it as a value in a map.
-/// See `handle_of`.
-pub fn directory_handle_of(dir: SharedDirectory) -> Json {
-  handle.encode_handle(dir.address)
+/// The Fluid handle marker that references `directory`. Store it as a value in
+/// a map. See `handle_of`.
+pub fn directory_handle_of(directory: SharedDirectory) -> Json {
+  handle.encode_handle(directory.address)
 }
 
 @target(javascript)
@@ -2848,99 +2848,114 @@ pub fn resolve_directory(
 /// path is `"/"`. This function attaches each detached channel referenced by
 /// `value` before it submits the directory operation.
 pub fn directory_set(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   key: String,
   value: Json,
 ) -> Nil {
-  runtime.directory_set(dir.runtime, dir.address, path, key, value)
+  runtime.directory_set(directory.runtime, directory.address, path, key, value)
 }
 
 @target(javascript)
 /// Remove `key` from the subdirectory at `path`, optimistically.
 pub fn directory_delete(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   key: String,
 ) -> Nil {
-  runtime.directory_delete(dir.runtime, dir.address, path, key)
+  runtime.directory_delete(directory.runtime, directory.address, path, key)
 }
 
 @target(javascript)
 /// Remove every key from the subdirectory at `path`, optimistically.
-pub fn directory_clear(dir: SharedDirectory, path: String) -> Nil {
-  runtime.directory_clear(dir.runtime, dir.address, path)
+pub fn directory_clear(directory: SharedDirectory, path: String) -> Nil {
+  runtime.directory_clear(directory.runtime, directory.address, path)
 }
 
 @target(javascript)
 /// Create a subdirectory named `name` under `path`, optimistically.
 pub fn directory_create_subdirectory(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   name: String,
 ) -> Nil {
-  runtime.directory_create_subdirectory(dir.runtime, dir.address, path, name)
+  runtime.directory_create_subdirectory(
+    directory.runtime,
+    directory.address,
+    path,
+    name,
+  )
 }
 
 @target(javascript)
 /// Delete the subdirectory named `name` under `path`, optimistically. The
 /// delete also removes every value in that subdirectory.
 pub fn directory_delete_subdirectory(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   name: String,
 ) -> Nil {
-  runtime.directory_delete_subdirectory(dir.runtime, dir.address, path, name)
+  runtime.directory_delete_subdirectory(
+    directory.runtime,
+    directory.address,
+    path,
+    name,
+  )
 }
 
 @target(javascript)
 /// The current optimistic value at `key`, in the subdirectory at `path`. The
 /// result is `Error(Nil)` when the key is absent.
 pub fn directory_get(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   key: String,
 ) -> Result(Json, Nil) {
-  runtime.directory_get(dir.runtime, dir.address, path, key)
+  runtime.directory_get(directory.runtime, directory.address, path, key)
 }
 
 @target(javascript)
 /// The current optimistic `#(key, value)` entries in the subdirectory at
 /// `path`.
 pub fn directory_entries(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
 ) -> List(#(String, Json)) {
-  runtime.directory_entries(dir.runtime, dir.address, path)
+  runtime.directory_entries(directory.runtime, directory.address, path)
 }
 
 @target(javascript)
 /// The names of the direct subdirectories under `path`.
 pub fn directory_subdirectories(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
 ) -> List(String) {
-  runtime.directory_subdirectories(dir.runtime, dir.address, path)
+  runtime.directory_subdirectories(directory.runtime, directory.address, path)
 }
 
 @target(javascript)
 /// Whether a subdirectory named `name` exists under `path`.
 pub fn directory_has_subdirectory(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   path: String,
   name: String,
 ) -> Bool {
-  runtime.directory_has_subdirectory(dir.runtime, dir.address, path, name)
+  runtime.directory_has_subdirectory(
+    directory.runtime,
+    directory.address,
+    path,
+    name,
+  )
 }
 
 @target(javascript)
 /// Register a callback for every local change and remote change to this
 /// directory.
 pub fn subscribe_directory(
-  dir: SharedDirectory,
+  directory: SharedDirectory,
   handler: fn(directory_kernel.DirectoryEvent) -> Nil,
 ) -> Nil {
-  use event <- subscribe_narrowed(dir.runtime, dir.address, handler)
+  use event <- subscribe_narrowed(directory.runtime, directory.address, handler)
   case event {
     channel.DirectoryEvent(inner) -> Some(inner)
     _ -> None
@@ -2976,14 +2991,15 @@ pub fn force_reconnect(document: Document(root)) -> Nil {
 ///
 /// ```gleam
 /// case offline {
-///   True -> watershed.go_offline(doc)
-///   False -> watershed.go_online(doc)
+///   True -> watershed.go_offline(document)
+///   False -> watershed.go_online(document)
 /// }
 /// ```
 ///
-/// While the document is offline, `diagnostics(doc).phase` is `"reconnecting"`,
-/// and `in_flight_count` is the number of edits that wait to reach the server.
-/// An indicator that reads "3 changes not yet saved" needs that count.
+/// While the document is offline, `diagnostics(document).phase` is
+/// `"reconnecting"`, and `in_flight_count` is the number of edits that wait to
+/// reach the server. An indicator that reads "3 changes not yet saved" needs
+/// that count.
 pub fn go_offline(document: Document(root)) -> Nil {
   runtime.go_offline(document.runtime)
 }
@@ -3008,7 +3024,7 @@ pub fn go_online(document: Document(root)) -> Nil {
 /// agree.
 ///
 /// ```gleam
-/// let mine = watershed.client_id(doc) |> option.map(client_id.to_int)
+/// let mine = watershed.client_id(document) |> option.map(client_id.to_int)
 /// let waiting_on_me = case mine, pact_map_pending_signoffs(pact, "bpm") {
 ///   Some(me), Some(ids) -> list.contains(ids, me)
 ///   _, _ -> False

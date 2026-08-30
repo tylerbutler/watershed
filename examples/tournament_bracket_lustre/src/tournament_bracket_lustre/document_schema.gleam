@@ -9,9 +9,9 @@
 import watershed/schema.{type ChannelField, type RegisterCollectionChannel}
 
 /// Phantom tag scoping the field below to the bracket root map.
-pub type BracketDoc
+pub type BracketDocument
 
 /// Match id -> reported result. One register per match, seven total.
-pub fn matches() -> ChannelField(BracketDoc, RegisterCollectionChannel) {
+pub fn matches() -> ChannelField(BracketDocument, RegisterCollectionChannel) {
   schema.channel_field("matches")
 }

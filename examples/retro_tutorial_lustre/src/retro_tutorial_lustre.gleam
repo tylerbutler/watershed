@@ -30,7 +30,7 @@ import watershed_lustre
 
 import retro_tutorial_lustre/board.{type Column, type NoteCard}
 import retro_tutorial_lustre/board_operations
-import retro_tutorial_lustre/doc_schema
+import retro_tutorial_lustre/document_schema
 
 /// These dev constants match `just integration-up`.
 /// Change them when you point the example at another server.
@@ -90,7 +90,7 @@ type PendingShared {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.BoardDoc)),
+    document: Option(Document(document_schema.BoardDocument)),
     shared: Option(SharedState),
     pending: PendingShared,
     user_id: String,
@@ -105,7 +105,7 @@ type Model {
 }
 
 type Msg {
-  GotDocument(Document(doc_schema.BoardDoc))
+  GotDocument(Document(document_schema.BoardDocument))
   Connected(Result(Nil, String))
   EnsuredNotes(Result(OrMap, String))
   EnsuredVotes(Result(OrMap, String))
@@ -126,7 +126,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       shared: None,
       pending: PendingShared(None, None),
       user_id: user_id,
@@ -153,34 +153,38 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   )
 }
 
-fn bootstrap_effect(doc: Document(doc_schema.BoardDoc)) -> Effect(Msg) {
-  let root = watershed.root_typed(doc)
+fn bootstrap_effect(
+  document: Document(document_schema.BoardDocument),
+) -> Effect(Msg) {
+  let root = watershed.root_typed(document)
   effect.batch([
-    watershed_lustre.ensure_field(root, doc_schema.title(), "Sprint retro"),
+    watershed_lustre.ensure_field(root, document_schema.title(), "Sprint retro"),
     watershed_lustre.ensure_or_map(
-      doc,
+      document,
       root,
-      doc_schema.notes(),
+      document_schema.notes(),
       or_map_kernel.RegisterMode,
       EnsuredNotes,
     ),
     watershed_lustre.ensure_or_map(
-      doc,
+      document,
       root,
-      doc_schema.votes(),
+      document_schema.votes(),
       or_map_kernel.TallyMode,
       EnsuredVotes,
     ),
-    watershed_lustre.subscribe(watershed.root(doc), fn(_event) { SharedChanged }),
+    watershed_lustre.subscribe(watershed.root(document), fn(_event) {
+      SharedChanged
+    }),
   ])
 }
 
 fn presence_effect(
   model: Model,
-  doc: Document(doc_schema.BoardDoc),
+  document: Document(document_schema.BoardDocument),
 ) -> Effect(Msg) {
   watershed_lustre.presence(
-    document: doc,
+    document: document,
     config: presence.config(encode_presence, presence_decoder()),
     initial: current_presence(model),
     started: PresenceStarted,
@@ -227,13 +231,13 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
-    GotDocument(doc) -> {
-      let model = Model(..model, doc: Some(doc))
-      let presence_start = presence_effect(model, doc)
+    GotDocument(document) -> {
+      let model = Model(..model, document: Some(document))
+      let presence_start = presence_effect(model, document)
       case model.status, model.shared {
         Ready, None -> #(
           model,
-          effect.batch([bootstrap_effect(doc), presence_start]),
+          effect.batch([bootstrap_effect(document), presence_start]),
         )
         _, _ -> #(model, presence_start)
       }
@@ -241,8 +245,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
     Connected(Ok(_)) -> {
       let model = Model(..model, status: Ready)
-      case model.doc, model.shared {
-        Some(doc), None -> #(model, bootstrap_effect(doc))
+      case model.document, model.shared {
+        Some(document), None -> #(model, bootstrap_effect(document))
         _, _ -> #(model, effect.none())
       }
     }
@@ -293,7 +297,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         "", _ -> #(model, effect.none())
         _, None -> #(model, effect.none())
         _, Some(shared) -> {
-          let created = transport_js.now_ms()
+          let created = transport_js.now_milliseconds()
           let _ =
             board_operations.add_note(
               shared.notes,
@@ -371,8 +375,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(model, watershed_lustre.force_reconnect(doc))
+      case model.document {
+        Some(document) -> #(model, watershed_lustre.force_reconnect(document))
         None -> #(model, effect.none())
       }
   }
@@ -393,9 +397,14 @@ fn remote_peers(
 }
 
 fn snapshot(model: Model) -> Model {
-  let #(title, error) = case model.doc {
-    Some(doc) ->
-      case watershed.get_field(watershed.root_typed(doc), doc_schema.title()) {
+  let #(title, error) = case model.document {
+    Some(document) ->
+      case
+        watershed.get_field(
+          watershed.root_typed(document),
+          document_schema.title(),
+        )
+      {
         Ok(Some(title)) -> #(title, model.last_error)
         Ok(None) -> #(model.board.title, model.last_error)
         Error(_) -> #(

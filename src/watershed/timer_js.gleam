@@ -17,7 +17,8 @@
 import watershed/transport_js.{type Scheduler}
 
 @target(javascript)
-/// Schedule `action` after `delay_ms`, then give the canceller to `store`.
+/// Schedule `action` after `delay_milliseconds`, then give the canceller to
+/// `store`.
 ///
 /// This function reads `wanted` again after it schedules the action, so
 /// `wanted` sees every change that a synchronous action made. If `wanted` is
@@ -25,12 +26,12 @@ import watershed/transport_js.{type Scheduler}
 /// cancel a timer that already fired does nothing, so that branch is safe.
 pub fn arm(
   scheduler scheduler: Scheduler,
-  delay_ms delay_ms: Int,
+  delay_milliseconds delay_milliseconds: Int,
   action action: fn() -> Nil,
   wanted wanted: fn() -> Bool,
   store store: fn(fn() -> Nil) -> Nil,
 ) -> Nil {
-  let stop = scheduler.schedule(action, delay_ms)
+  let stop = scheduler.schedule(action, delay_milliseconds)
   case wanted() {
     True -> store(stop)
     False -> stop()

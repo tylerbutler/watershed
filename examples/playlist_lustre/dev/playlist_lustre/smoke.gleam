@@ -20,7 +20,7 @@ import gleam/string
 
 import watershed.{type Document, type SharedSequence, WatershedConfig}
 
-import playlist_lustre/doc_schema
+import playlist_lustre/document_schema
 import playlist_lustre/track.{Track}
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -30,7 +30,7 @@ const tenant = "dev-tenant"
 const secret = "levee-dev-secret-change-in-production"
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -41,7 +41,7 @@ fn exit(code: Int) -> Nil
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.PlaylistDoc)) {
+) -> Promise(Document(document_schema.PlaylistDocument)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -65,32 +65,32 @@ pub fn main() -> Nil {
   log("smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    run_scenario(doc_a, doc_b)
+    use document_a <- promise.await(connect_client(document, "user-a"))
+    use document_b <- promise.map(connect_client(document, "user-b"))
+    run_scenario(document_a, document_b)
   }
   Nil
 }
 
 fn run_scenario(
-  doc_a: Document(doc_schema.PlaylistDoc),
-  doc_b: Document(doc_schema.PlaylistDoc),
+  document_a: Document(document_schema.PlaylistDocument),
+  document_b: Document(document_schema.PlaylistDocument),
 ) -> Nil {
   // Let both handshakes land before anyone attaches a channel.
   use <- delay(2000)
   log("smoke: ensuring the tracks sequence on A")
 
   watershed.ensure_sequence(
-    doc_a,
-    watershed.root_typed(doc_a),
-    doc_schema.tracks(),
+    document_a,
+    watershed.root_typed(document_a),
+    document_schema.tracks(),
     fn(result) {
       case result {
         Error(reason) -> {
           log("SMOKE FAIL: A could not ensure the sequence: " <> reason)
           exit(1)
         }
-        Ok(sequence_a) -> seed_then_resolve(doc_b, sequence_a)
+        Ok(sequence_a) -> seed_then_resolve(document_b, sequence_a)
       }
     },
   )
@@ -98,7 +98,7 @@ fn run_scenario(
 
 /// A seeds three tracks, then B resolves the same sequence from the root map.
 fn seed_then_resolve(
-  doc_b: Document(doc_schema.PlaylistDoc),
+  document_b: Document(document_schema.PlaylistDocument),
   sequence_a: SharedSequence,
 ) -> Nil {
   log("smoke: seeding three tracks from A")
@@ -109,9 +109,9 @@ fn seed_then_resolve(
   // Wait for A's attach + inserts to reach B, then resolve on B.
   use <- delay(2000)
   watershed.ensure_sequence(
-    doc_b,
-    watershed.root_typed(doc_b),
-    doc_schema.tracks(),
+    document_b,
+    watershed.root_typed(document_b),
+    document_schema.tracks(),
     fn(result) {
       case result {
         Error(reason) -> {

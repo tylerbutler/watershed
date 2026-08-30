@@ -1,6 +1,7 @@
 //// Focused unit tests for `json_ot_kernel` covering the single-in-flight
-//// lifecycle: local submit → ack, remote apply on a fresh doc, the concurrent
-//// same-index insert that must converge via `side`, and buffer release on ack.
+//// lifecycle: local submit → ack, remote apply on a fresh document, the
+//// concurrent same-index insert that must converge via `side`, and buffer
+//// release on ack.
 
 import gleam/option.{None, Some}
 import startest/expect
@@ -42,22 +43,22 @@ pub fn apply_remote_on_empty_test() -> Nil {
   state.sequenced |> expect.to_equal(VObject([#("x", VString("y"))]))
 }
 
-/// Two clients concurrently insert at list index 0 against the same empty doc.
-/// `side` comes from the sequence order, so both replicas put the insert that
-/// sequenced first in front, and they converge.
+/// Two clients concurrently insert at list index 0 against the same empty
+/// document. `side` comes from the sequence order, so both replicas put the
+/// insert that sequenced first in front, and they converge.
 pub fn concurrent_same_index_insert_converges_test() -> Nil {
-  let doc = array([])
+  let document = array([])
   let op0 = [json_ot.list_insert([Index(0)], VString("a"))]
   let op1 = [json_ot.list_insert([Index(0)], VString("b"))]
 
-  let c0 = kernel.from_value(doc)
+  let c0 = kernel.from_value(document)
   let assert Ok(#(c0, _, _)) = kernel.submit(c0, op0, 0)
   let assert Ok(#(c0, _)) =
     kernel.ack_local(c0, JsonOtWireOperation(0, op0), 1, -1)
   let assert Ok(#(c0, _)) =
     kernel.apply_remote(c0, JsonOtWireOperation(0, op1), 2, -1)
 
-  let c1 = kernel.from_value(doc)
+  let c1 = kernel.from_value(document)
   let assert Ok(#(c1, _, _)) = kernel.submit(c1, op1, 0)
   let assert Ok(#(c1, _)) =
     kernel.apply_remote(c1, JsonOtWireOperation(0, op0), 1, -1)
@@ -78,18 +79,18 @@ pub fn concurrent_same_index_insert_converges_test() -> Nil {
 /// opposite sides, and the document forked. `side` now comes from the sequence
 /// order, which every replica reads in the same way.
 pub fn concurrent_same_path_replace_converges_test() -> Nil {
-  let doc = VObject([#("title", VString("x"))])
+  let document = VObject([#("title", VString("x"))])
   let op0 = [json_ot.obj_replace([Key("title")], VString("x"), VString("a"))]
   let op1 = [json_ot.obj_replace([Key("title")], VString("x"), VString("b"))]
 
-  let c0 = kernel.from_value(doc)
+  let c0 = kernel.from_value(document)
   let assert Ok(#(c0, _, _)) = kernel.submit(c0, op0, 0)
   let assert Ok(#(c0, _)) =
     kernel.ack_local(c0, JsonOtWireOperation(0, op0), 1, -1)
   let assert Ok(#(c0, _)) =
     kernel.apply_remote(c0, JsonOtWireOperation(0, op1), 2, -1)
 
-  let c1 = kernel.from_value(doc)
+  let c1 = kernel.from_value(document)
   let assert Ok(#(c1, _, _)) = kernel.submit(c1, op1, 0)
   let assert Ok(#(c1, _)) =
     kernel.apply_remote(c1, JsonOtWireOperation(0, op0), 1, -1)

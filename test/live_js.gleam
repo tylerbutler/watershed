@@ -57,11 +57,11 @@ const secret = "levee-dev-secret-change-in-production"
 /// genuinely offline. `force_reconnect` and `go_offline` return immediately, so
 /// without this pause a peer's edit races the teardown and may be delivered
 /// live — which would leave nothing to catch up on and silently void the test.
-const teardown_ms = 800
+const teardown_milliseconds = 800
 
 @target(javascript)
 @external(javascript, "./live_js_ffi.mjs", "sleep")
-fn sleep(ms: Int) -> Promise(Nil)
+fn sleep(milliseconds: Int) -> Promise(Nil)
 
 @target(javascript)
 @external(javascript, "./live_js_ffi.mjs", "log")
@@ -117,17 +117,17 @@ fn run() -> Nil {
 /// passes whether or not the handshake requests anything. Holding the socket
 /// down is what puts the write reliably inside the gap.
 fn reconnect_into_a_quiet_room() -> Promise(Bool) {
-  use #(doc_a, doc_b, map_a, map_b) <- promise.await(room("rq"))
+  use #(document_a, document_b, map_a, map_b) <- promise.await(room("rq"))
   use settled <- promise.await(settle(map_a, map_b))
 
-  watershed.go_offline(doc_a)
-  use _ <- promise.await(sleep(teardown_ms))
+  watershed.go_offline(document_a)
+  use _ <- promise.await(sleep(teardown_milliseconds))
 
   // The only write in the scenario, and it lands squarely in A's gap.
   watershed.set(map_b, "from-b", json.bool(True))
-  use _ <- promise.await(sleep(teardown_ms))
+  use _ <- promise.await(sleep(teardown_milliseconds))
 
-  watershed.go_online(doc_a)
+  watershed.go_online(document_a)
 
   use caught_up <- promise.await(
     wait_until(fn() { watershed.get(map_a, "from-b") == Ok(json.bool(True)) }),
@@ -140,7 +140,7 @@ fn reconnect_into_a_quiet_room() -> Promise(Bool) {
     wait_until(fn() { watershed.get(map_b, "after") == Ok(json.string("live")) }),
   )
 
-  finish("reconnect_into_a_quiet_room", doc_a, doc_b, [
+  finish("reconnect_into_a_quiet_room", document_a, document_b, [
     #("settled", settled),
     #("caught_up", caught_up),
     #("live", live),
@@ -158,18 +158,18 @@ fn reconnect_into_a_quiet_room() -> Promise(Bool) {
 /// Note A cannot rescue itself: while catching up its edits are withheld from
 /// the wire, so they generate no traffic to discover the gap with.
 fn reconnect_with_nothing_missed() -> Promise(Bool) {
-  use #(doc_a, doc_b, map_a, map_b) <- promise.await(room("rn"))
+  use #(document_a, document_b, map_a, map_b) <- promise.await(room("rn"))
   use settled <- promise.await(settle(map_a, map_b))
 
-  watershed.force_reconnect(doc_a)
-  use _ <- promise.await(sleep(teardown_ms))
+  watershed.force_reconnect(document_a)
+  use _ <- promise.await(sleep(teardown_milliseconds))
 
   watershed.set(map_a, "after", json.string("live"))
   use live <- promise.await(
     wait_until(fn() { watershed.get(map_b, "after") == Ok(json.string("live")) }),
   )
 
-  finish("reconnect_with_nothing_missed", doc_a, doc_b, [
+  finish("reconnect_with_nothing_missed", document_a, document_b, [
     #("settled", settled),
     #("live", live),
   ])
@@ -180,23 +180,23 @@ fn reconnect_with_nothing_missed() -> Promise(Bool) {
 /// than cycling it, so this covers a gap of arbitrary length with edits made on
 /// both sides of it — the shape `examples/pixel_canvas_lustre` needs.
 fn offline_edits_flush_on_go_online() -> Promise(Bool) {
-  use #(doc_a, doc_b, map_a, map_b) <- promise.await(room("of"))
+  use #(document_a, document_b, map_a, map_b) <- promise.await(room("of"))
   use settled <- promise.await(settle(map_a, map_b))
 
-  watershed.go_offline(doc_a)
-  use _ <- promise.await(sleep(teardown_ms))
-  let held = watershed.diagnostics(doc_a).phase == "reconnecting"
+  watershed.go_offline(document_a)
+  use _ <- promise.await(sleep(teardown_milliseconds))
+  let held = watershed.diagnostics(document_a).phase == "reconnecting"
 
   watershed.set(map_a, "offline-a", json.string("a"))
   watershed.set(map_b, "offline-b", json.string("b"))
-  use _ <- promise.await(sleep(teardown_ms))
+  use _ <- promise.await(sleep(teardown_milliseconds))
 
   // Held means held, in both directions.
   let isolated =
     watershed.get(map_b, "offline-a") == Error(Nil)
     && watershed.get(map_a, "offline-b") == Error(Nil)
 
-  watershed.go_online(doc_a)
+  watershed.go_online(document_a)
   use merged <- promise.await(
     wait_until(fn() {
       watershed.get(map_b, "offline-a") == Ok(json.string("a"))
@@ -204,7 +204,7 @@ fn offline_edits_flush_on_go_online() -> Promise(Bool) {
     }),
   )
 
-  finish("offline_edits_flush_on_go_online", doc_a, doc_b, [
+  finish("offline_edits_flush_on_go_online", document_a, document_b, [
     #("settled", settled),
     #("held", held),
     #("isolated", isolated),
@@ -221,14 +221,16 @@ fn offline_edits_flush_on_go_online() -> Promise(Bool) {
 /// threshold, and the checkpoint moves on its own; then a fresh client joins
 /// and has to bootstrap from a blob nobody asked for.
 fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
-  use #(document, doc_a, doc_b, map_a, map_b) <- promise.await(room_named("sm"))
+  use #(document_id, document_a, document_b, map_a, map_b) <- promise.await(
+    room_named("sm"),
+  )
   use settled <- promise.await(settle(map_a, map_b))
 
   watershed.auto_summarize(
-    doc_a,
+    document_a,
     summary_policy.policy()
       |> summary_policy.with_threshold(4)
-      |> summary_policy.with_jitter_ms(0),
+      |> summary_policy.with_jitter_milliseconds(0),
   )
 
   // The drift falling back under the threshold is the observable: only a
@@ -239,7 +241,7 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   // stays there until the next one arrives. And the count is of *sequenced
   // messages*, not edits — floodgate sequences a submitted batch as one, so
   // writes issued back to back move it by far less than their number.
-  use summarized <- promise.await(summarizes_within(doc_a, map_a, 20, 4))
+  use summarized <- promise.await(summarizes_within(document_a, map_a, 20, 4))
 
   // A post-checkpoint edit, so the joiner applies a delta on top of the blob
   // rather than landing on it exactly.
@@ -250,8 +252,8 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
     }),
   )
 
-  use doc_c <- promise.await(connect_client(document, "user-c"))
-  let map_c = watershed.root(doc_c)
+  use document_c <- promise.await(connect_client(document_id, "user-c"))
+  let map_c = watershed.root(document_c)
   use joined <- promise.await(
     wait_until(fn() {
       watershed.get(map_c, "post") == Ok(json.string("after-summary"))
@@ -260,11 +262,11 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   // It seeded from the checkpoint rather than replaying from zero: its drift
   // counts only what followed the summary it loaded.
   let from_checkpoint =
-    watershed.operations_since_summary(doc_c)
-    <= watershed.operations_since_summary(doc_a)
+    watershed.operations_since_summary(document_c)
+    <= watershed.operations_since_summary(document_a)
 
-  watershed.close(doc_c)
-  finish("a_policy_summarizes_without_being_asked", doc_a, doc_b, [
+  watershed.close(document_c)
+  finish("a_policy_summarizes_without_being_asked", document_a, document_b, [
     #("settled", settled),
     #("summarized", summarized),
     #("delivered", delivered),
@@ -304,8 +306,10 @@ fn summarizes_within(
 fn room(
   prefix: String,
 ) -> Promise(#(Document(root), Document(root), SharedMap, SharedMap)) {
-  use #(_document, doc_a, doc_b, map_a, map_b) <- promise.map(room_named(prefix))
-  #(doc_a, doc_b, map_a, map_b)
+  use #(_document, document_a, document_b, map_a, map_b) <- promise.map(
+    room_named(prefix),
+  )
+  #(document_a, document_b, map_a, map_b)
 }
 
 @target(javascript)
@@ -314,21 +318,21 @@ fn room(
 fn room_named(
   prefix: String,
 ) -> Promise(#(String, Document(root), Document(root), SharedMap, SharedMap)) {
-  let document =
+  let document_id =
     "watershed-js-"
     <> prefix
     <> "-"
     <> int.to_string(100_000 + int.random(900_000))
-  log("live_js: document " <> document)
+  log("live_js: document " <> document_id)
 
-  use doc_a <- promise.await(connect_client(document, "user-a"))
-  use doc_b <- promise.await(connect_client(document, "user-b"))
+  use document_a <- promise.await(connect_client(document_id, "user-a"))
+  use document_b <- promise.await(connect_client(document_id, "user-b"))
   promise.resolve(#(
-    document,
-    doc_a,
-    doc_b,
-    watershed.root(doc_a),
-    watershed.root(doc_b),
+    document_id,
+    document_a,
+    document_b,
+    watershed.root(document_a),
+    watershed.root(document_b),
   ))
 }
 
@@ -340,20 +344,23 @@ fn room_named(
 /// `Connecting`; the readiness signal is the `on_ready` callback. Editing before
 /// that lands is a race the scenarios cannot afford — the setup writes would be
 /// the thing under test rather than the reconnect.
-fn connect_client(document: String, user: String) -> Promise(Document(root)) {
+fn connect_client(
+  document_id: String,
+  user: String,
+) -> Promise(Document(root)) {
   use token <- promise.await(watershed.dev_token(
     secret: secret,
     tenant: tenant,
-    document: document,
+    document: document_id,
     user_id: user,
   ))
   let #(ready, resolve) = promise.start()
-  let doc =
+  let document =
     watershed.connect(
       WatershedConfig(
         url: url,
         tenant: tenant,
-        document: document,
+        document: document_id,
         token: token,
         user_id: user,
       ),
@@ -366,7 +373,7 @@ fn connect_client(document: String, user: String) -> Promise(Document(root)) {
       },
     )
   use _ <- promise.map(ready)
-  doc
+  document
 }
 
 @target(javascript)
@@ -404,8 +411,8 @@ fn do_wait_until(attempts: Int, check: fn() -> Bool) -> Promise(Bool) {
 /// convergence miss, and the difference is invisible without them.
 fn finish(
   name: String,
-  doc_a: Document(root),
-  doc_b: Document(root),
+  document_a: Document(root),
+  document_b: Document(root),
   checks: List(#(String, Bool)),
 ) -> Promise(Bool) {
   let passed = list.all(checks, fn(check) { check.1 })
@@ -413,12 +420,12 @@ fn finish(
     True -> log("  PASS " <> name)
     False -> {
       log("  FAIL " <> name <> ": " <> failed_checks(checks))
-      log("    A: " <> diagnostics(doc_a))
-      log("    B: " <> diagnostics(doc_b))
+      log("    A: " <> diagnostics(document_a))
+      log("    B: " <> diagnostics(document_b))
     }
   }
-  watershed.close(doc_a)
-  watershed.close(doc_b)
+  watershed.close(document_a)
+  watershed.close(document_b)
   promise.resolve(passed)
 }
 
@@ -431,8 +438,8 @@ fn failed_checks(checks: List(#(String, Bool))) -> String {
 }
 
 @target(javascript)
-fn diagnostics(doc: Document(root)) -> String {
-  let d = watershed.diagnostics(doc)
+fn diagnostics(document: Document(root)) -> String {
+  let d = watershed.diagnostics(document)
   d.phase
   <> " last_seen="
   <> opt_int(d.last_seen_sequence_number)

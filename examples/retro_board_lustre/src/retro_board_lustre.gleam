@@ -46,11 +46,11 @@ import watershed_lustre
 
 import retro_board_lustre/board.{type NoteCard}
 import retro_board_lustre/column.{type Column}
-import retro_board_lustre/doc_schema
+import retro_board_lustre/document_schema
 import retro_board_lustre/note.{type Note, Note}
 
 @external(javascript, "./board_ffi.mjs", "now_ms")
-fn now_ms() -> Int
+fn now_milliseconds() -> Int
 
 // ── Dev config for `just integration-up` (levee/floodgate dev mode) ──────────
 
@@ -215,7 +215,7 @@ type PendingShared {
 type Model {
   Model(
     status: Status,
-    doc: Option(Document(doc_schema.BoardDoc)),
+    document: Option(Document(document_schema.BoardDocument)),
     shared: Option(SharedState),
     pending: PendingShared,
     user_id: String,
@@ -236,7 +236,7 @@ type Model {
 }
 
 type Msg {
-  GotHandle(Document(doc_schema.BoardDoc))
+  GotHandle(Document(document_schema.BoardDocument))
   Connected(Result(Nil, String))
   EnsuredNotes(Result(OrMap, String))
   EnsuredVotes(Result(OrMap, String))
@@ -268,7 +268,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   let model =
     Model(
       status: Connecting,
-      doc: None,
+      document: None,
       shared: None,
       pending: PendingShared(None, None, None, None, None),
       user_id: user_id,
@@ -302,50 +302,52 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 ///
 /// This is the only place the two OR-map modes are named. `notes` MUST be
 /// RegisterMode and `votes` MUST be TallyMode — the schema cannot enforce it
-/// (both fields are `ChannelField(BoardDoc, OrMapChannel)`), and a client that
-/// passes the wrong mode silently adopts whatever the channel was created
+/// (both fields are `ChannelField(BoardDocument, OrMapChannel)`), and a client
+/// that passes the wrong mode silently adopts whatever the channel was created
 /// with, surfacing only later as a runtime ModeMismatch.
-fn bootstrap_effect(doc: Document(doc_schema.BoardDoc)) -> Effect(Msg) {
-  let root = watershed.root_typed(doc)
+fn bootstrap_effect(
+  document: Document(document_schema.BoardDocument),
+) -> Effect(Msg) {
+  let root = watershed.root_typed(document)
   effect.batch([
     // A retro writes many small operations (a card, a vote apiece); summarizing
     // keeps a late joiner's catch-up in band instead of replaying the whole
     // log.
     watershed_lustre.auto_summarize(
-      document: doc,
+      document: document,
       policy: summary_policy.policy() |> summary_policy.with_threshold(200),
     ),
-    watershed_lustre.ensure_field(root, doc_schema.title(), "Sprint retro"),
+    watershed_lustre.ensure_field(root, document_schema.title(), "Sprint retro"),
     watershed_lustre.ensure_or_map(
-      doc,
+      document,
       root,
-      doc_schema.notes(),
+      document_schema.notes(),
       or_map_kernel.RegisterMode,
       EnsuredNotes,
     ),
     watershed_lustre.ensure_or_map(
-      doc,
+      document,
       root,
-      doc_schema.votes(),
+      document_schema.votes(),
       or_map_kernel.TallyMode,
       EnsuredVotes,
     ),
     watershed_lustre.ensure_sequence(
-      doc,
+      document,
       root,
-      doc_schema.went_well(),
+      document_schema.went_well(),
       EnsuredWentWell,
     ),
     watershed_lustre.ensure_sequence(
-      doc,
+      document,
       root,
-      doc_schema.to_improve(),
+      document_schema.to_improve(),
       EnsuredToImprove,
     ),
     watershed_lustre.ensure_sequence(
-      doc,
+      document,
       root,
-      doc_schema.action_items(),
+      document_schema.action_items(),
       EnsuredActionItems,
     ),
   ])
@@ -403,15 +405,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
     // The handle arrives before the handshake completes; hold it and bootstrap
     // once `Connected` has made us Ready.
-    GotHandle(doc) -> {
+    GotHandle(document) -> {
       let model =
-        Model(..model, doc: Some(doc))
+        Model(..model, document: Some(document))
         |> log_line("document handle acquired")
-      // Presence only needs the doc, so it starts now; the channel bootstrap
-      // waits for the handshake.
+      // Presence only needs the document, so it starts now; the channel
+      // bootstrap waits for the handshake.
       let presence_start =
         watershed_lustre.presence(
-          document: doc,
+          document: document,
           config: presence.config(encode_presence, presence_decoder()),
           initial: BoardPresence(
             color: model.color,
@@ -423,7 +425,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.status, model.shared {
         Ready, None -> #(
           model,
-          effect.batch([bootstrap_effect(doc), presence_start]),
+          effect.batch([bootstrap_effect(document), presence_start]),
         )
         _, _ -> #(model, presence_start)
       }
@@ -433,8 +435,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let model =
         Model(..model, status: Ready)
         |> log_line("initial handshake complete")
-      case model.doc, model.shared {
-        Some(doc), None -> #(model, bootstrap_effect(doc))
+      case model.document, model.shared {
+        Some(document), None -> #(model, bootstrap_effect(document))
         _, _ -> #(model, effect.none())
       }
     }
@@ -521,7 +523,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         "", _ -> #(model, effect.none())
         _, None -> #(model, effect.none())
         _, Some(shared) -> {
-          let created = now_ms()
+          let created = now_milliseconds()
           let id =
             "note-"
             <> model.user_id
@@ -726,10 +728,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     ReconnectClicked ->
-      case model.doc {
-        Some(doc) -> #(
+      case model.document {
+        Some(document) -> #(
           log_line(model, "force reconnect requested"),
-          watershed_lustre.force_reconnect(doc),
+          watershed_lustre.force_reconnect(document),
         )
         None -> #(model, effect.none())
       }

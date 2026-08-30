@@ -56,31 +56,31 @@ pub fn breadcrumbs_nested_test() -> Nil {
 // ── row ordering ─────────────────────────────────────────────────────────────
 
 pub fn rows_put_folders_before_documents_test() -> Nil {
-  let doc_handle = handle.encode_handle("doc-1")
-  tree.rows("/", ["zeta"], [#("alpha", doc_handle)])
+  let document_handle = handle.encode_handle("doc-1")
+  tree.rows("/", ["zeta"], [#("alpha", document_handle)])
   |> should.equal([
     tree.FolderRow("zeta", "/zeta"),
-    tree.DocRow("alpha", "/alpha", corrupt: False),
+    tree.DocumentRow("alpha", "/alpha", corrupt: False),
   ])
 }
 
 pub fn rows_sort_each_block_alphabetically_test() -> Nil {
-  let doc_handle = handle.encode_handle("doc-1")
-  tree.rows("/", ["b", "a"], [#("z", doc_handle), #("m", doc_handle)])
+  let document_handle = handle.encode_handle("doc-1")
+  tree.rows("/", ["b", "a"], [#("z", document_handle), #("m", document_handle)])
   |> should.equal([
     tree.FolderRow("a", "/a"),
     tree.FolderRow("b", "/b"),
-    tree.DocRow("m", "/m", corrupt: False),
-    tree.DocRow("z", "/z", corrupt: False),
+    tree.DocumentRow("m", "/m", corrupt: False),
+    tree.DocumentRow("z", "/z", corrupt: False),
   ])
 }
 
 pub fn rows_join_paths_under_the_current_folder_test() -> Nil {
-  let doc_handle = handle.encode_handle("doc-1")
-  tree.rows("/specs", ["nested"], [#("api", doc_handle)])
+  let document_handle = handle.encode_handle("doc-1")
+  tree.rows("/specs", ["nested"], [#("api", document_handle)])
   |> should.equal([
     tree.FolderRow("nested", "/specs/nested"),
-    tree.DocRow("api", "/specs/api", corrupt: False),
+    tree.DocumentRow("api", "/specs/api", corrupt: False),
   ])
 }
 
@@ -88,12 +88,12 @@ pub fn rows_join_paths_under_the_current_folder_test() -> Nil {
 
 pub fn a_non_handle_directory_value_is_marked_corrupt_test() -> Nil {
   tree.rows("/", [], [#("garbage", json.string("not a handle"))])
-  |> should.equal([tree.DocRow("garbage", "/garbage", corrupt: True)])
+  |> should.equal([tree.DocumentRow("garbage", "/garbage", corrupt: True)])
 }
 
 pub fn a_handle_directory_value_is_not_corrupt_test() -> Nil {
   tree.rows("/", [], [#("config", handle.encode_handle("doc-9"))])
-  |> should.equal([tree.DocRow("config", "/config", corrupt: False)])
+  |> should.equal([tree.DocumentRow("config", "/config", corrupt: False)])
 }
 
 // ── the deleted-folder banner rule ──────────────────────────────────────────

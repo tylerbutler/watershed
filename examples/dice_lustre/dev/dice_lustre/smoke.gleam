@@ -15,7 +15,7 @@ import watershed.{type Document, WatershedConfig}
 import watershed/map_kernel
 import watershed/transport_js
 
-import dice_lustre/doc_schema
+import dice_lustre/document_schema
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -24,7 +24,7 @@ const tenant = "dev-tenant"
 const secret = "levee-dev-secret-change-in-production"
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -35,7 +35,7 @@ fn exit(code: Int) -> Nil
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.DiceDoc)) {
+) -> Promise(Document(document_schema.DiceDocument)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -59,19 +59,19 @@ pub fn main() -> Nil {
   log("smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    run_scenario(doc_a, doc_b)
+    use document_a <- promise.await(connect_client(document, "user-a"))
+    use document_b <- promise.map(connect_client(document, "user-b"))
+    run_scenario(document_a, document_b)
   }
   Nil
 }
 
 fn run_scenario(
-  doc_a: Document(doc_schema.DiceDoc),
-  doc_b: Document(doc_schema.DiceDoc),
+  document_a: Document(document_schema.DiceDocument),
+  document_b: Document(document_schema.DiceDocument),
 ) -> Nil {
-  let map_a = watershed.root(doc_a)
-  let map_b = watershed.root(doc_b)
+  let map_a = watershed.root(document_a)
+  let map_b = watershed.root(document_b)
 
   // The runtime must commit an edit before notifying subscribers: a handler
   // that reads the map during the event must observe the just-applied value,
@@ -111,7 +111,7 @@ fn run_scenario(
   // Drop A's socket mid-session; edits during reconnect must survive.
   use <- delay(800)
   log("smoke: forcing reconnect on A")
-  watershed.force_reconnect(doc_a)
+  watershed.force_reconnect(document_a)
   watershed.set(map_a, "after_drop", json.bool(True))
   watershed.delete(map_a, "die")
 

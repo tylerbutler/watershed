@@ -2,7 +2,7 @@
 ////
 //// The root map carries one plain value (`title`) and five channel handles:
 //// two `OrMap`s and one `SharedSequence` per column. The two OR-maps have the
-//// same field type — `ChannelField(BoardDoc, OrMapChannel)` — because a
+//// same field type — `ChannelField(BoardDocument, OrMapChannel)` — because a
 //// channel's value mode is not part of the schema: it is fixed at creation
 //// time by the `OrMapMode` passed to `ensure_or_map`, and nothing here can
 //// stop a caller passing the wrong one. The app's `bootstrap_effect` is the
@@ -19,34 +19,35 @@ import watershed/schema.{
 }
 
 /// Phantom tag scoping every field below to the retro board root map.
-pub type BoardDoc
+pub type BoardDocument
 
 /// The board's display name, shown in the header.
-pub fn title() -> Field(BoardDoc, String) {
+pub fn title() -> Field(BoardDocument, String) {
   schema.field("title", json.string, decode.string)
 }
 
-/// Note id → JSON-encoded note record. **RegisterMode** — see `bootstrap_effect`.
-pub fn notes() -> ChannelField(BoardDoc, OrMapChannel) {
+/// Note id → JSON-encoded note record. **RegisterMode** — see
+/// `bootstrap_effect`.
+pub fn notes() -> ChannelField(BoardDocument, OrMapChannel) {
   schema.channel_field("notes")
 }
 
 /// Note id → signed vote tally. **TallyMode** — see `bootstrap_effect`.
-pub fn votes() -> ChannelField(BoardDoc, OrMapChannel) {
+pub fn votes() -> ChannelField(BoardDocument, OrMapChannel) {
   schema.channel_field("votes")
 }
 
 /// Display order for the "Went well" column.
-pub fn went_well() -> ChannelField(BoardDoc, SequenceChannel) {
+pub fn went_well() -> ChannelField(BoardDocument, SequenceChannel) {
   schema.channel_field("went_well")
 }
 
 /// Display order for the "To improve" column.
-pub fn to_improve() -> ChannelField(BoardDoc, SequenceChannel) {
+pub fn to_improve() -> ChannelField(BoardDocument, SequenceChannel) {
   schema.channel_field("to_improve")
 }
 
 /// Display order for the "Action items" column.
-pub fn action_items() -> ChannelField(BoardDoc, SequenceChannel) {
+pub fn action_items() -> ChannelField(BoardDocument, SequenceChannel) {
   schema.channel_field("action_items")
 }

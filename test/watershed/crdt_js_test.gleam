@@ -1898,7 +1898,7 @@ pub fn merge_snapshot_propagates_to_attached_peers_test() -> Nil {
   drive_convergence(
     world,
     clock,
-    crdt_js.default_anti_entropy_ms,
+    crdt_js.default_anti_entropy_milliseconds,
     [alpha.document, beta.document],
     12,
   )
@@ -1995,7 +1995,7 @@ pub fn a_detached_imported_document_can_edit_create_subscribe_export_and_attach_
   drive_convergence(
     world,
     clock,
-    crdt_js.default_anti_entropy_ms,
+    crdt_js.default_anti_entropy_milliseconds,
     [alpha.document, imported],
     12,
   )
@@ -2335,7 +2335,7 @@ pub fn a_healed_edge_converges_every_peer_across_all_three_kinds_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
-  let interval = crdt_js.default_anti_entropy_ms
+  let interval = crdt_js.default_anti_entropy_milliseconds
 
   let alpha =
     spawn_synced(world, signaling, "alpha", p2p.g_set_root(), tag, clock)
@@ -2490,7 +2490,7 @@ pub fn an_event_less_change_reaches_the_third_peer_across_a_healed_edge_test() -
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
-  let interval = crdt_js.default_anti_entropy_ms
+  let interval = crdt_js.default_anti_entropy_milliseconds
 
   let alpha =
     spawn_synced(world, signaling, "alpha", p2p.g_set_root(), tag, clock)
@@ -2618,21 +2618,21 @@ pub fn an_active_mesh_heartbeats_on_a_recurring_interval_test() -> Nil {
   // heartbeat straight away — no edit required.
   relay_fake.armed(clock_alpha) |> expect.to_equal(1)
   relay_fake.delays(clock_alpha)
-  |> expect.to_equal([crdt_js.default_anti_entropy_ms])
+  |> expect.to_equal([crdt_js.default_anti_entropy_milliseconds])
 
   // The interval comes round: the beat fires and re-arms, so there is
   // still exactly one live timer and one more interval was requested.
-  relay_fake.advance(clock_alpha, crdt_js.default_anti_entropy_ms)
+  relay_fake.advance(clock_alpha, crdt_js.default_anti_entropy_milliseconds)
   p2p_fake.settle(world)
   relay_fake.armed(clock_alpha) |> expect.to_equal(1)
   relay_fake.delays(clock_alpha)
   |> expect.to_equal([
-    crdt_js.default_anti_entropy_ms,
-    crdt_js.default_anti_entropy_ms,
+    crdt_js.default_anti_entropy_milliseconds,
+    crdt_js.default_anti_entropy_milliseconds,
   ])
 
   // A second interval keeps the single timer recurring, not accumulating.
-  relay_fake.advance(clock_alpha, crdt_js.default_anti_entropy_ms)
+  relay_fake.advance(clock_alpha, crdt_js.default_anti_entropy_milliseconds)
   p2p_fake.settle(world)
   relay_fake.armed(clock_alpha) |> expect.to_equal(1)
 
@@ -2667,13 +2667,13 @@ pub fn an_idle_document_does_not_keep_broadcasting_digests_test() -> Nil {
   p2p_fake.settle(world)
 
   // The first beat announces the digest once: nothing has gone out yet.
-  relay_fake.advance(clock, crdt_js.default_anti_entropy_ms)
+  relay_fake.advance(clock, crdt_js.default_anti_entropy_milliseconds)
   p2p_fake.settle(world)
   let after_first = list.length(entries(carol.received))
 
   // Ten more intervals over an untouched document: not one further byte,
   // while the timer itself keeps recurring.
-  tick_intervals(world, clock, crdt_js.default_anti_entropy_ms, 10)
+  tick_intervals(world, clock, crdt_js.default_anti_entropy_milliseconds, 10)
   list.length(entries(carol.received)) |> expect.to_equal(after_first)
   relay_fake.armed(clock) |> expect.to_equal(1)
 
@@ -2682,10 +2682,10 @@ pub fn an_idle_document_does_not_keep_broadcasting_digests_test() -> Nil {
   let assert Ok(Nil) =
     crdt_js.pn_counter_update(crdt_js.root(alpha.document), 1)
   p2p_fake.settle(world)
-  tick_intervals(world, clock, crdt_js.default_anti_entropy_ms, 1)
+  tick_intervals(world, clock, crdt_js.default_anti_entropy_milliseconds, 1)
   { list.length(entries(carol.received)) > after_first } |> expect.to_be_true()
   let after_edit = list.length(entries(carol.received))
-  tick_intervals(world, clock, crdt_js.default_anti_entropy_ms, 5)
+  tick_intervals(world, clock, crdt_js.default_anti_entropy_milliseconds, 5)
   list.length(entries(carol.received)) |> expect.to_equal(after_edit)
 }
 
@@ -2719,7 +2719,7 @@ pub fn the_last_validated_peer_leaving_cancels_the_heartbeat_test() -> Nil {
 
   // A cancelled heartbeat stays cancelled: advancing the clock fires
   // nothing and arms nothing.
-  relay_fake.advance(clock_alpha, crdt_js.default_anti_entropy_ms)
+  relay_fake.advance(clock_alpha, crdt_js.default_anti_entropy_milliseconds)
   relay_fake.armed(clock_alpha) |> expect.to_equal(0)
 }
 
@@ -2744,7 +2744,7 @@ pub fn closing_a_document_cancels_its_heartbeat_test() -> Nil {
   relay_fake.armed(clock_beta) |> expect.to_equal(0)
 
   // The closed document's clock fires nothing when it advances.
-  relay_fake.advance(clock_beta, crdt_js.default_anti_entropy_ms)
+  relay_fake.advance(clock_beta, crdt_js.default_anti_entropy_milliseconds)
   relay_fake.armed(clock_beta) |> expect.to_equal(0)
 }
 
@@ -2759,11 +2759,14 @@ pub fn a_synchronous_scheduler_fires_one_heartbeat_without_looping_test() -> Nil
   let hub = hub_signaling(new_hub())
   let calls = transport_js.new_cell(0)
   let inline =
-    transport_js.Scheduler(now_ms: fn() { 0 }, schedule: fn(action, _delay) {
-      transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
-      action()
-      fn() { Nil }
-    })
+    transport_js.Scheduler(
+      now_milliseconds: fn() { 0 },
+      schedule: fn(action, _delay) {
+        transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
+        action()
+        fn() { Nil }
+      },
+    )
 
   let assert Ok(alpha) =
     crdt_js.new_document(
@@ -2846,7 +2849,7 @@ pub fn a_matching_digest_is_recorded_without_a_repair_test() -> Nil {
 
   // beta arms after merging alpha's delta; the digest it sends back is one
   // alpha already agrees with.
-  relay_fake.advance(clock, crdt_js.default_anti_entropy_ms)
+  relay_fake.advance(clock, crdt_js.default_anti_entropy_milliseconds)
   p2p_fake.settle(world)
 
   crdt_js.last_digest_match(alpha.document)
@@ -2884,7 +2887,7 @@ pub fn a_lagging_peer_counts_the_repair_it_pulls_test() -> Nil {
   drive_convergence(
     world,
     clock,
-    crdt_js.default_anti_entropy_ms,
+    crdt_js.default_anti_entropy_milliseconds,
     [alpha.document, beta.document, gamma.document],
     12,
   )
@@ -2989,7 +2992,7 @@ pub fn an_imported_snapshot_reaches_the_mesh_test() -> Nil {
   drive_convergence(
     world,
     clock,
-    crdt_js.default_anti_entropy_ms,
+    crdt_js.default_anti_entropy_milliseconds,
     [imported, alpha.document],
     12,
   )
@@ -3020,7 +3023,7 @@ pub fn an_idle_mesh_hashes_the_document_once_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
-  let interval = crdt_js.default_anti_entropy_ms
+  let interval = crdt_js.default_anti_entropy_milliseconds
   let alpha =
     spawn_synced(world, signaling, "alpha", p2p.g_set_root(), tag, clock)
   let beta =
@@ -3088,7 +3091,7 @@ pub fn a_cached_digest_still_repairs_an_event_less_change_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()
   let signaling = p2p_fake.signaling(world)
-  let interval = crdt_js.default_anti_entropy_ms
+  let interval = crdt_js.default_anti_entropy_milliseconds
   let alpha =
     spawn_synced(world, signaling, "alpha", p2p.two_p_set_root(), tag, clock)
   let beta =

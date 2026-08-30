@@ -15,14 +15,14 @@ import gleam/json
 import watershed/schema.{type ChannelField, type Field, type SequenceChannel}
 
 /// Phantom tag scoping every field below to the playlist root map.
-pub type PlaylistDoc
+pub type PlaylistDocument
 
 /// The playlist's display name, shown in the header.
-pub fn title() -> Field(PlaylistDoc, String) {
+pub fn title() -> Field(PlaylistDocument, String) {
   schema.field("title", json.string, decode.string)
 }
 
 /// The ordered track list — the sequence this example exists to demonstrate.
-pub fn tracks() -> ChannelField(PlaylistDoc, SequenceChannel) {
+pub fn tracks() -> ChannelField(PlaylistDocument, SequenceChannel) {
   schema.channel_field("tracks")
 }

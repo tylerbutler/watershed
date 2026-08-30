@@ -8,9 +8,9 @@
 //// *grandchild*, which is the depth claim this panel exists to make.
 ////
 //// Two root-bound lines had to go for that to work. Bootstrap named
-//// `root_typed(doc)`, and so did the puzzle read on every snapshot; both now
-//// address the map they were handed. The `Document` parameter survives only
-//// because `ensure_*` needs it to attach a channel.
+//// `root_typed(document)`, and so did the puzzle read on every snapshot; both
+//// now address the map they were handed. The `Document` parameter survives
+//// only because `ensure_*` needs it to attach a channel.
 ////
 //// Presence is split at the seam between "who you are" and "what you are
 //// doing here". This component broadcasts a [`Cursor`](#Cursor) — the selected
@@ -39,7 +39,7 @@ import watershed.{
 }
 import watershed_lustre
 
-import sudoku_lustre/doc_schema
+import sudoku_lustre/document_schema
 import sudoku_lustre/puzzle.{type Puzzle}
 
 // ── Presence seam ────────────────────────────────────────────────────────────
@@ -106,7 +106,7 @@ type PendingShared {
 
 pub opaque type Model {
   Model(
-    map: TypedMap(doc_schema.SudokuDoc),
+    map: TypedMap(document_schema.SudokuDocument),
     shared: Option(SharedState),
     pending: PendingShared,
     puzzle: Puzzle,
@@ -144,7 +144,7 @@ pub opaque type Msg {
 /// this before its handshake completes.
 pub fn init(
   document: Document(root),
-  map: TypedMap(doc_schema.SudokuDoc),
+  map: TypedMap(document_schema.SudokuDocument),
 ) -> #(Model, Effect(Msg)) {
   let model =
     Model(
@@ -167,36 +167,36 @@ pub fn init(
     effect.batch([
       watershed_lustre.ensure_field(
         map,
-        doc_schema.title(),
+        document_schema.title(),
         "Collaborative Sudoku",
       ),
       watershed_lustre.ensure_field(
         map,
-        doc_schema.puzzle(),
+        document_schema.puzzle(),
         puzzle.default_puzzle().id,
       ),
       watershed_lustre.ensure_map(
         document,
         map,
-        doc_schema.cells(),
+        document_schema.cells(),
         EnsuredCells,
       ),
       watershed_lustre.ensure_or_set(
         document,
         map,
-        doc_schema.notes(),
+        document_schema.notes(),
         EnsuredNotes,
       ),
       watershed_lustre.ensure_claims(
         document,
         map,
-        doc_schema.givens(),
+        document_schema.givens(),
         EnsuredGivens,
       ),
       watershed_lustre.ensure_counter(
         document,
         map,
-        doc_schema.mistakes(),
+        document_schema.mistakes(),
         EnsuredMistakes,
       ),
       // Watch the panel's own map, not the document's root. Composed, the root
@@ -593,8 +593,8 @@ fn error_view(error: Option(String)) -> Element(Msg) {
 /// Standalone that map is the document root; composed it is a child of the
 /// showcase root. Reading `root_typed` here — as this did before the split —
 /// would look up the puzzle id in a map that holds four panel handles.
-fn puzzle_from_map(map: TypedMap(doc_schema.SudokuDoc)) -> Puzzle {
-  case watershed.get_field(map, doc_schema.puzzle()) {
+fn puzzle_from_map(map: TypedMap(document_schema.SudokuDocument)) -> Puzzle {
+  case watershed.get_field(map, document_schema.puzzle()) {
     Ok(Some(id)) -> puzzle.by_id(id) |> result.unwrap(puzzle.default_puzzle())
     _ -> puzzle.default_puzzle()
   }

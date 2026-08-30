@@ -3,8 +3,8 @@
 //// `tree` is the workspace's one channel: a `SharedDirectory`. Every folder
 //// and every document lives inside it. A folder is a subdirectory; a
 //// document is a directory *value* whose payload is a `JsonOt` handle. See
-//// `json_workspace_lustre`'s doc comment for why a channel handle stored as
-//// an ordinary directory value, and not only as a root-map field, is the
+//// `json_workspace_lustre`'s document comment for why a channel handle stored
+//// as an ordinary directory value, and not only as a root-map field, is the
 //// point of this example.
 
 import watershed/schema.{type ChannelField, type DirectoryChannel}

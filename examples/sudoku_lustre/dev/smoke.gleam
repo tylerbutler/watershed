@@ -19,7 +19,7 @@ import watershed/presence
 import watershed/presence_js
 import watershed/transport_js
 
-import sudoku_lustre/doc_schema
+import sudoku_lustre/document_schema
 
 const url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 
@@ -28,7 +28,7 @@ const tenant = "dev-tenant"
 const secret = "levee-dev-secret-change-in-production"
 
 @external(javascript, "./smoke_ffi.mjs", "delay")
-fn delay(ms: Int, callback: fn() -> Nil) -> Nil
+fn delay(milliseconds: Int, callback: fn() -> Nil) -> Nil
 
 @external(javascript, "./smoke_ffi.mjs", "log")
 fn log(message: String) -> Nil
@@ -58,7 +58,7 @@ fn ping_decoder() -> Decoder(Ping) {
 fn connect_client(
   document: String,
   user: String,
-) -> Promise(Document(doc_schema.SudokuDoc)) {
+) -> Promise(Document(document_schema.SudokuDocument)) {
   use token <- promise.map(watershed.dev_token(secret, tenant, document, user))
   watershed.connect(
     WatershedConfig(
@@ -82,9 +82,9 @@ pub fn main() -> Nil {
   log("ripples smoke: document " <> document)
 
   let _ = {
-    use doc_a <- promise.await(connect_client(document, "user-a"))
-    use doc_b <- promise.map(connect_client(document, "user-b"))
-    run_scenario(doc_a, doc_b)
+    use document_a <- promise.await(connect_client(document, "user-a"))
+    use document_b <- promise.map(connect_client(document, "user-b"))
+    run_scenario(document_a, document_b)
   }
   Nil
 }
@@ -94,8 +94,8 @@ fn ping_config() -> presence.Config(Ping) {
 }
 
 fn run_scenario(
-  doc_a: Document(doc_schema.SudokuDoc),
-  doc_b: Document(doc_schema.SudokuDoc),
+  document_a: Document(document_schema.SudokuDocument),
+  document_b: Document(document_schema.SudokuDocument),
 ) -> Nil {
   // B tracks its roster through the driver; A joins with one payload and then
   // updates it. Whether that rides the server lane or the ripple heartbeat is
@@ -103,7 +103,7 @@ fn run_scenario(
   let roster = transport_js.new_cell([])
   let _b =
     presence_js.start(
-      document: doc_b,
+      document: document_b,
       config: ping_config(),
       initial: Ping(cell: "", editing: False),
       on_event: fn(event) {
@@ -116,7 +116,7 @@ fn run_scenario(
     )
   let handle_a =
     presence_js.start(
-      document: doc_a,
+      document: document_a,
       config: ping_config(),
       initial: Ping(cell: "", editing: False),
       on_event: fn(_event) { Nil },

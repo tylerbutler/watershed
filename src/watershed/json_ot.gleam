@@ -215,21 +215,21 @@ fn num_negate(a: Num) -> Num {
 /// Apply a full operation to a document, one component at a time. This is the
 /// `apply` function of json0.
 pub fn apply(
-  doc: JsonValue,
+  document: JsonValue,
   operation: Operation,
 ) -> Result(JsonValue, OtError) {
-  list.try_fold(operation, doc, apply_component)
+  list.try_fold(operation, document, apply_component)
 }
 
 fn apply_component(
-  doc: JsonValue,
+  document: JsonValue,
   component: Component,
 ) -> Result(JsonValue, OtError) {
   case split_last(component.path) {
     // An empty path names the document itself.
-    Error(Nil) -> edit_root(doc, component)
+    Error(Nil) -> edit_root(document, component)
     Ok(#(parent_path, last)) ->
-      update_at(doc, parent_path, fn(container) {
+      update_at(document, parent_path, fn(container) {
         edit_in_container(container, last, component)
       })
   }
@@ -244,17 +244,17 @@ fn split_last(path: List(PathKey)) -> Result(#(List(PathKey), PathKey), Nil) {
   }
 }
 
-/// A functional update. Follow `path` into `doc`, and replace the sub-value at
-/// the end of that path with `f(sub)`.
+/// A functional update. Follow `path` into `document`, and replace the
+/// sub-value at the end of that path with `f(sub)`.
 fn update_at(
-  doc: JsonValue,
+  document: JsonValue,
   path: List(PathKey),
   f: fn(JsonValue) -> Result(JsonValue, OtError),
 ) -> Result(JsonValue, OtError) {
   case path {
-    [] -> f(doc)
+    [] -> f(document)
     [Key(key), ..rest] ->
-      case doc {
+      case document {
         VObject(members) ->
           case list.key_find(members, key) {
             Ok(child) ->
@@ -268,7 +268,7 @@ fn update_at(
           Error(BadPath("expected object at path step " <> key))
       }
     [Index(index), ..rest] ->
-      case doc {
+      case document {
         VArray(items) ->
           case element_at(items, index) {
             Ok(child) ->
@@ -287,17 +287,17 @@ fn update_at(
 
 /// Apply an edit whose path is empty. Such an edit targets the root of the
 /// document.
-fn edit_root(doc: JsonValue, c: Component) -> Result(JsonValue, OtError) {
+fn edit_root(document: JsonValue, c: Component) -> Result(JsonValue, OtError) {
   case c {
     Component(oi: Some(value), ..) -> Ok(value)
     Component(na: Some(delta), ..) ->
-      case doc {
+      case document {
         VNumber(n) -> Ok(VNumber(num_add(n, delta)))
         VNull | VBool(_) | VString(_) | VArray(_) | VObject(_) ->
           Error(BadValue("na target is not a number"))
       }
     Component(subtype: Some(#(name, sub_operation)), ..) ->
-      apply_subtype(name, doc, sub_operation)
+      apply_subtype(name, document, sub_operation)
     Component(od: Some(_), ..) -> Ok(VNull)
     Component(oi: None, na: None, subtype: None, od: None, ..) ->
       Error(BadValue("invalid or missing instruction at root"))
@@ -623,20 +623,23 @@ fn merge_pair(last: Component, c: Component) -> Merge {
     Component(na: Some(a), ..), Component(na: Some(b), ..) ->
       MergeReplace(number_add(last.path, num_add(a, b)))
     // list insert immediately followed by its delete → noop / drop the insert
-    Component(li: Some(lv), ..), Component(li: None, ld: Some(cd), ..)
-      if cd == lv
+    Component(li: Some(last_value), ..),
+      Component(li: None, ld: Some(component_delete), ..)
+      if component_delete == last_value
     ->
       case last.ld {
         Some(_) -> MergeReplace(Component(..last, li: None))
         None -> MergeDropBoth
       }
     // object delete then insert → replace
-    Component(od: Some(_), oi: None, ..), Component(oi: Some(civ), od: None, ..)
-    -> MergeReplace(Component(..last, oi: Some(civ)))
+    Component(od: Some(_), oi: None, ..),
+      Component(oi: Some(component_insert_value), od: None, ..)
+    -> MergeReplace(Component(..last, oi: Some(component_insert_value)))
     // object insert then delete/replace → merge
     Component(oi: Some(_), ..), Component(od: Some(_), ..) ->
       case c.oi, last.od {
-        Some(civ), _ -> MergeReplace(Component(..last, oi: Some(civ)))
+        Some(component_insert_value), _ ->
+          MergeReplace(Component(..last, oi: Some(component_insert_value)))
         None, Some(_) -> MergeReplace(Component(..last, oi: None))
         None, None -> MergeDropBoth
       }
@@ -1220,9 +1223,9 @@ fn lm_vs_lm(
 // invert (json0 `invert`) — powers rollback
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Invert an operation, so that `apply(apply(doc, operation),
-/// invert(operation)) == doc`. A delete carries its pre-image, so the caller
-/// needs no external snapshot.
+/// Invert an operation, so that `apply(apply(document, operation),
+/// invert(operation)) == document`. A delete carries its pre-image, so the
+/// caller needs no external snapshot.
 pub fn invert(operation: Operation) -> Operation {
   list.reverse(operation) |> list.map(invert_component)
 }
@@ -1423,14 +1426,28 @@ fn text0_split_last(
 /// overlapping deletes.
 fn text0_merge(last: TextComp, component: TextComp) -> Result(TextComp, Nil) {
   case last, component {
-    TIns(lp, li), TIns(cp, ci) ->
-      case lp <= cp && cp <= lp + string.length(li) {
-        True -> Ok(TIns(lp, str_inject(li, cp - lp, ci)))
+    TIns(last_position, li), TIns(component_position, component_insert) ->
+      case
+        last_position <= component_position
+        && component_position <= last_position + string.length(li)
+      {
+        True ->
+          Ok(TIns(
+            last_position,
+            str_inject(li, component_position - last_position, component_insert),
+          ))
         False -> Error(Nil)
       }
-    TDel(lp, ld), TDel(cp, cd) ->
-      case cp <= lp && lp <= cp + string.length(cd) {
-        True -> Ok(TDel(cp, str_inject(cd, lp - cp, ld)))
+    TDel(last_position, ld), TDel(component_position, component_delete) ->
+      case
+        component_position <= last_position
+        && last_position <= component_position + string.length(component_delete)
+      {
+        True ->
+          Ok(TDel(
+            component_position,
+            str_inject(component_delete, last_position - component_position, ld),
+          ))
         False -> Error(Nil)
       }
     TIns(_, _), TDel(_, _) -> Error(Nil)
@@ -1446,19 +1463,22 @@ fn text0_transform_position(
   insert_after: Bool,
 ) -> Int {
   case component {
-    TIns(cp, cs) ->
-      case cp < pos || { cp == pos && insert_after } {
-        True -> pos + string.length(cs)
+    TIns(component_position, component_text) ->
+      case
+        component_position < pos
+        || { component_position == pos && insert_after }
+      {
+        True -> pos + string.length(component_text)
         False -> pos
       }
-    TDel(cp, cs) -> {
-      let clen = string.length(cs)
-      case pos <= cp {
+    TDel(component_position, component_text) -> {
+      let component_length = string.length(component_text)
+      case pos <= component_position {
         True -> pos
         False ->
-          case pos <= cp + clen {
-            True -> cp
-            False -> pos - clen
+          case pos <= component_position + component_length {
+            True -> component_position
+            False -> pos - component_length
           }
       }
     }
@@ -1475,61 +1495,99 @@ fn text0_transform_component(
   side: Side,
 ) -> Result(List(TextComp), OtError) {
   case component {
-    TIns(cp, cs) ->
+    TIns(component_position, component_text) ->
       Ok(text0_append(
         destination,
-        TIns(text0_transform_position(cp, other, side == Rgt), cs),
+        TIns(
+          text0_transform_position(component_position, other, side == Rgt),
+          component_text,
+        ),
       ))
-    TDel(cp, cs) ->
+    TDel(component_position, component_text) ->
       case other {
-        TIns(operation, os) -> {
+        TIns(operation, other_text) -> {
           // Delete vs insert: split the delete around the inserted text.
-          let #(destination, remaining) = case cp < operation {
+          let #(destination, remaining) = case component_position < operation {
             True -> #(
               text0_append(
                 destination,
-                TDel(cp, string.slice(cs, 0, operation - cp)),
+                TDel(
+                  component_position,
+                  string.slice(
+                    component_text,
+                    0,
+                    operation - component_position,
+                  ),
+                ),
               ),
-              string.drop_start(cs, operation - cp),
+              string.drop_start(component_text, operation - component_position),
             )
-            False -> #(destination, cs)
+            False -> #(destination, component_text)
           }
           case remaining == "" {
             True -> Ok(destination)
             False ->
               Ok(text0_append(
                 destination,
-                TDel(cp + string.length(os), remaining),
+                TDel(component_position + string.length(other_text), remaining),
               ))
           }
         }
-        TDel(operation, os) -> {
-          let clen = string.length(cs)
-          let olen = string.length(os)
-          case cp >= operation + olen {
-            True -> Ok(text0_append(destination, TDel(cp - olen, cs)))
+        TDel(operation, other_text) -> {
+          let component_length = string.length(component_text)
+          let other_length = string.length(other_text)
+          case component_position >= operation + other_length {
+            True ->
+              Ok(text0_append(
+                destination,
+                TDel(component_position - other_length, component_text),
+              ))
             False ->
-              case cp + clen <= operation {
+              case component_position + component_length <= operation {
                 True -> Ok(text0_append(destination, component))
                 False -> {
                   // The deletes overlap: keep only the portions `other` did not
                   // already remove.
-                  let part1 = case cp < operation {
-                    True -> string.slice(cs, 0, operation - cp)
+                  let part1 = case component_position < operation {
+                    True ->
+                      string.slice(
+                        component_text,
+                        0,
+                        operation - component_position,
+                      )
                     False -> ""
                   }
-                  let part2 = case cp + clen > operation + olen {
-                    True -> string.drop_start(cs, operation + olen - cp)
+                  let part2 = case
+                    component_position + component_length
+                    > operation + other_length
+                  {
+                    True ->
+                      string.drop_start(
+                        component_text,
+                        operation + other_length - component_position,
+                      )
                     False -> ""
                   }
                   let new_d = part1 <> part2
-                  let intersect_start = int.max(cp, operation)
-                  let intersect_end = int.min(cp + clen, operation + olen)
+                  let intersect_start = int.max(component_position, operation)
+                  let intersect_end =
+                    int.min(
+                      component_position + component_length,
+                      operation + other_length,
+                    )
                   let intersect_len = intersect_end - intersect_start
                   let c_intersect =
-                    string.slice(cs, intersect_start - cp, intersect_len)
+                    string.slice(
+                      component_text,
+                      intersect_start - component_position,
+                      intersect_len,
+                    )
                   let o_intersect =
-                    string.slice(os, intersect_start - operation, intersect_len)
+                    string.slice(
+                      other_text,
+                      intersect_start - operation,
+                      intersect_len,
+                    )
                   use _ <- result.try(case c_intersect == o_intersect {
                     True -> Ok(Nil)
                     False ->
@@ -1542,7 +1600,14 @@ fn text0_transform_component(
                     False ->
                       Ok(text0_append(
                         destination,
-                        TDel(text0_transform_position(cp, other, False), new_d),
+                        TDel(
+                          text0_transform_position(
+                            component_position,
+                            other,
+                            False,
+                          ),
+                          new_d,
+                        ),
                       ))
                   }
                 }

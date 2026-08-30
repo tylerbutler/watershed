@@ -503,11 +503,11 @@ pub fn text_channel_kind_is_phantom_test() -> Nil {
   // passing a TextChannel field to `resolve_sequence_field` or
   // `resolve_counter_field` would be a type error (pinned here as
   // documentation — it cannot be a runtime case).
-  let doc: schema.ChannelField(Player, schema.TextChannel) =
+  let document: schema.ChannelField(Player, schema.TextChannel) =
     schema.channel_field("doc")
   let items: schema.ChannelField(Player, schema.SequenceChannel) =
     schema.channel_field("items")
-  schema.channel_field_key(doc) |> expect.to_equal("doc")
+  schema.channel_field_key(document) |> expect.to_equal("doc")
   schema.channel_field_key(items) |> expect.to_equal("items")
 }
 
@@ -543,10 +543,10 @@ pub fn text_channel_field_in_record_schema_test() -> Nil {
   // and no runtime error occurs when querying keys from both field kinds in
   // the same logical map shape.
   let s = schema.record1(Solo, schema.prop(name(), fn(s: Solo) { s.name }))
-  let doc: schema.ChannelField(Player, schema.TextChannel) =
+  let document: schema.ChannelField(Player, schema.TextChannel) =
     schema.channel_field("doc")
   // The channel field key is accessible alongside the record schema.
-  schema.channel_field_key(doc) |> expect.to_equal("doc")
+  schema.channel_field_key(document) |> expect.to_equal("doc")
   // The record schema encodes/decodes its declared fields normally.
   let value = Solo(name: "lin")
   let entries = apply_operations([], schema.encode_operations(s, value))
