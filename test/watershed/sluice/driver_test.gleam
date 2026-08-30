@@ -1002,7 +1002,10 @@ pub fn presence_lane_delivers_session_state_and_diffs_test() -> Nil {
   let assert Ok(runtime_beam.PresenceState(state)) =
     process.receive(inbox, 1000)
   let assert Ok(snapshot) =
-    decode.run(state, presence.presence_state_decoder(decode: panel_decoder()))
+    json.parse(
+      json.to_string(state),
+      presence.presence_state_decoder(decode: panel_decoder()),
+    )
   let #(tracker, _) = presence.apply_state(presence.tracker(), snapshot)
   // The snapshot precedes this client's own tracking, so it is empty and the
   // join arrives as the diff below.
@@ -1011,7 +1014,10 @@ pub fn presence_lane_delivers_session_state_and_diffs_test() -> Nil {
   let assert Ok(runtime_beam.PresenceDiff(payload)) =
     process.receive(inbox, 1000)
   let assert Ok(diff) =
-    decode.run(payload, presence.presence_diff_decoder(decode: panel_decoder()))
+    json.parse(
+      json.to_string(payload),
+      presence.presence_diff_decoder(decode: panel_decoder()),
+    )
   presence.diff_joins(diff)
   |> expect.to_equal([
     presence.PresenceEntry(

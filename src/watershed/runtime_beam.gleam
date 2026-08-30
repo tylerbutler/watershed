@@ -42,8 +42,6 @@ import gleam/dict.{type Dict}
 @target(erlang)
 import gleam/dynamic.{type Dynamic}
 @target(erlang)
-import gleam/dynamic/decode
-@target(erlang)
 import gleam/erlang/process.{type Subject}
 @target(erlang)
 import gleam/int
@@ -165,9 +163,10 @@ pub type TransportCallbacks {
     /// The channel joined and can push now. This callback carries the handle
     /// for every later outbound frame.
     on_ready: fn(TransportHandle) -> Nil,
-    /// An inbound frame: the wire event name with its payload, which is still
-    /// a `Dynamic` value.
-    on_event: fn(String, Dynamic) -> Nil,
+    /// An inbound frame: the wire event name with its JSON payload. A
+    /// transport decodes its own foreign representation into `Json` before it
+    /// calls this function, so no foreign value reaches the runtime actor.
+    on_event: fn(String, Json) -> Nil,
     /// The first connect or join failed. The runtime treats this event as
     /// fatal.
     on_fail: fn(String) -> Nil,
@@ -209,7 +208,7 @@ pub type Msg {
   // Receiver-process lifecycle
   ChannelReady(TransportHandle)
   ChannelFailed(String)
-  Inbound(event: String, payload: Dynamic)
+  Inbound(event: String, payload: Json)
   ChannelClosed(String)
   // Local edits
   Put(address: String, key: String, value: Json)
@@ -574,12 +573,12 @@ pub type Msg {
 /// apply a diff that belongs to a dead session. One stream cannot represent
 /// that order.
 pub type PresenceFrame {
-  /// A `presence_state` snapshot, which the runtime does not decode. The
-  /// runtime has no decoder for the metadata of the application, and the op
-  /// lane does have one.
-  PresenceState(payload: Dynamic)
-  PresenceDiff(payload: Dynamic)
-  PresenceError(payload: Dynamic)
+  /// A `presence_state` snapshot, encoded as `Json`. The runtime does not
+  /// decode it further, because it has no decoder for the metadata of the
+  /// application, and the op lane does have one.
+  PresenceState(payload: Json)
+  PresenceDiff(payload: Json)
+  PresenceError(payload: Json)
   /// A new document session settled. The frame carries a new client id from
   /// the server, and the features that this handshake negotiated. The runtime
   /// sends it after the first handshake and after every reconnect, and a
@@ -1035,7 +1034,10 @@ fn aquamarine_receive_loop(
 ) -> Nil {
   case aquamarine.receive(channel) {
     Ok(incoming) -> {
-      callbacks.on_event(incoming.event, incoming.payload)
+      // aquamarine hands back its own `Dynamic` term from decoding the wire
+      // text. Convert it to `Json` here, at the one place the foreign value
+      // enters this module, so `TransportCallbacks` never carries a `Dynamic`.
+      callbacks.on_event(incoming.event, wire.dynamic_to_json(incoming.payload))
       aquamarine_receive_loop(channel, callbacks)
     }
     Error(error) -> callbacks.on_close(string.inspect(error))
@@ -1873,13 +1875,16 @@ fn resolve_text_address(state: State, address: String) -> Result(Nil, String) {
 fn handle_inbound(
   state: State,
   event: String,
-  payload: Dynamic,
+  payload: Json,
 ) -> actor.Next(State, Msg) {
   case event {
     "connect_document_success" -> {
       let connected =
         require(
-          decode.run(payload, socket.connected_message_decoder()),
+          json.parse(
+            json.to_string(payload),
+            socket.connected_message_decoder(),
+          ),
           "connect_document_success payload",
         )
       // Record what this connection negotiated before anything acts on it, and
@@ -1936,7 +1941,7 @@ fn handle_inbound(
     "connect_document_error" -> {
       let connect_error =
         require(
-          decode.run(payload, socket.connect_error_decoder()),
+          json.parse(json.to_string(payload), socket.connect_error_decoder()),
           "connect_document_error payload",
         )
       actor.continue(fail(state, connect_error.message))
@@ -1979,10 +1984,13 @@ fn handle_inbound(
 
     "nack" -> {
       let nacks =
-        require(decode.run(payload, socket.nacks_decoder()), "nack payload")
+        require(
+          json.parse(json.to_string(payload), socket.nacks_decoder()),
+          "nack payload",
+        )
       case list.any(nacks, nack_is_fatal) {
         True ->
-          panic as { "fatal nack from server: " <> string.inspect(payload) }
+          panic as { "fatal nack from server: " <> json.to_string(payload) }
         False ->
           case state.phase {
             Ready(core, _) -> actor.continue(reconnect_after_nack(state, core))
@@ -1995,7 +2003,9 @@ fn handle_inbound(
     // Ephemeral ripple broadcast: fan out to ripple subscribers. Malformed
     // payloads are dropped silently — ripples are best-effort.
     "signal" -> {
-      case decode.run(payload, socket.ripple_message_decoder()) {
+      case
+        json.parse(json.to_string(payload), socket.ripple_message_decoder())
+      {
         Error(_) -> Nil
         Ok(ripple) ->
           list.each(state.ripple_subscribers, fn(handler) { handler(ripple) })
@@ -2044,9 +2054,12 @@ fn settle_reconnect(
 }
 
 @target(erlang)
-fn op_message(payload: Dynamic) -> List(SequencedDocumentMessage) {
+fn op_message(payload: Json) -> List(SequencedDocumentMessage) {
   let message =
-    require(decode.run(payload, socket.op_message_decoder()), "op payload")
+    require(
+      json.parse(json.to_string(payload), socket.op_message_decoder()),
+      "op payload",
+    )
   message.ops
 }
 

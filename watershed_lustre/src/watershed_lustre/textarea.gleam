@@ -198,6 +198,16 @@ import watershed_lustre/grapheme_offset
 /// declarations below name the type that they receive.
 type DomRoot
 
+/// Convert lustre's `Dynamic` paint root into the opaque `DomRoot` type.
+///
+/// `Dynamic` here is a framework constraint, and not a choice of this module.
+/// `lustre/effect.before_paint` has the fixed signature
+/// `fn(fn(fn(message) -> Nil, Dynamic) -> Nil) -> Effect(message)`: lustre calls the
+/// given function with the DOM root as a bare `Dynamic` value, and no lustre
+/// version in the `>= 5.0.0 and < 6.0.0` range in `manifest.toml` offers an
+/// exact type at that boundary. `as_dom_root` makes the one conversion, right
+/// where lustre calls in, so every other function in this module — and every
+/// caller — sees only the opaque `DomRoot`.
 @external(javascript, "./textarea_ffi.mjs", "identity")
 fn as_dom_root(root: Dynamic) -> DomRoot
 

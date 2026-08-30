@@ -336,7 +336,7 @@ fn sluice_transport(actor: Subject(Message)) -> runtime_beam.Transport {
 type Message {
   /// A new connection. Store its delivery callbacks and create a client id.
   Register(
-    on_event: fn(String, Dynamic) -> Nil,
+    on_event: fn(String, Json) -> Nil,
     on_close: fn(String) -> Nil,
     reply: Subject(String),
   )
@@ -391,7 +391,7 @@ type State {
 /// is the only way to tell a runtime that its socket closed. `reconnect` needs
 /// that message, and no other part of the driver can produce it.
 type Conn {
-  Conn(on_event: fn(String, Dynamic) -> Nil, on_close: fn(String) -> Nil)
+  Conn(on_event: fn(String, Json) -> Nil, on_close: fn(String) -> Nil)
 }
 
 @target(erlang)
@@ -490,7 +490,7 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
         }
         #(core, Ok(frame)) -> {
           case list.key_find(state.conns, frame.client_id) {
-            Ok(conn) -> conn.on_event(frame.event, to_dynamic(frame.payload))
+            Ok(conn) -> conn.on_event(frame.event, frame.payload)
             Error(_) -> Nil
           }
           process.send(reply, True)
@@ -540,9 +540,9 @@ fn handle(state: State, message: Message) -> actor.Next(State, Message) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Serialize a queued `Json` frame and parse it again as `Dynamic`. This is the
-/// exact path that a frame takes over a real socket before the runtime decodes
-/// it.
+/// Serialize a queued `Json` push and parse it again as `Dynamic`. This mirrors
+/// the server side of a real socket, which decodes the client's push with the
+/// server's own `Dynamic`-based frame decoders (`sluice/core`, `frame`).
 fn to_dynamic(payload: Json) -> Dynamic {
   // `json.to_string` always writes valid JSON, so the parse always succeeds.
   // The error arm reports a null value, because this module must not panic.
