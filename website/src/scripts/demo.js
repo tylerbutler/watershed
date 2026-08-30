@@ -255,7 +255,7 @@ function counterPending(client) {
 
 function counterValue(client) {
   const value = runtimeCore.counter_value(client.counterCore, COUNTER_ADDRESS);
-  return value instanceof Some ? value[0] : COUNTER_BASE;
+  return value.isOk() ? value[0] : COUNTER_BASE;
 }
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
@@ -1660,7 +1660,7 @@ export function initDemo() {
 
   function localClaim(clientId, key) {
     const client = clients[clientId];
-    const result = claimsKernel.try_set_claim(
+    const result = claimsKernel.claim_once(
       client.claims,
       key,
       json.string(CLAIMANTS[clientId]),
