@@ -44,7 +44,7 @@ import watershed/wire.{type OutboundOperation}
 ///
 /// `last_seen_sequence_number` is **advisory**, and no server uses it. This
 /// documentation gave a different promise before: an automatic delta catch-up,
-/// pushed as a usual `operation` event. floodgate does not do that. It does not
+/// pushed as a usual `op` event. floodgate does not do that. It does not
 /// read the field, and it answers a reconnect with the same full bootstrap that
 /// it gives a cold join. That incorrect promise made a reconnecting client wait
 /// for a delta that no server sent. The client must do its own catch-up with
@@ -120,7 +120,7 @@ fn encode_outbound_operation(operation: OutboundOperation) -> Json {
 }
 
 /// The `requestOps` payload, for an in-band delta catch-up. The response
-/// arrives as a usual `operation` event.
+/// arrives as a usual `op` event.
 pub fn encode_request_operations(from from: Int) -> Json {
   json.object([#("from", json.int(from))])
 }
@@ -368,7 +368,7 @@ pub fn connect_error_decoder() -> Decoder(ConnectError) {
   decode.success(ConnectError(code: code, message: error_message))
 }
 
-/// The `operation` event payload, in the two shapes that a server can send.
+/// The `op` event payload, in the two shapes that a server can send.
 ///
 /// levee wraps the messages: `{documentId, operation:
 /// [SequencedDocumentMessage]}`. floodgate pushes the bare

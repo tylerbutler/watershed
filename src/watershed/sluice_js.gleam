@@ -55,7 +55,7 @@ pub opaque type Sluice {
 @target(javascript)
 /// The metadata of one delivered frame, which `step_info` returns. A caller,
 /// for example a live demo, can thus animate and log each hop. For an
-/// `operation` event, `sequence_number` is the sequence number of the operation
+/// `op` event, `sequence_number` is the sequence number of the operation
 /// and `author` is the client that wrote it. Another event, such as a handshake
 /// or a signal, reports `0` and `""`.
 pub type Delivery {
@@ -326,7 +326,7 @@ pub fn step(sluice: Sluice) -> Bool {
 
 @target(javascript)
 /// The same as `step`, but the function reports what it delivered: the target
-/// client, the event, and, for an `operation` event, the sequence number and
+/// client, the event, and, for an `op` event, the sequence number and
 /// the author. The result is `Error(Nil)` when the function can deliver no
 /// frame. Use it to drive a live visualization that animates each hop.
 pub fn step_info(sluice: Sluice) -> Result(Delivery, Nil) {
@@ -524,7 +524,7 @@ fn take_deliver(cell: Cell(State)) -> Result(core.Outbound, Nil) {
 }
 
 @target(javascript)
-/// Read the sequence number and the author from the payload of an `operation`
+/// Read the sequence number and the author from the payload of an `op`
 /// frame, for `step_info`. The result is `0` and `""` for another kind of
 /// event.
 fn operation_meta(frame: core.Outbound) -> #(Int, String) {

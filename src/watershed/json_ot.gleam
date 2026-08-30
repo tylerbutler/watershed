@@ -1505,9 +1505,11 @@ fn text0_transform_component(
       ))
     TDel(component_position, component_text) ->
       case other {
-        TIns(operation, other_text) -> {
+        TIns(other_position, other_text) -> {
           // Delete vs insert: split the delete around the inserted text.
-          let #(destination, remaining) = case component_position < operation {
+          let #(destination, remaining) = case
+            component_position < other_position
+          {
             True -> #(
               text0_append(
                 destination,
@@ -1516,11 +1518,14 @@ fn text0_transform_component(
                   string.slice(
                     component_text,
                     0,
-                    operation - component_position,
+                    other_position - component_position,
                   ),
                 ),
               ),
-              string.drop_start(component_text, operation - component_position),
+              string.drop_start(
+                component_text,
+                other_position - component_position,
+              ),
             )
             False -> #(destination, component_text)
           }
@@ -1533,47 +1538,48 @@ fn text0_transform_component(
               ))
           }
         }
-        TDel(operation, other_text) -> {
+        TDel(other_position, other_text) -> {
           let component_length = string.length(component_text)
           let other_length = string.length(other_text)
-          case component_position >= operation + other_length {
+          case component_position >= other_position + other_length {
             True ->
               Ok(text0_append(
                 destination,
                 TDel(component_position - other_length, component_text),
               ))
             False ->
-              case component_position + component_length <= operation {
+              case component_position + component_length <= other_position {
                 True -> Ok(text0_append(destination, component))
                 False -> {
                   // The deletes overlap: keep only the portions `other` did not
                   // already remove.
-                  let part1 = case component_position < operation {
+                  let part1 = case component_position < other_position {
                     True ->
                       string.slice(
                         component_text,
                         0,
-                        operation - component_position,
+                        other_position - component_position,
                       )
                     False -> ""
                   }
                   let part2 = case
                     component_position + component_length
-                    > operation + other_length
+                    > other_position + other_length
                   {
                     True ->
                       string.drop_start(
                         component_text,
-                        operation + other_length - component_position,
+                        other_position + other_length - component_position,
                       )
                     False -> ""
                   }
                   let new_d = part1 <> part2
-                  let intersect_start = int.max(component_position, operation)
+                  let intersect_start =
+                    int.max(component_position, other_position)
                   let intersect_end =
                     int.min(
                       component_position + component_length,
-                      operation + other_length,
+                      other_position + other_length,
                     )
                   let intersect_len = intersect_end - intersect_start
                   let c_intersect =
@@ -1585,7 +1591,7 @@ fn text0_transform_component(
                   let o_intersect =
                     string.slice(
                       other_text,
-                      intersect_start - operation,
+                      intersect_start - other_position,
                       intersect_len,
                     )
                   use _ <- result.try(case c_intersect == o_intersect {

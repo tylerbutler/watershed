@@ -447,7 +447,7 @@ pub fn decode_operation_message_test() -> Nil {
   join.message_type |> expect.to_equal("join")
 }
 
-/// Floodgate pushes the `operation` event as a bare array of sequenced messages
+/// Floodgate pushes the `op` event as a bare array of sequenced messages
 /// on every path (submit, join, leave, requestOps, summary), where levee
 /// wrapped them in `{documentId, operation: [...]}`. Both shapes have to
 /// decode: the sluice still emits the enclosing object, and so does a real

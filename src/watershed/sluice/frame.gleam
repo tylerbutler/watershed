@@ -293,7 +293,7 @@ fn encode_roster_entry(client_id: String) -> Json {
   ])
 }
 
-/// Build an `operation` event payload: the bare `[Sequenced...]` array. This is
+/// Build an `op` event payload: the bare `[Sequenced...]` array. This is
 /// the inverse of `socket.operation_message_decoder`.
 ///
 /// floodgate pushes this shape on every operation path. levee wrapped the
