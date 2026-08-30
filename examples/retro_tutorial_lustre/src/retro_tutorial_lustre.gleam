@@ -406,13 +406,13 @@ fn snapshot(model: Model) -> Model {
     None -> #(model.board.title, model.last_error)
   }
 
-  let board_state = case model.shared {
+  let #(board_state, error) = case model.shared {
     Some(shared) ->
       case board_op.snapshot(title, shared.notes, shared.votes) {
-        Ok(b) -> b
-        Error(_) -> board.empty(title)
+        Ok(b) -> #(b, error)
+        Error(reason) -> #(board.empty(title), Some(reason))
       }
-    None -> board.empty(title)
+    None -> #(board.empty(title), error)
   }
 
   Model(..model, board: board_state, last_error: error)
