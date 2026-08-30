@@ -1,9 +1,9 @@
 //// PactMap ↔ runtime wiring tests: the consensus PactMap kernel driven through
 //// `channel` + `runtime_core` + the wire codecs. Kernel-internal quorum
 //// semantics are covered by `pact_map_kernel_test`/`pact_map_fuzz_test`; these
-//// pin the *wiring*: op/snapshot encode-decode, `same_shape`, the auto-Accept
-//// reaction released after a `Set` sequences, and channel-level convergence
-//// under a consistent quorum.
+//// pin the *wiring*: operation/snapshot encode-decode, `same_shape`, the
+//// auto-Accept reaction released after a `Set` sequences, and channel-level
+//// convergence under a consistent quorum.
 ////
 //// Convergence is asserted at the *channel* level (`apply_remote` with an
 //// explicit, client-independent quorum) to keep these tests about the channel
@@ -92,7 +92,7 @@ fn bootstrap(client_id: String) -> Core {
 fn sequenced_message(
   author: String,
   sequence_number: Int,
-  out: wire.OutboundOp,
+  out: wire.OutboundOperation,
 ) -> types.SequencedDocumentMessage {
   types.SequencedDocumentMessage(
     client_id: Some(author),
@@ -100,7 +100,7 @@ fn sequenced_message(
     minimum_sequence_number: 0,
     client_sequence_number: out.client_sequence_number,
     reference_sequence_number: out.reference_sequence_number,
-    message_type: out.op_type,
+    message_type: out.operation_type,
     contents: json_to_dynamic(out.contents),
     metadata: None,
     server_metadata: None,
@@ -113,10 +113,10 @@ fn sequenced_message(
 
 fn expect_ok(
   result: Result(
-    #(Core, List(#(String, channel.ChannelEvent)), List(wire.OutboundOp)),
+    #(Core, List(#(String, channel.ChannelEvent)), List(wire.OutboundOperation)),
     runtime_core.CoreError,
   ),
-) -> #(Core, List(wire.OutboundOp)) {
+) -> #(Core, List(wire.OutboundOperation)) {
   case result {
     Ok(#(core, _events, outbound)) -> #(core, outbound)
     Error(err) -> panic as { "pact_map command failed: " <> string.inspect(err) }
@@ -135,25 +135,30 @@ fn ingest(
 
 // ── wire codec ────────────────────────────────────────────────────────────────
 
-/// `Set`/`Accept` ops survive the channel-op wire round-trip, and a `Set`'s
-/// `None` (tombstone) value is preserved distinctly from a JSON null.
-pub fn pact_map_op_wire_round_trips_test() -> Nil {
-  round_trip_op(pact_map_kernel.Set("grade", Some(json.string("2.1%")), 4))
-  round_trip_op(pact_map_kernel.Set("grade", None, 7))
-  round_trip_op(pact_map_kernel.Set("grade", Some(json.null()), 2))
-  round_trip_op(pact_map_kernel.Accept("grade"))
+/// `Set`/`Accept` operations survive the channel-operation wire round-trip, and
+/// a `Set`'s `None` (tombstone) value is preserved distinctly from a JSON null.
+pub fn pact_map_operation_wire_round_trips_test() -> Nil {
+  round_trip_operation(pact_map_kernel.Set(
+    "grade",
+    Some(json.string("2.1%")),
+    4,
+  ))
+  round_trip_operation(pact_map_kernel.Set("grade", None, 7))
+  round_trip_operation(pact_map_kernel.Set("grade", Some(json.null()), 2))
+  round_trip_operation(pact_map_kernel.Accept("grade"))
 }
 
-fn round_trip_op(op: pact_map_kernel.PactMapOp) -> Nil {
-  let encoded = wire_op.encode_channel_op(channel.PactMapOp(op))
+fn round_trip_operation(operation: pact_map_kernel.PactMapOperation) -> Nil {
+  let encoded =
+    wire_op.encode_channel_operation(channel.PactMapOperation(operation))
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      wire_op.channel_op_decoder(channel.PactMapChannel),
+      wire_op.channel_operation_decoder(channel.PactMapChannel),
     )
   // Compare via re-encoding: `Json` values are opaque and not reliably equal
   // across a decode, but their canonical encodings are.
-  json.to_string(wire_op.encode_channel_op(decoded))
+  json.to_string(wire_op.encode_channel_operation(decoded))
   |> expect.to_equal(json.to_string(encoded))
 }
 
@@ -200,14 +205,14 @@ pub fn pact_map_channel_type_round_trips_test() -> Nil {
 
 pub fn pact_map_same_shape_echo_test() -> Nil {
   let set =
-    channel.PactMapOp(pact_map_kernel.Set("k", Some(json.string("v")), 3))
+    channel.PactMapOperation(pact_map_kernel.Set("k", Some(json.string("v")), 3))
   channel.same_shape(set, set) |> expect.to_be_true()
 
-  // A different value or op kind is not the same shape.
+  // A different value or operation kind is not the same shape.
   let other =
-    channel.PactMapOp(pact_map_kernel.Set("k", Some(json.string("w")), 3))
+    channel.PactMapOperation(pact_map_kernel.Set("k", Some(json.string("w")), 3))
   channel.same_shape(set, other) |> expect.to_be_false()
-  channel.same_shape(set, channel.PactMapOp(pact_map_kernel.Accept("k")))
+  channel.same_shape(set, channel.PactMapOperation(pact_map_kernel.Accept("k")))
   |> expect.to_be_false()
 }
 
@@ -223,22 +228,23 @@ pub fn two_clients_converge_via_consistent_quorum_test() -> Nil {
   let a0 = channel.new(channel.InitPactMap, replica: id_a)
   let b0 = channel.new(channel.InitPactMap, replica: id_b)
 
-  let set_op = channel.PactMapOp(pact_map_kernel.Set("bm-17", Some(value), 0))
+  let set_operation =
+    channel.PactMapOperation(pact_map_kernel.Set("bm-17", Some(value), 0))
 
   // Set sequences at 2 (author = client 1); both apply it and go pending.
   let #(a1, _, owed_a) =
-    apply(a0, set_op, seq: 2, author: 1, self_id: 1, quorum: quorum)
+    apply(a0, set_operation, seq: 2, author: 1, self_id: 1, quorum: quorum)
   let #(b1, _, owed_b) =
-    apply(b0, set_op, seq: 2, author: 1, self_id: 2, quorum: quorum)
+    apply(b0, set_operation, seq: 2, author: 1, self_id: 2, quorum: quorum)
   // Both clients are in the signoff list, so both owe an Accept.
   owed_a
-  |> expect.to_equal([channel.PactMapOp(pact_map_kernel.Accept("bm-17"))])
+  |> expect.to_equal([channel.PactMapOperation(pact_map_kernel.Accept("bm-17"))])
   owed_b
-  |> expect.to_equal([channel.PactMapOp(pact_map_kernel.Accept("bm-17"))])
+  |> expect.to_equal([channel.PactMapOperation(pact_map_kernel.Accept("bm-17"))])
   is_pending(a1, "bm-17") |> expect.to_be_true()
   is_pending(b1, "bm-17") |> expect.to_be_true()
 
-  let accept = channel.PactMapOp(pact_map_kernel.Accept("bm-17"))
+  let accept = channel.PactMapOperation(pact_map_kernel.Accept("bm-17"))
 
   // Client 1's Accept sequences at 3; still pending (client 2 outstanding).
   let #(a2, _, _) =
@@ -270,12 +276,13 @@ pub fn pending_value_settles_when_signer_leaves_test() -> Nil {
 
   // Set sequences at 2 (author = client 1); the value goes pending with both
   // clients in the signoff list.
-  let set_op = channel.PactMapOp(pact_map_kernel.Set("bm-17", Some(value), 0))
+  let set_operation =
+    channel.PactMapOperation(pact_map_kernel.Set("bm-17", Some(value), 0))
   let #(state, _, _) =
-    apply(state, set_op, seq: 2, author: 1, self_id: 1, quorum: quorum)
+    apply(state, set_operation, seq: 2, author: 1, self_id: 1, quorum: quorum)
 
   // Client 1 accepts at 3; still pending on client 2's outstanding signoff.
-  let accept = channel.PactMapOp(pact_map_kernel.Accept("bm-17"))
+  let accept = channel.PactMapOperation(pact_map_kernel.Accept("bm-17"))
   let #(state, _, _) =
     apply(state, accept, seq: 3, author: 1, self_id: 1, quorum: quorum)
   is_pending(state, "bm-17") |> expect.to_be_true()
@@ -293,7 +300,7 @@ pub fn pending_value_settles_when_signer_leaves_test() -> Nil {
 
 fn apply(
   state: channel.ChannelState,
-  op: channel.ChannelOp,
+  operation: channel.ChannelOperation,
   seq seq: Int,
   author author: Int,
   self_id self_id: Int,
@@ -301,7 +308,7 @@ fn apply(
 ) -> #(
   channel.ChannelState,
   List(channel.ChannelEvent),
-  List(channel.ChannelOp),
+  List(channel.ChannelOperation),
 ) {
   let meta =
     channel.SequencedMeta(
@@ -314,7 +321,7 @@ fn apply(
       roster: quorum,
       reference_sequence_number: 0,
     )
-  case channel.apply_remote(state, op, meta) {
+  case channel.apply_remote(state, operation, meta) {
     Ok(result) -> result
     Error(err) -> panic as { "apply_remote failed: " <> string.inspect(err) }
   }
@@ -334,7 +341,7 @@ fn get(state: channel.ChannelState, key: String) -> Result(String, Nil) {
 
 /// When a remote `Set` naming this client in the (approximated) quorum
 /// sequences, the runtime auto-submits an `Accept` follow-up via the
-/// released-ops loop — no explicit accept verb is called.
+/// released-operations loop — no explicit accept verb is called.
 pub fn remote_set_auto_submits_accept_test() -> Nil {
   // A attaches a PactMap channel and shares it; B receives the attach.
   let core_a =
@@ -348,9 +355,9 @@ pub fn remote_set_auto_submits_accept_test() -> Nil {
       handle.encode_handle(pact_map_address),
     ))
 
-  // Sequence A's attach ops (attach + root set) to BOTH cores in order so each
-  // side's `last_seen` advances identically: A acks its own, B attaches the
-  // channel remotely.
+  // Sequence A's attach operations (attach + root set) to BOTH cores in order
+  // so each side's `last_seen` advances identically: A acks its own, B attaches
+  // the channel remotely.
   let core_b = bootstrap(id_b)
   let #(core_a, core_b, sequence_number) =
     list.fold(attach_out, #(core_a, core_b, 1), fn(acc, out) {
@@ -361,7 +368,7 @@ pub fn remote_set_auto_submits_accept_test() -> Nil {
       #(core_a, core_b, sequence_number + 1)
     })
 
-  // B proposes a value; this yields a Set op on the wire.
+  // B proposes a value; this yields a Set operation on the wire.
   let #(_core_b, set_out) =
     expect_ok(runtime_core.pact_map_set(
       core_b,
@@ -369,12 +376,12 @@ pub fn remote_set_auto_submits_accept_test() -> Nil {
       "grade",
       json.string("2.1"),
     ))
-  let assert [set_op] = set_out
+  let assert [set_operation] = set_out
 
   // A ingests B's Set. Because A is in the quorum, it owes an Accept, which the
-  // released-ops loop stamps and returns as outbound.
+  // released-operations loop stamps and returns as outbound.
   let #(_core_a, ingested) =
-    ingest(core_a, sequenced_message(id_b, sequence_number + 1, set_op))
+    ingest(core_a, sequenced_message(id_b, sequence_number + 1, set_operation))
   let assert [accept_out] = ingested.outbound
   let encoded = json.to_string(accept_out.contents)
   encoded

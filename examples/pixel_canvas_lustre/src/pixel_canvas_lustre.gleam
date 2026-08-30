@@ -6,17 +6,18 @@
 //// over each other either produce the same picture or they do not, and nobody
 //// has to read a line of Gleam to adjudicate it.
 ////
-//// It is also the one example that stresses op volume. Dragging the brush
-//// emits an op per cell crossed, so a few seconds of scribbling in two tabs is
-//// thousands of ops through a path that elsewhere only ever sees one keystroke
-//// at a time. Two things keep that honest: cells are deduped, so a drag emits
-//// one op per cell entered rather than one per pointer event, and the pixels
-//// live in a `<canvas>` the FFI owns outright rather than in 4096 vdom nodes.
+//// It is also the one example that stresses operation volume. Dragging the
+//// brush emits an operation per cell crossed, so a few seconds of scribbling
+//// in two tabs is thousands of operations through a path that elsewhere only
+//// ever sees one keystroke at a time. Two things keep that honest: cells are
+//// deduped, so a drag emits one operation per cell entered rather than one per
+//// pointer event, and the pixels live in a `<canvas>` the FFI owns outright
+//// rather than in 4096 vdom nodes.
 ////
 //// The offline toggle is the point, not a bonus. `or_map_kernel` advances by
 //// joining sparse deltas, so two clients that paint disjoint regions while
-//// disconnected converge by *join* when they come back — no rebase, no op
-//// replay, no server arbitration.
+//// disconnected converge by *join* when they come back — no rebase, no
+//// operation replay, no server arbitration.
 ////
 //// The toggle lives *here* rather than in `pixel_canvas_lustre/component`, and
 //// that placement is load-bearing. `go_offline` takes a `Document`: it stops

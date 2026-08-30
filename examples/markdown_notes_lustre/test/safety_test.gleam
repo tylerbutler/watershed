@@ -124,9 +124,9 @@ pub fn one_failure_reported_by_two_paths_is_recorded_once_test() -> Nil {
   |> should_read("system-errors", "1 system error")
 }
 
-/// Deleting replicates to every peer and the OR-map has no undo op, so the ✕
-/// arms the delete and a second, named button commits it. The note is still
-/// listed while the confirmation is showing.
+/// Deleting replicates to every peer and the OR-map has no undo operation, so
+/// the ✕ arms the delete and a second, named button commits it. The note is
+/// still listed while the confirmation is showing.
 pub fn deleting_a_note_asks_before_it_happens_test() -> Nil {
   let view =
     with_notes()
@@ -162,8 +162,8 @@ pub fn an_armed_delete_can_be_called_off_test() -> Nil {
   Nil
 }
 
-/// Alt+Arrow reorders through the same op a drag produces, so a keyboard user
-/// is not locked out of a feature the mouse has.
+/// Alt+Arrow reorders through the same operation a drag produces, so a keyboard
+/// user is not locked out of a feature the mouse has.
 pub fn a_note_can_be_moved_by_keyboard_test() -> Nil {
   let view =
     with_notes()

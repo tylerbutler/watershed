@@ -6,7 +6,8 @@
 //// Those codecs are in submodules, one for each vocabulary:
 ////
 //// - `wire/socket` — connection-level frames and spillway envelope codecs
-//// - `wire/op` — op contents: channel ops, attach envelopes, summarize ops
+//// - `wire/op` — operation contents: channel operations, attach envelopes,
+////   summarize operations
 //// - `wire/summary_blob` — the versioned summary storage format
 ////
 //// This module holds only what those vocabularies share.
@@ -20,14 +21,14 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/string
 
-/// An op that a client wrote, ready for `submitOp`. It has the same fields
-/// that the `submitCore` function of the TypeScript driver puts on the wire.
-/// `wire/op` constructs it, and `wire/socket` serializes it.
-pub type OutboundOp {
-  OutboundOp(
+/// An operation that a client wrote, ready for `submitOp`. It has the same
+/// fields that the `submitCore` function of the TypeScript driver puts on the
+/// wire. `wire/op` constructs it, and `wire/socket` serializes it.
+pub type OutboundOperation {
+  OutboundOperation(
     client_sequence_number: Int,
     reference_sequence_number: Int,
-    op_type: String,
+    operation_type: String,
     contents: Json,
     metadata: Option(Json),
   )
@@ -86,7 +87,7 @@ pub fn entry_decoder() -> Decoder(#(String, Json)) {
 }
 
 /// Decode a parsed-JSON `Dynamic` value back into a `Json` value. The decoded
-/// op contents can then go into the kernel, which stores each value as
+/// operation contents can then go into the kernel, which stores each value as
 /// `Json`.
 pub fn json_value_decoder() -> Decoder(Json) {
   let non_null =

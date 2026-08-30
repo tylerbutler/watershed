@@ -1,9 +1,10 @@
 //// ConsensusOrderedCollection ↔ runtime wiring tests: the ordered_collection
 //// kernel driven through `channel` + `runtime_core` + the wire codecs. Kernel
 //// FIFO/job semantics are covered by `ordered_collection_kernel_test`/the fuzz
-//// model; these pin the *wiring*: op/snapshot encode-decode, `same_shape`,
-//// detached add/acquire carried through attach, and two-client FIFO
-//// convergence (add / acquire / complete / release) over sequenced ops.
+//// model; these pin the *wiring*: operation/snapshot encode-decode,
+//// `same_shape`, detached add/acquire carried through attach, and two-client
+//// FIFO convergence (add / acquire / complete / release) over sequenced
+//// operations.
 
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
@@ -85,7 +86,7 @@ fn bootstrap(client_id: String) -> Core {
 fn sequenced_message(
   author: String,
   sequence_number: Int,
-  out: wire.OutboundOp,
+  out: wire.OutboundOperation,
 ) -> types.SequencedDocumentMessage {
   types.SequencedDocumentMessage(
     client_id: Some(author),
@@ -93,7 +94,7 @@ fn sequenced_message(
     minimum_sequence_number: 0,
     client_sequence_number: out.client_sequence_number,
     reference_sequence_number: out.reference_sequence_number,
-    message_type: out.op_type,
+    message_type: out.operation_type,
     contents: json_to_dynamic(out.contents),
     metadata: None,
     server_metadata: None,
@@ -106,10 +107,10 @@ fn sequenced_message(
 
 fn expect_ok(
   result: Result(
-    #(Core, List(#(String, channel.ChannelEvent)), List(wire.OutboundOp)),
+    #(Core, List(#(String, channel.ChannelEvent)), List(wire.OutboundOperation)),
     runtime_core.CoreError,
   ),
-) -> #(Core, List(wire.OutboundOp)) {
+) -> #(Core, List(wire.OutboundOperation)) {
   case result {
     Ok(#(core, _events, outbound)) -> #(core, outbound)
     Error(err) -> panic as { "ordered command failed: " <> string.inspect(err) }
@@ -128,22 +129,27 @@ fn ingest(
 
 // ── wire codec ────────────────────────────────────────────────────────────────
 
-/// The four ordered ops survive the channel-op wire round-trip.
-pub fn ordered_op_wire_round_trips_test() -> Nil {
-  round_trip_op(ordered_collection_kernel.Add(json.string("job")))
-  round_trip_op(ordered_collection_kernel.Acquire("acq-7"))
-  round_trip_op(ordered_collection_kernel.Complete("acq-7"))
-  round_trip_op(ordered_collection_kernel.Release("acq-7"))
+/// The four ordered operations survive the channel-operation wire round-trip.
+pub fn ordered_operation_wire_round_trips_test() -> Nil {
+  round_trip_operation(ordered_collection_kernel.Add(json.string("job")))
+  round_trip_operation(ordered_collection_kernel.Acquire("acq-7"))
+  round_trip_operation(ordered_collection_kernel.Complete("acq-7"))
+  round_trip_operation(ordered_collection_kernel.Release("acq-7"))
 }
 
-fn round_trip_op(op: ordered_collection_kernel.OrderedOp) -> Nil {
-  let encoded = wire_op.encode_channel_op(channel.OrderedCollectionOp(op))
+fn round_trip_operation(
+  operation: ordered_collection_kernel.OrderedOperation,
+) -> Nil {
+  let encoded =
+    wire_op.encode_channel_operation(channel.OrderedCollectionOperation(
+      operation,
+    ))
   let assert Ok(decoded) =
     json.parse(
       json.to_string(encoded),
-      wire_op.channel_op_decoder(channel.OrderedCollectionChannel),
+      wire_op.channel_operation_decoder(channel.OrderedCollectionChannel),
     )
-  json.to_string(wire_op.encode_channel_op(decoded))
+  json.to_string(wire_op.encode_channel_operation(decoded))
   |> expect.to_equal(json.to_string(encoded))
 }
 
@@ -186,20 +192,28 @@ pub fn ordered_channel_type_round_trips_test() -> Nil {
 
 pub fn ordered_same_shape_echo_test() -> Nil {
   let add =
-    channel.OrderedCollectionOp(ordered_collection_kernel.Add(json.string("j")))
+    channel.OrderedCollectionOperation(
+      ordered_collection_kernel.Add(json.string("j")),
+    )
   channel.same_shape(add, add) |> expect.to_be_true()
 
-  // A different value, id, or op kind is not the same shape.
+  // A different value, id, or operation kind is not the same shape.
   let other =
-    channel.OrderedCollectionOp(ordered_collection_kernel.Add(json.string("k")))
+    channel.OrderedCollectionOperation(
+      ordered_collection_kernel.Add(json.string("k")),
+    )
   channel.same_shape(add, other) |> expect.to_be_false()
 
   let acquire =
-    channel.OrderedCollectionOp(ordered_collection_kernel.Acquire("acq-1"))
+    channel.OrderedCollectionOperation(ordered_collection_kernel.Acquire(
+      "acq-1",
+    ))
   channel.same_shape(acquire, acquire) |> expect.to_be_true()
   channel.same_shape(
     acquire,
-    channel.OrderedCollectionOp(ordered_collection_kernel.Acquire("acq-2")),
+    channel.OrderedCollectionOperation(ordered_collection_kernel.Acquire(
+      "acq-2",
+    )),
   )
   |> expect.to_be_false()
   channel.same_shape(add, acquire) |> expect.to_be_false()
@@ -241,22 +255,22 @@ pub fn detached_add_attaches_with_optimistic_queue_test() -> Nil {
 // ── two-client FIFO convergence ───────────────────────────────────────────────
 
 /// Two attached clients converge on add / acquire / release / complete driven
-/// entirely through sequenced ops: adds append FIFO, an acquire removes the head
-/// into a job on both replicas (delivering the item via the `Acquired` event),
-/// a release returns it to the tail, and a complete drops it.
-pub fn two_clients_converge_via_sequenced_ops_test() -> Nil {
+/// entirely through sequenced operations: adds append FIFO, an acquire removes
+/// the head into a job on both replicas (delivering the item via the `Acquired`
+/// event), a release returns it to the tail, and a complete drops it.
+pub fn two_clients_converge_via_sequenced_operations_test() -> Nil {
   let #(core_a, core_b, sequence_number) = attached_pair()
 
-  // A appends job1 then job2; sequence each op to both replicas.
+  // A appends job1 then job2; sequence each operation to both replicas.
   let #(core_a, add1) =
     expect_ok(runtime_core.ordered_add(
       core_a,
       ordered_address,
       json.string("job1"),
     ))
-  let assert [add1_op] = add1
+  let assert [add1_operation] = add1
   let #(core_a, core_b, sequence_number, _) =
-    drive(core_a, core_b, id_a, sequence_number, add1_op)
+    drive(core_a, core_b, id_a, sequence_number, add1_operation)
 
   let #(core_a, add2) =
     expect_ok(runtime_core.ordered_add(
@@ -264,22 +278,22 @@ pub fn two_clients_converge_via_sequenced_ops_test() -> Nil {
       ordered_address,
       json.string("job2"),
     ))
-  let assert [add2_op] = add2
+  let assert [add2_operation] = add2
   let #(core_a, core_b, sequence_number, _) =
-    drive(core_a, core_b, id_a, sequence_number, add2_op)
+    drive(core_a, core_b, id_a, sequence_number, add2_operation)
 
   runtime_core.ordered_size(core_a, ordered_address) |> expect.to_equal(Ok(2))
   runtime_core.ordered_size(core_b, ordered_address) |> expect.to_equal(Ok(2))
 
-  // B acquires the head; the op is non-optimistic, so B's size is unchanged
-  // until it sequences.
+  // B acquires the head; the operation is non-optimistic, so B's size is
+  // unchanged until it sequences.
   let #(core_b, acq) =
     expect_ok(runtime_core.ordered_acquire(core_b, ordered_address, "acq-1"))
-  let assert [acq_op] = acq
+  let assert [acq_operation] = acq
   runtime_core.ordered_size(core_b, ordered_address) |> expect.to_equal(Ok(2))
   // Author = B, so B acks (author-side events) while A applies remotely.
   let #(core_a, core_b, sequence_number, b_events) =
-    drive(core_a, core_b, id_b, sequence_number, acq_op)
+    drive(core_a, core_b, id_b, sequence_number, acq_operation)
 
   // The head (job1) is delivered to B via the Acquired event.
   acquired_value(b_events)
@@ -290,9 +304,9 @@ pub fn two_clients_converge_via_sequenced_ops_test() -> Nil {
   // B releases the job; job1 returns to the tail on both replicas.
   let #(core_b, rel) =
     expect_ok(runtime_core.ordered_release(core_b, ordered_address, "acq-1"))
-  let assert [rel_op] = rel
+  let assert [rel_operation] = rel
   let #(core_a, core_b, sequence_number, _) =
-    drive(core_a, core_b, id_b, sequence_number, rel_op)
+    drive(core_a, core_b, id_b, sequence_number, rel_operation)
   runtime_core.ordered_queue(core_a, ordered_address)
   |> list.map(json.to_string)
   |> expect.to_equal([
@@ -304,17 +318,17 @@ pub fn two_clients_converge_via_sequenced_ops_test() -> Nil {
   // A acquires the new head (job2, FIFO), then completes it: it is dropped.
   let #(core_a, acq2) =
     expect_ok(runtime_core.ordered_acquire(core_a, ordered_address, "acq-2"))
-  let assert [acq2_op] = acq2
+  let assert [acq2_operation] = acq2
   let #(core_a, core_b, sequence_number, a_events) =
-    drive(core_a, core_b, id_a, sequence_number, acq2_op)
+    drive(core_a, core_b, id_a, sequence_number, acq2_operation)
   acquired_value(a_events)
   |> expect.to_equal(Some(json.to_string(json.string("job2"))))
 
   let #(core_a, comp) =
     expect_ok(runtime_core.ordered_complete(core_a, ordered_address, "acq-2"))
-  let assert [comp_op] = comp
+  let assert [comp_operation] = comp
   let #(core_a, core_b, _sequence_number, _) =
-    drive(core_a, core_b, id_a, sequence_number, comp_op)
+    drive(core_a, core_b, id_a, sequence_number, comp_operation)
 
   // job2 completed and dropped; job1 remains queued on both.
   runtime_core.ordered_queue(core_a, ordered_address)
@@ -340,16 +354,16 @@ pub fn acquired_job_re_releases_on_client_leave_test() -> Nil {
       ordered_address,
       json.string("job1"),
     ))
-  let assert [add1_op] = add1
+  let assert [add1_operation] = add1
   let #(core_a, core_b, sequence_number, _) =
-    drive(core_a, core_b, id_a, sequence_number, add1_op)
+    drive(core_a, core_b, id_a, sequence_number, add1_operation)
 
   // B acquires job1; it becomes B's held job on both replicas.
   let #(core_b, acq) =
     expect_ok(runtime_core.ordered_acquire(core_b, ordered_address, "acq-1"))
-  let assert [acq_op] = acq
+  let assert [acq_operation] = acq
   let #(core_a, _core_b, sequence_number, _) =
-    drive(core_a, core_b, id_b, sequence_number, acq_op)
+    drive(core_a, core_b, id_b, sequence_number, acq_operation)
   runtime_core.ordered_size(core_a, ordered_address) |> expect.to_equal(Ok(0))
   runtime_core.ordered_jobs(core_a, ordered_address)
   |> list.length
@@ -370,15 +384,15 @@ pub fn acquired_job_re_releases_on_client_leave_test() -> Nil {
   // A can now re-acquire the freed job.
   let #(core_a, acq2) =
     expect_ok(runtime_core.ordered_acquire(core_a, ordered_address, "acq-2"))
-  let assert [acq2_op] = acq2
+  let assert [acq2_operation] = acq2
   let #(core_a, ingested_a) =
-    ingest(core_a, sequenced_message(id_a, sequence_number + 2, acq2_op))
+    ingest(core_a, sequenced_message(id_a, sequence_number + 2, acq2_operation))
   acquired_value(ingested_a.events)
   |> expect.to_equal(Some(json.to_string(json.string("job1"))))
 }
 
 /// A membership `"leave"` for a client that holds no jobs (and matches no
-/// per-client state) is a harmless no-op: the queue is untouched.
+/// per-client state) is a harmless no-operation: the queue is untouched.
 pub fn leave_for_unrelated_client_is_noop_test() -> Nil {
   let #(core_a, core_b, sequence_number) = attached_pair()
 
@@ -388,9 +402,9 @@ pub fn leave_for_unrelated_client_is_noop_test() -> Nil {
       ordered_address,
       json.string("job1"),
     ))
-  let assert [add1_op] = add1
+  let assert [add1_operation] = add1
   let #(core_a, _core_b, sequence_number, _) =
-    drive(core_a, core_b, id_a, sequence_number, add1_op)
+    drive(core_a, core_b, id_a, sequence_number, add1_operation)
 
   let #(core_a, ingested) =
     ingest(core_a, leave_msg("phantom_99", sequence_number + 1))
@@ -444,8 +458,8 @@ fn added_value(
 }
 
 /// Bootstrap two clients and attach an ordered collection created by A, driving
-/// A's attach ops through both cores so their watermarks match. Returns the two
-/// cores and the next sequence number.
+/// A's attach operations through both cores so their watermarks match. Returns
+/// the two cores and the next sequence number.
 fn attached_pair() -> #(Core, Core, Int) {
   let core_a =
     bootstrap(id_a)
@@ -472,15 +486,15 @@ fn attached_pair() -> #(Core, Core, Int) {
 }
 
 /// Sequence `out` to both cores in order, keeping the A/B identities stable.
-/// `author` names the submitting client; that core acks its own op while the
-/// other applies it remotely. Returns both cores (A, B order), the advanced
+/// `author` names the submitting client; that core acks its own operation while
+/// the other applies it remotely. Returns both cores (A, B order), the advanced
 /// sequence number, and the events the *author*'s core produced.
 fn drive(
   core_a: Core,
   core_b: Core,
   author: String,
   sequence_number: Int,
-  out: wire.OutboundOp,
+  out: wire.OutboundOperation,
 ) -> #(Core, Core, Int, List(#(String, channel.ChannelEvent))) {
   let sequenced = sequenced_message(author, sequence_number + 1, out)
   let #(core_a, ingested_a) = ingest(core_a, sequenced)

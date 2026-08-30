@@ -5,7 +5,7 @@ import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt } from "../../lib/excerpt";
 import schemaModule from "../../../../src/watershed/schema.gleam?raw";
 import watershedMain from "../../../../src/watershed.gleam?raw";
-import retroSchema from "../../../../examples/retro_tutorial_lustre/src/doc_schema.gleam?raw";
+import retroSchema from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/doc_schema.gleam?raw";
 import showcaseSchema from "../../../../examples/showcase_lustre/src/showcase_lustre/doc_schema.gleam?raw";
 import sudokuSchema from "../../../../examples/sudoku_lustre/src/sudoku_lustre/doc_schema.gleam?raw";
 import scoreboard from "../../../../examples/scoreboard_cli/src/scoreboard_cli.gleam?raw";
@@ -42,7 +42,7 @@ const getField = excerpt(watershedMain, "pub fn get_field(");
 
 const playerSchema = excerpt(
   scoreboard,
-  "fn player_schema() -> schema.Schema(Player, PlayerState) {",
+  "fn player_schema() -> Result(schema.Schema(Player, PlayerState), Nil) {",
 );
 const stampFn = excerpt(watershedMain, "pub fn stamp(");
 ---

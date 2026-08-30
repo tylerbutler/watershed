@@ -14,8 +14,8 @@
 ////
 //// The members of an object stay sorted by key, so structural equality (`==`)
 //// is a valid convergence oracle. This port does not model the old `si` and
-//// `sd` string ops. Use the `text0` subtype (`t` with `o`) instead, the same
-//// as current json0 usage.
+//// `sd` string operations. Use the `text0` subtype (`t` with `o`) instead, the
+//// same as current json0 usage.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
@@ -56,8 +56,8 @@ pub type PathKey {
   Index(Int)
 }
 
-/// One component of a json0 op: a path with the edit fields that are set. A
-/// component sets one family of fields at most. There are two deliberate
+/// One component of a json0 operation: a path with the edit fields that are
+/// set. A component sets one family of fields at most. There are two deliberate
 /// exceptions: `oi` with `od` is an object replace, and `li` with `ld` is a
 /// list replace.
 pub type Component {
@@ -73,8 +73,8 @@ pub type Component {
   )
 }
 
-/// An op is an ordered list of components.
-pub type Op =
+/// An operation is an ordered list of components.
+pub type Operation =
   List(Component)
 
 pub type Side {
@@ -148,9 +148,9 @@ pub fn number_add(path: List(PathKey), delta: Num) -> Component {
 pub fn subtype_component(
   path: List(PathKey),
   name: String,
-  op: JsonValue,
+  operation: JsonValue,
 ) -> Component {
-  Component(..empty(path), subtype: Some(#(name, op)))
+  Component(..empty(path), subtype: Some(#(name, operation)))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -212,10 +212,13 @@ fn num_negate(a: Num) -> Num {
 // apply
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Apply a full op to a document, one component at a time. This is the
+/// Apply a full operation to a document, one component at a time. This is the
 /// `apply` function of json0.
-pub fn apply(doc: JsonValue, op: Op) -> Result(JsonValue, OtError) {
-  list.try_fold(op, doc, apply_component)
+pub fn apply(
+  doc: JsonValue,
+  operation: Operation,
+) -> Result(JsonValue, OtError) {
+  list.try_fold(operation, doc, apply_component)
 }
 
 fn apply_component(
@@ -293,8 +296,8 @@ fn edit_root(doc: JsonValue, c: Component) -> Result(JsonValue, OtError) {
         VNull | VBool(_) | VString(_) | VArray(_) | VObject(_) ->
           Error(BadValue("na target is not a number"))
       }
-    Component(subtype: Some(#(name, sub_op)), ..) ->
-      apply_subtype(name, doc, sub_op)
+    Component(subtype: Some(#(name, sub_operation)), ..) ->
+      apply_subtype(name, doc, sub_operation)
     Component(od: Some(_), ..) -> Ok(VNull)
     Component(oi: None, na: None, subtype: None, od: None, ..) ->
       Error(BadValue("invalid or missing instruction at root"))
@@ -332,9 +335,9 @@ fn edit_object_member(
                 Error(BadValue("na target is not a number"))
             }
           })
-        Component(subtype: Some(#(name, sub_op)), ..) ->
+        Component(subtype: Some(#(name, sub_operation)), ..) ->
           edit_member_value(members, key, fn(v) {
-            apply_subtype(name, v, sub_op)
+            apply_subtype(name, v, sub_operation)
           })
         Component(oi: None, od: None, na: None, subtype: None, ..) ->
           Error(BadValue("invalid object edit at key " <> key))
@@ -394,9 +397,9 @@ fn edit_list_element(
                 Error(BadValue("na target is not a number"))
             }
           })
-        Component(subtype: Some(#(name, sub_op)), ..) ->
+        Component(subtype: Some(#(name, sub_operation)), ..) ->
           edit_element_value(items, index, fn(v) {
-            apply_subtype(name, v, sub_op)
+            apply_subtype(name, v, sub_operation)
           })
         Component(li: None, ld: None, lm: None, na: None, subtype: None, ..) ->
           Error(BadValue("invalid list edit"))
@@ -485,7 +488,8 @@ fn list_move_element(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The path length of a component, adjusted the same way as in json0. An `na`
-/// op and a subtype op both reach one step deeper than their explicit path.
+/// operation and a subtype operation both reach one step deeper than their
+/// explicit path.
 fn adjusted_length(c: Component) -> Int {
   let extra = case c.na, c.subtype {
     None, None -> 0
@@ -589,7 +593,7 @@ fn set_idx_at(path: List(PathKey), i: Int, value: Int) -> List(PathKey) {
 // compose-append (json0 `append`): merges adjacent same-path components
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn append(dest: Op, c: Component) -> Op {
+fn append(dest: Operation, c: Component) -> Operation {
   case split_last_component(dest) {
     Error(Nil) -> [c]
     Ok(#(init, last)) ->
@@ -653,8 +657,10 @@ fn last_index_of(path: List(PathKey)) -> Result(Int, Nil) {
   }
 }
 
-fn split_last_component(op: Op) -> Result(#(Op, Component), Nil) {
-  case list.reverse(op) {
+fn split_last_component(
+  operation: Operation,
+) -> Result(#(Operation, Component), Nil) {
+  case list.reverse(operation) {
     [] -> Error(Nil)
     [last, ..reversed_init] -> Ok(#(list.reverse(reversed_init), last))
   }
@@ -664,51 +670,60 @@ fn split_last_component(op: Op) -> Result(#(Op, Component), Nil) {
 // transform (TP1) — json0 `transformComponent` + `bootstrapTransform`
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Transform `op` so that it applies after `other`. `side` breaks a tie, and
-/// it is the `left` and `right` pair of json0. The TP1 property holds: for any
-/// concurrent pair,
-/// `apply(apply(d,a), transform(b,a,Rgt)) == apply(apply(d,b), transform(a,b,Lft))`.
-pub fn transform(op: Op, other: Op, side: Side) -> Result(Op, OtError) {
+/// Transform `operation` so that it applies after `other`. `side` breaks a tie,
+/// and it is the `left` and `right` pair of json0. The TP1 property holds: for
+/// any concurrent pair, `apply(apply(d,a), transform(b,a,Rgt)) ==
+/// apply(apply(d,b), transform(a,b,Lft))`.
+pub fn transform(
+  operation: Operation,
+  other: Operation,
+  side: Side,
+) -> Result(Operation, OtError) {
   case other {
-    [] -> Ok(op)
+    [] -> Ok(operation)
     _ ->
-      case op, other {
+      case operation, other {
         [a], [b] -> transform_component_into([], a, b, side)
         _, _ ->
           case side {
-            Lft -> transform_x(op, other) |> result.map(fn(pair) { pair.0 })
-            Rgt -> transform_x(other, op) |> result.map(fn(pair) { pair.1 })
+            Lft ->
+              transform_x(operation, other) |> result.map(fn(pair) { pair.0 })
+            Rgt ->
+              transform_x(other, operation) |> result.map(fn(pair) { pair.1 })
           }
       }
   }
 }
 
 fn transform_component_into(
-  dest: Op,
+  dest: Operation,
   c: Component,
   other: Component,
   side: Side,
-) -> Result(Op, OtError) {
+) -> Result(Operation, OtError) {
   use to_append <- result.try(transform_component(c, other, side))
   Ok(list.fold(to_append, dest, append))
 }
 
-/// The `transformX` function of json0. It cross-transforms two ops in N²
+/// The `transformX` function of json0. It cross-transforms two operations in N²
 /// steps, and it returns `#(leftOp', rightOp')`.
-fn transform_x(left_op: Op, right_op: Op) -> Result(#(Op, Op), OtError) {
-  do_transform_x(right_op, left_op, [])
+fn transform_x(
+  left_operation: Operation,
+  right_operation: Operation,
+) -> Result(#(Operation, Operation), OtError) {
+  do_transform_x(right_operation, left_operation, [])
 }
 
 fn do_transform_x(
-  right_op: Op,
-  left_op: Op,
-  new_right: Op,
-) -> Result(#(Op, Op), OtError) {
-  case right_op {
-    [] -> Ok(#(left_op, new_right))
+  right_operation: Operation,
+  left_operation: Operation,
+  new_right: Operation,
+) -> Result(#(Operation, Operation), OtError) {
+  case right_operation {
+    [] -> Ok(#(left_operation, new_right))
     [right_c, ..rest_right] -> {
       use #(new_left, new_right2) <- result.try(inner_loop(
-        left_op,
+        left_operation,
         right_c,
         [],
         new_right,
@@ -719,11 +734,11 @@ fn do_transform_x(
 }
 
 fn inner_loop(
-  left_remaining: Op,
+  left_remaining: Operation,
   right_c: Component,
-  new_left: Op,
-  new_right: Op,
-) -> Result(#(Op, Op), OtError) {
+  new_left: Operation,
+  new_right: Operation,
+) -> Result(#(Operation, Operation), OtError) {
   case left_remaining {
     [] -> Ok(#(new_left, append(new_right, right_c)))
     [l, ..rest] -> {
@@ -862,7 +877,7 @@ fn transform_other_subtype(
       case c.subtype {
         Some(#(cname, cop)) if cname == oname -> {
           use res <- result.try(subtype_transform(oname, cop, oop, side))
-          case is_empty_subtype_op(res) {
+          case is_empty_subtype_operation(res) {
             True -> Ok([])
             False -> Ok([Component(..c, subtype: Some(#(oname, res)))])
           }
@@ -1019,7 +1034,7 @@ fn other_oi_branch(
       // branches, which both drop `c` when `!common_operand`. Canonical json0
       // omits this guard because it never generates a deeper concurrent edit
       // from a shared base; watershed's optimistic clients can, so we converge
-      // it here rather than emit an inapplicable op.
+      // it here rather than emit an inapplicable operation.
       case common_operand {
         False -> []
         True ->
@@ -1205,10 +1220,11 @@ fn lm_vs_lm(
 // invert (json0 `invert`) — powers rollback
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Invert an op, so that `apply(apply(doc, op), invert(op)) == doc`. A delete
-/// carries its pre-image, so the caller needs no external snapshot.
-pub fn invert(op: Op) -> Op {
-  list.reverse(op) |> list.map(invert_component)
+/// Invert an operation, so that `apply(apply(doc, operation),
+/// invert(operation)) == doc`. A delete carries its pre-image, so the caller
+/// needs no external snapshot.
+pub fn invert(operation: Operation) -> Operation {
+  list.reverse(operation) |> list.map(invert_component)
 }
 
 fn invert_component(c: Component) -> Component {
@@ -1251,15 +1267,16 @@ fn invert_component(c: Component) -> Component {
 // Subtype registry (only `text0` ships; container stays name-generic)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Apply a subtype op to a value. Rung 4 (`text0`) completes this function.
-/// Before that, an unknown subtype gives an error. It does not do nothing.
+/// Apply a subtype operation to a value. Rung 4 (`text0`) completes this
+/// function. Before that, an unknown subtype gives an error. It does not do
+/// nothing.
 pub fn apply_subtype(
   name: String,
   value: JsonValue,
-  sub_op: JsonValue,
+  sub_operation: JsonValue,
 ) -> Result(JsonValue, OtError) {
   case name {
-    "text0" -> text0_apply(value, sub_op)
+    "text0" -> text0_apply(value, sub_operation)
     _ -> Error(UnknownSubtype(name))
   }
 }
@@ -1268,8 +1285,8 @@ fn is_known_subtype(name: String) -> Bool {
   name == "text0"
 }
 
-/// Transform the subtype op `a` past `b`. Rung 4 (`text0`) completes this
-/// function.
+/// Transform the subtype operation `a` past `b`. Rung 4 (`text0`) completes
+/// this function.
 fn subtype_transform(
   name: String,
   a: JsonValue,
@@ -1282,27 +1299,27 @@ fn subtype_transform(
   }
 }
 
-/// A subtype op is empty when its op list is empty. Drop the component in that
-/// case.
-fn is_empty_subtype_op(op: JsonValue) -> Bool {
-  op == VArray([])
+/// A subtype operation is empty when its operation list is empty. Drop the
+/// component in that case.
+fn is_empty_subtype_operation(operation: JsonValue) -> Bool {
+  operation == VArray([])
 }
 
-/// Invert a subtype op. This is an identity placeholder until rung 4 adds
-/// text0.
-fn invert_subtype(name: String, op: JsonValue) -> JsonValue {
+/// Invert a subtype operation. This is an identity placeholder until rung 4
+/// adds text0.
+fn invert_subtype(name: String, operation: JsonValue) -> JsonValue {
   case name {
-    "text0" -> text0_invert(op)
-    _ -> op
+    "text0" -> text0_invert(operation)
+    _ -> operation
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // text0 subtype — a full port of ottypes/json0's `lib/text0.js` (+ the
-// `bootstrapTransform` N² driver). The document is a `VString`; a text0 op is a
-// `VArray` of components, each a `VObject` carrying `p` (position) and exactly
-// one of `i` (insert) / `d` (delete). Internally we parse to a typed `TextComp`
-// list, run the algebra, and serialize back.
+// `bootstrapTransform` N² driver). The document is a `VString`; a text0
+// operation is a `VArray` of components, each a `VObject` carrying `p`
+// (position) and exactly one of `i` (insert) / `d` (delete). Internally we
+// parse to a typed `TextComp` list, run the algebra, and serialize back.
 // ─────────────────────────────────────────────────────────────────────────────
 
 type TextComp {
@@ -1310,8 +1327,10 @@ type TextComp {
   TDel(p: Int, s: String)
 }
 
-fn text0_parse_op(op: JsonValue) -> Result(List(TextComp), OtError) {
-  case op {
+fn text0_parse_operation(
+  operation: JsonValue,
+) -> Result(List(TextComp), OtError) {
+  case operation {
     VArray(items) -> list.try_map(items, text0_parse_component)
     VNull | VBool(_) | VNumber(_) | VString(_) | VObject(_) ->
       Error(BadValue("text0 op must be an array"))
@@ -1343,8 +1362,8 @@ fn text0_parse_component(component: JsonValue) -> Result(TextComp, OtError) {
   }
 }
 
-fn text0_serialize_op(op: List(TextComp)) -> JsonValue {
-  VArray(list.map(op, text0_serialize_component))
+fn text0_serialize_operation(operation: List(TextComp)) -> JsonValue {
+  VArray(list.map(operation, text0_serialize_component))
 }
 
 fn text0_serialize_component(component: TextComp) -> JsonValue {
@@ -1368,29 +1387,32 @@ fn text0_is_empty_component(component: TextComp) -> Bool {
   }
 }
 
-/// Append `component` to `op`. The function drops a component that does
+/// Append `component` to `operation`. The function drops a component that does
 /// nothing, and it composes two adjacent inserts or two adjacent deletes, the
-/// same as the `text._append` function of json0. `op` is in the normal order,
-/// which is the execution order.
-fn text0_append(op: List(TextComp), component: TextComp) -> List(TextComp) {
+/// same as the `text._append` function of json0. `operation` is in the normal
+/// order, which is the execution order.
+fn text0_append(
+  operation: List(TextComp),
+  component: TextComp,
+) -> List(TextComp) {
   case text0_is_empty_component(component) {
-    True -> op
+    True -> operation
     False ->
-      case text0_split_last(op) {
+      case text0_split_last(operation) {
         Error(Nil) -> [component]
         Ok(#(leading, last)) ->
           case text0_merge(last, component) {
             Ok(merged) -> list.append(leading, [merged])
-            Error(Nil) -> list.append(op, [component])
+            Error(Nil) -> list.append(operation, [component])
           }
       }
   }
 }
 
 fn text0_split_last(
-  op: List(TextComp),
+  operation: List(TextComp),
 ) -> Result(#(List(TextComp), TextComp), Nil) {
-  case list.reverse(op) {
+  case list.reverse(operation) {
     [] -> Error(Nil)
     [last, ..rest] -> Ok(#(list.reverse(rest), last))
   }
@@ -1460,12 +1482,15 @@ fn text0_transform_component(
       ))
     TDel(cp, cs) ->
       case other {
-        TIns(op, os) -> {
+        TIns(operation, os) -> {
           // Delete vs insert: split the delete around the inserted text.
-          let #(destination, remaining) = case cp < op {
+          let #(destination, remaining) = case cp < operation {
             True -> #(
-              text0_append(destination, TDel(cp, string.slice(cs, 0, op - cp))),
-              string.drop_start(cs, op - cp),
+              text0_append(
+                destination,
+                TDel(cp, string.slice(cs, 0, operation - cp)),
+              ),
+              string.drop_start(cs, operation - cp),
             )
             False -> #(destination, cs)
           }
@@ -1478,33 +1503,33 @@ fn text0_transform_component(
               ))
           }
         }
-        TDel(op, os) -> {
+        TDel(operation, os) -> {
           let clen = string.length(cs)
           let olen = string.length(os)
-          case cp >= op + olen {
+          case cp >= operation + olen {
             True -> Ok(text0_append(destination, TDel(cp - olen, cs)))
             False ->
-              case cp + clen <= op {
+              case cp + clen <= operation {
                 True -> Ok(text0_append(destination, component))
                 False -> {
                   // The deletes overlap: keep only the portions `other` did not
                   // already remove.
-                  let part1 = case cp < op {
-                    True -> string.slice(cs, 0, op - cp)
+                  let part1 = case cp < operation {
+                    True -> string.slice(cs, 0, operation - cp)
                     False -> ""
                   }
-                  let part2 = case cp + clen > op + olen {
-                    True -> string.drop_start(cs, op + olen - cp)
+                  let part2 = case cp + clen > operation + olen {
+                    True -> string.drop_start(cs, operation + olen - cp)
                     False -> ""
                   }
                   let new_d = part1 <> part2
-                  let intersect_start = int.max(cp, op)
-                  let intersect_end = int.min(cp + clen, op + olen)
+                  let intersect_start = int.max(cp, operation)
+                  let intersect_end = int.min(cp + clen, operation + olen)
                   let intersect_len = intersect_end - intersect_start
                   let c_intersect =
                     string.slice(cs, intersect_start - cp, intersect_len)
                   let o_intersect =
-                    string.slice(os, intersect_start - op, intersect_len)
+                    string.slice(os, intersect_start - operation, intersect_len)
                   use _ <- result.try(case c_intersect == o_intersect {
                     True -> Ok(Nil)
                     False ->
@@ -1529,48 +1554,49 @@ fn text0_transform_component(
 }
 
 /// The recursive N² transform driver, which is `bootstrapTransform.transformX`
-/// in json0. It returns `#(left', right')`, where each op is transformed past
-/// the other.
+/// in json0. It returns `#(left', right')`, where each operation is transformed
+/// past the other.
 fn text0_transform_x(
-  left_op: List(TextComp),
-  right_op: List(TextComp),
+  left_operation: List(TextComp),
+  right_operation: List(TextComp),
 ) -> Result(#(List(TextComp), List(TextComp)), OtError) {
-  text0_tx_outer(left_op, right_op, [])
+  text0_tx_outer(left_operation, right_operation, [])
 }
 
 fn text0_tx_outer(
-  left_op: List(TextComp),
-  right_op: List(TextComp),
-  new_right_op: List(TextComp),
+  left_operation: List(TextComp),
+  right_operation: List(TextComp),
+  new_right_operation: List(TextComp),
 ) -> Result(#(List(TextComp), List(TextComp)), OtError) {
-  case right_op {
-    [] -> Ok(#(left_op, new_right_op))
+  case right_operation {
+    [] -> Ok(#(left_operation, new_right_operation))
     [right_component, ..right_rest] -> {
-      use #(new_left_op, new_right_op) <- result.try(text0_tx_inner(
-        left_op,
-        right_component,
-        [],
-        new_right_op,
-      ))
-      text0_tx_outer(new_left_op, right_rest, new_right_op)
+      use #(new_left_operation, new_right_operation) <- result.try(
+        text0_tx_inner(left_operation, right_component, [], new_right_operation),
+      )
+      text0_tx_outer(new_left_operation, right_rest, new_right_operation)
     }
   }
 }
 
-/// Compose one `right_component` against the whole remaining left op. This is
-/// the inner `while` loop of `transformX`, with its split-and-recurse
+/// Compose one `right_component` against the whole remaining left operation.
+/// This is the inner `while` loop of `transformX`, with its split-and-recurse
 /// branch.
 fn text0_tx_inner(
   left: List(TextComp),
   right_component: TextComp,
-  new_left_op: List(TextComp),
-  new_right_op: List(TextComp),
+  new_left_operation: List(TextComp),
+  new_right_operation: List(TextComp),
 ) -> Result(#(List(TextComp), List(TextComp)), OtError) {
   case left {
-    [] -> Ok(#(new_left_op, text0_append(new_right_op, right_component)))
+    [] ->
+      Ok(#(
+        new_left_operation,
+        text0_append(new_right_operation, right_component),
+      ))
     [lc, ..lrest] -> {
-      use new_left_op <- result.try(text0_transform_component(
-        new_left_op,
+      use new_left_operation <- result.try(text0_transform_component(
+        new_left_operation,
         lc,
         right_component,
         Lft,
@@ -1582,16 +1608,21 @@ fn text0_tx_inner(
         Rgt,
       ))
       case next_c {
-        [only] -> text0_tx_inner(lrest, only, new_left_op, new_right_op)
-        [] -> Ok(#(list.fold(lrest, new_left_op, text0_append), new_right_op))
+        [only] ->
+          text0_tx_inner(lrest, only, new_left_operation, new_right_operation)
+        [] ->
+          Ok(#(
+            list.fold(lrest, new_left_operation, text0_append),
+            new_right_operation,
+          ))
         _ -> {
           use #(pair_left, pair_right) <- result.try(text0_transform_x(
             lrest,
             next_c,
           ))
           Ok(#(
-            list.fold(pair_left, new_left_op, text0_append),
-            list.fold(pair_right, new_right_op, text0_append),
+            list.fold(pair_left, new_left_operation, text0_append),
+            list.fold(pair_right, new_right_operation, text0_append),
           ))
         }
       }
@@ -1599,23 +1630,23 @@ fn text0_tx_inner(
   }
 }
 
-fn text0_transform_ops(
-  op: List(TextComp),
+fn text0_transform_operations(
+  operation: List(TextComp),
   other: List(TextComp),
   side: Side,
 ) -> Result(List(TextComp), OtError) {
-  case other, op {
-    [], _ -> Ok(op)
+  case other, operation {
+    [], _ -> Ok(operation)
     [single_other], [single] ->
       text0_transform_component([], single, single_other, side)
     _, _ ->
       case side {
         Lft -> {
-          use #(left, _right) <- result.try(text0_transform_x(op, other))
+          use #(left, _right) <- result.try(text0_transform_x(operation, other))
           Ok(left)
         }
         Rgt -> {
-          use #(_left, right) <- result.try(text0_transform_x(other, op))
+          use #(_left, right) <- result.try(text0_transform_x(other, operation))
           Ok(right)
         }
       }
@@ -1624,13 +1655,13 @@ fn text0_transform_ops(
 
 fn text0_apply(
   value: JsonValue,
-  sub_op: JsonValue,
+  sub_operation: JsonValue,
 ) -> Result(JsonValue, OtError) {
   case value {
     VString(s) -> {
-      use op <- result.try(text0_parse_op(sub_op))
+      use operation <- result.try(text0_parse_operation(sub_operation))
       use result <- result.try(
-        list.try_fold(op, s, fn(snapshot, component) {
+        list.try_fold(operation, s, fn(snapshot, component) {
           case component {
             TIns(p, i) -> Ok(str_inject(snapshot, p, i))
             TDel(p, d) -> {
@@ -1662,15 +1693,15 @@ fn text0_transform(
   b: JsonValue,
   side: Side,
 ) -> Result(JsonValue, OtError) {
-  use aop <- result.try(text0_parse_op(a))
-  use bop <- result.try(text0_parse_op(b))
-  use result <- result.try(text0_transform_ops(aop, bop, side))
-  Ok(text0_serialize_op(result))
+  use aop <- result.try(text0_parse_operation(a))
+  use bop <- result.try(text0_parse_operation(b))
+  use result <- result.try(text0_transform_operations(aop, bop, side))
+  Ok(text0_serialize_operation(result))
 }
 
-fn text0_invert(op: JsonValue) -> JsonValue {
-  case text0_parse_op(op) {
-    Error(_) -> op
+fn text0_invert(operation: JsonValue) -> JsonValue {
+  case text0_parse_operation(operation) {
+    Error(_) -> operation
     Ok(components) ->
       components
       |> list.reverse
@@ -1680,7 +1711,7 @@ fn text0_invert(op: JsonValue) -> JsonValue {
           TDel(p, s) -> TIns(p, s)
         }
       })
-      |> text0_serialize_op
+      |> text0_serialize_operation
   }
 }
 
@@ -1739,16 +1770,16 @@ pub fn parse_json(raw: String) -> Result(JsonValue, Nil) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Op wire codec (json0's on-the-wire component array)
+// Operation wire codec (json0's on-the-wire component array)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Encode an op as a json0 component array:
+/// Encode an operation as a json0 component array:
 /// `[{p, oi?, od?, li?, ld?, lm?, na?, t?/o?}, …]`. A path is an array of
 /// strings, which are object keys, or of integers, which are indices. Each
-/// value goes through `to_json` and back. The `#(name, op)` pair of a subtype
-/// becomes the `t` and `o` fields.
-pub fn op_to_json(op: Op) -> Json {
-  json.array(op, component_to_json)
+/// value goes through `to_json` and back. The `#(name, operation)` pair of a
+/// subtype becomes the `t` and `o` fields.
+pub fn operation_to_json(operation: Operation) -> Json {
+  json.array(operation, component_to_json)
 }
 
 fn component_to_json(c: Component) -> Json {
@@ -1761,10 +1792,10 @@ fn component_to_json(c: Component) -> Json {
   let fields = append_field(fields, "na", c.na, num_to_json)
   let fields = case c.subtype {
     None -> fields
-    Some(#(name, sub_op)) ->
+    Some(#(name, sub_operation)) ->
       list.append(fields, [
         #("t", json.string(name)),
-        #("o", to_json(sub_op)),
+        #("o", to_json(sub_operation)),
       ])
   }
   json.object(fields)
@@ -1796,9 +1827,9 @@ fn num_to_json(n: Num) -> Json {
   }
 }
 
-/// The decoder for a json0 op from parsed JSON. It is the inverse of
-/// `op_to_json`.
-pub fn op_decoder() -> Decoder(Op) {
+/// The decoder for a json0 operation from parsed JSON. It is the inverse of
+/// `operation_to_json`.
+pub fn operation_decoder() -> Decoder(Operation) {
   decode.list(component_decoder())
 }
 
@@ -1811,9 +1842,9 @@ fn component_decoder() -> Decoder(Component) {
   use lm <- decode.optional_field("lm", None, decode.map(decode.int, Some))
   use na <- decode.optional_field("na", None, num_opt_decoder())
   use subtype <- decode.optional_field("t", None, subtype_name_opt_decoder())
-  use sub_op <- decode.optional_field("o", VNull, decoder())
+  use sub_operation <- decode.optional_field("o", VNull, decoder())
   let subtype = case subtype {
-    Some(name) -> Some(#(name, sub_op))
+    Some(name) -> Some(#(name, sub_operation))
     None -> None
   }
   decode.success(Component(

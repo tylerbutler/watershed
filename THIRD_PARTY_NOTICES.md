@@ -18,9 +18,9 @@ as required by their licenses.
 - **Derived modules:** `src/watershed/rich_text.gleam`,
   `src/watershed/rich_text_kernel.gleam`,
   `src/watershed/rich_text/attribute_map.gleam`,
-  `src/watershed/rich_text/op_iterator.gleam` (the Delta apply/compose/
-  transform/invert algebra and its `type`/attribute-map/op-iterator support
-  code)
+  `src/watershed/rich_text/operation_iterator.gleam` (the Delta apply/compose/
+  transform/invert algebra and its `type`/attribute-map/operation-iterator
+  support code)
 
 ```
 The MIT License (MIT)

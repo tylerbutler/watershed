@@ -2,12 +2,12 @@
 //// state-based delta CRDT (`lattice_counters/pn_counter`), and not with
 //// arithmetic that this project writes.
 ////
-//// `counter_kernel` adds the op amounts. This kernel merges CRDT deltas.
-//// `merge` is commutative, associative, and idempotent. To merge a delta that
-//// already applied thus changes nothing, whether that delta comes from a stash
-//// replay, a resend, or a duplicate delivery. A summary is the sequenced CRDT
-//// state, and a load is `merge(new(my_id), summary)`. There is no special
-//// rebase.
+//// `counter_kernel` adds the operation amounts. This kernel merges CRDT
+//// deltas. `merge` is commutative, associative, and idempotent. To merge a
+//// delta that already applied thus changes nothing, whether that delta comes
+//// from a stash replay, a resend, or a duplicate delivery. A summary is the
+//// sequenced CRDT state, and a load is `merge(new(my_id), summary)`. There is
+//// no special rebase.
 ////
 //// The kernel is identified by replica. Every client must construct it with a
 //// unique `ReplicaId`. Without that, concurrent updates max-merge onto one
@@ -33,30 +33,31 @@ pub type PnCounterState {
     /// cumulative count from the correct base. `check_cache_coherence` checks
     /// that the cache agrees.
     optimistic: PNCounter,
-    /// A FIFO queue of the local ops in flight, oldest first, the same as in
-    /// `counter_kernel`.
+    /// A FIFO queue of the local operations in flight, oldest first, the same
+    /// as in `counter_kernel`.
     pending: List(PendingDelta),
     next_pending_message_id: Int,
   )
 }
 
-/// A submitted local op with the local metadata that matches the acks and the
-/// rollbacks. The metadata is local only. It is not part of the wire op.
+/// A submitted local operation with the local metadata that matches the acks
+/// and the rollbacks. The metadata is local only. It is not part of the wire
+/// operation.
 pub type PendingDelta {
   PendingDelta(delta: PNCounter, amount: Int, message_id: Int)
 }
 
-/// The wire op: the CRDT delta with the signed intent amount. The delta alone
-/// would converge. The op keeps `amount` for the ack and rollback checks, for
-/// the event reports, for independence from the oracle, and to make a failure
-/// dump readable.
-pub type PnCounterOp {
+/// The wire operation: the CRDT delta with the signed intent amount. The delta
+/// alone would converge. The operation keeps `amount` for the ack and rollback
+/// checks, for the event reports, for independence from the oracle, and to make
+/// a failure dump readable.
+pub type PnCounterOperation {
   Update(amount: Int, delta: PNCounter)
 }
 
 pub type PnCounterEvent {
   /// `applied` is the observed change of the value. For a remote delta it can
-  /// differ from the nominal amount of the op, when the state already
+  /// differ from the nominal amount of the operation, when the state already
   /// contained part of that delta. The kernel emits no event at all when the
   /// whole merge changed nothing, which occurs for an idempotent duplicate. A
   /// local update always reports its amount, and zero is an amount.
@@ -68,8 +69,8 @@ pub type PnCounterEvent {
 /// with the pending queue. A runtime caller must treat this error as fatal. It
 /// must not continue with divergent state.
 pub type KernelError {
-  UnexpectedAck(op: PnCounterOp, detail: String)
-  UnexpectedRollback(op: PnCounterOp, detail: String)
+  UnexpectedAck(operation: PnCounterOperation, detail: String)
+  UnexpectedRollback(operation: PnCounterOperation, detail: String)
 }
 
 pub fn new(replica_id: ReplicaId) -> PnCounterState {
@@ -94,13 +95,13 @@ pub fn sequenced_value(state: PnCounterState) -> Int {
   pn_counter.value(state.sequenced)
 }
 
-/// Apply a signed local update optimistically, and return the outbound op with
-/// its local message id. This function handles the sign, so the lattice
-/// mutators always receive a magnitude of zero or more.
+/// Apply a signed local update optimistically, and return the outbound
+/// operation with its local message id. This function handles the sign, so the
+/// lattice mutators always receive a magnitude of zero or more.
 pub fn update(
   state: PnCounterState,
   amount: Int,
-) -> #(PnCounterState, List(PnCounterEvent), PnCounterOp, Int) {
+) -> #(PnCounterState, List(PnCounterEvent), PnCounterOperation, Int) {
   let #(optimistic, delta) = signed_delta(state.optimistic, amount)
   let message_id = state.next_pending_message_id
   let new_value = pn_counter.value(optimistic)
@@ -127,7 +128,7 @@ pub fn update(
 pub fn p2p_update(
   state: PnCounterState,
   amount: Int,
-) -> #(PnCounterState, List(PnCounterEvent), PnCounterOp) {
+) -> #(PnCounterState, List(PnCounterEvent), PnCounterOperation) {
   let #(_optimistic, delta) = signed_delta(state.optimistic, amount)
   let sequenced = pn_counter.merge(state.sequenced, delta)
   let optimistic = pn_counter.merge(state.optimistic, delta)
@@ -162,7 +163,7 @@ pub fn p2p_merge(
   }
 }
 
-/// Apply a sequenced op from another client. Merge its delta into the
+/// Apply a sequenced operation from another client. Merge its delta into the
 /// sequenced base and into the optimistic cache. The lattice laws make the
 /// order against the pending deltas unimportant: `(s ⊔ d) ⊔ P = (s ⊔ P) ⊔ d`.
 /// The kernel emits the observed change of the optimistic value. A merge that
@@ -170,9 +171,9 @@ pub fn p2p_merge(
 /// contains it, emits no event.
 pub fn apply_remote(
   state: PnCounterState,
-  op: PnCounterOp,
+  operation: PnCounterOperation,
 ) -> #(PnCounterState, List(PnCounterEvent)) {
-  let Update(_, delta) = op
+  let Update(_, delta) = operation
   let before = pn_counter.value(state.optimistic)
   let optimistic = pn_counter.merge(state.optimistic, delta)
   let after = pn_counter.value(optimistic)
@@ -188,39 +189,44 @@ pub fn apply_remote(
   }
 }
 
-/// Retire the oldest pending op when the local op returns sequenced. Merge its
-/// delta into `sequenced` only. `optimistic` already contains that delta, so
-/// the observed value does not change. This is ack transparency.
+/// Retire the oldest pending operation when the local operation returns
+/// sequenced. Merge its delta into `sequenced` only. `optimistic` already
+/// contains that delta, so the observed value does not change. This is ack
+/// transparency.
 pub fn ack_local(
   state: PnCounterState,
-  op: PnCounterOp,
+  operation: PnCounterOperation,
 ) -> Result(PnCounterState, KernelError) {
-  do_ack(state, op, None)
+  do_ack(state, operation, None)
 }
 
-/// The same as `ack_local`, and it also checks the local op metadata.
+/// The same as `ack_local`, and it also checks the local operation metadata.
 pub fn ack_local_with_message_id(
   state: PnCounterState,
-  op: PnCounterOp,
+  operation: PnCounterOperation,
   message_id: Int,
 ) -> Result(PnCounterState, KernelError) {
-  do_ack(state, op, Some(message_id))
+  do_ack(state, operation, Some(message_id))
 }
 
 fn do_ack(
   state: PnCounterState,
-  op: PnCounterOp,
+  operation: PnCounterOperation,
   expected_message_id: Option(Int),
 ) -> Result(PnCounterState, KernelError) {
   case state.pending {
-    [] -> Error(UnexpectedAck(op, "pending queue is empty"))
+    [] -> Error(UnexpectedAck(operation, "pending queue is empty"))
     [PendingDelta(delta, amount, pending_message_id), ..rest] -> {
-      let Update(op_amount, op_delta) = op
+      let Update(operation_amount, operation_delta) = operation
       let message_id_matches = case expected_message_id {
         None -> True
         Some(message_id) -> message_id == pending_message_id
       }
-      case op_amount == amount && op_delta == delta && message_id_matches {
+      case
+        operation_amount == amount
+        && operation_delta == delta
+        && message_id_matches
+      {
         True ->
           Ok(
             PnCounterState(
@@ -231,35 +237,35 @@ fn do_ack(
           )
         False ->
           Error(UnexpectedAck(
-            op,
+            operation,
             "expected pending update "
               <> int.to_string(amount)
               <> " with message id "
               <> int.to_string(pending_message_id)
               <> ", got update "
-              <> int.to_string(op_amount),
+              <> int.to_string(operation_amount),
           ))
       }
     }
   }
 }
 
-/// Roll back the newest pending op. A merge has no inverse, so the kernel
-/// computes the optimistic cache again from `sequenced` and the pending deltas
-/// that remain. A compensating event reports the amount that the rollback
-/// removed.
+/// Roll back the newest pending operation. A merge has no inverse, so the
+/// kernel computes the optimistic cache again from `sequenced` and the pending
+/// deltas that remain. A compensating event reports the amount that the
+/// rollback removed.
 pub fn rollback(
   state: PnCounterState,
-  op: PnCounterOp,
+  operation: PnCounterOperation,
   message_id: Int,
 ) -> Result(#(PnCounterState, List(PnCounterEvent)), KernelError) {
   case pop_last(state.pending) {
-    Error(_) -> Error(UnexpectedRollback(op, "pending queue is empty"))
+    Error(_) -> Error(UnexpectedRollback(operation, "pending queue is empty"))
     Ok(#(PendingDelta(delta, amount, pending_message_id), rest)) -> {
-      let Update(op_amount, op_delta) = op
+      let Update(operation_amount, operation_delta) = operation
       case
-        op_amount == amount
-        && op_delta == delta
+        operation_amount == amount
+        && operation_delta == delta
         && message_id == pending_message_id
       {
         True -> {
@@ -276,13 +282,13 @@ pub fn rollback(
         }
         False ->
           Error(UnexpectedRollback(
-            op,
+            operation,
             "expected newest pending update "
               <> int.to_string(amount)
               <> " with message id "
               <> int.to_string(pending_message_id)
               <> ", got update "
-              <> int.to_string(op_amount)
+              <> int.to_string(operation_amount)
               <> " with message id "
               <> int.to_string(message_id),
           ))
@@ -291,21 +297,21 @@ pub fn rollback(
   }
 }
 
-/// Apply a stashed op again after a reconnect, so that it is visible
-/// optimistically and is pending again. The function returns the *same* op,
-/// for routing.
+/// Apply a stashed operation again after a reconnect, so that it is visible
+/// optimistically and is pending again. The function returns the *same*
+/// operation, for routing.
 ///
 /// The re-increment path of `counter_kernel` differs. This function merges the
-/// cumulative delta of the op. That merge is idempotent when the delta already
-/// applied, for example when the summary that the client loaded already
-/// contained it. That property is the CRDT benefit that this kernel proves.
-/// The kernel emits the observed change of the value, and it emits nothing
-/// when the merge changed nothing.
-pub fn apply_stashed_op(
+/// cumulative delta of the operation. That merge is idempotent when the delta
+/// already applied, for example when the summary that the client loaded already
+/// contained it. That property is the CRDT benefit that this kernel proves. The
+/// kernel emits the observed change of the value, and it emits nothing when the
+/// merge changed nothing.
+pub fn apply_stashed_operation(
   state: PnCounterState,
-  op: PnCounterOp,
-) -> #(PnCounterState, List(PnCounterEvent), PnCounterOp, Int) {
-  let Update(amount, delta) = op
+  operation: PnCounterOperation,
+) -> #(PnCounterState, List(PnCounterEvent), PnCounterOperation, Int) {
+  let Update(amount, delta) = operation
   let before = pn_counter.value(state.optimistic)
   let optimistic = pn_counter.merge(state.optimistic, delta)
   let after = pn_counter.value(optimistic)
@@ -323,7 +329,7 @@ pub fn apply_stashed_op(
     True -> []
     False -> [Updated(after - before, after)]
   }
-  #(new_state, events, op, message_id)
+  #(new_state, events, operation, message_id)
 }
 
 /// The summary to store: the sequenced CRDT state only. It contains no pending

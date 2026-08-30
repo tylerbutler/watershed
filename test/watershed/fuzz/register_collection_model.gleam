@@ -20,11 +20,13 @@ pub type WriteCommand {
   WriteCommand(key: String, value: Json, ref_seq: Int)
 }
 
-fn to_write(command: WriteCommand) -> register_collection_kernel.WriteOp {
+fn to_write(
+  command: WriteCommand,
+) -> register_collection_kernel.WriteOperation {
   Write(command.key, command.value, command.ref_seq)
 }
 
-fn op_to_json(command: WriteCommand) -> Json {
+fn operation_to_json(command: WriteCommand) -> Json {
   json.object([
     #("key", json.string(command.key)),
     #("value", command.value),
@@ -32,14 +34,14 @@ fn op_to_json(command: WriteCommand) -> Json {
   ])
 }
 
-fn op_decoder() -> decode.Decoder(WriteCommand) {
+fn operation_decoder() -> decode.Decoder(WriteCommand) {
   use key <- decode.field("key", decode.string)
   use value <- decode.field("value", decode.int)
   use ref_seq <- decode.field("ref_seq", decode.int)
   decode.success(WriteCommand(key, json.int(value), ref_seq))
 }
 
-fn op_generator() -> qcheck.Generator(WriteCommand) {
+fn operation_generator() -> qcheck.Generator(WriteCommand) {
   qcheck.tuple2(
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
@@ -59,14 +61,17 @@ fn submit(
   command: WriteCommand,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(RegisterState, option.Option(WriteCommand)) {
-  let op =
+  let operation =
     register_collection_kernel.write(
       state,
       command.key,
       command.value,
       meta.last_seen_seq,
     )
-  #(state, Some(WriteCommand(op.key, op.value, op.ref_seq)))
+  #(
+    state,
+    Some(WriteCommand(operation.key, operation.value, operation.ref_seq)),
+  )
 }
 
 fn apply_remote(
@@ -99,7 +104,7 @@ fn ack_local(
 
 fn oracle(entries: List(LogEntry(WriteCommand))) -> List(#(String, Register)) {
   list.index_fold(
-    kernel_fuzz.log_ops(entries),
+    kernel_fuzz.log_operations(entries),
     dict.new(),
     fn(registers, entry, i) {
       let command = entry.1
@@ -146,9 +151,9 @@ fn apply_stashed(
   command: WriteCommand,
   _meta: kernel_fuzz.SubmitMeta,
 ) -> #(RegisterState, WriteCommand) {
-  let #(state, op) =
-    register_collection_kernel.apply_stashed_op(state, to_write(command))
-  #(state, WriteCommand(op.key, op.value, op.ref_seq))
+  let #(state, operation) =
+    register_collection_kernel.apply_stashed_operation(state, to_write(command))
+  #(state, WriteCommand(operation.key, operation.value, operation.ref_seq))
 }
 
 pub fn model() -> KernelModel(
@@ -163,12 +168,12 @@ pub fn model() -> KernelModel(
     apply_remote: apply_remote,
     ack_local: ack_local,
     observe: register_collection_kernel.summary_registers,
-    gen_op: op_generator(),
+    gen_operation: operation_generator(),
     check: None,
     canonicalize: None,
     ack_preserves_view: False,
-    op_to_json: op_to_json,
-    op_decoder: op_decoder(),
+    operation_to_json: operation_to_json,
+    operation_decoder: operation_decoder(),
     capabilities: Capabilities(
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),

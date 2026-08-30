@@ -6,7 +6,7 @@
 //// under concurrency. Two tabs dragging the same track to different positions
 //// land on the same order rather than duplicating or dropping it.
 ////
-//// Op coverage, all against a single sequence:
+//// Operation coverage, all against a single sequence:
 ////
 //// - `sequence_insert` — append a track (index == current length)
 //// - `sequence_move`   — the ↑/↓ buttons; **destination is interpreted after
@@ -19,7 +19,7 @@
 //// edit can legitimately fail when an index is stale — a peer may have deleted
 //// the row out from under this tab between render and click. The app surfaces
 //// that error instead of asserting, which is the honest shape for index-
-//// addressed ops on a shared list.
+//// addressed operations on a shared list.
 ////
 //// All of that lives in `playlist_lustre/component`, a nested MVU triple that
 //// takes a `TypedMap(PlaylistDoc)` and never reaches for a root. This module

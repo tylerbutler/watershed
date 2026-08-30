@@ -1,7 +1,7 @@
 //// Pure port of FluidFramework's ConsensusOrderedCollection queue semantics.
 ////
 //// The collection is not optimistic. An attached add, acquire, complete, or
-//// release changes the committed state only when its op sequences.
+//// release changes the committed state only when its operation sequences.
 ////
 //// An acquire moves an item from the FIFO queue into job tracking. A complete
 //// or a release accepts a missing entry, because a sequenced leave can already
@@ -27,7 +27,7 @@ pub type JobEntry {
   JobEntry(value: Json, owner: Option(Int))
 }
 
-pub type OrderedOp {
+pub type OrderedOperation {
   Add(value: Json)
   Acquire(acquire_id: String)
   Complete(acquire_id: String)
@@ -50,7 +50,7 @@ pub type AcquireOutcome {
   QueueEmpty
   /// The kernel never produces this event. The runtime resolves an acquire
   /// that is still pending with `Aborted` when the document closes before the
-  /// op sequences.
+  /// operation sequences.
   Aborted
 }
 
@@ -77,19 +77,19 @@ pub fn size(state: OrderedState) -> Int {
   list.length(state.queue)
 }
 
-pub fn add(_state: OrderedState, value: Json) -> OrderedOp {
+pub fn add(_state: OrderedState, value: Json) -> OrderedOperation {
   Add(value)
 }
 
-pub fn acquire(acquire_id: String) -> OrderedOp {
+pub fn acquire(acquire_id: String) -> OrderedOperation {
   Acquire(acquire_id)
 }
 
-pub fn complete(acquire_id: String) -> OrderedOp {
+pub fn complete(acquire_id: String) -> OrderedOperation {
   Complete(acquire_id)
 }
 
-pub fn release(acquire_id: String) -> OrderedOp {
+pub fn release(acquire_id: String) -> OrderedOperation {
   Release(acquire_id)
 }
 
@@ -138,10 +138,10 @@ pub fn apply_release(
 
 pub fn apply_remote(
   state: OrderedState,
-  op: OrderedOp,
+  operation: OrderedOperation,
   author: Int,
 ) -> #(OrderedState, List(OrderedEvent)) {
-  case op {
+  case operation {
     Add(value) -> apply_add_core(state, value, True, False)
     Acquire(acquire_id) -> {
       let #(state, events, _) =
@@ -155,10 +155,10 @@ pub fn apply_remote(
 
 pub fn ack_local(
   state: OrderedState,
-  op: OrderedOp,
+  operation: OrderedOperation,
   author: Int,
 ) -> #(OrderedState, List(OrderedEvent), Option(AcquireOutcome)) {
-  case op {
+  case operation {
     Add(value) -> {
       let #(state, events) = apply_add_core(state, value, True, True)
       #(state, events, None)
@@ -234,16 +234,16 @@ pub fn on_disconnect_notify(
 
 pub fn rollback(
   state: OrderedState,
-  _op: OrderedOp,
+  _operation: OrderedOperation,
 ) -> #(OrderedState, AcquireOutcome) {
   #(state, QueueEmpty)
 }
 
-pub fn apply_stashed_op(
+pub fn apply_stashed_operation(
   state: OrderedState,
-  op: OrderedOp,
-) -> #(OrderedState, OrderedOp) {
-  #(state, op)
+  operation: OrderedOperation,
+) -> #(OrderedState, OrderedOperation) {
+  #(state, operation)
 }
 
 fn apply_add_core(

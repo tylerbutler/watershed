@@ -37,7 +37,7 @@ fn increment(
 ) -> #(
   or_map_kernel.OrMapState,
   List(or_map_kernel.OrMapEvent),
-  or_map_kernel.OrMapOp,
+  or_map_kernel.OrMapOperation,
   Int,
 ) {
   let assert Ok(result) = or_map_kernel.increment(state, key, amount)
@@ -50,7 +50,7 @@ fn remove(
 ) -> #(
   or_map_kernel.OrMapState,
   List(or_map_kernel.OrMapEvent),
-  or_map_kernel.OrMapOp,
+  or_map_kernel.OrMapOperation,
   Int,
 ) {
   let assert Ok(result) = or_map_kernel.remove(state, key)
@@ -65,7 +65,7 @@ fn set_register(
 ) -> #(
   or_map_kernel.OrMapState,
   List(or_map_kernel.OrMapEvent),
-  or_map_kernel.OrMapOp,
+  or_map_kernel.OrMapOperation,
   Int,
 ) {
   let assert Ok(result) =
@@ -75,26 +75,26 @@ fn set_register(
 
 fn remote(
   state: or_map_kernel.OrMapState,
-  op: or_map_kernel.OrMapOp,
+  operation: or_map_kernel.OrMapOperation,
 ) -> #(or_map_kernel.OrMapState, List(or_map_kernel.OrMapEvent)) {
-  let assert Ok(result) = or_map_kernel.apply_remote(state, op)
+  let assert Ok(result) = or_map_kernel.apply_remote(state, operation)
   result
 }
 
 fn ack(
   state: or_map_kernel.OrMapState,
-  op: or_map_kernel.OrMapOp,
+  operation: or_map_kernel.OrMapOperation,
 ) -> or_map_kernel.OrMapState {
-  let assert Ok(state) = or_map_kernel.ack_local(state, op)
+  let assert Ok(state) = or_map_kernel.ack_local(state, operation)
   state
 }
 
 fn rollback(
   state: or_map_kernel.OrMapState,
-  op: or_map_kernel.OrMapOp,
+  operation: or_map_kernel.OrMapOperation,
   message_id: Int,
 ) -> #(or_map_kernel.OrMapState, List(or_map_kernel.OrMapEvent)) {
-  let assert Ok(result) = or_map_kernel.rollback(state, op, message_id)
+  let assert Ok(result) = or_map_kernel.rollback(state, operation, message_id)
   result
 }
 
@@ -165,12 +165,13 @@ pub fn new_state_is_empty_test() -> Nil {
 }
 
 pub fn increment_is_optimistically_visible_test() -> Nil {
-  let #(state, events, op, message_id) = increment(new_tally("a"), "spoil", 10)
+  let #(state, events, operation, message_id) =
+    increment(new_tally("a"), "spoil", 10)
   or_map_kernel.entries(state) |> expect.to_equal([#("spoil", Tally(10))])
   or_map_kernel.sequenced_entries(state) |> expect.to_equal([])
   events |> expect.to_equal([TallyUpdated("spoil", 10, 10)])
   message_id |> expect.to_equal(0)
-  let assert Increment(key, amount, _) = op
+  let assert Increment(key, amount, _) = operation
   key |> expect.to_equal("spoil")
   amount |> expect.to_equal(10)
   expect_coherent(state)
@@ -199,8 +200,8 @@ pub fn set_register_mode_guard_test() -> Nil {
 }
 
 pub fn remote_increment_applies_delta_and_emits_diff_test() -> Nil {
-  let #(_, _, op, _) = increment(new_tally("a"), "spoil", 7)
-  let #(state, events) = remote(new_tally("b"), op)
+  let #(_, _, operation, _) = increment(new_tally("a"), "spoil", 7)
+  let #(state, events) = remote(new_tally("b"), operation)
   or_map_kernel.entries(state) |> expect.to_equal([#("spoil", Tally(7))])
   or_map_kernel.sequenced_entries(state)
   |> expect.to_equal([#("spoil", Tally(7))])
@@ -209,9 +210,9 @@ pub fn remote_increment_applies_delta_and_emits_diff_test() -> Nil {
 }
 
 pub fn duplicate_remote_delta_is_idempotent_and_silent_test() -> Nil {
-  let #(_, _, op, _) = increment(new_tally("a"), "spoil", 3)
-  let #(state, first_events) = remote(new_tally("b"), op)
-  let #(state, second_events) = remote(state, op)
+  let #(_, _, operation, _) = increment(new_tally("a"), "spoil", 3)
+  let #(state, first_events) = remote(new_tally("b"), operation)
+  let #(state, second_events) = remote(state, operation)
   or_map_kernel.entries(state) |> expect.to_equal([#("spoil", Tally(3))])
   first_events |> expect.to_equal([TallyUpdated("spoil", 3, 3)])
   second_events |> expect.to_equal([])
@@ -219,8 +220,8 @@ pub fn duplicate_remote_delta_is_idempotent_and_silent_test() -> Nil {
 }
 
 pub fn ack_local_retires_pending_without_view_change_test() -> Nil {
-  let #(state, _, op, _) = increment(new_tally("a"), "spoil", 5)
-  let state = ack(state, op)
+  let #(state, _, operation, _) = increment(new_tally("a"), "spoil", 5)
+  let state = ack(state, operation)
   or_map_kernel.entries(state) |> expect.to_equal([#("spoil", Tally(5))])
   or_map_kernel.sequenced_entries(state)
   |> expect.to_equal([#("spoil", Tally(5))])
@@ -243,15 +244,15 @@ pub fn ack_local_is_fifo_and_validates_message_id_test() -> Nil {
 }
 
 pub fn ack_without_pending_is_an_error_test() -> Nil {
-  let #(_, _, op, _) = increment(new_tally("a"), "spoil", 1)
-  expect_unexpected_ack(or_map_kernel.ack_local(new_tally("a"), op))
+  let #(_, _, operation, _) = increment(new_tally("a"), "spoil", 1)
+  expect_unexpected_ack(or_map_kernel.ack_local(new_tally("a"), operation))
 }
 
 pub fn rollback_undoes_newest_pending_and_reverts_own_tallies_test() -> Nil {
   let #(state, _, op1, _) = increment(new_tally("a"), "spoil", 12)
   let state = ack(state, op1)
-  let #(state, _, remove_op, _) = remove(state, "spoil")
-  let state = ack(state, remove_op)
+  let #(state, _, remove_operation, _) = remove(state, "spoil")
+  let state = ack(state, remove_operation)
   let #(state, _, op2, id2) = increment(state, "spoil", 5)
 
   let #(state, events) = rollback(state, op2, id2)
@@ -272,12 +273,12 @@ pub fn rollback_validates_newest_pending_metadata_test() -> Nil {
 }
 
 pub fn remove_of_present_key_hides_it_test() -> Nil {
-  let #(state, _, op, _) = increment(new_tally("a"), "spoil", 4)
-  let state = ack(state, op)
-  let #(state, events, op, _) = remove(state, "spoil")
+  let #(state, _, operation, _) = increment(new_tally("a"), "spoil", 4)
+  let state = ack(state, operation)
+  let #(state, events, operation, _) = remove(state, "spoil")
   or_map_kernel.entries(state) |> expect.to_equal([])
   events |> expect.to_equal([KeyRemoved("spoil")])
-  let assert Remove("spoil", _) = op
+  let assert Remove("spoil", _) = operation
   expect_coherent(state)
 }
 
@@ -294,11 +295,11 @@ pub fn concurrent_remove_and_increment_is_add_wins_in_both_orders_test() -> Nil 
   let a = ack(a, seed)
   let #(b, _) = remote(new_tally("b"), seed)
 
-  let #(a_after_remove, _, remove_op, _) = remove(a, "spoil")
-  let #(b_after_increment, _, increment_op, _) = increment(b, "spoil", 5)
+  let #(a_after_remove, _, remove_operation, _) = remove(a, "spoil")
+  let #(b_after_increment, _, increment_operation, _) = increment(b, "spoil", 5)
 
-  let #(a_observed, _) = remote(a_after_remove, increment_op)
-  let #(b_observed, _) = remote(b_after_increment, remove_op)
+  let #(a_observed, _) = remote(a_after_remove, increment_operation)
+  let #(b_observed, _) = remote(b_after_increment, remove_operation)
 
   or_map_kernel.entries(a_observed) |> expect.to_equal([#("spoil", Tally(15))])
   or_map_kernel.entries(b_observed) |> expect.to_equal([#("spoil", Tally(15))])
@@ -323,24 +324,25 @@ pub fn author_and_peer_do_not_diverge_after_remove_then_readd_test() -> Nil {
   let author = ack(author, seed)
   let #(peer, _) = remote(new_tally("b"), seed)
 
-  let #(author, _, remove_op, _) = remove(author, "spoil")
-  let author = ack(author, remove_op)
-  let #(peer, _) = remote(peer, remove_op)
-  let #(author, _, readd_op, _) = increment(author, "spoil", 5)
-  let author = ack(author, readd_op)
-  let #(peer, _) = remote(peer, readd_op)
+  let #(author, _, remove_operation, _) = remove(author, "spoil")
+  let author = ack(author, remove_operation)
+  let #(peer, _) = remote(peer, remove_operation)
+  let #(author, _, readd_operation, _) = increment(author, "spoil", 5)
+  let author = ack(author, readd_operation)
+  let #(peer, _) = remote(peer, readd_operation)
 
   or_map_kernel.entries(author) |> expect.to_equal([#("spoil", Tally(17))])
   or_map_kernel.entries(peer) |> expect.to_equal(or_map_kernel.entries(author))
 }
 
 pub fn register_lww_higher_timestamp_wins_test() -> Nil {
-  let #(a, _, op_a, _) = set_register(new_register("a"), "handle", "old", 10)
-  let a = ack(a, op_a)
-  let #(b, _) = remote(new_register("b"), op_a)
-  let #(b, _, op_b, _) = set_register(b, "handle", "new", 11)
-  let b = ack(b, op_b)
-  let #(a, events) = remote(a, op_b)
+  let #(a, _, operation_a, _) =
+    set_register(new_register("a"), "handle", "old", 10)
+  let a = ack(a, operation_a)
+  let #(b, _) = remote(new_register("b"), operation_a)
+  let #(b, _, operation_b, _) = set_register(b, "handle", "new", 11)
+  let b = ack(b, operation_b)
+  let #(a, events) = remote(a, operation_b)
 
   or_map_kernel.get(a, "handle") |> expect.to_equal(Ok(Register("new")))
   or_map_kernel.entries(b) |> expect.to_equal([#("handle", Register("new"))])
@@ -348,28 +350,30 @@ pub fn register_lww_higher_timestamp_wins_test() -> Nil {
 }
 
 pub fn register_lww_equal_timestamp_uses_replica_id_tiebreak_test() -> Nil {
-  let #(a, _, op_a, _) = set_register(new_register("a"), "handle", "from-a", 10)
-  let #(b, _, op_b, _) = set_register(new_register("b"), "handle", "from-b", 10)
-  let #(a, _) = remote(a, op_b)
-  let #(b, _) = remote(b, op_a)
+  let #(a, _, operation_a, _) =
+    set_register(new_register("a"), "handle", "from-a", 10)
+  let #(b, _, operation_b, _) =
+    set_register(new_register("b"), "handle", "from-b", 10)
+  let #(a, _) = remote(a, operation_b)
+  let #(b, _) = remote(b, operation_a)
 
   or_map_kernel.entries(a) |> expect.to_equal([#("handle", Register("from-b"))])
   or_map_kernel.entries(b) |> expect.to_equal(or_map_kernel.entries(a))
 }
 
 pub fn summary_round_trip_rebrands_under_loader_identity_test() -> Nil {
-  let #(state, _, op_a, _) = increment(new_tally("a"), "spoil", 3)
-  let state = ack(state, op_a)
-  let #(_, _, op_b, _) = increment(new_tally("b"), "spoil", 4)
-  let #(state, _) = remote(state, op_b)
+  let #(state, _, operation_a, _) = increment(new_tally("a"), "spoil", 3)
+  let state = ack(state, operation_a)
+  let #(_, _, operation_b, _) = increment(new_tally("b"), "spoil", 4)
+  let #(state, _) = remote(state, operation_b)
 
   let summary_json = json.to_string(or_map_kernel.summary(state))
   let assert Ok(loaded) = or_map_kernel.from_summary(summary_json, replica("c"))
   or_map_kernel.entries(loaded) |> expect.to_equal([#("spoil", Tally(7))])
   loaded.pending |> expect.to_equal([])
 
-  let #(loaded, _, op_c, _) = increment(loaded, "spoil", 1)
-  let loaded = ack(loaded, op_c)
+  let #(loaded, _, operation_c, _) = increment(loaded, "spoil", 1)
+  let loaded = ack(loaded, operation_c)
   summary_counts(loaded, "spoil", "positive")
   |> expect.to_equal(dict.from_list([#("a", 3), #("b", 4), #("c", 1)]))
 }
@@ -391,23 +395,23 @@ pub fn from_summary_rejects_invalid_or_unsupported_json_test() -> Nil {
 }
 
 pub fn summary_excludes_pending_and_later_delta_converges_test() -> Nil {
-  let #(state, _, op, _) = increment(new_tally("a"), "spoil", 9)
+  let #(state, _, operation, _) = increment(new_tally("a"), "spoil", 9)
   let summary_json = json.to_string(or_map_kernel.summary(state))
   let assert Ok(loaded) = or_map_kernel.from_summary(summary_json, replica("b"))
   or_map_kernel.entries(loaded) |> expect.to_equal([])
 
-  let #(loaded, _) = remote(loaded, op)
+  let #(loaded, _) = remote(loaded, operation)
   or_map_kernel.entries(loaded) |> expect.to_equal([#("spoil", Tally(9))])
   expect_coherent(loaded)
 }
 
 pub fn from_sequenced_rebrands_existing_map_test() -> Nil {
-  let #(state, _, op, _) = increment(new_tally("a"), "spoil", 2)
-  let state = ack(state, op)
+  let #(state, _, operation, _) = increment(new_tally("a"), "spoil", 2)
+  let state = ack(state, operation)
   let assert Ok(loaded) =
     or_map_kernel.from_sequenced(state.sequenced, TallyMode, replica("c"))
-  let #(loaded, _, op_c, _) = increment(loaded, "spoil", 1)
-  let loaded = ack(loaded, op_c)
+  let #(loaded, _, operation_c, _) = increment(loaded, "spoil", 1)
+  let loaded = ack(loaded, operation_c)
   summary_counts(loaded, "spoil", "positive")
   |> expect.to_equal(dict.from_list([#("a", 2), #("c", 1)]))
 }
@@ -465,11 +469,11 @@ pub fn a_write_with_an_older_timestamp_still_wins_locally_test() -> Nil {
 /// The clock tracks what arrives from peers too, so a local write after a
 /// remote one beats it rather than tying with it.
 pub fn a_local_write_beats_a_remote_write_it_has_seen_test() -> Nil {
-  let #(peer, _, remote_op, _) =
+  let #(peer, _, remote_operation, _) =
     set_register(new_register("b"), "cell", "9", 4000)
   let _ = peer
 
-  let #(state, _) = remote(new_register("a"), remote_op)
+  let #(state, _) = remote(new_register("a"), remote_operation)
   let #(state, _, _, _) = set_register(state, "cell", "3", 4000)
 
   or_map_kernel.get(state, "cell")
@@ -483,9 +487,9 @@ pub fn the_clock_is_per_key_test() -> Nil {
   let state = new_register("a")
   let #(state, _, _, _) = set_register(state, "busy", "1", 1000)
   let #(state, _, _, _) = set_register(state, "busy", "2", 1000)
-  let #(state, _, quiet_op, _) = set_register(state, "quiet", "x", 1000)
+  let #(state, _, quiet_operation, _) = set_register(state, "quiet", "x", 1000)
 
-  case quiet_op {
+  case quiet_operation {
     or_map_kernel.SetRegister(_, _, timestamp, _) ->
       timestamp |> expect.to_equal(1000)
     or_map_kernel.Increment(..) | or_map_kernel.Remove(..) ->

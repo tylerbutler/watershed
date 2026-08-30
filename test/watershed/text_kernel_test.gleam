@@ -15,9 +15,9 @@ fn new_b() -> text_kernel.TextState {
 
 fn ack(
   state: text_kernel.TextState,
-  op: text_kernel.TextOp,
+  operation: text_kernel.TextOperation,
 ) -> text_kernel.TextState {
-  let assert Ok(state) = text_kernel.ack_local(state, op)
+  let assert Ok(state) = text_kernel.ack_local(state, operation)
   state
 }
 
@@ -25,29 +25,38 @@ fn must_insert(
   state: text_kernel.TextState,
   index: Int,
   value: String,
-) -> #(text_kernel.TextState, text_kernel.TextOp, Int) {
-  let assert Ok(#(state, _events, Some(text_kernel.Submission(op, message_id)))) =
-    text_kernel.insert(state, index, value)
-  #(state, op, message_id)
+) -> #(text_kernel.TextState, text_kernel.TextOperation, Int) {
+  let assert Ok(#(
+    state,
+    _events,
+    Some(text_kernel.Submission(operation, message_id)),
+  )) = text_kernel.insert(state, index, value)
+  #(state, operation, message_id)
 }
 
 fn must_append(
   state: text_kernel.TextState,
   value: String,
-) -> #(text_kernel.TextState, text_kernel.TextOp, Int) {
-  let assert #(state, _events, Some(text_kernel.Submission(op, message_id))) =
-    text_kernel.append(state, value)
-  #(state, op, message_id)
+) -> #(text_kernel.TextState, text_kernel.TextOperation, Int) {
+  let assert #(
+    state,
+    _events,
+    Some(text_kernel.Submission(operation, message_id)),
+  ) = text_kernel.append(state, value)
+  #(state, operation, message_id)
 }
 
 fn must_delete_range(
   state: text_kernel.TextState,
   start: Int,
   end: Int,
-) -> #(text_kernel.TextState, text_kernel.TextOp, Int) {
-  let assert Ok(#(state, _events, Some(text_kernel.Submission(op, message_id)))) =
-    text_kernel.delete_range(state, start, end)
-  #(state, op, message_id)
+) -> #(text_kernel.TextState, text_kernel.TextOperation, Int) {
+  let assert Ok(#(
+    state,
+    _events,
+    Some(text_kernel.Submission(operation, message_id)),
+  )) = text_kernel.delete_range(state, start, end)
+  #(state, operation, message_id)
 }
 
 fn must_replace_range(
@@ -55,10 +64,13 @@ fn must_replace_range(
   start: Int,
   end: Int,
   value: String,
-) -> #(text_kernel.TextState, text_kernel.TextOp, Int) {
-  let assert Ok(#(state, _events, Some(text_kernel.Submission(op, message_id)))) =
-    text_kernel.replace_range(state, start, end, value)
-  #(state, op, message_id)
+) -> #(text_kernel.TextState, text_kernel.TextOperation, Int) {
+  let assert Ok(#(
+    state,
+    _events,
+    Some(text_kernel.Submission(operation, message_id)),
+  )) = text_kernel.replace_range(state, start, end, value)
+  #(state, operation, message_id)
 }
 
 pub fn insert_delete_replace_append_are_optimistic_test() -> Nil {
@@ -66,31 +78,47 @@ pub fn insert_delete_replace_append_are_optimistic_test() -> Nil {
   id0 |> expect.to_equal(0)
   text_kernel.value(state) |> expect.to_equal("hello")
 
-  let #(state, append_op, id1) = must_append(state, " world")
+  let #(state, append_operation, id1) = must_append(state, " world")
   id1 |> expect.to_equal(1)
   text_kernel.value(state) |> expect.to_equal("hello world")
 
-  let #(state, replace_op, id2) = must_replace_range(state, 0, 5, "goodbye")
+  let #(state, replace_operation, id2) =
+    must_replace_range(state, 0, 5, "goodbye")
   id2 |> expect.to_equal(2)
   text_kernel.value(state) |> expect.to_equal("goodbye world")
 
-  let assert Ok(#(state, events, Some(text_kernel.Submission(delete_op, id3)))) =
-    text_kernel.delete_range(state, 7, 8)
+  let assert Ok(#(
+    state,
+    events,
+    Some(text_kernel.Submission(delete_operation, id3)),
+  )) = text_kernel.delete_range(state, 7, 8)
   id3 |> expect.to_equal(3)
   text_kernel.value(state) |> expect.to_equal("goodbyeworld")
   events |> expect.to_equal([text_kernel.TextChanged("goodbyeworld")])
 
   case state.pending {
     [
-      text_kernel.PendingOp(op: pending_insert, message_id: pending_id0),
-      text_kernel.PendingOp(op: pending_append, message_id: pending_id1),
-      text_kernel.PendingOp(op: pending_replace, message_id: pending_id2),
-      text_kernel.PendingOp(op: pending_delete, message_id: pending_id3),
+      text_kernel.PendingOperation(
+        operation: pending_insert,
+        message_id: pending_id0,
+      ),
+      text_kernel.PendingOperation(
+        operation: pending_append,
+        message_id: pending_id1,
+      ),
+      text_kernel.PendingOperation(
+        operation: pending_replace,
+        message_id: pending_id2,
+      ),
+      text_kernel.PendingOperation(
+        operation: pending_delete,
+        message_id: pending_id3,
+      ),
     ] -> {
       pending_insert |> expect.to_equal(insert_a)
-      pending_append |> expect.to_equal(append_op)
-      pending_replace |> expect.to_equal(replace_op)
-      pending_delete |> expect.to_equal(delete_op)
+      pending_append |> expect.to_equal(append_operation)
+      pending_replace |> expect.to_equal(replace_operation)
+      pending_delete |> expect.to_equal(delete_operation)
       pending_id0 |> expect.to_equal(0)
       pending_id1 |> expect.to_equal(1)
       pending_id2 |> expect.to_equal(2)
@@ -103,7 +131,7 @@ pub fn insert_delete_replace_append_are_optimistic_test() -> Nil {
   text_kernel.length(state) |> expect.to_equal(12)
 }
 
-pub fn valid_empty_edits_are_no_ops_test() -> Nil {
+pub fn valid_empty_edits_are_no_operations_test() -> Nil {
   let #(base, _, _) = must_insert(new_a(), 0, "hello")
 
   text_kernel.insert(base, 2, "")
@@ -125,7 +153,7 @@ pub fn valid_empty_edits_are_no_ops_test() -> Nil {
 
   // An empty range replaced with real content is a genuine insert, and a
   // real range replaced with empty content is a genuine delete: neither is
-  // a no-op.
+  // a no-operation.
   let assert Ok(#(_, events, Some(_))) =
     text_kernel.replace_range(base, 2, 2, "X")
   events |> expect.to_equal([text_kernel.TextChanged("heXllo")])
@@ -204,20 +232,23 @@ pub fn multi_codepoint_graphemes_are_single_units_test() -> Nil {
 pub fn replace_range_with_identical_text_sends_without_event_test() -> Nil {
   let #(state, _, _) = must_insert(new_a(), 0, "hello world")
 
-  let assert Ok(#(next_state, events, Some(text_kernel.Submission(op, _)))) =
-    text_kernel.replace_range(state, 0, 5, "hello")
+  let assert Ok(#(
+    next_state,
+    events,
+    Some(text_kernel.Submission(operation, _)),
+  )) = text_kernel.replace_range(state, 0, 5, "hello")
 
   // The visible text is unchanged, so no TextChanged event fires...
   events |> expect.to_equal([])
   text_kernel.value(next_state) |> expect.to_equal("hello world")
   // ...but the replace is still a real edit: it queues a pending entry and
-  // returns Some(Submission), so the caller still sends the op over the
+  // returns Some(Submission), so the caller still sends the operation over the
   // wire (e.g. to reconcile concurrent replacements of the same range).
   case next_state.pending {
     [_, _] -> Nil
     _ -> panic as "expected the identical-text replace to queue a pending op"
   }
-  case op {
+  case operation {
     text_kernel.ReplaceRange(start: 0, end: 5, value: "hello", delta: _) -> Nil
     text_kernel.ReplaceRange(..)
     | text_kernel.Insert(..)
@@ -228,59 +259,69 @@ pub fn replace_range_with_identical_text_sends_without_event_test() -> Nil {
 }
 
 pub fn ack_is_view_transparent_and_remote_merge_is_idempotent_test() -> Nil {
-  let #(state_a, first_op, _) = must_insert(new_a(), 0, "a")
-  let #(state_a, second_op, _) = must_insert(state_a, 1, "b")
+  let #(state_a, first_operation, _) = must_insert(new_a(), 0, "a")
+  let #(state_a, second_operation, _) = must_insert(state_a, 1, "b")
   let before_ack = text_kernel.value(state_a)
 
-  text_kernel.ack_local(state_a, second_op)
+  text_kernel.ack_local(state_a, second_operation)
   |> expect.to_equal(
     Error(text_kernel.UnexpectedAck("expected pending message 0")),
   )
 
-  let state_a = ack(state_a, first_op)
+  let state_a = ack(state_a, first_operation)
   text_kernel.value(state_a) |> expect.to_equal(before_ack)
-  let state_a = ack(state_a, second_op)
+  let state_a = ack(state_a, second_operation)
   text_kernel.value(state_a) |> expect.to_equal(before_ack)
   text_kernel.sequenced_value(state_a) |> expect.to_equal("ab")
 
   let state_b = new_b()
-  let #(state_b, first_events) = text_kernel.apply_remote(state_b, first_op)
-  let #(state_b, second_events) = text_kernel.apply_remote(state_b, first_op)
+  let #(state_b, first_events) =
+    text_kernel.apply_remote(state_b, first_operation)
+  let #(state_b, second_events) =
+    text_kernel.apply_remote(state_b, first_operation)
   text_kernel.value(state_b) |> expect.to_equal("a")
   first_events |> expect.to_equal([text_kernel.TextChanged("a")])
   second_events |> expect.to_equal([])
 }
 
 pub fn ack_local_with_message_id_validates_message_id_test() -> Nil {
-  let #(state, op, message_id) = must_insert(new_a(), 0, "a")
+  let #(state, operation, message_id) = must_insert(new_a(), 0, "a")
 
-  text_kernel.ack_local_with_message_id(state, op, message_id + 1)
+  text_kernel.ack_local_with_message_id(state, operation, message_id + 1)
   |> expect.to_equal(
     Error(text_kernel.UnexpectedAck("expected pending message 0")),
   )
   text_kernel.value(state) |> expect.to_equal("a")
   text_kernel.sequenced_value(state) |> expect.to_equal("")
-  state.pending |> expect.to_equal([text_kernel.PendingOp(op, message_id)])
+  state.pending
+  |> expect.to_equal([text_kernel.PendingOperation(operation, message_id)])
 
   let assert Ok(state) =
-    text_kernel.ack_local_with_message_id(state, op, message_id)
+    text_kernel.ack_local_with_message_id(state, operation, message_id)
   text_kernel.value(state) |> expect.to_equal("a")
   text_kernel.sequenced_value(state) |> expect.to_equal("a")
 }
 
 pub fn apply_remote_replays_pending_and_preserves_view_after_ack_test() -> Nil {
-  let #(state_a, local_op, local_message_id) = must_insert(new_a(), 0, "a")
-  let #(_, remote_op, _) = must_insert(new_b(), 0, "b")
+  let #(state_a, local_operation, local_message_id) =
+    must_insert(new_a(), 0, "a")
+  let #(_, remote_operation, _) = must_insert(new_b(), 0, "b")
 
-  let #(state_a, events) = text_kernel.apply_remote(state_a, remote_op)
+  let #(state_a, events) = text_kernel.apply_remote(state_a, remote_operation)
   state_a.pending
-  |> expect.to_equal([text_kernel.PendingOp(local_op, local_message_id)])
+  |> expect.to_equal([
+    text_kernel.PendingOperation(local_operation, local_message_id),
+  ])
   text_kernel.value(state_a) |> expect.to_equal("ab")
   events |> expect.to_equal([text_kernel.TextChanged("ab")])
   text_kernel.check_cache_coherence(state_a) |> expect.to_equal(Ok(Nil))
 
   let assert Ok(state_a) =
-    text_kernel.ack_local_with_message_id(state_a, local_op, local_message_id)
+    text_kernel.ack_local_with_message_id(
+      state_a,
+      local_operation,
+      local_message_id,
+    )
   text_kernel.value(state_a) |> expect.to_equal("ab")
 }
 
@@ -306,26 +347,26 @@ pub fn rollback_mismatch_is_a_kernel_error_test() -> Nil {
 }
 
 pub fn ack_local_on_empty_pending_queue_is_a_kernel_error_test() -> Nil {
-  let #(_, op, _) = must_insert(new_a(), 0, "a")
+  let #(_, operation, _) = must_insert(new_a(), 0, "a")
 
-  text_kernel.ack_local(new_a(), op)
+  text_kernel.ack_local(new_a(), operation)
   |> expect.to_equal(Error(text_kernel.UnexpectedAck("pending queue is empty")))
-  text_kernel.ack_local_with_message_id(new_a(), op, 0)
+  text_kernel.ack_local_with_message_id(new_a(), operation, 0)
   |> expect.to_equal(Error(text_kernel.UnexpectedAck("pending queue is empty")))
 }
 
 pub fn rollback_on_empty_pending_queue_is_a_kernel_error_test() -> Nil {
-  let #(_, op, message_id) = must_insert(new_a(), 0, "a")
+  let #(_, operation, message_id) = must_insert(new_a(), 0, "a")
 
-  text_kernel.rollback(new_a(), op, message_id)
+  text_kernel.rollback(new_a(), operation, message_id)
   |> expect.to_equal(
     Error(text_kernel.UnexpectedRollback("pending queue is empty")),
   )
 }
 
 pub fn summary_round_trips_and_rebrands_test() -> Nil {
-  let #(state, op, _) = must_insert(new_a(), 0, "a")
-  let state = ack(state, op)
+  let #(state, operation, _) = must_insert(new_a(), 0, "a")
+  let state = ack(state, operation)
   let #(state, _, _) = must_insert(state, 1, "pending")
   let raw = json.to_string(text_kernel.summary(state))
 
@@ -336,25 +377,29 @@ pub fn summary_round_trips_and_rebrands_test() -> Nil {
   loaded.pending |> expect.to_equal([])
   loaded.next_pending_message_id |> expect.to_equal(0)
 
-  let #(loaded, op_c, message_id_c) = must_insert(loaded, 1, "c")
+  let #(loaded, operation_c, message_id_c) = must_insert(loaded, 1, "c")
   message_id_c |> expect.to_equal(0)
-  ack(loaded, op_c) |> text_kernel.sequenced_value |> expect.to_equal("ac")
+  ack(loaded, operation_c)
+  |> text_kernel.sequenced_value
+  |> expect.to_equal("ac")
 }
 
-pub fn apply_stashed_op_registers_pending_and_acks_by_message_id_test() -> Nil {
-  let #(_, op, _) = must_insert(new_a(), 0, "a")
-  let #(state, events, replayed_op, message_id) =
-    text_kernel.apply_stashed_op(new_a(), op)
+pub fn apply_stashed_operation_registers_pending_and_acks_by_message_id_test() -> Nil {
+  let #(_, operation, _) = must_insert(new_a(), 0, "a")
+  let #(state, events, replayed_operation, message_id) =
+    text_kernel.apply_stashed_operation(new_a(), operation)
 
   text_kernel.value(state) |> expect.to_equal("a")
   events |> expect.to_equal([text_kernel.TextChanged("a")])
-  replayed_op |> expect.to_equal(op)
+  replayed_operation |> expect.to_equal(operation)
   message_id |> expect.to_equal(0)
   state.pending
-  |> expect.to_equal([text_kernel.PendingOp(replayed_op, message_id)])
+  |> expect.to_equal([
+    text_kernel.PendingOperation(replayed_operation, message_id),
+  ])
 
   let assert Ok(state) =
-    text_kernel.ack_local_with_message_id(state, replayed_op, message_id)
+    text_kernel.ack_local_with_message_id(state, replayed_operation, message_id)
   text_kernel.sequenced_value(state) |> expect.to_equal("a")
   text_kernel.check_cache_coherence(state) |> expect.to_equal(Ok(Nil))
 }
@@ -381,17 +426,17 @@ pub fn concurrent_inserts_at_same_index_converge_test() -> Nil {
 }
 
 pub fn overlapping_delete_range_and_replace_range_converge_test() -> Nil {
-  let #(state_a, seed_op, _) = must_insert(new_a(), 0, "abcdef")
-  let state_a = ack(state_a, seed_op)
-  let #(state_b, _) = text_kernel.apply_remote(new_b(), seed_op)
+  let #(state_a, seed_operation, _) = must_insert(new_a(), 0, "abcdef")
+  let state_a = ack(state_a, seed_operation)
+  let #(state_b, _) = text_kernel.apply_remote(new_b(), seed_operation)
 
-  let #(state_a, delete_op, _) = must_delete_range(state_a, 1, 4)
-  let #(state_b, replace_op, _) = must_replace_range(state_b, 2, 5, "XY")
+  let #(state_a, delete_operation, _) = must_delete_range(state_a, 1, 4)
+  let #(state_b, replace_operation, _) = must_replace_range(state_b, 2, 5, "XY")
 
   let #(state_a, _) =
-    text_kernel.apply_remote(ack(state_a, delete_op), replace_op)
+    text_kernel.apply_remote(ack(state_a, delete_operation), replace_operation)
   let #(state_b, _) =
-    text_kernel.apply_remote(ack(state_b, replace_op), delete_op)
+    text_kernel.apply_remote(ack(state_b, replace_operation), delete_operation)
 
   text_kernel.value(state_a) |> expect.to_equal(text_kernel.value(state_b))
   text_kernel.check_cache_coherence(state_a) |> expect.to_equal(Ok(Nil))
@@ -399,17 +444,17 @@ pub fn overlapping_delete_range_and_replace_range_converge_test() -> Nil {
 }
 
 pub fn append_concurrent_with_insert_converges_test() -> Nil {
-  let #(state_a, seed_op, _) = must_insert(new_a(), 0, "abc")
-  let state_a = ack(state_a, seed_op)
-  let #(state_b, _) = text_kernel.apply_remote(new_b(), seed_op)
+  let #(state_a, seed_operation, _) = must_insert(new_a(), 0, "abc")
+  let state_a = ack(state_a, seed_operation)
+  let #(state_b, _) = text_kernel.apply_remote(new_b(), seed_operation)
 
-  let #(state_a, append_op, _) = must_append(state_a, "z")
-  let #(state_b, insert_op, _) = must_insert(state_b, 0, "y")
+  let #(state_a, append_operation, _) = must_append(state_a, "z")
+  let #(state_b, insert_operation, _) = must_insert(state_b, 0, "y")
 
   let #(state_a, _) =
-    text_kernel.apply_remote(ack(state_a, append_op), insert_op)
+    text_kernel.apply_remote(ack(state_a, append_operation), insert_operation)
   let #(state_b, _) =
-    text_kernel.apply_remote(ack(state_b, insert_op), append_op)
+    text_kernel.apply_remote(ack(state_b, insert_operation), append_operation)
 
   text_kernel.value(state_a) |> expect.to_equal(text_kernel.value(state_b))
 }
@@ -487,8 +532,8 @@ pub fn anchor_from_json_rejects_malformed_json_test() -> Nil {
 }
 
 pub fn anchor_resolves_unknown_target_until_merged_test() -> Nil {
-  let #(alice, seed_op, _) = must_insert(new_a(), 0, "abc")
-  let alice = ack(alice, seed_op)
+  let #(alice, seed_operation, _) = must_insert(new_a(), 0, "abc")
+  let alice = ack(alice, seed_operation)
 
   let bob = text_kernel.from_sequenced(alice.sequenced, replica_id.new("b"))
   let #(bob, _, _) = must_insert(bob, 1, "x")
@@ -499,18 +544,20 @@ pub fn anchor_resolves_unknown_target_until_merged_test() -> Nil {
 }
 
 pub fn anchor_survives_merge_of_concurrent_edits_test() -> Nil {
-  let #(base, seed_op, _) = must_insert(new_a(), 0, "abc")
-  let base = ack(base, seed_op)
+  let #(base, seed_operation, _) = must_insert(new_a(), 0, "abc")
+  let base = ack(base, seed_operation)
   let assert Ok(anchor) = text_kernel.anchor_at(base, 2, Before)
 
   let alice =
     text_kernel.from_sequenced(base.sequenced, replica_id.new("alice"))
-  let #(alice, alice_op, _) = must_insert(alice, 0, "x")
+  let #(alice, alice_operation, _) = must_insert(alice, 0, "x")
   let bob = text_kernel.from_sequenced(base.sequenced, replica_id.new("bob"))
-  let #(bob, bob_op, _) = must_delete_range(bob, 0, 1)
+  let #(bob, bob_operation, _) = must_delete_range(bob, 0, 1)
 
-  let #(alice, _) = text_kernel.apply_remote(ack(alice, alice_op), bob_op)
-  let #(bob, _) = text_kernel.apply_remote(ack(bob, bob_op), alice_op)
+  let #(alice, _) =
+    text_kernel.apply_remote(ack(alice, alice_operation), bob_operation)
+  let #(bob, _) =
+    text_kernel.apply_remote(ack(bob, bob_operation), alice_operation)
 
   text_kernel.value(alice) |> expect.to_equal(text_kernel.value(bob))
 

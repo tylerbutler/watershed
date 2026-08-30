@@ -153,8 +153,8 @@ type Model {
     captain: Option(String),
     /// True between calling `claim_once`/`compare_and_set_claim` and
     /// learning the outcome. Claims reads are not optimistic — nothing about
-    /// `captain` changes until the op sequences — so this is the only signal
-    /// that a claim is in flight.
+    /// `captain` changes until the operation sequences — so this is the only
+    /// signal that a claim is in flight.
     captain_claim_pending: Bool,
     /// The accepted release target, or `None` until the room has agreed one.
     target: Option(String),
@@ -257,7 +257,7 @@ fn bootstrap_effect(doc: Document(doc_schema.Checklist)) -> Effect(Msg) {
 }
 
 /// Assemble `SharedState` once all three nested channels have resolved, and
-/// start the per-channel subscriptions. A no-op until the last channel
+/// start the per-channel subscriptions. A no-operation until the last channel
 /// arrives or once already assembled.
 fn assemble(model: Model) -> #(Model, Effect(Msg)) {
   case model.shared, model.pending {
@@ -581,7 +581,7 @@ fn decode_string(value: Json) -> Result(String, Nil) {
 /// the toggle is decided against what the user can currently see — and
 /// concurrent completion beats a concurrent reopen by the same rule every
 /// OR-set add/remove race resolves by: the add's tombstone-clearing wins
-/// regardless of which op the kernel happens to apply first.
+/// regardless of which operation the kernel happens to apply first.
 fn toggle_check(shared: SharedState, id: String) -> Nil {
   case watershed.or_set_contains(shared.checks, id) {
     True -> watershed.or_set_remove(shared.checks, id)

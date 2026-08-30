@@ -1,20 +1,20 @@
 //// A pure-kernel pin for the recreate-while-held race this example's README
-//// documents: an op addressed to a path is filtered by that path's live
+//// documents: an operation addressed to a path is filtered by that path's live
 //// *instance*, not only its string. Modeled directly on `directory_kernel`,
 //// the same seam `directory_kernel_test.gleam`'s
-//// `stale_op_ignored_after_delete_recreate_test` uses in the root package,
-//// because the facade intentionally does not expose a live channel's
+//// `stale_operation_ignored_after_delete_recreate_test` uses in the root
+//// package, because the facade intentionally does not expose a live channel's
 //// internal `DirectoryState` for a test to call `check_invariants` on.
-//// `test/convergence_test.gleam` pins the same race through the public
-//// facade and a real client-offline window; this file pins it at the level
-//// the invariant checker can actually run at.
+//// `test/convergence_test.gleam` pins the same race through the public facade
+//// and a real client-offline window; this file pins it at the level the
+//// invariant checker can actually run at.
 
 import gleam/json
 import gleeunit/should
 
 import watershed/directory_kernel.{
-  type DirectoryOp, type DirectoryState, type SequencedMeta, CreateSubDirectory,
-  DeleteSubDirectory, SequencedMeta, Set,
+  type DirectoryOperation, type DirectoryState, type SequencedMeta,
+  CreateSubDirectory, DeleteSubDirectory, SequencedMeta, Set,
 }
 
 fn meta(author: Int, seq: Int, ref_seq: Int, cseq: Int) -> SequencedMeta {
@@ -26,14 +26,14 @@ fn meta(author: Int, seq: Int, ref_seq: Int, cseq: Int) -> SequencedMeta {
   )
 }
 
-/// Apply one op as a remote client would see it sequenced by the server —
-/// the room's shared log, not a particular author's optimistic view.
+/// Apply one operation as a remote client would see it sequenced by the server
+/// — the room's shared log, not a particular author's optimistic view.
 fn remote(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   m: SequencedMeta,
 ) -> DirectoryState {
-  let #(state, _events) = directory_kernel.apply_remote(state, op, m, 0)
+  let #(state, _events) = directory_kernel.apply_remote(state, operation, m, 0)
   state
 }
 

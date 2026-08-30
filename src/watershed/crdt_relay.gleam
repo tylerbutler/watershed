@@ -733,9 +733,9 @@ fn decode_document(raw: String) -> Result(ClientFrame, Refusal) {
 /// address that names no channel, a descriptor whose `createdBy` field
 /// disagrees with its own address, and a `state` whose channels are not a list.
 ///
-/// These checks do not remove every bad record. A correct delta whose op has no
-/// meaning to any kernel still enters the log, and it always will, because only
-/// a merge could detect it.
+/// These checks do not remove every bad record. A correct delta whose operation
+/// has no meaning to any kernel still enters the log, and it always will,
+/// because only a merge could detect it.
 fn check_shape(raw: String, kind: MessageKind) -> Result(Nil, Refusal) {
   case kind {
     HelloMessage -> shaped(raw, hello_shape(), "hello")

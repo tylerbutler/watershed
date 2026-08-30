@@ -4,7 +4,7 @@
 ////
 //// - `ConnectMessage.document_id` maps to the wire key `id`, and not to
 ////   `documentId`.
-//// - A sequenced op carries exactly the 9 keys that
+//// - A sequenced operation carries exactly the 9 keys that
 ////   `session_logic.build_sequenced_op` of spillway emits. Every other key is
 ////   optional.
 //// - `lastSeenSequenceNumber` is an extension of floodgate to
@@ -32,7 +32,7 @@ import spillway/types.{
   SequencedDocumentMessage, ServiceConfiguration, SignalClient, WriteMode,
 }
 
-import watershed/wire.{type OutboundOp}
+import watershed/wire.{type OutboundOperation}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Encoders (client → server)
@@ -44,9 +44,9 @@ import watershed/wire.{type OutboundOp}
 ///
 /// `last_seen_sequence_number` is **advisory**, and no server uses it. This
 /// documentation gave a different promise before: an automatic delta catch-up,
-/// pushed as a usual `op` event. floodgate does not do that. It does not read
-/// the field, and it answers a reconnect with the same full bootstrap that it
-/// gives a cold join. That incorrect promise made a reconnecting client wait
+/// pushed as a usual `operation` event. floodgate does not do that. It does not
+/// read the field, and it answers a reconnect with the same full bootstrap that
+/// it gives a cold join. That incorrect promise made a reconnecting client wait
 /// for a delta that no server sent. The client must do its own catch-up with
 /// `requestOps`. See `runtime_core.catch_up_from`. The client still sends the
 /// field, because the field costs nothing and a server that did use it would
@@ -85,37 +85,43 @@ pub fn encode_connect_document(
 }
 
 /// The `submitOp` payload: `{clientId, messageBatches}`. The server nacks a
-/// submission of more than 100 ops in total. The runtime applies that limit.
-pub fn encode_submit_op(
+/// submission of more than 100 operations in total. The runtime applies that
+/// limit.
+pub fn encode_submit_operation(
   client_id: String,
-  batches: List(List(OutboundOp)),
+  batches: List(List(OutboundOperation)),
 ) -> Json {
   json.object([
     #("clientId", json.string(client_id)),
     #(
       "messageBatches",
-      json.array(batches, fn(batch) { json.array(batch, encode_outbound_op) }),
+      json.array(batches, fn(batch) {
+        json.array(batch, encode_outbound_operation)
+      }),
     ),
   ])
 }
 
-fn encode_outbound_op(op: OutboundOp) -> Json {
+fn encode_outbound_operation(operation: OutboundOperation) -> Json {
   json.object(
     list.flatten([
       [
-        #("type", json.string(op.op_type)),
-        #("contents", op.contents),
-        #("clientSequenceNumber", json.int(op.client_sequence_number)),
-        #("referenceSequenceNumber", json.int(op.reference_sequence_number)),
+        #("type", json.string(operation.operation_type)),
+        #("contents", operation.contents),
+        #("clientSequenceNumber", json.int(operation.client_sequence_number)),
+        #(
+          "referenceSequenceNumber",
+          json.int(operation.reference_sequence_number),
+        ),
       ],
-      optional_field("metadata", op.metadata, fn(metadata) { metadata }),
+      optional_field("metadata", operation.metadata, fn(metadata) { metadata }),
     ]),
   )
 }
 
 /// The `requestOps` payload, for an in-band delta catch-up. The response
-/// arrives as a usual `op` event.
-pub fn encode_request_ops(from from: Int) -> Json {
+/// arrives as a usual `operation` event.
+pub fn encode_request_operations(from from: Int) -> Json {
   json.object([#("from", json.int(from))])
 }
 
@@ -362,30 +368,35 @@ pub fn connect_error_decoder() -> Decoder(ConnectError) {
   decode.success(ConnectError(code: code, message: error_message))
 }
 
-/// The `op` event payload, in the two shapes that a server can send.
+/// The `operation` event payload, in the two shapes that a server can send.
 ///
-/// levee wraps the messages: `{documentId, op: [SequencedDocumentMessage]}`.
-/// floodgate pushes the bare `[SequencedDocumentMessage]` on every op path:
-/// submit, join, leave, `requestOps`, and summary. It omits the document id,
-/// which the channel topic already gives. This decoder accepts both shapes, so
-/// one client works with either server. `document_id` is `""` for the bare
-/// shape, and no caller reads it.
-pub fn op_message_decoder() -> Decoder(OpMessage) {
-  decode.one_of(wrapped_op_message_decoder(), [bare_op_message_decoder()])
+/// levee wraps the messages: `{documentId, operation:
+/// [SequencedDocumentMessage]}`. floodgate pushes the bare
+/// `[SequencedDocumentMessage]` on every operation path: submit, join, leave,
+/// `requestOps`, and summary. It omits the document id, which the channel topic
+/// already gives. This decoder accepts both shapes, so one client works with
+/// either server. `document_id` is `""` for the bare shape, and no caller reads
+/// it.
+pub fn operation_message_decoder() -> Decoder(OpMessage) {
+  decode.one_of(wrapped_operation_message_decoder(), [
+    bare_operation_message_decoder(),
+  ])
 }
 
-fn wrapped_op_message_decoder() -> Decoder(OpMessage) {
+fn wrapped_operation_message_decoder() -> Decoder(OpMessage) {
   use document_id <- decode.field("documentId", decode.string)
-  use ops <- decode.field(
+  use operations <- decode.field(
     "op",
     decode.list(sequenced_document_message_decoder()),
   )
-  decode.success(OpMessage(document_id: document_id, ops: ops))
+  decode.success(OpMessage(document_id: document_id, ops: operations))
 }
 
-fn bare_op_message_decoder() -> Decoder(OpMessage) {
-  use ops <- decode.then(decode.list(sequenced_document_message_decoder()))
-  decode.success(OpMessage(document_id: "", ops: ops))
+fn bare_operation_message_decoder() -> Decoder(OpMessage) {
+  use operations <- decode.then(
+    decode.list(sequenced_document_message_decoder()),
+  )
+  decode.success(OpMessage(document_id: "", ops: operations))
 }
 
 /// One sequenced message, as the `session_logic.build_sequenced_op` function
@@ -487,7 +498,7 @@ fn nack_error_type_decoder() -> Decoder(nack.NackErrorType) {
   })
 }
 
-/// An op that a client wrote, as a nack echoes it back.
+/// An operation that a client wrote, as a nack echoes it back.
 pub fn document_message_decoder() -> Decoder(DocumentMessage) {
   use client_sequence_number <- decode.field("clientSequenceNumber", decode.int)
   use reference_sequence_number <- decode.field(

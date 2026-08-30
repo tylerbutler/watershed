@@ -9,11 +9,11 @@
 //// input or output. The Erlang driver (`watershed/sluice`) and the JavaScript
 //// driver (`watershed/sluice_js`) add a mailbox and the delivery controls.
 ////
-//// Every delivery is explicit, which is plan decision 3. An op sequences in
-//// `handle`, but it goes into the `outbox`, and the core delivers it only when
-//// a driver calls `take`. That behaviour makes a race scriptable. "Client A
-//// and client B both claim the cell, deliver B first" is a sequence of `take`
-//// calls, and not an accident of timing.
+//// Every delivery is explicit, which is plan decision 3. An operation
+//// sequences in `handle`, but it goes into the `outbox`, and the core delivers
+//// it only when a driver calls `take`. That behaviour makes a race scriptable.
+//// "Client A and client B both claim the cell, deliver B first" is a sequence
+//// of `take` calls, and not an accident of timing.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic.{type Dynamic}
@@ -51,9 +51,9 @@ pub opaque type Sluice {
     document_id: String,
     tenant_id: String,
     seq: SequenceState,
-    /// The full op history, in ascending order of sequence number. A late
-    /// joiner and a reconnect both replay from this list. Plan decision 5 says
-    /// that version 1 has no summary store.
+    /// The full operation history, in ascending order of sequence number. A
+    /// late joiner and a reconnect both replay from this list. Plan decision 5
+    /// says that version 1 has no summary store.
     log: List(Sequenced),
     clients: Dict(String, ClientEntry),
     /// The presence of each *connection*, keyed by client id. Version 1
@@ -171,14 +171,14 @@ pub fn disconnect(sluice: Sluice, client_id: String) -> Sluice {
     True -> {
       let #(sluice, leave) =
         sequence_system(sluice, "leave", frame.system_leave_data(client_id))
-      broadcast(sluice, "op", frame.encode_op_event([leave]))
+      broadcast(sluice, "op", frame.encode_operation_event([leave]))
     }
   }
 }
 
 /// Hold the inbound frames of a client. They stay in the queue until a
-/// `resume` call. A test can thus deliver the op of one peer before the op of
-/// another peer.
+/// `resume` call. A test can thus deliver the operation of one peer before the
+/// operation of another peer.
 pub fn pause(sluice: Sluice, client_id: String) -> Sluice {
   Sluice(..sluice, paused: set.insert(sluice.paused, client_id))
 }
@@ -193,8 +193,8 @@ pub fn resume(sluice: Sluice, client_id: String) -> Sluice {
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Process one push from a client to the server, keyed by the client id that
-/// the connection received. The function sequences the ops, appends them to
-/// the log, and queues the frames that result. It ignores a malformed frame
+/// the connection received. The function sequences the operations, appends them
+/// to the log, and queues the frames that result. It ignores a malformed frame
 /// and a frame that the protocol does not permit, because a correct runtime
 /// never sends one.
 pub fn handle(
@@ -205,8 +205,8 @@ pub fn handle(
 ) -> Sluice {
   case event {
     "connect_document" -> on_connect_document(sluice, client_id, payload)
-    "submitOp" -> on_submit_op(sluice, payload)
-    "requestOps" -> on_request_ops(sluice, client_id, payload)
+    "submitOp" -> on_submit_operation(sluice, payload)
+    "requestOps" -> on_request_operations(sluice, client_id, payload)
     "noop" -> on_noop(sluice, payload)
     "submitSignal" -> on_signal(sluice, payload)
     "joinPresence" -> on_join_presence(sluice, client_id, payload)
@@ -226,7 +226,7 @@ fn on_connect_document(
     Ok(request) -> {
       let current = sequencing.current_sn(sluice.seq)
       // Join the sequencer at the current SN — the catch-up below brings the
-      // client level with the document before any live op is delivered.
+      // client level with the document before any live operation is delivered.
       let seq = sequencing.client_join(sluice.seq, client_id, current)
 
       // Sequence the join *before* the joiner is added to `clients`, so the
@@ -236,7 +236,7 @@ fn on_connect_document(
       let #(sluice, join) =
         Sluice(..sluice, seq: seq)
         |> sequence_system("join", frame.system_join_data(client_id))
-      let sluice = broadcast(sluice, "op", frame.encode_op_event([join]))
+      let sluice = broadcast(sluice, "op", frame.encode_operation_event([join]))
 
       let clients =
         dict.insert(
@@ -263,9 +263,10 @@ fn on_connect_document(
           timestamp: sluice.now_ms,
           presence_v1: sluice.presence_supported,
         )
-      // The joiner's own join is *not* pushed back to it as a live op. Floodgate
-      // broadcasts it with `broadcast_from(channels, cid, ...)`, which excludes
-      // the joiner — its only copy is the one in `initial_messages`.
+      // The joiner's own join is *not* pushed back to it as a live operation.
+      // Floodgate broadcasts it with `broadcast_from(channels, cid, ...)`,
+      // which excludes the joiner — its only copy is the one in
+      // `initial_messages`.
       //
       // The sluice used to send it anyway, and that single extra frame was
       // Essential: a reconnecting runtime ignores `initial_messages`, so the
@@ -279,31 +280,31 @@ fn on_connect_document(
   }
 }
 
-fn on_submit_op(sluice: Sluice, payload: Dynamic) -> Sluice {
-  case frame.decode_submit_op(payload) {
+fn on_submit_operation(sluice: Sluice, payload: Dynamic) -> Sluice {
+  case frame.decode_submit_operation(payload) {
     Error(_) -> sluice
     Ok(submit) ->
       list.flatten(submit.batches)
-      |> list.fold(sluice, fn(sluice, op) {
-        sequence_op(sluice, submit.client_id, op)
+      |> list.fold(sluice, fn(sluice, operation) {
+        sequence_operation(sluice, submit.client_id, operation)
       })
   }
 }
 
-/// Give a sequence number to one op and broadcast that op to every connected
-/// client. The broadcast includes the author, because that echo is the ack
-/// that the kernel of the author waits for.
-fn sequence_op(
+/// Give a sequence number to one operation and broadcast that operation to
+/// every connected client. The broadcast includes the author, because that echo
+/// is the ack that the kernel of the author waits for.
+fn sequence_operation(
   sluice: Sluice,
   client_id: String,
-  op: frame.SubmittedOp,
+  operation: frame.SubmittedOperation,
 ) -> Sluice {
   case
     sequencing.assign_sequence_number(
       sluice.seq,
       client_id,
-      op.client_sequence_number,
-      op.reference_sequence_number,
+      operation.client_sequence_number,
+      operation.reference_sequence_number,
     )
   {
     sequencing.SequenceError(_) -> sluice
@@ -313,38 +314,45 @@ fn sequence_op(
           client_id: Some(client_id),
           sequence_number: sn,
           minimum_sequence_number: msn,
-          client_sequence_number: op.client_sequence_number,
-          reference_sequence_number: op.reference_sequence_number,
-          op_type: op.op_type,
-          contents: op.contents,
-          metadata: op.metadata,
+          client_sequence_number: operation.client_sequence_number,
+          reference_sequence_number: operation.reference_sequence_number,
+          operation_type: operation.operation_type,
+          contents: operation.contents,
+          metadata: operation.metadata,
           timestamp: sluice.now_ms,
           data: None,
         )
-      let event = frame.encode_op_event([sequenced])
+      let event = frame.encode_operation_event([sequenced])
       Sluice(..sluice, seq: seq, log: [sequenced, ..sluice.log])
       |> broadcast("op", event)
     }
   }
 }
 
-fn on_request_ops(
+fn on_request_operations(
   sluice: Sluice,
   client_id: String,
   payload: Dynamic,
 ) -> Sluice {
-  case frame.decode_request_ops(payload) {
+  case frame.decode_request_operations(payload) {
     Error(_) -> sluice
     Ok(from) -> {
       // Exclusive of `from`, matching floodgate's `session.since` (`o.0 > sn`)
       // and what the runtime means when it asks: `from` is the last SN it has,
-      // not the first it wants. This used to be `from - 1`, one op generous —
-      // harmless in itself, since the runtime drops the duplicate, but it meant
-      // the sluice could never catch an off-by-one on the client side.
-      let ops = log_since(sluice.log, from)
-      case ops {
+      // not the first it wants. This used to be `from - 1`, one operation
+      // generous — harmless in itself, since the runtime drops the duplicate,
+      // but it meant the sluice could never catch an off-by-one on the client
+      // side.
+      let operations = log_since(sluice.log, from)
+      case operations {
         [] -> sluice
-        _ -> enqueue(sluice, client_id, "op", frame.encode_op_event(ops))
+        _ ->
+          enqueue(
+            sluice,
+            client_id,
+            "op",
+            frame.encode_operation_event(operations),
+          )
       }
     }
   }
@@ -562,7 +570,7 @@ pub fn take(sluice: Sluice) -> #(Sluice, Result(Outbound, Nil)) {
 /// The next frame that `take` would deliver, without a removal. The result is
 /// `Error(Nil)` when the core can deliver no frame. A caller can thus collect
 /// a whole broadcast group, which is the set of frames that share the sequence
-/// number of one op, before it delivers that group.
+/// number of one operation, before it delivers that group.
 pub fn peek(sluice: Sluice) -> Result(Outbound, Nil) {
   case pop_deliverable(sluice.outbox, sluice.paused, []) {
     Error(Nil) -> Error(Nil)
@@ -611,7 +619,7 @@ fn enqueue(
   )
 }
 
-/// Queue one frame for every connected client. The op echoes and the
+/// Queue one frame for every connected client. The operation echoes and the
 /// broadcasts use this function.
 fn broadcast(sluice: Sluice, event: String, payload: Json) -> Sluice {
   connected_ids(sluice)
@@ -622,11 +630,11 @@ fn broadcast(sluice: Sluice, event: String, payload: Json) -> Sluice {
 /// `"leave"`, and append that message to the log. The function returns the
 /// message, for the caller to route.
 ///
-/// A system message uses a sequence number, the same as an op. Every replica
-/// thus agrees on the position in the stream at which the membership changed.
-/// That order is the purpose of the message, because a consensus kernel
-/// settles its pending state at exactly that sequence point. `client_id` is
-/// null and `contents` is null. The payload is in `data`.
+/// A system message uses a sequence number, the same as an operation. Every
+/// replica thus agrees on the position in the stream at which the membership
+/// changed. That order is the purpose of the message, because a consensus
+/// kernel settles its pending state at exactly that sequence point. `client_id`
+/// is null and `contents` is null. The payload is in `data`.
 fn sequence_system(
   sluice: Sluice,
   message_type: String,
@@ -641,7 +649,7 @@ fn sequence_system(
       minimum_sequence_number: sequencing.current_msn(seq),
       client_sequence_number: -1,
       reference_sequence_number: sn - 1,
-      op_type: message_type,
+      operation_type: message_type,
       contents: json.null(),
       metadata: None,
       timestamp: sluice.now_ms,
@@ -650,11 +658,12 @@ fn sequence_system(
   #(Sluice(..sluice, seq: seq, log: [message, ..sluice.log]), message)
 }
 
-/// The ops whose sequence number is more than `after`, in ascending order.
+/// The operations whose sequence number is more than `after`, in ascending
+/// order.
 fn log_since(log: List(Sequenced), after: Int) -> List(Sequenced) {
   log
   |> list.reverse()
-  |> list.filter(fn(op) { op.sequence_number > after })
+  |> list.filter(fn(operation) { operation.sequence_number > after })
 }
 
 /// Take the first frame whose client is not paused, and keep the queue order of

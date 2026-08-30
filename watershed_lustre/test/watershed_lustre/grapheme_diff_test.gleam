@@ -89,7 +89,7 @@ pub fn typing_after_an_emoji_indexes_past_one_grapheme_test() -> Nil {
 }
 
 pub fn a_combining_mark_joins_its_base_grapheme_test() -> Nil {
-  // "e" + COMBINING ACUTE ACCENT is one cluster: deleting it is one op.
+  // "e" + COMBINING ACUTE ACCENT is one cluster: deleting it is one operation.
   assert grapheme_diff.diff(old: "ae\u{0301}b", new: "ab")
     == Delete(start: 1, end: 2)
 }
@@ -197,9 +197,9 @@ pub fn a_region_at_the_head_test() -> Nil {
 
 pub fn an_abandoned_session_replaces_the_region_with_itself_test() -> Nil {
   // Escaping an IME leaves the element exactly as it was found. Recovering
-  // "CDEFG" is what lets the caller notice nothing happened and emit no op —
-  // as opposed to deleting the region and putting it straight back, which
-  // would destroy a peer's concurrent edit inside it.
+  // "CDEFG" is what lets the caller notice nothing happened and emit no
+  // operation — as opposed to deleting the region and putting it straight back,
+  // which would destroy a peer's concurrent edit inside it.
   assert grapheme_diff.replacement(
       old: "ABCDEFGHIJ",
       new: "ABCDEFGHIJ",
@@ -267,8 +267,9 @@ pub fn an_impossible_region_is_not_a_replacement_test() -> Nil {
 
 // ── Naming a replacement as an edit ──────────────────────────────────────────
 //
-// A region and its replacement describe an op directly, with no inference:
-// `splice` just picks the narrowest constructor that says the same thing.
+// A region and its replacement describe an operation directly, with no
+// inference: `splice` just picks the narrowest constructor that says the same
+// thing.
 
 pub fn splicing_into_a_collapsed_region_is_an_insert_test() -> Nil {
   assert grapheme_diff.splice(start: 3, end: 3, value: "拼")

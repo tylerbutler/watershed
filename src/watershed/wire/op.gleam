@@ -1,25 +1,26 @@
 //// Codecs for the contents of an `"op"` message. There are three kinds: a
-//// kernel DDS op in its `{address, contents}` document envelope, an attach
-//// envelope that carries a channel snapshot, and the `"summarize"` op that
-//// announces a stored snapshot.
+//// kernel DDS operation in its `{address, contents}` document envelope, an
+//// attach envelope that carries a channel snapshot, and the `"summarize"`
+//// operation that announces a stored snapshot.
 ////
 //// The `{address, contents}` envelope carries no channel type. The channel
 //// registry is the authoritative source of the type of a channel, so the
-//// decode has two stages. `decode_op_contents` returns an attach op fully
-//// decoded, because the attach envelope has a `channelType` field. It returns
-//// a channel op as `#(address, Dynamic)` only. The runtime then finds the type
-//// of the channel by its address and completes the decode with
-//// `channel_op_decoder`.
+//// decode has two stages. `decode_operation_contents` returns an attach
+//// operation fully decoded, because the attach envelope has a `channelType`
+//// field. It returns a channel operation as `#(address, Dynamic)` only. The
+//// runtime then finds the type of the channel by its address and completes the
+//// decode with `channel_operation_decoder`.
 ////
-//// The map op format in the envelope is the same as the format of the
-//// TypeScript `@fluidframework/map` ops: `set`, `delete`, and `clear`, with
-//// each value in a `{"type": "Plain", "value": ...}` wrapper. That agreement
-//// is a convenience, because it keeps the vocabulary of the corpus tests the
-//// same as the vocabulary of the TypeScript oracle. It is not a compatibility
-//// contract. Nothing outside the project reads the wire formats or the storage
-//// formats of watershed yet, so a format change needs a new version and new
-//// fixtures, but it needs no migration code. Change a format with care all the
-//// same. That freedom ends when real documents or real clients exist.
+//// The map operation format in the envelope is the same as the format of the
+//// TypeScript `@fluidframework/map` operations: `set`, `delete`, and `clear`,
+//// with each value in a `{"type": "Plain", "value": ...}` wrapper. That
+//// agreement is a convenience, because it keeps the vocabulary of the corpus
+//// tests the same as the vocabulary of the TypeScript oracle. It is not a
+//// compatibility contract. Nothing outside the project reads the wire formats
+//// or the storage formats of watershed yet, so a format change needs a new
+//// version and new fixtures, but it needs no migration code. Change a format
+//// with care all the same. That freedom ends when real documents or real
+//// clients exist.
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
@@ -38,48 +39,51 @@ import lattice_sets/or_set
 import lattice_sets/two_p_set
 import lattice_text/text
 import watershed/channel
-import watershed/claims_kernel.{type ClaimOp, Claim}
-import watershed/counter_kernel.{type CounterOp, Increment}
-import watershed/directory_kernel.{type DirectoryOp}
-import watershed/g_set_kernel.{type GSetOp}
+import watershed/claims_kernel.{type ClaimOperation, Claim}
+import watershed/counter_kernel.{type CounterOperation, Increment}
+import watershed/directory_kernel.{type DirectoryOperation}
+import watershed/g_set_kernel.{type GSetOperation}
 import watershed/json_ot
-import watershed/json_ot_kernel.{type JsonOtWireOp, JsonOtWireOp}
-import watershed/map_kernel.{type MapOp, Clear, Delete, Set}
-import watershed/or_map_kernel.{type OrMapOp}
-import watershed/or_set_kernel.{type OrSetOp}
-import watershed/ordered_collection_kernel.{type OrderedOp}
+import watershed/json_ot_kernel.{type JsonOtWireOperation, JsonOtWireOperation}
+import watershed/map_kernel.{type MapOperation, Clear, Delete, Set}
+import watershed/or_map_kernel.{type OrMapOperation}
+import watershed/or_set_kernel.{type OrSetOperation}
+import watershed/ordered_collection_kernel.{type OrderedOperation}
 import watershed/pact_map_kernel
-import watershed/pn_counter_kernel.{type PnCounterOp}
-import watershed/register_collection_kernel.{type WriteOp, Write}
+import watershed/pn_counter_kernel.{type PnCounterOperation}
+import watershed/register_collection_kernel.{type WriteOperation, Write}
 import watershed/rich_text
-import watershed/rich_text_kernel.{type RichTextWireOp, RichTextWireOp}
-import watershed/sequence_kernel.{type SequenceOp}
-import watershed/task_manager_kernel.{type TaskManagerOp}
-import watershed/text_kernel.{type TextOp}
-import watershed/two_p_set_kernel.{type TwoPSetOp}
-import watershed/wire.{type OutboundOp}
+import watershed/rich_text_kernel.{
+  type RichTextWireOperation, RichTextWireOperation,
+}
+import watershed/sequence_kernel.{type SequenceOperation}
+import watershed/task_manager_kernel.{type TaskManagerOperation}
+import watershed/text_kernel.{type TextOperation}
+import watershed/two_p_set_kernel.{type TwoPSetOperation}
+import watershed/wire.{type OutboundOperation}
 
 /// The contents of a sequenced `"op"` message. The contents are a kernel
-/// channel op, whose payload is not decoded yet because the
+/// channel operation, whose payload is not decoded yet because the
 /// address-to-channel-type lookup must run first. Or the contents are an attach
 /// envelope, which carries a channel snapshot.
-pub type OpContents {
-  ChannelOp(address: String, contents: Dynamic)
-  AttachOp(address: String, snapshot: channel.Snapshot)
+pub type OperationContents {
+  ChannelOperation(address: String, contents: Dynamic)
+  AttachOperation(address: String, snapshot: channel.Snapshot)
 }
 
-/// Wrap a kernel op in the document envelope as an outbound `"op"` message.
-pub fn outbound_channel_op(
+/// Wrap a kernel operation in the document envelope as an outbound `"op"`
+/// message.
+pub fn outbound_channel_operation(
   address address: String,
   client_sequence_number client_sequence_number: Int,
   reference_sequence_number reference_sequence_number: Int,
-  op op: channel.ChannelOp,
-) -> OutboundOp {
-  wire.OutboundOp(
+  operation operation: channel.ChannelOperation,
+) -> OutboundOperation {
+  wire.OutboundOperation(
     client_sequence_number: client_sequence_number,
     reference_sequence_number: reference_sequence_number,
-    op_type: "op",
-    contents: encode_channel_envelope(address, op),
+    operation_type: "op",
+    contents: encode_channel_envelope(address, operation),
     metadata: None,
   )
 }
@@ -99,39 +103,39 @@ pub fn encode_attach(address: String, snapshot: channel.Snapshot) -> Json {
   ])
 }
 
-pub fn outbound_attach_op(
+pub fn outbound_attach_operation(
   address address: String,
   client_sequence_number client_sequence_number: Int,
   reference_sequence_number reference_sequence_number: Int,
   snapshot snapshot: channel.Snapshot,
-) -> OutboundOp {
-  wire.OutboundOp(
+) -> OutboundOperation {
+  wire.OutboundOperation(
     client_sequence_number: client_sequence_number,
     reference_sequence_number: reference_sequence_number,
-    op_type: "op",
+    operation_type: "op",
     contents: encode_attach(address, snapshot),
     metadata: None,
   )
 }
 
-/// A `"summarize"` op that announces a stored snapshot. The contents carry the
-/// fields that the `validate_summarize_contents` function of the server needs:
-/// `handle`, the storage handle of the snapshot; `message`, the commit message;
-/// `parents`, the handles of the parent summaries; and `head`, the git tree SHA
-/// that the client uploaded. The client sets `handle` equal to `head`, so a
-/// client that loads the summary can fetch the tree by its handle.
-pub fn outbound_summarize_op(
+/// A `"summarize"` operation that announces a stored snapshot. The contents
+/// carry the fields that the `validate_summarize_contents` function of the
+/// server needs: `handle`, the storage handle of the snapshot; `message`, the
+/// commit message; `parents`, the handles of the parent summaries; and `head`,
+/// the git tree SHA that the client uploaded. The client sets `handle` equal to
+/// `head`, so a client that loads the summary can fetch the tree by its handle.
+pub fn outbound_summarize_operation(
   client_sequence_number client_sequence_number: Int,
   reference_sequence_number reference_sequence_number: Int,
   handle handle: String,
   message message: String,
   parents parents: List(String),
   head head: String,
-) -> OutboundOp {
-  wire.OutboundOp(
+) -> OutboundOperation {
+  wire.OutboundOperation(
     client_sequence_number: client_sequence_number,
     reference_sequence_number: reference_sequence_number,
-    op_type: "summarize",
+    operation_type: "summarize",
     contents: json.object([
       #("handle", json.string(handle)),
       #("message", json.string(message)),
@@ -142,83 +146,101 @@ pub fn outbound_summarize_op(
   )
 }
 
-/// The `{address, contents}` document envelope around a kernel op.
-pub fn encode_channel_envelope(address: String, op: channel.ChannelOp) -> Json {
+/// The `{address, contents}` document envelope around a kernel operation.
+pub fn encode_channel_envelope(
+  address: String,
+  operation: channel.ChannelOperation,
+) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_channel_op(op)),
+    #("contents", encode_channel_operation(operation)),
   ])
 }
 
-pub fn encode_channel_op(op: channel.ChannelOp) -> Json {
-  case op {
-    channel.MapOp(op) -> encode_map_op(op)
-    channel.CounterOp(op) -> encode_counter_op(op)
-    channel.PnCounterOp(op) -> encode_pn_counter_op(op)
-    channel.OrMapOp(op) -> encode_or_map_op(op)
-    channel.OrSetOp(op) -> encode_or_set_op(op)
-    channel.GSetOp(op) -> encode_g_set_op(op)
-    channel.TwoPSetOp(op) -> encode_two_p_set_op(op)
-    channel.RegisterCollectionOp(op) -> encode_register_collection_op(op)
-    channel.ClaimsOp(op) -> encode_claim_op(op)
-    channel.TaskManagerOp(op) -> encode_task_manager_op(op)
-    channel.JsonOtOp(op) -> encode_json_ot_op(op)
-    channel.DirectoryOp(op, message_id) -> encode_directory_op(op, message_id)
-    channel.PactMapOp(op) -> encode_pact_map_op(op)
-    channel.OrderedCollectionOp(op) -> encode_ordered_op(op)
-    channel.SequenceOp(op) -> encode_sequence_op(op)
-    channel.RichTextOp(op) -> encode_rich_text_op(op)
-    channel.TextOp(op) -> encode_text_op(op)
+pub fn encode_channel_operation(operation: channel.ChannelOperation) -> Json {
+  case operation {
+    channel.MapOperation(operation) -> encode_map_operation(operation)
+    channel.CounterOperation(operation) -> encode_counter_operation(operation)
+    channel.PnCounterOperation(operation) ->
+      encode_pn_counter_operation(operation)
+    channel.OrMapOperation(operation) -> encode_or_map_operation(operation)
+    channel.OrSetOperation(operation) -> encode_or_set_operation(operation)
+    channel.GSetOperation(operation) -> encode_g_set_operation(operation)
+    channel.TwoPSetOperation(operation) -> encode_two_p_set_operation(operation)
+    channel.RegisterCollectionOperation(operation) ->
+      encode_register_collection_operation(operation)
+    channel.ClaimsOperation(operation) -> encode_claim_operation(operation)
+    channel.TaskManagerOperation(operation) ->
+      encode_task_manager_operation(operation)
+    channel.JsonOtOperation(operation) -> encode_json_ot_operation(operation)
+    channel.DirectoryOperation(operation, message_id) ->
+      encode_directory_operation(operation, message_id)
+    channel.PactMapOperation(operation) -> encode_pact_map_operation(operation)
+    channel.OrderedCollectionOperation(operation) ->
+      encode_ordered_operation(operation)
+    channel.SequenceOperation(operation) -> encode_sequence_operation(operation)
+    channel.RichTextOperation(operation) ->
+      encode_rich_text_operation(operation)
+    channel.TextOperation(operation) -> encode_text_operation(operation)
   }
 }
 
-/// The decoder for the `contents` payload of a channel op. The registered type
-/// of the channel selects it. This is stage two of `decode_op_contents`.
-pub fn channel_op_decoder(
+/// The decoder for the `contents` payload of a channel operation. The
+/// registered type of the channel selects it. This is stage two of
+/// `decode_operation_contents`.
+pub fn channel_operation_decoder(
   channel_type: channel.ChannelType,
-) -> Decoder(channel.ChannelOp) {
+) -> Decoder(channel.ChannelOperation) {
   case channel_type {
-    channel.MapChannel -> map_op_decoder() |> decode.map(channel.MapOp)
+    channel.MapChannel ->
+      map_operation_decoder() |> decode.map(channel.MapOperation)
     channel.CounterChannel ->
-      counter_op_decoder() |> decode.map(channel.CounterOp)
+      counter_operation_decoder() |> decode.map(channel.CounterOperation)
     channel.PnCounterChannel ->
-      pn_counter_op_decoder() |> decode.map(channel.PnCounterOp)
-    channel.OrMapChannel -> or_map_op_decoder() |> decode.map(channel.OrMapOp)
-    channel.OrSetChannel -> or_set_op_decoder() |> decode.map(channel.OrSetOp)
-    channel.GSetChannel -> g_set_op_decoder() |> decode.map(channel.GSetOp)
+      pn_counter_operation_decoder() |> decode.map(channel.PnCounterOperation)
+    channel.OrMapChannel ->
+      or_map_operation_decoder() |> decode.map(channel.OrMapOperation)
+    channel.OrSetChannel ->
+      or_set_operation_decoder() |> decode.map(channel.OrSetOperation)
+    channel.GSetChannel ->
+      g_set_operation_decoder() |> decode.map(channel.GSetOperation)
     channel.TwoPSetChannel ->
-      two_p_set_op_decoder() |> decode.map(channel.TwoPSetOp)
+      two_p_set_operation_decoder() |> decode.map(channel.TwoPSetOperation)
     channel.RegisterCollectionChannel ->
-      register_collection_op_decoder()
-      |> decode.map(channel.RegisterCollectionOp)
-    channel.ClaimsChannel -> claim_op_decoder() |> decode.map(channel.ClaimsOp)
+      register_collection_operation_decoder()
+      |> decode.map(channel.RegisterCollectionOperation)
+    channel.ClaimsChannel ->
+      claim_operation_decoder() |> decode.map(channel.ClaimsOperation)
     channel.TaskManagerChannel ->
-      task_manager_op_decoder() |> decode.map(channel.TaskManagerOp)
+      task_manager_operation_decoder()
+      |> decode.map(channel.TaskManagerOperation)
     channel.JsonOtChannel ->
-      json_ot_op_decoder() |> decode.map(channel.JsonOtOp)
-    channel.DirectoryChannel -> directory_op_decoder()
+      json_ot_operation_decoder() |> decode.map(channel.JsonOtOperation)
+    channel.DirectoryChannel -> directory_operation_decoder()
     channel.PactMapChannel ->
-      pact_map_op_decoder() |> decode.map(channel.PactMapOp)
+      pact_map_operation_decoder() |> decode.map(channel.PactMapOperation)
     channel.OrderedCollectionChannel ->
-      ordered_op_decoder() |> decode.map(channel.OrderedCollectionOp)
+      ordered_operation_decoder()
+      |> decode.map(channel.OrderedCollectionOperation)
     channel.SequenceChannel ->
-      sequence_op_decoder() |> decode.map(channel.SequenceOp)
+      sequence_operation_decoder() |> decode.map(channel.SequenceOperation)
     channel.RichTextChannel ->
-      rich_text_op_decoder() |> decode.map(channel.RichTextOp)
-    channel.TextChannel -> text_op_decoder() |> decode.map(channel.TextOp)
+      rich_text_operation_decoder() |> decode.map(channel.RichTextOperation)
+    channel.TextChannel ->
+      text_operation_decoder() |> decode.map(channel.TextOperation)
   }
 }
 
-/// The `{address, contents}` document envelope around a map op.
-pub fn encode_map_envelope(address: String, op: MapOp) -> Json {
+/// The `{address, contents}` document envelope around a map operation.
+pub fn encode_map_envelope(address: String, operation: MapOperation) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_map_op(op)),
+    #("contents", encode_map_operation(operation)),
   ])
 }
 
-pub fn encode_map_op(op: MapOp) -> Json {
-  case op {
+pub fn encode_map_operation(operation: MapOperation) -> Json {
+  case operation {
     Set(key, value) ->
       json.object([
         #("type", json.string("set")),
@@ -240,16 +262,20 @@ pub fn encode_map_op(op: MapOp) -> Json {
   }
 }
 
-/// The `{address, contents}` document envelope around a SharedCounter op.
-pub fn encode_counter_envelope(address: String, op: CounterOp) -> Json {
+/// The `{address, contents}` document envelope around a SharedCounter
+/// operation.
+pub fn encode_counter_envelope(
+  address: String,
+  operation: CounterOperation,
+) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_counter_op(op)),
+    #("contents", encode_counter_operation(operation)),
   ])
 }
 
-pub fn encode_counter_op(op: CounterOp) -> Json {
-  case op {
+pub fn encode_counter_operation(operation: CounterOperation) -> Json {
+  case operation {
     Increment(increment_amount) ->
       json.object([
         #("type", json.string("increment")),
@@ -258,16 +284,19 @@ pub fn encode_counter_op(op: CounterOp) -> Json {
   }
 }
 
-/// The `{address, contents}` document envelope around a PnCounter op.
-pub fn encode_pn_counter_envelope(address: String, op: PnCounterOp) -> Json {
+/// The `{address, contents}` document envelope around a PnCounter operation.
+pub fn encode_pn_counter_envelope(
+  address: String,
+  operation: PnCounterOperation,
+) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_pn_counter_op(op)),
+    #("contents", encode_pn_counter_operation(operation)),
   ])
 }
 
-pub fn encode_pn_counter_op(op: PnCounterOp) -> Json {
-  case op {
+pub fn encode_pn_counter_operation(operation: PnCounterOperation) -> Json {
+  case operation {
     pn_counter_kernel.Update(amount, delta) ->
       json.object([
         #("type", json.string("pnCounterUpdate")),
@@ -277,16 +306,19 @@ pub fn encode_pn_counter_op(op: PnCounterOp) -> Json {
   }
 }
 
-/// The `{address, contents}` document envelope around an OrMap op.
-pub fn encode_or_map_envelope(address: String, op: OrMapOp) -> Json {
+/// The `{address, contents}` document envelope around an OrMap operation.
+pub fn encode_or_map_envelope(
+  address: String,
+  operation: OrMapOperation,
+) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_or_map_op(op)),
+    #("contents", encode_or_map_operation(operation)),
   ])
 }
 
-pub fn encode_or_map_op(op: OrMapOp) -> Json {
-  case op {
+pub fn encode_or_map_operation(operation: OrMapOperation) -> Json {
+  case operation {
     or_map_kernel.Increment(key, amount, delta) ->
       json.object([
         #("type", json.string("orMapIncrement")),
@@ -311,15 +343,18 @@ pub fn encode_or_map_op(op: OrMapOp) -> Json {
   }
 }
 
-pub fn encode_or_set_envelope(address: String, op: OrSetOp) -> Json {
+pub fn encode_or_set_envelope(
+  address: String,
+  operation: OrSetOperation,
+) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_or_set_op(op)),
+    #("contents", encode_or_set_operation(operation)),
   ])
 }
 
-pub fn encode_or_set_op(op: OrSetOp) -> Json {
-  case op {
+pub fn encode_or_set_operation(operation: OrSetOperation) -> Json {
+  case operation {
     or_set_kernel.Add(element, delta) ->
       json.object([
         #("type", json.string("orSetAdd")),
@@ -335,15 +370,18 @@ pub fn encode_or_set_op(op: OrSetOp) -> Json {
   }
 }
 
-pub fn encode_g_set_envelope(address: String, op: GSetOp) -> Json {
+pub fn encode_g_set_envelope(
+  address: String,
+  operation: GSetOperation,
+) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_g_set_op(op)),
+    #("contents", encode_g_set_operation(operation)),
   ])
 }
 
-pub fn encode_g_set_op(op: GSetOp) -> Json {
-  case op {
+pub fn encode_g_set_operation(operation: GSetOperation) -> Json {
+  case operation {
     g_set_kernel.Add(element, delta) ->
       json.object([
         #("type", json.string("gSetAdd")),
@@ -353,15 +391,18 @@ pub fn encode_g_set_op(op: GSetOp) -> Json {
   }
 }
 
-pub fn encode_two_p_set_envelope(address: String, op: TwoPSetOp) -> Json {
+pub fn encode_two_p_set_envelope(
+  address: String,
+  operation: TwoPSetOperation,
+) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_two_p_set_op(op)),
+    #("contents", encode_two_p_set_operation(operation)),
   ])
 }
 
-pub fn encode_two_p_set_op(op: TwoPSetOp) -> Json {
-  case op {
+pub fn encode_two_p_set_operation(operation: TwoPSetOperation) -> Json {
+  case operation {
     two_p_set_kernel.Add(element, delta) ->
       json.object([
         #("type", json.string("twoPSetAdd")),
@@ -379,16 +420,16 @@ pub fn encode_two_p_set_op(op: TwoPSetOp) -> Json {
 
 pub fn encode_register_collection_envelope(
   address: String,
-  op: WriteOp,
+  operation: WriteOperation,
 ) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_register_collection_op(op)),
+    #("contents", encode_register_collection_operation(operation)),
   ])
 }
 
-pub fn encode_register_collection_op(op: WriteOp) -> Json {
-  case op {
+pub fn encode_register_collection_operation(operation: WriteOperation) -> Json {
+  case operation {
     Write(key, value, ref_seq) ->
       json.object([
         #("type", json.string("registerWrite")),
@@ -405,15 +446,18 @@ pub fn encode_register_collection_op(op: WriteOp) -> Json {
   }
 }
 
-pub fn encode_claim_envelope(address: String, op: ClaimOp) -> Json {
+pub fn encode_claim_envelope(
+  address: String,
+  operation: ClaimOperation,
+) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_claim_op(op)),
+    #("contents", encode_claim_operation(operation)),
   ])
 }
 
-pub fn encode_claim_op(op: ClaimOp) -> Json {
-  case op {
+pub fn encode_claim_operation(operation: ClaimOperation) -> Json {
+  case operation {
     Claim(key, value, ref_seq) ->
       json.object([
         #("type", json.string("claim")),
@@ -430,37 +474,37 @@ pub fn encode_claim_op(op: ClaimOp) -> Json {
   }
 }
 
-/// Encode a json0 op envelope. It contains the reference sequence number that
-/// the components were written against, and the json0 component array.
-pub fn encode_json_ot_op(op: JsonOtWireOp) -> Json {
+/// Encode a json0 operation envelope. It contains the reference sequence number
+/// that the components were written against, and the json0 component array.
+pub fn encode_json_ot_operation(operation: JsonOtWireOperation) -> Json {
   json.object([
-    #("refSeq", json.int(op.ref_seq)),
-    #("components", json_ot.op_to_json(op.components)),
+    #("refSeq", json.int(operation.ref_seq)),
+    #("components", json_ot.operation_to_json(operation.components)),
   ])
 }
 
-/// Encode a rich-text op envelope. It contains the reference sequence number
-/// that the delta was written against, and the canonical Quill Delta JSON
-/// array of that delta.
-pub fn encode_rich_text_op(op: RichTextWireOp) -> Json {
+/// Encode a rich-text operation envelope. It contains the reference sequence
+/// number that the delta was written against, and the canonical Quill Delta
+/// JSON array of that delta.
+pub fn encode_rich_text_operation(operation: RichTextWireOperation) -> Json {
   json.object([
-    #("refSeq", json.int(op.ref_seq)),
-    #("delta", rich_text.delta_to_json(op.delta)),
+    #("refSeq", json.int(operation.ref_seq)),
+    #("delta", rich_text.delta_to_json(operation.delta)),
   ])
 }
 
 pub fn encode_task_manager_envelope(
   address: String,
-  op: TaskManagerOp,
+  operation: TaskManagerOperation,
 ) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_task_manager_op(op)),
+    #("contents", encode_task_manager_operation(operation)),
   ])
 }
 
-pub fn encode_task_manager_op(op: TaskManagerOp) -> Json {
-  case op {
+pub fn encode_task_manager_operation(operation: TaskManagerOperation) -> Json {
+  case operation {
     task_manager_kernel.Volunteer(task_id) ->
       json.object([
         #("type", json.string("taskVolunteer")),
@@ -479,12 +523,15 @@ pub fn encode_task_manager_op(op: TaskManagerOp) -> Json {
   }
 }
 
-/// Encode a SharedDirectory op. Every variant carries `path`, which is the
-/// absolute directory address, and `mid`, which is the `message_id` of the
-/// kernel. `mid` is the client-sequence identity of the op. A remote client
-/// needs it for the stale-instance filter and for the sibling order.
-pub fn encode_directory_op(op: DirectoryOp, message_id: Int) -> Json {
-  case op {
+/// Encode a SharedDirectory operation. Every variant carries `path`, which is
+/// the absolute directory address, and `mid`, which is the `message_id` of the
+/// kernel. `mid` is the client-sequence identity of the operation. A remote
+/// client needs it for the stale-instance filter and for the sibling order.
+pub fn encode_directory_operation(
+  operation: DirectoryOperation,
+  message_id: Int,
+) -> Json {
+  case operation {
     directory_kernel.Set(path, key, value) ->
       json.object([
         #("type", json.string("dirSet")),
@@ -526,69 +573,71 @@ pub fn encode_directory_op(op: DirectoryOp, message_id: Int) -> Json {
   }
 }
 
-fn directory_op_decoder() -> Decoder(channel.ChannelOp) {
-  use op_type <- decode.field("type", decode.string)
+fn directory_operation_decoder() -> Decoder(channel.ChannelOperation) {
+  use operation_type <- decode.field("type", decode.string)
   use path <- decode.field("path", decode.string)
   use message_id <- decode.field("mid", decode.int)
-  case op_type {
+  case operation_type {
     "dirSet" -> {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", plain_value_decoder())
-      decode.success(channel.DirectoryOp(
+      decode.success(channel.DirectoryOperation(
         directory_kernel.Set(path, key, value),
         message_id,
       ))
     }
     "dirDelete" -> {
       use key <- decode.field("key", decode.string)
-      decode.success(channel.DirectoryOp(
+      decode.success(channel.DirectoryOperation(
         directory_kernel.Delete(path, key),
         message_id,
       ))
     }
     "dirClear" ->
-      decode.success(channel.DirectoryOp(
+      decode.success(channel.DirectoryOperation(
         directory_kernel.Clear(path),
         message_id,
       ))
     "dirCreateSub" -> {
       use name <- decode.field("name", decode.string)
-      decode.success(channel.DirectoryOp(
+      decode.success(channel.DirectoryOperation(
         directory_kernel.CreateSubDirectory(path, name),
         message_id,
       ))
     }
     "dirDeleteSub" -> {
       use name <- decode.field("name", decode.string)
-      decode.success(channel.DirectoryOp(
+      decode.success(channel.DirectoryOperation(
         directory_kernel.DeleteSubDirectory(path, name),
         message_id,
       ))
     }
     _ ->
       decode.failure(
-        channel.DirectoryOp(directory_kernel.Clear(path), message_id),
+        channel.DirectoryOperation(directory_kernel.Clear(path), message_id),
         "DirectoryOp",
       )
   }
 }
 
-/// The `{address, contents}` document envelope around a PactMap op.
+/// The `{address, contents}` document envelope around a PactMap operation.
 pub fn encode_pact_map_envelope(
   address: String,
-  op: pact_map_kernel.PactMapOp,
+  operation: pact_map_kernel.PactMapOperation,
 ) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_pact_map_op(op)),
+    #("contents", encode_pact_map_operation(operation)),
   ])
 }
 
-/// Encode a PactMap op. The value of a `Set` op is an `Option(Json)`. `None`
-/// is a true tombstone, which is not the same as `Some(null)`, and it gets the
-/// `Absent` tag.
-pub fn encode_pact_map_op(op: pact_map_kernel.PactMapOp) -> Json {
-  case op {
+/// Encode a PactMap operation. The value of a `Set` operation is an
+/// `Option(Json)`. `None` is a true tombstone, which is not the same as
+/// `Some(null)`, and it gets the `Absent` tag.
+pub fn encode_pact_map_operation(
+  operation: pact_map_kernel.PactMapOperation,
+) -> Json {
+  case operation {
     pact_map_kernel.Set(key, value, ref_seq) ->
       json.object([
         #("type", json.string("pactMapSet")),
@@ -614,21 +663,24 @@ fn encode_pact_map_value(value: option.Option(Json)) -> Json {
 
 pub fn decode_pact_map_envelope(
   contents: Dynamic,
-) -> Result(#(String, pact_map_kernel.PactMapOp), List(decode.DecodeError)) {
+) -> Result(
+  #(String, pact_map_kernel.PactMapOperation),
+  List(decode.DecodeError),
+) {
   decode.run(contents, pact_map_envelope_decoder())
 }
 
 pub fn pact_map_envelope_decoder() -> Decoder(
-  #(String, pact_map_kernel.PactMapOp),
+  #(String, pact_map_kernel.PactMapOperation),
 ) {
   use address <- decode.field("address", decode.string)
-  use op <- decode.field("contents", pact_map_op_decoder())
-  decode.success(#(address, op))
+  use operation <- decode.field("contents", pact_map_operation_decoder())
+  decode.success(#(address, operation))
 }
 
-pub fn pact_map_op_decoder() -> Decoder(pact_map_kernel.PactMapOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn pact_map_operation_decoder() -> Decoder(pact_map_kernel.PactMapOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "pactMapSet" -> {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", pact_map_value_decoder())
@@ -656,16 +708,19 @@ fn pact_map_value_decoder() -> Decoder(option.Option(Json)) {
 }
 
 /// The `{address, contents}` document envelope around an ordered-collection
-/// op.
-pub fn encode_ordered_envelope(address: String, op: OrderedOp) -> Json {
+/// operation.
+pub fn encode_ordered_envelope(
+  address: String,
+  operation: OrderedOperation,
+) -> Json {
   json.object([
     #("address", json.string(address)),
-    #("contents", encode_ordered_op(op)),
+    #("contents", encode_ordered_operation(operation)),
   ])
 }
 
-pub fn encode_ordered_op(op: OrderedOp) -> Json {
-  case op {
+pub fn encode_ordered_operation(operation: OrderedOperation) -> Json {
+  case operation {
     ordered_collection_kernel.Add(value) ->
       json.object([#("type", json.string("orderedAdd")), #("value", value)])
     ordered_collection_kernel.Acquire(acquire_id) ->
@@ -688,19 +743,19 @@ pub fn encode_ordered_op(op: OrderedOp) -> Json {
 
 pub fn decode_ordered_envelope(
   contents: Dynamic,
-) -> Result(#(String, OrderedOp), List(decode.DecodeError)) {
+) -> Result(#(String, OrderedOperation), List(decode.DecodeError)) {
   decode.run(contents, ordered_envelope_decoder())
 }
 
-pub fn ordered_envelope_decoder() -> Decoder(#(String, OrderedOp)) {
+pub fn ordered_envelope_decoder() -> Decoder(#(String, OrderedOperation)) {
   use address <- decode.field("address", decode.string)
-  use op <- decode.field("contents", ordered_op_decoder())
-  decode.success(#(address, op))
+  use operation <- decode.field("contents", ordered_operation_decoder())
+  decode.success(#(address, operation))
 }
 
-pub fn ordered_op_decoder() -> Decoder(OrderedOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn ordered_operation_decoder() -> Decoder(OrderedOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "orderedAdd" -> {
       use value <- decode.field("value", wire.json_value_decoder())
       decode.success(ordered_collection_kernel.Add(value))
@@ -721,9 +776,9 @@ pub fn ordered_op_decoder() -> Decoder(OrderedOp) {
   }
 }
 
-pub fn sequence_op_decoder() -> Decoder(SequenceOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn sequence_operation_decoder() -> Decoder(SequenceOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "sequenceInsert" -> {
       use index <- decode.field("index", decode.int)
       use value <- decode.field("value", wire.json_value_decoder())
@@ -755,13 +810,14 @@ pub fn sequence_op_decoder() -> Decoder(SequenceOp) {
   }
 }
 
-/// Decode the wire tag of a `TextOp`. The diagnostic intent fields, which are
-/// the indexes, the ranges, and the value, travel with the authoritative CRDT
-/// `delta`. A `delta` that is malformed or absent fails this decoder, and thus
-/// fails stage two of the decode, before the op reaches the kernel.
-pub fn text_op_decoder() -> Decoder(TextOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+/// Decode the wire tag of a `TextOperation`. The diagnostic intent fields,
+/// which are the indexes, the ranges, and the value, travel with the
+/// authoritative CRDT `delta`. A `delta` that is malformed or absent fails this
+/// decoder, and thus fails stage two of the decode, before the operation
+/// reaches the kernel.
+pub fn text_operation_decoder() -> Decoder(TextOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "textInsert" -> {
       use index <- decode.field("index", decode.int)
       use value <- decode.field("value", decode.string)
@@ -794,8 +850,8 @@ pub fn text_op_decoder() -> Decoder(TextOp) {
   }
 }
 
-pub fn encode_sequence_op(op: SequenceOp) -> Json {
-  case op {
+pub fn encode_sequence_operation(operation: SequenceOperation) -> Json {
+  case operation {
     sequence_kernel.Insert(index, value, delta) ->
       json.object([
         #("type", json.string("sequenceInsert")),
@@ -826,12 +882,12 @@ pub fn encode_sequence_op(op: SequenceOp) -> Json {
   }
 }
 
-/// Encode a `TextOp` for the wire. Every constructor carries the diagnostic
-/// intent fields, which are the indexes, the ranges, and the value, with the
-/// authoritative CRDT `delta`. A remote replica applies `delta`. It never
-/// applies a diagnostic field.
-pub fn encode_text_op(op: TextOp) -> Json {
-  case op {
+/// Encode a `TextOperation` for the wire. Every constructor carries the
+/// diagnostic intent fields, which are the indexes, the ranges, and the value,
+/// with the authoritative CRDT `delta`. A remote replica applies `delta`. It
+/// never applies a diagnostic field.
+pub fn encode_text_operation(operation: TextOperation) -> Json {
+  case operation {
     text_kernel.Insert(index, value, delta) ->
       json.object([
         #("type", json.string("textInsert")),
@@ -892,22 +948,22 @@ fn text_delta_json(delta: text.Text) -> Json {
 }
 
 /// Decode the `contents` of a sequenced `"op"` message into
-/// `#(address, MapOp)`.
+/// `#(address, MapOperation)`.
 pub fn decode_map_envelope(
   contents: Dynamic,
-) -> Result(#(String, MapOp), List(decode.DecodeError)) {
+) -> Result(#(String, MapOperation), List(decode.DecodeError)) {
   decode.run(contents, map_envelope_decoder())
 }
 
-pub fn map_envelope_decoder() -> Decoder(#(String, MapOp)) {
+pub fn map_envelope_decoder() -> Decoder(#(String, MapOperation)) {
   use address <- decode.field("address", decode.string)
-  use op <- decode.field("contents", map_op_decoder())
-  decode.success(#(address, op))
+  use operation <- decode.field("contents", map_operation_decoder())
+  decode.success(#(address, operation))
 }
 
-pub fn map_op_decoder() -> Decoder(MapOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn map_operation_decoder() -> Decoder(MapOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "set" -> {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", plain_value_decoder())
@@ -923,22 +979,22 @@ pub fn map_op_decoder() -> Decoder(MapOp) {
 }
 
 /// Decode the `contents` of a sequenced `"op"` message into
-/// `#(address, CounterOp)`.
+/// `#(address, CounterOperation)`.
 pub fn decode_counter_envelope(
   contents: Dynamic,
-) -> Result(#(String, CounterOp), List(decode.DecodeError)) {
+) -> Result(#(String, CounterOperation), List(decode.DecodeError)) {
   decode.run(contents, counter_envelope_decoder())
 }
 
-pub fn counter_envelope_decoder() -> Decoder(#(String, CounterOp)) {
+pub fn counter_envelope_decoder() -> Decoder(#(String, CounterOperation)) {
   use address <- decode.field("address", decode.string)
-  use op <- decode.field("contents", counter_op_decoder())
-  decode.success(#(address, op))
+  use operation <- decode.field("contents", counter_operation_decoder())
+  decode.success(#(address, operation))
 }
 
-pub fn counter_op_decoder() -> Decoder(CounterOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn counter_operation_decoder() -> Decoder(CounterOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "increment" -> {
       use increment_amount <- decode.field("incrementAmount", decode.int)
       decode.success(Increment(increment_amount))
@@ -948,22 +1004,22 @@ pub fn counter_op_decoder() -> Decoder(CounterOp) {
 }
 
 /// Decode the `contents` of a sequenced `"op"` message into
-/// `#(address, PnCounterOp)`.
+/// `#(address, PnCounterOperation)`.
 pub fn decode_pn_counter_envelope(
   contents: Dynamic,
-) -> Result(#(String, PnCounterOp), List(decode.DecodeError)) {
+) -> Result(#(String, PnCounterOperation), List(decode.DecodeError)) {
   decode.run(contents, pn_counter_envelope_decoder())
 }
 
-pub fn pn_counter_envelope_decoder() -> Decoder(#(String, PnCounterOp)) {
+pub fn pn_counter_envelope_decoder() -> Decoder(#(String, PnCounterOperation)) {
   use address <- decode.field("address", decode.string)
-  use op <- decode.field("contents", pn_counter_op_decoder())
-  decode.success(#(address, op))
+  use operation <- decode.field("contents", pn_counter_operation_decoder())
+  decode.success(#(address, operation))
 }
 
-pub fn pn_counter_op_decoder() -> Decoder(PnCounterOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn pn_counter_operation_decoder() -> Decoder(PnCounterOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "pnCounterUpdate" -> {
       use amount <- decode.field("amount", decode.int)
       use delta <- decode.field("delta", pn_counter_delta_decoder())
@@ -977,9 +1033,9 @@ pub fn pn_counter_op_decoder() -> Decoder(PnCounterOp) {
   }
 }
 
-pub fn or_map_op_decoder() -> Decoder(OrMapOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn or_map_operation_decoder() -> Decoder(OrMapOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "orMapIncrement" -> {
       use key <- decode.field("key", decode.string)
       use amount <- decode.field("amount", decode.int)
@@ -1007,20 +1063,20 @@ pub fn or_map_op_decoder() -> Decoder(OrMapOp) {
   }
 }
 
-pub fn or_set_op_decoder() -> Decoder(OrSetOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn or_set_operation_decoder() -> Decoder(OrSetOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "orSetAdd" -> {
       use element <- decode.field("element", decode.string)
       use delta <- decode.field("delta", or_set_delta_decoder())
-      let op: OrSetOp = or_set_kernel.Add(element, delta)
-      decode.success(op)
+      let operation: OrSetOperation = or_set_kernel.Add(element, delta)
+      decode.success(operation)
     }
     "orSetRemove" -> {
       use element <- decode.field("element", decode.string)
       use delta <- decode.field("delta", or_set_delta_decoder())
-      let op: OrSetOp = or_set_kernel.Remove(element, delta)
-      decode.success(op)
+      let operation: OrSetOperation = or_set_kernel.Remove(element, delta)
+      decode.success(operation)
     }
     _ ->
       decode.failure(
@@ -1030,33 +1086,33 @@ pub fn or_set_op_decoder() -> Decoder(OrSetOp) {
   }
 }
 
-pub fn g_set_op_decoder() -> Decoder(GSetOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn g_set_operation_decoder() -> Decoder(GSetOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "gSetAdd" -> {
       use element <- decode.field("element", decode.string)
       use delta <- decode.field("delta", g_set_delta_decoder())
-      let op: GSetOp = g_set_kernel.Add(element, delta)
-      decode.success(op)
+      let operation: GSetOperation = g_set_kernel.Add(element, delta)
+      decode.success(operation)
     }
     _ -> decode.failure(g_set_kernel.Add("", default_g_set_delta()), "GSetOp")
   }
 }
 
-pub fn two_p_set_op_decoder() -> Decoder(TwoPSetOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn two_p_set_operation_decoder() -> Decoder(TwoPSetOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "twoPSetAdd" -> {
       use element <- decode.field("element", decode.string)
       use delta <- decode.field("delta", two_p_set_delta_decoder())
-      let op: TwoPSetOp = two_p_set_kernel.Add(element, delta)
-      decode.success(op)
+      let operation: TwoPSetOperation = two_p_set_kernel.Add(element, delta)
+      decode.success(operation)
     }
     "twoPSetRemove" -> {
       use element <- decode.field("element", decode.string)
       use delta <- decode.field("delta", two_p_set_delta_decoder())
-      let op: TwoPSetOp = two_p_set_kernel.Remove(element, delta)
-      decode.success(op)
+      let operation: TwoPSetOperation = two_p_set_kernel.Remove(element, delta)
+      decode.success(operation)
     }
     _ ->
       decode.failure(
@@ -1066,9 +1122,9 @@ pub fn two_p_set_op_decoder() -> Decoder(TwoPSetOp) {
   }
 }
 
-pub fn register_collection_op_decoder() -> Decoder(WriteOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn register_collection_operation_decoder() -> Decoder(WriteOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "registerWrite" -> {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", plain_value_decoder())
@@ -1079,9 +1135,9 @@ pub fn register_collection_op_decoder() -> Decoder(WriteOp) {
   }
 }
 
-pub fn claim_op_decoder() -> Decoder(ClaimOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn claim_operation_decoder() -> Decoder(ClaimOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "claim" -> {
       use key <- decode.field("key", decode.string)
       use value <- decode.field("value", plain_value_decoder())
@@ -1092,20 +1148,20 @@ pub fn claim_op_decoder() -> Decoder(ClaimOp) {
   }
 }
 
-pub fn json_ot_op_decoder() -> Decoder(JsonOtWireOp) {
+pub fn json_ot_operation_decoder() -> Decoder(JsonOtWireOperation) {
   use ref_seq <- decode.field("refSeq", decode.int)
-  use components <- decode.field("components", json_ot.op_decoder())
-  decode.success(JsonOtWireOp(ref_seq, components))
+  use components <- decode.field("components", json_ot.operation_decoder())
+  decode.success(JsonOtWireOperation(ref_seq, components))
 }
 
-/// A strict decoder for a rich-text op envelope. The `delta` field must decode
-/// as a correct Quill Delta, which is an array of insert, delete, and retain
-/// operations. A malformed delta fails the whole decode. The decoder does not
-/// drop the op.
-pub fn rich_text_op_decoder() -> Decoder(RichTextWireOp) {
+/// A strict decoder for a rich-text operation envelope. The `delta` field must
+/// decode as a correct Quill Delta, which is an array of insert, delete, and
+/// retain operations. A malformed delta fails the whole decode. The decoder
+/// does not drop the operation.
+pub fn rich_text_operation_decoder() -> Decoder(RichTextWireOperation) {
   use ref_seq <- decode.field("refSeq", decode.int)
   use delta <- decode.field("delta", rich_text_delta_decoder())
-  decode.success(RichTextWireOp(ref_seq, delta))
+  decode.success(RichTextWireOperation(ref_seq, delta))
 }
 
 fn rich_text_delta_decoder() -> Decoder(rich_text.Delta) {
@@ -1116,9 +1172,9 @@ fn rich_text_delta_decoder() -> Decoder(rich_text.Delta) {
   }
 }
 
-pub fn task_manager_op_decoder() -> Decoder(TaskManagerOp) {
-  use op_type <- decode.field("type", decode.string)
-  case op_type {
+pub fn task_manager_operation_decoder() -> Decoder(TaskManagerOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
     "taskVolunteer" -> {
       use task_id <- decode.field("taskId", decode.string)
       decode.success(task_manager_kernel.Volunteer(task_id))
@@ -1229,12 +1285,12 @@ fn sequence_delta_shape_decoder() -> Decoder(Nil) {
 // `lattice_text` 1.0.0 stores its backing `lattice_sequence.Sequence(String)`
 // and serializes it with `sequence.to_json`, so a `Text` delta is wire-shaped
 // identically to a `Sequence` delta. Reusing `sequence_delta_shape_decoder`
-// here checks the same invariant an authentic op delta must hold: empty
+// here checks the same invariant an authentic operation delta must hold: empty
 // frontier, no forwardings, and item-only segments. A delta failing that
 // shape check — most notably a compacted state, which has tombstones and a
 // non-empty frontier — is rejected before `text.from_json` ever runs, so a
 // forged "delta" can't smuggle a full (and potentially stale-relative)
-// state into a channel op.
+// state into a channel operation.
 fn text_delta_decoder() -> Decoder(text.Text) {
   use encoded <- decode.then(decode.string)
   case json.parse(encoded, sequence_delta_shape_decoder()) {
@@ -1275,7 +1331,7 @@ fn plain_value_decoder() -> Decoder(Json) {
   }
 }
 
-pub fn attach_envelope_decoder() -> Decoder(OpContents) {
+pub fn attach_envelope_decoder() -> Decoder(OperationContents) {
   use t <- decode.field("type", decode.string)
   case t {
     "attach" -> {
@@ -1287,26 +1343,26 @@ pub fn attach_envelope_decoder() -> Decoder(OpContents) {
             "snapshot",
             channel.snapshot_decoder(channel_type),
           )
-          decode.success(AttachOp(address: address, snapshot: snapshot))
+          decode.success(AttachOperation(address: address, snapshot: snapshot))
         }
         Error(_) ->
           decode.failure(
-            AttachOp(address: "", snapshot: channel.MapSnapshot([])),
+            AttachOperation(address: "", snapshot: channel.MapSnapshot([])),
             "ChannelType",
           )
       }
     }
     _ ->
       decode.failure(
-        AttachOp(address: "", snapshot: channel.MapSnapshot([])),
+        AttachOperation(address: "", snapshot: channel.MapSnapshot([])),
         "AttachEnvelope",
       )
   }
 }
 
-pub fn decode_op_contents(
+pub fn decode_operation_contents(
   contents: Dynamic,
-) -> Result(OpContents, List(decode.DecodeError)) {
+) -> Result(OperationContents, List(decode.DecodeError)) {
   // An explicit top-level `type: "attach"` must decode as an attach envelope
   // (no fallback); anything else decodes as the `{address, contents}`
   // envelope, its payload left for stage-two decoding by channel type.
@@ -1316,8 +1372,8 @@ pub fn decode_op_contents(
   }
 }
 
-fn channel_envelope_decoder() -> Decoder(OpContents) {
+fn channel_envelope_decoder() -> Decoder(OperationContents) {
   use address <- decode.field("address", decode.string)
   use contents <- decode.field("contents", decode.dynamic)
-  decode.success(ChannelOp(address: address, contents: contents))
+  decode.success(ChannelOperation(address: address, contents: contents))
 }

@@ -24,27 +24,28 @@ fn expect_coherent(state: or_set_kernel.OrSetState) -> Nil {
 
 fn ack(
   state: or_set_kernel.OrSetState,
-  op: or_set_kernel.OrSetOp,
+  operation: or_set_kernel.OrSetOperation,
 ) -> or_set_kernel.OrSetState {
-  let assert Ok(state) = or_set_kernel.ack_local(state, op)
+  let assert Ok(state) = or_set_kernel.ack_local(state, operation)
   state
 }
 
 pub fn add_is_optimistically_visible_test() -> Nil {
-  let #(state, events, op, message_id) = or_set_kernel.add(new_a(), "alice")
+  let #(state, events, operation, message_id) =
+    or_set_kernel.add(new_a(), "alice")
 
   or_set_kernel.values(state) |> expect.to_equal(["alice"])
   or_set_kernel.sequenced_values(state) |> expect.to_equal([])
   events |> expect.to_equal([ElementAdded("alice")])
   message_id |> expect.to_equal(0)
-  let assert or_set_kernel.Add("alice", _) = op
+  let assert or_set_kernel.Add("alice", _) = operation
   expect_coherent(state)
 }
 
 pub fn remote_add_is_idempotent_test() -> Nil {
-  let #(_, _, op, _) = or_set_kernel.add(new_a(), "alice")
-  let #(state, first_events) = or_set_kernel.apply_remote(new_b(), op)
-  let #(state, second_events) = or_set_kernel.apply_remote(state, op)
+  let #(_, _, operation, _) = or_set_kernel.add(new_a(), "alice")
+  let #(state, first_events) = or_set_kernel.apply_remote(new_b(), operation)
+  let #(state, second_events) = or_set_kernel.apply_remote(state, operation)
 
   or_set_kernel.values(state) |> expect.to_equal(["alice"])
   first_events |> expect.to_equal([ElementAdded("alice")])
@@ -82,16 +83,16 @@ pub fn rollback_recomputes_optimistic_from_remaining_pending_test() -> Nil {
 }
 
 pub fn summary_round_trips_and_rebrands_test() -> Nil {
-  let #(state, _, op, _) = or_set_kernel.add(new_a(), "alice")
-  let state = ack(state, op)
+  let #(state, _, operation, _) = or_set_kernel.add(new_a(), "alice")
+  let state = ack(state, operation)
 
   let raw = json.to_string(or_set_kernel.summary(state))
   let assert Ok(loaded) = or_set_kernel.from_summary(raw, replica("c"))
 
   or_set_kernel.values(loaded) |> expect.to_equal(["alice"])
   loaded.pending |> expect.to_equal([])
-  let #(loaded, _, op_c, _) = or_set_kernel.add(loaded, "carol")
-  let loaded = ack(loaded, op_c)
+  let #(loaded, _, operation_c, _) = or_set_kernel.add(loaded, "carol")
+  let loaded = ack(loaded, operation_c)
   or_set_kernel.sequenced_values(loaded)
   |> expect.to_equal(["alice", "carol"])
 }

@@ -8,8 +8,8 @@ fn parse(raw: String) -> JsonValue {
   value
 }
 
-fn apply_ok(doc: JsonValue, op: json_ot.Op) -> JsonValue {
-  let assert Ok(result) = json_ot.apply(doc, op)
+fn apply_ok(doc: JsonValue, operation: json_ot.Operation) -> JsonValue {
+  let assert Ok(result) = json_ot.apply(doc, operation)
   result
 }
 
@@ -110,7 +110,7 @@ pub fn list_move_forward_test() -> Nil {
   |> expect.to_equal(parse("[\"a\",\"b\",\"c\"]"))
 }
 
-pub fn multi_component_op_test() -> Nil {
+pub fn multi_component_operation_test() -> Nil {
   apply_ok(parse("{\"x\":1}"), [
     json_ot.number_add([Key("x")], NInt(2)),
     json_ot.obj_insert([Key("y")], VString("hi")),

@@ -15,16 +15,16 @@ pub type GSetState {
   GSetState(
     sequenced: GSet(String),
     optimistic: GSet(String),
-    pending: List(PendingOp),
+    pending: List(PendingOperation),
     next_pending_message_id: Int,
   )
 }
 
-pub type PendingOp {
-  PendingOp(op: GSetOp, message_id: Int)
+pub type PendingOperation {
+  PendingOperation(operation: GSetOperation, message_id: Int)
 }
 
-pub type GSetOp {
+pub type GSetOperation {
   Add(element: String, delta: GSet(String))
 }
 
@@ -66,19 +66,21 @@ pub fn sequenced_values(state: GSetState) -> List(String) {
 pub fn add(
   state: GSetState,
   element: String,
-) -> #(GSetState, List(GSetEvent), GSetOp, Int) {
+) -> #(GSetState, List(GSetEvent), GSetOperation, Int) {
   let before = values(state)
   let #(optimistic, delta) = g_set.add_with_delta(state.optimistic, element)
   let message_id = state.next_pending_message_id
-  let op = Add(element, delta)
+  let operation = Add(element, delta)
   let state =
     GSetState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  #(state, events_between(before, values(state)), op, message_id)
+  #(state, events_between(before, values(state)), operation, message_id)
 }
 
 /// Merge a new local delta into `sequenced` and `optimistic` in one step.
@@ -86,24 +88,24 @@ pub fn add(
 /// This function has the same behaviour as `sequence_kernel.commit_p2p`.
 fn commit_p2p(
   state: GSetState,
-  op: GSetOp,
-) -> #(GSetState, List(GSetEvent), GSetOp) {
+  operation: GSetOperation,
+) -> #(GSetState, List(GSetEvent), GSetOperation) {
   let before = values(state)
-  let Add(_, delta) = op
+  let Add(_, delta) = operation
   let state =
     GSetState(
       ..state,
       sequenced: g_set.merge(state.sequenced, delta),
       optimistic: g_set.merge(state.optimistic, delta),
     )
-  #(state, events_between(before, values(state)), op)
+  #(state, events_between(before, values(state)), operation)
 }
 
 /// The ack-free p2p form of `add`. It commits immediately. See `commit_p2p`.
 pub fn p2p_add(
   state: GSetState,
   element: String,
-) -> #(GSetState, List(GSetEvent), GSetOp) {
+) -> #(GSetState, List(GSetEvent), GSetOperation) {
   let #(_, delta) = g_set.add_with_delta(state.optimistic, element)
   commit_p2p(state, Add(element, delta))
 }
@@ -127,10 +129,10 @@ pub fn p2p_merge(
 
 pub fn apply_remote(
   state: GSetState,
-  op: GSetOp,
+  operation: GSetOperation,
 ) -> #(GSetState, List(GSetEvent)) {
   let before = values(state)
-  let Add(_, delta) = op
+  let Add(_, delta) = operation
   let sequenced = g_set.merge(state.sequenced, delta)
   let optimistic = replay_pending(sequenced, state.pending)
   let state = GSetState(..state, sequenced: sequenced, optimistic: optimistic)
@@ -139,34 +141,34 @@ pub fn apply_remote(
 
 pub fn ack_local(
   state: GSetState,
-  op: GSetOp,
+  operation: GSetOperation,
 ) -> Result(GSetState, KernelError) {
-  do_ack(state, op, None)
+  do_ack(state, operation, None)
 }
 
 pub fn ack_local_with_message_id(
   state: GSetState,
-  op: GSetOp,
+  operation: GSetOperation,
   message_id: Int,
 ) -> Result(GSetState, KernelError) {
-  do_ack(state, op, Some(message_id))
+  do_ack(state, operation, Some(message_id))
 }
 
 fn do_ack(
   state: GSetState,
-  op: GSetOp,
+  operation: GSetOperation,
   expected_message_id: Option(Int),
 ) -> Result(GSetState, KernelError) {
   case state.pending {
     [] -> Error(UnexpectedAck("pending queue is empty"))
-    [PendingOp(pending_op, pending_message_id), ..rest] -> {
+    [PendingOperation(pending_operation, pending_message_id), ..rest] -> {
       let message_id_matches = case expected_message_id {
         None -> True
         Some(message_id) -> message_id == pending_message_id
       }
-      case pending_op == op && message_id_matches {
+      case pending_operation == operation && message_id_matches {
         True -> {
-          let Add(_, delta) = op
+          let Add(_, delta) = operation
           Ok(
             GSetState(
               ..state,
@@ -192,13 +194,13 @@ fn do_ack(
 
 pub fn rollback(
   state: GSetState,
-  op: GSetOp,
+  operation: GSetOperation,
   message_id: Int,
 ) -> Result(#(GSetState, List(GSetEvent)), KernelError) {
   case pop_last(state.pending) {
     Error(_) -> Error(UnexpectedRollback("pending queue is empty"))
-    Ok(#(PendingOp(pending_op, pending_message_id), rest)) ->
-      case pending_op == op && pending_message_id == message_id {
+    Ok(#(PendingOperation(pending_operation, pending_message_id), rest)) ->
+      case pending_operation == operation && pending_message_id == message_id {
         False ->
           Error(UnexpectedRollback(
             "expected newest pending op with message id "
@@ -216,22 +218,24 @@ pub fn rollback(
   }
 }
 
-pub fn apply_stashed_op(
+pub fn apply_stashed_operation(
   state: GSetState,
-  op: GSetOp,
-) -> #(GSetState, List(GSetEvent), GSetOp, Int) {
+  operation: GSetOperation,
+) -> #(GSetState, List(GSetEvent), GSetOperation, Int) {
   let before = values(state)
-  let Add(_, delta) = op
+  let Add(_, delta) = operation
   let optimistic = g_set.merge(state.optimistic, delta)
   let message_id = state.next_pending_message_id
   let state =
     GSetState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  #(state, events_between(before, values(state)), op, message_id)
+  #(state, events_between(before, values(state)), operation, message_id)
 }
 
 pub fn promote_attach(state: GSetState) -> GSetState {
@@ -270,10 +274,10 @@ pub fn check_cache_coherence(state: GSetState) -> Result(Nil, String) {
 
 fn replay_pending(
   sequenced: GSet(String),
-  pending: List(PendingOp),
+  pending: List(PendingOperation),
 ) -> GSet(String) {
   list.fold(pending, sequenced, fn(acc, pending) {
-    let Add(_, delta) = pending.op
+    let Add(_, delta) = pending.operation
     g_set.merge(acc, delta)
   })
 }
@@ -289,8 +293,8 @@ fn events_between(
 }
 
 fn pop_last(
-  pending: List(PendingOp),
-) -> Result(#(PendingOp, List(PendingOp)), Nil) {
+  pending: List(PendingOperation),
+) -> Result(#(PendingOperation, List(PendingOperation)), Nil) {
   case pending {
     [] -> Error(Nil)
     [only] -> Ok(#(only, []))

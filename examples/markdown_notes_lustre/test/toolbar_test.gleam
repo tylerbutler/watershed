@@ -1,6 +1,6 @@
 //// The toolbar helpers are pure functions from (text, selection) to insert
-//// ops, so line-start math, collapsed-caret wrapping, and end-before-start
-//// ordering get plain tests with no channel at all.
+//// operations, so line-start math, collapsed-caret wrapping, and
+//// end-before-start ordering get plain tests with no channel at all.
 
 import gleeunit/should
 import markdown_notes_lustre/toolbar

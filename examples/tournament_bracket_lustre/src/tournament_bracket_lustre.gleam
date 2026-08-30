@@ -23,7 +23,7 @@
 //// Writes are **non-optimistic**: a submitted result does not appear as the
 //// official winner until its `AtomicChanged` event arrives, unlike every
 //// other example here (`register_collection_kernel`'s docstring: "local
-//// writes are not visible until their op sequences"). The UI shows a
+//// writes are not visible until their operation sequences"). The UI shows a
 //// "submitted…" state for the gap rather than assuming the write already won.
 ////
 //// Open two browser tabs against the same `?document=` to watch the bracket

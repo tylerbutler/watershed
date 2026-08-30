@@ -12,8 +12,8 @@
 //// protocol documentation that the sluice plan asks for.
 ////
 //// The module is target-agnostic: JSON in, JSON out, and no FFI. The
-//// `contents` of an op pass through as `Json`, and never as `Dynamic`, so the
-//// encode path behaves the same way on the BEAM and on JavaScript.
+//// `contents` of an operation pass through as `Json`, and never as `Dynamic`,
+//// so the encode path behaves the same way on the BEAM and on JavaScript.
 
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
@@ -31,14 +31,13 @@ import watershed/wire
 import watershed/wire/socket
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Server-side view of one sequenced op
+// Server-side view of one sequenced operation
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A sequenced op, as the sluice stores it and broadcasts it. This is the
-/// server-side equivalent of `types.SequencedDocumentMessage`. It keeps
+/// A sequenced operation, as the sluice stores it and broadcasts it. This is
+/// the server-side equivalent of `types.SequencedDocumentMessage`. It keeps
 /// `contents` and `metadata` as `Json`, so a re-encode needs no coercion from
-/// `Dynamic`, and thus no FFI. A `client_id` of `None` marks a system
-/// message.
+/// `Dynamic`, and thus no FFI. A `client_id` of `None` marks a system message.
 pub type Sequenced {
   Sequenced(
     client_id: Option(String),
@@ -46,15 +45,15 @@ pub type Sequenced {
     minimum_sequence_number: Int,
     client_sequence_number: Int,
     reference_sequence_number: Int,
-    op_type: String,
+    operation_type: String,
     contents: Json,
     metadata: Option(Json),
     timestamp: Int,
-    /// The payload of a system message, as JSON *text*. An op leaves this
-    /// field `None` and carries its payload in `contents`. A `"join"` message
-    /// and a `"leave"` message do the opposite: `contents` is null and the
-    /// payload is here. That difference comes from the server, not from this
-    /// module. See `system_join_data` and `system_leave_data`.
+    /// The payload of a system message, as JSON *text*. An operation leaves
+    /// this field `None` and carries its payload in `contents`. A `"join"`
+    /// message and a `"leave"` message do the opposite: `contents` is null and
+    /// the payload is here. That difference comes from the server, not from
+    /// this module. See `system_join_data` and `system_leave_data`.
     data: Option(String),
   )
 }
@@ -74,11 +73,11 @@ pub type ConnectRequest {
   )
 }
 
-/// One op in a `submitOp` batch. This is the inverse of
-/// `socket.encode_outbound_op`.
-pub type SubmittedOp {
-  SubmittedOp(
-    op_type: String,
+/// One operation in a `submitOp` batch. This is the inverse of
+/// `socket.encode_outbound_operation`.
+pub type SubmittedOperation {
+  SubmittedOperation(
+    operation_type: String,
     contents: Json,
     client_sequence_number: Int,
     reference_sequence_number: Int,
@@ -86,9 +85,9 @@ pub type SubmittedOp {
   )
 }
 
-/// A complete `submitOp` push: a client id with its batches of ops.
-pub type SubmitOp {
-  SubmitOp(client_id: String, batches: List(List(SubmittedOp)))
+/// A complete `submitOp` push: a client id with its batches of operations.
+pub type SubmitOperation {
+  SubmitOperation(client_id: String, batches: List(List(SubmittedOperation)))
 }
 
 /// An ephemeral `submitSignal` push, reduced to its one content entry.
@@ -126,22 +125,24 @@ fn connect_document_decoder() -> Decoder(ConnectRequest) {
 }
 
 /// Decode a `submitOp` payload. This is the inverse of
-/// `socket.encode_submit_op`.
-pub fn decode_submit_op(payload: Dynamic) -> Result(SubmitOp, String) {
-  run(payload, submit_op_decoder(), "submitOp payload")
+/// `socket.encode_submit_operation`.
+pub fn decode_submit_operation(
+  payload: Dynamic,
+) -> Result(SubmitOperation, String) {
+  run(payload, submit_operation_decoder(), "submitOp payload")
 }
 
-fn submit_op_decoder() -> Decoder(SubmitOp) {
+fn submit_operation_decoder() -> Decoder(SubmitOperation) {
   use client_id <- decode.field("clientId", decode.string)
   use batches <- decode.field(
     "messageBatches",
-    decode.list(decode.list(submitted_op_decoder())),
+    decode.list(decode.list(submitted_operation_decoder())),
   )
-  decode.success(SubmitOp(client_id: client_id, batches: batches))
+  decode.success(SubmitOperation(client_id: client_id, batches: batches))
 }
 
-fn submitted_op_decoder() -> Decoder(SubmittedOp) {
-  use op_type <- decode.field("type", decode.string)
+fn submitted_operation_decoder() -> Decoder(SubmittedOperation) {
+  use operation_type <- decode.field("type", decode.string)
   use contents <- decode.field("contents", wire.json_value_decoder())
   use csn <- decode.field("clientSequenceNumber", decode.int)
   use rsn <- decode.field("referenceSequenceNumber", decode.int)
@@ -150,8 +151,8 @@ fn submitted_op_decoder() -> Decoder(SubmittedOp) {
     None,
     decode.optional(wire.json_value_decoder()),
   )
-  decode.success(SubmittedOp(
-    op_type: op_type,
+  decode.success(SubmittedOperation(
+    operation_type: operation_type,
     contents: contents,
     client_sequence_number: csn,
     reference_sequence_number: rsn,
@@ -160,8 +161,8 @@ fn submitted_op_decoder() -> Decoder(SubmittedOp) {
 }
 
 /// Decode a `requestOps` payload and return the `from` sequence number. This
-/// is the inverse of `socket.encode_request_ops`.
-pub fn decode_request_ops(payload: Dynamic) -> Result(Int, String) {
+/// is the inverse of `socket.encode_request_operations`.
+pub fn decode_request_operations(payload: Dynamic) -> Result(Int, String) {
   run(payload, decode.field("from", decode.int, decode.success), "requestOps")
 }
 
@@ -286,36 +287,40 @@ fn encode_roster_entry(client_id: String) -> Json {
   ])
 }
 
-/// Build an `op` event payload: the bare `[Sequenced...]` array. This is the
-/// inverse of `socket.op_message_decoder`.
+/// Build an `operation` event payload: the bare `[Sequenced...]` array. This is
+/// the inverse of `socket.operation_message_decoder`.
 ///
-/// floodgate pushes this shape on every op path. levee wrapped the messages in
-/// `{documentId, op: [...]}`. The channel topic already gives the document id,
-/// and the sluice models the server that watershed connects to.
-pub fn encode_op_event(ops ops: List(Sequenced)) -> Json {
-  json.array(ops, encode_sequenced)
+/// floodgate pushes this shape on every operation path. levee wrapped the
+/// messages in `{documentId, operation: [...]}`. The channel topic already
+/// gives the document id, and the sluice models the server that watershed
+/// connects to.
+pub fn encode_operation_event(operations operations: List(Sequenced)) -> Json {
+  json.array(operations, encode_sequenced)
 }
 
-/// Encode one sequenced op, in the shape that
+/// Encode one sequenced operation, in the shape that
 /// `socket.sequenced_document_message_decoder` accepts.
-pub fn encode_sequenced(op: Sequenced) -> Json {
+pub fn encode_sequenced(operation: Sequenced) -> Json {
   json.object(
     list.flatten([
       [
-        #("clientId", json.nullable(op.client_id, json.string)),
-        #("sequenceNumber", json.int(op.sequence_number)),
-        #("minimumSequenceNumber", json.int(op.minimum_sequence_number)),
-        #("clientSequenceNumber", json.int(op.client_sequence_number)),
-        #("referenceSequenceNumber", json.int(op.reference_sequence_number)),
-        #("type", json.string(op.op_type)),
-        #("contents", op.contents),
-        #("timestamp", json.int(op.timestamp)),
+        #("clientId", json.nullable(operation.client_id, json.string)),
+        #("sequenceNumber", json.int(operation.sequence_number)),
+        #("minimumSequenceNumber", json.int(operation.minimum_sequence_number)),
+        #("clientSequenceNumber", json.int(operation.client_sequence_number)),
+        #(
+          "referenceSequenceNumber",
+          json.int(operation.reference_sequence_number),
+        ),
+        #("type", json.string(operation.operation_type)),
+        #("contents", operation.contents),
+        #("timestamp", json.int(operation.timestamp)),
       ],
-      case op.metadata {
+      case operation.metadata {
         Some(metadata) -> [#("metadata", metadata)]
         None -> []
       },
-      case op.data {
+      case operation.data {
         Some(data) -> [#("data", json.string(data))]
         None -> []
       },

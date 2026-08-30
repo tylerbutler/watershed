@@ -49,7 +49,7 @@ import gleam/result
 
 import watershed/canonical_json
 import watershed/channel.{
-  type ChannelEvent, type ChannelInit, type ChannelOp, type ChannelState,
+  type ChannelEvent, type ChannelInit, type ChannelOperation, type ChannelState,
   type ChannelType, type P2pEdit, type Snapshot,
 }
 import watershed/crdt_wire.{
@@ -120,7 +120,7 @@ type BufferedDelta {
     id: MessageId,
     address: String,
     channel_type: ChannelType,
-    op: ChannelOp,
+    operation: ChannelOperation,
   )
 }
 
@@ -431,7 +431,7 @@ pub fn edit(
   case channel.apply_p2p_local(state, edit) {
     Error(error) ->
       Error(rejected(document.config.replica, channel_error_detail(error)))
-    Ok(#(state, events, op)) -> {
+    Ok(#(state, events, operation)) -> {
       let counter = document.counter + 1
       let id = MessageId(document.config.replica, counter)
       let document =
@@ -445,7 +445,7 @@ pub fn edit(
         document,
         Outcome(
           broadcast: [
-            crdt_wire.Delta(id, address, descriptor.channel_type, op),
+            crdt_wire.Delta(id, address, descriptor.channel_type, operation),
           ],
           reply: [],
           created: [],
@@ -525,7 +525,7 @@ fn received(
     envelope.session == document.config.session
   {
     True, False -> Error(p2p.ReplicaCollision(envelope.from))
-    // Our own message, fanned back to us. Merging it is a no-op by CRDT
+    // Our own message, fanned back to us. Merging it is a no-operation by CRDT
     // law; skipping it keeps the recent-ID window meaningful.
     True, True -> Ok(#(document, empty_outcome()))
     False, _ -> apply_message(document, envelope.from, envelope.message, local)
@@ -555,8 +555,8 @@ fn apply_message(
       Ok(#(document, empty_outcome()))
     }
     crdt_wire.ChannelAnnounce(entry) -> merge_entries(document, from, [entry])
-    crdt_wire.Delta(id, address, channel_type, op) ->
-      apply_delta(document, from, id, address, channel_type, op)
+    crdt_wire.Delta(id, address, channel_type, operation) ->
+      apply_delta(document, from, id, address, channel_type, operation)
     crdt_wire.StateRequest ->
       Ok(#(
         document,
@@ -594,7 +594,7 @@ fn apply_delta(
   id: MessageId,
   address: String,
   channel_type: ChannelType,
-  op: ChannelOp,
+  operation: ChannelOperation,
 ) -> Result(#(Document, Outcome), P2pError) {
   use _ <- result.try(check_address(address, from))
   use _ <- result.try(p2p.validate(channel_type))
@@ -602,7 +602,8 @@ fn apply_delta(
     True -> Ok(#(document, empty_outcome()))
     False ->
       case dict.get(document.registry, address) {
-        Error(_) -> Ok(buffer_delta(document, id, address, channel_type, op))
+        Error(_) ->
+          Ok(buffer_delta(document, id, address, channel_type, operation))
         Ok(descriptor) ->
           case descriptor.channel_type == channel_type {
             False ->
@@ -616,11 +617,11 @@ fn apply_delta(
                   <> channel.type_to_string(descriptor.channel_type),
               ))
             True -> {
-              use #(document, events) <- result.try(merge_op(
+              use #(document, events) <- result.try(merge_operation(
                 document,
                 from,
                 address,
-                op,
+                operation,
               ))
               Ok(#(
                 Document(..document, recent: remember(document, id)),
@@ -632,14 +633,14 @@ fn apply_delta(
   }
 }
 
-fn merge_op(
+fn merge_operation(
   document: Document,
   from: String,
   address: String,
-  op: ChannelOp,
+  operation: ChannelOperation,
 ) -> Result(#(Document, List(#(String, ChannelEvent))), P2pError) {
   use state <- result.try(channel_state(document, address))
-  case channel.apply_p2p_remote(state, op) {
+  case channel.apply_p2p_remote(state, operation) {
     Error(error) -> Error(rejected(from, channel_error_detail(error)))
     Ok(#(state, events)) ->
       Ok(#(
@@ -674,7 +675,7 @@ fn buffer_delta(
   id: MessageId,
   address: String,
   channel_type: ChannelType,
-  op: ChannelOp,
+  operation: ChannelOperation,
 ) -> #(Document, Outcome) {
   let limit = document.config.limits.buffered_deltas
   case limit <= 0 {
@@ -683,7 +684,7 @@ fn buffer_delta(
       let queued =
         fifo_push(
           document.buffered,
-          BufferedDelta(id, address, channel_type, op),
+          BufferedDelta(id, address, channel_type, operation),
         )
       let buffered = case queued.size > limit {
         True ->
@@ -871,7 +872,7 @@ fn flush_buffered(
   list.filter(ready, fn(buffered) { buffered.channel_type == channel_type })
   |> list.fold(#(document, []), fn(acc, buffered) {
     let #(document, events) = acc
-    case merge_op(document, from, address, buffered.op) {
+    case merge_operation(document, from, address, buffered.operation) {
       Error(_) -> acc
       Ok(#(document, next)) -> #(
         Document(..document, recent: remember(document, buffered.id)),
@@ -1306,7 +1307,7 @@ fn combine(left: Outcome, right: Outcome) -> Outcome {
 fn channel_error_detail(error: channel.ChannelError) -> String {
   case error {
     channel.UnsupportedP2p(detail) -> detail
-    channel.CorruptRemoteOp(detail) -> detail
+    channel.CorruptRemoteOperation(detail) -> detail
     channel.UnexpectedAck(detail) -> detail
     channel.WrongChannelType(detail) -> detail
   }

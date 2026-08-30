@@ -99,8 +99,9 @@ fn job(label: String) -> Json {
 // ── Claim race ───────────────────────────────────────────────────────────────
 
 /// Two clients race one job in the same sequencing drain: exactly one outcome
-/// is `AcquiredItem`, the loser gets `QueueEmpty` (its op emits no event — the
-/// outcome is its only signal), and both replicas agree on who holds the job.
+/// is `AcquiredItem`, the loser gets `QueueEmpty` (its operation emits no event
+/// — the outcome is its only signal), and both replicas agree on who holds the
+/// job.
 pub fn two_claims_one_job_exactly_one_wins_test() -> Nil {
   let #(sluice, doc_a, doc_b) = room("wq-race")
   let queue_a = queue_of(doc_a)
@@ -110,7 +111,7 @@ pub fn two_claims_one_job_exactly_one_wins_test() -> Nil {
   sluice_js.settle(sluice)
 
   // Both mint acquire ids synchronously — the id is not the win. The win is
-  // decided when the ops sequence, in one drain.
+  // decided when the operations sequence, in one drain.
   let #(outcomes_a, _id_a) = outcome_cell(queue_a)
   let #(outcomes_b, _id_b) = outcome_cell(queue_b)
   sluice_js.settle(sluice)

@@ -19,16 +19,16 @@ pub type OrSetState {
     replica_id: ReplicaId,
     sequenced: ORSet(String),
     optimistic: ORSet(String),
-    pending: List(PendingOp),
+    pending: List(PendingOperation),
     next_pending_message_id: Int,
   )
 }
 
-pub type PendingOp {
-  PendingOp(op: OrSetOp, message_id: Int)
+pub type PendingOperation {
+  PendingOperation(operation: OrSetOperation, message_id: Int)
 }
 
-pub type OrSetOp {
+pub type OrSetOperation {
   Add(element: String, delta: ORSet(String))
   Remove(element: String, delta: ORSet(String))
 }
@@ -71,37 +71,41 @@ pub fn sequenced_values(state: OrSetState) -> List(String) {
 pub fn add(
   state: OrSetState,
   element: String,
-) -> #(OrSetState, List(OrSetEvent), OrSetOp, Int) {
+) -> #(OrSetState, List(OrSetEvent), OrSetOperation, Int) {
   let before = values(state)
   let #(optimistic, delta) = or_set.add_with_delta(state.optimistic, element)
   let message_id = state.next_pending_message_id
-  let op = Add(element, delta)
+  let operation = Add(element, delta)
   let state =
     OrSetState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  #(state, events_between(before, values(state)), op, message_id)
+  #(state, events_between(before, values(state)), operation, message_id)
 }
 
 pub fn remove(
   state: OrSetState,
   element: String,
-) -> #(OrSetState, List(OrSetEvent), OrSetOp, Int) {
+) -> #(OrSetState, List(OrSetEvent), OrSetOperation, Int) {
   let before = values(state)
   let #(optimistic, delta) = or_set.remove_with_delta(state.optimistic, element)
   let message_id = state.next_pending_message_id
-  let op = Remove(element, delta)
+  let operation = Remove(element, delta)
   let state =
     OrSetState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  #(state, events_between(before, values(state)), op, message_id)
+  #(state, events_between(before, values(state)), operation, message_id)
 }
 
 /// Merge a new local delta into `sequenced` and `optimistic` in one step.
@@ -109,24 +113,24 @@ pub fn remove(
 /// This function has the same behaviour as `sequence_kernel.commit_p2p`.
 fn commit_p2p(
   state: OrSetState,
-  op: OrSetOp,
-) -> #(OrSetState, List(OrSetEvent), OrSetOp) {
+  operation: OrSetOperation,
+) -> #(OrSetState, List(OrSetEvent), OrSetOperation) {
   let before = values(state)
-  let delta = op_delta(op)
+  let delta = operation_delta(operation)
   let state =
     OrSetState(
       ..state,
       sequenced: or_set.merge(state.sequenced, delta),
       optimistic: or_set.merge(state.optimistic, delta),
     )
-  #(state, events_between(before, values(state)), op)
+  #(state, events_between(before, values(state)), operation)
 }
 
 /// The ack-free p2p form of `add`. It commits immediately. See `commit_p2p`.
 pub fn p2p_add(
   state: OrSetState,
   element: String,
-) -> #(OrSetState, List(OrSetEvent), OrSetOp) {
+) -> #(OrSetState, List(OrSetEvent), OrSetOperation) {
   let #(_, delta) = or_set.add_with_delta(state.optimistic, element)
   commit_p2p(state, Add(element, delta))
 }
@@ -135,7 +139,7 @@ pub fn p2p_add(
 pub fn p2p_remove(
   state: OrSetState,
   element: String,
-) -> #(OrSetState, List(OrSetEvent), OrSetOp) {
+) -> #(OrSetState, List(OrSetEvent), OrSetOperation) {
   let #(_, delta) = or_set.remove_with_delta(state.optimistic, element)
   commit_p2p(state, Remove(element, delta))
 }
@@ -159,10 +163,10 @@ pub fn p2p_merge(
 
 pub fn apply_remote(
   state: OrSetState,
-  op: OrSetOp,
+  operation: OrSetOperation,
 ) -> #(OrSetState, List(OrSetEvent)) {
   let before = values(state)
-  let delta = op_delta(op)
+  let delta = operation_delta(operation)
   let sequenced = or_set.merge(state.sequenced, delta)
   let optimistic = replay_pending(sequenced, state.pending)
   let state = OrSetState(..state, sequenced: sequenced, optimistic: optimistic)
@@ -171,37 +175,40 @@ pub fn apply_remote(
 
 pub fn ack_local(
   state: OrSetState,
-  op: OrSetOp,
+  operation: OrSetOperation,
 ) -> Result(OrSetState, KernelError) {
-  do_ack(state, op, None)
+  do_ack(state, operation, None)
 }
 
 pub fn ack_local_with_message_id(
   state: OrSetState,
-  op: OrSetOp,
+  operation: OrSetOperation,
   message_id: Int,
 ) -> Result(OrSetState, KernelError) {
-  do_ack(state, op, Some(message_id))
+  do_ack(state, operation, Some(message_id))
 }
 
 fn do_ack(
   state: OrSetState,
-  op: OrSetOp,
+  operation: OrSetOperation,
   expected_message_id: Option(Int),
 ) -> Result(OrSetState, KernelError) {
   case state.pending {
     [] -> Error(UnexpectedAck("pending queue is empty"))
-    [PendingOp(pending_op, pending_message_id), ..rest] -> {
+    [PendingOperation(pending_operation, pending_message_id), ..rest] -> {
       let message_id_matches = case expected_message_id {
         None -> True
         Some(message_id) -> message_id == pending_message_id
       }
-      case pending_op == op && message_id_matches {
+      case pending_operation == operation && message_id_matches {
         True ->
           Ok(
             OrSetState(
               ..state,
-              sequenced: or_set.merge(state.sequenced, op_delta(op)),
+              sequenced: or_set.merge(
+                state.sequenced,
+                operation_delta(operation),
+              ),
               pending: rest,
             ),
           )
@@ -222,13 +229,13 @@ fn do_ack(
 
 pub fn rollback(
   state: OrSetState,
-  op: OrSetOp,
+  operation: OrSetOperation,
   message_id: Int,
 ) -> Result(#(OrSetState, List(OrSetEvent)), KernelError) {
   case pop_last(state.pending) {
     Error(_) -> Error(UnexpectedRollback("pending queue is empty"))
-    Ok(#(PendingOp(pending_op, pending_message_id), rest)) ->
-      case pending_op == op && pending_message_id == message_id {
+    Ok(#(PendingOperation(pending_operation, pending_message_id), rest)) ->
+      case pending_operation == operation && pending_message_id == message_id {
         False ->
           Error(UnexpectedRollback(
             "expected newest pending op with message id "
@@ -246,21 +253,23 @@ pub fn rollback(
   }
 }
 
-pub fn apply_stashed_op(
+pub fn apply_stashed_operation(
   state: OrSetState,
-  op: OrSetOp,
-) -> #(OrSetState, List(OrSetEvent), OrSetOp, Int) {
+  operation: OrSetOperation,
+) -> #(OrSetState, List(OrSetEvent), OrSetOperation, Int) {
   let before = values(state)
-  let optimistic = or_set.merge(state.optimistic, op_delta(op))
+  let optimistic = or_set.merge(state.optimistic, operation_delta(operation))
   let message_id = state.next_pending_message_id
   let state =
     OrSetState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  #(state, events_between(before, values(state)), op, message_id)
+  #(state, events_between(before, values(state)), operation, message_id)
 }
 
 pub fn promote_attach(state: OrSetState) -> OrSetState {
@@ -303,18 +312,18 @@ pub fn check_cache_coherence(state: OrSetState) -> Result(Nil, String) {
   }
 }
 
-fn op_delta(op: OrSetOp) -> ORSet(String) {
-  case op {
+fn operation_delta(operation: OrSetOperation) -> ORSet(String) {
+  case operation {
     Add(_, delta) | Remove(_, delta) -> delta
   }
 }
 
 fn replay_pending(
   sequenced: ORSet(String),
-  pending: List(PendingOp),
+  pending: List(PendingOperation),
 ) -> ORSet(String) {
   list.fold(pending, sequenced, fn(acc, pending) {
-    or_set.merge(acc, op_delta(pending.op))
+    or_set.merge(acc, operation_delta(pending.operation))
   })
 }
 
@@ -337,8 +346,8 @@ fn events_between(
 }
 
 fn pop_last(
-  pending: List(PendingOp),
-) -> Result(#(PendingOp, List(PendingOp)), Nil) {
+  pending: List(PendingOperation),
+) -> Result(#(PendingOperation, List(PendingOperation)), Nil) {
   case pending {
     [] -> Error(Nil)
     [only] -> Ok(#(only, []))

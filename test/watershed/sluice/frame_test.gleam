@@ -75,7 +75,7 @@ fn a_sequenced(
     minimum_sequence_number: 0,
     client_sequence_number: client_sequence_number,
     reference_sequence_number: sequence_number - 1,
-    op_type: "op",
+    operation_type: "op",
     contents: json.object([#("address", json.string("root"))]),
     metadata: None,
     timestamp: 1234,
@@ -96,7 +96,7 @@ fn a_system_message(
     minimum_sequence_number: 0,
     client_sequence_number: -1,
     reference_sequence_number: sequence_number - 1,
-    op_type: message_type,
+    operation_type: message_type,
     contents: json.null(),
     metadata: None,
     timestamp: 1234,
@@ -126,31 +126,33 @@ pub fn decode_connect_document_without_last_seen_test() -> Nil {
   request.last_seen_sequence_number |> expect.to_equal(None)
 }
 
-pub fn decode_submit_op_round_trip_test() -> Nil {
-  let op =
-    wire.OutboundOp(
+pub fn decode_submit_operation_round_trip_test() -> Nil {
+  let operation =
+    wire.OutboundOperation(
       client_sequence_number: 3,
       reference_sequence_number: 5,
-      op_type: "op",
+      operation_type: "op",
       contents: json.object([#("address", json.string("root"))]),
       metadata: None,
     )
-  let encoded = socket.encode_submit_op("sluice-client-1", [[op]])
-  let assert Ok(submit) = frame.decode_submit_op(json_to_dynamic(encoded))
+  let encoded = socket.encode_submit_operation("sluice-client-1", [[operation]])
+  let assert Ok(submit) =
+    frame.decode_submit_operation(json_to_dynamic(encoded))
 
   submit.client_id |> expect.to_equal("sluice-client-1")
   let assert [[decoded]] = submit.batches
-  decoded.op_type |> expect.to_equal("op")
+  decoded.operation_type |> expect.to_equal("op")
   decoded.client_sequence_number |> expect.to_equal(3)
   decoded.reference_sequence_number |> expect.to_equal(5)
-  // Op contents survive the trip (compare canonical re-encodings).
+  // Operation contents survive the trip (compare canonical re-encodings).
   json.to_string(decoded.contents)
   |> expect.to_equal("{\"address\":\"root\"}")
 }
 
-pub fn decode_request_ops_round_trip_test() -> Nil {
-  let encoded = socket.encode_request_ops(from: 10)
-  frame.decode_request_ops(json_to_dynamic(encoded)) |> expect.to_equal(Ok(10))
+pub fn decode_request_operations_round_trip_test() -> Nil {
+  let encoded = socket.encode_request_operations(from: 10)
+  frame.decode_request_operations(json_to_dynamic(encoded))
+  |> expect.to_equal(Ok(10))
 }
 
 pub fn decode_noop_round_trip_test() -> Nil {
@@ -237,18 +239,18 @@ pub fn encode_connected_roster_round_trips_test() -> Nil {
 
 /// System messages carry their payload in `data`, not `contents`. Both shapes
 /// must survive the client's decoder, because the runtime reads `data` and a
-/// dropped field is an invisible no-op rather than an error.
+/// dropped field is an invisible no-operation rather than an error.
 pub fn encode_system_message_round_trips_data_test() -> Nil {
   let join = a_system_message(4, "join", frame.system_join_data("client-9"))
   let leave = a_system_message(5, "leave", frame.system_leave_data("client-9"))
 
-  let assert Ok(op_message) =
+  let assert Ok(operation_message) =
     json.parse(
-      json.to_string(frame.encode_op_event([join, leave])),
-      socket.op_message_decoder(),
+      json.to_string(frame.encode_operation_event([join, leave])),
+      socket.operation_message_decoder(),
     )
 
-  let assert [decoded_join, decoded_leave] = op_message.ops
+  let assert [decoded_join, decoded_leave] = operation_message.ops
   decoded_join.message_type |> expect.to_equal("join")
   decoded_join.client_id |> expect.to_equal(None)
   decoded_join.data
@@ -257,19 +259,20 @@ pub fn encode_system_message_round_trips_data_test() -> Nil {
   decoded_leave.data |> expect.to_equal(Some("\"client-9\""))
 }
 
-pub fn encode_op_event_is_decodable_test() -> Nil {
-  let payload = frame.encode_op_event([a_sequenced(7, 2, "sluice-client-1")])
-  let assert Ok(op_message) =
-    json.parse(json.to_string(payload), socket.op_message_decoder())
+pub fn encode_operation_event_is_decodable_test() -> Nil {
+  let payload =
+    frame.encode_operation_event([a_sequenced(7, 2, "sluice-client-1")])
+  let assert Ok(operation_message) =
+    json.parse(json.to_string(payload), socket.operation_message_decoder())
 
   // The bare array carries no document id, matching floodgate. The topic
   // already established which document this is.
-  op_message.document_id |> expect.to_equal("")
-  let assert [op] = op_message.ops
-  op.sequence_number |> expect.to_equal(7)
-  op.client_sequence_number |> expect.to_equal(2)
-  op.client_id |> expect.to_equal(Some("sluice-client-1"))
-  op.message_type |> expect.to_equal("op")
+  operation_message.document_id |> expect.to_equal("")
+  let assert [operation] = operation_message.ops
+  operation.sequence_number |> expect.to_equal(7)
+  operation.client_sequence_number |> expect.to_equal(2)
+  operation.client_id |> expect.to_equal(Some("sluice-client-1"))
+  operation.message_type |> expect.to_equal("op")
 }
 
 pub fn encode_signal_strips_type_test() -> Nil {

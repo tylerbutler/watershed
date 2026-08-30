@@ -24,9 +24,9 @@ pub type Action {
   Bullet
 }
 
-/// The insert ops for one action, in application order. Inline wraps emit the
-/// end insert first so the start index stays valid; a collapsed caret gets
-/// the delimiters inserted around it.
+/// The insert operations for one action, in application order. Inline wraps
+/// emit the end insert first so the start index stays valid; a collapsed caret
+/// gets the delimiters inserted around it.
 pub fn edits(
   action: Action,
   text: String,

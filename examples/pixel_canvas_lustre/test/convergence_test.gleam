@@ -8,9 +8,9 @@
 ////
 //// The offline tests are the interesting ones. `or_map_kernel` advances by
 //// joining sparse deltas, so a client that paints while disconnected does not
-//// replay its ops on return — the two states *join*. That is the claim the
-//// offline toggle exists to demonstrate, and it is asserted here through the
-//// same `watershed.go_offline` the button calls.
+//// replay its operations on return — the two states *join*. That is the claim
+//// the offline toggle exists to demonstrate, and it is asserted here through
+//// the same `watershed.go_offline` the button calls.
 ////
 //// The canvas FFI is deliberately untested: it is pure rendering, and these
 //// tests cover the state it renders from.

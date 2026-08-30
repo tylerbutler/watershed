@@ -14,9 +14,9 @@ import watershed/map_kernel.{
 
 fn ack(
   state: map_kernel.MapState,
-  op: map_kernel.MapOp,
+  operation: map_kernel.MapOperation,
 ) -> map_kernel.MapState {
-  case map_kernel.ack_local(state, op) {
+  case map_kernel.ack_local(state, operation) {
     Ok(state) -> state
     Error(_) -> panic as "expected ack to succeed"
   }
@@ -44,9 +44,10 @@ pub fn new_map_is_empty_test() -> Nil {
 }
 
 pub fn set_is_optimistically_visible_test() -> Nil {
-  let #(state, events, op) = map_kernel.set(map_kernel.new(), "k", json.int(1))
+  let #(state, events, operation) =
+    map_kernel.set(map_kernel.new(), "k", json.int(1))
   map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(1)))
-  op |> expect.to_equal(Set("k", json.int(1)))
+  operation |> expect.to_equal(Set("k", json.int(1)))
   events |> expect.to_equal([ValueChanged("k", None, Some(json.int(1)), True)])
 }
 
@@ -69,8 +70,8 @@ pub fn consecutive_sets_aggregate_into_one_lifetime_test() -> Nil {
 
 pub fn delete_after_set_terminates_lifetime_test() -> Nil {
   let #(state, _, _) = map_kernel.set(map_kernel.new(), "k", json.int(1))
-  let #(state, events, op) = map_kernel.delete(state, "k")
-  op |> expect.to_equal(Delete("k"))
+  let #(state, events, operation) = map_kernel.delete(state, "k")
+  operation |> expect.to_equal(Delete("k"))
   events
   |> expect.to_equal([ValueChanged("k", Some(json.int(1)), None, True)])
   map_kernel.get(state, "k") |> expect.to_equal(Error(Nil))
@@ -84,9 +85,9 @@ pub fn delete_after_set_terminates_lifetime_test() -> Nil {
   ])
 }
 
-pub fn delete_of_missing_key_sends_op_without_event_test() -> Nil {
-  let #(state, events, op) = map_kernel.delete(map_kernel.new(), "ghost")
-  op |> expect.to_equal(Delete("ghost"))
+pub fn delete_of_missing_key_sends_operation_without_event_test() -> Nil {
+  let #(state, events, operation) = map_kernel.delete(map_kernel.new(), "ghost")
+  operation |> expect.to_equal(Delete("ghost"))
   events |> expect.to_equal([])
   state.pending |> expect.to_equal([PendingDelete("ghost")])
 }
@@ -95,8 +96,8 @@ pub fn clear_emits_cleared_then_value_changed_per_visible_key_test() -> Nil {
   let #(state, _) =
     map_kernel.apply_remote(map_kernel.new(), Set("a", json.int(1)))
   let #(state, _, _) = map_kernel.set(state, "b", json.int(2))
-  let #(state, events, op) = map_kernel.clear(state)
-  op |> expect.to_equal(map_kernel.Clear)
+  let #(state, events, operation) = map_kernel.clear(state)
+  operation |> expect.to_equal(map_kernel.Clear)
   events
   |> expect.to_equal([
     Cleared(True),
@@ -197,8 +198,9 @@ pub fn delete_vs_remote_set_converges_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn ack_set_commits_pending_to_sequenced_test() -> Nil {
-  let #(state, _, op) = map_kernel.set(map_kernel.new(), "k", json.int(1))
-  let state = ack(state, op)
+  let #(state, _, operation) =
+    map_kernel.set(map_kernel.new(), "k", json.int(1))
+  let state = ack(state, operation)
   state.pending |> expect.to_equal([])
   map_kernel.get(state, "k") |> expect.to_equal(Ok(json.int(1)))
   map_kernel.entries(state) |> expect.to_equal([#("k", json.int(1))])
@@ -253,9 +255,10 @@ pub fn ack_set_delete_set_sequence_test() -> Nil {
   map_kernel.entries(state) |> expect.to_equal([#("k", json.int(3))])
 }
 
-pub fn pending_clear_acks_only_after_earlier_ops_test() -> Nil {
-  let #(state, _, set_op) = map_kernel.set(map_kernel.new(), "a", json.int(1))
-  let #(state, _, clear_op) = map_kernel.clear(state)
+pub fn pending_clear_acks_only_after_earlier_operations_test() -> Nil {
+  let #(state, _, set_operation) =
+    map_kernel.set(map_kernel.new(), "a", json.int(1))
+  let #(state, _, clear_operation) = map_kernel.clear(state)
   let #(state, _, set_op2) = map_kernel.set(state, "a", json.int(2))
   state.pending
   |> expect.to_equal([
@@ -263,8 +266,8 @@ pub fn pending_clear_acks_only_after_earlier_ops_test() -> Nil {
     PendingClear,
     PendingLifetime("a", [json.int(2)]),
   ])
-  let state = ack(state, set_op)
-  let state = ack(state, clear_op)
+  let state = ack(state, set_operation)
+  let state = ack(state, clear_operation)
   let state = ack(state, set_op2)
   map_kernel.entries(state) |> expect.to_equal([#("a", json.int(2))])
 }
@@ -377,7 +380,11 @@ fn value_from_int(n: Int) -> json.Json {
   json.int(n % 100)
 }
 
-fn op_from_ints(kind: Int, key: Int, value: Int) -> map_kernel.MapOp {
+fn operation_from_ints(
+  kind: Int,
+  key: Int,
+  value: Int,
+) -> map_kernel.MapOperation {
   case kind % 10 {
     0 | 1 | 2 | 3 | 4 | 5 -> Set(key_from_int(key), value_from_int(value))
     6 | 7 | 8 -> Delete(key_from_int(key))
@@ -385,24 +392,24 @@ fn op_from_ints(kind: Int, key: Int, value: Int) -> map_kernel.MapOp {
   }
 }
 
-fn op_generator() -> qcheck.Generator(map_kernel.MapOp) {
+fn operation_generator() -> qcheck.Generator(map_kernel.MapOperation) {
   qcheck.tuple3(
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
   )
-  |> qcheck.map(fn(ints) { op_from_ints(ints.0, ints.1, ints.2) })
+  |> qcheck.map(fn(ints) { operation_from_ints(ints.0, ints.1, ints.2) })
 }
 
-fn ops_generator() -> qcheck.Generator(List(map_kernel.MapOp)) {
-  qcheck.generic_list(op_generator(), qcheck.small_non_negative_int())
+fn operations_generator() -> qcheck.Generator(List(map_kernel.MapOperation)) {
+  qcheck.generic_list(operation_generator(), qcheck.small_non_negative_int())
 }
 
 fn submit_local(
   state: map_kernel.MapState,
-  op: map_kernel.MapOp,
+  operation: map_kernel.MapOperation,
 ) -> map_kernel.MapState {
-  case op {
+  case operation {
     Set(key, value) -> {
       let #(state, _, _) = map_kernel.set(state, key, value)
       state
@@ -422,15 +429,15 @@ fn submit_local(
 pub fn point_reads_agree_with_iteration_test() -> Nil {
   qcheck.run(
     qcheck.default_config() |> qcheck.with_test_count(1000),
-    qcheck.tuple2(ops_generator(), ops_generator()),
+    qcheck.tuple2(operations_generator(), operations_generator()),
     fn(pair) {
-      let #(remote_ops, local_ops) = pair
+      let #(remote_operations, local_operations) = pair
       let state =
-        list.fold(remote_ops, map_kernel.new(), fn(state, op) {
-          let #(state, _) = map_kernel.apply_remote(state, op)
+        list.fold(remote_operations, map_kernel.new(), fn(state, operation) {
+          let #(state, _) = map_kernel.apply_remote(state, operation)
           state
         })
-      let state = list.fold(local_ops, state, submit_local)
+      let state = list.fold(local_operations, state, submit_local)
       let entries = map_kernel.entries(state)
       list.each(["a", "b", "c", "d"], fn(key) {
         let from_entries =

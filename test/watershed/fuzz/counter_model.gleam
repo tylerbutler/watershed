@@ -9,22 +9,22 @@ import gleam/list
 import gleam/option.{None, Some}
 import qcheck
 import watershed/counter_kernel.{
-  type CounterOp, type CounterState, Increment, PendingIncrement,
+  type CounterOperation, type CounterState, Increment, PendingIncrement,
 }
 import watershed/fuzz/kernel_fuzz.{
   type KernelModel, type LogEntry, Capabilities, KernelModel,
 }
 
-/// `CounterOp` has one constructor wrapping one `Int`, so the JSON shape is
-/// just that int — no tag needed since `kernel_fuzz`'s `Command` wrapper
+/// `CounterOperation` has one constructor wrapping one `Int`, so the JSON shape
+/// is just that int — no tag needed since `kernel_fuzz`'s `Command` wrapper
 /// already tags at the command level.
-fn op_to_json(op: CounterOp) -> json.Json {
-  case op {
+fn operation_to_json(operation: CounterOperation) -> json.Json {
+  case operation {
     Increment(amount) -> json.int(amount)
   }
 }
 
-fn op_decoder() -> decode.Decoder(CounterOp) {
+fn operation_decoder() -> decode.Decoder(CounterOperation) {
   decode.map(decode.int, Increment)
 }
 
@@ -34,47 +34,47 @@ fn amount_from_int(n: Int) -> Int {
   n % 21 - 10
 }
 
-fn op_generator() -> qcheck.Generator(CounterOp) {
+fn operation_generator() -> qcheck.Generator(CounterOperation) {
   qcheck.small_non_negative_int()
   |> qcheck.map(fn(n) { Increment(amount_from_int(n)) })
 }
 
 fn submit(
   state: CounterState,
-  op: CounterOp,
+  operation: CounterOperation,
   _meta: kernel_fuzz.SubmitMeta,
-) -> #(CounterState, option.Option(CounterOp)) {
-  case op {
+) -> #(CounterState, option.Option(CounterOperation)) {
+  case operation {
     Increment(amount) -> {
       let #(state, _, _, _) = counter_kernel.increment(state, amount)
-      #(state, Some(op))
+      #(state, Some(operation))
     }
   }
 }
 
 fn apply_remote(
   state: CounterState,
-  op: CounterOp,
+  operation: CounterOperation,
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(CounterState, String) {
-  let #(state, _) = counter_kernel.apply_remote(state, op)
+  let #(state, _) = counter_kernel.apply_remote(state, operation)
   Ok(state)
 }
 
 fn ack_local(
   state: CounterState,
-  op: CounterOp,
+  operation: CounterOperation,
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(CounterState, String) {
-  case counter_kernel.ack_local(state, op) {
+  case counter_kernel.ack_local(state, operation) {
     Ok(state) -> Ok(state)
     Error(counter_kernel.UnexpectedAck(_, detail)) -> Error(detail)
     Error(counter_kernel.UnexpectedRollback(_, detail)) -> Error(detail)
   }
 }
 
-fn oracle(entries: List(LogEntry(CounterOp))) -> Int {
-  list.fold(kernel_fuzz.log_ops(entries), 0, fn(total, item) {
+fn oracle(entries: List(LogEntry(CounterOperation))) -> Int {
+  list.fold(kernel_fuzz.log_operations(entries), 0, fn(total, item) {
     case item.1 {
       Increment(amount) -> total + amount
     }
@@ -84,38 +84,39 @@ fn oracle(entries: List(LogEntry(CounterOp))) -> Int {
 /// Rolls back the newest pending increment, using its message id from
 /// `state.pending` (local-only bookkeeping the harness doesn't otherwise
 /// track). On mismatch (should not happen given the harness's own
-/// bookkeeping — see `rollback_op` in `kernel_fuzz`) leaves state
+/// bookkeeping — see `rollback_operation` in `kernel_fuzz`) leaves state
 /// untouched, so a real regression here surfaces as a convergence failure
 /// rather than a harness panic.
-fn rollback(state: CounterState, op: CounterOp) -> CounterState {
+fn rollback(state: CounterState, operation: CounterOperation) -> CounterState {
   case list.last(state.pending) {
     Error(_) -> state
     Ok(PendingIncrement(_, message_id)) ->
-      case counter_kernel.rollback(state, op, message_id) {
+      case counter_kernel.rollback(state, operation, message_id) {
         Ok(#(new_state, _events)) -> new_state
         Error(_) -> state
       }
   }
 }
 
-/// Re-applies a stashed op through `increment`'s path, becoming pending and
-/// optimistically visible again — mirrors reconnect-time stash replay. The
-/// routed op is the generated one unchanged (counter ops carry no
+/// Re-applies a stashed operation through `increment`'s path, becoming pending
+/// and optimistically visible again — mirrors reconnect-time stash replay. The
+/// routed operation is the generated one unchanged (counter operations carry no
 /// apply-time-computed content).
 fn apply_stashed(
   state: CounterState,
-  op: CounterOp,
+  operation: CounterOperation,
   _meta: kernel_fuzz.SubmitMeta,
-) -> #(CounterState, CounterOp) {
-  let #(state, _, _, _) = counter_kernel.apply_stashed_op(state, op)
-  #(state, op)
+) -> #(CounterState, CounterOperation) {
+  let #(state, _, _, _) =
+    counter_kernel.apply_stashed_operation(state, operation)
+  #(state, operation)
 }
 
 fn load_from_synced(state: CounterState, _id: Int) -> CounterState {
   counter_kernel.from_summary(counter_kernel.summary_value(state))
 }
 
-pub fn model() -> KernelModel(CounterState, CounterOp, Int) {
+pub fn model() -> KernelModel(CounterState, CounterOperation, Int) {
   KernelModel(
     name: "counter",
     init: fn(_id) { counter_kernel.new() },
@@ -123,12 +124,12 @@ pub fn model() -> KernelModel(CounterState, CounterOp, Int) {
     apply_remote: apply_remote,
     ack_local: ack_local,
     observe: fn(state) { state.value },
-    gen_op: op_generator(),
+    gen_operation: operation_generator(),
     check: None,
     canonicalize: None,
     ack_preserves_view: True,
-    op_to_json: op_to_json,
-    op_decoder: op_decoder(),
+    operation_to_json: operation_to_json,
+    operation_decoder: operation_decoder(),
     capabilities: Capabilities(
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),

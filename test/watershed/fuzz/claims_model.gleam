@@ -2,12 +2,13 @@
 //// consensus-flavoured, so it exercises the harness generalizations added for
 //// consensus kernels:
 ////
-//// - The model op is `ClaimCommand`, carrying the claim *kind* (write-once vs
-////   CAS) plus a `ref_seq` slot. `gen_op` leaves `ref_seq` at 0; `submit`
-////   computes the real `ref_seq` from `SubmitMeta.last_seen_seq` (via the
-////   kernel) and returns the rewritten command for the harness to route. A
-////   submit that sends no op — a write-once claim on a committed key, or a
-////   duplicate suppressed to keep one pending claim per key — returns `None`.
+//// - The model operation is `ClaimCommand`, carrying the claim *kind*
+////   (write-once vs CAS) plus a `ref_seq` slot. `gen_operation` leaves
+////   `ref_seq` at 0; `submit` computes the real `ref_seq` from
+////   `SubmitMeta.last_seen_seq` (via the kernel) and returns the rewritten
+////   command for the harness to route. A submit that sends no operation — a
+////   write-once claim on a committed key, or a duplicate suppressed to keep
+////   one pending claim per key — returns `None`.
 //// - `ack_preserves_view` is `False`: acking a winning claim first makes it
 ////   visible (reads are committed-only), which is correct, not a bug.
 ////
@@ -21,7 +22,7 @@
 //// reachable schedule. In production `ref_seq` comes from the container-wide
 //// last sequence number, which CAN exceed a key's SN — so the `==` choice is
 //// pinned by the kernel unit test
-//// `write_once_op_with_stale_high_ref_seq_is_rejected_test`.
+//// `write_once_operation_with_stale_high_ref_seq_is_rejected_test`.
 
 import gleam/dict
 import gleam/dynamic/decode
@@ -42,17 +43,17 @@ pub type ClaimKind {
   Cas
 }
 
-/// The generated op. `ref_seq` is a slot filled by `submit` (0 until then) —
-/// see the module note on why it is computed, never generated.
+/// The generated operation. `ref_seq` is a slot filled by `submit` (0 until
+/// then) — see the module note on why it is computed, never generated.
 pub type ClaimCommand {
   ClaimCommand(kind: ClaimKind, key: String, value: Json, ref_seq: Int)
 }
 
-fn command_to_claim(command: ClaimCommand) -> claims_kernel.ClaimOp {
+fn command_to_claim(command: ClaimCommand) -> claims_kernel.ClaimOperation {
   Claim(command.key, command.value, command.ref_seq)
 }
 
-fn op_to_json(command: ClaimCommand) -> Json {
+fn operation_to_json(command: ClaimCommand) -> Json {
   json.object([
     #(
       "kind",
@@ -67,7 +68,7 @@ fn op_to_json(command: ClaimCommand) -> Json {
   ])
 }
 
-fn op_decoder() -> decode.Decoder(ClaimCommand) {
+fn operation_decoder() -> decode.Decoder(ClaimCommand) {
   use kind <- decode.field("kind", decode.string)
   use key <- decode.field("key", decode.string)
   use value <- decode.field("value", decode.int)
@@ -80,7 +81,7 @@ fn op_decoder() -> decode.Decoder(ClaimCommand) {
 }
 
 /// Two keys keep races frequent; small integer values shrink well.
-fn op_generator() -> qcheck.Generator(ClaimCommand) {
+fn operation_generator() -> qcheck.Generator(ClaimCommand) {
   qcheck.tuple2(
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
@@ -105,7 +106,8 @@ fn submit(
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(ClaimsState, option.Option(ClaimCommand)) {
   // One pending claim per key: a second submit for a key already pending is a
-  // kernel usage error, so drop it here (no op routed) rather than provoke one.
+  // kernel usage error, so drop it here (no operation routed) rather than
+  // provoke one.
   case dict.has_key(state.pending, command.key) {
     True -> #(state, None)
     False -> {
@@ -126,11 +128,17 @@ fn submit(
           )
       }
       case result {
-        Ok(Submitted(state, op)) -> #(
+        Ok(Submitted(state, operation)) -> #(
           state,
-          Some(ClaimCommand(command.kind, op.key, op.value, op.ref_seq)),
+          Some(ClaimCommand(
+            command.kind,
+            operation.key,
+            operation.value,
+            operation.ref_seq,
+          )),
         )
-        // Write-once on a committed key: resolved synchronously, no op sent.
+        // Write-once on a committed key: resolved synchronously, no operation
+        // sent.
         Ok(AlreadyClaimed(_)) -> #(state, None)
         // Unreachable given the pending guard above.
         Error(_) -> #(state, None)
@@ -179,7 +187,7 @@ fn ack_local(
 /// kernel, so a kernel bug in the accept/store step diverges from it.
 fn oracle(entries: List(LogEntry(ClaimCommand))) -> List(#(String, Json, Int)) {
   list.index_fold(
-    kernel_fuzz.log_ops(entries),
+    kernel_fuzz.log_operations(entries),
     dict.new(),
     fn(claims, entry, i) {
       let command = entry.1
@@ -218,12 +226,12 @@ pub fn model() -> KernelModel(
     apply_remote: apply_remote,
     ack_local: ack_local,
     observe: claims_kernel.summary_entries,
-    gen_op: op_generator(),
+    gen_operation: operation_generator(),
     check: None,
     canonicalize: None,
     ack_preserves_view: False,
-    op_to_json: op_to_json,
-    op_decoder: op_decoder(),
+    operation_to_json: operation_to_json,
+    operation_decoder: operation_decoder(),
     capabilities: Capabilities(
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),

@@ -1,9 +1,9 @@
 //// When a client must summarize the document without a request.
 ////
-//// A document collects ops without a limit. A client that joins replays every
-//// op, unless a summary exists to start from. `summarize` can always write
-//// that checkpoint. This module is the policy that decides when to write it,
-//// so an application does not have to decide.
+//// A document collects operations without a limit. A client that joins replays
+//// every operation, unless a summary exists to start from. `summarize` can
+//// always write that checkpoint. This module is the policy that decides when
+//// to write it, so an application does not have to decide.
 ////
 //// **The procedure: threshold, then delay, then a second check.** The runtime
 //// counts the messages that sequence after the last known checkpoint. When
@@ -19,10 +19,10 @@
 //// unnecessary upload. It never produces an incorrect document.
 ////
 //// **The unit is sequenced messages, not edits.** A server sequences a batch
-//// of submitted ops as one message. A burst of edits thus moves the count much
-//// less than the number of edits. Messages are the correct unit, because a
-//// client that joins replays messages. But a threshold that you choose by
-//// counting single edits is much too high.
+//// of submitted operations as one message. A burst of edits thus moves the
+//// count much less than the number of edits. Messages are the correct unit,
+//// because a client that joins replays messages. But a threshold that you
+//// choose by counting single edits is much too high.
 ////
 //// **A summary needs traffic.** The check runs when a message sequences. A
 //// document that becomes quiet immediately after the threshold stays at that
@@ -40,8 +40,8 @@ pub opaque type Policy {
   Policy(threshold: Int, jitter_ms: Int)
 }
 
-/// The default policy. It summarizes after 500 ops sequence past the last
-/// checkpoint, and it spreads the attempts across a 3 second window.
+/// The default policy. It summarizes after 500 operations sequence past the
+/// last checkpoint, and it spreads the attempts across a 3 second window.
 ///
 /// The threshold is conservative on purpose. A threshold that is too high makes
 /// a client that joins replay a long tail. A threshold that is too low makes a
@@ -50,15 +50,16 @@ pub opaque type Policy {
 /// floodgate, so the catch-up of a client that joins stays in band. The count
 /// is in sequenced messages, so it is much more than 500 edits.
 ///
-/// Keep the threshold much more than 1. The summarize op of a client is itself
-/// a sequenced message, so the drift becomes 1 after a checkpoint, and not 0. A
-/// threshold of 1 would thus trigger again on its own announcement, without an
-/// end.
+/// Keep the threshold much more than 1. The summarize operation of a client is
+/// itself a sequenced message, so the drift becomes 1 after a checkpoint, and
+/// not 0. A threshold of 1 would thus trigger again on its own announcement,
+/// without an end.
 pub fn policy() -> Policy {
   Policy(threshold: 500, jitter_ms: 3000)
 }
 
-/// The number of ops past the checkpoint before the client attempts a summary.
+/// The number of operations past the checkpoint before the client attempts a
+/// summary.
 pub fn with_threshold(policy: Policy, threshold: Int) -> Policy {
   Policy(..policy, threshold: threshold)
 }

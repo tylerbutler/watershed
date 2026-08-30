@@ -1,13 +1,14 @@
 //// The HTTP client for the storage REST endpoints of floodgate. There are two
 //// of them. The git-storage (Historian) API reads and writes the SharedMap
 //// summaries. The deltas API (`GET /deltas/:tenant_id/:id`) fetches the
-//// sequenced ops that are older than the in-band history window of the server.
+//// sequenced operations that are older than the in-band history window of the
+//// server.
 ////
 //// A watershed summary is one JSON blob. See `summary_blob.encode_channels`.
 //// A git tree holds that blob at the path `"header"`. The client sets the
-//// `handle` field of the summarize op to the tree SHA. To load a summary, the
-//// client thus fetches the tree by its handle, reads the `header` blob,
-//// decodes that blob from base64, and then decodes the summary.
+//// `handle` field of the summarize operation to the tree SHA. To load a
+//// summary, the client thus fetches the tree by its handle, reads the `header`
+//// blob, decodes that blob from base64, and then decodes the summary.
 ////
 //// A write with `upload_summary` needs the `summary:write` scope on the token.
 //// A read with `fetch_summary` needs the `doc:read` scope.
@@ -52,7 +53,7 @@ const summary_blob_path = "header"
 /// newest first. `handle` identifies the snapshot tree. Give that handle to
 /// `fetch_summary` to read the state that the snapshot captured.
 /// `sequence_number` is the sequence number that the server gave to the
-/// summarize op.
+/// summarize operation.
 pub type SummaryVersion {
   SummaryVersion(
     handle: String,
@@ -142,12 +143,12 @@ pub fn fetch_summary(
 @target(erlang)
 /// Serialize the supplied channel state as a summary blob. Upload that blob as
 /// a git blob in a tree with one entry. Return the tree SHA, which is both the
-/// `head` field and the `handle` field of the summarize op.
+/// `head` field and the `handle` field of the summarize operation.
 ///
 /// `members` is the connected roster at `sequence_number`. It travels with the
 /// snapshots, and not beside them, because it is checkpoint state of the same
-/// kind. The consensus kernels read it when they replay an op that sequenced
-/// after this point.
+/// kind. The consensus kernels read it when they replay an operation that
+/// sequenced after this point.
 pub fn upload_summary(
   base_url base_url: String,
   tenant tenant: String,
@@ -171,10 +172,10 @@ pub fn upload_summary(
 }
 
 @target(erlang)
-/// Fetch the sequenced ops in `(from, to]` from the deltas REST endpoint. The
-/// server limits each response, at present to 2000 ops. A large range can thus
-/// give an incomplete result. The caller must then request again from the last
-/// sequence number that it received.
+/// Fetch the sequenced operations in `(from, to]` from the deltas REST
+/// endpoint. The server limits each response, at present to 2000 operations. A
+/// large range can thus give an incomplete result. The caller must then request
+/// again from the last sequence number that it received.
 pub fn fetch_deltas(
   base_url base_url: String,
   tenant tenant: String,
@@ -238,12 +239,12 @@ pub fn fetch_summary(
 @target(javascript)
 /// Serialize the supplied channel state as a summary blob. Upload that blob as
 /// a git blob in a tree with one entry. Return the tree SHA, which is both the
-/// `head` field and the `handle` field of the summarize op.
+/// `head` field and the `handle` field of the summarize operation.
 ///
 /// `members` is the connected roster at `sequence_number`. It travels with the
 /// snapshots, and not beside them, because it is checkpoint state of the same
-/// kind. The consensus kernels read it when they replay an op that sequenced
-/// after this point.
+/// kind. The consensus kernels read it when they replay an operation that
+/// sequenced after this point.
 pub fn upload_summary(
   base_url base_url: String,
   tenant tenant: String,
@@ -267,10 +268,10 @@ pub fn upload_summary(
 }
 
 @target(javascript)
-/// Fetch the sequenced ops in `(from, to]` from the deltas REST endpoint. The
-/// server limits each response, at present to 2000 ops. A large range can thus
-/// give an incomplete result. The caller must then request again from the last
-/// sequence number that it received.
+/// Fetch the sequenced operations in `(from, to]` from the deltas REST
+/// endpoint. The server limits each response, at present to 2000 operations. A
+/// large range can thus give an incomplete result. The caller must then request
+/// again from the last sequence number that it received.
 pub fn fetch_deltas(
   base_url base_url: String,
   tenant tenant: String,

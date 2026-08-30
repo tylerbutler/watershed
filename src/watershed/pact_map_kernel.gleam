@@ -28,7 +28,7 @@ pub type Pending {
   Pending(value: Option(Json), expected_signoffs: List(Int))
 }
 
-pub type PactMapOp {
+pub type PactMapOperation {
   Set(key: String, value: Option(Json), ref_seq: Int)
   Accept(key: String)
 }
@@ -39,7 +39,7 @@ pub type PactMapEvent {
 }
 
 pub type SetReaction {
-  OweAccept(op: PactMapOp)
+  OweAccept(operation: PactMapOperation)
   NoReaction
 }
 
@@ -47,8 +47,8 @@ pub type KernelError {
   UnexpectedAccept(key: String, client: Int, detail: String)
 }
 
-/// The reasons that the kernel refuses to build an op for a local proposal.
-/// Each reason changes nothing, and the caller can retry later.
+/// The reasons that the kernel refuses to build an operation for a local
+/// proposal. Each reason changes nothing, and the caller can retry later.
 pub type ProposeError {
   /// A proposal for this key waits for signoffs now. One key holds one
   /// pending proposal at a time.
@@ -133,27 +133,27 @@ pub fn keys(state: PactMapState) -> List(String) {
   dict.keys(state.values) |> list.sort(string.compare)
 }
 
-/// Build the op for a local proposal. `value` is `None` for a proposal to
-/// delete the key.
+/// Build the operation for a local proposal. `value` is `None` for a proposal
+/// to delete the key.
 pub fn set(
   state: PactMapState,
   key: String,
   value: Option(Json),
   last_seen_seq: Int,
-) -> Result(PactMapOp, ProposeError) {
+) -> Result(PactMapOperation, ProposeError) {
   case dict.get(state.values, key) {
     Ok(Pact(_, Some(_))) -> Error(ProposalAlreadyPending(key))
     Ok(Pact(_, None)) | Error(Nil) -> Ok(Set(key, value, last_seen_seq))
   }
 }
 
-/// Build the op for a local delete proposal. A delete needs a value to
+/// Build the operation for a local delete proposal. A delete needs a value to
 /// delete, so an absent key and an already deleted key are both refusals.
 pub fn delete(
   state: PactMapState,
   key: String,
   last_seen_seq: Int,
-) -> Result(PactMapOp, ProposeError) {
+) -> Result(PactMapOperation, ProposeError) {
   case dict.get(state.values, key) {
     Error(Nil) -> Error(KeyNotFound(key))
     Ok(Pact(_, Some(_))) -> Error(ProposalAlreadyPending(key))
@@ -165,12 +165,12 @@ pub fn delete(
 
 pub fn apply_set(
   state: PactMapState,
-  op: PactMapOp,
+  operation: PactMapOperation,
   seq: Int,
   connected: List(Int),
   self_id: Int,
 ) -> #(PactMapState, List(PactMapEvent), SetReaction) {
-  case op {
+  case operation {
     Accept(_) -> #(state, [], NoReaction)
     Set(key, value, ref_seq) -> {
       let current = dict.get(state.values, key)

@@ -58,7 +58,7 @@ fn bootstrap() -> Core {
   core
 }
 
-pub fn detached_pn_counter_updates_and_then_emits_ops_test() -> Nil {
+pub fn detached_pn_counter_updates_and_then_emits_operations_test() -> Nil {
   let address = "pnc-1"
   let core =
     bootstrap()
@@ -81,13 +81,13 @@ pub fn detached_pn_counter_updates_and_then_emits_ops_test() -> Nil {
   let assert Ok(#(core, _, _)) =
     runtime_core.set(core, "root", "count", handle.encode_handle(address))
 
-  let assert Ok(#(_core, events, [op])) =
+  let assert Ok(#(_core, events, [operation])) =
     runtime_core.pn_counter_update(core, address, 4)
   events
   |> expect.to_equal([
     #(address, channel.PnCounterEvent(pn_counter_kernel.Updated(4, 7))),
   ])
-  let encoded = json.to_string(op.contents)
+  let encoded = json.to_string(operation.contents)
   encoded
   |> string.contains("\"address\":\"" <> address <> "\"")
   |> expect.to_be_true()
@@ -98,9 +98,9 @@ pub fn detached_pn_counter_updates_and_then_emits_ops_test() -> Nil {
 }
 
 pub fn pn_counter_snapshot_round_trips_test() -> Nil {
-  let #(state, _, op, _) =
+  let #(state, _, operation, _) =
     pn_counter_kernel.update(pn_counter_kernel.new(replica_id.new("r1")), 9)
-  let assert Ok(state) = pn_counter_kernel.ack_local(state, op)
+  let assert Ok(state) = pn_counter_kernel.ack_local(state, operation)
   let snapshot = channel.PnCounterSnapshot(state.sequenced)
   let encoded = channel.encode_snapshot(snapshot)
   let assert Ok(decoded) =

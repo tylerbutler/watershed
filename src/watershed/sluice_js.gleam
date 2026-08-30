@@ -3,9 +3,9 @@
 //// This module is the equivalent of `watershed/sluice` for the JavaScript
 //// target, and it is much simpler. JavaScript is single-threaded, so the
 //// runtime processes every inbound frame synchronously, and it pushes its own
-//// ops back synchronously. There is no actor and no barrier. `settle` empties
-//// the outbox of the core in a loop, and the reaction to each delivery arrives
-//// in the same cell before the next iteration reads that cell.
+//// operations back synchronously. There is no actor and no barrier. `settle`
+//// empties the outbox of the core in a loop, and the reaction to each delivery
+//// arrives in the same cell before the next iteration reads that cell.
 ////
 //// An application author whose application is JavaScript and Lustre can thus
 //// write gleeunit convergence tests on `--target javascript`.
@@ -54,10 +54,10 @@ pub opaque type Sluice {
 
 @target(javascript)
 /// The metadata of one delivered frame, which `step_info` returns. A caller,
-/// for example a live demo, can thus animate and log each hop. For an `op`
-/// event, `sequence_number` is the sequence number of the op and `author` is
-/// the client that wrote it. Another event, such as a handshake or a signal,
-/// reports `0` and `""`.
+/// for example a live demo, can thus animate and log each hop. For an
+/// `operation` event, `sequence_number` is the sequence number of the operation
+/// and `author` is the client that wrote it. Another event, such as a handshake
+/// or a signal, reports `0` and `""`.
 pub type Delivery {
   Delivery(to: String, event: String, sequence_number: Int, author: String)
 }
@@ -170,10 +170,10 @@ pub fn disconnect(sluice: Sluice, document: watershed.Document(root)) -> Nil {
 /// exactly as floodgate does, so the client that returns is a different member
 /// of the room than the client that left.
 ///
-/// Many protocol faults are in that window. An op that sequenced while the
-/// client was absent replays against the room as it was at that time. An edit
-/// from the interval gets a new stamp and a resubmission. A consensus kernel
-/// can owe signoffs under an identity that no longer exists.
+/// Many protocol faults are in that window. An operation that sequenced while
+/// the client was absent replays against the room as it was at that time. An
+/// edit from the interval gets a new stamp and a resubmission. A consensus
+/// kernel can owe signoffs under an identity that no longer exists.
 ///
 /// Unlike the Erlang driver, this function never runs `Transport.connect`
 /// again, because the JavaScript runtime never does that either. Its real
@@ -193,11 +193,11 @@ pub fn reconnect(sluice: Sluice, document: watershed.Document(root)) -> Nil {
 ///
 /// The two halves are separate because the interesting window is *between*
 /// them. A client is outside the room from its `leave` until its rejoin. Every
-/// op that sequences in that interval sequenced for a room that did not contain
-/// the client. The client must then replay those ops, under an identity that
-/// did not exist when other clients made them. To script that sequence, a test
-/// must sequence ops while the client is absent, and one atomic reconnect
-/// cannot express that.
+/// operation that sequences in that interval sequenced for a room that did not
+/// contain the client. The client must then replay those operations, under an
+/// identity that did not exist when other clients made them. To script that
+/// sequence, a test must sequence operations while the client is absent, and
+/// one atomic reconnect cannot express that.
 ///
 /// The runtime keeps its core and stays in its reconnecting phase until
 /// `rejoin`.
@@ -326,14 +326,14 @@ pub fn step(sluice: Sluice) -> Bool {
 
 @target(javascript)
 /// The same as `step`, but the function reports what it delivered: the target
-/// client, the event, and, for an `op` event, the sequence number and the
-/// author. The result is `Error(Nil)` when the function can deliver no frame. Use it
-/// to drive a live visualization that animates each hop.
+/// client, the event, and, for an `operation` event, the sequence number and
+/// the author. The result is `Error(Nil)` when the function can deliver no
+/// frame. Use it to drive a live visualization that animates each hop.
 pub fn step_info(sluice: Sluice) -> Result(Delivery, Nil) {
   case take_deliver(sluice.cell) {
     Error(Nil) -> Error(Nil)
     Ok(frame) -> {
-      let #(sequence_number, author) = op_meta(frame)
+      let #(sequence_number, author) = operation_meta(frame)
       Ok(Delivery(
         to: frame.client_id,
         event: frame.event,
@@ -347,13 +347,14 @@ pub fn step_info(sluice: Sluice) -> Result(Delivery, Nil) {
 @target(javascript)
 /// Report the next frame that `step` or `step_info` would deliver, and deliver
 /// nothing. A caller can thus collect a whole broadcast group, which is every
-/// frame that shares the sequence number of one op, into one animation step.
-/// Every replica then receives the op together, and not one hop at a time.
+/// frame that shares the sequence number of one operation, into one animation
+/// step. Every replica then receives the operation together, and not one hop at
+/// a time.
 pub fn peek_info(sluice: Sluice) -> Result(Delivery, Nil) {
   case core.peek(transport_js.get_cell(sluice.cell).core) {
     Error(Nil) -> Error(Nil)
     Ok(frame) -> {
-      let #(sequence_number, author) = op_meta(frame)
+      let #(sequence_number, author) = operation_meta(frame)
       Ok(Delivery(
         to: frame.client_id,
         event: frame.event,
@@ -385,9 +386,9 @@ pub fn client_id(
 }
 
 @target(javascript)
-/// The current server sequence number. An op sequences synchronously at submit
-/// time, so a read immediately after an edit gives the sequence number of that
-/// op.
+/// The current server sequence number. An operation sequences synchronously at
+/// submit time, so a read immediately after an edit gives the sequence number
+/// of that operation.
 pub fn sequence_number(sluice: Sluice) -> Int {
   core.sequence_number(transport_js.get_cell(sluice.cell).core)
 }
@@ -514,17 +515,24 @@ fn take_deliver(cell: Cell(State)) -> Result(core.Outbound, Nil) {
 }
 
 @target(javascript)
-/// Read the sequence number and the author from the payload of an `op` frame,
-/// for `step_info`. The result is `0` and `""` for another kind of event.
-fn op_meta(frame: core.Outbound) -> #(Int, String) {
+/// Read the sequence number and the author from the payload of an `operation`
+/// frame, for `step_info`. The result is `0` and `""` for another kind of
+/// event.
+fn operation_meta(frame: core.Outbound) -> #(Int, String) {
   case frame.event {
     "op" ->
       case
-        json.parse(json.to_string(frame.payload), socket.op_message_decoder())
+        json.parse(
+          json.to_string(frame.payload),
+          socket.operation_message_decoder(),
+        )
       {
         Ok(message) ->
           case message.ops {
-            [op, ..] -> #(op.sequence_number, option.unwrap(op.client_id, ""))
+            [operation, ..] -> #(
+              operation.sequence_number,
+              option.unwrap(operation.client_id, ""),
+            )
             [] -> #(0, "")
           }
         Error(_) -> #(0, "")
@@ -552,8 +560,8 @@ fn make_transport(cell: Cell(State)) -> runtime.Transport {
       // working after a reconnect reassigns the latter.
       // `close` and `drop` stay inert: the sluice drives those from the outside,
       // through `sluice_js.disconnect` / `drop`, because a test scripting a
-      // race needs to sequence ops *between* the two halves of a reconnect.
-      // `hold`/`resume` have no such external caller — they exist so
+      // race needs to sequence operations *between* the two halves of a
+      // reconnect. `hold`/`resume` have no such external caller — they exist so
       // `watershed.go_offline` behaves the same here as over a real socket,
       // which is what lets an app test its own offline path.
       runtime.TransportHandle(

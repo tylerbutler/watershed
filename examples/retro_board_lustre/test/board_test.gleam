@@ -1,7 +1,7 @@
 //// The render rule, fed the pathological states the non-atomic move can
 //// actually reach. Pure — no runtime, no sluice — because `board.render`
 //// takes plain lists; the convergence suite covers the same rule against
-//// states produced by real concurrent ops.
+//// states produced by real concurrent operations.
 
 import gleam/list
 import gleam/option.{None, Some}
@@ -84,8 +84,8 @@ pub fn unsequenced_notes_render_in_created_order_with_id_tiebreak_test() -> Nil 
 
 pub fn deleted_note_ids_are_skipped_and_raw_indexes_keep_their_gaps_test() -> Nil {
   // "gone" was deleted from the notes map but its sequence entry remains.
-  // The card after the gap must keep its RAW index (2, not 1) — sequence ops
-  // address raw positions.
+  // The card after the gap must keep its RAW index (2, not 1) — sequence
+  // operations address raw positions.
   let board =
     board.render(
       [#("n1", note_in("went_well", 1)), #("n2", note_in("went_well", 2))],

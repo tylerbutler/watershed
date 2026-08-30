@@ -16,16 +16,16 @@ pub type TwoPSetState {
   TwoPSetState(
     sequenced: TwoPSet(String),
     optimistic: TwoPSet(String),
-    pending: List(PendingOp),
+    pending: List(PendingOperation),
     next_pending_message_id: Int,
   )
 }
 
-pub type PendingOp {
-  PendingOp(op: TwoPSetOp, message_id: Int)
+pub type PendingOperation {
+  PendingOperation(operation: TwoPSetOperation, message_id: Int)
 }
 
-pub type TwoPSetOp {
+pub type TwoPSetOperation {
   Add(element: String, delta: TwoPSet(String))
   Remove(element: String, delta: TwoPSet(String))
 }
@@ -69,38 +69,42 @@ pub fn sequenced_values(state: TwoPSetState) -> List(String) {
 pub fn add(
   state: TwoPSetState,
   element: String,
-) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOp, Int) {
+) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOperation, Int) {
   let before = values(state)
   let #(optimistic, delta) = two_p_set.add_with_delta(state.optimistic, element)
   let message_id = state.next_pending_message_id
-  let op = Add(element, delta)
+  let operation = Add(element, delta)
   let state =
     TwoPSetState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  #(state, events_between(before, values(state)), op, message_id)
+  #(state, events_between(before, values(state)), operation, message_id)
 }
 
 pub fn remove(
   state: TwoPSetState,
   element: String,
-) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOp, Int) {
+) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOperation, Int) {
   let before = values(state)
   let #(optimistic, delta) =
     two_p_set.remove_with_delta(state.optimistic, element)
   let message_id = state.next_pending_message_id
-  let op = Remove(element, delta)
+  let operation = Remove(element, delta)
   let state =
     TwoPSetState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  #(state, events_between(before, values(state)), op, message_id)
+  #(state, events_between(before, values(state)), operation, message_id)
 }
 
 /// Merge a new local delta into `sequenced` and `optimistic` in one step.
@@ -108,24 +112,24 @@ pub fn remove(
 /// This function has the same behaviour as `sequence_kernel.commit_p2p`.
 fn commit_p2p(
   state: TwoPSetState,
-  op: TwoPSetOp,
-) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOp) {
+  operation: TwoPSetOperation,
+) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOperation) {
   let before = values(state)
-  let delta = op_delta(op)
+  let delta = operation_delta(operation)
   let state =
     TwoPSetState(
       ..state,
       sequenced: two_p_set.merge(state.sequenced, delta),
       optimistic: two_p_set.merge(state.optimistic, delta),
     )
-  #(state, events_between(before, values(state)), op)
+  #(state, events_between(before, values(state)), operation)
 }
 
 /// The ack-free p2p form of `add`. It commits immediately. See `commit_p2p`.
 pub fn p2p_add(
   state: TwoPSetState,
   element: String,
-) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOp) {
+) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOperation) {
   let #(_, delta) = two_p_set.add_with_delta(state.optimistic, element)
   commit_p2p(state, Add(element, delta))
 }
@@ -134,7 +138,7 @@ pub fn p2p_add(
 pub fn p2p_remove(
   state: TwoPSetState,
   element: String,
-) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOp) {
+) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOperation) {
   let #(_, delta) = two_p_set.remove_with_delta(state.optimistic, element)
   commit_p2p(state, Remove(element, delta))
 }
@@ -159,10 +163,10 @@ pub fn p2p_merge(
 
 pub fn apply_remote(
   state: TwoPSetState,
-  op: TwoPSetOp,
+  operation: TwoPSetOperation,
 ) -> #(TwoPSetState, List(TwoPSetEvent)) {
   let before = values(state)
-  let delta = op_delta(op)
+  let delta = operation_delta(operation)
   let sequenced = two_p_set.merge(state.sequenced, delta)
   let optimistic = replay_pending(sequenced, state.pending)
   let state =
@@ -172,37 +176,40 @@ pub fn apply_remote(
 
 pub fn ack_local(
   state: TwoPSetState,
-  op: TwoPSetOp,
+  operation: TwoPSetOperation,
 ) -> Result(TwoPSetState, KernelError) {
-  do_ack(state, op, None)
+  do_ack(state, operation, None)
 }
 
 pub fn ack_local_with_message_id(
   state: TwoPSetState,
-  op: TwoPSetOp,
+  operation: TwoPSetOperation,
   message_id: Int,
 ) -> Result(TwoPSetState, KernelError) {
-  do_ack(state, op, Some(message_id))
+  do_ack(state, operation, Some(message_id))
 }
 
 fn do_ack(
   state: TwoPSetState,
-  op: TwoPSetOp,
+  operation: TwoPSetOperation,
   expected_message_id: Option(Int),
 ) -> Result(TwoPSetState, KernelError) {
   case state.pending {
     [] -> Error(UnexpectedAck("pending queue is empty"))
-    [PendingOp(pending_op, pending_message_id), ..rest] -> {
+    [PendingOperation(pending_operation, pending_message_id), ..rest] -> {
       let message_id_matches = case expected_message_id {
         None -> True
         Some(message_id) -> message_id == pending_message_id
       }
-      case pending_op == op && message_id_matches {
+      case pending_operation == operation && message_id_matches {
         True ->
           Ok(
             TwoPSetState(
               ..state,
-              sequenced: two_p_set.merge(state.sequenced, op_delta(op)),
+              sequenced: two_p_set.merge(
+                state.sequenced,
+                operation_delta(operation),
+              ),
               pending: rest,
             ),
           )
@@ -223,13 +230,13 @@ fn do_ack(
 
 pub fn rollback(
   state: TwoPSetState,
-  op: TwoPSetOp,
+  operation: TwoPSetOperation,
   message_id: Int,
 ) -> Result(#(TwoPSetState, List(TwoPSetEvent)), KernelError) {
   case pop_last(state.pending) {
     Error(_) -> Error(UnexpectedRollback("pending queue is empty"))
-    Ok(#(PendingOp(pending_op, pending_message_id), rest)) ->
-      case pending_op == op && pending_message_id == message_id {
+    Ok(#(PendingOperation(pending_operation, pending_message_id), rest)) ->
+      case pending_operation == operation && pending_message_id == message_id {
         False ->
           Error(UnexpectedRollback(
             "expected newest pending op with message id "
@@ -248,21 +255,23 @@ pub fn rollback(
   }
 }
 
-pub fn apply_stashed_op(
+pub fn apply_stashed_operation(
   state: TwoPSetState,
-  op: TwoPSetOp,
-) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOp, Int) {
+  operation: TwoPSetOperation,
+) -> #(TwoPSetState, List(TwoPSetEvent), TwoPSetOperation, Int) {
   let before = values(state)
-  let optimistic = two_p_set.merge(state.optimistic, op_delta(op))
+  let optimistic = two_p_set.merge(state.optimistic, operation_delta(operation))
   let message_id = state.next_pending_message_id
   let state =
     TwoPSetState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  #(state, events_between(before, values(state)), op, message_id)
+  #(state, events_between(before, values(state)), operation, message_id)
 }
 
 pub fn promote_attach(state: TwoPSetState) -> TwoPSetState {
@@ -299,18 +308,18 @@ pub fn check_cache_coherence(state: TwoPSetState) -> Result(Nil, String) {
   }
 }
 
-fn op_delta(op: TwoPSetOp) -> TwoPSet(String) {
-  case op {
+fn operation_delta(operation: TwoPSetOperation) -> TwoPSet(String) {
+  case operation {
     Add(_, delta) | Remove(_, delta) -> delta
   }
 }
 
 fn replay_pending(
   sequenced: TwoPSet(String),
-  pending: List(PendingOp),
+  pending: List(PendingOperation),
 ) -> TwoPSet(String) {
   list.fold(pending, sequenced, fn(acc, pending) {
-    two_p_set.merge(acc, op_delta(pending.op))
+    two_p_set.merge(acc, operation_delta(pending.operation))
   })
 }
 
@@ -333,8 +342,8 @@ fn events_between(
 }
 
 fn pop_last(
-  pending: List(PendingOp),
-) -> Result(#(PendingOp, List(PendingOp)), Nil) {
+  pending: List(PendingOperation),
+) -> Result(#(PendingOperation, List(PendingOperation)), Nil) {
   case pending {
     [] -> Error(Nil)
     [only] -> Ok(#(only, []))

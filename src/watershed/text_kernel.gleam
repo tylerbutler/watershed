@@ -19,20 +19,20 @@ pub type TextState {
     replica_id: ReplicaId,
     sequenced: Text,
     optimistic: Text,
-    pending: List(PendingOp),
+    pending: List(PendingOperation),
     next_pending_message_id: Int,
   )
 }
 
-pub type PendingOp {
-  PendingOp(op: TextOp, message_id: Int)
+pub type PendingOperation {
+  PendingOperation(operation: TextOperation, message_id: Int)
 }
 
 /// Every grapheme index in these constructors records the intent of the
 /// author, for diagnostics only. `delta` is the authoritative CRDT payload. A
 /// remote replica applies `delta`. It never applies a diagnostic index field
 /// or value field.
-pub type TextOp {
+pub type TextOperation {
   Insert(index: Int, value: String, delta: Text)
   DeleteRange(start: Int, end: Int, delta: Text)
   ReplaceRange(start: Int, end: Int, value: String, delta: Text)
@@ -88,12 +88,12 @@ pub opaque type TextAnchor {
   TextAnchor(anchor: sequence.Anchor)
 }
 
-/// The op and the local message id that the kernel submitted for a real edit.
-/// The value is `None` when the mutation was a valid change of nothing. See
-/// the module docs on an empty edit. The kernel then queued no pending entry,
-/// emitted no event, and the caller must send no channel op.
+/// The operation and the local message id that the kernel submitted for a real
+/// edit. The value is `None` when the mutation was a valid change of nothing.
+/// See the module docs on an empty edit. The kernel then queued no pending
+/// entry, emitted no event, and the caller must send no channel operation.
 pub type Submission {
-  Submission(op: TextOp, message_id: Int)
+  Submission(operation: TextOperation, message_id: Int)
 }
 
 pub fn new(replica_id: ReplicaId) -> TextState {
@@ -141,28 +141,30 @@ pub fn substring(
 fn finish_local(
   state: TextState,
   optimistic: Text,
-  op: TextOp,
-) -> #(TextState, List(TextEvent), TextOp, Int) {
+  operation: TextOperation,
+) -> #(TextState, List(TextEvent), TextOperation, Int) {
   let before = value(state)
   let message_id = state.next_pending_message_id
   let state =
     TextState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  #(state, changed_event(before, value(state)), op, message_id)
+  #(state, changed_event(before, value(state)), operation, message_id)
 }
 
 fn submitted(
-  result: #(TextState, List(TextEvent), TextOp, Int),
+  result: #(TextState, List(TextEvent), TextOperation, Int),
 ) -> #(TextState, List(TextEvent), Option(Submission)) {
-  let #(state, events, op, message_id) = result
-  #(state, events, Some(Submission(op, message_id)))
+  let #(state, events, operation, message_id) = result
+  #(state, events, Some(Submission(operation, message_id)))
 }
 
-fn no_op(
+fn no_operation(
   state: TextState,
 ) -> #(TextState, List(TextEvent), Option(Submission)) {
   #(state, [], None)
@@ -190,7 +192,7 @@ pub fn insert(
       Error(InsertOutOfBounds(index, length))
     Ok(#(optimistic, delta)) ->
       case value {
-        "" -> Ok(no_op(state))
+        "" -> Ok(no_operation(state))
         _ ->
           Ok(
             submitted(finish_local(
@@ -217,7 +219,7 @@ pub fn delete_range(
       Error(DeleteRangeOutOfBounds(start, end, length))
     Ok(#(optimistic, delta)) ->
       case start == end {
-        True -> Ok(no_op(state))
+        True -> Ok(no_operation(state))
         False ->
           Ok(
             submitted(finish_local(
@@ -247,7 +249,7 @@ pub fn replace_range(
       Error(ReplaceRangeOutOfBounds(start, end, length))
     Ok(#(optimistic, delta)) ->
       case start == end && value == "" {
-        True -> Ok(no_op(state))
+        True -> Ok(no_operation(state))
         False ->
           Ok(
             submitted(finish_local(
@@ -267,7 +269,7 @@ pub fn append(
   value: String,
 ) -> #(TextState, List(TextEvent), Option(Submission)) {
   case value {
-    "" -> no_op(state)
+    "" -> no_operation(state)
     _ -> {
       let #(optimistic, delta) = text.append_with_delta(state.optimistic, value)
       submitted(finish_local(state, optimistic, Append(value, delta)))
@@ -280,21 +282,22 @@ pub fn append(
 ///
 /// Unlike `finish_local`, this function never needs the `Option(Submission)`
 /// path for an empty edit. The p2p mode has no pending queue to protect from
-/// an entry with no content. Every call thus reports its op for the broadcast,
-/// also a call whose delta changes nothing, for example an insert of `""`.
+/// an entry with no content. Every call thus reports its operation for the
+/// broadcast, also a call whose delta changes nothing, for example an insert of
+/// `""`.
 fn commit_p2p(
   state: TextState,
-  op: TextOp,
-) -> #(TextState, List(TextEvent), TextOp) {
+  operation: TextOperation,
+) -> #(TextState, List(TextEvent), TextOperation) {
   let before = value(state)
-  let delta = op_delta(op)
+  let delta = operation_delta(operation)
   let state =
     TextState(
       ..state,
       sequenced: text.merge(state.sequenced, delta),
       optimistic: text.merge(state.optimistic, delta),
     )
-  #(state, changed_event(before, value(state)), op)
+  #(state, changed_event(before, value(state)), operation)
 }
 
 /// The ack-free p2p form of `insert`. It writes the same delta, but it merges
@@ -304,7 +307,7 @@ pub fn p2p_insert(
   state: TextState,
   index: Int,
   value: String,
-) -> Result(#(TextState, List(TextEvent), TextOp), EditError) {
+) -> Result(#(TextState, List(TextEvent), TextOperation), EditError) {
   case text.try_insert_with_delta(state.optimistic, index, value) {
     Error(sequence.IndexOutOfBounds(index, length)) ->
       Error(InsertOutOfBounds(index, length))
@@ -317,7 +320,7 @@ pub fn p2p_delete_range(
   state: TextState,
   start: Int,
   end: Int,
-) -> Result(#(TextState, List(TextEvent), TextOp), EditError) {
+) -> Result(#(TextState, List(TextEvent), TextOperation), EditError) {
   case text.try_delete_range_with_delta(state.optimistic, start, end) {
     Error(text.RangeOutOfBounds(start, end, length)) ->
       Error(DeleteRangeOutOfBounds(start, end, length))
@@ -331,7 +334,7 @@ pub fn p2p_replace_range(
   start: Int,
   end: Int,
   value: String,
-) -> Result(#(TextState, List(TextEvent), TextOp), EditError) {
+) -> Result(#(TextState, List(TextEvent), TextOperation), EditError) {
   case text.try_replace_range_with_delta(state.optimistic, start, end, value) {
     Error(text.RangeOutOfBounds(start, end, length)) ->
       Error(ReplaceRangeOutOfBounds(start, end, length))
@@ -345,7 +348,7 @@ pub fn p2p_replace_range(
 pub fn p2p_append(
   state: TextState,
   value: String,
-) -> #(TextState, List(TextEvent), TextOp) {
+) -> #(TextState, List(TextEvent), TextOperation) {
   let #(_, delta) = text.append_with_delta(state.optimistic, value)
   commit_p2p(state, Append(value, delta))
 }
@@ -369,10 +372,10 @@ pub fn p2p_merge(
 
 pub fn apply_remote(
   state: TextState,
-  op: TextOp,
+  operation: TextOperation,
 ) -> #(TextState, List(TextEvent)) {
   let before = value(state)
-  let sequenced = text.merge(state.sequenced, op_delta(op))
+  let sequenced = text.merge(state.sequenced, operation_delta(operation))
   let optimistic = replay_pending(sequenced, state.pending)
   let state = TextState(..state, sequenced: sequenced, optimistic: optimistic)
   #(state, changed_event(before, value(state)))
@@ -380,37 +383,37 @@ pub fn apply_remote(
 
 pub fn ack_local(
   state: TextState,
-  op: TextOp,
+  operation: TextOperation,
 ) -> Result(TextState, KernelError) {
-  do_ack(state, op, None)
+  do_ack(state, operation, None)
 }
 
 pub fn ack_local_with_message_id(
   state: TextState,
-  op: TextOp,
+  operation: TextOperation,
   message_id: Int,
 ) -> Result(TextState, KernelError) {
-  do_ack(state, op, Some(message_id))
+  do_ack(state, operation, Some(message_id))
 }
 
 fn do_ack(
   state: TextState,
-  op: TextOp,
+  operation: TextOperation,
   expected_message_id: Option(Int),
 ) -> Result(TextState, KernelError) {
   case state.pending {
     [] -> Error(UnexpectedAck("pending queue is empty"))
-    [PendingOp(pending_op, pending_message_id), ..rest] -> {
+    [PendingOperation(pending_operation, pending_message_id), ..rest] -> {
       let id_matches = case expected_message_id {
         None -> True
         Some(message_id) -> message_id == pending_message_id
       }
-      case pending_op == op && id_matches {
+      case pending_operation == operation && id_matches {
         True ->
           Ok(
             TextState(
               ..state,
-              sequenced: text.merge(state.sequenced, op_delta(op)),
+              sequenced: text.merge(state.sequenced, operation_delta(operation)),
               pending: rest,
             ),
           )
@@ -423,18 +426,18 @@ fn do_ack(
   }
 }
 
-/// Roll back the newest pending local op. The kernel can roll back the newest
-/// entry only, which is LIFO order. To roll back any other entry is a
+/// Roll back the newest pending local operation. The kernel can roll back the
+/// newest entry only, which is LIFO order. To roll back any other entry is a
 /// consistency error.
 pub fn rollback(
   state: TextState,
-  op: TextOp,
+  operation: TextOperation,
   message_id: Int,
 ) -> Result(#(TextState, List(TextEvent)), KernelError) {
   case pop_last(state.pending) {
     Error(_) -> Error(UnexpectedRollback("pending queue is empty"))
-    Ok(#(PendingOp(pending_op, pending_message_id), rest)) ->
-      case pending_op == op && pending_message_id == message_id {
+    Ok(#(PendingOperation(pending_operation, pending_message_id), rest)) ->
+      case pending_operation == operation && pending_message_id == message_id {
         False ->
           Error(UnexpectedRollback(
             "expected newest pending message "
@@ -450,22 +453,22 @@ pub fn rollback(
   }
 }
 
-/// Replay a local op that the kernel submitted before, for example an op that
-/// a reconnect put in the stash, as a new pending entry. Unlike `insert` and
-/// `delete_range`, this function always queues a pending entry. The kernel
-/// already decided that the op is a real edit, before that op reached the
-/// stash.
-pub fn apply_stashed_op(
+/// Replay a local operation that the kernel submitted before, for example an
+/// operation that a reconnect put in the stash, as a new pending entry. Unlike
+/// `insert` and `delete_range`, this function always queues a pending entry.
+/// The kernel already decided that the operation is a real edit, before that
+/// operation reached the stash.
+pub fn apply_stashed_operation(
   state: TextState,
-  op: TextOp,
-) -> #(TextState, List(TextEvent), TextOp, Int) {
-  let optimistic = text.merge(state.optimistic, op_delta(op))
-  finish_local(state, optimistic, op)
+  operation: TextOperation,
+) -> #(TextState, List(TextEvent), TextOperation, Int) {
+  let optimistic = text.merge(state.optimistic, operation_delta(operation))
+  finish_local(state, optimistic, operation)
 }
 
 /// Move the optimistic text into the sequenced state and remove the pending
-/// ops. This is the same attach behaviour as in the other optimistic lattice
-/// kernels.
+/// operations. This is the same attach behaviour as in the other optimistic
+/// lattice kernels.
 pub fn promote_attach(state: TextState) -> TextState {
   TextState(..state, sequenced: state.optimistic, pending: [])
 }
@@ -605,8 +608,8 @@ pub fn anchor_from_json(
   }
 }
 
-fn op_delta(op: TextOp) -> Text {
-  case op {
+fn operation_delta(operation: TextOperation) -> Text {
+  case operation {
     Insert(_, _, delta)
     | DeleteRange(_, _, delta)
     | ReplaceRange(_, _, _, delta)
@@ -614,15 +617,15 @@ fn op_delta(op: TextOp) -> Text {
   }
 }
 
-fn replay_pending(sequenced: Text, pending: List(PendingOp)) -> Text {
+fn replay_pending(sequenced: Text, pending: List(PendingOperation)) -> Text {
   list.fold(pending, sequenced, fn(acc, pending) {
-    text.merge(acc, op_delta(pending.op))
+    text.merge(acc, operation_delta(pending.operation))
   })
 }
 
 fn pop_last(
-  pending: List(PendingOp),
-) -> Result(#(PendingOp, List(PendingOp)), Nil) {
+  pending: List(PendingOperation),
+) -> Result(#(PendingOperation, List(PendingOperation)), Nil) {
   case pending {
     [] -> Error(Nil)
     [only] -> Ok(#(only, []))

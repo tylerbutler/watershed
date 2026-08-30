@@ -6,7 +6,7 @@
 //// whole new value on `input`, so the naïve bridge — write the whole string
 //// back as one replace — clobbers every concurrent remote keystroke. Instead,
 //// each `input` event is diffed against the channel's *current optimistic
-//// value* and exactly one minimal op is sent:
+//// value* and exactly one minimal operation is sent:
 ////
 //// - `text_insert`       — you typed a character (or pasted a run)
 //// - `text_delete_range` — you deleted a selection or backspaced
@@ -14,13 +14,13 @@
 //// - `text_append`       — the explicit **Append** action (its own family)
 ////
 //// The diff unit is the Unicode extended grapheme cluster, never the browser's
-//// UTF-16 code units: an emoji or a combining mark is one CRDT index, so ops
-//// land where the user meant them to.
+//// UTF-16 code units: an emoji or a combining mark is one CRDT index, so
+//// operations land where the user meant them to.
 ////
 //// That whole bridge lives two levels down now. `watershed_lustre/textarea`
-//// owns the snapshot-diff-one-op loop and the caret; `text_lustre/component`
-//// owns the document state around it — the body channel, the append action,
-//// and the pinned anchor — as a nested MVU triple.
+//// owns the snapshot-diff-one-operation loop and the caret;
+//// `text_lustre/component` owns the document state around it — the body
+//// channel, the append action, and the pinned anchor — as a nested MVU triple.
 ////
 //// What is left in *this* module is what an application owns and a panel must
 //// not: the connection, the runtime diagnostics, and the presence driver. All

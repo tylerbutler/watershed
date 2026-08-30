@@ -1,13 +1,13 @@
 //// The closed sum of the channel kernels that the runtime can host, with the
-//// dispatch in one module. There are parallel sums for the state, the ops, the
-//// events, and the snapshots, with one dispatch function for each operation
-//// that `runtime_core` needs.
+//// dispatch in one module. There are parallel sums for the state, the
+//// operations, the events, and the snapshots, with one dispatch function for
+//// each operation that `runtime_core` needs.
 ////
 //// The runtime routes everything through these sums, and it never names a
 //// kernel directly. To add a kernel, add a variant to each sum here, and then
 //// follow the compiler to every dispatch site. The compiler cannot point at
 //// the sites that are not type-driven. Use this checklist for those:
-//// - `wire/op`: add the wire codec for the channel op.
+//// - `wire/op`: add the wire codec for the channel operation.
 //// - `channel`: extend the encode and decode of the summary payload, in
 ////   `encode_snapshot` and `snapshot_decoder`.
 //// - `runtime_beam` and `runtime`: add the actor and runtime functions for the
@@ -213,32 +213,36 @@ pub type ChannelState {
   TextState(text_kernel.TextState)
 }
 
-/// A kernel op as it goes through the runtime, in the in-flight queue and in
-/// the ack matching, and over the wire, through `wire/op`.
-pub type ChannelOp {
-  MapOp(map_kernel.MapOp)
-  CounterOp(counter_kernel.CounterOp)
-  PnCounterOp(pn_counter_kernel.PnCounterOp)
-  OrMapOp(or_map_kernel.OrMapOp)
-  OrSetOp(or_set_kernel.OrSetOp)
-  GSetOp(g_set_kernel.GSetOp)
-  TwoPSetOp(two_p_set_kernel.TwoPSetOp)
-  RegisterCollectionOp(register_collection_kernel.WriteOp)
-  ClaimsOp(claims_kernel.ClaimOp)
-  TaskManagerOp(task_manager_kernel.TaskManagerOp)
-  PactMapOp(pact_map_kernel.PactMapOp)
-  JsonOtOp(json_ot_kernel.JsonOtWireOp)
-  /// A directory op with the kernel `message_id` value that identifies this
-  /// submission. Unlike the other kernels, the id travels *in the op*. A remote
-  /// client needs the client-sequence identity of the author to run the
-  /// stale-instance filter (D12) and the sibling order (D9). The csn of the
-  /// runtime counts the ops of every channel together, and it would thus not
-  /// equal the counter that the kernel keeps for each directory.
-  DirectoryOp(op: directory_kernel.DirectoryOp, message_id: Int)
-  OrderedCollectionOp(ordered_collection_kernel.OrderedOp)
-  SequenceOp(sequence_kernel.SequenceOp)
-  RichTextOp(rich_text_kernel.RichTextWireOp)
-  TextOp(text_kernel.TextOp)
+/// A kernel operation as it goes through the runtime, in the in-flight queue
+/// and in the ack matching, and over the wire, through `wire/op`.
+pub type ChannelOperation {
+  MapOperation(map_kernel.MapOperation)
+  CounterOperation(counter_kernel.CounterOperation)
+  PnCounterOperation(pn_counter_kernel.PnCounterOperation)
+  OrMapOperation(or_map_kernel.OrMapOperation)
+  OrSetOperation(or_set_kernel.OrSetOperation)
+  GSetOperation(g_set_kernel.GSetOperation)
+  TwoPSetOperation(two_p_set_kernel.TwoPSetOperation)
+  RegisterCollectionOperation(register_collection_kernel.WriteOperation)
+  ClaimsOperation(claims_kernel.ClaimOperation)
+  TaskManagerOperation(task_manager_kernel.TaskManagerOperation)
+  PactMapOperation(pact_map_kernel.PactMapOperation)
+  JsonOtOperation(json_ot_kernel.JsonOtWireOperation)
+  /// A directory operation with the kernel `message_id` value that identifies
+  /// this submission. Unlike the other kernels, the id travels *in the
+  /// operation*. A remote client needs the client-sequence identity of the
+  /// author to run the stale-instance filter (D12) and the sibling order (D9).
+  /// The csn of the runtime counts the operations of every channel together,
+  /// and it would thus not equal the counter that the kernel keeps for each
+  /// directory.
+  DirectoryOperation(
+    operation: directory_kernel.DirectoryOperation,
+    message_id: Int,
+  )
+  OrderedCollectionOperation(ordered_collection_kernel.OrderedOperation)
+  SequenceOperation(sequence_kernel.SequenceOperation)
+  RichTextOperation(rich_text_kernel.RichTextWireOperation)
+  TextOperation(text_kernel.TextOperation)
 }
 
 /// A local mutation for the ack-free p2p lifecycle. See `apply_p2p_local`.
@@ -289,8 +293,8 @@ pub type ChannelEvent {
 }
 
 /// The state of a channel, in the form that the stored formats carry. Those
-/// forms are the `snapshot` payload of the attach op, and the `data` payload of
-/// each channel in the summary blob.
+/// forms are the `snapshot` payload of the attach operation, and the `data`
+/// payload of each channel in the summary blob.
 pub type Snapshot {
   MapSnapshot(entries: List(#(String, Json)))
   CounterSnapshot(value: Int)
@@ -324,10 +328,11 @@ pub type Resolution {
   )
 }
 
-/// The *local* metadata of one kernel, which an in-flight op carries with the
-/// wire op. Nothing serializes this metadata. A map op carries none. A counter
-/// checks the local message id that Fluid gives to each pending increment.
-pub type LocalOpMeta {
+/// The *local* metadata of one kernel, which an in-flight operation carries
+/// with the wire operation. Nothing serializes this metadata. A map operation
+/// carries none. A counter checks the local message id that Fluid gives to each
+/// pending increment.
+pub type LocalOperationMeta {
   NoMeta
   CounterMeta(message_id: Int)
   PnCounterMeta(message_id: Int)
@@ -341,10 +346,10 @@ pub type LocalOpMeta {
   TextMeta(message_id: Int)
 }
 
-/// The metadata that the sequencer assigns to a sequenced op. The map kernel
-/// and the counter kernel ignore it. A kernel that stores sequence numbers
-/// reads `seq`. Every path passes this value, so a new kernel of that kind
-/// needs no other change.
+/// The metadata that the sequencer assigns to a sequenced operation. The map
+/// kernel and the counter kernel ignore it. A kernel that stores sequence
+/// numbers reads `seq`. Every path passes this value, so a new kernel of that
+/// kind needs no other change.
 pub type SequencedMeta {
   SequencedMeta(
     seq: Int,
@@ -354,12 +359,12 @@ pub type SequencedMeta {
     self: Int,
     /// The set that a consensus proposal freezes its signoff list from. That
     /// set is the roster. On the live path it also contains this client and
-    /// the author of the op, which the runtime adds as a protection. To
+    /// the author of the operation, which the runtime adds as a protection. To
     /// include too many clients is the safe direction here, because a signoff
     /// list without a connected client accepts too early.
     quorum: List(Int),
-    /// The clients that are in the room at the sequence point of this op. This
-    /// is the roster itself, with no added clients.
+    /// The clients that are in the room at the sequence point of this
+    /// operation. This is the roster itself, with no added clients.
     ///
     /// This field is separate from `quorum`, because the safe direction is the
     /// opposite one. A membership *test* that includes too many clients passes
@@ -368,9 +373,9 @@ pub type SequencedMeta {
     /// member. A lock queue thus stays a subset of the room, and the
     /// leave-driven release is thus complete.
     roster: List(Int),
-    /// The reference sequence number of the author of the op, which is what
-    /// that client had seen at submit time. The stale-instance filter of the
-    /// directory kernel (D12) reads it. The other kernels ignore it.
+    /// The reference sequence number of the author of the operation, which is
+    /// what that client had seen at submit time. The stale-instance filter of
+    /// the directory kernel (D12) reads it. The other kernels ignore it.
     /// `last_seen_sn` is the watermark of the *local* client, and you cannot
     /// use it in place of this field.
     reference_sequence_number: Int,
@@ -379,17 +384,18 @@ pub type SequencedMeta {
 
 pub type ChannelError {
   /// An ack did not agree with the pending queue of the kernel. This error is
-  /// fatal. The runtime routed an ack for an op that the kernel never
+  /// fatal. The runtime routed an ack for an operation that the kernel never
   /// submitted, or it routed the acks out of order.
   UnexpectedAck(detail: String)
-  /// The runtime dispatched an op to a channel of a different kernel type.
-  /// This error is fatal. The decoder reads an op against the registry type
-  /// for its address, so a mismatch here is a routing fault, and not bad
-  /// input.
+  /// The runtime dispatched an operation to a channel of a different kernel
+  /// type. This error is fatal. The decoder reads an operation against the
+  /// registry type for its address, so a mismatch here is a routing fault, and
+  /// not bad input.
   WrongChannelType(detail: String)
-  CorruptRemoteOp(detail: String)
-  /// A `P2pEdit` value or an op does not match the kernel of the channel, or
-  /// that kernel does not support ack-free p2p at all. See `supports_p2p`.
+  CorruptRemoteOperation(detail: String)
+  /// A `P2pEdit` value or an operation does not match the kernel of the
+  /// channel, or that kernel does not support ack-free p2p at all. See
+  /// `supports_p2p`.
   ///
   /// This error also covers a refusal at the edit level from a kernel that
   /// does support p2p, for example an OR-map mode mismatch, or a sequence or
@@ -600,9 +606,9 @@ fn counter_sequenced_value(kernel: counter_kernel.CounterState) -> Int {
   })
 }
 
-/// The current optimistic view, as an attach op captures it. Every local edit
-/// of a detached channel is pending, so this function must include them, and
-/// `snapshot` does not.
+/// The current optimistic view, as an attach operation captures it. Every local
+/// edit of a detached channel is pending, so this function must include them,
+/// and `snapshot` does not.
 pub fn attach_snapshot(state: ChannelState) -> Snapshot {
   case state {
     MapState(kernel) -> MapSnapshot(map_kernel.entries(kernel))
@@ -685,60 +691,64 @@ pub fn attach_state(
   }
 }
 
-/// Apply a sequenced op from another client.
+/// Apply a sequenced operation from another client.
 ///
 /// The function returns the new state, the events that it produced, and the
-/// follow-up ops that the kernel *owes*. The runtime submits an owed op by
-/// itself, with a new CSN and a new in-flight entry, in reaction to this op.
-/// For example, a consensus kernel emits its own `Accept` op after it reads a
-/// `Set` op from a peer. Most kernels owe nothing and return an empty list.
-/// The runtime buffers the owed ops of each channel, and it sends them after
-/// the current sequenced batch. See `runtime_core.collect_released_ops`.
+/// follow-up operations that the kernel *owes*. The runtime submits an owed
+/// operation by itself, with a new CSN and a new in-flight entry, in reaction
+/// to this operation. For example, a consensus kernel emits its own `Accept`
+/// operation after it reads a `Set` operation from a peer. Most kernels owe
+/// nothing and return an empty list. The runtime buffers the owed operations of
+/// each channel, and it sends them after the current sequenced batch. See
+/// `runtime_core.collect_released_operations`.
 pub fn apply_remote(
   state: ChannelState,
-  op: ChannelOp,
+  operation: ChannelOperation,
   meta: SequencedMeta,
-) -> Result(#(ChannelState, List(ChannelEvent), List(ChannelOp)), ChannelError) {
-  case state, op {
-    MapState(kernel), MapOp(op) -> {
-      let #(kernel, events) = map_kernel.apply_remote(kernel, op)
+) -> Result(
+  #(ChannelState, List(ChannelEvent), List(ChannelOperation)),
+  ChannelError,
+) {
+  case state, operation {
+    MapState(kernel), MapOperation(operation) -> {
+      let #(kernel, events) = map_kernel.apply_remote(kernel, operation)
       Ok(#(MapState(kernel), list.map(events, MapEvent), []))
     }
-    CounterState(kernel), CounterOp(op) -> {
-      let #(kernel, events) = counter_kernel.apply_remote(kernel, op)
+    CounterState(kernel), CounterOperation(operation) -> {
+      let #(kernel, events) = counter_kernel.apply_remote(kernel, operation)
       Ok(#(CounterState(kernel), list.map(events, CounterEvent), []))
     }
-    PnCounterState(kernel), PnCounterOp(op) -> {
-      let #(kernel, events) = pn_counter_kernel.apply_remote(kernel, op)
+    PnCounterState(kernel), PnCounterOperation(operation) -> {
+      let #(kernel, events) = pn_counter_kernel.apply_remote(kernel, operation)
       Ok(#(PnCounterState(kernel), list.map(events, PnCounterEvent), []))
     }
-    OrMapState(kernel), OrMapOp(op) ->
-      case or_map_kernel.apply_remote(kernel, op) {
+    OrMapState(kernel), OrMapOperation(operation) ->
+      case or_map_kernel.apply_remote(kernel, operation) {
         Ok(#(kernel, events)) ->
           Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), []))
         Error(or_map_kernel.CorruptDelta(detail))
         | Error(or_map_kernel.ModeMismatch(detail))
         | Error(or_map_kernel.NegativeTally(detail)) ->
-          Error(CorruptRemoteOp(detail))
+          Error(CorruptRemoteOperation(detail))
         Error(or_map_kernel.UnexpectedAck(detail))
         | Error(or_map_kernel.UnexpectedRollback(detail)) ->
           Error(UnexpectedAck(detail))
       }
-    OrSetState(kernel), OrSetOp(op) -> {
-      let #(kernel, events) = or_set_kernel.apply_remote(kernel, op)
+    OrSetState(kernel), OrSetOperation(operation) -> {
+      let #(kernel, events) = or_set_kernel.apply_remote(kernel, operation)
       Ok(#(OrSetState(kernel), list.map(events, OrSetEvent), []))
     }
-    GSetState(kernel), GSetOp(op) -> {
-      let #(kernel, events) = g_set_kernel.apply_remote(kernel, op)
+    GSetState(kernel), GSetOperation(operation) -> {
+      let #(kernel, events) = g_set_kernel.apply_remote(kernel, operation)
       Ok(#(GSetState(kernel), list.map(events, GSetEvent), []))
     }
-    TwoPSetState(kernel), TwoPSetOp(op) -> {
-      let #(kernel, events) = two_p_set_kernel.apply_remote(kernel, op)
+    TwoPSetState(kernel), TwoPSetOperation(operation) -> {
+      let #(kernel, events) = two_p_set_kernel.apply_remote(kernel, operation)
       Ok(#(TwoPSetState(kernel), list.map(events, TwoPSetEvent), []))
     }
-    RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
+    RegisterCollectionState(kernel), RegisterCollectionOperation(operation) -> {
       let #(kernel, events) =
-        register_collection_kernel.apply_remote(kernel, op, meta.seq)
+        register_collection_kernel.apply_remote(kernel, operation, meta.seq)
       Ok(
         #(
           RegisterCollectionState(kernel),
@@ -747,38 +757,47 @@ pub fn apply_remote(
         ),
       )
     }
-    ClaimsState(kernel), ClaimsOp(op) -> {
-      let #(kernel, events) = claims_kernel.apply_remote(kernel, op, meta.seq)
+    ClaimsState(kernel), ClaimsOperation(operation) -> {
+      let #(kernel, events) =
+        claims_kernel.apply_remote(kernel, operation, meta.seq)
       Ok(#(ClaimsState(kernel), list.map(events, ClaimsEvent), []))
     }
-    TaskManagerState(kernel), TaskManagerOp(op) -> {
+    TaskManagerState(kernel), TaskManagerOperation(operation) -> {
       let #(kernel, events) =
-        task_manager_kernel.apply_remote(kernel, op, meta.author, meta.roster)
+        task_manager_kernel.apply_remote(
+          kernel,
+          operation,
+          meta.author,
+          meta.roster,
+        )
       Ok(#(TaskManagerState(kernel), list.map(events, TaskManagerEvent), []))
     }
-    PactMapState(kernel), PactMapOp(op) -> apply_pact_map(kernel, op, meta)
-    JsonOtState(kernel), JsonOtOp(op) ->
-      case json_ot_kernel.apply_remote(kernel, op, meta.seq, meta.min_seq) {
+    PactMapState(kernel), PactMapOperation(operation) ->
+      apply_pact_map(kernel, operation, meta)
+    JsonOtState(kernel), JsonOtOperation(operation) ->
+      case
+        json_ot_kernel.apply_remote(kernel, operation, meta.seq, meta.min_seq)
+      {
         Ok(#(kernel, events)) ->
           Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent), []))
         Error(json_ot_kernel.UnexpectedAck(detail)) ->
           Error(UnexpectedAck(detail))
         Error(json_ot_kernel.OtFailure(error)) ->
-          Error(CorruptRemoteOp(json_ot_error_detail(error)))
+          Error(CorruptRemoteOperation(json_ot_error_detail(error)))
       }
-    DirectoryState(kernel), DirectoryOp(op, message_id) -> {
+    DirectoryState(kernel), DirectoryOperation(operation, message_id) -> {
       let #(kernel, events) =
         directory_kernel.apply_remote(
           kernel,
-          op,
+          operation,
           directory_sequenced_meta(meta, message_id),
           meta.self,
         )
       Ok(#(DirectoryState(kernel), list.map(events, DirectoryEvent), []))
     }
-    OrderedCollectionState(kernel), OrderedCollectionOp(op) -> {
+    OrderedCollectionState(kernel), OrderedCollectionOperation(operation) -> {
       let #(kernel, events) =
-        ordered_collection_kernel.apply_remote(kernel, op, meta.author)
+        ordered_collection_kernel.apply_remote(kernel, operation, meta.author)
       Ok(
         #(
           OrderedCollectionState(kernel),
@@ -787,21 +806,23 @@ pub fn apply_remote(
         ),
       )
     }
-    SequenceState(kernel), SequenceOp(op) -> {
-      let #(kernel, events) = sequence_kernel.apply_remote(kernel, op)
+    SequenceState(kernel), SequenceOperation(operation) -> {
+      let #(kernel, events) = sequence_kernel.apply_remote(kernel, operation)
       Ok(#(SequenceState(kernel), list.map(events, SequenceEvent), []))
     }
-    RichTextState(kernel), RichTextOp(op) ->
-      case rich_text_kernel.apply_remote(kernel, op, meta.seq, meta.min_seq) {
+    RichTextState(kernel), RichTextOperation(operation) ->
+      case
+        rich_text_kernel.apply_remote(kernel, operation, meta.seq, meta.min_seq)
+      {
         Ok(#(kernel, events)) ->
           Ok(#(RichTextState(kernel), list.map(events, RichTextEvent), []))
         Error(rich_text_kernel.UnexpectedAck(detail)) ->
           Error(UnexpectedAck(detail))
         Error(rich_text_kernel.RichTextFailure(error)) ->
-          Error(CorruptRemoteOp(rich_text_error_detail(error)))
+          Error(CorruptRemoteOperation(rich_text_error_detail(error)))
       }
-    TextState(kernel), TextOp(op) -> {
-      let #(kernel, events) = text_kernel.apply_remote(kernel, op)
+    TextState(kernel), TextOperation(operation) -> {
+      let #(kernel, events) = text_kernel.apply_remote(kernel, operation)
       Ok(#(TextState(kernel), list.map(events, TextEvent), []))
     }
     MapState(_), _
@@ -825,24 +846,34 @@ pub fn apply_remote(
   }
 }
 
-/// Apply a sequenced PactMap op. A `Set` op goes to `apply_set`, which can owe
-/// an `Accept` op when this client is a signoff. An `Accept` op goes to
-/// `apply_accept`. A local op and a remote op both take this path, and the
-/// runtime uses `is_own_op` only to reclaim the in-flight entry. The PactMap of
-/// FluidFramework applies an op at its sequence point, whoever wrote it.
+/// Apply a sequenced PactMap operation. A `Set` operation goes to `apply_set`,
+/// which can owe an `Accept` operation when this client is a signoff. An
+/// `Accept` operation goes to `apply_accept`. A local operation and a remote
+/// operation both take this path, and the runtime uses `is_own_operation` only
+/// to reclaim the in-flight entry. The PactMap of FluidFramework applies an
+/// operation at its sequence point, whoever wrote it.
 fn apply_pact_map(
   kernel: pact_map_kernel.PactMapState,
-  op: pact_map_kernel.PactMapOp,
+  operation: pact_map_kernel.PactMapOperation,
   meta: SequencedMeta,
-) -> Result(#(ChannelState, List(ChannelEvent), List(ChannelOp)), ChannelError) {
-  case op {
+) -> Result(
+  #(ChannelState, List(ChannelEvent), List(ChannelOperation)),
+  ChannelError,
+) {
+  case operation {
     pact_map_kernel.Set(_, _, _) -> {
       let #(kernel, events, reaction) =
-        pact_map_kernel.apply_set(kernel, op, meta.seq, meta.quorum, meta.self)
+        pact_map_kernel.apply_set(
+          kernel,
+          operation,
+          meta.seq,
+          meta.quorum,
+          meta.self,
+        )
       Ok(#(
         PactMapState(kernel),
         list.map(events, PactMapEvent),
-        pact_map_reaction_ops(reaction),
+        pact_map_reaction_operations(reaction),
       ))
     }
     pact_map_kernel.Accept(key) ->
@@ -850,28 +881,29 @@ fn apply_pact_map(
         Ok(#(kernel, events)) ->
           Ok(#(PactMapState(kernel), list.map(events, PactMapEvent), []))
         Error(pact_map_kernel.UnexpectedAccept(_, _, detail)) ->
-          Error(CorruptRemoteOp(detail))
+          Error(CorruptRemoteOperation(detail))
       }
   }
 }
 
-/// The reaction to a PactMap `Set` op, as an owed op at the channel level. The
-/// runtime submits it by itself.
-fn pact_map_reaction_ops(
+/// The reaction to a PactMap `Set` operation, as an owed operation at the
+/// channel level. The runtime submits it by itself.
+fn pact_map_reaction_operations(
   reaction: pact_map_kernel.SetReaction,
-) -> List(ChannelOp) {
+) -> List(ChannelOperation) {
   case reaction {
-    pact_map_kernel.OweAccept(op) -> [PactMapOp(op)]
+    pact_map_kernel.OweAccept(operation) -> [PactMapOperation(operation)]
     pact_map_kernel.NoReaction -> []
   }
 }
 
-/// Whether a channel applies its *own* sequenced ops through `apply_remote`,
-/// which is the path of a remote op, and not through the optimistic
-/// `ack_local`. A consensus kernel, such as PactMap, takes effect at the
-/// sequence point only, whoever wrote the op. The runtime thus reclaims the
-/// in-flight entry and then applies the op with `apply_remote`. Every
-/// optimistic kernel returns `False` and acks the op locally.
+/// Whether a channel applies its *own* sequenced operations through
+/// `apply_remote`, which is the path of a remote operation, and not through the
+/// optimistic `ack_local`. A consensus kernel, such as PactMap, takes effect at
+/// the sequence point only, whoever wrote the operation. The runtime thus
+/// reclaims the in-flight entry and then applies the operation with
+/// `apply_remote`. Every optimistic kernel returns `False` and acks the
+/// operation locally.
 pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
   case state {
     PactMapState(_) -> True
@@ -946,8 +978,8 @@ pub fn on_leave(
 }
 
 /// Build the `SequencedMeta` value of the directory kernel, from the metadata
-/// at the channel level and the kernel `message_id` of the op, which is its
-/// client-sequence identity.
+/// at the channel level and the kernel `message_id` of the operation, which is
+/// its client-sequence identity.
 fn directory_sequenced_meta(
   meta: SequencedMeta,
   message_id: Int,
@@ -972,28 +1004,33 @@ fn directory_error_detail(error: directory_kernel.KernelError) -> String {
   }
 }
 
-/// Commit an acked local op, which moves it from `pending` to `sequenced`.
+/// Commit an acked local operation, which moves it from `pending` to
+/// `sequenced`.
 pub fn ack_local(
   state: ChannelState,
-  op: ChannelOp,
-  local: LocalOpMeta,
+  operation: ChannelOperation,
+  local: LocalOperationMeta,
   meta: SequencedMeta,
 ) -> Result(
   #(ChannelState, List(ChannelEvent), Option(Resolution)),
   ChannelError,
 ) {
-  case state, op {
-    MapState(kernel), MapOp(op) ->
-      case map_kernel.ack_local(kernel, op) {
+  case state, operation {
+    MapState(kernel), MapOperation(operation) ->
+      case map_kernel.ack_local(kernel, operation) {
         Ok(kernel) -> Ok(#(MapState(kernel), [], None))
         Error(map_kernel.UnexpectedAck(_, detail)) ->
           Error(UnexpectedAck(detail))
       }
-    CounterState(kernel), CounterOp(op) ->
+    CounterState(kernel), CounterOperation(operation) ->
       case local {
         CounterMeta(message_id) ->
           case
-            counter_kernel.ack_local_with_message_id(kernel, op, message_id)
+            counter_kernel.ack_local_with_message_id(
+              kernel,
+              operation,
+              message_id,
+            )
           {
             Ok(kernel) -> Ok(#(CounterState(kernel), [], None))
             Error(counter_kernel.UnexpectedAck(_, detail))
@@ -1017,11 +1054,15 @@ pub fn ack_local(
           Error(UnexpectedAck("counter ack has sequence metadata"))
         TextMeta(_) -> Error(UnexpectedAck("counter ack has text metadata"))
       }
-    PnCounterState(kernel), PnCounterOp(op) ->
+    PnCounterState(kernel), PnCounterOperation(operation) ->
       case local {
         PnCounterMeta(message_id) ->
           case
-            pn_counter_kernel.ack_local_with_message_id(kernel, op, message_id)
+            pn_counter_kernel.ack_local_with_message_id(
+              kernel,
+              operation,
+              message_id,
+            )
           {
             Ok(kernel) -> Ok(#(PnCounterState(kernel), [], None))
             Error(pn_counter_kernel.UnexpectedAck(_, detail))
@@ -1047,10 +1088,16 @@ pub fn ack_local(
           Error(UnexpectedAck("pn-counter ack has sequence metadata"))
         TextMeta(_) -> Error(UnexpectedAck("pn-counter ack has text metadata"))
       }
-    OrMapState(kernel), OrMapOp(op) ->
+    OrMapState(kernel), OrMapOperation(operation) ->
       case local {
         OrMapMeta(message_id) ->
-          case or_map_kernel.ack_local_with_message_id(kernel, op, message_id) {
+          case
+            or_map_kernel.ack_local_with_message_id(
+              kernel,
+              operation,
+              message_id,
+            )
+          {
             Ok(kernel) -> Ok(#(OrMapState(kernel), [], None))
             Error(or_map_kernel.UnexpectedAck(detail))
             | Error(or_map_kernel.UnexpectedRollback(detail)) ->
@@ -1058,7 +1105,7 @@ pub fn ack_local(
             Error(or_map_kernel.ModeMismatch(detail))
             | Error(or_map_kernel.CorruptDelta(detail))
             | Error(or_map_kernel.NegativeTally(detail)) ->
-              Error(CorruptRemoteOp(detail))
+              Error(CorruptRemoteOperation(detail))
           }
         NoMeta | CounterMeta(_) | PnCounterMeta(_) ->
           Error(UnexpectedAck("or-map ack is missing its local message id"))
@@ -1074,10 +1121,16 @@ pub fn ack_local(
           Error(UnexpectedAck("or-map ack has sequence metadata"))
         TextMeta(_) -> Error(UnexpectedAck("or-map ack has text metadata"))
       }
-    OrSetState(kernel), OrSetOp(op) ->
+    OrSetState(kernel), OrSetOperation(operation) ->
       case local {
         OrSetMeta(message_id) ->
-          case or_set_kernel.ack_local_with_message_id(kernel, op, message_id) {
+          case
+            or_set_kernel.ack_local_with_message_id(
+              kernel,
+              operation,
+              message_id,
+            )
+          {
             Ok(kernel) -> Ok(#(OrSetState(kernel), [], None))
             Error(or_set_kernel.UnexpectedAck(detail))
             | Error(or_set_kernel.UnexpectedRollback(detail)) ->
@@ -1095,10 +1148,16 @@ pub fn ack_local(
         | TextMeta(_) ->
           Error(UnexpectedAck("or-set ack is missing its local message id"))
       }
-    GSetState(kernel), GSetOp(op) ->
+    GSetState(kernel), GSetOperation(operation) ->
       case local {
         GSetMeta(message_id) ->
-          case g_set_kernel.ack_local_with_message_id(kernel, op, message_id) {
+          case
+            g_set_kernel.ack_local_with_message_id(
+              kernel,
+              operation,
+              message_id,
+            )
+          {
             Ok(kernel) -> Ok(#(GSetState(kernel), [], None))
             Error(g_set_kernel.UnexpectedAck(detail))
             | Error(g_set_kernel.UnexpectedRollback(detail)) ->
@@ -1116,11 +1175,15 @@ pub fn ack_local(
         | TextMeta(_) ->
           Error(UnexpectedAck("g-set ack is missing its local message id"))
       }
-    TwoPSetState(kernel), TwoPSetOp(op) ->
+    TwoPSetState(kernel), TwoPSetOperation(operation) ->
       case local {
         TwoPSetMeta(message_id) ->
           case
-            two_p_set_kernel.ack_local_with_message_id(kernel, op, message_id)
+            two_p_set_kernel.ack_local_with_message_id(
+              kernel,
+              operation,
+              message_id,
+            )
           {
             Ok(kernel) -> Ok(#(TwoPSetState(kernel), [], None))
             Error(two_p_set_kernel.UnexpectedAck(detail))
@@ -1139,35 +1202,35 @@ pub fn ack_local(
         | TextMeta(_) ->
           Error(UnexpectedAck("two-p-set ack is missing its local message id"))
       }
-    RegisterCollectionState(kernel), RegisterCollectionOp(op) -> {
+    RegisterCollectionState(kernel), RegisterCollectionOperation(operation) -> {
       let #(kernel, events, _is_winner) =
-        register_collection_kernel.ack_local(kernel, op, meta.seq)
+        register_collection_kernel.ack_local(kernel, operation, meta.seq)
       Ok(#(
         RegisterCollectionState(kernel),
         list.map(events, RegisterCollectionEvent),
         None,
       ))
     }
-    ClaimsState(kernel), ClaimsOp(op) ->
-      case claims_kernel.ack_local(kernel, op, meta.seq) {
+    ClaimsState(kernel), ClaimsOperation(operation) ->
+      case claims_kernel.ack_local(kernel, operation, meta.seq) {
         Ok(#(kernel, events, outcome)) ->
           Ok(#(
             ClaimsState(kernel),
             list.map(events, ClaimsEvent),
-            Some(ClaimResolved(op.key, outcome)),
+            Some(ClaimResolved(operation.key, outcome)),
           ))
         Error(claims_kernel.UnexpectedAck(_, detail))
         | Error(claims_kernel.UnexpectedRollback(_, detail))
         | Error(claims_kernel.AlreadyPendingLocally(detail)) ->
           Error(UnexpectedAck(detail))
       }
-    TaskManagerState(kernel), TaskManagerOp(op) ->
+    TaskManagerState(kernel), TaskManagerOperation(operation) ->
       case local {
         TaskManagerMeta(message_id) ->
           case
             task_manager_kernel.ack_local(
               kernel,
-              op,
+              operation,
               meta.self,
               message_id,
               meta.roster,
@@ -1199,22 +1262,22 @@ pub fn ack_local(
             "task-manager ack is missing its local message id",
           ))
       }
-    JsonOtState(kernel), JsonOtOp(op) ->
-      case json_ot_kernel.ack_local(kernel, op, meta.seq, meta.min_seq) {
+    JsonOtState(kernel), JsonOtOperation(operation) ->
+      case json_ot_kernel.ack_local(kernel, operation, meta.seq, meta.min_seq) {
         Ok(#(kernel, events)) ->
           Ok(#(JsonOtState(kernel), list.map(events, JsonOtEvent), None))
         Error(json_ot_kernel.UnexpectedAck(detail)) ->
           Error(UnexpectedAck(detail))
         Error(json_ot_kernel.OtFailure(error)) ->
-          Error(CorruptRemoteOp(json_ot_error_detail(error)))
+          Error(CorruptRemoteOperation(json_ot_error_detail(error)))
       }
-    DirectoryState(kernel), DirectoryOp(op, message_id) ->
+    DirectoryState(kernel), DirectoryOperation(operation, message_id) ->
       case local {
         DirectoryMeta(_) ->
           case
             directory_kernel.ack_local(
               kernel,
-              op,
+              operation,
               directory_sequenced_meta(meta, message_id),
             )
           {
@@ -1233,14 +1296,14 @@ pub fn ack_local(
         | TextMeta(_) ->
           Error(UnexpectedAck("directory ack is missing its local metadata"))
       }
-    OrderedCollectionState(kernel), OrderedCollectionOp(op) -> {
-      // The queue kernel is non-optimistic: the own op takes effect here, on
-      // ack. An `Acquire` yields its outcome — won the head, or found the
-      // queue empty — surfaced as an `AcquireResolved` resolution so the
+    OrderedCollectionState(kernel), OrderedCollectionOperation(operation) -> {
+      // The queue kernel is non-optimistic: the own operation takes effect
+      // here, on ack. An `Acquire` yields its outcome — won the head, or found
+      // the queue empty — surfaced as an `AcquireResolved` resolution so the
       // submitting caller learns which, since a losing acquire emits no event.
       let #(kernel, events, outcome) =
-        ordered_collection_kernel.ack_local(kernel, op, meta.self)
-      let resolution = case op, outcome {
+        ordered_collection_kernel.ack_local(kernel, operation, meta.self)
+      let resolution = case operation, outcome {
         ordered_collection_kernel.Acquire(acquire_id), Some(outcome) ->
           Some(AcquireResolved(acquire_id, outcome))
         ordered_collection_kernel.Acquire(_), None -> None
@@ -1254,11 +1317,15 @@ pub fn ack_local(
         resolution,
       ))
     }
-    SequenceState(kernel), SequenceOp(op) ->
+    SequenceState(kernel), SequenceOperation(operation) ->
       case local {
         SequenceMeta(message_id) ->
           case
-            sequence_kernel.ack_local_with_message_id(kernel, op, message_id)
+            sequence_kernel.ack_local_with_message_id(
+              kernel,
+              operation,
+              message_id,
+            )
           {
             Ok(kernel) -> Ok(#(SequenceState(kernel), [], None))
             Error(sequence_kernel.UnexpectedAck(detail))
@@ -1277,19 +1344,23 @@ pub fn ack_local(
         | TextMeta(_) ->
           Error(UnexpectedAck("sequence ack is missing its local message id"))
       }
-    RichTextState(kernel), RichTextOp(op) ->
-      case rich_text_kernel.ack_local(kernel, op, meta.seq, meta.min_seq) {
+    RichTextState(kernel), RichTextOperation(operation) ->
+      case
+        rich_text_kernel.ack_local(kernel, operation, meta.seq, meta.min_seq)
+      {
         Ok(#(kernel, events)) ->
           Ok(#(RichTextState(kernel), list.map(events, RichTextEvent), None))
         Error(rich_text_kernel.UnexpectedAck(detail)) ->
           Error(UnexpectedAck(detail))
         Error(rich_text_kernel.RichTextFailure(error)) ->
-          Error(CorruptRemoteOp(rich_text_error_detail(error)))
+          Error(CorruptRemoteOperation(rich_text_error_detail(error)))
       }
-    TextState(kernel), TextOp(op) ->
+    TextState(kernel), TextOperation(operation) ->
       case local {
         TextMeta(message_id) ->
-          case text_kernel.ack_local_with_message_id(kernel, op, message_id) {
+          case
+            text_kernel.ack_local_with_message_id(kernel, operation, message_id)
+          {
             Ok(kernel) -> Ok(#(TextState(kernel), [], None))
             Error(text_kernel.UnexpectedAck(detail))
             | Error(text_kernel.UnexpectedRollback(detail)) ->
@@ -1366,115 +1437,167 @@ fn rich_text_error_detail(error: rich_text.Error) -> String {
 pub fn apply_p2p_local(
   state: ChannelState,
   edit: P2pEdit,
-) -> Result(#(ChannelState, List(ChannelEvent), ChannelOp), ChannelError) {
+) -> Result(#(ChannelState, List(ChannelEvent), ChannelOperation), ChannelError) {
   case state, edit {
     PnCounterState(kernel), PnCounterEdit(amount) -> {
-      let #(kernel, events, op) = pn_counter_kernel.p2p_update(kernel, amount)
+      let #(kernel, events, operation) =
+        pn_counter_kernel.p2p_update(kernel, amount)
       Ok(#(
         PnCounterState(kernel),
         list.map(events, PnCounterEvent),
-        PnCounterOp(op),
+        PnCounterOperation(operation),
       ))
     }
     OrMapState(kernel), OrMapIncrementEdit(key, amount) ->
       case or_map_kernel.p2p_increment(kernel, key, amount) {
-        Ok(#(kernel, events, op)) ->
-          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), OrMapOp(op)))
+        Ok(#(kernel, events, operation)) ->
+          Ok(#(
+            OrMapState(kernel),
+            list.map(events, OrMapEvent),
+            OrMapOperation(operation),
+          ))
         Error(error) -> Error(or_map_p2p_error(error))
       }
     OrMapState(kernel), OrMapSetRegisterEdit(key, value, timestamp) ->
       case or_map_kernel.p2p_set_register(kernel, key, value, timestamp) {
-        Ok(#(kernel, events, op)) ->
-          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), OrMapOp(op)))
+        Ok(#(kernel, events, operation)) ->
+          Ok(#(
+            OrMapState(kernel),
+            list.map(events, OrMapEvent),
+            OrMapOperation(operation),
+          ))
         Error(error) -> Error(or_map_p2p_error(error))
       }
     OrMapState(kernel), OrMapRemoveEdit(key) ->
       case or_map_kernel.p2p_remove(kernel, key) {
-        Ok(#(kernel, events, op)) ->
-          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), OrMapOp(op)))
+        Ok(#(kernel, events, operation)) ->
+          Ok(#(
+            OrMapState(kernel),
+            list.map(events, OrMapEvent),
+            OrMapOperation(operation),
+          ))
         Error(error) -> Error(or_map_p2p_error(error))
       }
     OrSetState(kernel), OrSetAddEdit(element) -> {
-      let #(kernel, events, op) = or_set_kernel.p2p_add(kernel, element)
-      Ok(#(OrSetState(kernel), list.map(events, OrSetEvent), OrSetOp(op)))
+      let #(kernel, events, operation) = or_set_kernel.p2p_add(kernel, element)
+      Ok(#(
+        OrSetState(kernel),
+        list.map(events, OrSetEvent),
+        OrSetOperation(operation),
+      ))
     }
     OrSetState(kernel), OrSetRemoveEdit(element) -> {
-      let #(kernel, events, op) = or_set_kernel.p2p_remove(kernel, element)
-      Ok(#(OrSetState(kernel), list.map(events, OrSetEvent), OrSetOp(op)))
+      let #(kernel, events, operation) =
+        or_set_kernel.p2p_remove(kernel, element)
+      Ok(#(
+        OrSetState(kernel),
+        list.map(events, OrSetEvent),
+        OrSetOperation(operation),
+      ))
     }
     GSetState(kernel), GSetAddEdit(element) -> {
-      let #(kernel, events, op) = g_set_kernel.p2p_add(kernel, element)
-      Ok(#(GSetState(kernel), list.map(events, GSetEvent), GSetOp(op)))
+      let #(kernel, events, operation) = g_set_kernel.p2p_add(kernel, element)
+      Ok(#(
+        GSetState(kernel),
+        list.map(events, GSetEvent),
+        GSetOperation(operation),
+      ))
     }
     TwoPSetState(kernel), TwoPSetAddEdit(element) -> {
-      let #(kernel, events, op) = two_p_set_kernel.p2p_add(kernel, element)
-      Ok(#(TwoPSetState(kernel), list.map(events, TwoPSetEvent), TwoPSetOp(op)))
+      let #(kernel, events, operation) =
+        two_p_set_kernel.p2p_add(kernel, element)
+      Ok(#(
+        TwoPSetState(kernel),
+        list.map(events, TwoPSetEvent),
+        TwoPSetOperation(operation),
+      ))
     }
     TwoPSetState(kernel), TwoPSetRemoveEdit(element) -> {
-      let #(kernel, events, op) = two_p_set_kernel.p2p_remove(kernel, element)
-      Ok(#(TwoPSetState(kernel), list.map(events, TwoPSetEvent), TwoPSetOp(op)))
+      let #(kernel, events, operation) =
+        two_p_set_kernel.p2p_remove(kernel, element)
+      Ok(#(
+        TwoPSetState(kernel),
+        list.map(events, TwoPSetEvent),
+        TwoPSetOperation(operation),
+      ))
     }
     SequenceState(kernel), SequenceInsertEdit(index, value) ->
       case sequence_kernel.p2p_insert(kernel, index, value) {
-        Ok(#(kernel, events, op)) ->
+        Ok(#(kernel, events, operation)) ->
           Ok(#(
             SequenceState(kernel),
             list.map(events, SequenceEvent),
-            SequenceOp(op),
+            SequenceOperation(operation),
           ))
         Error(error) -> Error(sequence_p2p_error(error))
       }
     SequenceState(kernel), SequenceDeleteEdit(index) ->
       case sequence_kernel.p2p_delete(kernel, index) {
-        Ok(#(kernel, events, op)) ->
+        Ok(#(kernel, events, operation)) ->
           Ok(#(
             SequenceState(kernel),
             list.map(events, SequenceEvent),
-            SequenceOp(op),
+            SequenceOperation(operation),
           ))
         Error(error) -> Error(sequence_p2p_error(error))
       }
     SequenceState(kernel), SequenceMoveEdit(from_index, to_index) ->
       case sequence_kernel.p2p_move(kernel, from_index, to_index) {
-        Ok(#(kernel, events, op)) ->
+        Ok(#(kernel, events, operation)) ->
           Ok(#(
             SequenceState(kernel),
             list.map(events, SequenceEvent),
-            SequenceOp(op),
+            SequenceOperation(operation),
           ))
         Error(error) -> Error(sequence_p2p_error(error))
       }
     SequenceState(kernel), SequenceReplaceEdit(index, value) ->
       case sequence_kernel.p2p_replace(kernel, index, value) {
-        Ok(#(kernel, events, op)) ->
+        Ok(#(kernel, events, operation)) ->
           Ok(#(
             SequenceState(kernel),
             list.map(events, SequenceEvent),
-            SequenceOp(op),
+            SequenceOperation(operation),
           ))
         Error(error) -> Error(sequence_p2p_error(error))
       }
     TextState(kernel), TextInsertEdit(index, value) ->
       case text_kernel.p2p_insert(kernel, index, value) {
-        Ok(#(kernel, events, op)) ->
-          Ok(#(TextState(kernel), list.map(events, TextEvent), TextOp(op)))
+        Ok(#(kernel, events, operation)) ->
+          Ok(#(
+            TextState(kernel),
+            list.map(events, TextEvent),
+            TextOperation(operation),
+          ))
         Error(error) -> Error(text_p2p_error(error))
       }
     TextState(kernel), TextDeleteRangeEdit(start, end) ->
       case text_kernel.p2p_delete_range(kernel, start, end) {
-        Ok(#(kernel, events, op)) ->
-          Ok(#(TextState(kernel), list.map(events, TextEvent), TextOp(op)))
+        Ok(#(kernel, events, operation)) ->
+          Ok(#(
+            TextState(kernel),
+            list.map(events, TextEvent),
+            TextOperation(operation),
+          ))
         Error(error) -> Error(text_p2p_error(error))
       }
     TextState(kernel), TextReplaceRangeEdit(start, end, value) ->
       case text_kernel.p2p_replace_range(kernel, start, end, value) {
-        Ok(#(kernel, events, op)) ->
-          Ok(#(TextState(kernel), list.map(events, TextEvent), TextOp(op)))
+        Ok(#(kernel, events, operation)) ->
+          Ok(#(
+            TextState(kernel),
+            list.map(events, TextEvent),
+            TextOperation(operation),
+          ))
         Error(error) -> Error(text_p2p_error(error))
       }
     TextState(kernel), TextAppendEdit(value) -> {
-      let #(kernel, events, op) = text_kernel.p2p_append(kernel, value)
-      Ok(#(TextState(kernel), list.map(events, TextEvent), TextOp(op)))
+      let #(kernel, events, operation) = text_kernel.p2p_append(kernel, value)
+      Ok(#(
+        TextState(kernel),
+        list.map(events, TextEvent),
+        TextOperation(operation),
+      ))
     }
     MapState(_), _
     | CounterState(_), _
@@ -1497,25 +1620,26 @@ pub fn apply_p2p_local(
   }
 }
 
-/// Merge a remote p2p op directly into the confirmed state and the visible
-/// state. There is no sequence metadata, and there is no pending entry to
-/// reclaim. This is the ack-free equivalent of `apply_remote`.
+/// Merge a remote p2p operation directly into the confirmed state and the
+/// visible state. There is no sequence metadata, and there is no pending entry
+/// to reclaim. This is the ack-free equivalent of `apply_remote`.
 ///
 /// None of the seven kernels that p2p supports reads `SequencedMeta`, and none
-/// of them owes a follow-up op. This function thus calls `apply_remote` with a
-/// zeroed metadata value, and it discards the list of owed ops. Any other
-/// channel, and an op that does not match the kernel of the channel, returns
-/// `UnsupportedP2p`.
+/// of them owes a follow-up operation. This function thus calls `apply_remote`
+/// with a zeroed metadata value, and it discards the list of owed operations.
+/// Any other channel, and an operation that does not match the kernel of the
+/// channel, returns `UnsupportedP2p`.
 pub fn apply_p2p_remote(
   state: ChannelState,
-  op: ChannelOp,
+  operation: ChannelOperation,
 ) -> Result(#(ChannelState, List(ChannelEvent)), ChannelError) {
   case supports_p2p(channel_type(state)) {
     False -> Error(unsupported_p2p(state, "remote p2p op"))
     True ->
-      case apply_remote(state, op, zeroed_meta()) {
+      case apply_remote(state, operation, zeroed_meta()) {
         Ok(#(state, events, _owed)) -> Ok(#(state, events))
-        // A mismatched op is bad p2p input here, not a runtime routing bug.
+        // A mismatched operation is bad p2p input here, not a runtime routing
+        // bug.
         Error(WrongChannelType(_)) ->
           Error(unsupported_p2p(state, "remote p2p op"))
         Error(error) -> Error(error)
@@ -1611,7 +1735,7 @@ fn or_map_p2p_error(error: or_map_kernel.KernelError) -> ChannelError {
   case error {
     or_map_kernel.ModeMismatch(detail) -> UnsupportedP2p(detail)
     or_map_kernel.CorruptDelta(detail) | or_map_kernel.NegativeTally(detail) ->
-      CorruptRemoteOp(detail)
+      CorruptRemoteOperation(detail)
     or_map_kernel.UnexpectedAck(detail)
     | or_map_kernel.UnexpectedRollback(detail) -> UnexpectedAck(detail)
   }
@@ -1634,20 +1758,21 @@ fn unsupported_p2p(state: ChannelState, context: String) -> ChannelError {
   )
 }
 
-/// Take an op that the kernel released onto the wire while it processed an
-/// ack. That op comes from the one-op-in-flight buffer promotion of json0. A
-/// json0 channel produces such an op. Every other channel returns `None`.
+/// Take an operation that the kernel released onto the wire while it processed
+/// an ack. That operation comes from the one-operation-in-flight buffer
+/// promotion of json0. A json0 channel produces such an operation. Every other
+/// channel returns `None`.
 pub fn take_outbound(
   state: ChannelState,
-) -> #(ChannelState, Option(ChannelOp)) {
+) -> #(ChannelState, Option(ChannelOperation)) {
   case state {
     JsonOtState(kernel) -> {
       let #(kernel, out) = json_ot_kernel.take_outbound(kernel)
-      #(JsonOtState(kernel), option.map(out, JsonOtOp))
+      #(JsonOtState(kernel), option.map(out, JsonOtOperation))
     }
     RichTextState(kernel) -> {
       let #(kernel, out) = rich_text_kernel.take_outbound(kernel)
-      #(RichTextState(kernel), option.map(out, RichTextOp))
+      #(RichTextState(kernel), option.map(out, RichTextOperation))
     }
     MapState(_)
     | CounterState(_)
@@ -1676,66 +1801,71 @@ fn wrong_channel_type(state: ChannelState, context: String) -> ChannelError {
   )
 }
 
-/// Whether the sequenced echo of a local op has the shape that this client
-/// submitted. This is the check on the FIFO ack matching.
-pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
+/// Whether the sequenced echo of a local operation has the shape that this
+/// client submitted. This is the check on the FIFO ack matching.
+pub fn same_shape(ours: ChannelOperation, echoed: ChannelOperation) -> Bool {
   case ours, echoed {
-    MapOp(ours), MapOp(echoed) -> same_map_shape(ours, echoed)
-    CounterOp(counter_kernel.Increment(ours)),
-      CounterOp(counter_kernel.Increment(echoed))
+    MapOperation(ours), MapOperation(echoed) -> same_map_shape(ours, echoed)
+    CounterOperation(counter_kernel.Increment(ours)),
+      CounterOperation(counter_kernel.Increment(echoed))
     -> ours == echoed
-    PnCounterOp(pn_counter_kernel.Update(our_amount, our_delta)),
-      PnCounterOp(pn_counter_kernel.Update(echoed_amount, echoed_delta))
+    PnCounterOperation(pn_counter_kernel.Update(our_amount, our_delta)),
+      PnCounterOperation(pn_counter_kernel.Update(echoed_amount, echoed_delta))
     -> our_amount == echoed_amount && our_delta == echoed_delta
-    OrMapOp(ours), OrMapOp(echoed) -> same_or_map_shape(ours, echoed)
-    OrSetOp(ours), OrSetOp(echoed) -> same_or_set_shape(ours, echoed)
-    GSetOp(ours), GSetOp(echoed) -> same_g_set_shape(ours, echoed)
-    TwoPSetOp(ours), TwoPSetOp(echoed) -> same_two_p_set_shape(ours, echoed)
-    RegisterCollectionOp(ours), RegisterCollectionOp(echoed) ->
+    OrMapOperation(ours), OrMapOperation(echoed) ->
+      same_or_map_shape(ours, echoed)
+    OrSetOperation(ours), OrSetOperation(echoed) ->
+      same_or_set_shape(ours, echoed)
+    GSetOperation(ours), GSetOperation(echoed) -> same_g_set_shape(ours, echoed)
+    TwoPSetOperation(ours), TwoPSetOperation(echoed) ->
+      same_two_p_set_shape(ours, echoed)
+    RegisterCollectionOperation(ours), RegisterCollectionOperation(echoed) ->
       ours.key == echoed.key
       && ours.value == echoed.value
       && ours.ref_seq == echoed.ref_seq
-    ClaimsOp(ours), ClaimsOp(echoed) ->
+    ClaimsOperation(ours), ClaimsOperation(echoed) ->
       ours.key == echoed.key
       && ours.value == echoed.value
       && ours.ref_seq == echoed.ref_seq
-    TaskManagerOp(ours), TaskManagerOp(echoed) ->
+    TaskManagerOperation(ours), TaskManagerOperation(echoed) ->
       same_task_manager_shape(ours, echoed)
-    PactMapOp(ours), PactMapOp(echoed) -> same_pact_map_shape(ours, echoed)
-    JsonOtOp(ours), JsonOtOp(echoed) ->
+    PactMapOperation(ours), PactMapOperation(echoed) ->
+      same_pact_map_shape(ours, echoed)
+    JsonOtOperation(ours), JsonOtOperation(echoed) ->
       ours.ref_seq == echoed.ref_seq && ours.components == echoed.components
-    DirectoryOp(ours, our_id), DirectoryOp(echoed, echoed_id) ->
+    DirectoryOperation(ours, our_id), DirectoryOperation(echoed, echoed_id) ->
       our_id == echoed_id && same_directory_shape(ours, echoed)
-    OrderedCollectionOp(ours), OrderedCollectionOp(echoed) ->
+    OrderedCollectionOperation(ours), OrderedCollectionOperation(echoed) ->
       same_ordered_shape(ours, echoed)
-    SequenceOp(ours), SequenceOp(echoed) -> same_sequence_shape(ours, echoed)
-    RichTextOp(ours), RichTextOp(echoed) ->
+    SequenceOperation(ours), SequenceOperation(echoed) ->
+      same_sequence_shape(ours, echoed)
+    RichTextOperation(ours), RichTextOperation(echoed) ->
       ours.ref_seq == echoed.ref_seq && ours.delta == echoed.delta
-    TextOp(ours), TextOp(echoed) -> same_text_shape(ours, echoed)
-    MapOp(_), _
-    | CounterOp(_), _
-    | PnCounterOp(_), _
-    | OrMapOp(_), _
-    | OrSetOp(_), _
-    | GSetOp(_), _
-    | TwoPSetOp(_), _
-    | RegisterCollectionOp(_), _
-    | ClaimsOp(_), _
-    | TaskManagerOp(_), _
-    | PactMapOp(_), _
-    | JsonOtOp(_), _
-    | DirectoryOp(_, _), _
-    | OrderedCollectionOp(_), _
-    | SequenceOp(_), _
-    | RichTextOp(_), _
-    | TextOp(_), _
+    TextOperation(ours), TextOperation(echoed) -> same_text_shape(ours, echoed)
+    MapOperation(_), _
+    | CounterOperation(_), _
+    | PnCounterOperation(_), _
+    | OrMapOperation(_), _
+    | OrSetOperation(_), _
+    | GSetOperation(_), _
+    | TwoPSetOperation(_), _
+    | RegisterCollectionOperation(_), _
+    | ClaimsOperation(_), _
+    | TaskManagerOperation(_), _
+    | PactMapOperation(_), _
+    | JsonOtOperation(_), _
+    | DirectoryOperation(_, _), _
+    | OrderedCollectionOperation(_), _
+    | SequenceOperation(_), _
+    | RichTextOperation(_), _
+    | TextOperation(_), _
     -> False
   }
 }
 
 fn same_sequence_shape(
-  ours: sequence_kernel.SequenceOp,
-  echoed: sequence_kernel.SequenceOp,
+  ours: sequence_kernel.SequenceOperation,
+  echoed: sequence_kernel.SequenceOperation,
 ) -> Bool {
   case ours, echoed {
     sequence_kernel.Insert(i, value, delta),
@@ -1770,17 +1900,17 @@ fn same_sequence_delta(ours: Sequence(Json), echoed: Sequence(Json)) -> Bool {
   )
 }
 
-/// Whether two text ops carry the same diagnostic shape, which is the index
-/// intent and the value intent, *and* the same authoritative CRDT delta. The
-/// behaviour is the same as in `same_sequence_shape`.
+/// Whether two text operations carry the same diagnostic shape, which is the
+/// index intent and the value intent, *and* the same authoritative CRDT delta.
+/// The behaviour is the same as in `same_sequence_shape`.
 ///
 /// The diagnostic fields alone would let a corrupt or changed delta pass the
 /// check on the FIFO ack matching. The comparison of the delta keeps that
 /// detection. It also treats a delta from a correct reconnect and resubmit as
 /// equal, because that delta encodes to the same canonical JSON.
 fn same_text_shape(
-  ours: text_kernel.TextOp,
-  echoed: text_kernel.TextOp,
+  ours: text_kernel.TextOperation,
+  echoed: text_kernel.TextOperation,
 ) -> Bool {
   case ours, echoed {
     text_kernel.Insert(i, value, delta), text_kernel.Insert(i2, value2, delta2)
@@ -1806,8 +1936,8 @@ fn same_text_delta(ours: Text, echoed: Text) -> Bool {
 }
 
 fn same_directory_shape(
-  ours: directory_kernel.DirectoryOp,
-  echoed: directory_kernel.DirectoryOp,
+  ours: directory_kernel.DirectoryOperation,
+  echoed: directory_kernel.DirectoryOperation,
 ) -> Bool {
   case ours, echoed {
     directory_kernel.Set(p, k, _), directory_kernel.Set(p2, k2, _) ->
@@ -1830,7 +1960,10 @@ fn same_directory_shape(
   }
 }
 
-fn same_map_shape(ours: map_kernel.MapOp, echoed: map_kernel.MapOp) -> Bool {
+fn same_map_shape(
+  ours: map_kernel.MapOperation,
+  echoed: map_kernel.MapOperation,
+) -> Bool {
   case ours, echoed {
     map_kernel.Set(our_key, _), map_kernel.Set(echoed_key, _) ->
       our_key == echoed_key
@@ -1843,8 +1976,8 @@ fn same_map_shape(ours: map_kernel.MapOp, echoed: map_kernel.MapOp) -> Bool {
 }
 
 fn same_or_map_shape(
-  ours: or_map_kernel.OrMapOp,
-  echoed: or_map_kernel.OrMapOp,
+  ours: or_map_kernel.OrMapOperation,
+  echoed: or_map_kernel.OrMapOperation,
 ) -> Bool {
   case ours, echoed {
     or_map_kernel.Increment(our_key, our_amount, _),
@@ -1863,8 +1996,8 @@ fn same_or_map_shape(
 }
 
 fn same_or_set_shape(
-  ours: or_set_kernel.OrSetOp,
-  echoed: or_set_kernel.OrSetOp,
+  ours: or_set_kernel.OrSetOperation,
+  echoed: or_set_kernel.OrSetOperation,
 ) -> Bool {
   case ours, echoed {
     or_set_kernel.Add(our_element, _), or_set_kernel.Add(echoed_element, _) ->
@@ -1877,8 +2010,8 @@ fn same_or_set_shape(
 }
 
 fn same_g_set_shape(
-  ours: g_set_kernel.GSetOp,
-  echoed: g_set_kernel.GSetOp,
+  ours: g_set_kernel.GSetOperation,
+  echoed: g_set_kernel.GSetOperation,
 ) -> Bool {
   case ours, echoed {
     g_set_kernel.Add(our_element, _), g_set_kernel.Add(echoed_element, _) ->
@@ -1887,8 +2020,8 @@ fn same_g_set_shape(
 }
 
 fn same_two_p_set_shape(
-  ours: two_p_set_kernel.TwoPSetOp,
-  echoed: two_p_set_kernel.TwoPSetOp,
+  ours: two_p_set_kernel.TwoPSetOperation,
+  echoed: two_p_set_kernel.TwoPSetOperation,
 ) -> Bool {
   case ours, echoed {
     two_p_set_kernel.Add(our_element, _),
@@ -1902,8 +2035,8 @@ fn same_two_p_set_shape(
 }
 
 fn same_task_manager_shape(
-  ours: task_manager_kernel.TaskManagerOp,
-  echoed: task_manager_kernel.TaskManagerOp,
+  ours: task_manager_kernel.TaskManagerOperation,
+  echoed: task_manager_kernel.TaskManagerOperation,
 ) -> Bool {
   case ours, echoed {
     task_manager_kernel.Volunteer(our_task),
@@ -2084,8 +2217,8 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
 }
 
 /// Encode the payload of a snapshot, whose shape depends on the channel type.
-/// That payload is the `snapshot` field of the attach op, and the `data` field
-/// of the channel in the summary blob.
+/// That payload is the `snapshot` field of the attach operation, and the `data`
+/// field of the channel in the summary blob.
 pub fn encode_snapshot(snapshot: Snapshot) -> Json {
   case snapshot {
     MapSnapshot(entries) -> wire.encode_entries(entries)
@@ -2244,8 +2377,8 @@ fn task_queue_decoder() -> Decoder(#(String, List(Int))) {
 }
 
 fn same_pact_map_shape(
-  ours: pact_map_kernel.PactMapOp,
-  echoed: pact_map_kernel.PactMapOp,
+  ours: pact_map_kernel.PactMapOperation,
+  echoed: pact_map_kernel.PactMapOperation,
 ) -> Bool {
   case ours, echoed {
     pact_map_kernel.Set(our_key, our_value, our_ref),
@@ -2266,8 +2399,8 @@ fn same_optional_json(a: Option(Json), b: Option(Json)) -> Bool {
 }
 
 fn same_ordered_shape(
-  ours: ordered_collection_kernel.OrderedOp,
-  echoed: ordered_collection_kernel.OrderedOp,
+  ours: ordered_collection_kernel.OrderedOperation,
+  echoed: ordered_collection_kernel.OrderedOperation,
 ) -> Bool {
   case ours, echoed {
     ordered_collection_kernel.Add(our_value),

@@ -5,7 +5,7 @@ import gleam/option.{None, Some}
 import lattice_core/replica_id
 import startest/expect
 import watershed/fuzz/kernel_fuzz.{
-  Capabilities, ClientOp, KernelModel, Synchronize,
+  Capabilities, ClientOperation, KernelModel, Synchronize,
 }
 import watershed/fuzz/script_gen
 import watershed/fuzz/sequence_model
@@ -16,8 +16,8 @@ const client_count = 3
 fn weights() -> script_gen.Weights {
   script_gen.Weights(
     ..script_gen.default_weights(),
-    rollback_op: 8,
-    stashed_op: 8,
+    rollback_operation: 8,
+    stashed_operation: 8,
   )
 }
 
@@ -27,21 +27,21 @@ pub fn converges_and_preserves_cache_invariant_test() -> Nil {
     model,
     kernel_fuzz.config_from_env(),
     client_count,
-    script_gen.script_generator(model.gen_op, client_count, weights()),
+    script_gen.script_generator(model.gen_operation, client_count, weights()),
   )
 }
 
 pub fn command_json_round_trips_with_and_without_delta_test() -> Nil {
   let model = sequence_model.model()
   let raw_value = "quoted \"value\" with \\ slash and\nnewline"
-  let assert Ok(#(_, _, insert_op, _)) =
+  let assert Ok(#(_, _, insert_operation, _)) =
     sequence_kernel.insert(
       sequence_kernel.new(replica_id.new("a")),
       0,
       json.string(raw_value),
     )
   let assert sequence_kernel.Insert(insert_index, insert_value, insert_delta) =
-    insert_op
+    insert_operation
 
   let assert Ok(#(delete_state, _, _, _)) =
     sequence_kernel.insert(
@@ -49,8 +49,10 @@ pub fn command_json_round_trips_with_and_without_delta_test() -> Nil {
       0,
       json.string("delete"),
     )
-  let assert Ok(#(_, _, delete_op, _)) = sequence_kernel.delete(delete_state, 0)
-  let assert sequence_kernel.Delete(delete_index, delete_delta) = delete_op
+  let assert Ok(#(_, _, delete_operation, _)) =
+    sequence_kernel.delete(delete_state, 0)
+  let assert sequence_kernel.Delete(delete_index, delete_delta) =
+    delete_operation
 
   let assert Ok(#(move_state, _, _, _)) =
     sequence_kernel.insert(
@@ -60,8 +62,10 @@ pub fn command_json_round_trips_with_and_without_delta_test() -> Nil {
     )
   let assert Ok(#(move_state, _, _, _)) =
     sequence_kernel.insert(move_state, 1, json.string("second"))
-  let assert Ok(#(_, _, move_op, _)) = sequence_kernel.move(move_state, 1, 0)
-  let assert sequence_kernel.Move(move_from, move_to, move_delta) = move_op
+  let assert Ok(#(_, _, move_operation, _)) =
+    sequence_kernel.move(move_state, 1, 0)
+  let assert sequence_kernel.Move(move_from, move_to, move_delta) =
+    move_operation
 
   let replace_value = "replacement \"value\" with \\ slash and\nnewline"
   let assert Ok(#(replace_state, _, _, _)) =
@@ -70,13 +74,13 @@ pub fn command_json_round_trips_with_and_without_delta_test() -> Nil {
       0,
       json.string("old"),
     )
-  let assert Ok(#(_, _, replace_op, _)) =
+  let assert Ok(#(_, _, replace_operation, _)) =
     sequence_kernel.replace(replace_state, 0, json.string(replace_value))
   let assert sequence_kernel.Replace(
     replace_index,
     replace_json_value,
     replace_delta,
-  ) = replace_op
+  ) = replace_operation
 
   let commands = [
     sequence_model.InsertCommand(9, raw_value, None),
@@ -98,7 +102,10 @@ pub fn command_json_round_trips_with_and_without_delta_test() -> Nil {
   ]
   list.each(commands, fn(command) {
     let assert Ok(decoded) =
-      json.parse(json.to_string(model.op_to_json(command)), model.op_decoder)
+      json.parse(
+        json.to_string(model.operation_to_json(command)),
+        model.operation_decoder,
+      )
     decoded |> expect.to_equal(command)
   })
 }
@@ -106,13 +113,13 @@ pub fn command_json_round_trips_with_and_without_delta_test() -> Nil {
 pub fn apply_stashed_preserves_persisted_delta_and_routes_generated_command_test() -> Nil {
   let model = sequence_model.model()
   let assert Some(apply_stashed) = model.capabilities.apply_stashed
-  let assert Ok(#(_, _, persisted_op, _)) =
+  let assert Ok(#(_, _, persisted_operation, _)) =
     sequence_kernel.insert(
       sequence_kernel.new(replica_id.new("persisted")),
       0,
       json.string("persisted"),
     )
-  let assert sequence_kernel.Insert(index, value, delta) = persisted_op
+  let assert sequence_kernel.Insert(index, value, delta) = persisted_operation
   let persisted =
     sequence_model.InsertCommand(index, json.to_string(value), Some(delta))
   let #(state, routed) =
@@ -122,8 +129,9 @@ pub fn apply_stashed_preserves_persisted_delta_and_routes_generated_command_test
       kernel_fuzz.SubmitMeta(1, 0),
     )
   routed |> expect.to_equal(persisted)
-  state.pending |> expect.to_equal([sequence_kernel.PendingOp(persisted_op, 0)])
-  let assert Ok(_) = sequence_kernel.ack_local(state, persisted_op)
+  state.pending
+  |> expect.to_equal([sequence_kernel.PendingOperation(persisted_operation, 0)])
+  let assert Ok(_) = sequence_kernel.ack_local(state, persisted_operation)
 
   let generated = sequence_model.InsertCommand(9, "generated \"value\"", None)
   let #(state, routed) =
@@ -134,23 +142,24 @@ pub fn apply_stashed_preserves_persisted_delta_and_routes_generated_command_test
     )
   let assert sequence_model.InsertCommand(0, encoded, Some(delta)) = routed
   encoded |> expect.to_equal(json.to_string(json.string("generated \"value\"")))
-  let routed_op =
+  let routed_operation =
     sequence_kernel.Insert(0, json.string("generated \"value\""), delta)
-  state.pending |> expect.to_equal([sequence_kernel.PendingOp(routed_op, 0)])
-  let assert Ok(_) = sequence_kernel.ack_local(state, routed_op)
+  state.pending
+  |> expect.to_equal([sequence_kernel.PendingOperation(routed_operation, 0)])
+  let assert Ok(_) = sequence_kernel.ack_local(state, routed_operation)
   Nil
 }
 
 pub fn model_summary_load_rebrands_and_can_ack_test() -> Nil {
   let model = sequence_model.model()
   let assert Some(load_from_synced) = model.capabilities.load_from_synced
-  let assert Ok(#(source, _, confirmed_op, _)) =
+  let assert Ok(#(source, _, confirmed_operation, _)) =
     sequence_kernel.insert(
       sequence_kernel.new(replica_id.new("source")),
       0,
       json.string("confirmed"),
     )
-  let assert Ok(source) = sequence_kernel.ack_local(source, confirmed_op)
+  let assert Ok(source) = sequence_kernel.ack_local(source, confirmed_operation)
   let loaded = load_from_synced(source, 7)
   loaded.replica_id |> expect.to_equal(replica_id.new("client-7"))
   let assert Ok(summary_self_id) =
@@ -160,10 +169,10 @@ pub fn model_summary_load_rebrands_and_can_ack_test() -> Nil {
     )
   summary_self_id |> expect.to_equal(replica_id.new("client-7"))
 
-  let assert Ok(#(loaded, _, new_op, message_id)) =
+  let assert Ok(#(loaded, _, new_operation, message_id)) =
     sequence_kernel.insert(loaded, 1, json.string("new"))
   message_id |> expect.to_equal(0)
-  let assert Ok(loaded) = sequence_kernel.ack_local(loaded, new_op)
+  let assert Ok(loaded) = sequence_kernel.ack_local(loaded, new_operation)
   sequence_kernel.values(loaded)
   |> expect.to_equal([json.string("confirmed"), json.string("new")])
 }
@@ -171,8 +180,8 @@ pub fn model_summary_load_rebrands_and_can_ack_test() -> Nil {
 pub fn shared_replica_id_is_caught_test() -> Nil {
   let model = sequence_model.model()
   let script = [
-    ClientOp(1, sequence_model.InsertCommand(0, "a", None)),
-    ClientOp(2, sequence_model.InsertCommand(0, "b", None)),
+    ClientOperation(1, sequence_model.InsertCommand(0, "a", None)),
+    ClientOperation(2, sequence_model.InsertCommand(0, "b", None)),
     Synchronize,
   ]
   // The production model intentionally has no index-based list oracle. This

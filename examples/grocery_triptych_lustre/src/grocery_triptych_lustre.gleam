@@ -37,9 +37,9 @@ const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
 
-/// UI debounce window for grouping independently delivered pantry-channel op
-/// frames into one snapshot refresh. This smooths transport timing without
-/// implying atomic multi-channel delivery.
+/// UI debounce window for grouping independently delivered pantry-channel
+/// operation frames into one snapshot refresh. This smooths transport timing
+/// without implying atomic multi-channel delivery.
 const shared_refresh_debounce_ms = 75
 
 const tombstone_start_delay_ms = 250

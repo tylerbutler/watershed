@@ -5,9 +5,9 @@ import gleam/json.{type Json}
 import gleam/option.{type Option, None, Some}
 import startest/expect
 import watershed/ordered_collection_kernel.{
-  type AcquireOutcome, type OrderedEvent, type OrderedOp, Acquire, Acquired,
-  AcquiredItem, Add, Added, Complete, Completed, JobEntry, LocalReleased,
-  QueueEmpty, Release,
+  type AcquireOutcome, type OrderedEvent, type OrderedOperation, Acquire,
+  Acquired, AcquiredItem, Add, Added, Complete, Completed, JobEntry,
+  LocalReleased, QueueEmpty, Release,
 }
 
 fn string_value(value: String) -> Json {
@@ -16,14 +16,14 @@ fn string_value(value: String) -> Json {
 
 fn ack(
   state: ordered_collection_kernel.OrderedState,
-  op: OrderedOp,
+  operation: OrderedOperation,
   author: Int,
 ) -> #(
   ordered_collection_kernel.OrderedState,
   List(OrderedEvent),
   Option(AcquireOutcome),
 ) {
-  ordered_collection_kernel.ack_local(state, op, author)
+  ordered_collection_kernel.ack_local(state, operation, author)
 }
 
 pub fn new_state_is_empty_test() -> Nil {
@@ -79,22 +79,24 @@ pub fn summary_flushes_unattached_acquisitions_back_to_queue_test() -> Nil {
 
 pub fn attached_submit_is_not_optimistic_test() -> Nil {
   let state = ordered_collection_kernel.new()
-  let op = ordered_collection_kernel.add(state, string_value("A"))
+  let operation = ordered_collection_kernel.add(state, string_value("A"))
 
-  op |> expect.to_equal(Add(string_value("A")))
+  operation |> expect.to_equal(Add(string_value("A")))
   ordered_collection_kernel.summary_queue(state) |> expect.to_equal([])
 }
 
 pub fn add_and_acquire_ordering_follows_sequence_order_test() -> Nil {
   let state_a = ordered_collection_kernel.new()
   let state_b = ordered_collection_kernel.new()
-  let op_a = ordered_collection_kernel.add(state_a, string_value("A"))
-  let op_b = ordered_collection_kernel.add(state_b, string_value("B"))
+  let operation_a = ordered_collection_kernel.add(state_a, string_value("A"))
+  let operation_b = ordered_collection_kernel.add(state_b, string_value("B"))
 
-  let #(state_a, _, _) = ack(state_a, op_a, 1)
-  let #(state_a, _) = ordered_collection_kernel.apply_remote(state_a, op_b, 2)
-  let #(state_b, _) = ordered_collection_kernel.apply_remote(state_b, op_a, 1)
-  let #(state_b, _, _) = ack(state_b, op_b, 2)
+  let #(state_a, _, _) = ack(state_a, operation_a, 1)
+  let #(state_a, _) =
+    ordered_collection_kernel.apply_remote(state_a, operation_b, 2)
+  let #(state_b, _) =
+    ordered_collection_kernel.apply_remote(state_b, operation_a, 1)
+  let #(state_b, _, _) = ack(state_b, operation_b, 2)
 
   let acquire_a = ordered_collection_kernel.acquire("a1")
   let acquire_b = ordered_collection_kernel.acquire("b1")
@@ -131,14 +133,16 @@ pub fn racing_acquires_on_one_item_first_sequence_wins_test() -> Nil {
       string_value("A"),
     )
 
-  let op_a = Acquire("a1")
-  let op_b = Acquire("b1")
-  let assert #(state_a, _, Some(outcome_a)) = ack(state_a, op_a, 1)
+  let operation_a = Acquire("a1")
+  let operation_b = Acquire("b1")
+  let assert #(state_a, _, Some(outcome_a)) = ack(state_a, operation_a, 1)
   outcome_a |> expect.to_equal(AcquiredItem("a1", string_value("A")))
-  let #(state_a, _) = ordered_collection_kernel.apply_remote(state_a, op_b, 2)
+  let #(state_a, _) =
+    ordered_collection_kernel.apply_remote(state_a, operation_b, 2)
 
-  let #(state_b, _) = ordered_collection_kernel.apply_remote(state_b, op_a, 1)
-  let assert #(state_b, _, Some(outcome_b)) = ack(state_b, op_b, 2)
+  let #(state_b, _) =
+    ordered_collection_kernel.apply_remote(state_b, operation_a, 1)
+  let assert #(state_b, _, Some(outcome_b)) = ack(state_b, operation_b, 2)
   outcome_b |> expect.to_equal(QueueEmpty)
 
   ordered_collection_kernel.summary_jobs(state_a)
@@ -257,15 +261,15 @@ pub fn rollback_local_acquire_resolves_empty_and_leaves_queue_intact_test() -> N
   after |> expect.to_equal(state)
 }
 
-pub fn stashed_op_returns_op_verbatim_and_applies_normally_test() -> Nil {
-  let op = Add(string_value("A"))
+pub fn stashed_operation_returns_operation_verbatim_and_applies_normally_test() -> Nil {
+  let operation = Add(string_value("A"))
   let #(state, resubmit) =
-    ordered_collection_kernel.apply_stashed_op(
+    ordered_collection_kernel.apply_stashed_operation(
       ordered_collection_kernel.new(),
-      op,
+      operation,
     )
 
-  resubmit |> expect.to_equal(op)
+  resubmit |> expect.to_equal(operation)
   let #(state, _, _) = ack(state, resubmit, 1)
   ordered_collection_kernel.summary_queue(state)
   |> expect.to_equal([string_value("A")])

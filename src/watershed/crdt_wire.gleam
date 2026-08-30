@@ -35,7 +35,7 @@ import gleam/result
 import gleam/string
 
 import watershed/canonical_json
-import watershed/channel.{type ChannelOp, type ChannelType, type Snapshot}
+import watershed/channel.{type ChannelOperation, type ChannelType, type Snapshot}
 import watershed/p2p.{type P2pError}
 import watershed/wire
 import watershed/wire/op as wire_op
@@ -137,7 +137,7 @@ pub type Message {
     id: MessageId,
     address: String,
     channel_type: ChannelType,
-    op: ChannelOp,
+    operation: ChannelOperation,
   )
   /// Ask a peer for its complete registry and its current snapshots.
   StateRequest
@@ -240,13 +240,13 @@ pub fn encode_message(message: Message) -> Json {
         #("descriptor", encode_descriptor(entry.descriptor)),
         #("snapshot", channel.encode_snapshot(entry.snapshot)),
       ])
-    Delta(id, address, channel_type, op) ->
+    Delta(id, address, channel_type, operation) ->
       json.object([
         #("type", json.string(type_delta)),
         #("id", encode_message_id(id)),
         #("address", json.string(address)),
         #("channelType", json.string(channel.type_to_string(channel_type))),
-        #("contents", wire_op.encode_channel_op(op)),
+        #("contents", wire_op.encode_channel_operation(operation)),
       ])
     StateRequest -> json.object([#("type", json.string(type_state_request))])
     State(entries) ->
@@ -505,10 +505,10 @@ fn validate_message(
         )),
       )
       use channel_type <- result.try(eligible_type(channel_type, from))
-      use op <- result.try(
+      use operation <- result.try(
         json.parse(
           json.to_string(contents),
-          wire_op.channel_op_decoder(channel_type),
+          wire_op.channel_operation_decoder(channel_type),
         )
         |> result.replace_error(invalid(
           from,
@@ -516,7 +516,7 @@ fn validate_message(
             <> channel.type_to_string(channel_type),
         )),
       )
-      Ok(Delta(MessageId(replica, counter), address, channel_type, op))
+      Ok(Delta(MessageId(replica, counter), address, channel_type, operation))
     }
     RawStateRequest -> Ok(StateRequest)
     RawState(entries) -> {

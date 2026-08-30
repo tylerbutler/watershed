@@ -163,7 +163,8 @@ pub opaque type Model {
     /// blaming the peers.
     signaling: String,
     /// The note whose delete is armed and awaiting confirmation. Deleting is
-    /// replicated and has no compensating op, so it takes two deliberate acts.
+    /// replicated and has no compensating operation, so it takes two deliberate
+    /// acts.
     pending_delete: Option(String),
     invite_copied: Bool,
   )
@@ -188,7 +189,7 @@ pub type Msg {
   DragStarted(String)
   DragEnded
   DroppedOn(Option(String))
-  NoOp
+  NoOperation
   Editor(textarea.Msg)
   FormatClicked(toolbar.Action)
   DraftTagChanged(String)
@@ -577,7 +578,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           }
       }
 
-    NoOp -> #(model, effect.none())
+    NoOperation -> #(model, effect.none())
 
     Editor(inner) ->
       case mutations_locked(model) && textarea.mutates_document(inner) {
@@ -847,7 +848,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
 /// The note this move should land in front of, in the same vocabulary
 /// `apply_drop` already speaks, so a keyboard move and a drag produce
-/// identical ops. `Error(Nil)` means the note is already at that end.
+/// identical operations. `Error(Nil)` means the note is already at that end.
 fn move_target(
   names: List(String),
   name: String,
@@ -2006,7 +2007,7 @@ fn compose_view(model: Model) -> Element(Msg) {
       event.on_keydown(fn(key) {
         case key {
           "Enter" -> CreateClicked
-          _ -> NoOp
+          _ -> NoOperation
         }
       }),
     ]),
@@ -2084,7 +2085,7 @@ fn note_list_view(model: Model) -> Element(Msg) {
               // A drop target with no content: keyboard reordering covers the
               // same move, so hiding it stops a one-note list announcing two.
               attribute.attribute("aria-hidden", "true"),
-              event.on("dragover", decode.success(NoOp))
+              event.on("dragover", decode.success(NoOperation))
                 |> event.prevent_default,
               event.on("drop", decode.success(DroppedOn(None)))
                 |> event.prevent_default,
@@ -2111,7 +2112,7 @@ fn note_item_view(model: Model, name: String) -> Element(Msg) {
       attribute.draggable(!mutations_locked(model)),
       event.on("dragstart", decode.success(DragStarted(name))),
       event.on("dragend", decode.success(DragEnded)),
-      event.on("dragover", decode.success(NoOp)) |> event.prevent_default,
+      event.on("dragover", decode.success(NoOperation)) |> event.prevent_default,
       event.on("drop", decode.success(DroppedOn(Some(name))))
         |> event.prevent_default,
     ],
@@ -2133,8 +2134,9 @@ fn note_item_view(model: Model, name: String) -> Element(Msg) {
         [html.span([attribute.class("note-name")], [html.text(name)])],
       ),
       ..case model.pending_delete == Some(name) {
-        // Deleting replicates to every peer and the OR-map has no undo op, so
-        // the ✕ arms the action and a second, named button commits it.
+        // Deleting replicates to every peer and the OR-map has no undo
+        // operation, so the ✕ arms the action and a second, named button
+        // commits it.
         True -> [
           html.button(
             [
@@ -2438,7 +2440,7 @@ fn tags_view(model: Model, open: OpenNote) -> Element(Msg) {
       event.on_keydown(fn(key) {
         case key {
           "Enter" -> AddTagClicked
-          _ -> NoOp
+          _ -> NoOperation
         }
       }),
     ]),

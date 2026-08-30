@@ -2406,8 +2406,9 @@ fn greet(cell: Cell(State), peer_id: String) -> Nil {
         PeerToPeer -> Nil
       }
       // The mesh now has a validated peer to answer, so start (or leave
-      // running) the anti-entropy heartbeat. A no-op on the relay-primary
-      // path, where `should_sync` is false and repair is the relay's job.
+      // running) the anti-entropy heartbeat. A no-operation on the
+      // relay-primary path, where `should_sync` is false and repair is the
+      // relay's job.
       refresh_sync(cell)
     }
   }

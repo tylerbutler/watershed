@@ -7,14 +7,14 @@
 ////
 //// ## Determinism without a clock
 ////
-//// An op sequences when a client submits it, but the sluice delivers it only
-//// on a `settle` or a `step`. A test can thus script a race, and the result
-//// does not depend on timing. The coordination cannot deadlock, by
+//// An operation sequences when a client submits it, but the sluice delivers it
+//// only on a `settle` or a `step`. A test can thus script a race, and the
+//// result does not depend on timing. The coordination cannot deadlock, by
 //// construction:
 ////
 //// - A push from a runtime to the sluice is *synchronous*, through
-////   `process.call`. After a runtime empties its mailbox, its ops have thus
-////   already reached the core.
+////   `process.call`. After a runtime empties its mailbox, its operations have
+////   thus already reached the core.
 //// - A delivery from the sluice to a runtime is an *asynchronous* send. The
 ////   `on_event` function of the runtime puts an `Inbound` message in the
 ////   mailbox. The sluice never calls a runtime, so a runtime that blocks in
@@ -129,11 +129,11 @@ pub fn connect(
 /// exactly as floodgate does, so the client that returns is a different member
 /// of the room than the client that left.
 ///
-/// Many protocol faults are in that window. An op that sequenced while the
-/// client was absent replays against the room as it was at that time. An edit
-/// from the interval gets a new stamp and a resubmission. A consensus kernel
-/// can owe signoffs under an identity that no longer exists. A test can reach
-/// none of those conditions unless it can script this sequence.
+/// Many protocol faults are in that window. An operation that sequenced while
+/// the client was absent replays against the room as it was at that time. An
+/// edit from the interval gets a new stamp and a resubmission. A consensus
+/// kernel can owe signoffs under an identity that no longer exists. A test can
+/// reach none of those conditions unless it can script this sequence.
 ///
 /// The handshake completes on the next `settle`, the same as for `connect`.
 ///
@@ -157,11 +157,11 @@ pub fn reconnect(
 ///
 /// The two halves are separate because the interesting window is *between*
 /// them. A client is outside the room from its `leave` until its rejoin. Every
-/// op that sequences in that interval sequenced for a room that did not
-/// contain the client. The client must then replay those ops, under an
+/// operation that sequences in that interval sequenced for a room that did not
+/// contain the client. The client must then replay those operations, under an
 /// identity that did not exist when other clients made them. To script that
-/// sequence, a test must sequence ops while the client is absent, and one
-/// atomic reconnect cannot express that.
+/// sequence, a test must sequence operations while the client is absent, and
+/// one atomic reconnect cannot express that.
 ///
 /// The runtime keeps its core and stays in its reconnecting phase until
 /// `rejoin`.
@@ -203,8 +203,8 @@ pub fn rejoin(sluice: Sluice, document: watershed_beam.Document(root)) -> Nil {
 
 @target(erlang)
 /// Deliver the queued frames until the system is quiet. At that point every
-/// pending op has reached every client, and no client has produced a new op in
-/// response.
+/// pending operation has reached every client, and no client has produced a new
+/// operation in response.
 pub fn settle(sluice: Sluice) -> Nil {
   barrier_all(sluice)
   drain(sluice)
@@ -214,7 +214,7 @@ pub fn settle(sluice: Sluice) -> Nil {
 /// Deliver exactly one queued frame, to a client that is not paused. The
 /// function returns `False` when it can deliver no frame. This is the basic
 /// operation for a scripted race: call `pause` on one client, then call `step`
-/// to release the op of another client first.
+/// to release the operation of another client first.
 pub fn step(sluice: Sluice) -> Bool {
   barrier_all(sluice)
   case take_and_deliver(sluice) {
@@ -291,7 +291,7 @@ fn take_and_deliver(sluice: Sluice) -> Bool {
 @target(erlang)
 /// Empty the mailbox of every connected runtime. A synchronous call returns
 /// only after the actor processes every earlier message. Every pending edit has
-/// thus pushed its op into the core before this function returns.
+/// thus pushed its operation into the core before this function returns.
 fn barrier_all(sluice: Sluice) -> Nil {
   let subjects =
     process.call(sluice.actor, waiting: call_timeout_ms, sending: Subjects)
@@ -348,7 +348,7 @@ type Message {
   DropConn(subject: Subject(runtime_beam.Msg), reply: Subject(Result(Nil, Nil)))
   /// Return the `on_close` function of a dropped runtime, so that the caller
   /// can call it. That call starts the rejoin. This message is separate from
-  /// `DropConn`, so a test can sequence ops while the client is absent.
+  /// `DropConn`, so a test can sequence operations while the client is absent.
   TakeDropped(
     subject: Subject(runtime_beam.Msg),
     reply: Subject(Result(fn(String) -> Nil, Nil)),

@@ -9,7 +9,7 @@ import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
 import watershed/rich_text/attribute_map.{type Attributes}
-import watershed/rich_text/op_iterator.{
+import watershed/rich_text/operation_iterator.{
   type Iterator, type IteratorError, type Operation, Delete, DeleteKind, Insert,
   InsertEmbed, InsertText, Retain, RetainKind, SplitBoundary,
 }
@@ -138,10 +138,10 @@ pub fn delta_retain(
 
 /// Build a normalized insert-only document from operations.
 pub fn document_operations(document: Document) -> Result(Document, Error) {
-  let Document(ops) = document
+  let Document(operations) = document
   case
-    list.try_fold(ops, [], fn(acc, op) {
-      case op {
+    list.try_fold(operations, [], fn(acc, operation) {
+      case operation {
         InsertText(text, attributes) ->
           case validate_text(text) {
             Ok(_) ->
@@ -165,7 +165,7 @@ pub fn document_operations(document: Document) -> Result(Document, Error) {
       }
     })
   {
-    Ok(ops) -> Ok(Document(ops))
+    Ok(operations) -> Ok(Document(operations))
     Error(error) -> Error(error)
   }
 }
@@ -173,8 +173,8 @@ pub fn document_operations(document: Document) -> Result(Document, Error) {
 /// Build a normalized operation delta. Use this function also to normalize
 /// operations that you assemble with the public operation constructors.
 pub fn delta_operations(delta: Delta) -> Result(Delta, Error) {
-  let Delta(ops) = delta
-  normalize_operations(ops) |> result.map(Delta)
+  let Delta(operations) = delta
+  normalize_operations(operations) |> result.map(Delta)
 }
 
 pub fn insert_text(text: String, attributes: Attributes) -> Operation {
@@ -193,31 +193,36 @@ pub fn retain(amount: Int, attributes: Attributes) -> Operation {
   Retain(amount, attributes)
 }
 
-pub fn document_ops(document: Document) -> List(Operation) {
+pub fn document_to_operations(document: Document) -> List(Operation) {
   operations_document(document)
 }
 
-pub fn delta_ops(delta: Delta) -> List(Operation) {
+pub fn delta_to_operations(delta: Delta) -> List(Operation) {
   operations_delta(delta)
 }
 
 pub fn document_length(document: Document) -> Int {
   operations_document(document)
-  |> list.fold(0, fn(total, op) { total + op_iterator.length(op) })
+  |> list.fold(0, fn(total, operation) {
+    total + operation_iterator.length(operation)
+  })
 }
 
 /// The sum of the operation lengths. This is the same result as
 /// `Delta#length()`.
 pub fn length(delta: Delta) -> Int {
   operations_delta(delta)
-  |> list.fold(0, fn(total, op) { total + op_iterator.length(op) })
+  |> list.fold(0, fn(total, operation) {
+    total + operation_iterator.length(operation)
+  })
 }
 
 pub fn change_length(delta: Delta) -> Int {
   operations_delta(delta)
-  |> list.fold(0, fn(total, op) {
-    case op {
-      InsertText(_, _) | InsertEmbed(_, _) -> total + op_iterator.length(op)
+  |> list.fold(0, fn(total, operation) {
+    case operation {
+      InsertText(_, _) | InsertEmbed(_, _) ->
+        total + operation_iterator.length(operation)
       Delete(amount) -> total - amount
       Retain(_, _) -> total
     }
@@ -225,8 +230,8 @@ pub fn change_length(delta: Delta) -> Int {
 }
 
 pub fn normalize(delta: Delta) -> Delta {
-  let Delta(ops) = delta
-  case normalize_operations(ops) {
+  let Delta(operations) = delta
+  case normalize_operations(operations) {
     Ok(normalized) -> Delta(normalized)
     Error(_) -> delta
   }
@@ -234,8 +239,8 @@ pub fn normalize(delta: Delta) -> Delta {
 
 /// Quill Delta compose. The kernel interprets `b` against the result of `a`.
 pub fn compose(a: Delta, b: Delta) -> Result(Delta, Error) {
-  let left = op_iterator.new(operations_delta(a))
-  let right = op_iterator.new(operations_delta(b))
+  let left = operation_iterator.new(operations_delta(a))
+  let right = operation_iterator.new(operations_delta(b))
   compose_loop(left, right, []) |> result.map(Delta)
 }
 
@@ -248,8 +253,8 @@ pub fn apply(document: Document, delta: Delta) -> Result(Document, Error) {
     operations_delta(delta),
   ))
   let snapshot = Delta(operations_document(document))
-  use Delta(result_ops) <- result.try(compose(snapshot, delta))
-  document_operations(Document(result_ops))
+  use Delta(result_operations) <- result.try(compose(snapshot, delta))
+  document_operations(Document(result_operations))
   |> result.map_error(fn(error) {
     case error {
       Malformed(_, reason) -> InvalidApply(reason)
@@ -261,8 +266,8 @@ pub fn apply(document: Document, delta: Delta) -> Result(Document, Error) {
 /// The rich-text adapter behaviour: `b.transform(a, side == Left)`.
 pub fn transform(a: Delta, b: Delta, side: Side) -> Result(Delta, Error) {
   transform_core(
-    op_iterator.new(operations_delta(b)),
-    op_iterator.new(operations_delta(a)),
+    operation_iterator.new(operations_delta(b)),
+    operation_iterator.new(operations_delta(a)),
     side == Left,
     [],
   )
@@ -272,38 +277,38 @@ pub fn transform(a: Delta, b: Delta, side: Side) -> Result(Delta, Error) {
 pub fn invert(delta: Delta, base: Document) -> Result(Delta, Error) {
   invert_loop(
     operations_delta(delta),
-    op_iterator.new(operations_document(base)),
+    operation_iterator.new(operations_document(base)),
     [],
   )
-  |> result.map(fn(ops) { Delta(ops) })
+  |> result.map(fn(operations) { Delta(operations) })
 }
 
 /// The `transformCursor` function of rich-text:
-/// `delta.transformPosition(index, !is_own_op)`.
+/// `delta.transformPosition(index, !is_own_operation)`.
 pub fn transform_position(
   delta: Delta,
   index: Int,
-  is_own_op: Bool,
+  is_own_operation: Bool,
 ) -> Result(Int, Error) {
   transform_position_loop(
-    op_iterator.new(operations_delta(delta)),
+    operation_iterator.new(operations_delta(delta)),
     index,
     0,
-    !is_own_op,
+    !is_own_operation,
   )
 }
 
 pub fn transform_selection(
   delta: Delta,
   selection: Selection,
-  is_own_op: Bool,
+  is_own_operation: Bool,
 ) -> Result(Selection, Error) {
   let Selection(index, selected_length) = selection
-  use start <- result.try(transform_position(delta, index, is_own_op))
+  use start <- result.try(transform_position(delta, index, is_own_operation))
   use end <- result.try(transform_position(
     delta,
     index + selected_length,
-    is_own_op,
+    is_own_operation,
   ))
   Ok(Selection(start, end - start))
 }
@@ -577,29 +582,38 @@ fn compose_loop(
   right: Iterator,
   result: List(Operation),
 ) -> Result(List(Operation), Error) {
-  case op_iterator.has_next(left) || op_iterator.has_next(right) {
+  case operation_iterator.has_next(left) || operation_iterator.has_next(right) {
     False -> Ok(chop(result))
     True -> {
       let amount = next_amount(left, right)
-      case op_iterator.peek_kind(right), op_iterator.peek_kind(left) {
+      case
+        operation_iterator.peek_kind(right),
+        operation_iterator.peek_kind(left)
+      {
         Insert, _ -> {
-          use #(op, next_right) <- result.try(take_checked(right, amount))
-          compose_loop(left, next_right, push(result, op))
+          use #(operation, next_right) <- result.try(take_checked(right, amount))
+          compose_loop(left, next_right, push(result, operation))
         }
         _, DeleteKind -> {
-          use #(op, next_left) <- result.try(take_checked(left, amount))
-          compose_loop(next_left, right, push(result, op))
+          use #(operation, next_left) <- result.try(take_checked(left, amount))
+          compose_loop(next_left, right, push(result, operation))
         }
         DeleteKind, Insert
         | DeleteKind, RetainKind
         | RetainKind, Insert
         | RetainKind, RetainKind
         -> {
-          use #(left_op, next_left) <- result.try(take_checked(left, amount))
-          use #(right_op, next_right) <- result.try(take_checked(right, amount))
-          let next_result = case right_op {
+          use #(left_operation, next_left) <- result.try(take_checked(
+            left,
+            amount,
+          ))
+          use #(right_operation, next_right) <- result.try(take_checked(
+            right,
+            amount,
+          ))
+          let next_result = case right_operation {
             Retain(_, right_attributes) ->
-              case left_op {
+              case left_operation {
                 Retain(_, left_attributes) ->
                   push(
                     result,
@@ -639,7 +653,7 @@ fn compose_loop(
                 Delete(_) -> result
               }
             Delete(_) ->
-              case left_op {
+              case left_operation {
                 Retain(_, _) -> push(result, Delete(amount))
                 InsertText(_, _) -> result
                 InsertEmbed(_, _) -> result
@@ -661,32 +675,45 @@ fn transform_core(
   priority: Bool,
   result: List(Operation),
 ) -> Result(List(Operation), Error) {
-  case op_iterator.has_next(source) || op_iterator.has_next(other) {
+  case
+    operation_iterator.has_next(source) || operation_iterator.has_next(other)
+  {
     False -> Ok(chop(result))
     True ->
-      case op_iterator.peek_kind(source), op_iterator.peek_kind(other) {
+      case
+        operation_iterator.peek_kind(source),
+        operation_iterator.peek_kind(other)
+      {
         Insert, other_kind ->
           case priority || other_kind != Insert {
             True -> {
-              use #(op, next_source) <- result.try(take_remaining(source))
+              use #(operation, next_source) <- result.try(take_remaining(source))
               transform_core(
                 next_source,
                 other,
                 priority,
                 push(
                   result,
-                  Retain(op_iterator.length(op), attribute_map.empty()),
+                  Retain(
+                    operation_iterator.length(operation),
+                    attribute_map.empty(),
+                  ),
                 ),
               )
             }
             False -> {
-              use #(op, next_other) <- result.try(take_remaining(other))
-              transform_core(source, next_other, priority, push(result, op))
+              use #(operation, next_other) <- result.try(take_remaining(other))
+              transform_core(
+                source,
+                next_other,
+                priority,
+                push(result, operation),
+              )
             }
           }
         _, Insert -> {
-          use #(op, next_other) <- result.try(take_remaining(other))
-          transform_core(source, next_other, priority, push(result, op))
+          use #(operation, next_other) <- result.try(take_remaining(other))
+          transform_core(source, next_other, priority, push(result, operation))
         }
         DeleteKind, DeleteKind
         | DeleteKind, RetainKind
@@ -694,21 +721,24 @@ fn transform_core(
         | RetainKind, RetainKind
         -> {
           let amount = next_amount(source, other)
-          use #(source_op, next_source) <- result.try(take_checked(
+          use #(source_operation, next_source) <- result.try(take_checked(
             source,
             amount,
           ))
-          use #(other_op, next_other) <- result.try(take_checked(other, amount))
-          let next_result = case source_op, other_op {
+          use #(other_operation, next_other) <- result.try(take_checked(
+            other,
+            amount,
+          ))
+          let next_result = case source_operation, other_operation {
             Delete(_), _ -> result
-            _, Delete(_) -> push(result, other_op)
+            _, Delete(_) -> push(result, other_operation)
             _, Retain(_, other_attributes) ->
               push(
                 result,
                 Retain(
                   amount,
                   attribute_map.transform(
-                    op_iterator.attributes(source_op),
+                    operation_iterator.attributes(source_operation),
                     other_attributes,
                     priority,
                   ),
@@ -730,10 +760,14 @@ fn invert_loop(
 ) -> Result(List(Operation), Error) {
   case operations {
     [] -> Ok(chop(result))
-    [op, ..rest] ->
-      case op {
+    [operation, ..rest] ->
+      case operation {
         InsertText(_, _) | InsertEmbed(_, _) ->
-          invert_loop(rest, base, push(result, Delete(op_iterator.length(op))))
+          invert_loop(
+            rest,
+            base,
+            push(result, Delete(operation_iterator.length(operation))),
+          )
         Delete(amount) -> {
           use #(pieces, next_base) <- result.try(
             take_document(base, amount, []),
@@ -760,10 +794,10 @@ fn invert_loop(
                   push(
                     acc,
                     Retain(
-                      op_iterator.length(piece),
+                      operation_iterator.length(piece),
                       attribute_map.invert(
                         attributes,
-                        op_iterator.attributes(piece),
+                        operation_iterator.attributes(piece),
                       ),
                     ),
                   )
@@ -783,7 +817,7 @@ fn take_document(
   case amount == 0 {
     True -> Ok(#(pieces, iterator))
     False ->
-      case op_iterator.peek_length(iterator) {
+      case operation_iterator.peek_length(iterator) {
         // Quill's Delta#slice returns the available document suffix rather
         // than throwing. Invert therefore preserves that harmless behavior
         // for non-contextual deltas; apply remains checked separately.
@@ -807,12 +841,12 @@ fn transform_position_loop(
   offset: Int,
   priority: Bool,
 ) -> Result(Int, Error) {
-  case op_iterator.has_next(iterator) && offset <= index {
+  case operation_iterator.has_next(iterator) && offset <= index {
     False -> Ok(index)
     True -> {
-      let kind = op_iterator.peek_kind(iterator)
+      let kind = operation_iterator.peek_kind(iterator)
       use #(operation, next) <- result.try(take_remaining(iterator))
-      let amount = op_iterator.length(operation)
+      let amount = operation_iterator.length(operation)
       case kind {
         DeleteKind ->
           transform_position_loop(
@@ -841,7 +875,7 @@ fn transform_position_loop(
 }
 
 fn next_amount(a: Iterator, b: Iterator) -> Int {
-  case op_iterator.peek_length(a), op_iterator.peek_length(b) {
+  case operation_iterator.peek_length(a), operation_iterator.peek_length(b) {
     Ok(left), Ok(right) -> int.min(left, right)
     Ok(left), Error(Nil) -> left
     Error(Nil), Ok(right) -> right
@@ -853,11 +887,11 @@ fn take_checked(
   iterator: Iterator,
   amount: Int,
 ) -> Result(#(Operation, Iterator), Error) {
-  op_iterator.take(iterator, amount) |> result.map_error(iterator_error)
+  operation_iterator.take(iterator, amount) |> result.map_error(iterator_error)
 }
 
 fn take_remaining(iterator: Iterator) -> Result(#(Operation, Iterator), Error) {
-  case op_iterator.peek_length(iterator) {
+  case operation_iterator.peek_length(iterator) {
     Ok(amount) -> take_checked(iterator, amount)
     Error(Nil) -> Error(InvalidApply("iterator unexpectedly exhausted"))
   }
@@ -873,8 +907,8 @@ fn normalize_operations(
   operations: List(Operation),
 ) -> Result(List(Operation), Error) {
   operations
-  |> list.try_fold([], fn(acc, op) {
-    case op {
+  |> list.try_fold([], fn(acc, operation) {
+    case operation {
       InsertText(text, attributes) ->
         case validate_text(text) {
           Ok(_) ->
@@ -891,8 +925,8 @@ fn normalize_operations(
           acc,
           InsertEmbed(embed, attribute_map.without_nulls(attributes)),
         ))
-      Delete(amount) if amount > 0 -> Ok(push(acc, op))
-      Retain(amount, _) if amount > 0 -> Ok(push(acc, op))
+      Delete(amount) if amount > 0 -> Ok(push(acc, operation))
+      Retain(amount, _) if amount > 0 -> Ok(push(acc, operation))
       Delete(_) ->
         Error(Malformed("delete", "length must be a positive integer"))
       Retain(_, _) ->

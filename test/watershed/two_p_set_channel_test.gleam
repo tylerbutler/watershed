@@ -57,7 +57,7 @@ fn bootstrap() -> Core {
   core
 }
 
-pub fn detached_two_p_set_attaches_and_then_emits_delta_ops_test() -> Nil {
+pub fn detached_two_p_set_attaches_and_then_emits_delta_operations_test() -> Nil {
   let address = "set-1"
   let core =
     bootstrap()
@@ -76,13 +76,13 @@ pub fn detached_two_p_set_attaches_and_then_emits_delta_ops_test() -> Nil {
     runtime_core.set(core, "root", "markers", handle.encode_handle(address))
   attach_outbound |> list.length |> expect.to_equal(2)
 
-  let assert Ok(#(_core, events, [op])) =
+  let assert Ok(#(_core, events, [operation])) =
     runtime_core.two_p_set_remove(core, address, "stake-3")
   events
   |> expect.to_equal([
     #(address, channel.TwoPSetEvent(two_p_set_kernel.ElementRemoved("stake-3"))),
   ])
-  let encoded = json.to_string(op.contents)
+  let encoded = json.to_string(operation.contents)
   encoded
   |> string.contains("\"address\":\"" <> address <> "\"")
   |> expect.to_be_true()
@@ -93,11 +93,12 @@ pub fn detached_two_p_set_attaches_and_then_emits_delta_ops_test() -> Nil {
 }
 
 pub fn two_p_set_snapshot_round_trips_test() -> Nil {
-  let #(state, _, add_op, _) =
+  let #(state, _, add_operation, _) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
-  let assert Ok(state) = two_p_set_kernel.ack_local(state, add_op)
-  let #(state, _, remove_op, _) = two_p_set_kernel.remove(state, "stake-3")
-  let assert Ok(state) = two_p_set_kernel.ack_local(state, remove_op)
+  let assert Ok(state) = two_p_set_kernel.ack_local(state, add_operation)
+  let #(state, _, remove_operation, _) =
+    two_p_set_kernel.remove(state, "stake-3")
+  let assert Ok(state) = two_p_set_kernel.ack_local(state, remove_operation)
   let snapshot = channel.TwoPSetSnapshot(state.sequenced)
   let encoded = channel.encode_snapshot(snapshot)
   let assert Ok(decoded) =

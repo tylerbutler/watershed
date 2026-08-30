@@ -2,7 +2,8 @@
 //// against a live levee dev server (`just server`) from Node, asserting that
 //// concurrent reorders converge. This exercises the sequence kernel, the
 //// sequence wire codecs, the JS runtime, the Phoenix FFI transport, and the
-//// pure core — the whole JS stack, for the one DDS whose ops are ordered.
+//// pure core — the whole JS stack, for the one DDS whose operations are
+//// ordered.
 ////
 //// The interesting assertion is the concurrent one: A moves a track while B
 //// replaces a different track, with no coordination. A last-writer-wins map
@@ -131,7 +132,7 @@ fn concurrent_phase(seq_a: SharedSequence, seq_b: SharedSequence) -> Nil {
   log("smoke: seeded A = " <> string.join(seeded_a, ", "))
   log("smoke: seeded B = " <> string.join(seeded_b, ", "))
 
-  // Both clients edit in the same tick, before either op is sequenced.
+  // Both clients edit in the same tick, before either operation is sequenced.
   // A lifts track 0 to the end; destinations are interpreted after removal,
   // so index 2 is the tail of the 2-element list left behind.
   log("smoke: concurrent move on A, replace on B")

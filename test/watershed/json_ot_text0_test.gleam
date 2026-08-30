@@ -3,7 +3,7 @@
 
 import startest/expect
 import watershed/json_ot.{
-  type JsonValue, type Op, Key, Lft, NInt, Rgt, VNumber, VObject, VString,
+  type JsonValue, type Operation, Key, Lft, NInt, Rgt, VNumber, VObject, VString,
 }
 
 fn ins(p: Int, s: String) -> JsonValue {
@@ -18,8 +18,9 @@ fn t0(components: List(JsonValue)) -> JsonValue {
   json_ot.VArray(components)
 }
 
-fn apply0(doc: String, op: JsonValue) -> JsonValue {
-  let assert Ok(result) = json_ot.apply_subtype("text0", VString(doc), op)
+fn apply0(doc: String, operation: JsonValue) -> JsonValue {
+  let assert Ok(result) =
+    json_ot.apply_subtype("text0", VString(doc), operation)
   result
 }
 
@@ -52,9 +53,9 @@ pub fn text0_apply_delete_mismatch_errors_test() -> Nil {
 
 pub fn text0_invert_round_trips_test() -> Nil {
   let doc = VObject([#("t", VString("hello"))])
-  let op = text_edit(t0([ins(5, " world"), del(0, "he")]))
-  let assert Ok(edited) = json_ot.apply(doc, op)
-  let inverse = json_ot.invert(op)
+  let operation = text_edit(t0([ins(5, " world"), del(0, "he")]))
+  let assert Ok(edited) = json_ot.apply(doc, operation)
+  let inverse = json_ot.invert(operation)
   let assert Ok(back) = json_ot.apply(edited, inverse)
   back |> expect.to_equal(doc)
 }
@@ -63,7 +64,7 @@ pub fn text0_invert_round_trips_test() -> Nil {
 
 /// TP1 for the embedded subtype: applying `a` then `b` transformed past `a`
 /// must equal applying `b` then `a` transformed past `b`.
-fn tp1(doc: JsonValue, a: Op, b: Op) -> #(JsonValue, JsonValue) {
+fn tp1(doc: JsonValue, a: Operation, b: Operation) -> #(JsonValue, JsonValue) {
   let assert Ok(after_a) = json_ot.apply(doc, a)
   let assert Ok(after_b) = json_ot.apply(doc, b)
   let assert Ok(b_star) = json_ot.transform(b, a, Rgt)
@@ -73,8 +74,8 @@ fn tp1(doc: JsonValue, a: Op, b: Op) -> #(JsonValue, JsonValue) {
   #(left, right)
 }
 
-fn text_edit(op: JsonValue) -> Op {
-  [json_ot.subtype_component([Key("t")], "text0", op)]
+fn text_edit(operation: JsonValue) -> Operation {
+  [json_ot.subtype_component([Key("t")], "text0", operation)]
 }
 
 pub fn text0_concurrent_inserts_converge_test() -> Nil {
@@ -101,7 +102,7 @@ pub fn text0_overlapping_deletes_converge_test() -> Nil {
   left |> expect.to_equal(right)
 }
 
-pub fn text0_multi_component_ops_converge_test() -> Nil {
+pub fn text0_multi_component_operations_converge_test() -> Nil {
   let doc = VObject([#("t", VString("the quick brown fox"))])
   // a: drop the leading "the ", then append "!" (positions are sequential).
   let a = text_edit(t0([del(0, "the "), ins(15, "!")]))

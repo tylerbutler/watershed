@@ -2,8 +2,8 @@
 //// counter/map so failures here point at the harness, not at a production
 //// kernel. Proves: (1) a client added via `load_from_synced` joins the
 //// simulation and converges from then on, (2) `AddClient` is a hard error
-//// when the model has no `load_from_synced` capability (silently
-//// no-op-ing would hide the exact wiring gap F2 exists to close), and
+//// when the model has no `load_from_synced` capability (a silent
+//// no-operation would hide the exact wiring gap F2 exists to close), and
 //// (3) — the F2 exit criterion — a planted `load_from_synced`
 //// insertion-order bug is caught via `AddClient`.
 
@@ -13,34 +13,39 @@ import gleam/list
 import gleam/option.{None, Some}
 import qcheck
 import watershed/fuzz/kernel_fuzz.{
-  type KernelModel, AddClient, Capabilities, ClientOp, KernelModel, Synchronize,
+  type KernelModel, AddClient, Capabilities, ClientOperation, KernelModel,
+  Synchronize,
 }
 
 /// State is an ordered log of ints applied so far (local or remote). This
 /// stands in for map's `insertion_order`: a `load_from_synced` that
 /// reorders it is exactly the class of bug the exit criterion targets.
-/// `submit` appends optimistically and `ack_local` is a no-op (the op is
-/// already in the log from `submit`), mirroring counter's ack-transparency
-/// shape. Test scripts below only ever have one client's op in flight at a
-/// time (submit immediately followed by `Synchronize`), so this toy model's
-/// lack of a real pending/sequenced split never causes the reordering a
-/// full kernel would otherwise have to guard against — that's exactly what
-/// `map_model`'s rebase-equivalence `check` hook exists for, and is out of
-/// scope for this harness-only test.
+/// `submit` appends optimistically and `ack_local` is a no-operation (the
+/// operation is already in the log from `submit`), mirroring counter's
+/// ack-transparency shape. Test scripts below only ever have one client's
+/// operation in flight at a time (submit immediately followed by
+/// `Synchronize`), so this toy model's lack of a real pending/sequenced split
+/// never causes the reordering a full kernel would otherwise have to guard
+/// against — that's exactly what `map_model`'s rebase-equivalence `check` hook
+/// exists for, and is out of scope for this harness-only test.
 fn ordered_log_model() -> KernelModel(List(Int), Int, List(Int)) {
   KernelModel(
     name: "toy-ordered-log",
     init: fn(_id) { [] },
-    submit: fn(state, op, _meta) { #(list.append(state, [op]), Some(op)) },
-    apply_remote: fn(state, op, _meta) { Ok(list.append(state, [op])) },
-    ack_local: fn(state, _op, _meta) { Ok(state) },
+    submit: fn(state, operation, _meta) {
+      #(list.append(state, [operation]), Some(operation))
+    },
+    apply_remote: fn(state, operation, _meta) {
+      Ok(list.append(state, [operation]))
+    },
+    ack_local: fn(state, _operation, _meta) { Ok(state) },
     observe: fn(state) { state },
-    gen_op: qcheck.bounded_int(from: 0, to: 5),
+    gen_operation: qcheck.bounded_int(from: 0, to: 5),
     check: None,
     canonicalize: None,
     ack_preserves_view: True,
-    op_to_json: json.int,
-    op_decoder: decode.int,
+    operation_to_json: json.int,
+    operation_decoder: decode.int,
     capabilities: Capabilities(
       // Correct summary join: a fresh client built from the log-so-far
       // observes exactly that log, in order.
@@ -101,7 +106,7 @@ fn model_accepting_joiner_ids(
 /// With 3 initial clients, the first joiner's identity must be exactly 3 —
 /// the client count before the join.
 pub fn add_client_passes_fresh_identity_test() -> Nil {
-  let script = [ClientOp(1, 1), Synchronize, AddClient]
+  let script = [ClientOperation(1, 1), Synchronize, AddClient]
   kernel_fuzz.try_run_script(model_accepting_joiner_ids([3]), 3, script)
   |> expect_ok
 }
@@ -109,7 +114,7 @@ pub fn add_client_passes_fresh_identity_test() -> Nil {
 /// Identities are append-only and never reused: the second joiner gets 4,
 /// not 3 again — a model accepting only 3 must fail on the second join.
 pub fn add_client_identities_are_never_reused_test() -> Nil {
-  let script = [ClientOp(1, 1), Synchronize, AddClient, AddClient]
+  let script = [ClientOperation(1, 1), Synchronize, AddClient, AddClient]
   kernel_fuzz.try_run_script(model_accepting_joiner_ids([3, 4]), 3, script)
   |> expect_ok
   case kernel_fuzz.try_run_script(model_accepting_joiner_ids([3]), 3, script) {
@@ -120,12 +125,12 @@ pub fn add_client_identities_are_never_reused_test() -> Nil {
 
 pub fn add_client_joins_and_converges_test() -> Nil {
   let script = [
-    ClientOp(1, 1),
+    ClientOperation(1, 1),
     Synchronize,
-    ClientOp(2, 2),
+    ClientOperation(2, 2),
     Synchronize,
     AddClient,
-    ClientOp(1, 3),
+    ClientOperation(1, 3),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(ordered_log_model(), 3, script)
@@ -133,7 +138,7 @@ pub fn add_client_joins_and_converges_test() -> Nil {
 }
 
 pub fn add_client_errors_without_load_from_synced_capability_test() -> Nil {
-  let script = [ClientOp(1, 1), Synchronize, AddClient]
+  let script = [ClientOperation(1, 1), Synchronize, AddClient]
   case kernel_fuzz.try_run_script(model_without_load_from_synced(), 3, script) {
     Error(_) -> Nil
     Ok(_) ->
@@ -142,13 +147,13 @@ pub fn add_client_errors_without_load_from_synced_capability_test() -> Nil {
 }
 
 pub fn add_client_catches_planted_insertion_order_bug_test() -> Nil {
-  // Two ops in a specific order land in the log; a correct summary join
+  // Two operations in a specific order land in the log; a correct summary join
   // must preserve that order. The buggy model reverses it, which two
-  // distinct ops make observable via convergence.
+  // distinct operations make observable via convergence.
   let script = [
-    ClientOp(1, 10),
+    ClientOperation(1, 10),
     Synchronize,
-    ClientOp(2, 20),
+    ClientOperation(2, 20),
     Synchronize,
     AddClient,
   ]

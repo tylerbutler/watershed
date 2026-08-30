@@ -261,18 +261,18 @@ pub const version_key = "__schema"
 /// `Delete`, so that the whole-record round-trip law holds. A key that the
 /// encoder skipped would keep a stale value, and a read would then give
 /// `Some`.
-pub type WriteOp {
+pub type WriteOperation {
   Put(key: String, value: Json)
   Delete(key: String)
 }
 
 /// A codec for a whole map. It reads every key into a `record` value, and it
-/// writes a `record` value back as one write op for each key. It carries the
-/// same phantom `tag` as its `TypedMap` type.
+/// writes a `record` value back as one write operation for each key. It carries
+/// the same phantom `tag` as its `TypedMap` type.
 pub opaque type Schema(tag, record) {
   Schema(
     decode: Decoder(record),
-    to_ops: fn(record) -> List(WriteOp),
+    to_operations: fn(record) -> List(WriteOperation),
     known_keys: Option(List(String)),
     version: Option(Int),
     // Keys declared by the record builders; None for hand-rolled schemas.
@@ -283,15 +283,15 @@ pub opaque type Schema(tag, record) {
 /// Define a whole-map schema from a record decoder and a record encoder. The
 /// schema is open, so it permits unknown keys, and it has no version. Add
 /// `sealed` or `versioned` to change that. The function writes each entry as a
-/// `Put` op. Prefer the `record1` to `record9` builders, which derive both
-/// directions from one list of props.
+/// `Put` operation. Prefer the `record1` to `record9` builders, which derive
+/// both directions from one list of props.
 pub fn schema(
   decode: Decoder(record),
   to_entries: fn(record) -> List(#(String, Json)),
 ) -> Schema(tag, record) {
   Schema(
     decode: decode,
-    to_ops: fn(value) {
+    to_operations: fn(value) {
       list.map(to_entries(value), fn(entry) { Put(entry.0, entry.1) })
     },
     known_keys: None,
@@ -350,11 +350,14 @@ pub fn decode_entries(
   |> result.map_error(Invalid)
 }
 
-/// The write op for each key of `value`. The `write` function of the backend
-/// applies each op separately: a `Put` as a set, and a `Delete` as a delete.
-/// The per-key merge thus stays correct.
-pub fn encode_ops(schema: Schema(tag, record), value: record) -> List(WriteOp) {
-  schema.to_ops(value)
+/// The write operation for each key of `value`. The `write` function of the
+/// backend applies each operation separately: a `Put` as a set, and a `Delete`
+/// as a delete. The per-key merge thus stays correct.
+pub fn encode_operations(
+  schema: Schema(tag, record),
+  value: record,
+) -> List(WriteOperation) {
+  schema.to_operations(value)
 }
 
 /// The version key and value to stamp, if the schema has a version. The `stamp`
@@ -399,22 +402,21 @@ fn check_version(
 /// One property of a record: a typed field with the function that reads its
 /// value out of the record. Build one with `prop` for a required property, or
 /// with `optional_prop` for an optional property. An optional property is
-/// absent when the value is `None`, and it then writes a `Delete` op. The last
-/// type parameter is the value in the form that the record constructor
-/// receives: `a` for a required property, and `Option(a)` for an optional
-/// one.
+/// absent when the value is `None`, and it then writes a `Delete` operation.
+/// The last type parameter is the value in the form that the record constructor
+/// receives: `a` for a required property, and `Option(a)` for an optional one.
 pub opaque type Prop(s, record, a) {
   Prop(
     key: String,
     decoder: Decoder(a),
     // Some(default) → decode with optional_field; None → required field.
     fallback: Option(a),
-    write: fn(record) -> WriteOp,
+    write: fn(record) -> WriteOperation,
   )
 }
 
 /// A required property. The decode fails when the key is absent, and the
-/// encode writes a `Put` op.
+/// encode writes a `Put` operation.
 pub fn prop(field: Field(s, a), get: fn(record) -> a) -> Prop(s, record, a) {
   Prop(key: field.key, decoder: field.decode, fallback: None, write: fn(value) {
     Put(field.key, field.encode(get(value)))
@@ -423,8 +425,8 @@ pub fn prop(field: Field(s, a), get: fn(record) -> a) -> Prop(s, record, a) {
 
 /// An optional property. An absent key decodes as `None`, and so does a stored
 /// JSON null, which an old writer or a foreign writer can produce. A value of
-/// `None` writes a `Delete` op, so a read never gives a stale `Some`. See
-/// `WriteOp`.
+/// `None` writes a `Delete` operation, so a read never gives a stale `Some`.
+/// See `WriteOperation`.
 pub fn optional_prop(
   field: Field(s, a),
   get: fn(record) -> Option(a),
@@ -457,11 +459,11 @@ fn prop_step(
 
 fn from_props(
   decoder: Decoder(record),
-  props: List(#(String, fn(record) -> WriteOp)),
+  props: List(#(String, fn(record) -> WriteOperation)),
 ) -> Schema(tag, record) {
   Schema(
     decode: decoder,
-    to_ops: fn(value) { list.map(props, fn(prop) { prop.1(value) }) },
+    to_operations: fn(value) { list.map(props, fn(prop) { prop.1(value) }) },
     known_keys: None,
     version: None,
     declared_keys: Some(list.map(props, fn(prop) { prop.0 })),

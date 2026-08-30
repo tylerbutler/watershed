@@ -30,12 +30,12 @@ pub type RichTextState {
     pending: ot_client.Pending(rich_text.Delta),
     /// An operation that an acknowledgement released onto the wire, which waits
     /// to be sent. `take_outbound` removes it.
-    outbound: Option(RichTextWireOp),
+    outbound: Option(RichTextWireOperation),
   )
 }
 
-pub type RichTextWireOp {
-  RichTextWireOp(ref_seq: Int, delta: rich_text.Delta)
+pub type RichTextWireOperation {
+  RichTextWireOperation(ref_seq: Int, delta: rich_text.Delta)
 }
 
 pub type RichTextEvent {
@@ -77,15 +77,15 @@ pub fn summary(state: RichTextState) -> rich_text.Document {
 pub fn view(state: RichTextState) -> Result(rich_text.Document, KernelError) {
   case state.pending {
     ot_client.Idle -> Ok(state.sequenced)
-    ot_client.InFlight(delta) -> apply_op(state.sequenced, delta)
+    ot_client.InFlight(delta) -> apply_operation(state.sequenced, delta)
     ot_client.InFlightAndBuffered(delta, buffered) -> {
-      use after_delta <- result.try(apply_op(state.sequenced, delta))
-      apply_op(after_delta, buffered)
+      use after_delta <- result.try(apply_operation(state.sequenced, delta))
+      apply_operation(after_delta, buffered)
     }
   }
 }
 
-pub fn apply_op(
+pub fn apply_operation(
   document: rich_text.Document,
   delta: rich_text.Delta,
 ) -> Result(rich_text.Document, KernelError) {
@@ -122,7 +122,7 @@ pub fn submit(
   delta: rich_text.Delta,
   ref_seq: Int,
 ) -> Result(
-  #(RichTextState, Option(RichTextWireOp), List(RichTextEvent)),
+  #(RichTextState, Option(RichTextWireOperation), List(RichTextEvent)),
   KernelError,
 ) {
   use delta <- result.try(
@@ -130,7 +130,7 @@ pub fn submit(
     |> result.map_error(RichTextFailure),
   )
   use current <- result.try(view(state))
-  use _ <- result.try(apply_op(current, delta))
+  use _ <- result.try(apply_operation(current, delta))
   let events = [RichTextChanged(delta, True)]
   use #(pending, to_send) <- result.try(ot_client.hold_local(
     state.pending,
@@ -139,7 +139,7 @@ pub fn submit(
   ))
   Ok(#(
     RichTextState(..state, pending: pending),
-    option.map(to_send, RichTextWireOp(ref_seq, _)),
+    option.map(to_send, RichTextWireOperation(ref_seq, _)),
     events,
   ))
 }
@@ -150,7 +150,7 @@ pub fn submit(
 /// confirmed document.
 pub fn apply_remote(
   state: RichTextState,
-  wire: RichTextWireOp,
+  wire: RichTextWireOperation,
   seq: Int,
   msn: Int,
 ) -> Result(#(RichTextState, List(RichTextEvent)), KernelError) {
@@ -160,10 +160,10 @@ pub fn apply_remote(
       wire.ref_seq,
       seq,
       wire.delta,
-      fn(current, entry) { transform(current, entry.op, rich_text.Left) },
+      fn(current, entry) { transform(current, entry.operation, rich_text.Left) },
     ),
   )
-  use sequenced <- result.try(apply_op(state.sequenced, head_delta))
+  use sequenced <- result.try(apply_operation(state.sequenced, head_delta))
   use #(pending, remote_after_pending) <- result.try(
     ot_client.rebase_pending(
       state.pending,
@@ -187,7 +187,7 @@ pub fn apply_remote(
 /// acknowledgement identifies the operation.
 pub fn ack_local(
   state: RichTextState,
-  _echoed_wire: RichTextWireOp,
+  _echoed_wire: RichTextWireOperation,
   seq: Int,
   msn: Int,
 ) -> Result(#(RichTextState, List(RichTextEvent)), KernelError) {
@@ -195,14 +195,14 @@ pub fn ack_local(
     ot_client.in_flight(state.pending)
     |> result.replace_error(UnexpectedAck("ack with nothing in flight")),
   )
-  use sequenced <- result.try(apply_op(state.sequenced, in_flight))
+  use sequenced <- result.try(apply_operation(state.sequenced, in_flight))
   let log =
     ot_client.gc_log(
       list.append(state.log, [ot_client.LogEntry(seq, in_flight)]),
       msn,
     )
   let #(pending, outbound) =
-    ot_client.promote_buffer(state.pending, seq, RichTextWireOp)
+    ot_client.promote_buffer(state.pending, seq, RichTextWireOperation)
   Ok(
     #(
       RichTextState(
@@ -220,7 +220,7 @@ pub fn ack_local(
 /// further call gives `None`.
 pub fn take_outbound(
   state: RichTextState,
-) -> #(RichTextState, Option(RichTextWireOp)) {
+) -> #(RichTextState, Option(RichTextWireOperation)) {
   let #(outbound, taken) = ot_client.take_pending(state.outbound)
   #(RichTextState(..state, outbound: outbound), taken)
 }

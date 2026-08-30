@@ -6,8 +6,8 @@
 //// `map_kernel_corpus_test.gleam` stays: it validates semantics + events
 //// against the TS oracle, which is complementary. Map has neither a
 //// `rollback` nor an `apply_stashed` capability today, so `default_weights`'
-//// 0 weights for `rollback_op`/`stashed_op` keep the generator from ever
-//// producing a command this model can't service.
+//// 0 weights for `rollback_operation`/`stashed_operation` keep the generator
+//// from ever producing a command this model can't service.
 
 import watershed/fuzz/kernel_fuzz
 import watershed/fuzz/map_model
@@ -22,7 +22,7 @@ pub fn converges_and_matches_oracle_test() -> Nil {
     kernel_fuzz.config_from_env(),
     client_count,
     script_gen.script_generator(
-      model.gen_op,
+      model.gen_operation,
       client_count,
       script_gen.default_weights(),
     ),

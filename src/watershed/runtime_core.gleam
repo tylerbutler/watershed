@@ -6,9 +6,9 @@
 //// match in FIFO order. The local state is optimistic, for an attached channel
 //// and for a detached one.
 ////
-//// The kernel state, the ops, and the events of the map, the counter, the
-//// OR-map, the registers, and the claims all pass through the closed sums in
-//// `watershed/channel`. The sequencing discipline itself does not know the
+//// The kernel state, the operations, and the events of the map, the counter,
+//// the OR-map, the registers, and the claims all pass through the closed sums
+//// in `watershed/channel`. The sequencing discipline itself does not know the
 //// kernels.
 
 import gleam/dict.{type Dict}
@@ -57,10 +57,10 @@ import watershed/wire/summary_blob.{type SummaryBlob}
 
 const root_address = "root"
 
-/// Where the core reads its ops from now. A replay reads a complete, ordered
-/// log, so it needs none of the protections that guard the live lane. The
-/// position is one value, and not a flag, because the two positions name two
-/// different behaviours.
+/// Where the core reads its operations from now. A replay reads a complete,
+/// ordered log, so it needs none of the protections that guard the live lane.
+/// The position is one value, and not a flag, because the two positions name
+/// two different behaviours.
 pub type IngestPosition {
   /// The core folds historical messages at a past sequence point.
   Replaying
@@ -104,50 +104,50 @@ pub type Core {
     ///
     /// This flag controls the protections in `quorum_of`. Those protections
     /// exist for one hazard, and that hazard occurs on the live path only: a
-    /// `join` message that the client loses, or that arrives after the op that
-    /// follows it. A replay reads a complete, ordered log, so nothing can be
-    /// absent. To apply those protections during a replay is incorrect. To add
-    /// *self* to the quorum of an op that sequenced before this client joined
-    /// puts the client in a room that it was not in.
+    /// `join` message that the client loses, or that arrives after the
+    /// operation that follows it. A replay reads a complete, ordered log, so
+    /// nothing can be absent. To apply those protections during a replay is
+    /// incorrect. To add *self* to the quorum of an operation that sequenced
+    /// before this client joined puts the client in a room that it was not in.
     ingest: IngestPosition,
     /// The sequence number of the newest checkpoint that this client knows
     /// about. That checkpoint is the blob that the client started from, a
-    /// summarize op that it saw after that, or one that it wrote itself. The
-    /// value is zero on a document that no client has summarized.
+    /// summarize operation that it saw after that, or one that it wrote itself.
+    /// The value is zero on a document that no client has summarized.
     ///
     /// The value is an upper bound, and not the exact capture point. A
-    /// summarize op that the client sees reports the sequence number of the
-    /// *op*, which is at or after the point at which the writer captured the
-    /// contents of the blob. The two numbers differ by the traffic that the
-    /// room wrote during the upload. That difference makes the policy a little
-    /// slower, and it never makes the policy summarize two times, which is the
-    /// safe direction. `summary_from_blob` is the exception. A client that
-    /// loads a blob takes the number of that blob, because there the seeded
-    /// state matters, and not the pointer to it.
+    /// summarize operation that the client sees reports the sequence number of
+    /// the *operation*, which is at or after the point at which the writer
+    /// captured the contents of the blob. The two numbers differ by the traffic
+    /// that the room wrote during the upload. That difference makes the policy
+    /// a little slower, and it never makes the policy summarize two times,
+    /// which is the safe direction. `summary_from_blob` is the exception. A
+    /// client that loads a blob takes the number of that blob, because there
+    /// the seeded state matters, and not the pointer to it.
     ///
     /// The correctness of the document does not depend on this value. It exists
     /// so that `wants_summary` can measure the drift after the last checkpoint
     /// without a request to the server.
     last_summary_sn: Int,
-    /// A buffer for each channel, which holds the *owed* follow-up ops that a
-    /// kernel released while it applied a sequenced op. One example is a
-    /// consensus `Accept` op in reaction to a `Set` op from a peer.
-    /// `collect_released_ops` empties this buffer after each sequenced batch.
-    /// That function gives each op a new CSN and an in-flight entry, and it
-    /// gives the op to the actor loop to submit. The buffer works for every
-    /// kernel: any branch of `channel.apply_remote` can add to it, by returning
-    /// owed ops.
-    owed: Dict(String, List(channel.ChannelOp)),
+    /// A buffer for each channel, which holds the *owed* follow-up operations
+    /// that a kernel released while it applied a sequenced operation. One
+    /// example is a consensus `Accept` operation in reaction to a `Set`
+    /// operation from a peer. `collect_released_operations` empties this buffer
+    /// after each sequenced batch. That function gives each operation a new CSN
+    /// and an in-flight entry, and it gives the operation to the actor loop to
+    /// submit. The buffer works for every kernel: any branch of
+    /// `channel.apply_remote` can add to it, by returning owed operations.
+    owed: Dict(String, List(channel.ChannelOperation)),
   )
 }
 
 pub type InFlight {
-  InFlightOp(
+  InFlightOperation(
     client_id: String,
     csn: Int,
     address: String,
-    op: channel.ChannelOp,
-    meta: channel.LocalOpMeta,
+    operation: channel.ChannelOperation,
+    meta: channel.LocalOperationMeta,
   )
   InFlightAttach(
     client_id: String,
@@ -159,7 +159,7 @@ pub type InFlight {
 
 pub type CoreError {
   AckMismatch(detail: String)
-  BadOpContents(sequence_number: Int)
+  BadOperationContents(sequence_number: Int)
   HistoryGap(detail: String)
   UnknownChannel(address: String, sequence_number: Int)
   DuplicateAttach(address: String, sequence_number: Int)
@@ -176,14 +176,14 @@ pub type CoreError {
   /// The kernel refused a directory edit, because the path is unknown or the
   /// subdirectory name is invalid. This is incorrect use of the API, and the
   /// caller can retry. The document is not corrupt.
-  DirectoryOpFailed(address: String, detail: String)
-  SequenceOpFailed(address: String, detail: String)
+  DirectoryOperationFailed(address: String, detail: String)
+  SequenceOperationFailed(address: String, detail: String)
   /// The kernel refused a local text edit, because the insert index is out of
   /// bounds, or the delete range or replace range is invalid. This is
   /// incorrect use of the API, and the caller can retry. The document is not
   /// corrupt. A valid empty edit never reaches this path. The kernel reports
   /// such an edit as a success that changes nothing. See `text_kernel`.
-  TextOpFailed(address: String, detail: String)
+  TextOperationFailed(address: String, detail: String)
   /// A channel snapshot in the summary does not describe a channel that this
   /// client can build. The document cannot start from that summary.
   BadSummaryChannel(address: String, detail: String)
@@ -198,11 +198,11 @@ pub type Ingested {
   Ingested(
     events: List(#(String, ChannelEvent)),
     resolutions: List(#(String, Resolution)),
-    request_ops_from: Option(Int),
-    /// The ops that a one-op-in-flight kernel, which is json0, released onto
-    /// the wire while the runtime acked its own op. The actor loop must submit
-    /// them.
-    outbound: List(wire.OutboundOp),
+    request_operations_from: Option(Int),
+    /// The operations that a one-operation-in-flight kernel, which is json0,
+    /// released onto the wire while the runtime acked its own operation. The
+    /// actor loop must submit them.
+    outbound: List(wire.OutboundOperation),
   )
 }
 
@@ -215,9 +215,9 @@ pub type Summary {
     /// Membership is checkpoint state, the same as a kernel snapshot, because
     /// the consensus kernels read it. A `PactMap` freezes a signoff list from
     /// it, and `TaskManager` checks the authorship of a volunteer against it.
-    /// To replay an op thus needs the roster *at the sequence point of that
-    /// op*. The core can rebuild that roster only from the roster of the
-    /// checkpoint, advanced by the replayed `join` and `leave` messages.
+    /// To replay an operation thus needs the roster *at the sequence point of
+    /// that operation*. The core can rebuild that roster only from the roster
+    /// of the checkpoint, advanced by the replayed `join` and `leave` messages.
     ///
     /// An empty list is correct for a replay of a document from its start,
     /// because no client had joined at sequence number zero. For a real
@@ -236,16 +236,16 @@ pub type Summary {
 ///
 /// The load point comes from the blob, and from the blob *only*. This function
 /// thus takes no `SummaryContext` value. The context of the server reports the
-/// sequence number of the summarize op, which the server assigned when it
-/// sequenced that op, after the writer captured and uploaded the blob. Every op
-/// that a peer got sequenced in that interval falls between the two numbers. To
-/// seed from the context thus claims that the seeded state is newer than it is,
-/// and no client replays the ops between the two numbers. The served history
-/// starts after the number of the context, it appears contiguous, and nothing
-/// reports a gap.
+/// sequence number of the summarize operation, which the server assigned when
+/// it sequenced that operation, after the writer captured and uploaded the
+/// blob. Every operation that a peer got sequenced in that interval falls
+/// between the two numbers. To seed from the context thus claims that the
+/// seeded state is newer than it is, and no client replays the operations
+/// between the two numbers. The served history starts after the number of the
+/// context, it appears contiguous, and nothing reports a gap.
 ///
-/// To seed from the number of the blob cannot lose those ops. When the two
-/// numbers agree, the result is the same. When they differ, the interval
+/// To seed from the number of the blob cannot lose those operations. When the
+/// two numbers agree, the result is the same. When they differ, the interval
 /// appears as a missing prefix, and `resume_bootstrap` reads it from storage.
 /// The context still locates the blob, because `handle` is the tree SHA. It
 /// does not describe the contents of that blob.
@@ -284,16 +284,17 @@ pub fn bootstrap(
       next_csn: 1,
       last_seen_sn: last_seen,
       // The blob we loaded *is* the newest checkpoint we know of; a document
-      // with no summary has none, and every op in its log is outstanding.
+      // with no summary has none, and every operation in its log is
+      // outstanding.
       last_summary_sn: last_seen,
       in_flight: [],
       out_of_order: [],
       // Seeded from the checkpoint, **not** from the handshake's roster, and
       // advanced by the `join`/`leave` messages in the replay itself. Seeding
       // from `initialClients` — the room as it is *now* — time-shifts every
-      // historical op's membership forward, so a client replaying a settled
-      // consensus proposal recomputes its quorum against a room that did not
-      // exist when the proposal was made, and writes itself into it.
+      // historical operation's membership forward, so a client replaying a
+      // settled consensus proposal recomputes its quorum against a room that
+      // did not exist when the proposal was made, and writes itself into it.
       members: set.from_list(seed_members),
       live_members: roster_of(connected),
       // Suppresses the live-path defences in `quorum_of` while history is
@@ -413,10 +414,10 @@ pub fn is_synced(core: Core) -> Bool {
 /// client that joins pays.
 ///
 /// The count is in **sequenced messages**, and not in edits. A server sequences
-/// a batch of submitted ops as one message, so a burst of writes moves this
-/// number much less than the number of writes. Messages are the correct unit,
-/// because a client that joins replays messages.
-pub fn ops_since_summary(core: Core) -> Int {
+/// a batch of submitted operations as one message, so a burst of writes moves
+/// this number much less than the number of writes. Messages are the correct
+/// unit, because a client that joins replays messages.
+pub fn operations_since_summary(core: Core) -> Int {
   int.max(0, core.last_seen_sn - core.last_summary_sn)
 }
 
@@ -438,15 +439,15 @@ pub fn wants_summary(core: Core, policy: Policy) -> Bool {
   core.ingest == Live
   && core.in_flight == []
   && core.out_of_order == []
-  && ops_since_summary(core) >= summary_policy.policy_threshold(policy)
+  && operations_since_summary(core) >= summary_policy.policy_threshold(policy)
 }
 
 /// How long this client waits before it acts on `wants_summary`.
 ///
 /// The delay comes from the client id, and not from a random source. Every
-/// client in the room crosses the threshold on the same op. A derived delay
-/// thus spreads the clients deterministically. A test can reproduce it, and
-/// neither target needs a random number generator. The first summary that
+/// client in the room crosses the threshold on the same operation. A derived
+/// delay thus spreads the clients deterministically. A test can reproduce it,
+/// and neither target needs a random number generator. The first summary that
 /// sequences advances the `last_summary_sn` value of every other client, so the
 /// rest of the room checks again and stops.
 ///
@@ -471,10 +472,10 @@ pub fn build_summarize(
   handle handle: String,
   message message: String,
   head head: String,
-) -> #(Core, wire.OutboundOp) {
+) -> #(Core, wire.OutboundOperation) {
   let csn = core.next_csn
   let outbound =
-    wire_op.outbound_summarize_op(
+    wire_op.outbound_summarize_operation(
       client_sequence_number: csn,
       reference_sequence_number: core.last_seen_sn,
       handle: handle,
@@ -482,9 +483,10 @@ pub fn build_summarize(
       parents: [],
       head: head,
     )
-  // Our own checkpoint moves here rather than when the op is echoed back: a
-  // summarize op carries no ack and no in-flight entry, so waiting for the
-  // echo would leave the policy re-arming on every op in between.
+  // Our own checkpoint moves here rather than when the operation is echoed
+  // back: a summarize operation carries no ack and no in-flight entry, so
+  // waiting for the echo would leave the policy re-arming on every operation in
+  // between.
   #(
     Core(..core, next_csn: csn + 1, last_summary_sn: core.last_seen_sn),
     outbound,
@@ -536,14 +538,15 @@ fn seed_channels(
 /// to the replaying state.
 ///
 /// The function does **not** replace the roster with the roster of the new
-/// handshake yet, and that is deliberate. `resume_bootstrap` replays the ops
-/// that sequenced while the client was absent, and the core must judge those
-/// ops against the room at *that* time. That room is the last roster that the
-/// client knew, advanced by the `join` and `leave` messages inside the gap that
-/// it replays. To take `initialClients` here would apply the room after the
-/// reconnect to the ops from before the reconnect. That is the same shift in
-/// time that breaks a cold join, over a shorter interval. `settle_bootstrap`
-/// takes the new roster after the gap closes.
+/// handshake yet, and that is deliberate. `resume_bootstrap` replays the
+/// operations that sequenced while the client was absent, and the core must
+/// judge those operations against the room at *that* time. That room is the
+/// last roster that the client knew, advanced by the `join` and `leave`
+/// messages inside the gap that it replays. To take `initialClients` here would
+/// apply the room after the reconnect to the operations from before the
+/// reconnect. That is the same shift in time that breaks a cold join, over a
+/// shorter interval. `settle_bootstrap` takes the new roster after the gap
+/// closes.
 pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
   // `members` is left exactly as it was: it is the roster at `last_seen_sn`,
   // which is precisely where the replay about to happen starts. The gap's own
@@ -563,11 +566,12 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
     live_members: roster_of(connected),
     // The gap about to be replayed is history, not live traffic, so the
     // defences in `quorum_of` must be off for it. They exist for a hazard that
-    // cannot occur here — a `join` lost or reordered against the op after it —
-    // and applying them is actively wrong on this path: unioning *self* into
-    // the quorum of an op sequenced before we reconnected claims a signoff for
-    // an id that did not exist when that op was made, and no other replica
-    // agrees. `go_live` clears this when the gap closes.
+    // cannot occur here — a `join` lost or reordered against the operation
+    // after it — and applying them is actively wrong on this path: unioning
+    // *self* into the quorum of an operation sequenced before we reconnected
+    // claims a signoff for an id that did not exist when that operation was
+    // made, and no other replica agrees. `go_live` clears this when the gap
+    // closes.
     ingest: Replaying,
   )
 }
@@ -576,23 +580,23 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
 /// is `None` when the handshake left nothing to catch up on.
 ///
 /// A reconnect must ask for its own gap. `adopt_reconnect` does not replay
-/// `initial_messages`, and that is deliberate. Only an inbound sequenced op can
-/// thus move `last_seen_sn` up to the checkpoint of the handshake, and no server
-/// sends one without a request. floodgate ignores `lastSeenSequenceNumber`
-/// completely, and it removes the joining client from the broadcast of the
-/// *own* join op of that client. A client that rejoins a room where no other
-/// client writes thus receives nothing at all. To wait for the next edit of a
-/// peer is not a catch-up plan. It is a chance, and a quiet room never gives
-/// it.
+/// `initial_messages`, and that is deliberate. Only an inbound sequenced
+/// operation can thus move `last_seen_sn` up to the checkpoint of the
+/// handshake, and no server sends one without a request. floodgate ignores
+/// `lastSeenSequenceNumber` completely, and it removes the joining client from
+/// the broadcast of the *own* join operation of that client. A client that
+/// rejoins a room where no other client writes thus receives nothing at all. To
+/// wait for the next edit of a peer is not a catch-up plan. It is a chance, and
+/// a quiet room never gives it.
 ///
 /// The result is `last_seen_sn`, and not `last_seen_sn + 1`. `requestOps`
 /// excludes `from` on both servers, and this value agrees with what
-/// `handle_sequenced` already asks for when a live op shows a gap.
+/// `handle_sequenced` already asks for when a live operation shows a gap.
 ///
 /// The checkpoint is almost always ahead on a write reconnect, because floodgate
-/// sequences the `join` op of the rejoining client and reports *that* op as the
-/// checkpoint. This function thus returns `Some` also for a reconnect that
-/// missed no application traffic.
+/// sequences the `join` operation of the rejoining client and reports *that*
+/// operation as the checkpoint. This function thus returns `Some` also for a
+/// reconnect that missed no application traffic.
 pub fn catch_up_from(core: Core, checkpoint: Int) -> Option(Int) {
   case checkpoint > core.last_seen_sn {
     True -> Some(core.last_seen_sn)
@@ -610,9 +614,9 @@ pub fn go_live(core: Core) -> Core {
   Core(..core, ingest: Live)
 }
 
-/// The quorum that the core judges a sequenced op against: the roster at the
-/// sequence point of that op, and, for a live op only, this client and the
-/// author of the op.
+/// The quorum that the core judges a sequenced operation against: the roster at
+/// the sequence point of that operation, and, for a live operation only, this
+/// client and the author of the operation.
 ///
 /// The function adds those two as a protection. It does not assume that they are
 /// present. A quorum without a connected client accepts too early. That was the
@@ -620,17 +624,17 @@ pub fn go_live(core: Core) -> Core {
 /// never read the room. But a quorum that names a client outside the room can
 /// never become empty, and the pact then never completes. This client and the
 /// author are the two clients that the core knows are live: one of them is this
-/// client, and the other one just had an op sequenced. To include them thus
-/// cannot stop a pact, and it covers a join message that the client lost, or
-/// that arrived after the op that follows it.
+/// client, and the other one just had an operation sequenced. To include them
+/// thus cannot stop a pact, and it covers a join message that the client lost,
+/// or that arrived after the operation that follows it.
 ///
 /// **That reasoning holds on the live path only.** A replay reads a complete,
 /// ordered log, in which no join can be absent. "This client is live" is then a
-/// false premise. For an op that sequenced before this client joined, the client
-/// was not in the room, and to add it to the quorum puts it in a quorum that it
-/// was never part of. A settled consensus proposal then rebuilds as pending on
-/// this client, and it never completes. The protections are thus for the live
-/// path only.
+/// false premise. For an operation that sequenced before this client joined,
+/// the client was not in the room, and to add it to the quorum puts it in a
+/// quorum that it was never part of. A settled consensus proposal then rebuilds
+/// as pending on this client, and it never completes. The protections are thus
+/// for the live path only.
 ///
 /// An author of `None` is a system message, and not the client `0`. The earlier
 /// code converted it to `0` and added a member that never signs off.
@@ -664,7 +668,7 @@ fn roster_of(connected: ConnectedMessage) -> Set(Int) {
   |> set.insert(client_id_to_int(connected.client_id))
 }
 
-pub fn resubmit(core: Core) -> #(Core, List(wire.OutboundOp)) {
+pub fn resubmit(core: Core) -> #(Core, List(wire.OutboundOperation)) {
   let #(core, next_csn, new_in_flight, outbound) =
     list.fold(core.in_flight, #(core, core.next_csn, [], []), fn(acc, entry) {
       let #(core, csn, entries, outbounds) = acc
@@ -685,30 +689,37 @@ fn restamp_in_flight(
   core: Core,
   entry: InFlight,
   csn: Int,
-) -> #(Core, Int, List(InFlight), List(wire.OutboundOp)) {
+) -> #(Core, Int, List(InFlight), List(wire.OutboundOperation)) {
   case entry {
-    InFlightOp(address: address, op: channel.TaskManagerOp(op), meta: meta, ..) ->
-      restamp_task_manager(core, address, op, meta, csn)
-    InFlightOp(address: address, op: channel.DirectoryOp(op, message_id), ..) ->
-      restamp_directory(core, address, op, message_id, csn)
-    InFlightOp(address: address, op: op, meta: meta, ..) -> #(
+    InFlightOperation(
+      address: address,
+      operation: channel.TaskManagerOperation(operation),
+      meta: meta,
+      ..,
+    ) -> restamp_task_manager(core, address, operation, meta, csn)
+    InFlightOperation(
+      address: address,
+      operation: channel.DirectoryOperation(operation, message_id),
+      ..,
+    ) -> restamp_directory(core, address, operation, message_id, csn)
+    InFlightOperation(address: address, operation: operation, meta: meta, ..) -> #(
       core,
       csn + 1,
       [
-        InFlightOp(
+        InFlightOperation(
           client_id: core.client_id,
           csn: csn,
           address: address,
-          op: op,
+          operation: operation,
           meta: meta,
         ),
       ],
       [
-        wire_op.outbound_channel_op(
+        wire_op.outbound_channel_operation(
           address: address,
           client_sequence_number: csn,
           reference_sequence_number: core.last_seen_sn,
-          op: op,
+          operation: operation,
         ),
       ],
     )
@@ -724,7 +735,7 @@ fn restamp_in_flight(
         ),
       ],
       [
-        wire_op.outbound_attach_op(
+        wire_op.outbound_attach_operation(
           address: address,
           client_sequence_number: csn,
           reference_sequence_number: core.last_seen_sn,
@@ -738,15 +749,16 @@ fn restamp_in_flight(
 fn restamp_task_manager(
   core: Core,
   address: String,
-  op: task_manager_kernel.TaskManagerOp,
-  meta: channel.LocalOpMeta,
+  operation: task_manager_kernel.TaskManagerOperation,
+  meta: channel.LocalOperationMeta,
   csn: Int,
-) -> #(Core, Int, List(InFlight), List(wire.OutboundOp)) {
+) -> #(Core, Int, List(InFlight), List(wire.OutboundOperation)) {
   case meta, dict.get(core.channels, address) {
     channel.TaskManagerMeta(message_id), Ok(channel.TaskManagerState(kernel)) -> {
-      case task_manager_kernel.resubmit(kernel, op, message_id, csn) {
-        Ok(#(kernel, Some(next_op), Some(pending))) -> {
-          let next_channel_op = channel.TaskManagerOp(next_op)
+      case task_manager_kernel.resubmit(kernel, operation, message_id, csn) {
+        Ok(#(kernel, Some(next_operation), Some(pending))) -> {
+          let next_channel_operation =
+            channel.TaskManagerOperation(next_operation)
           let next_meta = channel.TaskManagerMeta(pending.message_id)
           let core =
             put_attached_channel(
@@ -758,20 +770,20 @@ fn restamp_task_manager(
             core,
             csn + 1,
             [
-              InFlightOp(
+              InFlightOperation(
                 client_id: core.client_id,
                 csn: csn,
                 address: address,
-                op: next_channel_op,
+                operation: next_channel_operation,
                 meta: next_meta,
               ),
             ],
             [
-              wire_op.outbound_channel_op(
+              wire_op.outbound_channel_operation(
                 address: address,
                 client_sequence_number: csn,
                 reference_sequence_number: core.last_seen_sn,
-                op: next_channel_op,
+                operation: next_channel_operation,
               ),
             ],
           )
@@ -785,13 +797,13 @@ fn restamp_task_manager(
             )
           #(core, csn, [], [])
         }
-        // The kernel reports an op without its pending record, or the
+        // The kernel reports an operation without its pending record, or the
         // reverse. The runtime drops the resubmit, because it cannot stamp an
-        // op that it cannot match to an ack later. The op was never acked, so
-        // no committed data is lost.
+        // operation that it cannot match to an ack later. The operation was
+        // never acked, so no committed data is lost.
         Ok(#(_, _, _)) -> #(core, csn, [], [])
-        // The kernel refused the resubmit. The runtime drops the op for the
-        // same reason.
+        // The kernel refused the resubmit. The runtime drops the operation for
+        // the same reason.
         Error(_) -> #(core, csn, [], [])
       }
     }
@@ -801,48 +813,49 @@ fn restamp_task_manager(
   }
 }
 
-/// Stamp a directory op again on a reconnect. `directory_kernel.resubmit`
-/// filters the op against the current live instance of its target path. A `Some`
-/// result means that the runtime sends the op again, and the kernel can have
-/// rewritten it, because a resubmit of a create adds the creator id of this
-/// client again. A `None` result means that the target instance no longer
-/// exists. The runtime drops the op, and the kernel removes its pending
-/// entry.
+/// Stamp a directory operation again on a reconnect.
+/// `directory_kernel.resubmit` filters the operation against the current live
+/// instance of its target path. A `Some` result means that the runtime sends
+/// the operation again, and the kernel can have rewritten it, because a
+/// resubmit of a create adds the creator id of this client again. A `None`
+/// result means that the target instance no longer exists. The runtime drops
+/// the operation, and the kernel removes its pending entry.
 fn restamp_directory(
   core: Core,
   address: String,
-  op: directory_kernel.DirectoryOp,
+  operation: directory_kernel.DirectoryOperation,
   message_id: Int,
   csn: Int,
-) -> #(Core, Int, List(InFlight), List(wire.OutboundOp)) {
+) -> #(Core, Int, List(InFlight), List(wire.OutboundOperation)) {
   case dict.get(core.channels, address) {
     Ok(channel.DirectoryState(kernel)) -> {
       let self = client_id_to_int(core.client_id)
-      let #(kernel, maybe_op) =
-        directory_kernel.resubmit(kernel, op, message_id, self)
+      let #(kernel, maybe_operation) =
+        directory_kernel.resubmit(kernel, operation, message_id, self)
       let core =
         put_attached_channel(core, address, channel.DirectoryState(kernel))
-      case maybe_op {
-        Some(next_op) -> {
-          let next_channel_op = channel.DirectoryOp(next_op, message_id)
+      case maybe_operation {
+        Some(next_operation) -> {
+          let next_channel_operation =
+            channel.DirectoryOperation(next_operation, message_id)
           #(
             core,
             csn + 1,
             [
-              InFlightOp(
+              InFlightOperation(
                 client_id: core.client_id,
                 csn: csn,
                 address: address,
-                op: next_channel_op,
+                operation: next_channel_operation,
                 meta: channel.DirectoryMeta(message_id),
               ),
             ],
             [
-              wire_op.outbound_channel_op(
+              wire_op.outbound_channel_operation(
                 address: address,
                 client_sequence_number: csn,
                 reference_sequence_number: core.last_seen_sn,
-                op: next_channel_op,
+                operation: next_channel_operation,
               ),
             ],
           )
@@ -880,15 +893,16 @@ pub fn handle_sequenced(
       use #(core, events, resolutions) <- result.try(apply_one(core, msg))
       use #(core, drained, drained_resolutions) <- result.try(drain_buffer(core))
       // A single-in-flight kernel (json0 or rich text) may have promoted a
-      // buffered op to the wire while acking its own op; collect and stamp
-      // those now, after every op in this batch has been applied and rebased.
-      let #(core, outbound) = collect_released_ops(core)
+      // buffered operation to the wire while acking its own operation; collect
+      // and stamp those now, after every operation in this batch has been
+      // applied and rebased.
+      let #(core, outbound) = collect_released_operations(core)
       Ok(#(
         core,
         Ingested(
           events: list.append(events, drained),
           resolutions: list.append(resolutions, drained_resolutions),
-          request_ops_from: None,
+          request_operations_from: None,
           outbound: outbound,
         ),
       ))
@@ -896,20 +910,23 @@ pub fn handle_sequenced(
   }
 }
 
-/// After a sequenced batch, take every follow-up op that a channel released for
-/// the actor loop to submit. The function gives each op a new CSN and an
-/// in-flight entry, so that the usual ack path reclaims it. Two sources fill
-/// this list:
+/// After a sequenced batch, take every follow-up operation that a channel
+/// released for the actor loop to submit. The function gives each operation a
+/// new CSN and an in-flight entry, so that the usual ack path reclaims it. Two
+/// sources fill this list:
 ///
 ///   1. The `owed` buffer of each channel, which any branch of
-///      `channel.apply_remote` can fill by returning owed ops. One example is a
-///      consensus `Accept` op.
-///   2. The buffer promotion of the one-op-in-flight kernels, which are json0
-///      and rich text. `channel.take_outbound` gives those ops.
+///      `channel.apply_remote` can fill by returning owed operations. One
+///      example is a consensus `Accept` operation.
+///   2. The buffer promotion of the one-operation-in-flight kernels, which are
+///      json0 and rich text. `channel.take_outbound` gives those operations.
 ///
-/// The function returns the stamped outbound ops in channel order. In each
-/// channel, the owed ops come before the ops from the kernel buffer.
-fn collect_released_ops(core: Core) -> #(Core, List(wire.OutboundOp)) {
+/// The function returns the stamped outbound operations in channel order. In
+/// each channel, the owed operations come before the operations from the kernel
+/// buffer.
+fn collect_released_operations(
+  core: Core,
+) -> #(Core, List(wire.OutboundOperation)) {
   list.fold(core.channel_order, #(core, []), fn(acc, address) {
     let #(core, outs) = acc
     let #(core, owed_outs) = drain_owed(core, address)
@@ -918,14 +935,18 @@ fn collect_released_ops(core: Core) -> #(Core, List(wire.OutboundOp)) {
   })
 }
 
-/// Take every op from the `owed` buffer of one channel, and stamp each one.
-fn drain_owed(core: Core, address: String) -> #(Core, List(wire.OutboundOp)) {
+/// Take every operation from the `owed` buffer of one channel, and stamp each
+/// one.
+fn drain_owed(
+  core: Core,
+  address: String,
+) -> #(Core, List(wire.OutboundOperation)) {
   case dict.get(core.owed, address) {
-    Ok([_, ..] as ops) -> {
+    Ok([_, ..] as operations) -> {
       let core = Core(..core, owed: dict.delete(core.owed, address))
-      list.fold(ops, #(core, []), fn(acc, op) {
+      list.fold(operations, #(core, []), fn(acc, operation) {
         let #(core, outs) = acc
-        let #(core, out) = stamp_outbound(core, address, op)
+        let #(core, out) = stamp_outbound(core, address, operation)
         #(core, list.append(outs, [out]))
       })
     }
@@ -933,52 +954,52 @@ fn drain_owed(core: Core, address: String) -> #(Core, List(wire.OutboundOp)) {
   }
 }
 
-/// Take the promoted buffer of a one-op-in-flight kernel, for one channel, and
-/// stamp the op.
+/// Take the promoted buffer of a one-operation-in-flight kernel, for one
+/// channel, and stamp the operation.
 fn drain_kernel_outbound(
   core: Core,
   address: String,
-) -> #(Core, List(wire.OutboundOp)) {
+) -> #(Core, List(wire.OutboundOperation)) {
   case dict.get(core.channels, address) {
     Error(_) -> #(core, [])
     Ok(state) ->
       case channel.take_outbound(state) {
         #(_, None) -> #(core, [])
-        #(state, Some(op)) -> {
+        #(state, Some(operation)) -> {
           let core =
             Core(..core, channels: dict.insert(core.channels, address, state))
-          let #(core, out) = stamp_outbound(core, address, op)
+          let #(core, out) = stamp_outbound(core, address, operation)
           #(core, [out])
         }
       }
   }
 }
 
-/// Give a released op a new CSN, record an in-flight entry so that the usual ack
-/// path reclaims it, and build its outbound wire op.
+/// Give a released operation a new CSN, record an in-flight entry so that the
+/// usual ack path reclaims it, and build its outbound wire operation.
 fn stamp_outbound(
   core: Core,
   address: String,
-  op: channel.ChannelOp,
-) -> #(Core, wire.OutboundOp) {
+  operation: channel.ChannelOperation,
+) -> #(Core, wire.OutboundOperation) {
   let csn = core.next_csn
   let outbound =
-    wire_op.outbound_channel_op(
+    wire_op.outbound_channel_operation(
       address: address,
       client_sequence_number: csn,
       reference_sequence_number: core.last_seen_sn,
-      op: op,
+      operation: operation,
     )
   let core =
     Core(
       ..core,
       next_csn: csn + 1,
       in_flight: list.append(core.in_flight, [
-        InFlightOp(
+        InFlightOperation(
           client_id: core.client_id,
           csn: csn,
           address: address,
-          op: op,
+          operation: operation,
           meta: channel.NoMeta,
         ),
       ]),
@@ -995,15 +1016,15 @@ fn apply_one(
 ) {
   let core = Core(..core, last_seen_sn: msg.sequence_number)
   case msg.message_type {
-    "op" -> handle_op(core, msg)
+    "op" -> handle_operation(core, msg)
     "join" -> handle_join(core, msg)
     "leave" -> handle_leave(core, msg)
     // Someone summarized. The contents are a storage handle this client has no
     // use for — it is already caught up — but the sequence number tells the
     // automatic policy that the document has a fresher checkpoint than it
     // thought, which is how a room writes one summary per crossing rather than
-    // one per client. `int.max` because a summarize op replayed out of an old
-    // log must not un-summarize a document loaded from a newer blob.
+    // one per client. `int.max` because a summarize operation replayed out of
+    // an old log must not un-summarize a document loaded from a newer blob.
     "summarize" ->
       Ok(
         #(
@@ -1022,8 +1043,8 @@ fn apply_one(
 /// Apply a sequenced membership join, which is a `"join"` system message, by
 /// adding the client that arrived to the roster. No kernel needs this message,
 /// and a `"leave"` message differs there. A join only makes the quorum larger,
-/// for the ops that sequence *after* it, and a pact that is already pending
-/// froze its signoff list when it sequenced.
+/// for the operations that sequence *after* it, and a pact that is already
+/// pending froze its signoff list when it sequenced.
 ///
 /// The payload of a join is an object, `{"clientId": …, "detail": {…}}`. The
 /// payload of a leave is a bare string. The two system messages do not share one
@@ -1150,17 +1171,17 @@ fn buffer_insert(
   }
 }
 
-fn handle_op(
+fn handle_operation(
   core: Core,
   msg: SequencedDocumentMessage,
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
 ) {
-  case wire_op.decode_op_contents(msg.contents) {
-    Error(_) -> Error(BadOpContents(msg.sequence_number))
-    Ok(wire_op.AttachOp(address, snapshot)) ->
-      case is_own_op(core, msg.client_id) {
+  case wire_op.decode_operation_contents(msg.contents) {
+    Error(_) -> Error(BadOperationContents(msg.sequence_number))
+    Ok(wire_op.AttachOperation(address, snapshot)) ->
+      case is_own_operation(core, msg.client_id) {
         True ->
           ack_own_attach(
             core,
@@ -1171,30 +1192,30 @@ fn handle_op(
           )
         False -> remote_attach(core, msg.sequence_number, address, snapshot)
       }
-    Ok(wire_op.ChannelOp(address, raw_contents)) ->
-      // The op envelope carries no channel type; the registry is the
+    Ok(wire_op.ChannelOperation(address, raw_contents)) ->
+      // The operation envelope carries no channel type; the registry is the
       // authoritative source, so decode against the addressed channel's own
-      // grammar. Channels are always attached before their ops arrive.
+      // grammar. Channels are always attached before their operations arrive.
       case dict.get(core.channels, address) {
         Error(_) -> Error(UnknownChannel(address, msg.sequence_number))
         Ok(state) ->
           case
             decode.run(
               raw_contents,
-              wire_op.channel_op_decoder(channel.channel_type(state)),
+              wire_op.channel_operation_decoder(channel.channel_type(state)),
             )
           {
-            Error(_) -> Error(BadOpContents(msg.sequence_number))
-            Ok(op) ->
-              case is_own_op(core, msg.client_id) {
+            Error(_) -> Error(BadOperationContents(msg.sequence_number))
+            Ok(operation) ->
+              case is_own_operation(core, msg.client_id) {
                 True ->
-                  ack_own_op(
+                  ack_own_operation(
                     core,
                     msg.client_id,
                     msg.client_sequence_number,
                     address,
                     state,
-                    op,
+                    operation,
                     msg.sequence_number,
                     msg.minimum_sequence_number,
                   )
@@ -1207,7 +1228,7 @@ fn handle_op(
                     msg.reference_sequence_number,
                     address,
                     state,
-                    op,
+                    operation,
                   )
               }
           }
@@ -1215,7 +1236,7 @@ fn handle_op(
   }
 }
 
-fn is_own_op(core: Core, message_client_id: Option(String)) -> Bool {
+fn is_own_operation(core: Core, message_client_id: Option(String)) -> Bool {
   case message_client_id {
     None -> False
     Some(cid) ->
@@ -1229,7 +1250,7 @@ fn is_own_op(core: Core, message_client_id: Option(String)) -> Bool {
 
 fn in_flight_client_id(entry: InFlight) -> String {
   case entry {
-    InFlightOp(client_id: client_id, ..) -> client_id
+    InFlightOperation(client_id: client_id, ..) -> client_id
     InFlightAttach(client_id: client_id, ..) -> client_id
   }
 }
@@ -1265,7 +1286,7 @@ fn apply_remote_channel(
   reference_sequence_number: Int,
   address: String,
   state: ChannelState,
-  op: channel.ChannelOp,
+  operation: channel.ChannelOperation,
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
@@ -1282,7 +1303,7 @@ fn apply_remote_channel(
       roster: set.to_list(core.members),
       reference_sequence_number: reference_sequence_number,
     )
-  case channel.apply_remote(state, op, meta) {
+  case channel.apply_remote(state, operation, meta) {
     Ok(#(state, events, owed)) ->
       Ok(
         #(
@@ -1297,19 +1318,20 @@ fn apply_remote_channel(
       )
     Error(channel.UnexpectedAck(detail))
     | Error(channel.WrongChannelType(detail))
-    | Error(channel.CorruptRemoteOp(detail))
+    | Error(channel.CorruptRemoteOperation(detail))
     | Error(channel.UnsupportedP2p(detail)) -> Error(AckMismatch(detail))
   }
 }
 
-/// Add the owed follow-up ops that a kernel released while it applied a
-/// sequenced op, keyed by channel address. `collect_released_ops` then stamps
-/// them and submits them after the current batch. This function is public, so
-/// that a test can fill the buffer without a kernel that produces ops.
+/// Add the owed follow-up operations that a kernel released while it applied a
+/// sequenced operation, keyed by channel address. `collect_released_operations`
+/// then stamps them and submits them after the current batch. This function is
+/// public, so that a test can fill the buffer without a kernel that produces
+/// operations.
 pub fn enqueue_owed(
   core: Core,
   address: String,
-  owed: List(channel.ChannelOp),
+  owed: List(channel.ChannelOperation),
 ) -> Core {
   case owed {
     [] -> core
@@ -1363,7 +1385,7 @@ fn ack_own_attach(
                 <> int.to_string(csn),
               ))
           }
-        InFlightOp(csn: head_csn, ..) ->
+        InFlightOperation(csn: head_csn, ..) ->
           Error(AckMismatch(
             "expected channel op ack for csn "
             <> int.to_string(head_csn)
@@ -1374,13 +1396,13 @@ fn ack_own_attach(
   }
 }
 
-fn ack_own_op(
+fn ack_own_operation(
   core: Core,
   message_client_id: Option(String),
   csn: Int,
   address: String,
   state: ChannelState,
-  echoed: channel.ChannelOp,
+  echoed: channel.ChannelOperation,
   sequence_number: Int,
   minimum_sequence_number: Int,
 ) -> Result(
@@ -1396,18 +1418,18 @@ fn ack_own_op(
       ))
     [head, ..rest] ->
       case head {
-        InFlightOp(
+        InFlightOperation(
           client_id: client_id,
           csn: head_csn,
           address: head_address,
-          op: op,
+          operation: operation,
           meta: meta,
         ) ->
           case
             Some(client_id) == message_client_id
             && head_csn == csn
             && head_address == address
-            && channel.same_shape(op, echoed)
+            && channel.same_shape(operation, echoed)
           {
             False ->
               Error(AckMismatch(
@@ -1431,10 +1453,11 @@ fn ack_own_op(
               case channel.applies_own_on_sequence(state) {
                 // Consensus kernels (PactMap) take effect only on sequencing,
                 // regardless of author. Reclaim the in-flight entry here, then
-                // apply the op through the same `apply_remote` path a remote
-                // client would, capturing any owed follow-up (e.g. an Accept).
+                // apply the operation through the same `apply_remote` path a
+                // remote client would, capturing any owed follow-up (e.g. an
+                // Accept).
                 True ->
-                  case channel.apply_remote(state, op, sequenced_meta) {
+                  case channel.apply_remote(state, operation, sequenced_meta) {
                     Ok(#(state, events, owed)) ->
                       Ok(
                         #(
@@ -1457,12 +1480,14 @@ fn ack_own_op(
                       )
                     Error(channel.UnexpectedAck(detail))
                     | Error(channel.WrongChannelType(detail))
-                    | Error(channel.CorruptRemoteOp(detail))
+                    | Error(channel.CorruptRemoteOperation(detail))
                     | Error(channel.UnsupportedP2p(detail)) ->
                       Error(AckMismatch(detail))
                   }
                 False ->
-                  case channel.ack_local(state, op, meta, sequenced_meta) {
+                  case
+                    channel.ack_local(state, operation, meta, sequenced_meta)
+                  {
                     Ok(#(state, events, resolution)) ->
                       Ok(#(
                         Core(
@@ -1475,7 +1500,7 @@ fn ack_own_op(
                       ))
                     Error(channel.UnexpectedAck(detail))
                     | Error(channel.WrongChannelType(detail))
-                    | Error(channel.CorruptRemoteOp(detail))
+                    | Error(channel.CorruptRemoteOperation(detail))
                     | Error(channel.UnsupportedP2p(detail)) ->
                       Error(AckMismatch(detail))
                   }
@@ -1526,13 +1551,13 @@ pub fn set(
   key: String,
   value: Json,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_map(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op) = map_kernel.set(kernel, key, value)
+      let #(kernel, events, _operation) = map_kernel.set(kernel, key, value)
       Ok(
         #(
           put_detached_channel(core, address, channel.MapState(kernel)),
@@ -1549,14 +1574,14 @@ pub fn set(
       let kernel = case located {
         Detached(kernel) | Attached(kernel) -> kernel
       }
-      let #(kernel, events, op) = map_kernel.set(kernel, key, value)
+      let #(kernel, events, operation) = map_kernel.set(kernel, key, value)
       let #(core, events, outbound) =
         stamp_attached(
           core,
           address,
           channel.MapState(kernel),
           tag_map_events(address, events),
-          channel.MapOp(op),
+          channel.MapOperation(operation),
           channel.NoMeta,
         )
       Ok(#(core, events, list.append(attach_outbound, outbound)))
@@ -1569,13 +1594,13 @@ pub fn delete(
   address: String,
   key: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_map(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op) = map_kernel.delete(kernel, key)
+      let #(kernel, events, _operation) = map_kernel.delete(kernel, key)
       Ok(
         #(
           put_detached_channel(core, address, channel.MapState(kernel)),
@@ -1585,13 +1610,13 @@ pub fn delete(
       )
     }
     Ok(Attached(kernel)) -> {
-      let #(kernel, events, op) = map_kernel.delete(kernel, key)
+      let #(kernel, events, operation) = map_kernel.delete(kernel, key)
       Ok(stamp_attached(
         core,
         address,
         channel.MapState(kernel),
         tag_map_events(address, events),
-        channel.MapOp(op),
+        channel.MapOperation(operation),
         channel.NoMeta,
       ))
     }
@@ -1602,13 +1627,13 @@ pub fn clear(
   core: Core,
   address: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_map(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op) = map_kernel.clear(kernel)
+      let #(kernel, events, _operation) = map_kernel.clear(kernel)
       Ok(
         #(
           put_detached_channel(core, address, channel.MapState(kernel)),
@@ -1618,13 +1643,13 @@ pub fn clear(
       )
     }
     Ok(Attached(kernel)) -> {
-      let #(kernel, events, op) = map_kernel.clear(kernel)
+      let #(kernel, events, operation) = map_kernel.clear(kernel)
       Ok(stamp_attached(
         core,
         address,
         channel.MapState(kernel),
         tag_map_events(address, events),
-        channel.MapOp(op),
+        channel.MapOperation(operation),
         channel.NoMeta,
       ))
     }
@@ -1636,13 +1661,13 @@ pub fn increment(
   address: String,
   amount: Int,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_counter(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op, _message_id) =
+      let #(kernel, events, _operation, _message_id) =
         counter_kernel.increment(kernel, amount)
       Ok(
         #(
@@ -1653,14 +1678,14 @@ pub fn increment(
       )
     }
     Ok(Attached(kernel)) -> {
-      let #(kernel, events, op, message_id) =
+      let #(kernel, events, operation, message_id) =
         counter_kernel.increment(kernel, amount)
       Ok(stamp_attached(
         core,
         address,
         channel.CounterState(kernel),
         tag_counter_events(address, events),
-        channel.CounterOp(op),
+        channel.CounterOperation(operation),
         channel.CounterMeta(message_id),
       ))
     }
@@ -1675,13 +1700,13 @@ pub fn pn_counter_update(
   address: String,
   amount: Int,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_pn_counter(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op, _message_id) =
+      let #(kernel, events, _operation, _message_id) =
         pn_counter_kernel.update(kernel, amount)
       Ok(
         #(
@@ -1692,14 +1717,14 @@ pub fn pn_counter_update(
       )
     }
     Ok(Attached(kernel)) -> {
-      let #(kernel, events, op, message_id) =
+      let #(kernel, events, operation, message_id) =
         pn_counter_kernel.update(kernel, amount)
       Ok(stamp_attached(
         core,
         address,
         channel.PnCounterState(kernel),
         tag_pn_counter_events(address, events),
-        channel.PnCounterOp(op),
+        channel.PnCounterOperation(operation),
         channel.PnCounterMeta(message_id),
       ))
     }
@@ -1712,18 +1737,18 @@ pub fn pn_counter_update(
 
 /// Propose `value` for `key` in the PactMap at `address`. `value` is a JSON
 /// payload, or `None` for a delete. Unlike an optimistic kernel, a consensus
-/// PactMap does **not** apply the value locally. The kernel returns the op to
-/// submit, or a `ProposeError` value when a value is already pending for the
-/// key, which changes nothing. The value takes effect when the `Set` op
-/// sequences. The released-ops loop emits the `Accept` op of the setter by
-/// itself.
+/// PactMap does **not** apply the value locally. The kernel returns the
+/// operation to submit, or a `ProposeError` value when a value is already
+/// pending for the key, which changes nothing. The value takes effect when the
+/// `Set` operation sequences. The released-operations loop emits the `Accept`
+/// operation of the setter by itself.
 pub fn pact_map_set(
   core: Core,
   address: String,
   key: String,
   value: Json,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   pact_map_submit(core, address, fn(kernel) {
@@ -1732,17 +1757,17 @@ pub fn pact_map_set(
 }
 
 /// Propose a delete for `key` in the PactMap at `address`. A delete writes a
-/// tombstone. This function submits an op only, the same as `pact_map_set`, and
-/// the delete takes effect when that op sequences. A `ProposeError` value from
-/// the kernel changes nothing. The kernel gives that result when a value is
-/// already pending, when the key is absent, and when the key already holds a
-/// tombstone.
+/// tombstone. This function submits an operation only, the same as
+/// `pact_map_set`, and the delete takes effect when that operation sequences. A
+/// `ProposeError` value from the kernel changes nothing. The kernel gives that
+/// result when a value is already pending, when the key is absent, and when the
+/// key already holds a tombstone.
 pub fn pact_map_delete(
   core: Core,
   address: String,
   key: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   pact_map_submit(core, address, fn(kernel) {
@@ -1754,27 +1779,28 @@ fn pact_map_submit(
   core: Core,
   address: String,
   produce: fn(pact_map_kernel.PactMapState) ->
-    Result(pact_map_kernel.PactMapOp, pact_map_kernel.ProposeError),
+    Result(pact_map_kernel.PactMapOperation, pact_map_kernel.ProposeError),
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_pact_map(core, address) {
     Error(core_error) -> Error(core_error)
     // A detached PactMap has no sequencer to settle a pending value, so a set
-    // cannot be submitted yet; it is a no-op until the channel is attached.
+    // cannot be submitted yet; it is a no-operation until the channel is
+    // attached.
     Ok(Detached(_)) -> Ok(#(core, [], []))
     Ok(Attached(kernel)) ->
       case produce(kernel) {
         // A refusal changes nothing, and the caller can retry later.
         Error(_) -> Ok(#(core, [], []))
-        Ok(op) ->
+        Ok(operation) ->
           Ok(stamp_attached(
             core,
             address,
             channel.PactMapState(kernel),
             [],
-            channel.PactMapOp(op),
+            channel.PactMapOperation(operation),
             channel.NoMeta,
           ))
       }
@@ -1786,15 +1812,15 @@ fn pact_map_submit(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Append `value` to the queue at `address`. An attached channel is not
-/// optimistic, and the value takes effect when the op sequences, through the ack
-/// of that op. A detached channel applies the value immediately, and its attach
-/// carries the add.
+/// optimistic, and the value takes effect when the operation sequences, through
+/// the ack of that operation. A detached channel applies the value immediately,
+/// and its attach carries the add.
 pub fn ordered_add(
   core: Core,
   address: String,
   value: Json,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_ordered(core, address) {
@@ -1815,13 +1841,13 @@ pub fn ordered_add(
       )
     }
     Ok(Attached(kernel)) -> {
-      let op = ordered_collection_kernel.add(kernel, value)
+      let operation = ordered_collection_kernel.add(kernel, value)
       Ok(stamp_attached(
         core,
         address,
         channel.OrderedCollectionState(kernel),
         [],
-        channel.OrderedCollectionOp(op),
+        channel.OrderedCollectionOperation(operation),
         channel.NoMeta,
       ))
     }
@@ -1831,7 +1857,7 @@ pub fn ordered_add(
 /// Acquire the head of the queue at `address`, under the `acquire_id` value that
 /// the caller supplies. Create that id in the runtime layer, with
 /// `id.uuid_v4`. An attached channel is not optimistic. The kernel removes the
-/// item when the op sequences, and the `Acquired` event delivers it. The
+/// item when the operation sequences, and the `Acquired` event delivers it. The
 /// `acquire_id` value is the key of the later `complete` or `release` call. A
 /// detached channel acquires the item immediately.
 pub fn ordered_acquire(
@@ -1839,7 +1865,7 @@ pub fn ordered_acquire(
   address: String,
   acquire_id: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   ordered_acquire_submit(core, address, acquire_id)
@@ -1849,8 +1875,8 @@ pub fn ordered_acquire(
 /// The same as `ordered_acquire`, and the function also reports the immediate
 /// outcome. The result is `Some` for a detached channel, where the acquire took
 /// effect in this call. The result is `None` for an attached channel. There the
-/// outcome arrives as an `AcquireResolved` resolution when the op sequences,
-/// keyed by `acquire_id`.
+/// outcome arrives as an `AcquireResolved` resolution when the operation
+/// sequences, keyed by `acquire_id`.
 pub fn ordered_acquire_submit(
   core: Core,
   address: String,
@@ -1859,7 +1885,7 @@ pub fn ordered_acquire_submit(
   #(
     Core,
     List(#(String, ChannelEvent)),
-    List(wire.OutboundOp),
+    List(wire.OutboundOperation),
     Option(ordered_collection_kernel.AcquireOutcome),
   ),
   CoreError,
@@ -1881,14 +1907,14 @@ pub fn ordered_acquire_submit(
       ))
     }
     Ok(Attached(kernel)) -> {
-      let op = ordered_collection_kernel.acquire(acquire_id)
+      let operation = ordered_collection_kernel.acquire(acquire_id)
       let #(core, events, outbound) =
         stamp_attached(
           core,
           address,
           channel.OrderedCollectionState(kernel),
           [],
-          channel.OrderedCollectionOp(op),
+          channel.OrderedCollectionOperation(operation),
           channel.NoMeta,
         )
       Ok(#(core, events, outbound, None))
@@ -1904,7 +1930,7 @@ pub fn ordered_complete(
   address: String,
   acquire_id: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   ordered_submit(core, address, ordered_collection_kernel.complete(acquire_id))
@@ -1917,7 +1943,7 @@ pub fn ordered_release(
   address: String,
   acquire_id: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   ordered_submit(core, address, ordered_collection_kernel.release(acquire_id))
@@ -1926,9 +1952,9 @@ pub fn ordered_release(
 fn ordered_submit(
   core: Core,
   address: String,
-  op: ordered_collection_kernel.OrderedOp,
+  operation: ordered_collection_kernel.OrderedOperation,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_ordered(core, address) {
@@ -1940,7 +1966,7 @@ fn ordered_submit(
         address,
         channel.OrderedCollectionState(kernel),
         [],
-        channel.OrderedCollectionOp(op),
+        channel.OrderedCollectionOperation(operation),
         channel.NoMeta,
       ))
   }
@@ -1951,8 +1977,8 @@ fn ordered_submit(
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Set `key` to `value` in the directory at `path`. The write is optimistic. The
-/// local value appears immediately, and the op sequences and receives an ack,
-/// the same as any other op.
+/// local value appears immediately, and the operation sequences and receives an
+/// ack, the same as any other operation.
 pub fn directory_set(
   core: Core,
   address: String,
@@ -1960,7 +1986,7 @@ pub fn directory_set(
   key: String,
   value: Json,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   directory_storage_edit(core, address, Some(value), fn(kernel) {
@@ -1974,7 +2000,7 @@ pub fn directory_delete(
   path: String,
   key: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   directory_storage_edit(core, address, None, fn(kernel) {
@@ -1987,7 +2013,7 @@ pub fn directory_clear(
   address: String,
   path: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   directory_storage_edit(core, address, None, fn(kernel) {
@@ -2001,7 +2027,7 @@ pub fn directory_create_subdirectory(
   path: String,
   name: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   let self = client_id_to_int(core.client_id)
@@ -2016,7 +2042,7 @@ pub fn directory_delete_subdirectory(
   path: String,
   name: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   directory_subdir_edit(core, address, fn(kernel) {
@@ -2024,9 +2050,9 @@ pub fn directory_delete_subdirectory(
   })
 }
 
-/// A storage op, which is a `set`, a `delete`, or a `clear`, always produces an
-/// outbound op on an attached channel. The kernel returns the state, the events,
-/// the op, and the message id.
+/// A storage operation, which is a `set`, a `delete`, or a `clear`, always
+/// produces an outbound operation on an attached channel. The kernel returns
+/// the state, the events, the operation, and the message id.
 fn directory_storage_edit(
   core: Core,
   address: String,
@@ -2036,20 +2062,20 @@ fn directory_storage_edit(
       #(
         directory_kernel.DirectoryState,
         List(directory_kernel.DirectoryEvent),
-        directory_kernel.DirectoryOp,
+        directory_kernel.DirectoryOperation,
         Int,
       ),
       directory_kernel.KernelError,
     ),
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_directory(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) ->
       case run(kernel) {
-        Ok(#(kernel, events, _op, _message_id)) ->
+        Ok(#(kernel, events, _operation, _message_id)) ->
           Ok(
             #(
               put_detached_channel(
@@ -2062,11 +2088,11 @@ fn directory_storage_edit(
             ),
           )
         Error(error) ->
-          Error(DirectoryOpFailed(address, directory_detail(error)))
+          Error(DirectoryOperationFailed(address, directory_detail(error)))
       }
     Ok(Attached(kernel)) -> {
       case run(kernel) {
-        Ok(#(kernel, events, op, message_id)) -> {
+        Ok(#(kernel, events, operation, message_id)) -> {
           let #(core, attach_outbound) = case dependency_value {
             Some(value) -> attach_dependencies(core, value)
             None -> #(core, [])
@@ -2077,22 +2103,22 @@ fn directory_storage_edit(
               address,
               channel.DirectoryState(kernel),
               tag_directory_events(address, events),
-              channel.DirectoryOp(op, message_id),
+              channel.DirectoryOperation(operation, message_id),
               channel.DirectoryMeta(message_id),
             )
           Ok(#(core, events, list.append(attach_outbound, outbound)))
         }
         Error(error) ->
-          Error(DirectoryOpFailed(address, directory_detail(error)))
+          Error(DirectoryOperationFailed(address, directory_detail(error)))
       }
     }
   }
 }
 
-/// A subdirectory op, which is a `create` or a `delete`, can produce no outbound
-/// op. A duplicate create, and a delete of a child that the optimistic view does
-/// not contain, both update the local state and emit events, and they send
-/// nothing.
+/// A subdirectory operation, which is a `create` or a `delete`, can produce no
+/// outbound operation. A duplicate create, and a delete of a child that the
+/// optimistic view does not contain, both update the local state and emit
+/// events, and they send nothing.
 fn directory_subdir_edit(
   core: Core,
   address: String,
@@ -2101,20 +2127,20 @@ fn directory_subdir_edit(
       #(
         directory_kernel.DirectoryState,
         List(directory_kernel.DirectoryEvent),
-        Option(directory_kernel.DirectoryOp),
+        Option(directory_kernel.DirectoryOperation),
         Int,
       ),
       directory_kernel.KernelError,
     ),
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_directory(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) ->
       case run(kernel) {
-        Ok(#(kernel, events, _op, _message_id)) ->
+        Ok(#(kernel, events, _operation, _message_id)) ->
           Ok(
             #(
               put_detached_channel(
@@ -2127,17 +2153,17 @@ fn directory_subdir_edit(
             ),
           )
         Error(error) ->
-          Error(DirectoryOpFailed(address, directory_detail(error)))
+          Error(DirectoryOperationFailed(address, directory_detail(error)))
       }
     Ok(Attached(kernel)) ->
       case run(kernel) {
-        Ok(#(kernel, events, Some(op), message_id)) ->
+        Ok(#(kernel, events, Some(operation), message_id)) ->
           Ok(stamp_attached(
             core,
             address,
             channel.DirectoryState(kernel),
             tag_directory_events(address, events),
-            channel.DirectoryOp(op, message_id),
+            channel.DirectoryOperation(operation, message_id),
             channel.DirectoryMeta(message_id),
           ))
         Ok(#(kernel, events, None, _message_id)) ->
@@ -2153,7 +2179,7 @@ fn directory_subdir_edit(
             ),
           )
         Error(error) ->
-          Error(DirectoryOpFailed(address, directory_detail(error)))
+          Error(DirectoryOperationFailed(address, directory_detail(error)))
       }
   }
 }
@@ -2168,17 +2194,18 @@ fn directory_detail(error: directory_kernel.KernelError) -> String {
   }
 }
 
-/// Submit a json0 op that the client wrote against the current optimistic view
-/// of the channel. The one-op-in-flight kernel sends the op immediately when no
-/// op is in flight. If one is in flight, the kernel composes the new op into the
-/// buffer and releases it on the next ack, in `collect_released_ops`. One op is
-/// thus on the wire at a time, at most.
+/// Submit a json0 operation that the client wrote against the current
+/// optimistic view of the channel. The one-operation-in-flight kernel sends the
+/// operation immediately when no operation is in flight. If one is in flight,
+/// the kernel composes the new operation into the buffer and releases it on the
+/// next ack, in `collect_released_operations`. One operation is thus on the
+/// wire at a time, at most.
 pub fn submit_json_ot(
   core: Core,
   address: String,
-  components: json_ot.Op,
+  components: json_ot.Operation,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_json_ot(core, address) {
@@ -2203,7 +2230,7 @@ pub fn submit_json_ot(
             address,
             channel.JsonOtState(kernel),
             tag_json_ot_events(address, events),
-            channel.JsonOtOp(wire),
+            channel.JsonOtOperation(wire),
             channel.NoMeta,
           ))
         Ok(#(kernel, None, events)) ->
@@ -2236,13 +2263,14 @@ pub fn json_ot_view(
 /// Submit a rich-text delta that the client wrote against the current optimistic
 /// document of the channel. The behaviour is the same as for json0. The kernel
 /// sends one delta immediately, and it buffers each later delta until
-/// `collect_released_ops` takes the promoted outbound op of the kernel.
+/// `collect_released_operations` takes the promoted outbound operation of the
+/// kernel.
 pub fn submit_rich_text(
   core: Core,
   address: String,
   delta: rich_text.Delta,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_rich_text(core, address) {
@@ -2267,7 +2295,7 @@ pub fn submit_rich_text(
             address,
             channel.RichTextState(kernel),
             tag_rich_text_events(address, events),
-            channel.RichTextOp(wire),
+            channel.RichTextOperation(wire),
             channel.NoMeta,
           ))
         Ok(#(kernel, None, events)) ->
@@ -2331,14 +2359,14 @@ pub fn or_map_increment(
   key: String,
   amount: Int,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_or_map(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) ->
       case or_map_kernel.increment(kernel, key, amount) {
-        Ok(#(kernel, events, _op, _message_id)) ->
+        Ok(#(kernel, events, _operation, _message_id)) ->
           Ok(
             #(
               put_detached_channel(core, address, channel.OrMapState(kernel)),
@@ -2356,13 +2384,13 @@ pub fn or_map_increment(
       }
     Ok(Attached(kernel)) ->
       case or_map_kernel.increment(kernel, key, amount) {
-        Ok(#(kernel, events, op, message_id)) ->
+        Ok(#(kernel, events, operation, message_id)) ->
           Ok(stamp_attached(
             core,
             address,
             channel.OrMapState(kernel),
             tag_or_map_events(address, events),
-            channel.OrMapOp(op),
+            channel.OrMapOperation(operation),
             channel.OrMapMeta(message_id),
           ))
         Error(or_map_kernel.ModeMismatch(detail)) ->
@@ -2383,14 +2411,14 @@ pub fn or_map_set(
   value: String,
   timestamp: Int,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_or_map(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) ->
       case or_map_kernel.set_register(kernel, key, value, timestamp) {
-        Ok(#(kernel, events, _op, _message_id)) ->
+        Ok(#(kernel, events, _operation, _message_id)) ->
           Ok(
             #(
               put_detached_channel(core, address, channel.OrMapState(kernel)),
@@ -2416,14 +2444,14 @@ pub fn or_map_set(
         Detached(kernel) | Attached(kernel) -> kernel
       }
       case or_map_kernel.set_register(kernel, key, value, timestamp) {
-        Ok(#(kernel, events, op, message_id)) -> {
+        Ok(#(kernel, events, operation, message_id)) -> {
           let #(core, events, outbound) =
             stamp_attached(
               core,
               address,
               channel.OrMapState(kernel),
               tag_or_map_events(address, events),
-              channel.OrMapOp(op),
+              channel.OrMapOperation(operation),
               channel.OrMapMeta(message_id),
             )
           Ok(#(core, events, list.append(attach_outbound, outbound)))
@@ -2445,14 +2473,14 @@ pub fn or_map_remove(
   address: String,
   key: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_or_map(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) ->
       case or_map_kernel.remove(kernel, key) {
-        Ok(#(kernel, events, _op, _message_id)) ->
+        Ok(#(kernel, events, _operation, _message_id)) ->
           Ok(
             #(
               put_detached_channel(core, address, channel.OrMapState(kernel)),
@@ -2465,13 +2493,13 @@ pub fn or_map_remove(
 
     Ok(Attached(kernel)) ->
       case or_map_kernel.remove(kernel, key) {
-        Ok(#(kernel, events, op, message_id)) ->
+        Ok(#(kernel, events, operation, message_id)) ->
           Ok(stamp_attached(
             core,
             address,
             channel.OrMapState(kernel),
             tag_or_map_events(address, events),
-            channel.OrMapOp(op),
+            channel.OrMapOperation(operation),
             channel.OrMapMeta(message_id),
           ))
         Error(error) -> Error(or_map_kernel_error(address, error))
@@ -2500,13 +2528,13 @@ pub fn or_set_add(
   address: String,
   element: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_or_set(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op, _message_id) =
+      let #(kernel, events, _operation, _message_id) =
         or_set_kernel.add(kernel, element)
       Ok(
         #(
@@ -2517,13 +2545,14 @@ pub fn or_set_add(
       )
     }
     Ok(Attached(kernel)) -> {
-      let #(kernel, events, op, message_id) = or_set_kernel.add(kernel, element)
+      let #(kernel, events, operation, message_id) =
+        or_set_kernel.add(kernel, element)
       Ok(stamp_attached(
         core,
         address,
         channel.OrSetState(kernel),
         tag_or_set_events(address, events),
-        channel.OrSetOp(op),
+        channel.OrSetOperation(operation),
         channel.OrSetMeta(message_id),
       ))
     }
@@ -2535,13 +2564,13 @@ pub fn or_set_remove(
   address: String,
   element: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_or_set(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op, _message_id) =
+      let #(kernel, events, _operation, _message_id) =
         or_set_kernel.remove(kernel, element)
       Ok(
         #(
@@ -2552,14 +2581,14 @@ pub fn or_set_remove(
       )
     }
     Ok(Attached(kernel)) -> {
-      let #(kernel, events, op, message_id) =
+      let #(kernel, events, operation, message_id) =
         or_set_kernel.remove(kernel, element)
       Ok(stamp_attached(
         core,
         address,
         channel.OrSetState(kernel),
         tag_or_set_events(address, events),
-        channel.OrSetOp(op),
+        channel.OrSetOperation(operation),
         channel.OrSetMeta(message_id),
       ))
     }
@@ -2575,13 +2604,13 @@ fn mutate_sequence(
       #(
         sequence_kernel.SequenceState,
         List(sequence_kernel.SequenceEvent),
-        sequence_kernel.SequenceOp,
+        sequence_kernel.SequenceOperation,
         Int,
       ),
       sequence_kernel.EditError,
     ),
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_sequence(core, address) {
@@ -2589,11 +2618,11 @@ fn mutate_sequence(
     Ok(Detached(kernel)) ->
       case mutate(kernel) {
         Error(error) ->
-          Error(SequenceOpFailed(
+          Error(SequenceOperationFailed(
             address,
             sequence_kernel.edit_error_detail(error),
           ))
-        Ok(#(kernel, events, _op, _message_id)) ->
+        Ok(#(kernel, events, _operation, _message_id)) ->
           Ok(
             #(
               put_detached_channel(core, address, channel.SequenceState(kernel)),
@@ -2605,11 +2634,11 @@ fn mutate_sequence(
     Ok(Attached(kernel)) ->
       case mutate(kernel) {
         Error(error) ->
-          Error(SequenceOpFailed(
+          Error(SequenceOperationFailed(
             address,
             sequence_kernel.edit_error_detail(error),
           ))
-        Ok(#(kernel, events, op, message_id)) -> {
+        Ok(#(kernel, events, operation, message_id)) -> {
           let #(core, attach_outbound) = case dependencies {
             Some(value) -> attach_dependencies(core, value)
             None -> #(core, [])
@@ -2620,7 +2649,7 @@ fn mutate_sequence(
               address,
               channel.SequenceState(kernel),
               tag_sequence_events(address, events),
-              channel.SequenceOp(op),
+              channel.SequenceOperation(operation),
               channel.SequenceMeta(message_id),
             )
           Ok(#(core, events, list.append(attach_outbound, outbound)))
@@ -2635,7 +2664,7 @@ pub fn sequence_insert(
   index: Int,
   value: Json,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   mutate_sequence(core, address, Some(value), sequence_kernel.insert(
@@ -2650,7 +2679,7 @@ pub fn sequence_delete(
   address: String,
   index: Int,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   mutate_sequence(core, address, None, sequence_kernel.delete(_, index))
@@ -2662,7 +2691,7 @@ pub fn sequence_move(
   from_index: Int,
   to_index: Int,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   mutate_sequence(core, address, None, sequence_kernel.move(
@@ -2678,7 +2707,7 @@ pub fn sequence_replace(
   index: Int,
   value: Json,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   mutate_sequence(core, address, Some(value), sequence_kernel.replace(
@@ -2689,11 +2718,11 @@ pub fn sequence_replace(
 }
 
 /// A text mutation returns an `Option(text_kernel.Submission)` value, and it
-/// does not always produce an op. A valid empty edit changes nothing. See the
-/// module docs of `text_kernel`. A `Some` result updates the state, emits the
-/// events, and, on an attached channel, stamps and submits one channel op. A
-/// `None` result changes no state and no submission counter of the runtime, and
-/// it produces no event and no outbound op.
+/// does not always produce an operation. A valid empty edit changes nothing.
+/// See the module docs of `text_kernel`. A `Some` result updates the state,
+/// emits the events, and, on an attached channel, stamps and submits one
+/// channel operation. A `None` result changes no state and no submission
+/// counter of the runtime, and it produces no event and no outbound operation.
 fn mutate_text(
   core: Core,
   address: String,
@@ -2707,7 +2736,7 @@ fn mutate_text(
       text_kernel.EditError,
     ),
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_text(core, address) {
@@ -2715,7 +2744,10 @@ fn mutate_text(
     Ok(Detached(kernel)) ->
       case mutate(kernel) {
         Error(error) ->
-          Error(TextOpFailed(address, text_kernel.edit_error_detail(error)))
+          Error(TextOperationFailed(
+            address,
+            text_kernel.edit_error_detail(error),
+          ))
         Ok(#(kernel, events, _submission)) ->
           Ok(
             #(
@@ -2728,14 +2760,21 @@ fn mutate_text(
     Ok(Attached(kernel)) ->
       case mutate(kernel) {
         Error(error) ->
-          Error(TextOpFailed(address, text_kernel.edit_error_detail(error)))
-        Ok(#(kernel, events, Some(text_kernel.Submission(op, message_id)))) ->
+          Error(TextOperationFailed(
+            address,
+            text_kernel.edit_error_detail(error),
+          ))
+        Ok(#(
+          kernel,
+          events,
+          Some(text_kernel.Submission(operation, message_id)),
+        )) ->
           Ok(stamp_attached(
             core,
             address,
             channel.TextState(kernel),
             tag_text_events(address, events),
-            channel.TextOp(op),
+            channel.TextOperation(operation),
             channel.TextMeta(message_id),
           ))
         Ok(#(kernel, events, None)) ->
@@ -2756,7 +2795,7 @@ pub fn text_insert(
   index: Int,
   value: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   mutate_text(core, address, text_kernel.insert(_, index, value))
@@ -2768,7 +2807,7 @@ pub fn text_delete_range(
   start: Int,
   end: Int,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   mutate_text(core, address, text_kernel.delete_range(_, start, end))
@@ -2781,7 +2820,7 @@ pub fn text_replace_range(
   end: Int,
   value: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   mutate_text(core, address, text_kernel.replace_range(_, start, end, value))
@@ -2792,7 +2831,7 @@ pub fn text_append(
   address: String,
   value: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   mutate_text(core, address, fn(kernel) {
@@ -2805,13 +2844,13 @@ pub fn g_set_add(
   address: String,
   element: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_g_set(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op, _message_id) =
+      let #(kernel, events, _operation, _message_id) =
         g_set_kernel.add(kernel, element)
       Ok(
         #(
@@ -2822,13 +2861,14 @@ pub fn g_set_add(
       )
     }
     Ok(Attached(kernel)) -> {
-      let #(kernel, events, op, message_id) = g_set_kernel.add(kernel, element)
+      let #(kernel, events, operation, message_id) =
+        g_set_kernel.add(kernel, element)
       Ok(stamp_attached(
         core,
         address,
         channel.GSetState(kernel),
         tag_g_set_events(address, events),
-        channel.GSetOp(op),
+        channel.GSetOperation(operation),
         channel.GSetMeta(message_id),
       ))
     }
@@ -2840,13 +2880,13 @@ pub fn two_p_set_add(
   address: String,
   element: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_two_p_set(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op, _message_id) =
+      let #(kernel, events, _operation, _message_id) =
         two_p_set_kernel.add(kernel, element)
       Ok(
         #(
@@ -2857,14 +2897,14 @@ pub fn two_p_set_add(
       )
     }
     Ok(Attached(kernel)) -> {
-      let #(kernel, events, op, message_id) =
+      let #(kernel, events, operation, message_id) =
         two_p_set_kernel.add(kernel, element)
       Ok(stamp_attached(
         core,
         address,
         channel.TwoPSetState(kernel),
         tag_two_p_set_events(address, events),
-        channel.TwoPSetOp(op),
+        channel.TwoPSetOperation(operation),
         channel.TwoPSetMeta(message_id),
       ))
     }
@@ -2876,13 +2916,13 @@ pub fn two_p_set_remove(
   address: String,
   element: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_two_p_set(core, address) {
     Error(core_error) -> Error(core_error)
     Ok(Detached(kernel)) -> {
-      let #(kernel, events, _op, _message_id) =
+      let #(kernel, events, _operation, _message_id) =
         two_p_set_kernel.remove(kernel, element)
       Ok(
         #(
@@ -2893,14 +2933,14 @@ pub fn two_p_set_remove(
       )
     }
     Ok(Attached(kernel)) -> {
-      let #(kernel, events, op, message_id) =
+      let #(kernel, events, operation, message_id) =
         two_p_set_kernel.remove(kernel, element)
       Ok(stamp_attached(
         core,
         address,
         channel.TwoPSetState(kernel),
         tag_two_p_set_events(address, events),
-        channel.TwoPSetOp(op),
+        channel.TwoPSetOperation(operation),
         channel.TwoPSetMeta(message_id),
       ))
     }
@@ -2913,7 +2953,7 @@ pub fn register_write(
   key: String,
   value: Json,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_register_collection(core, address) {
@@ -2941,7 +2981,7 @@ pub fn register_write(
       let kernel = case located {
         Detached(kernel) | Attached(kernel) -> kernel
       }
-      let op =
+      let operation =
         register_collection_kernel.write(kernel, key, value, core.last_seen_sn)
       let #(core, events, outbound) =
         stamp_attached(
@@ -2949,7 +2989,7 @@ pub fn register_write(
           address,
           channel.RegisterCollectionState(kernel),
           [],
-          channel.RegisterCollectionOp(op),
+          channel.RegisterCollectionOperation(operation),
           channel.NoMeta,
         )
       Ok(#(core, events, list.append(attach_outbound, outbound)))
@@ -2960,7 +3000,7 @@ pub fn register_write(
 pub type ClaimSubmitResult {
   ClaimPending(
     core: Core,
-    outbound: List(wire.OutboundOp),
+    outbound: List(wire.OutboundOperation),
     immediate_outcome: Option(claims_kernel.ClaimOutcome),
   )
   ClaimAlreadyClaimed(current_value: Json)
@@ -2993,7 +3033,7 @@ pub fn claim_once(
       case claims_kernel.claim_once(kernel, key, value, core.last_seen_sn) {
         Ok(claims_kernel.AlreadyClaimed(current_value)) ->
           Ok(ClaimAlreadyClaimed(current_value))
-        Ok(claims_kernel.Submitted(kernel, op)) -> {
+        Ok(claims_kernel.Submitted(kernel, operation)) -> {
           let #(core, attach_outbound) = attach_dependencies(core, value)
           let #(core, _events, outbound) =
             stamp_attached(
@@ -3001,7 +3041,7 @@ pub fn claim_once(
               address,
               channel.ClaimsState(kernel),
               [],
-              channel.ClaimsOp(op),
+              channel.ClaimsOperation(operation),
               channel.NoMeta,
             )
           Ok(ClaimPending(
@@ -3046,7 +3086,7 @@ pub fn compare_and_set_claim(
           core.last_seen_sn,
         )
       {
-        Ok(claims_kernel.Submitted(kernel, op)) -> {
+        Ok(claims_kernel.Submitted(kernel, operation)) -> {
           let #(core, attach_outbound) = attach_dependencies(core, value)
           let #(core, _events, outbound) =
             stamp_attached(
@@ -3054,7 +3094,7 @@ pub fn compare_and_set_claim(
               address,
               channel.ClaimsState(kernel),
               [],
-              channel.ClaimsOp(op),
+              channel.ClaimsOperation(operation),
               channel.NoMeta,
             )
           Ok(ClaimPending(
@@ -3082,7 +3122,7 @@ pub fn task_manager_volunteer(
   #(
     Core,
     List(#(String, ChannelEvent)),
-    List(wire.OutboundOp),
+    List(wire.OutboundOperation),
     task_manager_kernel.VolunteerOutcome,
   ),
   CoreError,
@@ -3105,14 +3145,14 @@ pub fn task_manager_volunteer(
     }
     Ok(Attached(kernel)) -> {
       let message_id = core.next_csn
-      let #(kernel, op, outcome) =
+      let #(kernel, operation, outcome) =
         task_manager_kernel.volunteer(
           kernel,
           task_id,
           client_id_to_int(core.client_id),
           message_id,
         )
-      case op {
+      case operation {
         None ->
           Ok(#(
             put_attached_channel(
@@ -3124,14 +3164,14 @@ pub fn task_manager_volunteer(
             [],
             outcome,
           ))
-        Some(op) -> {
+        Some(operation) -> {
           let #(core, events, outbound) =
             stamp_attached(
               core,
               address,
               channel.TaskManagerState(kernel),
               [],
-              channel.TaskManagerOp(op),
+              channel.TaskManagerOperation(operation),
               channel.TaskManagerMeta(message_id),
             )
           Ok(#(core, events, outbound, outcome))
@@ -3146,7 +3186,7 @@ pub fn task_manager_abandon(
   address: String,
   task_id: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_task_manager(core, address) {
@@ -3168,14 +3208,14 @@ pub fn task_manager_abandon(
     }
     Ok(Attached(kernel)) -> {
       let message_id = core.next_csn
-      let #(kernel, op, events) =
+      let #(kernel, operation, events) =
         task_manager_kernel.abandon(
           kernel,
           task_id,
           client_id_to_int(core.client_id),
           message_id,
         )
-      case op {
+      case operation {
         None ->
           Ok(
             #(
@@ -3188,13 +3228,13 @@ pub fn task_manager_abandon(
               [],
             ),
           )
-        Some(op) ->
+        Some(operation) ->
           Ok(stamp_attached(
             core,
             address,
             channel.TaskManagerState(kernel),
             tag_task_manager_events(address, events),
-            channel.TaskManagerOp(op),
+            channel.TaskManagerOperation(operation),
             channel.TaskManagerMeta(message_id),
           ))
       }
@@ -3207,7 +3247,7 @@ pub fn task_manager_complete(
   address: String,
   task_id: String,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
   case locate_task_manager(core, address) {
@@ -3249,13 +3289,13 @@ pub fn task_manager_complete(
           message_id,
         )
       {
-        Ok(#(kernel, op)) ->
+        Ok(#(kernel, operation)) ->
           Ok(stamp_attached(
             core,
             address,
             channel.TaskManagerState(kernel),
             [],
-            channel.TaskManagerOp(op),
+            channel.TaskManagerOperation(operation),
             channel.TaskManagerMeta(message_id),
           ))
         Error(task_manager_kernel.NotAssigned(_)) ->
@@ -3600,7 +3640,7 @@ pub fn require_channel_type(
 fn attach_dependencies(
   core: Core,
   value: Json,
-) -> #(Core, List(wire.OutboundOp)) {
+) -> #(Core, List(wire.OutboundOperation)) {
   let #(order, _) =
     collect_attach_order(core, handle.collect_handle_addresses(value), [])
   submit_attaches(core, order)
@@ -3609,7 +3649,7 @@ fn attach_dependencies(
 fn attach_dependencies_from_register_string(
   core: Core,
   value: String,
-) -> #(Core, List(wire.OutboundOp)) {
+) -> #(Core, List(wire.OutboundOperation)) {
   case json.parse(value, wire.json_value_decoder()) {
     Ok(json_value) -> attach_dependencies(core, json_value)
     Error(_) -> #(core, [])
@@ -3652,7 +3692,7 @@ fn collect_attach_for(
 fn submit_attaches(
   core: Core,
   addresses: List(String),
-) -> #(Core, List(wire.OutboundOp)) {
+) -> #(Core, List(wire.OutboundOperation)) {
   list.fold(addresses, #(core, []), fn(acc, address) {
     let #(core, outbound) = acc
     case dict.get(core.detached, address) {
@@ -3660,8 +3700,8 @@ fn submit_attaches(
       Ok(state) -> {
         let snapshot = channel.attach_snapshot(state)
         let csn = core.next_csn
-        let outbound_op =
-          wire_op.outbound_attach_op(
+        let outbound_operation =
+          wire_op.outbound_attach_operation(
             address: address,
             client_sequence_number: csn,
             reference_sequence_number: core.last_seen_sn,
@@ -3689,7 +3729,7 @@ fn submit_attaches(
               ),
             ]),
           )
-        #(core, list.append(outbound, [outbound_op]))
+        #(core, list.append(outbound, [outbound_operation]))
       }
     }
   })
@@ -3700,16 +3740,16 @@ fn stamp_attached(
   address: String,
   state: ChannelState,
   events: List(#(String, ChannelEvent)),
-  op: channel.ChannelOp,
-  meta: channel.LocalOpMeta,
-) -> #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)) {
+  operation: channel.ChannelOperation,
+  meta: channel.LocalOperationMeta,
+) -> #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)) {
   let csn = core.next_csn
   let outbound =
-    wire_op.outbound_channel_op(
+    wire_op.outbound_channel_operation(
       address: address,
       client_sequence_number: csn,
       reference_sequence_number: core.last_seen_sn,
-      op: op,
+      operation: operation,
     )
   let core =
     Core(
@@ -3717,11 +3757,11 @@ fn stamp_attached(
       channels: dict.insert(core.channels, address, state),
       next_csn: csn + 1,
       in_flight: list.append(core.in_flight, [
-        InFlightOp(
+        InFlightOperation(
           client_id: core.client_id,
           csn: csn,
           address: address,
-          op: op,
+          operation: operation,
           meta: meta,
         ),
       ]),
@@ -3942,8 +3982,8 @@ pub fn pact_map_get_with_details(
 /// address does not name a PactMap.
 ///
 /// The kernel freezes the signoff list from the connected roster when the `Set`
-/// op sequences. That list thus names the room at that moment, and not the room
-/// now.
+/// operation sequences. That list thus names the room at that moment, and not
+/// the room now.
 pub fn pact_map_pending(
   core: Core,
   address: String,

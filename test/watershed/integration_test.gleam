@@ -124,8 +124,8 @@ pub fn pact_map_pending_drains_on_ungraceful_disconnect_test() -> Nil {
 }
 
 @target(erlang)
-/// The client half of levee#85: every `join` in the durable op log must end up
-/// with a matching `leave`, or a client that reconstructs membership by
+/// The client half of levee#85: every `join` in the durable operation log must
+/// end up with a matching `leave`, or a client that reconstructs membership by
 /// replaying the log derives a roster containing clients that are not there and
 /// never will be — and a `PactMap` proposal frozen against that roster waits
 /// forever on signoffs that can never arrive.
@@ -152,7 +152,7 @@ pub fn ghost_members_do_not_survive_a_server_restart_test() -> Nil {
 
 @target(erlang)
 /// M4 exit criterion: drop a client's channel mid-burst and assert both
-/// clients still converge with no lost or duplicated ops.
+/// clients still converge with no lost or duplicated operations.
 pub fn reconnect_converges_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_reconnect_test()
@@ -165,7 +165,8 @@ pub fn reconnect_converges_test() -> Nil {
 ///
 /// The distinction from `reconnect_converges_test` is the *absence* of traffic
 /// after the drop: that test has B editing and C joining once A is back, either
-/// of which supplies the out-of-order op that drives the reactive catch-up.
+/// of which supplies the out-of-order operation that drives the reactive
+/// catch-up.
 ///
 /// **This does not gate the catch-up fix, and it is worth knowing why.** Both
 /// this and `reconnect_with_nothing_missed_settles_test` pass against floodgate
@@ -173,11 +174,12 @@ pub fn reconnect_converges_test() -> Nil {
 /// transport rebuilds its socket immediately, so A is back before the server
 /// has finished tearing the old one down, and the `leave` floodgate then
 /// sequences for A's *previous* identity is broadcast to the whole topic — A's
-/// new socket included. That is the only sequenced op in flight here, so it is
-/// necessarily what advances `last_seen` to the checkpoint. The JS transport
-/// rejoins on Phoenix's backoff instead, which opens a gap wide enough that the
-/// `leave` is sequenced and gone before the client is listening again, which is
-/// why `test/live_js.gleam` fails without the fix and this does not.
+/// new socket included. That is the only sequenced operation in flight here, so
+/// it is necessarily what advances `last_seen` to the checkpoint. The JS
+/// transport rejoins on Phoenix's backoff instead, which opens a gap wide
+/// enough that the `leave` is sequenced and gone before the client is listening
+/// again, which is why `test/live_js.gleam` fails without the fix and this does
+/// not.
 ///
 /// It is kept for the shape, not the gate: a laptop lid closed and reopened on
 /// a quiet document is what a real app hits constantly, and nothing else here
@@ -232,9 +234,10 @@ pub fn auto_summary_writes_without_an_explicit_call_test() -> Nil {
 ///
 /// The policy spreads a room's attempts over a window on the bet that the first
 /// summary sequenced will stand the others down — and that only works if the
-/// summarize op comes back identified as one. It does: floodgate sequences and
-/// broadcasts it, and `runtime_core` records its sequence number as the
-/// checkpoint. So a room writes one summary per crossing, not one per client.
+/// summarize operation comes back identified as one. It does: floodgate
+/// sequences and broadcasts it, and `runtime_core` records its sequence number
+/// as the checkpoint. So a room writes one summary per crossing, not one per
+/// client.
 ///
 /// If this ever fails, the policy still works; it just costs N summaries per
 /// crossing instead of one.
@@ -246,7 +249,7 @@ pub fn a_peers_summary_resets_the_local_threshold_test() -> Nil {
 }
 
 @target(erlang)
-/// Pagination exit criterion: a document with more ops than the server's
+/// Pagination exit criterion: a document with more operations than the server's
 /// in-band history window (1000 messages) serves `initialMessages` missing
 /// its prefix, so a fresh client must page the gap from the deltas REST
 /// endpoint during bootstrap.
@@ -319,7 +322,7 @@ pub fn reconnect_mid_attach_test() -> Nil {
 
 @target(erlang)
 /// M7: a fresh client bootstraps nested maps from a summary blob alone
-/// (the attach op predates its history) and resolves the child.
+/// (the attach operation predates its history) and resolves the child.
 pub fn summary_nested_bootstrap_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_summary_nested_test()
@@ -350,7 +353,7 @@ fn run_nested_map_test() -> Nil {
   wait_until(50, fn() { watershed_beam.size(map_b) == 1 })
   |> expect.to_be_true()
 
-  // Create a detached map and edit it: local-only, so no ops go out (the
+  // Create a detached map and edit it: local-only, so no operations go out (the
   // in-flight queue stays empty) and B sees nothing.
   let child_a = case watershed_beam.create_map(doc_a) {
     Ok(child) -> child
@@ -407,7 +410,7 @@ fn run_mixed_counter_test() -> Nil {
   wait_until(50, fn() { watershed_beam.size(map_b) == 1 })
   |> expect.to_be_true()
 
-  // Detached counter: local increments produce no ops.
+  // Detached counter: local increments produce no operations.
   let assert Ok(counter_a) = watershed_beam.create_counter(doc_a)
   watershed_beam.increment(counter_a, 2)
   watershed_beam.is_synced(doc_a) |> expect.to_be_true()
@@ -473,9 +476,9 @@ fn run_claims_race_test() -> Nil {
 
   // Submit both claims optimistically *before* awaiting either outcome. Both
   // return `Pending` synchronously (the barrier above guarantees neither key is
-  // committed yet), so both ops reach the server and it sequences the race.
-  // Awaiting A first would let A's committed claim broadcast to B before B
-  // submits, and claim_once is write-once: B would get `AlreadyClaimed`
+  // committed yet), so both operations reach the server and it sequences the
+  // race. Awaiting A first would let A's committed claim broadcast to B before
+  // B submits, and claim_once is write-once: B would get `AlreadyClaimed`
   // instead of racing.
   let reply_a = watershed_beam.claim_once(claims_a, "owner", json.string("A"))
   let reply_b = watershed_beam.claim_once(claims_b, "owner", json.string("B"))
@@ -677,16 +680,16 @@ fn run_reconnect_nothing_missed_test() -> Nil {
   wait_until(50, fn() { watershed_beam.get(map_b, "k1") == Ok(json.int(1)) })
   |> expect.to_be_true()
 
-  // Reconnect into total silence. Nobody writes during the gap, so the only op
-  // sequenced across it is A's own rejoin — which floodgate reports as the
-  // handshake checkpoint and pointedly does not send to A.
+  // Reconnect into total silence. Nobody writes during the gap, so the only
+  // operation sequenced across it is A's own rejoin — which floodgate reports
+  // as the handshake checkpoint and pointedly does not send to A.
   watershed_beam.force_reconnect(doc_a)
   process.sleep(500)
 
   // A's first edit after coming back is the whole assertion: while catching up
   // every edit is withheld from the wire, so if the empty gap never closed this
   // never arrives. Note A cannot rescue itself here — a withheld edit generates
-  // no traffic, so there is no op to discover the gap with.
+  // no traffic, so there is no operation to discover the gap with.
   watershed_beam.set(map_a, "after", json.string("live"))
   wait_until(100, fn() {
     watershed_beam.get(map_b, "after") == Ok(json.string("live"))
@@ -761,8 +764,8 @@ fn run_summary_nested_test() -> Nil {
   wait_until(50, fn() { watershed_beam.is_synced(doc_a) })
   |> expect.to_be_true()
 
-  // Fresh client: bootstraps from the summary blob (the attach op predates
-  // its post-summary history), resolves the child, sees everything.
+  // Fresh client: bootstraps from the summary blob (the attach operation
+  // predates its post-summary history), resolves the child, sees everything.
   let doc_c = connect_or_panic(document, "user-c")
   let map_c = watershed_beam.root(doc_c)
   wait_until(50, fn() {
@@ -898,8 +901,8 @@ fn run_versions_test() -> Nil {
     Error(reason) -> panic as { "second summarize failed: " <> reason }
   }
 
-  // The server registers a version per summarize op (async relative to the
-  // summarize reply), newest first.
+  // The server registers a version per summarize operation (async relative to
+  // the summarize reply), newest first.
   wait_until(50, fn() {
     case watershed_beam.get_versions(doc, count: 10) {
       Ok(versions) ->
@@ -953,15 +956,15 @@ fn run_versions_test() -> Nil {
 @target(erlang)
 fn run_large_history_test() -> Nil {
   let document = "watershed-lh-" <> int.to_string(system_time(Second))
-  let op_count = 1050
+  let operation_count = 1050
 
   let doc_a = connect_or_panic(document, "user-a")
   let map_a = watershed_beam.root(doc_a)
 
   // Write more distinct keys than the history window holds. The earliest
-  // sets (k1, k2, ...) age out of the server's in-memory op history, so a
-  // later bootstrap can only recover them via the deltas REST endpoint.
-  write_keys(map_a, 1, op_count)
+  // sets (k1, k2, ...) age out of the server's in-memory operation history, so
+  // a later bootstrap can only recover them via the deltas REST endpoint.
+  write_keys(map_a, 1, operation_count)
   wait_until(600, fn() { watershed_beam.is_synced(doc_a) })
   |> expect.to_be_true()
 
@@ -970,7 +973,7 @@ fn run_large_history_test() -> Nil {
   let doc_b = connect_or_panic(document, "user-b")
   let map_b = watershed_beam.root(doc_b)
   wait_until(100, fn() {
-    watershed_beam.size(map_b) == op_count
+    watershed_beam.size(map_b) == operation_count
     && same_entries(
       watershed_beam.entries(map_b),
       watershed_beam.entries(map_a),
@@ -1038,7 +1041,7 @@ fn run_summary_test() -> Nil {
 
   // Summarize once the client is caught up. Retrying is safe: attempts made
   // before the client is synced reply Error and submit nothing; only the
-  // successful attempt uploads and submits the summarize op.
+  // successful attempt uploads and submits the summarize operation.
   let handle = case
     wait_until_ok(50, fn() { watershed_beam.summarize(doc_a) })
   {
@@ -1131,7 +1134,7 @@ fn summarizes_within(
   attempts: Int,
   threshold: Int,
 ) -> Bool {
-  case watershed_beam.ops_since_summary(document) < threshold, attempts {
+  case watershed_beam.operations_since_summary(document) < threshold, attempts {
     True, _ -> True
     False, 0 -> False
     False, _ -> {
@@ -1157,11 +1160,11 @@ fn run_peer_summary_visibility_test() -> Nil {
   let map_a = watershed_beam.root(doc_a)
 
   write_keys_drained(doc_a, map_a, 1, 5)
-  // B has seen A's ops, so its drift is the whole log and nothing has
+  // B has seen A's operations, so its drift is the whole log and nothing has
   // summarized.
-  wait_until(50, fn() { watershed_beam.ops_since_summary(doc_b) > 3 })
+  wait_until(50, fn() { watershed_beam.operations_since_summary(doc_b) > 3 })
   |> expect.to_be_true()
-  let drift_before = watershed_beam.ops_since_summary(doc_b)
+  let drift_before = watershed_beam.operations_since_summary(doc_b)
 
   // Only A summarizes, by hand — this is about what B observes, not about the
   // policy's own trigger.
@@ -1169,13 +1172,15 @@ fn run_peer_summary_visibility_test() -> Nil {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
-  watershed_beam.ops_since_summary(doc_a) |> expect.to_equal(0)
+  watershed_beam.operations_since_summary(doc_a) |> expect.to_equal(0)
 
   // B never called `summarize` and never will — its checkpoint can only move
   // because the room was told. Compared against `drift_before`, since both
   // clients keep counting the messages that follow the checkpoint (the
-  // summarize op itself among them).
-  wait_until(50, fn() { watershed_beam.ops_since_summary(doc_b) < drift_before })
+  // summarize operation itself among them).
+  wait_until(50, fn() {
+    watershed_beam.operations_since_summary(doc_b) < drift_before
+  })
   |> expect.to_be_true()
 
   watershed_beam.close(doc_a)
@@ -1196,8 +1201,9 @@ fn run_reconnect_test() -> Nil {
   wait_until(50, fn() { watershed_beam.get(map_b, "k1") == Ok(json.int(1)) })
   |> expect.to_be_true()
 
-  // Burst several edits from A, then yank its channel mid-flight so some ops
-  // are in flight (possibly sequenced-but-unacked) when the socket drops.
+  // Burst several edits from A, then yank its channel mid-flight so some
+  // operations are in flight (possibly sequenced-but-unacked) when the socket
+  // drops.
   watershed_beam.set(map_a, "k2", json.int(2))
   watershed_beam.set(map_a, "k3", json.int(3))
   watershed_beam.set(map_a, "k4", json.int(4))
@@ -1225,7 +1231,7 @@ fn run_reconnect_test() -> Nil {
     })
   converged |> expect.to_be_true()
 
-  // No op was lost: every surviving key made it across the reconnect.
+  // No operation was lost: every surviving key made it across the reconnect.
   watershed_beam.get(map_b, "k3") |> expect.to_equal(Ok(json.int(3)))
   watershed_beam.get(map_b, "k5") |> expect.to_equal(Ok(json.int(5)))
   watershed_beam.get(map_b, "k6") |> expect.to_equal(expected_a)
@@ -1627,7 +1633,7 @@ fn snapshot_entries(snapshot: channel.Snapshot) -> List(#(String, Json)) {
 
 @target(erlang)
 /// Converged clients must agree on values AND iteration order, since both
-/// derive insertion order from the same sequenced op stream.
+/// derive insertion order from the same sequenced operation stream.
 fn same_entries(
   left: List(#(String, Json)),
   right: List(#(String, Json)),
@@ -1729,7 +1735,7 @@ pub fn json_ot_converges_test() -> Nil {
 }
 
 @target(erlang)
-/// Concurrent number_add ops on the same field commute to the sum.
+/// Concurrent number_add operations on the same field commute to the sum.
 pub fn json_ot_concurrent_conflict_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_json_ot_conflict_test()
@@ -2455,7 +2461,8 @@ fn run_task_manager_converge_test() -> Nil {
   let tm_b = resolve_task_manager_key_or_panic(doc_b, map_b, "tasks")
 
   // The optimistic outcome is Waiting; assignment is decided once the volunteer
-  // op sequences, so poll task_assigned rather than trusting the return value.
+  // operation sequences, so poll task_assigned rather than trusting the return
+  // value.
   let _ = watershed_beam.volunteer_for_task(tm_a, "t1")
   wait_until(50, fn() {
     watershed_beam.task_assigned(tm_a, "t1")

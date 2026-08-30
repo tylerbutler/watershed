@@ -24,21 +24,21 @@ pub type IteratorError {
 }
 
 pub type Iterator {
-  Iterator(ops: List(Operation), offset: Int)
+  Iterator(operations: List(Operation), offset: Int)
 }
 
-pub fn new(ops: List(Operation)) -> Iterator {
-  Iterator(ops, 0)
+pub fn new(operations: List(Operation)) -> Iterator {
+  Iterator(operations, 0)
 }
 
 pub fn has_next(iterator: Iterator) -> Bool {
-  let Iterator(ops, _) = iterator
-  ops != []
+  let Iterator(operations, _) = iterator
+  operations != []
 }
 
 pub fn peek_kind(iterator: Iterator) -> Kind {
-  let Iterator(ops, _) = iterator
-  case ops {
+  let Iterator(operations, _) = iterator
+  case operations {
     [Delete(_), ..] -> DeleteKind
     [Retain(_, _), ..] -> RetainKind
     [InsertText(_, _), ..] -> Insert
@@ -50,10 +50,10 @@ pub fn peek_kind(iterator: Iterator) -> Kind {
 /// The length that is left in the operation at the front. The result is
 /// `Error(Nil)` when the iterator holds no operation.
 pub fn peek_length(iterator: Iterator) -> Result(Int, Nil) {
-  let Iterator(ops, offset) = iterator
-  case ops {
+  let Iterator(operations, offset) = iterator
+  case operations {
     [] -> Error(Nil)
-    [op, ..] -> Ok(length(op) - offset)
+    [operation, ..] -> Ok(length(operation) - offset)
   }
 }
 
@@ -61,15 +61,15 @@ pub fn take(
   iterator: Iterator,
   requested: Int,
 ) -> Result(#(Operation, Iterator), IteratorError) {
-  let Iterator(ops, offset) = iterator
-  case ops {
+  let Iterator(operations, offset) = iterator
+  case operations {
     [] -> Ok(#(Retain(requested, attribute_map.empty()), iterator))
     [operation, ..rest] -> {
       let available = length(operation) - offset
       let amount = int.min(requested, available)
       let next = case amount == available {
         True -> Iterator(rest, 0)
-        False -> Iterator(ops, offset + amount)
+        False -> Iterator(operations, offset + amount)
       }
       split(operation, offset, amount)
       |> result.map(fn(part) { #(part, next) })

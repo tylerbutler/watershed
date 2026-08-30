@@ -1,14 +1,14 @@
 //// A minimal grapheme-level diff between two strings.
 ////
 //// The `input` event of a `<textarea>` gives you the whole new value only. If
-//// you write that value back to a CRDT as one replace-the-document op, the
-//// result is correct for one client. Under collaboration it is very bad. It
-//// overwrites every concurrent remote edit, and it makes the sequence do the
-//// maximum amount of work for a one-keystroke change. It also makes you want
-//// to address the CRDT by the UTF-16 code-unit offsets of the browser, such as
-//// `selectionStart`. Those offsets are *not* grapheme indices. An emoji or a
-//// combining mark makes the two disagree, and the op then applies at the wrong
-//// position.
+//// you write that value back to a CRDT as one replace-the-document operation,
+//// the result is correct for one client. Under collaboration it is very bad.
+//// It overwrites every concurrent remote edit, and it makes the sequence do
+//// the maximum amount of work for a one-keystroke change. It also makes you
+//// want to address the CRDT by the UTF-16 code-unit offsets of the browser,
+//// such as `selectionStart`. Those offsets are *not* grapheme indices. An
+//// emoji or a combining mark makes the two disagree, and the operation then
+//// applies at the wrong position.
 ////
 //// This module derives the one minimal edit that a keystroke implies, from the
 //// two strings only. The unit is the Unicode extended grapheme cluster, from
@@ -25,7 +25,7 @@
 //// Every index is a grapheme index into the *old* string, which is what
 //// `watershed.text_insert`, `text_delete_range`, and `text_replace_range`
 //// need. The result is deterministic. It is never a whole-document replace
-//// when a smaller op is possible.
+//// when a smaller operation is possible.
 
 import gleam/int
 import gleam/list
@@ -34,7 +34,7 @@ import gleam/string
 /// The one minimal edit that changes one string into another, in grapheme
 /// indices into the *old* string.
 pub type Edit {
-  /// The two strings are the same. Emit no CRDT op.
+  /// The two strings are the same. Emit no CRDT operation.
   NoChange
   /// Insert `value` at the grapheme `index`, in the range `0..old_length`.
   Insert(index: Int, value: String)
@@ -184,11 +184,11 @@ pub fn replacement(
 /// with the most specific constructor that gives the same result.
 ///
 /// This function is the counterpart of [`replacement`](#replacement). After a
-/// caller knows the region and its new content, the op needs no inference. A
-/// caller that has two strings only must use [`diff`](#diff) instead. This
-/// function emits an op that is wider than the change when you ask it to. That
-/// result is correct when the *user* selected that extent, and incorrect when a
-/// diff only failed to make the extent smaller.
+/// caller knows the region and its new content, the operation needs no
+/// inference. A caller that has two strings only must use [`diff`](#diff)
+/// instead. This function emits an operation that is wider than the change when
+/// you ask it to. That result is correct when the *user* selected that extent,
+/// and incorrect when a diff only failed to make the extent smaller.
 pub fn splice(start start: Int, end end: Int, value value: String) -> Edit {
   case start >= end, value {
     True, "" -> NoChange

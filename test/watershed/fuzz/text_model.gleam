@@ -42,7 +42,7 @@ fn delta_decoder() -> decode.Decoder(Option(Text)) {
   })
 }
 
-fn op_to_json(command: TextCommand) -> Json {
+fn operation_to_json(command: TextCommand) -> Json {
   case command {
     InsertCommand(index_seed, value, delta) ->
       json.object([
@@ -75,7 +75,7 @@ fn op_to_json(command: TextCommand) -> Json {
   }
 }
 
-fn op_decoder() -> decode.Decoder(TextCommand) {
+fn operation_decoder() -> decode.Decoder(TextCommand) {
   use tag <- decode.field("tag", decode.string)
   case tag {
     "Insert" -> {
@@ -110,9 +110,9 @@ fn op_decoder() -> decode.Decoder(TextCommand) {
 /// ("e" + U+0301 combining acute), a ZWJ-joined family emoji (many
 /// codepoints, one grapheme), a simple emoji, a flag (regional-indicator
 /// pair, one grapheme), three non-Latin scripts, and the empty string —
-/// so generated commands naturally explore the no-op paths (`insert("")`,
-/// `append("")`, a zero-length `delete_range`/`replace_range`) alongside
-/// real multi-grapheme edits.
+/// so generated commands naturally explore the no-operation paths
+/// (`insert("")`, `append("")`, a zero-length `delete_range`/`replace_range`)
+/// alongside real multi-grapheme edits.
 fn alphabet() -> List(String) {
   let family =
     "👩" <> "\u{200D}" <> "👩" <> "\u{200D}" <> "👧" <> "\u{200D}" <> "👦"
@@ -130,9 +130,9 @@ fn value_for(seed: Int) -> String {
 }
 
 /// A guaranteed non-empty fallback value, used where a command must
-/// actually produce an op (e.g. when a zero-length text needs seeding, or
-/// `apply_stashed` must route *something* for a freshly generated command
-/// that happened to be a no-op).
+/// actually produce an operation (e.g. when a zero-length text needs seeding,
+/// or `apply_stashed` must route *something* for a freshly generated command
+/// that happened to be a no-operation).
 fn fallback_value(seed: Int) -> String {
   case value_for(seed) {
     "" -> "x"
@@ -140,7 +140,7 @@ fn fallback_value(seed: Int) -> String {
   }
 }
 
-fn op_generator() -> qcheck.Generator(TextCommand) {
+fn operation_generator() -> qcheck.Generator(TextCommand) {
   qcheck.tuple4(
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
@@ -158,10 +158,10 @@ fn op_generator() -> qcheck.Generator(TextCommand) {
   })
 }
 
-fn command_to_kernel_op(
+fn command_to_kernel_operation(
   command: TextCommand,
   context: String,
-) -> text_kernel.TextOp {
+) -> text_kernel.TextOperation {
   case command {
     InsertCommand(index, value, Some(delta)) ->
       text_kernel.Insert(index, value, delta)
@@ -191,8 +191,8 @@ fn submit_insert(
     text_kernel.insert(state, index, value)
   case submission {
     None -> #(state, None)
-    Some(text_kernel.Submission(op, _message_id)) -> {
-      let assert text_kernel.Insert(index, value, delta) = op
+    Some(text_kernel.Submission(operation, _message_id)) -> {
+      let assert text_kernel.Insert(index, value, delta) = operation
       #(state, Some(InsertCommand(index, value, Some(delta))))
     }
   }
@@ -216,8 +216,8 @@ fn submit(
         text_kernel.delete_range(state, start, end)
       case submission {
         None -> #(state, None)
-        Some(text_kernel.Submission(op, _message_id)) -> {
-          let assert text_kernel.DeleteRange(start, end, delta) = op
+        Some(text_kernel.Submission(operation, _message_id)) -> {
+          let assert text_kernel.DeleteRange(start, end, delta) = operation
           #(state, Some(DeleteRangeCommand(start, end, Some(delta))))
         }
       }
@@ -233,8 +233,8 @@ fn submit(
       let #(state, _events, submission) = text_kernel.append(state, value)
       case submission {
         None -> #(state, None)
-        Some(text_kernel.Submission(op, _message_id)) -> {
-          let assert text_kernel.Append(value, delta) = op
+        Some(text_kernel.Submission(operation, _message_id)) -> {
+          let assert text_kernel.Append(value, delta) = operation
           #(state, Some(AppendCommand(value, Some(delta))))
         }
       }
@@ -252,8 +252,8 @@ fn submit_replace(
     text_kernel.replace_range(state, start, end, value)
   case submission {
     None -> #(state, None)
-    Some(text_kernel.Submission(op, _message_id)) -> {
-      let assert text_kernel.ReplaceRange(start, end, value, delta) = op
+    Some(text_kernel.Submission(operation, _message_id)) -> {
+      let assert text_kernel.ReplaceRange(start, end, value, delta) = operation
       #(state, Some(ReplaceRangeCommand(start, end, value, Some(delta))))
     }
   }
@@ -267,7 +267,7 @@ fn apply_remote(
   let #(state, _events) =
     text_kernel.apply_remote(
       state,
-      command_to_kernel_op(command, "apply_remote"),
+      command_to_kernel_operation(command, "apply_remote"),
     )
   Ok(state)
 }
@@ -278,7 +278,10 @@ fn ack_local(
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(text_kernel.TextState, String) {
   case
-    text_kernel.ack_local(state, command_to_kernel_op(command, "ack_local"))
+    text_kernel.ack_local(
+      state,
+      command_to_kernel_operation(command, "ack_local"),
+    )
   {
     Ok(state) -> Ok(state)
     Error(text_kernel.UnexpectedAck(detail))
@@ -292,11 +295,11 @@ fn rollback(
 ) -> text_kernel.TextState {
   case list.last(state.pending) {
     Error(_) -> state
-    Ok(text_kernel.PendingOp(_, message_id)) ->
+    Ok(text_kernel.PendingOperation(_, message_id)) ->
       case
         text_kernel.rollback(
           state,
-          command_to_kernel_op(command, "rollback"),
+          command_to_kernel_operation(command, "rollback"),
           message_id,
         )
       {
@@ -316,10 +319,10 @@ fn apply_stashed(
     | DeleteRangeCommand(_, _, Some(_))
     | ReplaceRangeCommand(_, _, _, Some(_))
     | AppendCommand(_, Some(_)) -> {
-      let #(state, _events, _op, _message_id) =
-        text_kernel.apply_stashed_op(
+      let #(state, _events, _operation, _message_id) =
+        text_kernel.apply_stashed_operation(
           state,
-          command_to_kernel_op(command, "apply_stashed"),
+          command_to_kernel_operation(command, "apply_stashed"),
         )
       #(state, command)
     }
@@ -330,15 +333,16 @@ fn apply_stashed(
       case submit(state, command, meta) {
         #(state, Some(routed)) -> #(state, routed)
         #(state, None) -> {
-          // The generated command happened to be a synchronous no-op
+          // The generated command happened to be a synchronous no-operation
           // (empty insert/append, or a zero-length delete/replace range).
           // A stash always holds a previously-decided *real* edit, so fall
           // back to a guaranteed non-empty append rather than routing
-          // nothing — `apply_stashed`'s signature always returns an op.
+          // nothing — `apply_stashed`'s signature always returns an operation.
           let #(state, _events, submission) =
             text_kernel.append(state, fallback_value(1))
-          let assert Some(text_kernel.Submission(op, _message_id)) = submission
-          let assert text_kernel.Append(value, delta) = op
+          let assert Some(text_kernel.Submission(operation, _message_id)) =
+            submission
+          let assert text_kernel.Append(value, delta) = operation
           #(state, AppendCommand(value, Some(delta)))
         }
       }
@@ -368,12 +372,12 @@ pub fn model() -> KernelModel(text_kernel.TextState, TextCommand, String) {
     apply_remote: apply_remote,
     ack_local: ack_local,
     observe: text_kernel.value,
-    gen_op: op_generator(),
+    gen_operation: operation_generator(),
     check: Some(text_kernel.check_cache_coherence),
     canonicalize: None,
     ack_preserves_view: True,
-    op_to_json: op_to_json,
-    op_decoder: op_decoder(),
+    operation_to_json: operation_to_json,
+    operation_decoder: operation_decoder(),
     capabilities: Capabilities(
       load_from_synced: Some(load_from_synced),
       oracle: None,

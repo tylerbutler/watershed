@@ -2,8 +2,9 @@
 //// through `runtime_core` + `channel` + the wire codecs, single-client and in
 //// a two-client sequencer simulation. Kernel-internal semantics are covered by
 //// `directory_kernel_test`/`directory_fuzz_test`; these pin the *wiring*:
-//// op encode/decode, attach/snapshot round-trip, SequencedMeta threading
-//// (author, refSeq, the kernel message-id carried in the op), and convergence.
+//// operation encode/decode, attach/snapshot round-trip, SequencedMeta
+//// threading (author, refSeq, the kernel message-id carried in the operation),
+//// and convergence.
 
 import gleam/dict
 import gleam/dynamic.{type Dynamic}
@@ -95,7 +96,7 @@ fn new_simulation() -> Simulation {
 fn sequenced_message(
   author: String,
   sequence_number: Int,
-  out: wire.OutboundOp,
+  out: wire.OutboundOperation,
 ) -> types.SequencedDocumentMessage {
   types.SequencedDocumentMessage(
     client_id: Some(author),
@@ -103,7 +104,7 @@ fn sequenced_message(
     minimum_sequence_number: 0,
     client_sequence_number: out.client_sequence_number,
     reference_sequence_number: out.reference_sequence_number,
-    message_type: out.op_type,
+    message_type: out.operation_type,
     contents: json_to_dynamic(out.contents),
     metadata: None,
     server_metadata: None,
@@ -121,13 +122,13 @@ fn ingest(core: Core, sequenced: types.SequencedDocumentMessage) -> Core {
   }
 }
 
-/// Broadcast one author's outbound ops through the sequencer: each is stamped
-/// with the next SN and delivered to *both* cores in order (author acks its
-/// own, the other applies it remotely).
+/// Broadcast one author's outbound operations through the sequencer: each is
+/// stamped with the next SN and delivered to *both* cores in order (author acks
+/// its own, the other applies it remotely).
 fn broadcast(
   simulation: Simulation,
   author: String,
-  outbound: List(wire.OutboundOp),
+  outbound: List(wire.OutboundOperation),
 ) -> Simulation {
   list.fold(outbound, simulation, fn(simulation, out) {
     let sequence_number = simulation.sequence_number + 1
@@ -144,10 +145,10 @@ fn broadcast(
 // outbound it produced (panicking on error), leaving the caller to broadcast.
 fn expect_ok(
   result: Result(
-    #(Core, List(#(String, channel.ChannelEvent)), List(wire.OutboundOp)),
+    #(Core, List(#(String, channel.ChannelEvent)), List(wire.OutboundOperation)),
     runtime_core.CoreError,
   ),
-) -> #(Core, List(wire.OutboundOp)) {
+) -> #(Core, List(wire.OutboundOperation)) {
   case result {
     Ok(#(core, _events, outbound)) -> #(core, outbound)
     Error(err) ->
@@ -159,14 +160,15 @@ fn expect_ok(
 
 /// Attach a directory channel by pointing a root-map handle at it (the same
 /// dependency-attach path the other channel tests use), then exercise a
-/// subdirectory create + storage set and check the op wire shape and reads.
-pub fn attached_directory_emits_ops_and_reads_test() -> Nil {
+/// subdirectory create + storage set and check the operation wire shape and
+/// reads.
+pub fn attached_directory_emits_operations_and_reads_test() -> Nil {
   let core =
     bootstrap(id_a)
     |> runtime_core.create_detached(directory_address, channel.InitDirectory)
 
-  // Setting a handle to the directory in root attaches it (attach op + root
-  // set op).
+  // Setting a handle to the directory in root attaches it (attach operation +
+  // root set operation).
   let #(core, attach_outbound) =
     expect_ok(runtime_core.set(
       core,
@@ -177,14 +179,14 @@ pub fn attached_directory_emits_ops_and_reads_test() -> Nil {
   attach_outbound |> list.length |> expect.to_equal(2)
 
   // Create /surveys under the (now attached) directory root.
-  let assert #(core, [create_op]) =
+  let assert #(core, [create_operation]) =
     expect_ok(runtime_core.directory_create_subdirectory(
       core,
       directory_address,
       "/",
       "surveys",
     ))
-  let encoded = json.to_string(create_op.contents)
+  let encoded = json.to_string(create_operation.contents)
   encoded |> string.contains("\"type\":\"dirCreateSub\"") |> expect.to_be_true()
   encoded |> string.contains("\"name\":\"surveys\"") |> expect.to_be_true()
   encoded |> string.contains("\"mid\"") |> expect.to_be_true()
@@ -193,7 +195,7 @@ pub fn attached_directory_emits_ops_and_reads_test() -> Nil {
   |> expect.to_equal(["surveys"])
 
   // Set a benchmark reading in /surveys.
-  let assert #(core, [set_op]) =
+  let assert #(core, [set_operation]) =
     expect_ok(runtime_core.directory_set(
       core,
       directory_address,
@@ -201,7 +203,7 @@ pub fn attached_directory_emits_ops_and_reads_test() -> Nil {
       "BM-17",
       json.string("recorded"),
     ))
-  json.to_string(set_op.contents)
+  json.to_string(set_operation.contents)
   |> string.contains("\"type\":\"dirSet\"")
   |> expect.to_be_true()
 
@@ -222,7 +224,7 @@ pub fn directory_set_attaches_handle_dependencies_test() -> Nil {
     ))
   let core = runtime_core.create_detached(core, "document", channel.InitJsonOt)
 
-  let assert #(_core, [attach_op, set_op]) =
+  let assert #(_core, [attach_operation, set_operation]) =
     expect_ok(runtime_core.directory_set(
       core,
       directory_address,
@@ -231,10 +233,10 @@ pub fn directory_set_attaches_handle_dependencies_test() -> Nil {
       handle.encode_handle("document"),
     ))
 
-  json.to_string(attach_op.contents)
+  json.to_string(attach_operation.contents)
   |> string.contains("\"type\":\"attach\"")
   |> expect.to_be_true()
-  json.to_string(set_op.contents)
+  json.to_string(set_operation.contents)
   |> string.contains("\"type\":\"dirSet\"")
   |> expect.to_be_true()
 }
@@ -245,15 +247,15 @@ pub fn directory_snapshot_round_trips_test() -> Nil {
   // Build a small sequenced tree directly from the kernel: root note plus a
   // /plans child holding a reading.
   let state = directory_kernel.new()
-  let assert Ok(#(state, _, op, _)) =
+  let assert Ok(#(state, _, operation, _)) =
     directory_kernel.set(state, "/", "root-note", json.string("v1"))
-  let state = ack(state, op)
-  let assert Ok(#(state, _, Some(op), _)) =
+  let state = ack(state, operation)
+  let assert Ok(#(state, _, Some(operation), _)) =
     directory_kernel.create_subdirectory(state, "/", "plans", 1)
-  let state = ack(state, op)
-  let assert Ok(#(state, _, op, _)) =
+  let state = ack(state, operation)
+  let assert Ok(#(state, _, operation, _)) =
     directory_kernel.set(state, "/plans", "grade", json.string("2.1%"))
-  let state = ack(state, op)
+  let state = ack(state, operation)
 
   let snapshot = channel.DirectorySnapshot(directory_kernel.summary_tree(state))
   let encoded = channel.encode_snapshot(snapshot)
@@ -265,11 +267,11 @@ pub fn directory_snapshot_round_trips_test() -> Nil {
   channel.same_snapshot(snapshot, decoded) |> expect.to_be_true()
 }
 
-/// Ack a directory op locally, sequencing it at the next SN (test-only: seq
-/// numbers here are nominal, the round-trip only reads sequenced storage).
+/// Ack a directory operation locally, sequencing it at the next SN (test-only:
+/// seq numbers here are nominal, the round-trip only reads sequenced storage).
 fn ack(
   state: directory_kernel.DirectoryState,
-  op: directory_kernel.DirectoryOp,
+  operation: directory_kernel.DirectoryOperation,
 ) -> directory_kernel.DirectoryState {
   let message_id = case directory_kernel.last_pending_message_id(state) {
     Ok(id) -> id
@@ -278,7 +280,7 @@ fn ack(
   case
     directory_kernel.ack_local(
       state,
-      op,
+      operation,
       directory_kernel.SequencedMeta(
         author: 1,
         sequence_number: message_id + 1,
@@ -384,7 +386,7 @@ pub fn two_clients_converge_test() -> Nil {
 }
 
 /// Concurrent same-name create: both clients create `/logs` before seeing the
-/// other's op. They converge to a single `/logs`.
+/// other's operation. They converge to a single `/logs`.
 pub fn concurrent_same_name_create_converges_test() -> Nil {
   let simulation = new_simulation()
   let a =

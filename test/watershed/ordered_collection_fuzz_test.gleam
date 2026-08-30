@@ -6,7 +6,7 @@ import gleam/json
 import gleam/list
 import startest/expect
 import watershed/fuzz/kernel_fuzz.{
-  AddClient, ClientOp, Deliver, Disconnect, Sequence, Synchronize,
+  AddClient, ClientOperation, Deliver, Disconnect, Sequence, Synchronize,
 }
 import watershed/fuzz/ordered_collection_model.{
   CommandAcquire, CommandAdd, CompleteAfterAcquire, ReleaseAfterAcquire,
@@ -19,8 +19,8 @@ fn weights() -> script_gen.Weights {
   script_gen.Weights(
     ..script_gen.default_weights(),
     add_client: 2,
-    rollback_op: 3,
-    stashed_op: 3,
+    rollback_operation: 3,
+    stashed_operation: 3,
   )
 }
 
@@ -30,15 +30,15 @@ pub fn converges_and_matches_oracle_test() -> Nil {
     model,
     kernel_fuzz.config_from_env(),
     client_count,
-    script_gen.script_generator(model.gen_op, client_count, weights()),
+    script_gen.script_generator(model.gen_operation, client_count, weights()),
   )
 }
 
 pub fn acquire_complete_reaction_converges_test() -> Nil {
   let script = [
-    ClientOp(1, CommandAdd(1, 0)),
+    ClientOperation(1, CommandAdd(1, 0)),
     Synchronize,
-    ClientOp(1, CommandAcquire(1, "", CompleteAfterAcquire)),
+    ClientOperation(1, CommandAcquire(1, "", CompleteAfterAcquire)),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(
@@ -51,11 +51,11 @@ pub fn acquire_complete_reaction_converges_test() -> Nil {
 
 pub fn acquire_release_reaction_returns_item_test() -> Nil {
   let script = [
-    ClientOp(1, CommandAdd(1, 0)),
+    ClientOperation(1, CommandAdd(1, 0)),
     Synchronize,
-    ClientOp(1, CommandAcquire(1, "", ReleaseAfterAcquire)),
+    ClientOperation(1, CommandAcquire(1, "", ReleaseAfterAcquire)),
     Synchronize,
-    ClientOp(2, CommandAcquire(2, "", CompleteAfterAcquire)),
+    ClientOperation(2, CommandAcquire(2, "", CompleteAfterAcquire)),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(
@@ -68,14 +68,14 @@ pub fn acquire_release_reaction_returns_item_test() -> Nil {
 
 pub fn disconnect_rereleases_held_item_test() -> Nil {
   let script = [
-    ClientOp(1, CommandAdd(1, 0)),
+    ClientOperation(1, CommandAdd(1, 0)),
     Synchronize,
-    ClientOp(1, CommandAcquire(1, "", CompleteAfterAcquire)),
+    ClientOperation(1, CommandAcquire(1, "", CompleteAfterAcquire)),
     Sequence(1),
     Deliver(1, 1),
     Disconnect(1),
     Synchronize,
-    ClientOp(2, CommandAcquire(2, "", CompleteAfterAcquire)),
+    ClientOperation(2, CommandAcquire(2, "", CompleteAfterAcquire)),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(
@@ -88,10 +88,10 @@ pub fn disconnect_rereleases_held_item_test() -> Nil {
 
 pub fn add_client_summary_round_trip_preserves_observed_state_test() -> Nil {
   let script = [
-    ClientOp(1, CommandAdd(1, 0)),
+    ClientOperation(1, CommandAdd(1, 0)),
     Synchronize,
     AddClient,
-    ClientOp(2, CommandAcquire(2, "", CompleteAfterAcquire)),
+    ClientOperation(2, CommandAcquire(2, "", CompleteAfterAcquire)),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(
@@ -102,7 +102,7 @@ pub fn add_client_summary_round_trip_preserves_observed_state_test() -> Nil {
   |> expect.to_be_ok
 }
 
-pub fn op_json_round_trips_test() -> Nil {
+pub fn operation_json_round_trips_test() -> Nil {
   let model = ordered_collection_model.model()
   [
     CommandAdd(1, 1001),
@@ -111,7 +111,10 @@ pub fn op_json_round_trips_test() -> Nil {
   ]
   |> list.each(fn(command) {
     let assert Ok(decoded) =
-      json.parse(json.to_string(model.op_to_json(command)), model.op_decoder)
+      json.parse(
+        json.to_string(model.operation_to_json(command)),
+        model.operation_decoder,
+      )
     decoded |> expect.to_equal(command)
   })
 }

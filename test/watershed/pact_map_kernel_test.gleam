@@ -15,7 +15,7 @@ fn string_value(value: String) -> Json {
 
 fn apply_set(
   state: PactMapState,
-  op: pact_map_kernel.PactMapOp,
+  operation: pact_map_kernel.PactMapOperation,
   seq: Int,
   connected: List(Int),
   self_id: Int,
@@ -24,14 +24,14 @@ fn apply_set(
   List(pact_map_kernel.PactMapEvent),
   pact_map_kernel.SetReaction,
 ) {
-  pact_map_kernel.apply_set(state, op, seq, connected, self_id)
+  pact_map_kernel.apply_set(state, operation, seq, connected, self_id)
 }
 
 pub fn detached_set_accepts_immediately_test() -> Nil {
   let state = pact_map_kernel.new()
-  let assert Ok(op) =
+  let assert Ok(operation) =
     pact_map_kernel.set(state, "k", Some(string_value("A")), 0)
-  let #(state, events, reaction) = apply_set(state, op, 0, [], 1)
+  let #(state, events, reaction) = apply_set(state, operation, 0, [], 1)
 
   events |> expect.to_equal([WentAccepted("k")])
   reaction |> expect.to_equal(NoReaction)
@@ -44,9 +44,9 @@ pub fn detached_set_accepts_immediately_test() -> Nil {
 
 pub fn single_client_set_requires_accept_then_get_returns_value_test() -> Nil {
   let state = pact_map_kernel.new()
-  let assert Ok(op) =
+  let assert Ok(operation) =
     pact_map_kernel.set(state, "k", Some(string_value("A")), 0)
-  let #(state, events, reaction) = apply_set(state, op, 1, [1], 1)
+  let #(state, events, reaction) = apply_set(state, operation, 1, [1], 1)
 
   events |> expect.to_equal([WentPending("k")])
   reaction |> expect.to_equal(OweAccept(Accept("k")))
@@ -166,9 +166,9 @@ pub fn delete_proposes_none_and_accepts_to_deleted_value_test() -> Nil {
     pact_map_kernel.from_summary([
       #("k", Pact(Some(Accepted(Some(string_value("A")), 1)), None)),
     ])
-  let assert Ok(op) = pact_map_kernel.delete(state, "k", 1)
-  op |> expect.to_equal(Set("k", None, 1))
-  let #(state, _, reaction) = apply_set(state, op, 2, [1], 1)
+  let assert Ok(operation) = pact_map_kernel.delete(state, "k", 1)
+  operation |> expect.to_equal(Set("k", None, 1))
+  let #(state, _, reaction) = apply_set(state, operation, 2, [1], 1)
   reaction |> expect.to_equal(OweAccept(Accept("k")))
   pact_map_kernel.get_pending(state, "k") |> expect.to_equal(Ok(None))
   pact_map_kernel.is_pending(state, "k") |> expect.to_be_true()

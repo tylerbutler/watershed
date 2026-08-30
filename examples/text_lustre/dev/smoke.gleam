@@ -158,7 +158,7 @@ fn concurrent_phase(text_a: SharedText, text_b: SharedText) -> Nil {
   }
   log("smoke: anchor pinned, resolves to " <> int.to_string(old_pos))
 
-  // Both clients edit in the same tick, before either op is sequenced.
+  // Both clients edit in the same tick, before either operation is sequenced.
   log("smoke: concurrent emoji-head on A, combining-tail on B")
   let insert_a = watershed.text_insert(text_a, 0, head_insert)
   let insert_b =

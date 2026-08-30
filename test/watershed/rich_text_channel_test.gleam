@@ -2,10 +2,10 @@
 //// kernel driven through `channel` and `wire/op`. Kernel-internal
 //// client-transform semantics are covered by `rich_text_kernel_test`/
 //// `rich_text_kernel_converge_test`; these pin the *wiring*: channel type
-//// dispatch, op/snapshot wire shape and round trip, malformed-op rejection,
-//// `same_shape`/`same_snapshot`, attach-vs-persisted snapshot semantics,
-//// `apply_remote`/`ack_local`/`take_outbound` dispatch, and handle discovery
-//// through embeds and attributes.
+//// dispatch, operation/snapshot wire shape and round trip, malformed-operation
+//// rejection, `same_shape`/`same_snapshot`, attach-vs-persisted snapshot
+//// semantics, `apply_remote`/`ack_local`/`take_outbound` dispatch, and handle
+//// discovery through embeds and attributes.
 ////
 //// No runtime edit API exists yet for RichText (out of scope for this
 //// task), so these tests drive `rich_text_kernel` directly and dispatch
@@ -80,60 +80,68 @@ pub fn rich_text_snapshot_type_dispatch_test() -> Nil {
   channel.snapshot_type(snapshot) |> expect.to_equal(channel.RichTextChannel)
 }
 
-// ── op wire shape and round trip ────────────────────────────────────────────
+// ── operation wire shape and round trip
+// ────────────────────────────────────────────
 
-pub fn rich_text_op_json_exact_shape_test() -> Nil {
-  let op = rich_text_kernel.RichTextWireOp(12, delta("[{\"insert\":\"hi\"}]"))
-  wire_op.encode_rich_text_op(op)
+pub fn rich_text_operation_json_exact_shape_test() -> Nil {
+  let operation =
+    rich_text_kernel.RichTextWireOperation(12, delta("[{\"insert\":\"hi\"}]"))
+  wire_op.encode_rich_text_operation(operation)
   |> json.to_string
   |> expect.to_equal("{\"refSeq\":12,\"delta\":[{\"insert\":\"hi\"}]}")
 }
 
-pub fn rich_text_op_round_trips_through_channel_envelope_test() -> Nil {
-  let op =
-    rich_text_kernel.RichTextWireOp(
+pub fn rich_text_operation_round_trips_through_channel_envelope_test() -> Nil {
+  let operation =
+    rich_text_kernel.RichTextWireOperation(
       3,
       delta(
         "[{\"retain\":2},{\"insert\":\"X\",\"attributes\":{\"bold\":true}}]",
       ),
     )
   let encoded =
-    wire_op.encode_channel_envelope("doc-1", channel.RichTextOp(op))
+    wire_op.encode_channel_envelope(
+      "doc-1",
+      channel.RichTextOperation(operation),
+    )
     |> json.to_string
   let assert Ok(dynamic_value) = json.parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOp("doc-1", payload)) =
-    wire_op.decode_op_contents(dynamic_value)
-  let assert Ok(channel.RichTextOp(decoded)) =
-    decode.run(payload, wire_op.channel_op_decoder(channel.RichTextChannel))
-  decoded |> expect.to_equal(op)
+  let assert Ok(wire_op.ChannelOperation("doc-1", payload)) =
+    wire_op.decode_operation_contents(dynamic_value)
+  let assert Ok(channel.RichTextOperation(decoded)) =
+    decode.run(
+      payload,
+      wire_op.channel_operation_decoder(channel.RichTextChannel),
+    )
+  decoded |> expect.to_equal(operation)
 }
 
-pub fn rich_text_op_decoder_rejects_non_array_delta_test() -> Nil {
+pub fn rich_text_operation_decoder_rejects_non_array_delta_test() -> Nil {
   let assert Ok(dynamic_value) =
     json.parse("{\"refSeq\":0,\"delta\":\"not-an-array\"}", decode.dynamic)
   let _ =
-    decode.run(dynamic_value, wire_op.rich_text_op_decoder())
+    decode.run(dynamic_value, wire_op.rich_text_operation_decoder())
     |> expect.to_be_error()
   Nil
 }
 
-pub fn rich_text_op_decoder_rejects_malformed_operation_test() -> Nil {
+pub fn rich_text_operation_decoder_rejects_malformed_operation_test() -> Nil {
   let assert Ok(dynamic_value) =
     json.parse(
       "{\"refSeq\":0,\"delta\":[{\"insert\":\"x\",\"delete\":1}]}",
       decode.dynamic,
     )
   let _ =
-    decode.run(dynamic_value, wire_op.rich_text_op_decoder())
+    decode.run(dynamic_value, wire_op.rich_text_operation_decoder())
     |> expect.to_be_error()
   Nil
 }
 
-pub fn rich_text_op_decoder_rejects_missing_ref_seq_test() -> Nil {
+pub fn rich_text_operation_decoder_rejects_missing_ref_seq_test() -> Nil {
   let assert Ok(dynamic_value) =
     json.parse("{\"delta\":[{\"insert\":\"x\"}]}", decode.dynamic)
   let _ =
-    decode.run(dynamic_value, wire_op.rich_text_op_decoder())
+    decode.run(dynamic_value, wire_op.rich_text_operation_decoder())
     |> expect.to_be_error()
   Nil
 }
@@ -203,25 +211,29 @@ pub fn rich_text_attach_state_reconstructs_from_snapshot_test() -> Nil {
 // ── same_shape / same_snapshot ───────────────────────────────────────────────
 
 pub fn rich_text_same_shape_requires_ref_seq_and_delta_equality_test() -> Nil {
-  let op = rich_text_kernel.RichTextWireOp(1, delta("[{\"insert\":\"A\"}]"))
-  let same_op =
-    rich_text_kernel.RichTextWireOp(1, delta("[{\"insert\":\"A\"}]"))
-  channel.same_shape(channel.RichTextOp(op), channel.RichTextOp(same_op))
+  let operation =
+    rich_text_kernel.RichTextWireOperation(1, delta("[{\"insert\":\"A\"}]"))
+  let same_operation =
+    rich_text_kernel.RichTextWireOperation(1, delta("[{\"insert\":\"A\"}]"))
+  channel.same_shape(
+    channel.RichTextOperation(operation),
+    channel.RichTextOperation(same_operation),
+  )
   |> expect.to_be_true()
 
   let different_ref_seq =
-    rich_text_kernel.RichTextWireOp(2, delta("[{\"insert\":\"A\"}]"))
+    rich_text_kernel.RichTextWireOperation(2, delta("[{\"insert\":\"A\"}]"))
   channel.same_shape(
-    channel.RichTextOp(op),
-    channel.RichTextOp(different_ref_seq),
+    channel.RichTextOperation(operation),
+    channel.RichTextOperation(different_ref_seq),
   )
   |> expect.to_be_false()
 
   let different_delta =
-    rich_text_kernel.RichTextWireOp(1, delta("[{\"insert\":\"B\"}]"))
+    rich_text_kernel.RichTextWireOperation(1, delta("[{\"insert\":\"B\"}]"))
   channel.same_shape(
-    channel.RichTextOp(op),
-    channel.RichTextOp(different_delta),
+    channel.RichTextOperation(operation),
+    channel.RichTextOperation(different_delta),
   )
   |> expect.to_be_false()
 }
@@ -240,18 +252,21 @@ pub fn rich_text_submit_canonicalizes_before_wire_round_trip_test() -> Nil {
 
   ot_client.in_flight(kernel.pending) |> expect.to_equal(Ok(canonical))
   wire_op
-  |> expect.to_equal(rich_text_kernel.RichTextWireOp(0, canonical))
+  |> expect.to_equal(rich_text_kernel.RichTextWireOperation(0, canonical))
 
   let encoded =
-    wire_op.encode_channel_envelope("doc-1", channel.RichTextOp(wire_op))
+    wire_op.encode_channel_envelope("doc-1", channel.RichTextOperation(wire_op))
     |> json.to_string
   let assert Ok(dynamic_value) = json.parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOp("doc-1", payload)) =
-    wire_op.decode_op_contents(dynamic_value)
+  let assert Ok(wire_op.ChannelOperation("doc-1", payload)) =
+    wire_op.decode_operation_contents(dynamic_value)
   let assert Ok(decoded) =
-    decode.run(payload, wire_op.channel_op_decoder(channel.RichTextChannel))
+    decode.run(
+      payload,
+      wire_op.channel_operation_decoder(channel.RichTextChannel),
+    )
 
-  channel.same_shape(channel.RichTextOp(wire_op), decoded)
+  channel.same_shape(channel.RichTextOperation(wire_op), decoded)
   |> expect.to_be_true()
 }
 
@@ -268,8 +283,8 @@ pub fn rich_text_same_snapshot_requires_canonical_document_equality_test() -> Ni
 
 pub fn rich_text_apply_remote_dispatch_test() -> Nil {
   let state = channel.RichTextState(rich_text_kernel.new())
-  let op =
-    channel.RichTextOp(rich_text_kernel.RichTextWireOp(
+  let operation =
+    channel.RichTextOperation(rich_text_kernel.RichTextWireOperation(
       0,
       delta("[{\"insert\":\"X\"}]"),
     ))
@@ -277,7 +292,7 @@ pub fn rich_text_apply_remote_dispatch_test() -> Nil {
   let assert Ok(#(state, events, owed)) =
     channel.apply_remote(
       state,
-      op,
+      operation,
       meta(seq: 1, min_seq: 1, author: 0, self_id: 1),
     )
   owed |> expect.to_equal([])
@@ -303,7 +318,7 @@ pub fn rich_text_ack_local_dispatch_uses_no_meta_test() -> Nil {
   let assert Ok(#(state, events, resolution)) =
     channel.ack_local(
       state,
-      channel.RichTextOp(wire_op),
+      channel.RichTextOperation(wire_op),
       channel.NoMeta,
       meta(seq: 1, min_seq: -1, author: 0, self_id: 0),
     )
@@ -314,7 +329,7 @@ pub fn rich_text_ack_local_dispatch_uses_no_meta_test() -> Nil {
   |> expect.to_equal(document("[{\"insert\":\"A\"}]"))
 }
 
-pub fn rich_text_take_outbound_drains_buffered_op_test() -> Nil {
+pub fn rich_text_take_outbound_drains_buffered_operation_test() -> Nil {
   let kernel = rich_text_kernel.new()
   let a = delta("[{\"insert\":\"A\"}]")
   let b = delta("[{\"retain\":1},{\"insert\":\"B\"}]")
@@ -326,7 +341,7 @@ pub fn rich_text_take_outbound_drains_buffered_op_test() -> Nil {
   let assert Ok(#(state, _, _)) =
     channel.ack_local(
       state,
-      channel.RichTextOp(wire_a),
+      channel.RichTextOperation(wire_a),
       channel.NoMeta,
       meta(seq: 1, min_seq: -1, author: 0, self_id: 0),
     )
@@ -334,7 +349,9 @@ pub fn rich_text_take_outbound_drains_buffered_op_test() -> Nil {
   let #(state, outbound) = channel.take_outbound(state)
   outbound
   |> expect.to_equal(
-    Some(channel.RichTextOp(rich_text_kernel.RichTextWireOp(1, b))),
+    Some(
+      channel.RichTextOperation(rich_text_kernel.RichTextWireOperation(1, b)),
+    ),
   )
   let #(_, again) = channel.take_outbound(state)
   again |> expect.to_equal(None)
@@ -342,15 +359,15 @@ pub fn rich_text_take_outbound_drains_buffered_op_test() -> Nil {
 
 pub fn rich_text_wrong_channel_type_errors_test() -> Nil {
   let state = channel.new(channel.InitMap, replica: "client-a")
-  let op =
-    channel.RichTextOp(rich_text_kernel.RichTextWireOp(
+  let operation =
+    channel.RichTextOperation(rich_text_kernel.RichTextWireOperation(
       0,
       delta("[{\"insert\":\"A\"}]"),
     ))
   let _ =
     channel.apply_remote(
       state,
-      op,
+      operation,
       meta(seq: 1, min_seq: -1, author: 0, self_id: 1),
     )
     |> expect.to_be_error()

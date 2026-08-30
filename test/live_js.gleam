@@ -107,14 +107,15 @@ fn run() -> Nil {
 ///
 /// This is the reported defect, reduced — `in_flight=0`, `buffered=0`,
 /// `last_seen` frozen below `resubmit`. Nothing arrives after the rejoin, so
-/// there is no live op to notice a gap with, and A must ask for what it missed.
+/// there is no live operation to notice a gap with, and A must ask for what it
+/// missed.
 ///
 /// The window is `go_offline`/`go_online` rather than `force_reconnect` on
 /// purpose. `force_reconnect` is away and back inside a second, so a peer's
 /// write almost always lands *after* the rejoin — where it is an ordinary
-/// out-of-order op that triggers the reactive catch-up, and the scenario passes
-/// whether or not the handshake requests anything. Holding the socket down is
-/// what puts the write reliably inside the gap.
+/// out-of-order operation that triggers the reactive catch-up, and the scenario
+/// passes whether or not the handshake requests anything. Holding the socket
+/// down is what puts the write reliably inside the gap.
 fn reconnect_into_a_quiet_room() -> Promise(Bool) {
   use #(doc_a, doc_b, map_a, map_b) <- promise.await(room("rq"))
   use settled <- promise.await(settle(map_a, map_b))
@@ -259,7 +260,8 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   // It seeded from the checkpoint rather than replaying from zero: its drift
   // counts only what followed the summary it loaded.
   let from_checkpoint =
-    watershed.ops_since_summary(doc_c) <= watershed.ops_since_summary(doc_a)
+    watershed.operations_since_summary(doc_c)
+    <= watershed.operations_since_summary(doc_a)
 
   watershed.close(doc_c)
   finish("a_policy_summarizes_without_being_asked", doc_a, doc_b, [
@@ -281,7 +283,7 @@ fn summarizes_within(
   attempts: Int,
   threshold: Int,
 ) -> Promise(Bool) {
-  case watershed.ops_since_summary(document) < threshold, attempts <= 0 {
+  case watershed.operations_since_summary(document) < threshold, attempts <= 0 {
     True, _ -> promise.resolve(True)
     False, True -> promise.resolve(False)
     False, False -> {

@@ -95,7 +95,7 @@ pub fn repeated_join_is_idempotent_test() -> Nil {
 }
 
 /// A leave for a client that never joined leaves the roster untouched, the
-/// same way it is a no-op for every kernel.
+/// same way it is a no-operation for every kernel.
 pub fn leave_for_unknown_client_is_noop_test() -> Nil {
   let core = bootstrap_with([peer_client_id])
 
@@ -219,9 +219,9 @@ pub fn a_proposal_after_the_checkpoint_reconstructs_the_present_signoff_list_tes
 // Reconnect
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Entering reconnect holds the roster we already had. The ops sequenced while
-/// we were away are about to be replayed, and they belong to the room as it was
-/// then — the handshake's roster is held aside for the hand-off.
+/// Entering reconnect holds the roster we already had. The operations sequenced
+/// while we were away are about to be replayed, and they belong to the room as
+/// it was then — the handshake's roster is held aside for the hand-off.
 pub fn reconnect_holds_the_roster_for_the_gap_test() -> Nil {
   let core = bootstrap_with([peer_client_id, third_client_id])
 
@@ -243,7 +243,7 @@ pub fn reconnect_holds_the_roster_for_the_gap_test() -> Nil {
 /// to. This is the same time-shift that broke a cold join, over a shorter
 /// window: a proposal sequenced while we were away froze its signoff list from
 /// the clients present *then*, and every replica must reconstruct that list.
-pub fn a_gap_op_is_judged_against_the_pre_reconnect_room_test() -> Nil {
+pub fn a_gap_operation_is_judged_against_the_pre_reconnect_room_test() -> Nil {
   let core =
     bootstrap_from_summary(
       members: [our_client_id, peer_client_id, third_client_id],

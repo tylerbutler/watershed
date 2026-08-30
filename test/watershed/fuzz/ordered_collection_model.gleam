@@ -1,8 +1,8 @@
 //// `KernelModel` for `ordered_collection_kernel`.
 ////
-//// The model op carries the acquire callback disposition so the harness's
-//// reactive-op capability can emit the follow-on complete/release only after a
-//// local acquire successfully sequences.
+//// The model operation carries the acquire callback disposition so the
+//// harness's reactive-operation capability can emit the follow-on
+//// complete/release only after a local acquire successfully sequences.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
@@ -66,9 +66,9 @@ fn concrete_value(raw_value: Int, client_id: Int) -> Int {
   client_id * 1000 + raw_value
 }
 
-fn command_to_kernel_op(
+fn command_to_kernel_operation(
   command: OrderedCommand,
-) -> ordered_collection_kernel.OrderedOp {
+) -> ordered_collection_kernel.OrderedOperation {
   case command {
     CommandAdd(_, value) -> Add(json.int(value))
     CommandAcquire(_, acquire_id, _) ->
@@ -92,7 +92,7 @@ fn string_to_disposition(value: String) -> Disposition {
   }
 }
 
-fn op_to_json(command: OrderedCommand) -> Json {
+fn operation_to_json(command: OrderedCommand) -> Json {
   case command {
     CommandAdd(raw_value, value) ->
       json.object([
@@ -122,7 +122,7 @@ fn op_to_json(command: OrderedCommand) -> Json {
   }
 }
 
-fn op_decoder() -> decode.Decoder(OrderedCommand) {
+fn operation_decoder() -> decode.Decoder(OrderedCommand) {
   use tag <- decode.field("tag", decode.string)
   case tag {
     "Add" -> {
@@ -154,7 +154,7 @@ fn op_decoder() -> decode.Decoder(OrderedCommand) {
   }
 }
 
-fn op_generator() -> qcheck.Generator(OrderedCommand) {
+fn operation_generator() -> qcheck.Generator(OrderedCommand) {
   qcheck.tuple3(
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
@@ -240,7 +240,7 @@ fn submit(
   }
 }
 
-fn apply_op(
+fn apply_operation(
   state: ModelState,
   command: OrderedCommand,
   author: Int,
@@ -252,7 +252,7 @@ fn apply_op(
         True ->
           ordered_collection_kernel.ack_local(
             state.kernel,
-            command_to_kernel_op(command),
+            command_to_kernel_operation(command),
             author,
           )
           |> fn(result) {
@@ -262,7 +262,7 @@ fn apply_op(
         False ->
           ordered_collection_kernel.apply_remote(
             state.kernel,
-            command_to_kernel_op(command),
+            command_to_kernel_operation(command),
             author,
           )
       }
@@ -301,7 +301,7 @@ fn apply_op(
           let #(kernel, events, _) =
             ordered_collection_kernel.ack_local(
               state.kernel,
-              command_to_kernel_op(command),
+              command_to_kernel_operation(command),
               author,
             )
           #(kernel, events)
@@ -309,7 +309,7 @@ fn apply_op(
         False ->
           ordered_collection_kernel.apply_remote(
             state.kernel,
-            command_to_kernel_op(command),
+            command_to_kernel_operation(command),
             author,
           )
       }
@@ -327,7 +327,7 @@ fn apply_remote(
   command: OrderedCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(ModelState, String) {
-  Ok(apply_op(state, command, meta.client_id, False))
+  Ok(apply_operation(state, command, meta.client_id, False))
 }
 
 fn ack_local(
@@ -335,7 +335,7 @@ fn ack_local(
   command: OrderedCommand,
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(ModelState, String) {
-  Ok(apply_op(state, command, meta.client_id, True))
+  Ok(apply_operation(state, command, meta.client_id, True))
 }
 
 fn react(
@@ -394,7 +394,7 @@ fn load_from_synced(state: ModelState, _id: Int) -> ModelState {
   )
 }
 
-fn apply_oracle_op(
+fn apply_oracle_operation(
   state: OracleState,
   entry: #(Int, OrderedCommand),
 ) -> OracleState {
@@ -463,8 +463,8 @@ fn oracle(
       OracleState(queue: [], jobs: dict.new(), completed: []),
       fn(state, entry) {
         case entry {
-          kernel_fuzz.OpEntry(author, command, _) ->
-            apply_oracle_op(state, #(author, command))
+          kernel_fuzz.OperationEntry(author, command, _) ->
+            apply_oracle_operation(state, #(author, command))
           kernel_fuzz.LeaveEntry(leaver) -> oracle_remove_member(state, leaver)
         }
       },
@@ -554,12 +554,12 @@ pub fn model() -> KernelModel(
     apply_remote: apply_remote,
     ack_local: ack_local,
     observe: observe,
-    gen_op: op_generator(),
+    gen_operation: operation_generator(),
     check: Some(check_conservation),
     canonicalize: None,
     ack_preserves_view: False,
-    op_to_json: op_to_json,
-    op_decoder: op_decoder(),
+    operation_to_json: operation_to_json,
+    operation_decoder: operation_decoder(),
     capabilities: Capabilities(
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),

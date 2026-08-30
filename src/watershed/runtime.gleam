@@ -81,9 +81,9 @@ import watershed/wire/socket
 import watershed/wire/summary_blob
 
 @target(javascript)
-/// The server nacks a submission of more than 100 ops. Split a resubmit into
-/// chunks to stay below that limit.
-const max_ops_per_submission = 100
+/// The server nacks a submission of more than 100 operations. Split a resubmit
+/// into chunks to stay below that limit.
+const max_operations_per_submission = 100
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Transport seam
@@ -157,9 +157,9 @@ pub type ClaimSubmitReply {
 /// that order.
 pub type PresenceFrame {
   /// A `presence_state` snapshot, which the runtime does not decode. The
-  /// runtime has no decoder for the metadata of the application, and the op
-  /// lane does have one. The payload is the raw event JSON, a typed boundary
-  /// the typed driver decodes with its own `presence.config_decoder`.
+  /// runtime has no decoder for the metadata of the application, and the
+  /// operation lane does have one. The payload is the raw event JSON, a typed
+  /// boundary the typed driver decodes with its own `presence.config_decoder`.
   PresenceState(payload: String)
   PresenceDiff(payload: String)
   PresenceError(payload: String)
@@ -180,7 +180,8 @@ type Phase {
   Reconnecting(core: runtime_core.Core)
   /// The runtime is connected. `resubmit_at` is `Some(checkpoint)` while a
   /// reconnect still catches up to the point at which the runtime can resubmit
-  /// the ops with no ack. It is `None` after the runtime is synchronized.
+  /// the operations with no ack. It is `None` after the runtime is
+  /// synchronized.
   Ready(core: runtime_core.Core, resubmit_at: Option(Int))
   Failed(reason: String)
 }
@@ -197,8 +198,8 @@ type State {
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
     /// The subscribers for the ephemeral ripples. A ripple belongs to one
-    /// document and does not sequence, so the fan-out is separate from the op
-    /// event stream.
+    /// document and does not sequence, so the fan-out is separate from the
+    /// operation event stream.
     ripple_subscribers: List(fn(SignalMessage) -> Nil),
     /// The subscribers on the presence lane. Presence does not sequence and
     /// never touches the core, the same as a ripple.
@@ -227,7 +228,7 @@ type State {
     /// part of the document.
     auto_summary: Option(summary_policy.Policy),
     /// Whether a summarization wake-up is scheduled already. Without this flag,
-    /// a busy document would arm a new timer for every sequenced op.
+    /// a busy document would arm a new timer for every sequenced operation.
     summary_armed: Bool,
     /// How the runtime schedules delayed work. In production it uses the real
     /// `setTimeout` function. The in-memory hub substitutes its logical clock,
@@ -256,11 +257,11 @@ pub type Diagnostics {
     buffered_out_of_order_count: Int,
     resubmit_checkpoint: Option(Int),
     synced: Bool,
-    /// The ops that sequenced after the newest checkpoint that this client
-    /// knows about. An automatic summarization policy compares this count with
-    /// its threshold, and a client that joins replays these ops on top of that
-    /// checkpoint.
-    ops_since_summary: Int,
+    /// The operations that sequenced after the newest checkpoint that this
+    /// client knows about. An automatic summarization policy compares this
+    /// count with its threshold, and a client that joins replays these
+    /// operations on top of that checkpoint.
+    operations_since_summary: Int,
     /// Whether an automatic summarization attempt is scheduled and waits for
     /// its delay window. The value is always `False` without a policy.
     summary_pending: Bool,
@@ -449,8 +450,8 @@ pub fn pn_counter_value(runtime: Runtime, address: String) -> Result(Int, Nil) {
 @target(javascript)
 /// Propose `value` for `key` in the PactMap at `address`. This write is a
 /// consensus write, and it is not optimistic. The value takes effect only after
-/// the `Set` op sequences, and after the `Accept` op that follows it settles
-/// the quorum.
+/// the `Set` operation sequences, and after the `Accept` operation that follows
+/// it settles the quorum.
 pub fn pact_map_set(
   runtime: Runtime,
   address: String,
@@ -529,8 +530,8 @@ pub fn pact_map_get_with_details(
 
 @target(javascript)
 /// Append `value` to the ordered collection at `address`. An attached channel
-/// is not optimistic, and the value takes effect when the op sequences. A
-/// detached channel adds the value immediately.
+/// is not optimistic, and the value takes effect when the operation sequences.
+/// A detached channel adds the value immediately.
 pub fn ordered_add(runtime: Runtime, address: String, value: Json) -> Nil {
   edit(runtime.cell, fn(core) { runtime_core.ordered_add(core, address, value) })
 }
@@ -554,10 +555,10 @@ pub fn ordered_acquire(runtime: Runtime, address: String) -> String {
 ///
 /// `on_outcome` runs exactly one time. It gives `AcquiredItem` when this client
 /// won the head. It gives `QueueEmpty` when the queue became empty before the
-/// op sequenced. An acquire that loses emits no event, so `QueueEmpty` is the
-/// only signal that a loser receives. It gives `Aborted` when the document
-/// closes while the acquire is still in flight. A detached channel resolves
-/// immediately.
+/// operation sequenced. An acquire that loses emits no event, so `QueueEmpty`
+/// is the only signal that a loser receives. It gives `Aborted` when the
+/// document closes while the acquire is still in flight. A detached channel
+/// resolves immediately.
 pub fn ordered_acquire_with_outcome(
   runtime: Runtime,
   address: String,
@@ -677,11 +678,11 @@ pub fn ordered_jobs(
 }
 
 @target(javascript)
-/// Submit a json0 op to the channel at `address`, optimistically.
+/// Submit a json0 operation to the channel at `address`, optimistically.
 pub fn submit_json_ot(
   runtime: Runtime,
   address: String,
-  components: json_ot.Op,
+  components: json_ot.Operation,
 ) -> Nil {
   edit(runtime.cell, fn(core) {
     runtime_core.submit_json_ot(core, address, components)
@@ -885,7 +886,7 @@ pub fn sequence_length(runtime: Runtime, address: String) -> Int {
 @target(javascript)
 /// Insert `value` at the optimistic grapheme `index`. An empty `value` at a
 /// valid index changes nothing. The result is `Ok(Nil)`, and the runtime sends
-/// no op. See the module docs of `text_kernel`.
+/// no operation. See the module docs of `text_kernel`.
 pub fn text_insert(
   runtime: Runtime,
   address: String,
@@ -1863,7 +1864,7 @@ pub fn diagnostics(runtime: Runtime) -> Diagnostics {
         buffered_out_of_order_count: 0,
         resubmit_checkpoint: None,
         synced: False,
-        ops_since_summary: 0,
+        operations_since_summary: 0,
         summary_pending: False,
       )
     Reconnecting(core) ->
@@ -1888,7 +1889,7 @@ pub fn diagnostics(runtime: Runtime) -> Diagnostics {
         buffered_out_of_order_count: 0,
         resubmit_checkpoint: None,
         synced: False,
-        ops_since_summary: 0,
+        operations_since_summary: 0,
         summary_pending: False,
       )
   }
@@ -1911,7 +1912,7 @@ fn diagnostics_from_core(
     buffered_out_of_order_count: list.length(core.out_of_order),
     resubmit_checkpoint: checkpoint,
     synced: synced,
-    ops_since_summary: runtime_core.ops_since_summary(core),
+    operations_since_summary: runtime_core.operations_since_summary(core),
     summary_pending: state.summary_armed,
   )
 }
@@ -1920,8 +1921,8 @@ fn diagnostics_from_core(
 /// Replace the scheduler of the runtime. This is a test seam for the in-memory
 /// hub, which binds the delayed work to its logical clock. A production runtime
 /// keeps the real `setTimeout` function that it started with. You can call this
-/// function at any time before the first sequenced op, which is the earliest
-/// moment at which the runtime schedules anything.
+/// function at any time before the first sequenced operation, which is the
+/// earliest moment at which the runtime schedules anything.
 pub fn set_scheduler(
   runtime: Runtime,
   scheduler: transport_js.Scheduler,
@@ -1935,18 +1936,19 @@ pub fn auto_summarize(
   runtime: Runtime,
   policy: Option(summary_policy.Policy),
 ) -> Nil {
-  // Arming waits for the next sequenced op rather than happening here: the op
-  // path is the one place that knows the phase has settled, and a document
-  // already past the threshold is the common case on a busy room.
+  // Arming waits for the next sequenced operation rather than happening here:
+  // the operation path is the one place that knows the phase has settled, and a
+  // document already past the threshold is the common case on a busy room.
   cell_set(runtime.cell, State(..cell_get(runtime.cell), auto_summary: policy))
 }
 
 @target(javascript)
 /// How far the document moved past the newest checkpoint that this client knows
 /// about. The result is zero before the first handshake.
-pub fn ops_since_summary(runtime: Runtime) -> Int {
+pub fn operations_since_summary(runtime: Runtime) -> Int {
   case cell_get(runtime.cell).phase {
-    Ready(core, _) | Reconnecting(core) -> runtime_core.ops_since_summary(core)
+    Ready(core, _) | Reconnecting(core) ->
+      runtime_core.operations_since_summary(core)
     Connecting | Failed(_) -> 0
   }
 }
@@ -1956,10 +1958,11 @@ pub fn ops_since_summary(runtime: Runtime) -> Int {
 /// is pending.
 ///
 /// The delay keeps the cost of a room low. Every client crosses the threshold
-/// on the same op. Each client then waits for a different interval, which comes
-/// from its id. The first summary that sequences advances `last_summary_sn` on
-/// every client, and the rest of the room checks again on its wake-up and
-/// stops. A lost race costs one unnecessary upload, and nothing more.
+/// on the same operation. Each client then waits for a different interval,
+/// which comes from its id. The first summary that sequences advances
+/// `last_summary_sn` on every client, and the rest of the room checks again on
+/// its wake-up and stops. A lost race costs one unnecessary upload, and nothing
+/// more.
 fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
   let state = cell_get(cell)
   case state.auto_summary, state.summary_armed {
@@ -1992,9 +1995,9 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
       case runtime_core.wants_summary(core, policy) {
         False -> Nil
         True -> {
-          // A summarize op carries no ack, so there is nothing to reconcile on
-          // failure: the checkpoint did not move, and the next sequenced op
-          // arms another attempt.
+          // A summarize operation carries no ack, so there is nothing to
+          // reconcile on failure: the checkpoint did not move, and the next
+          // sequenced operation arms another attempt.
           let _ = summarize(Runtime(cell: cell))
           Nil
         }
@@ -2011,14 +2014,14 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
 @target(javascript)
 /// Summarize the current confirmed state of the document to the storage of
 /// floodgate. A later client can then start from that snapshot, and it does not
-/// replay the full op history. The promise resolves with the summary handle,
-/// which is a git tree SHA. The connection must be synchronized, and the token
-/// must carry the `summary:write` scope.
+/// replay the full operation history. The promise resolves with the summary
+/// handle, which is a git tree SHA. The connection must be synchronized, and
+/// the token must carry the `summary:write` scope.
 ///
 /// The upload is asynchronous, so the promise settles after the storage holds
-/// the blob and the runtime pushes the summarize op. The sequence number of
-/// that op comes from the live core at push time, and not at the start of the
-/// upload, so a concurrent local edit cannot collide with it.
+/// the blob and the runtime pushes the summarize operation. The sequence number
+/// of that operation comes from the live core at push time, and not at the
+/// start of the upload, so a concurrent local edit cannot collide with it.
 pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
   let cell = runtime.cell
   let state = cell_get(cell)
@@ -2109,10 +2112,11 @@ pub fn load_version(
 }
 
 @target(javascript)
-/// Stamp the summarize op that references the uploaded snapshot tree, and push
-/// it. The function reads the live state again, so it builds the op from the
-/// current core. The client sequence number of that op thus stays above the
-/// number of every edit that arrived during the asynchronous upload.
+/// Stamp the summarize operation that references the uploaded snapshot tree,
+/// and push it. The function reads the live state again, so it builds the
+/// operation from the current core. The client sequence number of that
+/// operation thus stays above the number of every edit that arrived during the
+/// asynchronous upload.
 fn finish_summarize(
   cell: Cell(State),
   tree_sha: String,
@@ -2130,7 +2134,7 @@ fn finish_summarize(
       push_json(
         channel,
         "submitOp",
-        socket.encode_submit_op(core.client_id, [[outbound]]),
+        socket.encode_submit_operation(core.client_id, [[outbound]]),
       )
       cell_set(cell, State(..state, phase: Ready(core, None)))
       Ok(tree_sha)
@@ -2192,7 +2196,7 @@ fn on_event(cell: Cell(State), event: String, payload: String) -> Nil {
   case event {
     "connect_document_success" -> on_connect_success(cell, payload)
     "connect_document_error" -> on_connect_error(cell, payload)
-    "op" -> on_op(cell, payload)
+    "op" -> on_operation(cell, payload)
     "nack" -> on_nack(cell, payload)
     "signal" -> on_ripple(cell, payload)
     "presence_state" -> notify_presence(cell, PresenceState(payload))
@@ -2236,16 +2240,16 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
               core.last_seen_sn,
             )
           // Ask for the gap. Nothing else will: no server pushes it unprompted,
-          // and the reactive `requestOps` in `on_op` needs an op to react to.
-          // See `runtime_core.catch_up_from`.
-          maybe_request_ops(
+          // and the reactive `requestOps` in `on_operation` needs an operation
+          // to react to. See `runtime_core.catch_up_from`.
+          maybe_request_operations(
             state.channel,
             runtime_core.catch_up_from(core, checkpoint),
           )
           settle_reconnect(cell, core, checkpoint)
-          // Presence is unsequenced, so it does not wait for the op catch-up
-          // `settle_reconnect` may still be pending — rejoining now is both
-          // correct and the fastest way back to a roster.
+          // Presence is unsequenced, so it does not wait for the operation
+          // catch-up `settle_reconnect` may still be pending — rejoining now is
+          // both correct and the fastest way back to a roster.
           notify_presence_session(cell, core)
         }
         Ready(_, _) | Failed(_) -> Nil
@@ -2256,10 +2260,10 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
 
 @target(javascript)
 /// Fetch the summary blob that `context` references, and then bootstrap the core
-/// from it. The runtime drops a real-time op that arrives during the
+/// from it. The runtime drops a real-time operation that arrives during the
 /// asynchronous fetch, while the phase is still `Connecting`. The gap that those
-/// drops create repairs itself: the first op after the bootstrap that is not
-/// contiguous starts a `requestOps` catch-up.
+/// drops create repairs itself: the first operation after the bootstrap that is
+/// not contiguous starts a `requestOps` catch-up.
 fn load_summary_then_bootstrap(
   cell: Cell(State),
   state: State,
@@ -2383,14 +2387,14 @@ fn on_connect_error(cell: Cell(State), payload: String) -> Nil {
 }
 
 @target(javascript)
-fn on_op(cell: Cell(State), payload: String) -> Nil {
+fn on_operation(cell: Cell(State), payload: String) -> Nil {
   let state = cell_get(cell)
   case state.phase {
     Ready(core, resubmit_at) ->
-      case json.parse(payload, socket.op_message_decoder()) {
+      case json.parse(payload, socket.operation_message_decoder()) {
         Error(_) -> fail(cell, "malformed op payload")
         Ok(message) ->
-          case apply_ops(core, message.ops) {
+          case apply_operations(core, message.ops) {
             Ok(#(core, events, resolutions, request_from, released)) -> {
               let state = resolve_claim_waiters(state, resolutions)
               let state = resolve_acquire_waiters(state, resolutions)
@@ -2403,7 +2407,7 @@ fn on_op(cell: Cell(State), payload: String) -> Nil {
                 None -> cell_set(cell, State(..state, phase: Ready(core, None)))
               }
               fan_out(state.subscribers, events)
-              maybe_request_ops(state.channel, request_from)
+              maybe_request_operations(state.channel, request_from)
               case resubmit_at {
                 // Mid-reconnect these are already in the in-flight queue, and
                 // `settle_reconnect` restamps that whole queue with fresh
@@ -2425,8 +2429,8 @@ fn on_op(cell: Cell(State), payload: String) -> Nil {
               )
           }
       }
-    // Ops before a connected session (or while reconnecting) carry no state
-    // we can trust; ignore them.
+    // Operations before a connected session (or while reconnecting) carry no
+    // state we can trust; ignore them.
     Connecting | Reconnecting(_) | Failed(_) -> Nil
   }
 }
@@ -2480,41 +2484,41 @@ fn settle_reconnect(
 }
 
 @target(javascript)
-fn apply_ops(
+fn apply_operations(
   core: runtime_core.Core,
-  ops: List(SequencedDocumentMessage),
+  operations: List(SequencedDocumentMessage),
 ) -> Result(
   #(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
     Option(Int),
-    List(wire.OutboundOp),
+    List(wire.OutboundOperation),
   ),
   runtime_core.CoreError,
 ) {
-  do_apply_ops(core, ops, [], [], None, [])
+  do_apply_operations(core, operations, [], [], None, [])
 }
 
 @target(javascript)
-fn do_apply_ops(
+fn do_apply_operations(
   core: runtime_core.Core,
-  ops: List(SequencedDocumentMessage),
+  operations: List(SequencedDocumentMessage),
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
   request_from: Option(Int),
-  released: List(wire.OutboundOp),
+  released: List(wire.OutboundOperation),
 ) -> Result(
   #(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
     Option(Int),
-    List(wire.OutboundOp),
+    List(wire.OutboundOperation),
   ),
   runtime_core.CoreError,
 ) {
-  case ops {
+  case operations {
     [] ->
       Ok(#(
         core,
@@ -2523,15 +2527,15 @@ fn do_apply_ops(
         request_from,
         released,
       ))
-    [op, ..rest] ->
-      case runtime_core.handle_sequenced(core, op) {
+    [operation, ..rest] ->
+      case runtime_core.handle_sequenced(core, operation) {
         Ok(#(core, ingested)) ->
-          do_apply_ops(
+          do_apply_operations(
             core,
             rest,
             [ingested.events, ..events],
             [ingested.resolutions, ..resolutions],
-            option.or(request_from, ingested.request_ops_from),
+            option.or(request_from, ingested.request_operations_from),
             list.append(released, ingested.outbound),
           )
         Error(core_error) -> Error(core_error)
@@ -2651,7 +2655,11 @@ fn edit(
   cell: Cell(State),
   operate: fn(runtime_core.Core) ->
     Result(
-      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      #(
+        runtime_core.Core,
+        List(#(String, ChannelEvent)),
+        List(wire.OutboundOperation),
+      ),
       runtime_core.CoreError,
     ),
 ) -> Nil {
@@ -2668,8 +2676,8 @@ fn edit(
           // Commit the new core before fan-out (see fan_out's contract).
           cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
           // Push immediately only when fully synced with a live channel;
-          // otherwise the op stays in-flight and `resubmit` sends it once, so a
-          // reconnect can't drop or duplicate it.
+          // otherwise the operation stays in-flight and `resubmit` sends it
+          // once, so a reconnect can't drop or duplicate it.
           case resubmit_at {
             None -> send_outbound(state.channel, core.client_id, outbound)
             _ -> Nil
@@ -2701,7 +2709,11 @@ fn edit_sequence_with_result(
   cell: Cell(State),
   operate: fn(runtime_core.Core) ->
     Result(
-      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      #(
+        runtime_core.Core,
+        List(#(String, ChannelEvent)),
+        List(wire.OutboundOperation),
+      ),
       runtime_core.CoreError,
     ),
 ) -> Result(Nil, String) {
@@ -2718,7 +2730,7 @@ fn edit_sequence_with_result(
           fan_out(state.subscribers, events)
           Ok(Nil)
         }
-        Error(runtime_core.SequenceOpFailed(_, detail)) -> Error(detail)
+        Error(runtime_core.SequenceOperationFailed(_, detail)) -> Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
     Reconnecting(core) ->
@@ -2728,7 +2740,7 @@ fn edit_sequence_with_result(
           fan_out(state.subscribers, events)
           Ok(Nil)
         }
-        Error(runtime_core.SequenceOpFailed(_, detail)) -> Error(detail)
+        Error(runtime_core.SequenceOperationFailed(_, detail)) -> Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
     Connecting | Failed(_) ->
@@ -2741,7 +2753,11 @@ fn edit_text_with_result(
   cell: Cell(State),
   operate: fn(runtime_core.Core) ->
     Result(
-      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      #(
+        runtime_core.Core,
+        List(#(String, ChannelEvent)),
+        List(wire.OutboundOperation),
+      ),
       runtime_core.CoreError,
     ),
 ) -> Result(Nil, String) {
@@ -2758,7 +2774,7 @@ fn edit_text_with_result(
           fan_out(state.subscribers, events)
           Ok(Nil)
         }
-        Error(runtime_core.TextOpFailed(_, detail)) -> Error(detail)
+        Error(runtime_core.TextOperationFailed(_, detail)) -> Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
     Reconnecting(core) ->
@@ -2768,7 +2784,7 @@ fn edit_text_with_result(
           fan_out(state.subscribers, events)
           Ok(Nil)
         }
-        Error(runtime_core.TextOpFailed(_, detail)) -> Error(detail)
+        Error(runtime_core.TextOperationFailed(_, detail)) -> Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
     Connecting | Failed(_) ->
@@ -2816,13 +2832,17 @@ fn push_connect(
 }
 
 @target(javascript)
-fn maybe_request_ops(
+fn maybe_request_operations(
   channel: Option(TransportHandle),
   request_from: Option(Int),
 ) -> Nil {
   case channel, request_from {
     Some(channel), Some(from) ->
-      push_json(channel, "requestOps", socket.encode_request_ops(from: from))
+      push_json(
+        channel,
+        "requestOps",
+        socket.encode_request_operations(from: from),
+      )
     _, _ -> Nil
   }
 }
@@ -2831,18 +2851,21 @@ fn maybe_request_ops(
 fn send_outbound(
   channel: Option(TransportHandle),
   client_id: String,
-  outbound: List(wire.OutboundOp),
+  outbound: List(wire.OutboundOperation),
 ) -> Nil {
   case channel, outbound {
     _, [] -> Nil
     Some(channel), _ ->
-      list.each(list.sized_chunk(outbound, max_ops_per_submission), fn(chunk) {
-        push_json(
-          channel,
-          "submitOp",
-          socket.encode_submit_op(client_id, [chunk]),
-        )
-      })
+      list.each(
+        list.sized_chunk(outbound, max_operations_per_submission),
+        fn(chunk) {
+          push_json(
+            channel,
+            "submitOp",
+            socket.encode_submit_operation(client_id, [chunk]),
+          )
+        },
+      )
     None, _ -> Nil
   }
 }
@@ -2882,8 +2905,8 @@ fn http_base_from_socket_url(url: String) -> String {
 ///
 /// The contract for a caller: write the new core into the cell before this
 /// fan-out. A handler that reads the map during the event thus sees the state
-/// that the runtime applied. That rule holds for a local edit, a remote op, and
-/// a reconnect.
+/// that the runtime applied. That rule holds for a local edit, a remote
+/// operation, and a reconnect.
 fn fan_out(
   subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
   events: List(#(String, ChannelEvent)),

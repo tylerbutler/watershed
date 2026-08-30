@@ -39,7 +39,7 @@ fn delta_decoder() -> decode.Decoder(Option(Sequence(Json))) {
   })
 }
 
-fn op_to_json(command: SequenceCommand) -> Json {
+fn operation_to_json(command: SequenceCommand) -> Json {
   case command {
     InsertCommand(index_seed, value, delta) ->
       json.object([
@@ -71,7 +71,7 @@ fn op_to_json(command: SequenceCommand) -> Json {
   }
 }
 
-fn op_decoder() -> decode.Decoder(SequenceCommand) {
+fn operation_decoder() -> decode.Decoder(SequenceCommand) {
   use tag <- decode.field("tag", decode.string)
   case tag {
     "Insert" -> {
@@ -101,7 +101,7 @@ fn op_decoder() -> decode.Decoder(SequenceCommand) {
   }
 }
 
-fn op_generator() -> qcheck.Generator(SequenceCommand) {
+fn operation_generator() -> qcheck.Generator(SequenceCommand) {
   qcheck.tuple4(
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
@@ -135,10 +135,10 @@ fn command_value(value: String, context: String) -> Json {
   }
 }
 
-fn command_to_kernel_op(
+fn command_to_kernel_operation(
   command: SequenceCommand,
   context: String,
-) -> sequence_kernel.SequenceOp {
+) -> sequence_kernel.SequenceOperation {
   case command {
     InsertCommand(index, value, Some(delta)) ->
       sequence_kernel.Insert(index, command_value(value, context), delta)
@@ -164,9 +164,9 @@ fn submit_insert(
 ) -> #(sequence_kernel.SequenceState, Option(SequenceCommand)) {
   let index = index_seed % { sequence_kernel.length(state) + 1 }
   let value = routed_value(command_value)
-  let assert Ok(#(state, _, op, _)) =
+  let assert Ok(#(state, _, operation, _)) =
     sequence_kernel.insert(state, index, value)
-  let assert sequence_kernel.Insert(index, value, delta) = op
+  let assert sequence_kernel.Insert(index, value, delta) = operation
   #(state, Some(InsertCommand(index, json.to_string(value), Some(delta))))
 }
 
@@ -184,9 +184,9 @@ fn submit(
         True -> submit_insert(state, index_seed, fallback_value(index_seed))
         False -> {
           let index = index_seed % length
-          let assert Ok(#(state, _, op, _)) =
+          let assert Ok(#(state, _, operation, _)) =
             sequence_kernel.delete(state, index)
-          let assert sequence_kernel.Delete(index, delta) = op
+          let assert sequence_kernel.Delete(index, delta) = operation
           #(state, Some(DeleteCommand(index, Some(delta))))
         }
       }
@@ -196,9 +196,9 @@ fn submit(
         False -> {
           let from = from_seed % length
           let to = to_seed % length
-          let assert Ok(#(state, _, op, _)) =
+          let assert Ok(#(state, _, operation, _)) =
             sequence_kernel.move(state, from, to)
-          let assert sequence_kernel.Move(from, to, delta) = op
+          let assert sequence_kernel.Move(from, to, delta) = operation
           #(state, Some(MoveCommand(from, to, Some(delta))))
         }
       }
@@ -208,9 +208,9 @@ fn submit(
         False -> {
           let index = index_seed % length
           let value = routed_value(value)
-          let assert Ok(#(state, _, op, _)) =
+          let assert Ok(#(state, _, operation, _)) =
             sequence_kernel.replace(state, index, value)
-          let assert sequence_kernel.Replace(index, value, delta) = op
+          let assert sequence_kernel.Replace(index, value, delta) = operation
           #(
             state,
             Some(ReplaceCommand(index, json.to_string(value), Some(delta))),
@@ -228,7 +228,7 @@ fn apply_remote(
   let #(state, _) =
     sequence_kernel.apply_remote(
       state,
-      command_to_kernel_op(command, "apply_remote"),
+      command_to_kernel_operation(command, "apply_remote"),
     )
   Ok(state)
 }
@@ -239,7 +239,10 @@ fn ack_local(
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(sequence_kernel.SequenceState, String) {
   case
-    sequence_kernel.ack_local(state, command_to_kernel_op(command, "ack_local"))
+    sequence_kernel.ack_local(
+      state,
+      command_to_kernel_operation(command, "ack_local"),
+    )
   {
     Ok(state) -> Ok(state)
     Error(sequence_kernel.UnexpectedAck(detail))
@@ -253,11 +256,11 @@ fn rollback(
 ) -> sequence_kernel.SequenceState {
   case list.last(state.pending) {
     Error(_) -> state
-    Ok(sequence_kernel.PendingOp(_, message_id)) ->
+    Ok(sequence_kernel.PendingOperation(_, message_id)) ->
       case
         sequence_kernel.rollback(
           state,
-          command_to_kernel_op(command, "rollback"),
+          command_to_kernel_operation(command, "rollback"),
           message_id,
         )
       {
@@ -278,9 +281,9 @@ fn apply_stashed(
     | MoveCommand(_, _, Some(_))
     | ReplaceCommand(_, _, Some(_)) -> {
       let #(state, _, _, _) =
-        sequence_kernel.apply_stashed_op(
+        sequence_kernel.apply_stashed_operation(
           state,
-          command_to_kernel_op(command, "apply_stashed"),
+          command_to_kernel_operation(command, "apply_stashed"),
         )
       #(state, command)
     }
@@ -322,12 +325,12 @@ pub fn model() -> KernelModel(
     apply_remote: apply_remote,
     ack_local: ack_local,
     observe: sequence_kernel.values,
-    gen_op: op_generator(),
+    gen_operation: operation_generator(),
     check: Some(sequence_kernel.check_cache_coherence),
     canonicalize: None,
     ack_preserves_view: True,
-    op_to_json: op_to_json,
-    op_decoder: op_decoder(),
+    operation_to_json: operation_to_json,
+    operation_decoder: operation_decoder(),
     capabilities: Capabilities(
       load_from_synced: Some(load_from_synced),
       oracle: None,

@@ -1,9 +1,9 @@
 //// Behavioural tests for the peer-to-peer bindings in
 //// `watershed_lustre/crdt`.
 ////
-//// These run a *solo* replica: a no-op `Rtc` seam and a signaling hub that
-//// admits the tab into an empty room (`Roster([])`) the instant it joins. A
-//// replica that is alone is ready immediately, opens no `RTCPeerConnection`,
+//// These run a *solo* replica: a no-operation `Rtc` seam and a signaling hub
+//// that admits the tab into an empty room (`Roster([])`) the instant it joins.
+//// A replica that is alone is ready immediately, opens no `RTCPeerConnection`,
 //// and — because a local mutation fans an event back to the same document's
 //// own subscribers — can exercise every callback path this module bridges
 //// without a second browser or a fake network.
@@ -143,7 +143,7 @@ fn readied(outcome: Result(CrdtDocument(root), P2pError)) -> Msg {
 
 /// Attach `document` through the bindings with the standard harness wiring —
 /// connection into `Held`, readiness into `readied`, status into `Statused`,
-/// over the no-op `Rtc` — routing every dispatch into `sink`.
+/// over the no-operation `Rtc` — routing every dispatch into `sink`.
 fn attached(document: CrdtDocument(root), sink: Cell(List(Msg))) -> Nil {
   run(
     crdt.attach_with_rtc(
@@ -466,8 +466,9 @@ pub fn an_invalid_mutation_surfaces_as_a_typed_error_test() -> Promise(Nil) {
   use _ <- promise.await(flush())
 
   let map = crdt_js.root(document)
-  // `increment` is a tally op; on a `RegisterMode` map it must fail rather than
-  // silently succeed — the binding passes the `Error` through untouched.
+  // `increment` is a tally operation; on a `RegisterMode` map it must fail
+  // rather than silently succeed — the binding passes the `Error` through
+  // untouched.
   run(
     crdt.perform(
       fn() { crdt_js.or_map_increment(map, key: "k", amount: 1) },

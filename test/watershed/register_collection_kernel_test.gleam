@@ -4,8 +4,8 @@
 import gleam/json.{type Json}
 import startest/expect
 import watershed/register_collection_kernel.{
-  type Register, type RegisterEvent, type RegisterState, type WriteOp, Atomic,
-  AtomicChanged, Lww, Register, VersionChanged, VersionedValue, Write,
+  type Register, type RegisterEvent, type RegisterState, type WriteOperation,
+  Atomic, AtomicChanged, Lww, Register, VersionChanged, VersionedValue, Write,
 }
 
 fn string_value(value: String) -> Json {
@@ -14,10 +14,10 @@ fn string_value(value: String) -> Json {
 
 fn ack(
   state: RegisterState,
-  op: WriteOp,
+  operation: WriteOperation,
   seq: Int,
 ) -> #(RegisterState, List(RegisterEvent), Bool) {
-  register_collection_kernel.ack_local(state, op, seq)
+  register_collection_kernel.ack_local(state, operation, seq)
 }
 
 fn summary(value: Json, seq: Int) -> Register {
@@ -69,8 +69,9 @@ pub fn detached_summary_persists_seq_zero_test() -> Nil {
 
 pub fn submit_is_not_optimistically_visible_test() -> Nil {
   let state = register_collection_kernel.new()
-  let op = register_collection_kernel.write(state, "k", string_value("v"), 0)
-  op |> expect.to_equal(Write("k", string_value("v"), 0))
+  let operation =
+    register_collection_kernel.write(state, "k", string_value("v"), 0)
+  operation |> expect.to_equal(Write("k", string_value("v"), 0))
   register_collection_kernel.read(state, "k", Atomic)
   |> expect.to_equal(Error(Nil))
   register_collection_kernel.read(state, "k", Lww)
@@ -79,8 +80,9 @@ pub fn submit_is_not_optimistically_visible_test() -> Nil {
 
 pub fn ack_commits_winner_and_emits_local_events_test() -> Nil {
   let state = register_collection_kernel.new()
-  let op = register_collection_kernel.write(state, "k", string_value("v"), 0)
-  let #(state, events, is_winner) = ack(state, op, 1)
+  let operation =
+    register_collection_kernel.write(state, "k", string_value("v"), 0)
+  let #(state, events, is_winner) = ack(state, operation, 1)
   is_winner |> expect.to_be_true()
   events
   |> expect.to_equal([
@@ -96,20 +98,20 @@ pub fn ack_commits_winner_and_emits_local_events_test() -> Nil {
 pub fn concurrent_loser_appends_version_but_does_not_change_atomic_test() -> Nil {
   let state_a = register_collection_kernel.new()
   let state_b = register_collection_kernel.new()
-  let op_a =
+  let operation_a =
     register_collection_kernel.write(state_a, "k", string_value("A"), 0)
-  let op_b =
+  let operation_b =
     register_collection_kernel.write(state_b, "k", string_value("B"), 0)
 
-  let #(state_a, _events, outcome_a) = ack(state_a, op_a, 1)
+  let #(state_a, _events, outcome_a) = ack(state_a, operation_a, 1)
   outcome_a |> expect.to_be_true()
   let #(state_a, events_a2) =
-    register_collection_kernel.apply_remote(state_a, op_b, 2)
+    register_collection_kernel.apply_remote(state_a, operation_b, 2)
   events_a2 |> expect.to_equal([VersionChanged("k", string_value("B"), False)])
 
   let #(state_b, _events_b1) =
-    register_collection_kernel.apply_remote(state_b, op_a, 1)
-  let #(state_b, events_b2, outcome_b) = ack(state_b, op_b, 2)
+    register_collection_kernel.apply_remote(state_b, operation_a, 1)
+  let #(state_b, events_b2, outcome_b) = ack(state_b, operation_b, 2)
   outcome_b |> expect.to_be_false()
   events_b2 |> expect.to_equal([VersionChanged("k", string_value("B"), True)])
 
@@ -128,12 +130,12 @@ pub fn atomic_and_lww_can_diverge_across_three_write_schedule_test() -> Nil {
     register_collection_kernel.from_summary([
       #("k", summary(string_value("0"), 1)),
     ])
-  let op_a = Write("k", string_value("A"), 1)
-  let op_b = Write("k", string_value("B"), 1)
+  let operation_a = Write("k", string_value("A"), 1)
+  let operation_b = Write("k", string_value("B"), 1)
   let #(state, _events) =
-    register_collection_kernel.apply_remote(state, op_a, 2)
+    register_collection_kernel.apply_remote(state, operation_a, 2)
   let #(state, _events) =
-    register_collection_kernel.apply_remote(state, op_b, 3)
+    register_collection_kernel.apply_remote(state, operation_b, 3)
 
   register_collection_kernel.read(state, "k", Atomic)
   |> expect.to_equal(Ok(string_value("A")))
@@ -258,14 +260,14 @@ pub fn rollback_leaves_state_unchanged_and_returns_false_test() -> Nil {
   after |> expect.to_equal(state)
 }
 
-pub fn stashed_op_returns_op_verbatim_and_applies_normally_test() -> Nil {
-  let op = Write("k", string_value("v"), 7)
+pub fn stashed_operation_returns_operation_verbatim_and_applies_normally_test() -> Nil {
+  let operation = Write("k", string_value("v"), 7)
   let #(state, resubmit) =
-    register_collection_kernel.apply_stashed_op(
+    register_collection_kernel.apply_stashed_operation(
       register_collection_kernel.new(),
-      op,
+      operation,
     )
-  resubmit |> expect.to_equal(op)
+  resubmit |> expect.to_equal(operation)
   let #(state, _events, outcome) = ack(state, resubmit, 8)
   outcome |> expect.to_be_true()
   register_collection_kernel.read(state, "k", Atomic)

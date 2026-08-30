@@ -38,7 +38,7 @@ type Kind {
     /// create / ensure / resolve / handle / typed field pair.
     lifecycle: List(String),
     /// The verbs that mutate or read the kind.
-    ops: List(String),
+    operations: List(String),
     /// Change notification.
     subscribes: List(String),
   )
@@ -436,7 +436,7 @@ pub fn extraction_actually_finds_exports_test() -> Nil {
 fn missing_names(exports: Set(String), kinds: List(Kind)) -> List(String) {
   kinds
   |> list.flat_map(fn(kind) {
-    [kind.lifecycle, kind.ops, kind.subscribes]
+    [kind.lifecycle, kind.operations, kind.subscribes]
     |> list.flatten
     |> list.filter(fn(name) { !set.contains(exports, name) })
     |> list.map(fn(name) { kind.name <> "." <> name })

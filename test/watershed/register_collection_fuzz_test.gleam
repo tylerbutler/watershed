@@ -14,7 +14,7 @@ pub fn converges_and_matches_oracle_test() -> Nil {
     kernel_fuzz.config_from_env(),
     client_count,
     script_gen.script_generator(
-      model.gen_op,
+      model.gen_operation,
       client_count,
       script_gen.default_weights(),
     ),

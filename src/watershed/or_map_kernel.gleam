@@ -66,16 +66,16 @@ pub type OrMapState {
     /// that fault. `p2p_merge` reads the timestamp of each merged register
     /// through `lww_register.to_json` and adds it to this clock.
     register_clock: Dict(String, Int),
-    pending: List(PendingOp),
+    pending: List(PendingOperation),
     next_pending_message_id: Int,
   )
 }
 
-pub type PendingOp {
-  PendingOp(op: OrMapOp, message_id: Int)
+pub type PendingOperation {
+  PendingOperation(operation: OrMapOperation, message_id: Int)
 }
 
-pub type OrMapOp {
+pub type OrMapOperation {
   Increment(key: String, amount: Int, delta: ORMapDelta)
   SetRegister(key: String, value: String, timestamp: Int, delta: ORMapDelta)
   Remove(key: String, delta: ORMapDelta)
@@ -151,7 +151,7 @@ pub fn increment(
   state: OrMapState,
   key: String,
   amount: Int,
-) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp, Int), KernelError) {
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
   case state.mode {
     RegisterMode -> Error(ModeMismatch("increment requires TallyMode"))
     TallyMode -> {
@@ -173,7 +173,7 @@ pub fn increment(
       ))
       use optimistic <- result.try(apply_delta(state.optimistic, delta))
       let message_id = state.next_pending_message_id
-      let op = Increment(key, amount, delta)
+      let operation = Increment(key, amount, delta)
       let new_state =
         OrMapState(
           ..state,
@@ -182,11 +182,18 @@ pub fn increment(
             new_positive,
             new_negative,
           )),
-          pending: list.append(state.pending, [PendingOp(op, message_id)]),
+          pending: list.append(state.pending, [
+            PendingOperation(operation, message_id),
+          ]),
           next_pending_message_id: message_id + 1,
         )
       let new_value = tally_of(new_state, key)
-      Ok(#(new_state, [TallyUpdated(key, amount, new_value)], op, message_id))
+      Ok(#(
+        new_state,
+        [TallyUpdated(key, amount, new_value)],
+        operation,
+        message_id,
+      ))
     }
   }
 }
@@ -196,7 +203,7 @@ pub fn set_register(
   key: String,
   value: String,
   timestamp: Int,
-) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp, Int), KernelError) {
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
   case state.mode {
     TallyMode -> Error(ModeMismatch("set_register requires RegisterMode"))
     RegisterMode -> {
@@ -210,19 +217,21 @@ pub fn set_register(
       ))
       use optimistic <- result.try(apply_delta(state.optimistic, delta))
       let message_id = state.next_pending_message_id
-      let op = SetRegister(key, value, timestamp, delta)
+      let operation = SetRegister(key, value, timestamp, delta)
       let new_state =
         OrMapState(
           ..state,
           optimistic: optimistic,
           register_clock: observe(state.register_clock, key, timestamp),
-          pending: list.append(state.pending, [PendingOp(op, message_id)]),
+          pending: list.append(state.pending, [
+            PendingOperation(operation, message_id),
+          ]),
           next_pending_message_id: message_id + 1,
         )
       Ok(#(
         new_state,
         events_between(before, entries(new_state)),
-        op,
+        operation,
         message_id,
       ))
     }
@@ -264,8 +273,11 @@ fn observe(
 /// Record the timestamp that the write of a peer used. The next local write to
 /// that key is thus above it. Without this record the two writes could be
 /// equal, and the replica-id tie-break would then decide.
-fn observe_op(clock: Dict(String, Int), op: OrMapOp) -> Dict(String, Int) {
-  case op {
+fn observe_operation(
+  clock: Dict(String, Int),
+  operation: OrMapOperation,
+) -> Dict(String, Int) {
+  case operation {
     SetRegister(key, _, timestamp, _) -> observe(clock, key, timestamp)
     Increment(_, _, _) | Remove(_, _) -> clock
   }
@@ -274,20 +286,27 @@ fn observe_op(clock: Dict(String, Int), op: OrMapOp) -> Dict(String, Int) {
 pub fn remove(
   state: OrMapState,
   key: String,
-) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp, Int), KernelError) {
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
   let before = entries(state)
   let #(_discarded, delta) = or_map.remove_with_delta(state.optimistic, key)
   use optimistic <- result.try(apply_delta(state.optimistic, delta))
   let message_id = state.next_pending_message_id
-  let op = Remove(key, delta)
+  let operation = Remove(key, delta)
   let new_state =
     OrMapState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  Ok(#(new_state, events_between(before, entries(new_state)), op, message_id))
+  Ok(#(
+    new_state,
+    events_between(before, entries(new_state)),
+    operation,
+    message_id,
+  ))
 }
 
 /// The ack-free p2p form of `increment`. It writes the same delta, but it
@@ -297,7 +316,7 @@ pub fn p2p_increment(
   state: OrMapState,
   key: String,
   amount: Int,
-) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp), KernelError) {
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation), KernelError) {
   case state.mode {
     RegisterMode -> Error(ModeMismatch("increment requires TallyMode"))
     TallyMode -> {
@@ -319,7 +338,7 @@ pub fn p2p_increment(
       ))
       use sequenced <- result.try(apply_delta(state.sequenced, delta))
       use optimistic <- result.try(apply_delta(state.optimistic, delta))
-      let op = Increment(key, amount, delta)
+      let operation = Increment(key, amount, delta)
       let new_state =
         OrMapState(
           ..state,
@@ -331,7 +350,7 @@ pub fn p2p_increment(
           )),
         )
       let new_value = tally_of(new_state, key)
-      Ok(#(new_state, [TallyUpdated(key, amount, new_value)], op))
+      Ok(#(new_state, [TallyUpdated(key, amount, new_value)], operation))
     }
   }
 }
@@ -342,7 +361,7 @@ pub fn p2p_set_register(
   key: String,
   value: String,
   timestamp: Int,
-) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp), KernelError) {
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation), KernelError) {
   case state.mode {
     TallyMode -> Error(ModeMismatch("set_register requires RegisterMode"))
     RegisterMode -> {
@@ -356,7 +375,7 @@ pub fn p2p_set_register(
       ))
       use sequenced <- result.try(apply_delta(state.sequenced, delta))
       use optimistic <- result.try(apply_delta(state.optimistic, delta))
-      let op = SetRegister(key, value, timestamp, delta)
+      let operation = SetRegister(key, value, timestamp, delta)
       let new_state =
         OrMapState(
           ..state,
@@ -364,7 +383,7 @@ pub fn p2p_set_register(
           optimistic: optimistic,
           register_clock: observe(state.register_clock, key, timestamp),
         )
-      Ok(#(new_state, events_between(before, entries(new_state)), op))
+      Ok(#(new_state, events_between(before, entries(new_state)), operation))
     }
   }
 }
@@ -373,15 +392,15 @@ pub fn p2p_set_register(
 pub fn p2p_remove(
   state: OrMapState,
   key: String,
-) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp), KernelError) {
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation), KernelError) {
   let before = entries(state)
   let #(_discarded, delta) = or_map.remove_with_delta(state.optimistic, key)
   use sequenced <- result.try(apply_delta(state.sequenced, delta))
   use optimistic <- result.try(apply_delta(state.optimistic, delta))
-  let op = Remove(key, delta)
+  let operation = Remove(key, delta)
   let new_state =
     OrMapState(..state, sequenced: sequenced, optimistic: optimistic)
-  Ok(#(new_state, events_between(before, entries(new_state)), op))
+  Ok(#(new_state, events_between(before, entries(new_state)), operation))
 }
 
 /// Merge the full confirmed CRDT state of a peer into this state. This is the
@@ -396,7 +415,7 @@ pub fn p2p_remove(
 /// `lww_register.to_json`, because `LWWRegister` is opaque and gives access to
 /// `value` only. That is one JSON round trip for each register. The function
 /// thus runs on a merge, which is a bootstrap or a repair, and not on the path
-/// of each op.
+/// of each operation.
 pub fn p2p_merge(
   state: OrMapState,
   other: ORMap,
@@ -473,10 +492,10 @@ fn register_timestamp(
 
 pub fn apply_remote(
   state: OrMapState,
-  op: OrMapOp,
+  operation: OrMapOperation,
 ) -> Result(#(OrMapState, List(OrMapEvent)), KernelError) {
   let before = entries(state)
-  let delta = op_delta(op)
+  let delta = operation_delta(operation)
   use sequenced <- result.try(apply_delta(state.sequenced, delta))
   use optimistic <- result.try(replay_pending(sequenced, state.pending))
   let new_state =
@@ -484,41 +503,44 @@ pub fn apply_remote(
       ..state,
       sequenced: sequenced,
       optimistic: optimistic,
-      register_clock: observe_op(state.register_clock, op),
+      register_clock: observe_operation(state.register_clock, operation),
     )
   Ok(#(new_state, events_between(before, entries(new_state))))
 }
 
 pub fn ack_local(
   state: OrMapState,
-  op: OrMapOp,
+  operation: OrMapOperation,
 ) -> Result(OrMapState, KernelError) {
-  do_ack(state, op, None)
+  do_ack(state, operation, None)
 }
 
 pub fn ack_local_with_message_id(
   state: OrMapState,
-  op: OrMapOp,
+  operation: OrMapOperation,
   message_id: Int,
 ) -> Result(OrMapState, KernelError) {
-  do_ack(state, op, Some(message_id))
+  do_ack(state, operation, Some(message_id))
 }
 
 fn do_ack(
   state: OrMapState,
-  op: OrMapOp,
+  operation: OrMapOperation,
   expected_message_id: Option(Int),
 ) -> Result(OrMapState, KernelError) {
   case state.pending {
     [] -> Error(UnexpectedAck("pending queue is empty"))
-    [PendingOp(pending_op, pending_message_id), ..rest] -> {
+    [PendingOperation(pending_operation, pending_message_id), ..rest] -> {
       let message_id_matches = case expected_message_id {
         None -> True
         Some(message_id) -> message_id == pending_message_id
       }
-      case pending_op == op && message_id_matches {
+      case pending_operation == operation && message_id_matches {
         True -> {
-          use sequenced <- result.try(apply_delta(state.sequenced, op_delta(op)))
+          use sequenced <- result.try(apply_delta(
+            state.sequenced,
+            operation_delta(operation),
+          ))
           Ok(OrMapState(..state, sequenced: sequenced, pending: rest))
         }
         False ->
@@ -538,13 +560,13 @@ fn do_ack(
 
 pub fn rollback(
   state: OrMapState,
-  op: OrMapOp,
+  operation: OrMapOperation,
   message_id: Int,
 ) -> Result(#(OrMapState, List(OrMapEvent)), KernelError) {
   case pop_last(state.pending) {
     Error(_) -> Error(UnexpectedRollback("pending queue is empty"))
-    Ok(#(PendingOp(pending_op, pending_message_id), rest)) ->
-      case pending_op == op && pending_message_id == message_id {
+    Ok(#(PendingOperation(pending_operation, pending_message_id), rest)) ->
+      case pending_operation == operation && pending_message_id == message_id {
         False ->
           Error(UnexpectedRollback(
             "expected newest pending op with message id "
@@ -554,7 +576,7 @@ pub fn rollback(
           ))
         True -> {
           let before = entries(state)
-          let own_tallies = rollback_own_tallies(state.own_tallies, op)
+          let own_tallies = rollback_own_tallies(state.own_tallies, operation)
           use optimistic <- result.try(replay_pending(state.sequenced, rest))
           let new_state =
             OrMapState(
@@ -569,22 +591,29 @@ pub fn rollback(
   }
 }
 
-pub fn apply_stashed_op(
+pub fn apply_stashed_operation(
   state: OrMapState,
-  op: OrMapOp,
-) -> Result(#(OrMapState, List(OrMapEvent), OrMapOp, Int), KernelError) {
+  operation: OrMapOperation,
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
   let before = entries(state)
-  let delta = op_delta(op)
+  let delta = operation_delta(operation)
   use optimistic <- result.try(apply_delta(state.optimistic, delta))
   let message_id = state.next_pending_message_id
   let new_state =
     OrMapState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  Ok(#(new_state, events_between(before, entries(new_state)), op, message_id))
+  Ok(#(
+    new_state,
+    events_between(before, entries(new_state)),
+    operation,
+    message_id,
+  ))
 }
 
 pub fn promote_attach(state: OrMapState) -> OrMapState {
@@ -684,9 +713,9 @@ fn own_tally_counter(
 
 fn rollback_own_tallies(
   own_tallies: Dict(String, #(Int, Int)),
-  op: OrMapOp,
+  operation: OrMapOperation,
 ) -> Dict(String, #(Int, Int)) {
-  case op {
+  case operation {
     Increment(key, amount, _) -> {
       let #(positive, negative) =
         dict.get(own_tallies, key) |> result.unwrap(#(0, 0))
@@ -700,8 +729,8 @@ fn rollback_own_tallies(
   }
 }
 
-fn op_delta(op: OrMapOp) -> ORMapDelta {
-  case op {
+fn operation_delta(operation: OrMapOperation) -> ORMapDelta {
+  case operation {
     Increment(_, _, delta) -> delta
     SetRegister(_, _, _, delta) -> delta
     Remove(_, delta) -> delta
@@ -733,10 +762,10 @@ fn update_with_delta(
 
 fn replay_pending(
   sequenced: ORMap,
-  pending: List(PendingOp),
+  pending: List(PendingOperation),
 ) -> Result(ORMap, KernelError) {
   list.try_fold(pending, sequenced, fn(acc, pending) {
-    apply_delta(acc, op_delta(pending.op))
+    apply_delta(acc, operation_delta(pending.operation))
   })
 }
 
@@ -823,8 +852,8 @@ fn entry_value(
 }
 
 fn pop_last(
-  pending: List(PendingOp),
-) -> Result(#(PendingOp, List(PendingOp)), Nil) {
+  pending: List(PendingOperation),
+) -> Result(#(PendingOperation, List(PendingOperation)), Nil) {
   case pending {
     [] -> Error(Nil)
     [only] -> Ok(#(only, []))

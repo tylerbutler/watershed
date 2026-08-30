@@ -160,8 +160,8 @@ fn paint_scenario(
   //
   // This is the part the sluice cannot cover, and for a while it was only half
   // asserted: the JS runtime never finished catching up after a reconnect that
-  // spanned sequenced ops, so the return leg was left out with a pointer to
-  // `docs/plans/2026-08-09-js-reconnect-catchup-defect.md`. The runtime now
+  // spanned sequenced operations, so the return leg was left out with a pointer
+  // to `docs/plans/2026-08-09-js-reconnect-catchup-defect.md`. The runtime now
   // requests its own gap on the handshake, so coming back is checked here too.
   log("smoke: A goes offline and keeps painting")
   watershed.go_offline(doc_a)

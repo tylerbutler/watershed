@@ -1,8 +1,8 @@
 //// Fuzz coverage for the directory kernel (SharedDirectory port): wires
 //// `directory_model` into the shared harness and script generator. Exercises
 //// convergence, the pure-remote oracle, ack transparency, `AddClient` summary
-//// joins, and F3's Disconnect/Reconnect/RollbackOp/StashedOp over a bounded
-//// tree of storage + subdirectory ops.
+//// joins, and F3's Disconnect/Reconnect/RollbackOperation/StashedOperation
+//// over a bounded tree of storage + subdirectory operations.
 ////
 //// The instance-aliasing divergences deep sweeps used to find were closed by
 //// porting FF's full subdirectory identity lifecycle (dispose-time
@@ -21,8 +21,8 @@ const client_count = 3
 fn weights() -> script_gen.Weights {
   script_gen.Weights(
     ..script_gen.default_weights(),
-    rollback_op: 8,
-    stashed_op: 8,
+    rollback_operation: 8,
+    stashed_operation: 8,
   )
 }
 
@@ -32,6 +32,6 @@ pub fn converges_and_matches_oracle_test() -> Nil {
     model,
     kernel_fuzz.config_from_env(),
     client_count,
-    script_gen.script_generator(model.gen_op, client_count, weights()),
+    script_gen.script_generator(model.gen_operation, client_count, weights()),
   )
 }

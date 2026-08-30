@@ -5,17 +5,17 @@
 //// key-value store, the same as a SharedMap (see `map_kernel`), with a named
 //// set of child directories. This kernel is a pure *tree* port. There is no
 //// process and there are no side effects. Every operation returns the new
-//// state with the events, and, for a local op, with the outbound op that it
-//// produced.
+//// state with the events, and, for a local operation, with the outbound
+//// operation that it produced.
 ////
 //// The new difficulty over `map_kernel` is **hierarchical identity**. Several
 //// clients can create one subdirectory at the same time, delete it, and
-//// create it again under the same absolute path. An op addresses a directory
-//// by its absolute path, but it must apply to the *current live instance* of
-//// that path only. That filter is the central correctness rule. It is
-//// `is_message_for_current_instance`, which is D12 in the plan, and this
+//// create it again under the same absolute path. An operation addresses a
+//// directory by its absolute path, but it must apply to the *current live
+//// instance* of that path only. That filter is the central correctness rule.
+//// It is `is_message_for_current_instance`, which is D12 in the plan, and this
 //// kernel models it from the creator ids, the create sequence data, and the
-//// reference sequence number of the op.
+//// reference sequence number of the operation.
 ////
 //// The state of each node has the same shape as in `map_kernel`. `sequenced`
 //// holds the storage that the server confirmed, with `insertion_order`,
@@ -127,7 +127,7 @@ pub type PendingSubdir {
   PendingRemove(name: String, message_id: Int)
 }
 
-pub type DirectoryOp {
+pub type DirectoryOperation {
   Set(path: String, key: String, value: Json)
   Delete(path: String, key: String)
   Clear(path: String)
@@ -149,10 +149,10 @@ pub type DirectoryEvent {
   Undisposed(path: String)
 }
 
-/// The metadata that a sequenced op carries: the client that wrote it, its
-/// server sequence number, the reference sequence number of the author, and its
-/// client sequence number. The reference sequence number is what the author had
-/// seen at submit time, and the stale-instance filter uses it. The client
+/// The metadata that a sequenced operation carries: the client that wrote it,
+/// its server sequence number, the reference sequence number of the author, and
+/// its client sequence number. The reference sequence number is what the author
+/// had seen at submit time, and the stale-instance filter uses it. The client
 /// sequence number breaks a tie in the sibling order.
 pub type SequencedMeta {
   SequencedMeta(
@@ -164,8 +164,8 @@ pub type SequencedMeta {
 }
 
 pub type KernelError {
-  UnexpectedAck(op: DirectoryOp, detail: String)
-  UnexpectedRollback(op: DirectoryOp, detail: String)
+  UnexpectedAck(operation: DirectoryOperation, detail: String)
+  UnexpectedRollback(operation: DirectoryOperation, detail: String)
   PathNotFound(path: String)
   InvalidName(name: String)
   InvariantViolation(detail: String)
@@ -254,19 +254,19 @@ fn optimistic_child(
   let child = case latest_pending_subdir(node, name) {
     // No pending marker: the sequenced child (if any) is the live instance.
     Error(Nil) -> dict.get(node.subdirs, name)
-    // Latest op is a not-yet-folded create: its single copy lives in the marker
-    // (this is the instance even if an older, being-deleted instance still sits
-    // in `subdirs`).
+    // Latest operation is a not-yet-folded create: its single copy lives in the
+    // marker (this is the instance even if an older, being-deleted instance
+    // still sits in `subdirs`).
     Ok(PendingCreate(_, pending_child, _, False)) -> Ok(pending_child)
-    // Latest op is a folded create: its instance was moved into sequenced
-    // children (overwriting any prior instance), and the slot is the canonical
-    // copy — but only while the slot still holds *this* instance (matching
-    // births). A later delete clears the slot (the instance survives in the
-    // marker), and a later ack can commit a *different* instance into it; in
-    // both cases the marker node is the pending create's instance, exactly as
-    // FF's pending entry keeps referencing its own object. The marker node's
-    // `disposed` flag is authoritative — set by the delete's dispose
-    // lifecycle, cleared again by an undispose.
+    // Latest operation is a folded create: its instance was moved into
+    // sequenced children (overwriting any prior instance), and the slot is the
+    // canonical copy — but only while the slot still holds *this* instance
+    // (matching births). A later delete clears the slot (the instance survives
+    // in the marker), and a later ack can commit a *different* instance into
+    // it; in both cases the marker node is the pending create's instance,
+    // exactly as FF's pending entry keeps referencing its own object. The
+    // marker node's `disposed` flag is authoritative — set by the delete's
+    // dispose lifecycle, cleared again by an undispose.
     Ok(PendingCreate(_, pending_child, _, True)) ->
       case dict.get(node.subdirs, name) {
         Ok(live) ->
@@ -276,7 +276,7 @@ fn optimistic_child(
           }
         Error(Nil) -> Ok(pending_child)
       }
-    // Latest op is a delete: optimistically absent.
+    // Latest operation is a delete: optimistically absent.
     Ok(PendingRemove(_, _)) -> Error(Nil)
   }
   case child {
@@ -319,8 +319,8 @@ fn put_optimistic_child(
     // delete/recreate race resurrects an out-of-date instance. If the slot was
     // cleared by a delete — or holds a *different* instance committed by an
     // interleaved ack — only the marker is written: FF never mutates another
-    // object, and never re-inserts into the sequenced map outside sequenced-op
-    // processing.
+    // object, and never re-inserts into the sequenced map outside
+    // sequenced-operation processing.
     Ok(PendingCreate(_, _, _, True)) -> {
       let node = case dict.get(node.subdirs, name) {
         Ok(live) ->
@@ -665,7 +665,7 @@ fn compare_create_info(a: CreateInfo, b: CreateInfo) -> Order {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Local storage operations (optimistic apply + outbound op)
+// Local storage operations (optimistic apply + outbound operation)
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn set(
@@ -674,7 +674,7 @@ pub fn set(
   key: String,
   value: Json,
 ) -> Result(
-  #(DirectoryState, List(DirectoryEvent), DirectoryOp, Int),
+  #(DirectoryState, List(DirectoryEvent), DirectoryOperation, Int),
   KernelError,
 ) {
   let message_id = state.next_message_id
@@ -700,7 +700,7 @@ pub fn delete(
   path: String,
   key: String,
 ) -> Result(
-  #(DirectoryState, List(DirectoryEvent), DirectoryOp, Int),
+  #(DirectoryState, List(DirectoryEvent), DirectoryOperation, Int),
   KernelError,
 ) {
   let message_id = state.next_message_id
@@ -736,7 +736,7 @@ pub fn clear(
   state: DirectoryState,
   path: String,
 ) -> Result(
-  #(DirectoryState, List(DirectoryEvent), DirectoryOp, Int),
+  #(DirectoryState, List(DirectoryEvent), DirectoryOperation, Int),
   KernelError,
 ) {
   let message_id = state.next_message_id
@@ -791,7 +791,7 @@ pub fn create_subdirectory(
   name: String,
   self: Int,
 ) -> Result(
-  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int),
+  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOperation), Int),
   KernelError,
 ) {
   case valid_subdir_name(name) {
@@ -802,7 +802,8 @@ pub fn create_subdirectory(
       let mutate = fn(node: DirectoryNode) {
         case optimistic_child(node, name, True) {
           Ok(existing) -> {
-            // Reuse (and undispose) the existing optimistic child; no new op.
+            // Reuse (and undispose) the existing optimistic child; no new
+            // operation.
             let #(revived, undispose_events) = case existing.disposed {
               True -> undispose_tree(existing)
               False -> #(existing, [])
@@ -863,7 +864,7 @@ pub fn delete_subdirectory(
   path: String,
   name: String,
 ) -> Result(
-  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int),
+  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOperation), Int),
   KernelError,
 ) {
   let message_id = state.next_message_id
@@ -889,7 +890,7 @@ pub fn delete_subdirectory(
   case update_optimistic(state.root, segments(path), mutate) {
     Error(_) -> Error(PathNotFound(path))
     Ok(#(_, None)) ->
-      // Optimistically absent: nothing to delete, no op.
+      // Optimistically absent: nothing to delete, no operation.
       Ok(#(state, [], None, message_id))
     Ok(#(root, Some(dispose_events))) ->
       Ok(#(
@@ -997,9 +998,9 @@ fn undispose_tree(
 ///
 /// Then reset the instance identity of this node. Set the create seq back to
 /// unknown, which is `-1`, and set the creators to the local client only. That
-/// client stands for the create op that it has pending, or that it can send
-/// later. Then drop the sequenced storage and the sequenced children, and keep
-/// every pending value. A node that a marker retained thus carries a new
+/// client stands for the create operation that it has pending, or that it can
+/// send later. Then drop the sequenced storage and the sequenced children, and
+/// keep every pending value. A node that a marker retained thus carries a new
 /// identity when a later create revives it, and it does not keep the identity
 /// of the deleted instance.
 ///
@@ -1065,16 +1066,16 @@ fn sync_folded_marker(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Remote operations (sequenced ops from other clients)
+// Remote operations (sequenced operations from other clients)
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn apply_remote(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   meta: SequencedMeta,
   self: Int,
 ) -> #(DirectoryState, List(DirectoryEvent)) {
-  case op {
+  case operation {
     Set(path, key, value) ->
       apply_remote_storage(state, path, meta, fn(node) {
         remote_storage_set(node, path, key, value)
@@ -1098,8 +1099,8 @@ pub fn apply_remote(
   }
 }
 
-/// Route a remote storage op to the sequenced directory at `path`, and apply
-/// the stale-instance filter to that target node.
+/// Route a remote storage operation to the sequenced directory at `path`, and
+/// apply the stale-instance filter to that target node.
 fn apply_remote_storage(
   state: DirectoryState,
   path: String,
@@ -1118,7 +1119,8 @@ fn apply_remote_storage(
   }
 }
 
-/// Route a remote subdir op to the sequenced *parent* directory at `path`.
+/// Route a remote subdir operation to the sequenced *parent* directory at
+/// `path`.
 fn apply_remote_subdir(
   state: DirectoryState,
   path: String,
@@ -1138,11 +1140,11 @@ fn apply_remote_subdir(
 }
 
 /// D12: whether this sequenced message is for the current live instance of
-/// `node`. For a remote op, where `target` is `None`, one of three conditions
-/// must hold. The author is a creator. Or a client created the instance while
-/// the directory was detached. Or the create seq of the instance is known to
-/// the other clients, which means it is not `-1`, and it is before the
-/// reference sequence number of the op.
+/// `node`. For a remote operation, where `target` is `None`, one of three
+/// conditions must hold. The author is a creator. Or a client created the
+/// instance while the directory was detached. Or the create seq of the instance
+/// is known to the other clients, which means it is not `-1`, and it is before
+/// the reference sequence number of the operation.
 fn is_message_for_current_instance(
   node: DirectoryNode,
   meta: SequencedMeta,
@@ -1349,48 +1351,51 @@ fn has_pending_remove_named(node: DirectoryNode, name: String) -> Bool {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Acks (own ops coming back sequenced)
+// Acks (own operations coming back sequenced)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Commit an acked local op, which moves it from `pending` to `sequenced`. The
-/// acks arrive in submission order, which is FIFO. A mismatch is fatal. An ack
-/// emits no event, because the optimistic view already showed the op at submit
-/// time.
+/// Commit an acked local operation, which moves it from `pending` to
+/// `sequenced`. The acks arrive in submission order, which is FIFO. A mismatch
+/// is fatal. An ack emits no event, because the optimistic view already showed
+/// the operation at submit time.
 pub fn ack_local(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   meta: SequencedMeta,
 ) -> Result(DirectoryState, KernelError) {
-  case op {
+  case operation {
     Set(path, _, _) | Delete(path, _) | Clear(path) ->
-      ack_storage(state, op, path, meta)
+      ack_storage(state, operation, path, meta)
     CreateSubDirectory(path, name) ->
-      ack_create_subdir(state, op, path, name, meta)
+      ack_create_subdir(state, operation, path, name, meta)
     DeleteSubDirectory(path, name) ->
-      ack_delete_subdir(state, op, path, name, meta)
+      ack_delete_subdir(state, operation, path, name, meta)
   }
 }
 
 fn ack_storage(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   meta: SequencedMeta,
 ) -> Result(DirectoryState, KernelError) {
   let mutate = fn(node: DirectoryNode) {
-    // Mirror `apply_remote`: a stale-instance op (its target was
-    // deleted/recreated after the author's reference point) is a no-op here
-    // too, so its now-absent pending isn't treated as a protocol error.
+    // Mirror `apply_remote`: a stale-instance operation (its target was
+    // deleted/recreated after the author's reference point) is a no-operation
+    // here too, so its now-absent pending isn't treated as a protocol error.
     case is_message_for_current_instance(node, meta, None) {
       False -> #(node, Ok(Nil))
       True ->
-        case ack_storage_node(node.storage, op, meta.client_sequence_number) {
+        case
+          ack_storage_node(node.storage, operation, meta.client_sequence_number)
+        {
           Ok(Some(storage)) -> #(
             DirectoryNode(..node, storage: storage),
             Ok(Nil),
           )
-          // Stale ack: this op's pending died with a superseded instance of
-          // this path; the current instance's pending belongs to later ops.
+          // Stale ack: this operation's pending died with a superseded instance
+          // of this path; the current instance's pending belongs to later
+          // operations.
           Ok(None) -> #(node, Ok(Nil))
           Error(detail) -> #(node, Error(detail))
         }
@@ -1398,35 +1403,36 @@ fn ack_storage(
   }
   case update_sequenced(state.root, segments(path), mutate) {
     // Path gone: the target instance was deleted/recreated out from under this
-    // op (a stale ack). Its pending was discarded with the node; treat as a
-    // no-op, matching how remote delivery ignores the same stale op elsewhere.
+    // operation (a stale ack). Its pending was discarded with the node; treat
+    // as a no-operation, matching how remote delivery ignores the same stale
+    // operation elsewhere.
     Error(_) -> Ok(state)
     Ok(#(root, Ok(Nil))) -> Ok(DirectoryState(..state, root: root))
-    Ok(#(_, Error(detail))) -> Error(UnexpectedAck(op, detail))
+    Ok(#(_, Error(detail))) -> Error(UnexpectedAck(operation, detail))
   }
 }
 
-/// Commit one acked storage op against the storage of a node.
+/// Commit one acked storage operation against the storage of a node.
 ///
 /// The message id of the ack selects the pending entry. That id replaces the
 /// object-identity check of FluidFramework on `localOpMetadata`, which is
 /// `pendingEntry === localOpMetadata` with the guard `targetSubdir === this`.
 ///
-/// An id that is no longer present means that the pending entry of this op
-/// went away with a replaced instance of this path, at a create dedup or at a
-/// delete. The ack is thus stale, and the function does nothing and returns
-/// `Ok(None)`. To match by key alone would incorrectly consume the pending
-/// entry of a *later* op on the current instance.
+/// An id that is no longer present means that the pending entry of this
+/// operation went away with a replaced instance of this path, at a create dedup
+/// or at a delete. The ack is thus stale, and the function does nothing and
+/// returns `Ok(None)`. To match by key alone would incorrectly consume the
+/// pending entry of a *later* operation on the current instance.
 ///
 /// An id that is present but out of FIFO position is a true protocol
 /// violation.
 fn ack_storage_node(
   storage: StorageState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   ack_id: Int,
 ) -> Result(Option(StorageState), String) {
   let present = list.contains(storage_pending_ids(storage), ack_id)
-  case op {
+  case operation {
     Clear(_) ->
       case storage.pending {
         [PendingClear(id), ..rest] if id == ack_id ->
@@ -1494,7 +1500,7 @@ fn ack_storage_node(
 
 fn ack_create_subdir(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   name: String,
   meta: SequencedMeta,
@@ -1505,7 +1511,7 @@ fn ack_create_subdir(
     // *this submission's* pending create, then commit its single copy. The
     // marker is matched by message id — the stand-in for FF's `targetSubdir
     // === this` parent-object guard: an ack whose marker died with a
-    // superseded parent instance must be a no-op, not consume a later
+    // superseded parent instance must be a no-operation, not consume a later
     // same-name create's marker (which would silently eat that create's
     // instance and drop its eventual commit).
     case
@@ -1517,7 +1523,7 @@ fn ack_create_subdir(
     {
       // No pending create for this submission: its marker died with a
       // superseded instance (or a stashed create was already reconciled).
-      // Stale ack, no-op.
+      // Stale ack, no-operation.
       Error(_) -> #(orig_node, Ok(Nil))
       Ok(#(#(marker_node, _folded), rest)) -> {
         let node = DirectoryNode(..orig_node, pending_subdirs: rest)
@@ -1554,12 +1560,12 @@ fn ack_create_subdir(
       }
     }
   }
-  ack_subdir_apply(state, op, path, meta, mutate)
+  ack_subdir_apply(state, operation, path, meta, mutate)
 }
 
 fn ack_delete_subdir(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   name: String,
   meta: SequencedMeta,
@@ -1576,10 +1582,10 @@ fn ack_delete_subdir(
         False,
       )
     {
-      // No pending remove for this submission: the delete was a no-op locally
-      // (its target was already absent — e.g. a stashed delete of a subdir
-      // that never existed), or its pending died with a superseded parent
-      // instance. Stale ack, no-op.
+      // No pending remove for this submission: the delete was a no-operation
+      // locally (its target was already absent — e.g. a stashed delete of a
+      // subdir that never existed), or its pending died with a superseded
+      // parent instance. Stale ack, no-operation.
       Error(_) -> #(node, Ok(Nil))
       Ok(rest) -> {
         let node = DirectoryNode(..node, pending_subdirs: rest)
@@ -1597,20 +1603,20 @@ fn ack_delete_subdir(
       }
     }
   }
-  ack_subdir_apply(state, op, path, meta, mutate)
+  ack_subdir_apply(state, operation, path, meta, mutate)
 }
 
 fn ack_subdir_apply(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   meta: SequencedMeta,
   mutate: fn(DirectoryNode) -> #(DirectoryNode, Result(Nil, String)),
 ) -> Result(DirectoryState, KernelError) {
-  // Mirror `apply_remote_subdir`: only apply when the op targets the current
-  // instance of the *parent* directory; a stale parent (deleted/recreated after
-  // the author's reference point) makes the op a no-op, so its now-absent
-  // pending isn't a protocol error.
+  // Mirror `apply_remote_subdir`: only apply when the operation targets the
+  // current instance of the *parent* directory; a stale parent
+  // (deleted/recreated after the author's reference point) makes the operation
+  // a no-operation, so its now-absent pending isn't a protocol error.
   let guarded = fn(node: DirectoryNode) {
     case is_message_for_current_instance(node, meta, None) {
       True -> mutate(node)
@@ -1619,11 +1625,12 @@ fn ack_subdir_apply(
   }
   case update_sequenced(state.root, segments(path), guarded) {
     // Path gone: the target instance was deleted/recreated out from under this
-    // op (a stale ack). Its pending was discarded with the node; treat as a
-    // no-op, matching how remote delivery ignores the same stale op elsewhere.
+    // operation (a stale ack). Its pending was discarded with the node; treat
+    // as a no-operation, matching how remote delivery ignores the same stale
+    // operation elsewhere.
     Error(_) -> Ok(state)
     Ok(#(root, Ok(Nil))) -> Ok(DirectoryState(..state, root: root))
-    Ok(#(_, Error(detail))) -> Error(UnexpectedAck(op, detail))
+    Ok(#(_, Error(detail))) -> Error(UnexpectedAck(operation, detail))
   }
 }
 
@@ -1661,12 +1668,12 @@ fn do_take_pending(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Rollback (undo an unacked local op; LIFO-compatible per key/subdir)
+// Rollback (undo an unacked local operation; LIFO-compatible per key/subdir)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The highest pending message id in the whole tree. That id belongs to the op
-/// that the client submitted last, which is the op that a LIFO rollback
-/// removes.
+/// The highest pending message id in the whole tree. That id belongs to the
+/// operation that the client submitted last, which is the operation that a LIFO
+/// rollback removes.
 pub fn last_pending_message_id(state: DirectoryState) -> Result(Int, Nil) {
   case node_pending_ids(state.root) {
     [] -> Error(Nil)
@@ -1707,23 +1714,24 @@ fn node_pending_ids(node: DirectoryNode) -> List(Int) {
 
 pub fn rollback(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   message_id: Int,
 ) -> Result(#(DirectoryState, List(DirectoryEvent)), KernelError) {
-  case op {
-    Set(path, key, _) -> rollback_set(state, op, path, key, message_id)
-    Delete(path, key) -> rollback_delete(state, op, path, key, message_id)
-    Clear(path) -> rollback_clear(state, op, path, message_id)
+  case operation {
+    Set(path, key, _) -> rollback_set(state, operation, path, key, message_id)
+    Delete(path, key) ->
+      rollback_delete(state, operation, path, key, message_id)
+    Clear(path) -> rollback_clear(state, operation, path, message_id)
     CreateSubDirectory(path, name) ->
-      rollback_create(state, op, path, name, message_id)
+      rollback_create(state, operation, path, name, message_id)
     DeleteSubDirectory(path, name) ->
-      rollback_remove(state, op, path, name, message_id)
+      rollback_remove(state, operation, path, name, message_id)
   }
 }
 
 fn rollback_storage(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   f: fn(DirectoryNode) -> Result(#(DirectoryNode, List(DirectoryEvent)), String),
 ) -> Result(#(DirectoryState, List(DirectoryEvent)), KernelError) {
@@ -1734,21 +1742,22 @@ fn rollback_storage(
     }
   }
   case update_optimistic(state.root, segments(path), mutate) {
-    Error(_) -> Error(UnexpectedRollback(op, "no directory at path " <> path))
+    Error(_) ->
+      Error(UnexpectedRollback(operation, "no directory at path " <> path))
     Ok(#(root, Ok(events))) ->
       Ok(#(DirectoryState(..state, root: root), events))
-    Ok(#(_, Error(detail))) -> Error(UnexpectedRollback(op, detail))
+    Ok(#(_, Error(detail))) -> Error(UnexpectedRollback(operation, detail))
   }
 }
 
 fn rollback_set(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   key: String,
   message_id: Int,
 ) -> Result(#(DirectoryState, List(DirectoryEvent)), KernelError) {
-  rollback_storage(state, op, path, fn(node) {
+  rollback_storage(state, operation, path, fn(node) {
     let storage_state = node.storage
     case remove_last_lifetime_set(storage_state.pending, key, message_id) {
       Error(_) -> Error("no pending set for key " <> key)
@@ -1767,12 +1776,12 @@ fn rollback_set(
 
 fn rollback_delete(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   key: String,
   message_id: Int,
 ) -> Result(#(DirectoryState, List(DirectoryEvent)), KernelError) {
-  rollback_storage(state, op, path, fn(node) {
+  rollback_storage(state, operation, path, fn(node) {
     let storage_state = node.storage
     case
       remove_pending_entry(
@@ -1796,11 +1805,11 @@ fn rollback_delete(
 
 fn rollback_clear(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   message_id: Int,
 ) -> Result(#(DirectoryState, List(DirectoryEvent)), KernelError) {
-  rollback_storage(state, op, path, fn(node) {
+  rollback_storage(state, operation, path, fn(node) {
     let storage_state = node.storage
     case remove_pending_entry(storage_state.pending, PendingClear(message_id)) {
       Error(_) -> Error("no pending clear")
@@ -1815,7 +1824,7 @@ fn rollback_clear(
 
 fn rollback_create(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   name: String,
   message_id: Int,
@@ -1841,12 +1850,12 @@ fn rollback_create(
       }
     }
   }
-  rollback_subdir_apply(state, op, path, mutate)
+  rollback_subdir_apply(state, operation, path, mutate)
 }
 
 fn rollback_remove(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   name: String,
   message_id: Int,
@@ -1869,32 +1878,33 @@ fn rollback_remove(
       }
     }
   }
-  rollback_subdir_apply(state, op, path, mutate)
+  rollback_subdir_apply(state, operation, path, mutate)
 }
 
 fn rollback_subdir_apply(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   path: String,
   mutate: fn(DirectoryNode) ->
     #(DirectoryNode, Result(List(DirectoryEvent), String)),
 ) -> Result(#(DirectoryState, List(DirectoryEvent)), KernelError) {
   case update_optimistic(state.root, segments(path), mutate) {
-    Error(_) -> Error(UnexpectedRollback(op, "no directory at path " <> path))
+    Error(_) ->
+      Error(UnexpectedRollback(operation, "no directory at path " <> path))
     Ok(#(root, Ok(events))) ->
       Ok(#(DirectoryState(..state, root: root), events))
-    Ok(#(_, Error(detail))) -> Error(UnexpectedRollback(op, detail))
+    Ok(#(_, Error(detail))) -> Error(UnexpectedRollback(operation, detail))
   }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Resubmit (re-send still-relevant pending ops after reconnect)
+// Resubmit (re-send still-relevant pending operations after reconnect)
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// The routing of the `reSubmitCore` function of FluidFramework, which is D14.
-/// Decide whether the pending op behind `op` and `message_id` is still worth a
-/// resubmit, and apply the state effects that FluidFramework applies at
-/// resubmit time.
+/// Decide whether the pending operation behind `operation` and `message_id` is
+/// still worth a resubmit, and apply the state effects that FluidFramework
+/// applies at resubmit time.
 ///
 /// The function finds each target on the *retained instance*. The traversal
 /// includes a disposed marker alias, because the `localOpMetadata` value of
@@ -1903,40 +1913,44 @@ fn rollback_subdir_apply(
 /// as `resubmitKeyMessage` and `resubmitSubDirectoryMessage`.
 ///
 /// A resubmit of a create records the current client id as a creator, and it
-/// undisposes the retained pending tree. A storage op that is *after* that
-/// create in the same reconnect batch thus finds its target alive, and it
-/// resubmits too. To drop such an op while its pending entry stays on the
-/// retained node would leave a pending entry that never receives an ack, and
-/// that only this client can see.
+/// undisposes the retained pending tree. A storage operation that is *after*
+/// that create in the same reconnect batch thus finds its target alive, and it
+/// resubmits too. To drop such an operation while its pending entry stays on
+/// the retained node would leave a pending entry that never receives an ack,
+/// and that only this client can see.
 ///
-/// When the function DOES drop an op, it also removes the pending entry of
-/// that op from the retained instance. See `strip_dropped_pending`. This is one
-/// deliberate difference from FluidFramework, which keeps the entry on the
-/// disposed object. That op will never sequence. If a later create ack revives
-/// the retained instance, the entry that remains appears as an optimistic edit
-/// that no other client sees. To drop the op and its pending entry together
-/// thus keeps the revive convergent.
+/// When the function DOES drop an operation, it also removes the pending entry
+/// of that operation from the retained instance. See `strip_dropped_pending`.
+/// This is one deliberate difference from FluidFramework, which keeps the entry
+/// on the disposed object. That operation will never sequence. If a later
+/// create ack revives the retained instance, the entry that remains appears as
+/// an optimistic edit that no other client sees. To drop the operation and its
+/// pending entry together thus keeps the revive convergent.
 pub fn resubmit(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   message_id: Int,
   self: Int,
-) -> #(DirectoryState, Option(DirectoryOp)) {
-  case op {
+) -> #(DirectoryState, Option(DirectoryOperation)) {
+  case operation {
     Set(path, _, _) | Delete(path, _) | Clear(path) -> {
       let locate = fn(node: DirectoryNode) {
         case
           !node.disposed
           && list.contains(storage_pending_ids(node.storage), message_id)
-          && storage_pending_matches(node.storage.pending, op, message_id)
+          && storage_pending_matches(
+            node.storage.pending,
+            operation,
+            message_id,
+          )
         {
           True -> Ok(#(node, Nil))
           False -> Error(Nil)
         }
       }
       case update_retained_instance(state.root, segments(path), locate) {
-        Ok(_) -> #(state, Some(op))
-        Error(_) -> #(strip_dropped_pending(state, op, message_id), None)
+        Ok(_) -> #(state, Some(operation))
+        Error(_) -> #(strip_dropped_pending(state, operation, message_id), None)
       }
     }
     CreateSubDirectory(path, name) -> {
@@ -2002,8 +2016,11 @@ pub fn resubmit(
         }
       }
       case update_retained_instance(state.root, segments(path), revive) {
-        Ok(#(root, Nil)) -> #(DirectoryState(..state, root: root), Some(op))
-        Error(_) -> #(strip_dropped_pending(state, op, message_id), None)
+        Ok(#(root, Nil)) -> #(
+          DirectoryState(..state, root: root),
+          Some(operation),
+        )
+        Error(_) -> #(strip_dropped_pending(state, operation, message_id), None)
       }
     }
     DeleteSubDirectory(path, name) -> {
@@ -2021,8 +2038,8 @@ pub fn resubmit(
         }
       }
       case update_retained_instance(state.root, segments(path), locate) {
-        Ok(_) -> #(state, Some(op))
-        Error(_) -> #(strip_dropped_pending(state, op, message_id), None)
+        Ok(_) -> #(state, Some(operation))
+        Error(_) -> #(strip_dropped_pending(state, operation, message_id), None)
       }
     }
   }
@@ -2031,15 +2048,15 @@ pub fn resubmit(
 /// Remove the pending entry behind a dropped resubmit, from the position at
 /// which it still exists. The function searches *every* retained instance, and
 /// it includes the disposed ones, because the drop usually happened because
-/// the instance is disposed. The op of that entry will never sequence. To keep
-/// the entry would let a later revive of the retained instance show an
+/// the instance is disposed. The operation of that entry will never sequence.
+/// To keep the entry would let a later revive of the retained instance show an
 /// optimistic edit that no other client sees.
 fn strip_dropped_pending(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   message_id: Int,
 ) -> DirectoryState {
-  let #(path, mutate) = case op {
+  let #(path, mutate) = case operation {
     Set(path, _, _) | Delete(path, _) | Clear(path) -> #(
       path,
       fn(node: DirectoryNode) {
@@ -2135,17 +2152,18 @@ fn find_latest_pending_create(
 }
 
 /// Whether the pending storage of this node still holds the pending entry of
-/// `op`. This is the check in `resubmitKeyMessage` and `resubmitClearMessage`
-/// of FluidFramework. A set checks the identity of the submission, which is
-/// `keySets.includes(localOpMetadata)` in FluidFramework and the message id
-/// here. A delete and a clear match by their kind, and by their key, only.
+/// `operation`. This is the check in `resubmitKeyMessage` and
+/// `resubmitClearMessage` of FluidFramework. A set checks the identity of the
+/// submission, which is `keySets.includes(localOpMetadata)` in FluidFramework
+/// and the message id here. A delete and a clear match by their kind, and by
+/// their key, only.
 fn storage_pending_matches(
   pending: List(PendingStorage),
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   message_id: Int,
 ) -> Bool {
   list.any(pending, fn(entry) {
-    case op {
+    case operation {
       Set(_, key, _) ->
         case entry {
           PendingLifetime(k, _, ids) ->
@@ -2275,39 +2293,39 @@ fn update_retained_instance(
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Stashed ops (replay through the local API, generating fresh metadata)
+// Stashed operations (replay through the local API, generating fresh metadata)
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn apply_stashed_op(
+pub fn apply_stashed_operation(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   self: Int,
 ) -> Result(
-  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int),
+  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOperation), Int),
   KernelError,
 ) {
-  case op {
-    Set(path, key, value) -> some_op(set(state, path, key, value))
-    Delete(path, key) -> some_op(delete(state, path, key))
-    Clear(path) -> some_op(clear(state, path))
+  case operation {
+    Set(path, key, value) -> some_operation(set(state, path, key, value))
+    Delete(path, key) -> some_operation(delete(state, path, key))
+    Clear(path) -> some_operation(clear(state, path))
     CreateSubDirectory(path, name) ->
       create_subdirectory(state, path, name, self)
     DeleteSubDirectory(path, name) -> delete_subdirectory(state, path, name)
   }
 }
 
-fn some_op(
+fn some_operation(
   r: Result(
-    #(DirectoryState, List(DirectoryEvent), DirectoryOp, Int),
+    #(DirectoryState, List(DirectoryEvent), DirectoryOperation, Int),
     KernelError,
   ),
 ) -> Result(
-  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOp), Int),
+  #(DirectoryState, List(DirectoryEvent), Option(DirectoryOperation), Int),
   KernelError,
 ) {
   result.map(r, fn(tuple) {
-    let #(state, events, op, id) = tuple
-    #(state, events, Some(op), id)
+    let #(state, events, operation, id) = tuple
+    #(state, events, Some(operation), id)
   })
 }
 

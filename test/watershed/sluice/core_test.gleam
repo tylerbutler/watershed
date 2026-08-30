@@ -70,22 +70,22 @@ fn connect(sluice: Sluice, last_seen: option.Option(Int)) -> #(Sluice, String) {
   #(sluice, client_id)
 }
 
-/// Submit a single map op from `client_id`.
+/// Submit a single map operation from `client_id`.
 fn submit(
   sluice: Sluice,
   client_id: String,
   client_sequence_number: Int,
   reference_sequence_number: Int,
 ) -> Sluice {
-  let op =
-    wire.OutboundOp(
+  let operation =
+    wire.OutboundOperation(
       client_sequence_number: client_sequence_number,
       reference_sequence_number: reference_sequence_number,
-      op_type: "op",
+      operation_type: "op",
       contents: json.object([#("n", json.int(client_sequence_number))]),
       metadata: None,
     )
-  let payload = socket.encode_submit_op(client_id, [[op]])
+  let payload = socket.encode_submit_operation(client_id, [[operation]])
   core.handle(sluice, client_id, "submitOp", json_to_dynamic(payload))
 }
 
@@ -104,11 +104,14 @@ fn of_event(frames: List(Outbound), event: String) -> List(Outbound) {
   list.filter(frames, fn(frame) { frame.event == event })
 }
 
-fn op_of(frame: Outbound) -> types.SequencedDocumentMessage {
+fn operation_of(frame: Outbound) -> types.SequencedDocumentMessage {
   let assert Ok(message) =
-    json.parse(json.to_string(frame.payload), socket.op_message_decoder())
-  let assert [op] = message.ops
-  op
+    json.parse(
+      json.to_string(frame.payload),
+      socket.operation_message_decoder(),
+    )
+  let assert [operation] = message.ops
+  operation
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -119,9 +122,10 @@ pub fn connect_replies_with_connected_frame_test() -> Nil {
   let #(sluice, client_id) = connect(core.new("default", "dice"), None)
   let #(_hub, frames) = drain(sluice)
 
-  // Exactly one frame: the handshake. The joiner's own join op is *not* pushed
-  // back to it — floodgate broadcasts that one with `broadcast_from`, which
-  // excludes the joiner, so its only copy is the one in `initialMessages`.
+  // Exactly one frame: the handshake. The joiner's own join operation is *not*
+  // pushed back to it — floodgate broadcasts that one with `broadcast_from`,
+  // which excludes the joiner, so its only copy is the one in
+  // `initialMessages`.
   let assert [frame] = frames
   frame.client_id |> expect.to_equal(client_id)
   frame.event |> expect.to_equal("connect_document_success")
@@ -133,7 +137,8 @@ pub fn connect_replies_with_connected_frame_test() -> Nil {
     )
   connected.client_id |> expect.to_equal(client_id)
   // The client's own join is sequenced as SN 1, so the handshake checkpoint is
-  // 1 rather than 0 — membership occupies the op stream like any other message.
+  // 1 rather than 0 — membership occupies the operation stream like any other
+  // message.
   connected.checkpoint_sequence_number |> expect.to_equal(Some(1))
   // The roster seeds the client's quorum. It must name the joiner even though
   // it is the only member, or its consensus kernels start from an empty room.
@@ -153,11 +158,11 @@ pub fn join_is_broadcast_to_the_existing_room_test() -> Nil {
   let #(sluice, c2) = connect(sluice, None)
   let #(_hub, frames) = drain(sluice)
 
-  // Only the client already in the room hears it as a live op; c2 gets its own
-  // arrival through `initialMessages`, not as a push.
+  // Only the client already in the room hears it as a live operation; c2 gets
+  // its own arrival through `initialMessages`, not as a push.
   let assert [broadcast] = of_event(frames, "op")
   broadcast.client_id |> expect.to_equal(c1)
-  let join = op_of(broadcast)
+  let join = operation_of(broadcast)
   join.message_type |> expect.to_equal("join")
   join.client_id |> expect.to_equal(None)
   join.data
@@ -189,7 +194,7 @@ pub fn disconnect_broadcasts_a_leave_test() -> Nil {
 
   let assert [broadcast] = of_event(frames, "op")
   broadcast.client_id |> expect.to_equal(c1)
-  let leave = op_of(broadcast)
+  let leave = operation_of(broadcast)
   leave.message_type |> expect.to_equal("leave")
   leave.data |> expect.to_equal(Some(frame_codec.system_leave_data(c2)))
 }
@@ -222,13 +227,15 @@ pub fn sequencing_is_monotone_per_document_test() -> Nil {
   let sluice = submit(sluice, c2, 1, 0)
   let #(_hub, frames) = drain(sluice)
 
-  let ops = of_event(frames, "op")
-  // Each op is broadcast to both clients: 2 ops × 2 clients = 4 frames.
-  list.length(ops) |> expect.to_equal(4)
-  let sns = list.map(ops, fn(frame) { op_of(frame).sequence_number })
-  // The two handshakes sequenced a join apiece (SN 1 and 2), so the first op's
-  // echoes carry SN 3 and the second's SN 4 — still monotone, which is the
-  // property under test.
+  let operations = of_event(frames, "op")
+  // Each operation is broadcast to both clients: 2 operations × 2 clients = 4
+  // frames.
+  list.length(operations) |> expect.to_equal(4)
+  let sns =
+    list.map(operations, fn(frame) { operation_of(frame).sequence_number })
+  // The two handshakes sequenced a join apiece (SN 1 and 2), so the first
+  // operation's echoes carry SN 3 and the second's SN 4 — still monotone, which
+  // is the property under test.
   sns |> expect.to_equal([3, 3, 4, 4])
 }
 
@@ -241,13 +248,13 @@ pub fn author_echo_carries_client_sequence_number_test() -> Nil {
   let #(_hub, frames) = drain(sluice)
 
   let assert [frame] = of_event(frames, "op")
-  let op = op_of(frame)
+  let operation = operation_of(frame)
   frame.client_id |> expect.to_equal(c1)
   // The echo the author's kernel acks on carries the CSN it submitted.
-  op.client_sequence_number |> expect.to_equal(7)
-  op.client_id |> expect.to_equal(Some(c1))
-  // SN 1 went to c1's own join, so the first op is SN 2.
-  op.sequence_number |> expect.to_equal(2)
+  operation.client_sequence_number |> expect.to_equal(7)
+  operation.client_id |> expect.to_equal(Some(c1))
+  // SN 1 went to c1's own join, so the first operation is SN 2.
+  operation.sequence_number |> expect.to_equal(2)
 }
 
 /// The handshake answers a reconnect exactly as it answers a cold join — the
@@ -257,12 +264,12 @@ pub fn author_echo_carries_client_sequence_number_test() -> Nil {
 /// It is the *reason* a reconnecting client has to send `requestOps`: it ignores
 /// `initialMessages` (its core already holds that history), so the handshake
 /// alone leaves it below the checkpoint with nothing inbound to close the gap.
-pub fn reconnect_handshake_ignores_last_seen_and_pushes_no_ops_test() -> Nil {
+pub fn reconnect_handshake_ignores_last_seen_and_pushes_no_operations_test() -> Nil {
   let sluice = core.new("default", "dice")
   let #(sluice, c1) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
 
-  // SN 1 is c1's join; the three ops are SN 2, 3, 4.
+  // SN 1 is c1's join; the three operations are SN 2, 3, 4.
   let sluice = submit(sluice, c1, 1, 0)
   let sluice = submit(sluice, c1, 2, 1)
   let sluice = submit(sluice, c1, 3, 2)
@@ -279,7 +286,9 @@ pub fn reconnect_handshake_ignores_last_seen_and_pushes_no_ops_test() -> Nil {
       socket.connected_message_decoder(),
     )
   // Everything, not the slice after `Some(2)` — plus c2's own join at SN 5.
-  list.map(connected.initial_messages, fn(op) { op.sequence_number })
+  list.map(connected.initial_messages, fn(operation) {
+    operation.sequence_number
+  })
   |> expect.to_equal([1, 2, 3, 4, 5])
   connected.checkpoint_sequence_number |> expect.to_equal(Some(5))
 
@@ -295,16 +304,19 @@ pub fn reconnect_handshake_ignores_last_seen_and_pushes_no_ops_test() -> Nil {
       sluice,
       c2,
       "requestOps",
-      json_to_dynamic(socket.encode_request_ops(from: 2)),
+      json_to_dynamic(socket.encode_request_operations(from: 2)),
     )
   let #(_hub, frames) = drain(sluice)
   let assert [frame] = of_event(frames, "op")
   frame.client_id |> expect.to_equal(c2)
   let assert Ok(message) =
-    json.parse(json.to_string(frame.payload), socket.op_message_decoder())
-  list.map(message.ops, fn(op) { op.sequence_number })
+    json.parse(
+      json.to_string(frame.payload),
+      socket.operation_message_decoder(),
+    )
+  list.map(message.ops, fn(operation) { operation.sequence_number })
   |> expect.to_equal([3, 4, 5])
-  list.map(message.ops, fn(op) { op.message_type })
+  list.map(message.ops, fn(operation) { operation.message_type })
   |> expect.to_equal(["op", "op", "join"])
 }
 
@@ -360,7 +372,7 @@ pub fn peek_skips_paused_clients_test() -> Nil {
   let #(sluice, c2) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
 
-  // Hold c1, then have it author an op both should receive. c1's echo is
+  // Hold c1, then have it author an operation both should receive. c1's echo is
   // queued first but held, so peek surfaces c2's copy instead.
   let sluice = core.pause(sluice, c1)
   let sluice = submit(sluice, c1, 1, 0)
@@ -375,7 +387,7 @@ pub fn pause_holds_a_clients_frames_until_resume_test() -> Nil {
   let #(sluice, c2) = connect(sluice, None)
   let #(sluice, _) = drain(sluice)
 
-  // Hold c2, then let c1 author an op both should receive.
+  // Hold c2, then let c1 author an operation both should receive.
   let sluice = core.pause(sluice, c2)
   let sluice = submit(sluice, c1, 1, 0)
 
@@ -579,8 +591,8 @@ pub fn leaving_presence_broadcasts_only_leaves_test() -> Nil {
   |> sessions_of
   |> expect.to_equal([c1])
 
-  // A duplicate leave is a no-op, not an error: it races the socket's own
-  // cleanup often enough that erroring would be noise.
+  // A duplicate leave is a no-operation, not an error: it races the socket's
+  // own cleanup often enough that erroring would be noise.
   let sluice = presence_push(sluice, c1, "leavePresence", json.object([]))
   let #(_hub, again) = drain(sluice)
   again |> expect.to_equal([])

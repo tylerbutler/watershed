@@ -246,9 +246,9 @@ function counterPending(client) {
   let delta = 0;
   for (const entry of client.counterCore.in_flight.toArray()) {
     if (entry.address !== COUNTER_ADDRESS) continue;
-    if (!(entry.op instanceof channel.CounterOp)) continue;
+    if (!(entry.operation instanceof channel.CounterOperation)) continue;
     count += 1;
-    delta += entry.op[0].increment_amount;
+    delta += entry.operation[0].increment_amount;
   }
   return { count, delta };
 }
@@ -638,7 +638,7 @@ export function initDemo() {
   function pendingOrMapKeys(state) {
     const keys = new Set();
     for (const pending of state.pending.toArray()) {
-      keys.add(pending.op.key);
+      keys.add(pending.operation.key);
     }
     return keys;
   }
@@ -670,7 +670,7 @@ export function initDemo() {
   function pendingOrSetElements(state) {
     const elements = new Set();
     for (const pending of state.pending.toArray()) {
-      elements.add(pending.op.element);
+      elements.add(pending.operation.element);
     }
     return elements;
   }
@@ -701,7 +701,7 @@ export function initDemo() {
   function pendingGSetElements(state) {
     const elements = new Set();
     for (const pending of state.pending.toArray()) {
-      elements.add(pending.op.element);
+      elements.add(pending.operation.element);
     }
     return elements;
   }
@@ -739,8 +739,8 @@ export function initDemo() {
     const pending = new Map();
     for (const entry of state.pending.toArray()) {
       pending.set(
-        entry.op.element,
-        entry.op instanceof twoPSetKernel.Remove ? "retire" : "place",
+        entry.operation.element,
+        entry.operation instanceof twoPSetKernel.Remove ? "retire" : "place",
       );
     }
     return pending;
@@ -1414,7 +1414,7 @@ export function initDemo() {
         if (reaction instanceof pactKernel.OweAccept) {
           pactPending[target.id].add(op.key);
           pactNotes[target.id][op.key] = "signoff owed";
-          submit(target.id, "pact", reaction.op);
+          submit(target.id, "pact", reaction.operation);
         }
       } else {
         const result = pactKernel.apply_accept(
@@ -1443,7 +1443,7 @@ export function initDemo() {
         minimum_sequence_number: 0,
         client_sequence_number: outbound.client_sequence_number,
         reference_sequence_number: outbound.reference_sequence_number,
-        message_type: outbound.op_type,
+        message_type: outbound.operation_type,
         contents,
         metadata: outbound.metadata,
         server_metadata: new None(),
@@ -1688,7 +1688,7 @@ export function initDemo() {
     // Non-optimistic: the holder does not change here, so this flashes nothing
     // on the origin; the ink flash lands only when the winner is sequenced.
     fieldNotes.trackChange("claims", client.el, true, () => render(client));
-    submit(clientId, "claims", result[0].op);
+    submit(clientId, "claims", result[0].operation);
   }
 
   function localRegisterWrite(clientId, key) {

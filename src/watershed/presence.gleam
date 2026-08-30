@@ -12,7 +12,7 @@
 //// Presence is transient collaboration state. Nothing sequences it, stores it,
 //// or replays it. Ripple mode uses watershed *ripples*, which are
 //// fire-and-forget and do not sequence. Server mode uses a lane of its own,
-//// which also never touches the op stream.
+//// which also never touches the operation stream.
 ////
 //// A session is one tab, one device, or one CLI process. A key groups the
 //// sessions of one authenticated user. Two tabs of one person are two entries

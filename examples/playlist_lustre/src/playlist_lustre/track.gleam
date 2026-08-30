@@ -10,7 +10,8 @@
 //// Decoding is fallible on purpose: a peer running an older build (or a
 //// hand-edited document) can leave a value here that doesn't match. The view
 //// renders those as a placeholder row rather than crashing the app, and they
-//// still reorder and delete correctly because those ops address by index.
+//// still reorder and delete correctly because those operations address by
+//// index.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}

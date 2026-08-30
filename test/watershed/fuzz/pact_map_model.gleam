@@ -1,7 +1,8 @@
 //// `KernelModel` for `pact_map_kernel`.
 ////
-//// Generated ops are set/delete commands; accept ops are emitted reactively by
-//// every client whose post-apply pending signoff set contains its id.
+//// Generated operations are set/delete commands; accept operations are emitted
+//// reactively by every client whose post-apply pending signoff set contains
+//// its id.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
@@ -36,21 +37,25 @@ fn new_state() -> ModelState {
   ModelState(kernel: pact_map_kernel.new(), last_reaction: None)
 }
 
-fn command_to_kernel_op(command: PactCommand) -> pact_map_kernel.PactMapOp {
+fn command_to_kernel_operation(
+  command: PactCommand,
+) -> pact_map_kernel.PactMapOperation {
   case command {
     CommandSet(key, value, ref_seq) -> Set(key, value, ref_seq)
     CommandAccept(key) -> Accept(key)
   }
 }
 
-fn kernel_op_to_command(op: pact_map_kernel.PactMapOp) -> PactCommand {
-  case op {
+fn kernel_operation_to_command(
+  operation: pact_map_kernel.PactMapOperation,
+) -> PactCommand {
+  case operation {
     Set(key, value, ref_seq) -> CommandSet(key, value, ref_seq)
     Accept(key) -> CommandAccept(key)
   }
 }
 
-fn op_to_json(command: PactCommand) -> Json {
+fn operation_to_json(command: PactCommand) -> Json {
   case command {
     CommandSet(key, value, ref_seq) ->
       json.object([
@@ -81,7 +86,7 @@ fn option_decoder() -> decode.Decoder(Option(Json)) {
   })
 }
 
-fn op_decoder() -> decode.Decoder(PactCommand) {
+fn operation_decoder() -> decode.Decoder(PactCommand) {
   use tag <- decode.field("tag", decode.string)
   case tag {
     "Set" -> {
@@ -105,7 +110,7 @@ fn key_from_int(n: Int) -> String {
   }
 }
 
-fn op_generator() -> qcheck.Generator(PactCommand) {
+fn operation_generator() -> qcheck.Generator(PactCommand) {
   qcheck.tuple3(
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
@@ -129,14 +134,14 @@ fn submit(
     CommandAccept(_) -> #(state, None)
     CommandSet(key, None, _) ->
       case pact_map_kernel.delete(state.kernel, key, meta.last_seen_seq) {
-        Ok(op) -> #(state, Some(kernel_op_to_command(op)))
+        Ok(operation) -> #(state, Some(kernel_operation_to_command(operation)))
         Error(_) -> #(state, None)
       }
     CommandSet(key, Some(value), _) ->
       case
         pact_map_kernel.set(state.kernel, key, Some(value), meta.last_seen_seq)
       {
-        Ok(op) -> #(state, Some(kernel_op_to_command(op)))
+        Ok(operation) -> #(state, Some(kernel_operation_to_command(operation)))
         Error(_) -> #(state, None)
       }
   }
@@ -153,13 +158,13 @@ fn apply_set_for_client(
       let #(kernel, _events, reaction) =
         pact_map_kernel.apply_set(
           state.kernel,
-          command_to_kernel_op(command),
+          command_to_kernel_operation(command),
           meta.sequence_number,
           meta.connected_clients,
           self_id,
         )
       let last_reaction = case reaction {
-        OweAccept(op) -> Some(kernel_op_to_command(op))
+        OweAccept(operation) -> Some(kernel_operation_to_command(operation))
         NoReaction -> None
       }
       ModelState(kernel:, last_reaction:)
@@ -225,7 +230,7 @@ fn react(
   case command {
     CommandSet(_, _, _) ->
       case state.last_reaction {
-        Some(op) -> [op]
+        Some(operation) -> [operation]
         None -> []
       }
     CommandAccept(_) -> []
@@ -345,7 +350,7 @@ fn oracle(entries: List(LogEntry(PactCommand))) -> List(#(String, Pact)) {
         let #(state, connected) = acc
         let seq = i + 1
         case entry {
-          kernel_fuzz.OpEntry(
+          kernel_fuzz.OperationEntry(
             _author,
             CommandSet(key, value, ref_seq),
             connected,
@@ -353,7 +358,7 @@ fn oracle(entries: List(LogEntry(PactCommand))) -> List(#(String, Pact)) {
             oracle_set(state, key, value, ref_seq, seq, connected),
             connected,
           )
-          kernel_fuzz.OpEntry(author, CommandAccept(key), _) -> #(
+          kernel_fuzz.OperationEntry(author, CommandAccept(key), _) -> #(
             oracle_accept(state, key, author, seq),
             connected,
           )
@@ -394,12 +399,12 @@ pub fn model() -> KernelModel(ModelState, PactCommand, List(#(String, Pact))) {
     apply_remote: apply_remote,
     ack_local: ack_local,
     observe: observe,
-    gen_op: op_generator(),
+    gen_operation: operation_generator(),
     check: Some(check_signoffs),
     canonicalize: None,
     ack_preserves_view: False,
-    op_to_json: op_to_json,
-    op_decoder: op_decoder(),
+    operation_to_json: operation_to_json,
+    operation_decoder: operation_decoder(),
     capabilities: Capabilities(
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),

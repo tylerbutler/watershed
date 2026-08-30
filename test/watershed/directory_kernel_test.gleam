@@ -3,10 +3,10 @@ import gleam/list
 import gleam/option.{None, Some}
 import startest/expect
 import watershed/directory_kernel.{
-  type DirectoryEvent, type DirectoryOp, type DirectoryState, type SequencedMeta,
-  Cleared, CreateSubDirectory, Delete, DeleteSubDirectory, Disposed,
-  SequencedMeta, Set, SubDirectoryCreated, SubDirectoryDeleted, Undisposed,
-  ValueChanged,
+  type DirectoryEvent, type DirectoryOperation, type DirectoryState,
+  type SequencedMeta, Cleared, CreateSubDirectory, Delete, DeleteSubDirectory,
+  Disposed, SequencedMeta, Set, SubDirectoryCreated, SubDirectoryDeleted,
+  Undisposed, ValueChanged,
 }
 
 // ─── helpers ─────────────────────────────────────────────────────────────────
@@ -16,22 +16,32 @@ import watershed/directory_kernel.{
 
 fn local(
   r: Result(
-    #(DirectoryState, List(DirectoryEvent), DirectoryOp, Int),
+    #(DirectoryState, List(DirectoryEvent), DirectoryOperation, Int),
     directory_kernel.KernelError,
   ),
 ) -> #(DirectoryState, List(DirectoryEvent), Int) {
   case r {
-    Ok(#(state, events, _op, id)) -> #(state, events, id)
+    Ok(#(state, events, _operation, id)) -> #(state, events, id)
     Error(_) -> panic as "expected local op to succeed"
   }
 }
 
 fn local_sub(
   r: Result(
-    #(DirectoryState, List(DirectoryEvent), option.Option(DirectoryOp), Int),
+    #(
+      DirectoryState,
+      List(DirectoryEvent),
+      option.Option(DirectoryOperation),
+      Int,
+    ),
     directory_kernel.KernelError,
   ),
-) -> #(DirectoryState, List(DirectoryEvent), option.Option(DirectoryOp), Int) {
+) -> #(
+  DirectoryState,
+  List(DirectoryEvent),
+  option.Option(DirectoryOperation),
+  Int,
+) {
   case r {
     Ok(tuple) -> tuple
     Error(_) -> panic as "expected subdir op to succeed"
@@ -40,10 +50,10 @@ fn local_sub(
 
 fn ack(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   meta: SequencedMeta,
 ) -> DirectoryState {
-  case directory_kernel.ack_local(state, op, meta) {
+  case directory_kernel.ack_local(state, operation, meta) {
     Ok(s) -> s
     Error(_) -> panic as "expected ack to succeed"
   }
@@ -54,10 +64,10 @@ fn ack(
 /// records on retained instances.
 fn remote(
   state: DirectoryState,
-  op: DirectoryOp,
+  operation: DirectoryOperation,
   m: SequencedMeta,
 ) -> #(DirectoryState, List(DirectoryEvent)) {
-  directory_kernel.apply_remote(state, op, m, 0)
+  directory_kernel.apply_remote(state, operation, m, 0)
 }
 
 fn meta(author: Int, seq: Int, ref: Int, cseq: Int) -> SequencedMeta {
@@ -82,7 +92,12 @@ fn create_sub(
   state: DirectoryState,
   path: String,
   name: String,
-) -> #(DirectoryState, List(DirectoryEvent), option.Option(DirectoryOp), Int) {
+) -> #(
+  DirectoryState,
+  List(DirectoryEvent),
+  option.Option(DirectoryOperation),
+  Int,
+) {
   local_sub(directory_kernel.create_subdirectory(state, path, name, 0))
 }
 
@@ -181,8 +196,9 @@ pub fn remote_set_suppressed_when_pending_masks_test() -> Nil {
 // ─── subdirectory lifecycle ──────────────────────────────────────────────────
 
 pub fn create_subdirectory_visible_immediately_test() -> Nil {
-  let #(state, events, op, _) = create_sub(directory_kernel.new(), "/", "a")
-  op |> expect.to_equal(Some(CreateSubDirectory("/", "a")))
+  let #(state, events, operation, _) =
+    create_sub(directory_kernel.new(), "/", "a")
+  operation |> expect.to_equal(Some(CreateSubDirectory("/", "a")))
   events |> expect.to_equal([SubDirectoryCreated("/a", True)])
   directory_kernel.subdirectories(state, "/") |> expect.to_equal(["a"])
   directory_kernel.has_subdirectory(state, "/", "a") |> expect.to_be_true()
@@ -198,8 +214,8 @@ pub fn nested_storage_test() -> Nil {
 
 pub fn duplicate_create_does_not_duplicate_test() -> Nil {
   let #(state, _, _, _) = create_sub(directory_kernel.new(), "/", "a")
-  let #(state, events, op, _) = create_sub(state, "/", "a")
-  op |> expect.to_equal(None)
+  let #(state, events, operation, _) = create_sub(state, "/", "a")
+  operation |> expect.to_equal(None)
   events |> expect.to_equal([])
   directory_kernel.subdirectories(state, "/") |> expect.to_equal(["a"])
 }
@@ -222,9 +238,9 @@ pub fn local_delete_subdirectory_hides_and_disposes_test() -> Nil {
   let #(state, _, _, _) = create_sub(directory_kernel.new(), "/", "a")
   // ack the create so it is sequenced
   let state = ack(state, CreateSubDirectory("/", "a"), meta(0, 1, 0, 0))
-  let #(state, events, op, _) =
+  let #(state, events, operation, _) =
     local_sub(directory_kernel.delete_subdirectory(state, "/", "a"))
-  op |> expect.to_equal(Some(DeleteSubDirectory("/", "a")))
+  operation |> expect.to_equal(Some(DeleteSubDirectory("/", "a")))
   expect.to_be_true(list.contains(events, SubDirectoryDeleted("/a", True)))
   expect.to_be_true(list.contains(events, Disposed("/a")))
   directory_kernel.has_subdirectory(state, "/", "a") |> expect.to_be_false()
@@ -301,10 +317,10 @@ pub fn summary_round_trip_test() -> Nil {
 
 // ─── stale instance filter (D12) ─────────────────────────────────────────────
 
-pub fn stale_op_ignored_after_delete_recreate_test() -> Nil {
+pub fn stale_operation_ignored_after_delete_recreate_test() -> Nil {
   // Client sees: create /a (seq1 by client 1), then it is deleted (seq2),
-  // then recreated (seq3 by client 2). A late set op authored by client 1
-  // with refSeq=1 (before the recreate at seq3) targets the OLD instance and
+  // then recreated (seq3 by client 2). A late set operation authored by client
+  // 1 with refSeq=1 (before the recreate at seq3) targets the OLD instance and
   // must be ignored.
   let state = directory_kernel.new()
   let #(state, _) =
@@ -320,7 +336,7 @@ pub fn stale_op_ignored_after_delete_recreate_test() -> Nil {
   directory_kernel.get(state, "/a", "k") |> expect.to_equal(Error(Nil))
 }
 
-pub fn fresh_op_applies_after_recreate_test() -> Nil {
+pub fn fresh_operation_applies_after_recreate_test() -> Nil {
   let state = directory_kernel.new()
   let #(state, _) =
     remote(state, CreateSubDirectory("/", "a"), meta(1, 1, 0, 0))
@@ -378,7 +394,7 @@ pub fn rollback_delete_reexposes_tree_test() -> Nil {
 
 // ─── invariants ──────────────────────────────────────────────────────────────
 
-pub fn invariants_hold_after_ops_test() -> Nil {
+pub fn invariants_hold_after_operations_test() -> Nil {
   let #(state, _, _, _) = create_sub(directory_kernel.new(), "/", "a")
   let #(state, _, _) = set(state, "/a", "k", 1)
   let #(state, _, _, _) = create_sub(state, "/a", "b")

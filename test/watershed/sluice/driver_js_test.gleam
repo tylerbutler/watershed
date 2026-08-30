@@ -111,7 +111,7 @@ pub fn map_lww_converges_test() -> Nil {
 }
 
 @target(javascript)
-pub fn diagnostics_track_pending_and_sequenced_ops_test() -> Nil {
+pub fn diagnostics_track_pending_and_sequenced_operations_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "diagnostics-js")
   let doc = sluice_js.connect(sluice, "user-a")
 
@@ -160,7 +160,7 @@ pub fn pause_holds_delivery_until_resume_test() -> Nil {
   |> expect.to_equal(Ok(json.string("v")))
   watershed.get(watershed.root(doc_b), "k") |> expect.to_equal(Error(Nil))
 
-  // Releasing B delivers the held op.
+  // Releasing B delivers the held operation.
   sluice_js.resume(sluice, doc_b)
   sluice_js.settle(sluice)
   watershed.get(watershed.root(doc_b), "k")
@@ -168,7 +168,7 @@ pub fn pause_holds_delivery_until_resume_test() -> Nil {
 }
 
 @target(javascript)
-pub fn step_info_reports_op_sequence_and_author_test() -> Nil {
+pub fn step_info_reports_operation_sequence_and_author_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "stepinfo-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
   let _doc_b = sluice_js.connect(sluice, "user-b")
@@ -176,16 +176,17 @@ pub fn step_info_reports_op_sequence_and_author_test() -> Nil {
 
   watershed.set(watershed.root(doc_a), "k", json.int(1))
 
-  // Drain, collecting only the op deliveries' (sn, author).
-  let ops = drain_op_meta(sluice, [])
+  // Drain, collecting only the operation deliveries' (sn, author).
+  let operations = drain_operation_meta(sluice, [])
   // The two handshakes sequenced a join apiece (SN 1 and 2), already drained by
-  // `settle`. The one op is broadcast to both clients: two op frames, SN 3.
-  ops |> list.length |> expect.to_equal(2)
-  list.all(ops, fn(meta) { meta.0 == 3 }) |> expect.to_be_true()
+  // `settle`. The one operation is broadcast to both clients: two operation
+  // frames, SN 3.
+  operations |> list.length |> expect.to_equal(2)
+  list.all(operations, fn(meta) { meta.0 == 3 }) |> expect.to_be_true()
 }
 
 @target(javascript)
-fn drain_op_meta(
+fn drain_operation_meta(
   sluice: sluice_js.Sluice,
   acc: List(#(Int, String)),
 ) -> List(#(Int, String)) {
@@ -194,11 +195,11 @@ fn drain_op_meta(
     Ok(delivery) ->
       case delivery.event {
         "op" ->
-          drain_op_meta(sluice, [
+          drain_operation_meta(sluice, [
             #(delivery.sequence_number, delivery.author),
             ..acc
           ])
-        _ -> drain_op_meta(sluice, acc)
+        _ -> drain_operation_meta(sluice, acc)
       }
   }
 }
@@ -522,10 +523,11 @@ pub fn shared_text_invalid_bounds_return_errors_test() -> Nil {
 }
 
 @target(javascript)
-pub fn shared_text_no_op_edits_do_not_submit_test() -> Nil {
-  // No-op edits (an empty insert/append, or a zero-length delete/replace)
-  // must not submit a channel op: subscribers see no event, and a peer that
-  // never delivers anything still converges since nothing was ever sent.
+pub fn shared_text_no_operation_edits_do_not_submit_test() -> Nil {
+  // No-operation edits (an empty insert/append, or a zero-length
+  // delete/replace) must not submit a channel operation: subscribers see no
+  // event, and a peer that never delivers anything still converges since
+  // nothing was ever sent.
   let sluice =
     sluice_js.start(tenant: "default", document: "shared-text-no-op-js")
   let doc_a = sluice_js.connect(sluice, "user-a")
@@ -545,13 +547,13 @@ pub fn shared_text_no_op_edits_do_not_submit_test() -> Nil {
     transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
   })
 
-  // An empty insert at a valid index is a no-op: it returns Ok(Nil), fires
-  // no event, and never reaches the wire.
+  // An empty insert at a valid index is a no-operation: it returns Ok(Nil),
+  // fires no event, and never reaches the wire.
   watershed.text_insert(text_a, 2, "") |> expect.to_equal(Ok(Nil))
-  // A zero-length delete-range/replace-range is likewise a no-op.
+  // A zero-length delete-range/replace-range is likewise a no-operation.
   watershed.text_delete_range(text_a, 2, 2) |> expect.to_equal(Ok(Nil))
   watershed.text_replace_range(text_a, 2, 2, "") |> expect.to_equal(Ok(Nil))
-  // Appending "" is a no-op too.
+  // Appending "" is a no-operation too.
   watershed.text_append(text_a, "") |> expect.to_equal(Ok(Nil))
 
   transport_js.get_cell(events) |> expect.to_equal([])
@@ -859,10 +861,11 @@ pub fn subscribe_ordered_collection_observes_a_peer_add_test() -> Nil {
 
 @target(javascript)
 /// The full job lifecycle — add, acquire, release, re-acquire, complete — is
-/// observable end to end from both sides: the author's subscriber sees each op
-/// land on ack with `local: True`, a peer's with `local: False`, and a release
-/// surfaces as `Added(newly_added: False)` rather than a distinct event, which
-/// is the shape the work-queue demo renders "job returned to queue" from.
+/// observable end to end from both sides: the author's subscriber sees each
+/// operation land on ack with `local: True`, a peer's with `local: False`, and
+/// a release surfaces as `Added(newly_added: False)` rather than a distinct
+/// event, which is the shape the work-queue demo renders "job returned to
+/// queue" from.
 pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "ordered-lifecycle-js")
@@ -966,12 +969,12 @@ pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() -> Nil {
 /// This passes today, but not for a good reason, and that is why it is pinned
 /// here. `task_manager_kernel.apply_volunteer_core` guards on
 /// `list.contains(quorum, author)`, and `runtime_core.quorum_of` unions the
-/// op's author into the quorum unconditionally — so the guard has never once
-/// been able to fail. It is dead code holding a live invariant.
+/// operation's author into the quorum unconditionally — so the guard has never
+/// once been able to fail. It is dead code holding a live invariant.
 ///
 /// Making the replay roster time-correct means that union can stop hiding the
 /// guard, and this is the test that says whether activating it broke anything.
-/// It should not: a client's `join` is always sequenced before any op it
+/// It should not: a client's `join` is always sequenced before any operation it
 /// authors, so a correctly reconstructed roster contains the author at the
 /// point their `Volunteer` is replayed.
 pub fn task_manager_replays_the_same_queue_for_a_late_joiner_test() -> Nil {
@@ -1343,8 +1346,8 @@ pub fn a_key_contested_across_an_offline_window_converges_test() -> Nil {
 
 @target(javascript)
 /// `go_offline` is only meaningful from a live connection, and `go_online` only
-/// from a held one. Both are no-ops otherwise rather than errors, so a UI can
-/// bind them to a toggle without tracking the phase itself.
+/// from a held one. Both are no-operations otherwise rather than errors, so a
+/// UI can bind them to a toggle without tracking the phase itself.
 pub fn the_offline_toggle_is_inert_outside_its_phase_test() -> Nil {
   let sluice = sluice_js.start(tenant: "default", document: "offline-inert-js")
   let doc = sluice_js.connect(sluice, "user-a")
@@ -1366,7 +1369,7 @@ pub fn the_offline_toggle_is_inert_outside_its_phase_test() -> Nil {
 }
 
 @target(javascript)
-pub fn ops_since_summary_counts_the_unsummarized_log_test() -> Nil {
+pub fn operations_since_summary_counts_the_unsummarized_log_test() -> Nil {
   // Nothing has summarized this document, so every sequenced message is drift
   // a joining client would have to replay. That number is what the automatic
   // policy thresholds on, and diagnostics carries it for a debug UI.
@@ -1374,15 +1377,15 @@ pub fn ops_since_summary_counts_the_unsummarized_log_test() -> Nil {
   let doc = sluice_js.connect(sluice, "user-a")
   sluice_js.settle(sluice)
 
-  let before = watershed.ops_since_summary(doc)
+  let before = watershed.operations_since_summary(doc)
   { before > 0 } |> expect.to_be_true()
 
   watershed.set(watershed.root(doc), "a", json.int(1))
   watershed.set(watershed.root(doc), "b", json.int(2))
   sluice_js.settle(sluice)
 
-  watershed.ops_since_summary(doc) |> expect.to_equal(before + 2)
-  watershed.diagnostics(doc).ops_since_summary
+  watershed.operations_since_summary(doc) |> expect.to_equal(before + 2)
+  watershed.diagnostics(doc).operations_since_summary
   |> expect.to_equal(before + 2)
 }
 
@@ -1405,8 +1408,8 @@ pub fn an_armed_summary_waits_out_its_jitter_window_test() -> Nil {
 
   watershed.set(watershed.root(doc), "a", json.int(1))
   sluice_js.settle(sluice)
-  // Armed by the sequenced op, and still waiting: delivering frames does not
-  // move the clock.
+  // Armed by the sequenced operation, and still waiting: delivering frames does
+  // not move the clock.
   watershed.diagnostics(doc).summary_pending |> expect.to_be_true()
 
   // The wake-up runs, and the attempt fails at the token gate — the sluice has
@@ -1421,5 +1424,5 @@ pub fn an_armed_summary_waits_out_its_jitter_window_test() -> Nil {
   watershed.get(watershed.root(doc), "b")
   |> expect.to_equal(Ok(json.int(2)))
   // The attempt failed, so nothing moved the checkpoint.
-  { watershed.ops_since_summary(doc) > 0 } |> expect.to_be_true()
+  { watershed.operations_since_summary(doc) > 0 } |> expect.to_be_true()
 }

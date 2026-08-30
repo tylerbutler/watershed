@@ -75,8 +75,8 @@ fn run_scenario(
 
   // The runtime must commit an edit before notifying subscribers: a handler
   // that reads the map during the event must observe the just-applied value,
-  // for local edits and remote ops alike (the Lustre app re-reads the map from
-  // inside the subscription callback).
+  // for local edits and remote operations alike (the Lustre app re-reads the
+  // map from inside the subscription callback).
   let local_probe = transport_js.new_cell(False)
   let remote_probe = transport_js.new_cell(False)
   // `subscribe` narrows to `map_kernel.MapEvent`, so we match the variant

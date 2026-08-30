@@ -193,12 +193,12 @@ cannot drift. Events narrow per field or per channel via `subscribe_field`,
 ## Summaries
 
 `summarize` writes a checkpoint that a later client bootstraps from instead of
-replaying the whole op log. `auto_summarize(document, summary_policy.policy())`
+replaying the whole operation log. `auto_summarize(document, summary_policy.policy())`
 hands that decision to the runtime, which writes one once the document has
 drifted past the policy's threshold and this client is settled. It is safe to
 install on every client in a room: attempts are spread over a jitter window, and
 the first summary sequenced stands the rest down. Off unless installed;
-`ops_since_summary` reports the current drift.
+`operations_since_summary` reports the current drift.
 
 ## Testing your app
 

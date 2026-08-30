@@ -275,8 +275,8 @@ fn presence_effect(
 }
 
 /// Broadcast this client's cursor, but only when it has actually moved. A
-/// no-op until presence has started — `start` already carried the initial
-/// value.
+/// no-operation until presence has started — `start` already carried the
+/// initial value.
 fn announce_cursor(model: Model) -> #(Model, Effect(Msg)) {
   let current = case model.board {
     Some(board) -> Some(component.cursor(board))

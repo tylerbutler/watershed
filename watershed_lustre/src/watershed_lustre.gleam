@@ -265,13 +265,13 @@ pub fn subscribe_ordered_collection(
 ///
 /// The outcome is `AcquiredItem` when this client won the head. That message
 /// carries the acquire id for the later complete or release. The outcome is
-/// `QueueEmpty` when the queue became empty before the op sequenced. An acquire
-/// that loses emits no event, so `QueueEmpty` is the only signal that a loser
-/// receives. The outcome is `Aborted` when the document closes while the
+/// `QueueEmpty` when the queue became empty before the operation sequenced. An
+/// acquire that loses emits no event, so `QueueEmpty` is the only signal that a
+/// loser receives. The outcome is `Aborted` when the document closes while the
 /// acquire is still in flight.
 ///
-/// The queue is not optimistic. Nothing changes until the op sequences, so
-/// render the interval as pending.
+/// The queue is not optimistic. Nothing changes until the operation sequences,
+/// so render the interval as pending.
 pub fn ordered_acquire(
   collection: OrderedCollection,
   to_msg to_msg: fn(ordered_collection_kernel.AcquireOutcome) -> msg,
@@ -314,11 +314,11 @@ pub fn subscribe_claims(
 /// `to_msg` receives exactly one `claims_kernel.ClaimOutcome` value. It is
 /// `Accepted` when the value of this client won. It is `Lost` when another
 /// client already claimed the key, either synchronously, because a committed
-/// claim existed at the time of this call, or after the op sequences, because a
-/// concurrent attempt won the race. It is `Aborted` when the client could not
-/// submit the claim at all, because it is still connecting or it failed
-/// permanently. A caller must not treat `Aborted` as "nothing happened". Report
-/// it, the same as any other connection failure.
+/// claim existed at the time of this call, or after the operation sequences,
+/// because a concurrent attempt won the race. It is `Aborted` when the client
+/// could not submit the claim at all, because it is still connecting or it
+/// failed permanently. A caller must not treat `Aborted` as "nothing happened".
+/// Report it, the same as any other connection failure.
 pub fn claim_once(
   claims: Claims,
   key: String,
@@ -875,8 +875,8 @@ pub fn stop_presence(handle: presence_js.Handle(a)) -> Effect(msg) {
 ///
 /// Without this effect nothing summarizes, and every client that joins replays
 /// the whole log. The effect dispatches no message back, and the policy applies
-/// from the next sequenced op. Put it in a batch beside `connect_dev`, in the
-/// effect that receives the `Document` value.
+/// from the next sequenced operation. Put it in a batch beside `connect_dev`,
+/// in the effect that receives the `Document` value.
 pub fn auto_summarize(
   document document: Document(root),
   policy policy: summary_policy.Policy,

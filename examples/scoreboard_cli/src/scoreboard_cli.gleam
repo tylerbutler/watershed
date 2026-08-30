@@ -133,7 +133,8 @@ const first_roll_delay_ms = 1000
 const roll_interval_ms = 5000
 
 /// A handle read from a remote value can be transiently unresolvable while
-/// the referenced channel's attach op is still in flight, so resolves retry.
+/// the referenced channel's attach operation is still in flight, so resolves
+/// retry.
 const resolve_retry_ms = 200
 
 const resolve_attempts = 25
@@ -347,8 +348,8 @@ fn event_loop(state: State) -> Nil {
 
 /// Resolve the shared roster map from the root, creating it on first join.
 /// Concurrent first joins race on the `players` field; last write wins, so
-/// after writing we wait for our op to be sequenced and adopt whichever handle
-/// the field holds.
+/// after writing we wait for our operation to be sequenced and adopt whichever
+/// handle the field holds.
 fn ensure_roster(
   doc: watershed_beam.Document(GameRoot),
   root: watershed_beam.TypedMap(GameRoot),
@@ -372,7 +373,7 @@ fn ensure_roster(
 }
 
 /// Resolve `player_id`'s map from the roster and add its events to the
-/// selector. A no-op for players we already watch (including ourselves).
+/// selector. A no-operation for players we already watch (including ourselves).
 fn watch_player(state: State, player_id: String) -> State {
   case dict.has_key(state.known, player_id) {
     True -> state
@@ -396,7 +397,7 @@ fn watch_player(state: State, player_id: String) -> State {
 }
 
 /// Add a resolved player map to the watch set and event selector, printing a
-/// join notice. Idempotent — a no-op for a player we already know.
+/// join notice. Idempotent — a no-operation for a player we already know.
 fn adopt_player(
   state: State,
   player_id: String,

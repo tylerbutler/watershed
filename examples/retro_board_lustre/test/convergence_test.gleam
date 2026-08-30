@@ -2,7 +2,7 @@
 ////
 //// Each headline the README makes — concurrent adds both survive, concurrent
 //// votes sum, concurrent cross-column moves render exactly once, edit-vs-
-//// delete converges — is asserted here against the same ops the buttons
+//// delete converges — is asserted here against the same operations the buttons
 //// issue, so a regression fails a test instead of quietly looking wrong.
 ////
 //// The app bootstraps its channels with `ensure_*`, which resolves through a
@@ -218,7 +218,7 @@ pub fn concurrent_reorders_in_same_column_converge_test() -> Nil {
 
 // ── Cross-column move ────────────────────────────────────────────────────────
 
-/// The three-op move as the app performs it: sweep the id out of every
+/// The three-operation move as the app performs it: sweep the id out of every
 /// sequence, append to the destination, rewrite the register last.
 fn move_note(channels: Channels, id: String, destination: Column) -> Nil {
   case watershed.or_map_value(channels.notes, id) {

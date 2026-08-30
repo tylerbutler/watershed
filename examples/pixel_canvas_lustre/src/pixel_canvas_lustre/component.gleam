@@ -60,7 +60,7 @@ pub opaque type Model {
     color: Int,
     /// The last cell painted in this stroke. The pointer fires far more often
     /// than it crosses a cell boundary, and this is the difference between
-    /// tens of ops a second and hundreds.
+    /// tens of operations a second and hundreds.
     last_cell: Option(#(Int, Int)),
     /// The last cell painted at all, which is what a peer is shown standing on.
     /// Unlike `last_cell` it survives the end of a stroke, so a peer who has
@@ -175,7 +175,7 @@ pub fn error(model: Model) -> Option(String) {
 /// grid (pointer maths near the edges), the cell already being painted in this
 /// stroke, and a cell that is already the chosen colour. Only the last is
 /// strictly about correctness — the other two exist because this is the one
-/// example where the op rate is the thing being demonstrated.
+/// example where the operation rate is the thing being demonstrated.
 fn paint(model: Model, x: Int, y: Int) -> Model {
   let fresh = model.last_cell != Some(#(x, y))
   case grid.in_bounds(x, y) && fresh {

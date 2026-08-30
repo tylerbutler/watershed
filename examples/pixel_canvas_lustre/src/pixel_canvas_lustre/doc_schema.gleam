@@ -30,7 +30,7 @@ pub fn title() -> Field(CanvasDoc, String) {
 ///
 /// The value is a `String` because that is what a register leaf holds, and
 /// keeping it to one or two characters matters here more than it does
-/// elsewhere — this is the one example that emits ops by the thousand.
+/// elsewhere — this is the one example that emits operations by the thousand.
 pub fn pixels() -> ChannelField(CanvasDoc, OrMapChannel) {
   schema.channel_field("pixels")
 }

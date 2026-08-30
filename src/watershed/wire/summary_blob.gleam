@@ -13,7 +13,7 @@
 //// kernel snapshot, because the consensus kernels read it. A `PactMap` freezes
 //// a signoff list from the roster, and `TaskManager` checks the authorship of
 //// a volunteer against the roster. Without `members`, a client that starts
-//// from a checkpoint replays every later op against an empty room. That
+//// from a checkpoint replays every later operation against an empty room. That
 //// condition reports no error. It settles pacts that the room is still
 //// deciding.
 ////

@@ -308,8 +308,9 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 fn bootstrap_effect(doc: Document(doc_schema.BoardDoc)) -> Effect(Msg) {
   let root = watershed.root_typed(doc)
   effect.batch([
-    // A retro writes many small ops (a card, a vote apiece); summarizing keeps
-    // a late joiner's catch-up in band instead of replaying the whole log.
+    // A retro writes many small operations (a card, a vote apiece); summarizing
+    // keeps a late joiner's catch-up in band instead of replaying the whole
+    // log.
     watershed_lustre.auto_summarize(
       document: doc,
       policy: summary_policy.policy() |> summary_policy.with_threshold(200),
@@ -351,8 +352,8 @@ fn bootstrap_effect(doc: Document(doc_schema.BoardDoc)) -> Effect(Msg) {
 }
 
 /// Assemble `SharedState` once all five nested channels have resolved, take a
-/// first snapshot, and start the per-channel subscriptions. A no-op until the
-/// last channel arrives or once already assembled.
+/// first snapshot, and start the per-channel subscriptions. A no-operation
+/// until the last channel arrives or once already assembled.
 fn assemble(model: Model) -> #(Model, Effect(Msg)) {
   case model.shared, model.pending {
     None,
@@ -377,7 +378,7 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
 
 /// Every channel event — local or remote, any of the five channels — collapses
 /// to one `SharedChanged`, and the handler re-reads the world. A remote
-/// cross-column move is three ops across three channels in no particular
+/// cross-column move is three operations across three channels in no particular
 /// order; re-reading current optimistic state on each event renders every
 /// interleaving sensibly without patching logic.
 fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {
@@ -561,12 +562,12 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
 
     // The demo's honest limitation, exercised: a cross-column move is three
-    // ops across two channel kinds with no transaction spanning them. Under
-    // concurrent moves the sequences can disagree with the register; the
-    // render rule (see `board.gleam`) keeps every reachable state sensible,
-    // and the register write is the authoritative one. Sweeping the id out of
-    // *every* sequence (not just the source) doubles as opportunistic repair
-    // of garbage left by earlier races.
+    // operations across two channel kinds with no transaction spanning them.
+    // Under concurrent moves the sequences can disagree with the register; the
+    // render rule (see `board.gleam`) keeps every reachable state sensible, and
+    // the register write is the authoritative one. Sweeping the id out of
+    // *every* sequence (not just the source) doubles as opportunistic repair of
+    // garbage left by earlier races.
     MoveToColumnClicked(id, destination) ->
       case model.shared {
         None -> #(model, effect.none())
@@ -762,11 +763,11 @@ fn sequence_for(shared: SharedState, column: Column) -> SharedSequence {
 /// Swap a card with its rendered neighbour (`step` is -1 for ↑, 1 for ↓).
 ///
 /// Rendered position is not sequence position — the render rule skips garbage
-/// entries, so every sequence op here uses the cards' **raw** `seq_index`.
-/// `sequence_move` interprets the destination after the source is removed,
-/// which makes the neighbour's raw index the correct destination in both
-/// directions (up: the neighbour has not shifted; down: it has shifted into
-/// the slot just before where the moved card must land).
+/// entries, so every sequence operation here uses the cards' **raw**
+/// `seq_index`. `sequence_move` interprets the destination after the source is
+/// removed, which makes the neighbour's raw index the correct destination in
+/// both directions (up: the neighbour has not shifted; down: it has shifted
+/// into the slot just before where the moved card must land).
 ///
 /// A card that is not in the sequence at all (rendered from its register via
 /// the `created` tiebreaker) gets an explicit repair on ↑/↓: its id is
@@ -822,7 +823,8 @@ fn move_within(model: Model, column: Column, id: String, step: Int) -> Model {
 }
 
 /// A completed drag, read from the drag system's `info` and translated into
-/// channel ops. No-ops when nothing meaningful was dragged or dropped.
+/// channel operations. No-operations when nothing meaningful was dragged or
+/// dropped.
 fn apply_drop(model: Model) -> Model {
   case model.dnd.info(model.dnd.model), model.shared {
     Some(info), Some(shared) if info.drag_element_id != info.drop_element_id ->

@@ -11,34 +11,36 @@ import qcheck
 import simplifile
 import startest/expect
 import watershed/fuzz/kernel_fuzz.{
-  type KernelModel, Capabilities, ClientOp, Deliver, Disconnect, KernelModel,
-  Reconnect, Sequence, Synchronize,
+  type KernelModel, Capabilities, ClientOperation, Deliver, Disconnect,
+  KernelModel, Reconnect, Sequence, Synchronize,
 }
 
 fn config() -> qcheck.Config {
   qcheck.default_config() |> qcheck.with_test_count(200)
 }
 
-/// A trivial commutative kernel: state is the running sum of every op
+/// A trivial commutative kernel: state is the running sum of every operation
 /// (local or remote) applied so far; acking never changes it.
 fn sum_model() -> KernelModel(Int, Int, Int) {
   KernelModel(
     name: "toy-sum",
     init: fn(_id) { 0 },
-    submit: fn(state, op, _meta) { #(state + op, Some(op)) },
-    apply_remote: fn(state, op, _meta) { Ok(state + op) },
-    ack_local: fn(state, _op, _meta) { Ok(state) },
+    submit: fn(state, operation, _meta) {
+      #(state + operation, Some(operation))
+    },
+    apply_remote: fn(state, operation, _meta) { Ok(state + operation) },
+    ack_local: fn(state, _operation, _meta) { Ok(state) },
     observe: fn(state) { state },
-    gen_op: qcheck.bounded_int(from: -5, to: 5),
+    gen_operation: qcheck.bounded_int(from: -5, to: 5),
     check: None,
     canonicalize: None,
     ack_preserves_view: True,
-    op_to_json: json.int,
-    op_decoder: decode.int,
+    operation_to_json: json.int,
+    operation_decoder: decode.int,
     capabilities: Capabilities(
       load_from_synced: None,
       oracle: Some(fn(entries) {
-        list.fold(kernel_fuzz.log_ops(entries), 0, fn(acc, item) {
+        list.fold(kernel_fuzz.log_operations(entries), 0, fn(acc, item) {
           acc + item.1
         })
       }),
@@ -69,7 +71,7 @@ pub fn sum_model_with_check() -> KernelModel(Int, Int, Int) {
 }
 
 pub fn check_hook_catches_planted_violation_test() -> Nil {
-  let script = [ClientOp(0, -1), Synchronize]
+  let script = [ClientOperation(0, -1), Synchronize]
   case kernel_fuzz.try_run_script(sum_model_with_check(), 1, script) {
     Error(_) -> Nil
     Ok(_) -> panic as "expected the check hook to reject a negative running sum"
@@ -77,7 +79,7 @@ pub fn check_hook_catches_planted_violation_test() -> Nil {
 }
 
 pub fn check_hook_passes_when_invariant_holds_test() -> Nil {
-  let script = [ClientOp(0, 1), Synchronize]
+  let script = [ClientOperation(0, 1), Synchronize]
   kernel_fuzz.try_run_script(sum_model_with_check(), 1, script)
   |> expect.to_be_ok
 }
@@ -87,34 +89,34 @@ pub fn check_hook_passes_when_invariant_holds_test() -> Nil {
 // covering 0..n−1.
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// State is `#(my_init_id, ops_applied_in_order)`. `submit` ignores the
-/// generated op and routes the client's own init id instead, so the log —
-/// and every converged view — is exactly the sequence of identities the
-/// harness handed to `init`. The oracle maps the log to its *author
-/// indices*, so each op (an init id) must equal the index of the client
-/// that submitted it: any duplicate or shifted assignment fails.
+/// State is `#(my_init_id, operations_applied_in_order)`. `submit` ignores the
+/// generated operation and routes the client's own init id instead, so the log
+/// — and every converged view — is exactly the sequence of identities the
+/// harness handed to `init`. The oracle maps the log to its *author indices*,
+/// so each operation (an init id) must equal the index of the client that
+/// submitted it: any duplicate or shifted assignment fails.
 fn id_echo_model() -> KernelModel(#(Int, List(Int)), Int, List(Int)) {
   KernelModel(
     name: "toy-id-echo",
     init: fn(id) { #(id, []) },
-    submit: fn(state, _op, _meta) {
+    submit: fn(state, _operation, _meta) {
       #(#(state.0, list.append(state.1, [state.0])), Some(state.0))
     },
-    apply_remote: fn(state, op, _meta) {
-      Ok(#(state.0, list.append(state.1, [op])))
+    apply_remote: fn(state, operation, _meta) {
+      Ok(#(state.0, list.append(state.1, [operation])))
     },
-    ack_local: fn(state, _op, _meta) { Ok(state) },
+    ack_local: fn(state, _operation, _meta) { Ok(state) },
     observe: fn(state) { state.1 },
-    gen_op: qcheck.constant(0),
+    gen_operation: qcheck.constant(0),
     check: None,
     canonicalize: None,
     ack_preserves_view: True,
-    op_to_json: json.int,
-    op_decoder: decode.int,
+    operation_to_json: json.int,
+    operation_decoder: decode.int,
     capabilities: Capabilities(
       load_from_synced: None,
       oracle: Some(fn(entries) {
-        list.map(kernel_fuzz.log_ops(entries), fn(entry) { entry.0 })
+        list.map(kernel_fuzz.log_operations(entries), fn(entry) { entry.0 })
       }),
       rollback: None,
       resubmit: None,
@@ -126,14 +128,14 @@ fn id_echo_model() -> KernelModel(#(Int, List(Int)), Int, List(Int)) {
 }
 
 pub fn init_receives_distinct_client_indices_test() -> Nil {
-  // One op per client, synchronized between each so every client applies
+  // One operation per client, synchronized between each so every client applies
   // them in the same (log) order.
   let script = [
-    ClientOp(0, 0),
+    ClientOperation(0, 0),
     Synchronize,
-    ClientOp(1, 0),
+    ClientOperation(1, 0),
     Synchronize,
-    ClientOp(2, 0),
+    ClientOperation(2, 0),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(id_echo_model(), 3, script)
@@ -146,11 +148,11 @@ pub fn init_receives_distinct_client_indices_test() -> Nil {
 pub fn constant_init_identity_is_caught_test() -> Nil {
   let model = KernelModel(..id_echo_model(), init: fn(_id) { #(7, []) })
   let script = [
-    ClientOp(0, 0),
+    ClientOperation(0, 0),
     Synchronize,
-    ClientOp(1, 0),
+    ClientOperation(1, 0),
     Synchronize,
-    ClientOp(2, 0),
+    ClientOperation(2, 0),
     Synchronize,
   ]
   case kernel_fuzz.try_run_script(model, 3, script) {
@@ -161,10 +163,10 @@ pub fn constant_init_identity_is_caught_test() -> Nil {
 
 pub fn fixed_script_converges_test() -> Nil {
   let script = [
-    ClientOp(0, 3),
-    ClientOp(1, 4),
+    ClientOperation(0, 3),
+    ClientOperation(1, 4),
     Synchronize,
-    ClientOp(0, -2),
+    ClientOperation(0, -2),
     Sequence(1),
     Deliver(0, 1),
     Deliver(1, 1),
@@ -182,7 +184,7 @@ pub fn random_scripts_converge_test() -> Nil {
           qcheck.bounded_int(from: 0, to: 1),
           qcheck.bounded_int(from: -5, to: 5),
         )
-          |> qcheck.map(fn(pair) { ClientOp(pair.0, pair.1) }),
+          |> qcheck.map(fn(pair) { ClientOperation(pair.0, pair.1) }),
         [
           qcheck.bounded_int(from: 0, to: 3) |> qcheck.map(Sequence),
           qcheck.tuple2(
@@ -203,26 +205,30 @@ fn reactive_model() -> KernelModel(List(Int), Int, List(Int)) {
   KernelModel(
     name: "toy-reactive",
     init: fn(_id) { [] },
-    submit: fn(state, op, _meta) { #(state, Some(op)) },
-    apply_remote: fn(state, op, _meta) { Ok(list.append(state, [op])) },
-    ack_local: fn(state, op, _meta) { Ok(list.append(state, [op])) },
+    submit: fn(state, operation, _meta) { #(state, Some(operation)) },
+    apply_remote: fn(state, operation, _meta) {
+      Ok(list.append(state, [operation]))
+    },
+    ack_local: fn(state, operation, _meta) {
+      Ok(list.append(state, [operation]))
+    },
     observe: fn(state) { state },
-    gen_op: qcheck.constant(1),
+    gen_operation: qcheck.constant(1),
     check: None,
     canonicalize: None,
     ack_preserves_view: False,
-    op_to_json: json.int,
-    op_decoder: decode.int,
+    operation_to_json: json.int,
+    operation_decoder: decode.int,
     capabilities: Capabilities(
       load_from_synced: None,
       oracle: Some(fn(entries) {
-        kernel_fuzz.log_ops(entries) |> list.map(fn(entry) { entry.1 })
+        kernel_fuzz.log_operations(entries) |> list.map(fn(entry) { entry.1 })
       }),
       rollback: None,
       resubmit: None,
       apply_stashed: None,
-      react: Some(fn(_state, op, _meta, _self_id, is_local) {
-        case op == 1 && is_local {
+      react: Some(fn(_state, operation, _meta, _self_id, is_local) {
+        case operation == 1 && is_local {
           True -> [2]
           False -> []
         }
@@ -233,7 +239,7 @@ fn reactive_model() -> KernelModel(List(Int), Int, List(Int)) {
 }
 
 pub fn synchronize_reaches_reactive_fixpoint_test() -> Nil {
-  let script = [ClientOp(1, 1), Synchronize]
+  let script = [ClientOperation(1, 1), Synchronize]
   kernel_fuzz.try_run_script(reactive_model(), 2, script)
   |> expect.to_be_ok
 }
@@ -242,16 +248,16 @@ fn leave_model() -> KernelModel(List(#(Int, Int)), Int, List(#(Int, Int))) {
   KernelModel(
     name: "toy-leave",
     init: fn(_id) { [] },
-    submit: fn(state, op, _meta) { #(state, Some(op)) },
-    apply_remote: fn(state, _op, _meta) { Ok(state) },
-    ack_local: fn(state, _op, _meta) { Ok(state) },
+    submit: fn(state, operation, _meta) { #(state, Some(operation)) },
+    apply_remote: fn(state, _operation, _meta) { Ok(state) },
+    ack_local: fn(state, _operation, _meta) { Ok(state) },
     observe: fn(state) { state },
-    gen_op: qcheck.constant(0),
+    gen_operation: qcheck.constant(0),
     check: None,
     canonicalize: None,
     ack_preserves_view: True,
-    op_to_json: json.int,
-    op_decoder: decode.int,
+    operation_to_json: json.int,
+    operation_decoder: decode.int,
     capabilities: Capabilities(
       load_from_synced: None,
       oracle: Some(fn(entries) {
@@ -261,7 +267,7 @@ fn leave_model() -> KernelModel(List(#(Int, Int)), Int, List(#(Int, Int))) {
           let #(entry, i) = pair
           case entry {
             kernel_fuzz.LeaveEntry(client) -> Ok(#(client, i + 1))
-            kernel_fuzz.OpEntry(_, _, _) -> Error(Nil)
+            kernel_fuzz.OperationEntry(_, _, _) -> Error(Nil)
           }
         })
       }),
@@ -288,9 +294,9 @@ fn non_terminating_reactive_model() -> KernelModel(List(Int), Int, List(Int)) {
     name: "toy-nonterminating-reactive",
     capabilities: Capabilities(
       ..reactive_model().capabilities,
-      react: Some(fn(_state, op, _meta, _self_id, is_local) {
+      react: Some(fn(_state, operation, _meta, _self_id, is_local) {
         case is_local {
-          True -> [op]
+          True -> [operation]
           False -> []
         }
       }),
@@ -299,7 +305,7 @@ fn non_terminating_reactive_model() -> KernelModel(List(Int), Int, List(Int)) {
 }
 
 pub fn synchronize_round_cap_fails_instead_of_hanging_test() -> Nil {
-  let script = [ClientOp(1, 1), Synchronize]
+  let script = [ClientOperation(1, 1), Synchronize]
   case kernel_fuzz.try_run_script(non_terminating_reactive_model(), 2, script) {
     Error("did not reach quiescence") -> Nil
     Error(detail) -> panic as { "unexpected error: " <> detail }
@@ -309,7 +315,7 @@ pub fn synchronize_round_cap_fails_instead_of_hanging_test() -> Nil {
 
 pub fn disconnected_reaction_routes_to_resend_and_replays_on_reconnect_test() -> Nil {
   let script = [
-    ClientOp(1, 1),
+    ClientOperation(1, 1),
     Sequence(1),
     Disconnect(1),
     Deliver(1, 1),
@@ -334,7 +340,7 @@ pub fn failing_run_script_dumps_a_replayable_json_fixture_test() -> Nil {
   let fixture_path = kernel_fuzz.fixture_path("toy-sum")
   let _ = simplifile.delete(fixture_path)
 
-  let script = [ClientOp(0, -1), Synchronize]
+  let script = [ClientOperation(0, -1), Synchronize]
   case
     exception.rescue(fn() {
       kernel_fuzz.run_script(sum_model_with_check(), 1, script)

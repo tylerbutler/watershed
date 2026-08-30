@@ -5,11 +5,11 @@
 //// The oracle is independent of the CRDT merge. It models only the sequenced
 //// log: every increment adds a live dot and contributes its amount to that
 //// key's cumulative tally; every remove keeps only dots that the remover had
-//// not observed when it submitted. A remover observes (i) all delivered ops
-//// with sequence number `<= ref_seq` and (ii) its own pending ops, which are
-//// exactly that same author's earlier log entries. Therefore a dot survives
-//// `CommandRemove(key, ref_seq)` iff
-//// `dot.seq > ref_seq && dot.author != remover`.
+//// not observed when it submitted. A remover observes (i) all delivered
+//// operations with sequence number `<= ref_seq` and (ii) its own pending
+//// operations, which are exactly that same author's earlier log entries.
+//// Therefore a dot survives `CommandRemove(key, ref_seq)` iff `dot.seq >
+//// ref_seq && dot.author != remover`.
 ////
 //// Tallies never reset when a key is removed: the kernel's `own_tallies`
 //// ledger makes every routed delta carry that replica's cumulative PN-counter
@@ -31,7 +31,7 @@ import watershed/fuzz/kernel_fuzz.{
   type KernelModel, type LogEntry, Capabilities, KernelModel,
 }
 import watershed/or_map_kernel.{
-  type OrMapState, Increment, PendingOp, Remove, TallyMode,
+  type OrMapState, Increment, PendingOperation, Remove, TallyMode,
 }
 
 pub type OrMapCommand {
@@ -54,7 +54,7 @@ fn delta_to_json(delta: Option(ORMapDelta)) -> json.Json {
   }
 }
 
-pub fn op_to_json(command: OrMapCommand) -> json.Json {
+pub fn operation_to_json(command: OrMapCommand) -> json.Json {
   case command {
     CommandIncrement(key, amount, delta) ->
       json.object([
@@ -87,7 +87,7 @@ fn delta_decoder() -> decode.Decoder(Option(ORMapDelta)) {
   })
 }
 
-pub fn op_decoder() -> decode.Decoder(OrMapCommand) {
+pub fn operation_decoder() -> decode.Decoder(OrMapCommand) {
   use tag <- decode.field("tag", decode.string)
   case tag {
     "Increment" -> {
@@ -117,26 +117,26 @@ fn amount_from_int(n: Int) -> Int {
   n % 21 - 10
 }
 
-fn op_from_ints(kind: Int, key: Int, amount: Int) -> OrMapCommand {
+fn operation_from_ints(kind: Int, key: Int, amount: Int) -> OrMapCommand {
   case kind % 4 {
     0 -> CommandRemove(key_from_int(key), 0, None)
     _ -> CommandIncrement(key_from_int(key), amount_from_int(amount), None)
   }
 }
 
-fn op_generator() -> qcheck.Generator(OrMapCommand) {
+fn operation_generator() -> qcheck.Generator(OrMapCommand) {
   qcheck.tuple3(
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
   )
-  |> qcheck.map(fn(ints) { op_from_ints(ints.0, ints.1, ints.2) })
+  |> qcheck.map(fn(ints) { operation_from_ints(ints.0, ints.1, ints.2) })
 }
 
-fn command_to_kernel_op(
+fn command_to_kernel_operation(
   command: OrMapCommand,
   context: String,
-) -> or_map_kernel.OrMapOp {
+) -> or_map_kernel.OrMapOperation {
   case command {
     CommandIncrement(key, amount, Some(delta)) -> Increment(key, amount, delta)
     CommandRemove(key, _ref_seq, Some(delta)) -> Remove(key, delta)
@@ -155,15 +155,15 @@ fn submit(
 ) -> #(OrMapState, Option(OrMapCommand)) {
   case command {
     CommandIncrement(key, amount, _) -> {
-      let assert Ok(#(state, _events, op, _message_id)) =
+      let assert Ok(#(state, _events, operation, _message_id)) =
         or_map_kernel.increment(state, key, amount)
-      let assert Increment(_, _, delta) = op
+      let assert Increment(_, _, delta) = operation
       #(state, Some(CommandIncrement(key, amount, Some(delta))))
     }
     CommandRemove(key, _, _) -> {
-      let assert Ok(#(state, _events, op, _message_id)) =
+      let assert Ok(#(state, _events, operation, _message_id)) =
         or_map_kernel.remove(state, key)
-      let assert Remove(_, delta) = op
+      let assert Remove(_, delta) = operation
       #(state, Some(CommandRemove(key, meta.last_seen_seq, Some(delta))))
     }
   }
@@ -177,7 +177,7 @@ fn apply_remote(
   case
     or_map_kernel.apply_remote(
       state,
-      command_to_kernel_op(command, "apply_remote"),
+      command_to_kernel_operation(command, "apply_remote"),
     )
   {
     Ok(#(state, _events)) -> Ok(state)
@@ -195,7 +195,10 @@ fn ack_local(
   _meta: kernel_fuzz.SequencedMeta,
 ) -> Result(OrMapState, String) {
   case
-    or_map_kernel.ack_local(state, command_to_kernel_op(command, "ack_local"))
+    or_map_kernel.ack_local(
+      state,
+      command_to_kernel_operation(command, "ack_local"),
+    )
   {
     Ok(state) -> Ok(state)
     Error(or_map_kernel.UnexpectedAck(detail)) -> Error(detail)
@@ -209,11 +212,11 @@ fn ack_local(
 fn rollback(state: OrMapState, command: OrMapCommand) -> OrMapState {
   case list.last(state.pending) {
     Error(_) -> state
-    Ok(PendingOp(_, message_id)) ->
+    Ok(PendingOperation(_, message_id)) ->
       case
         or_map_kernel.rollback(
           state,
-          command_to_kernel_op(command, "rollback"),
+          command_to_kernel_operation(command, "rollback"),
           message_id,
         )
       {
@@ -271,7 +274,7 @@ fn remove_observed_dots(
   }
 }
 
-fn apply_oracle_op(
+fn apply_oracle_operation(
   state: OracleState,
   entry: #(Int, #(Int, OrMapCommand)),
 ) -> OracleState {
@@ -292,11 +295,11 @@ fn apply_oracle_op(
 
 pub fn oracle(entries: List(LogEntry(OrMapCommand))) -> List(#(String, Int)) {
   let state =
-    kernel_fuzz.log_ops(entries)
+    kernel_fuzz.log_operations(entries)
     |> list.index_map(fn(entry, i) { #(i + 1, entry) })
     |> list.fold(
       OracleState(dots: dict.new(), tallies: dict.new()),
-      apply_oracle_op,
+      apply_oracle_operation,
     )
 
   dict.keys(state.dots)
@@ -335,12 +338,12 @@ pub fn model() -> KernelModel(OrMapState, OrMapCommand, List(#(String, Int))) {
     apply_remote: apply_remote,
     ack_local: ack_local,
     observe: observe,
-    gen_op: op_generator(),
+    gen_operation: operation_generator(),
     check: Some(or_map_kernel.check_cache_coherence),
     canonicalize: None,
     ack_preserves_view: True,
-    op_to_json: op_to_json,
-    op_decoder: op_decoder(),
+    operation_to_json: operation_to_json,
+    operation_decoder: operation_decoder(),
     capabilities: Capabilities(
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),

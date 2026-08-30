@@ -78,7 +78,7 @@
 /**
  * Pure selection-transform callback. This is **not** the generated
  * `rich_text.transform_selection` FFI export itself — that Gleam function
- * has signature `transform_selection(delta, selection, is_own_op) ->
+ * has signature `transform_selection(delta, selection, is_own_operation) ->
  * Result(Selection, Error)`, a different argument order and a wrapped
  * result. Callers must supply a thin integration wrapper around it that:
  *

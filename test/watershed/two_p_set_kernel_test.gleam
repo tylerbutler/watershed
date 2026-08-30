@@ -11,30 +11,31 @@ fn expect_coherent(state: two_p_set_kernel.TwoPSetState) -> Nil {
 
 fn ack(
   state: two_p_set_kernel.TwoPSetState,
-  op: two_p_set_kernel.TwoPSetOp,
+  operation: two_p_set_kernel.TwoPSetOperation,
 ) -> two_p_set_kernel.TwoPSetState {
-  let assert Ok(state) = two_p_set_kernel.ack_local(state, op)
+  let assert Ok(state) = two_p_set_kernel.ack_local(state, operation)
   state
 }
 
 pub fn add_is_optimistically_visible_test() -> Nil {
-  let #(state, events, op, message_id) =
+  let #(state, events, operation, message_id) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
 
   two_p_set_kernel.values(state) |> expect.to_equal(["stake-3"])
   two_p_set_kernel.sequenced_values(state) |> expect.to_equal([])
   events |> expect.to_equal([ElementAdded("stake-3")])
   message_id |> expect.to_equal(0)
-  let assert two_p_set_kernel.Add("stake-3", _) = op
+  let assert two_p_set_kernel.Add("stake-3", _) = operation
   expect_coherent(state)
 }
 
 pub fn add_then_remove_removes_active_membership_test() -> Nil {
-  let #(state, _, add_op, _) =
+  let #(state, _, add_operation, _) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
-  let state = ack(state, add_op)
-  let #(state, events, remove_op, _) = two_p_set_kernel.remove(state, "stake-3")
-  let state = ack(state, remove_op)
+  let state = ack(state, add_operation)
+  let #(state, events, remove_operation, _) =
+    two_p_set_kernel.remove(state, "stake-3")
+  let state = ack(state, remove_operation)
 
   two_p_set_kernel.values(state) |> expect.to_equal([])
   two_p_set_kernel.contains(state, "stake-3") |> expect.to_equal(False)
@@ -43,11 +44,12 @@ pub fn add_then_remove_removes_active_membership_test() -> Nil {
 }
 
 pub fn remove_then_add_keeps_element_inactive_test() -> Nil {
-  let #(state, remove_events, remove_op, _) =
+  let #(state, remove_events, remove_operation, _) =
     two_p_set_kernel.remove(two_p_set_kernel.new(), "stake-3")
-  let state = ack(state, remove_op)
-  let #(state, add_events, add_op, _) = two_p_set_kernel.add(state, "stake-3")
-  let state = ack(state, add_op)
+  let state = ack(state, remove_operation)
+  let #(state, add_events, add_operation, _) =
+    two_p_set_kernel.add(state, "stake-3")
+  let state = ack(state, add_operation)
 
   two_p_set_kernel.values(state) |> expect.to_equal([])
   remove_events |> expect.to_equal([])
@@ -56,19 +58,19 @@ pub fn remove_then_add_keeps_element_inactive_test() -> Nil {
 }
 
 pub fn concurrent_add_remove_converges_to_removed_test() -> Nil {
-  let #(_, _, add_op, _) =
+  let #(_, _, add_operation, _) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
-  let #(_, _, remove_op, _) =
+  let #(_, _, remove_operation, _) =
     two_p_set_kernel.remove(two_p_set_kernel.new(), "stake-3")
 
   let #(observer, add_events) =
-    two_p_set_kernel.apply_remote(two_p_set_kernel.new(), add_op)
+    two_p_set_kernel.apply_remote(two_p_set_kernel.new(), add_operation)
   let #(observer, remove_events) =
-    two_p_set_kernel.apply_remote(observer, remove_op)
+    two_p_set_kernel.apply_remote(observer, remove_operation)
   let #(other_order, _) =
-    two_p_set_kernel.apply_remote(two_p_set_kernel.new(), remove_op)
+    two_p_set_kernel.apply_remote(two_p_set_kernel.new(), remove_operation)
   let #(other_order, other_add_events) =
-    two_p_set_kernel.apply_remote(other_order, add_op)
+    two_p_set_kernel.apply_remote(other_order, add_operation)
 
   two_p_set_kernel.values(observer) |> expect.to_equal([])
   two_p_set_kernel.values(other_order) |> expect.to_equal([])
@@ -80,11 +82,11 @@ pub fn concurrent_add_remove_converges_to_removed_test() -> Nil {
 }
 
 pub fn duplicate_remove_is_idempotent_test() -> Nil {
-  let #(_, _, op, _) =
+  let #(_, _, operation, _) =
     two_p_set_kernel.remove(two_p_set_kernel.new(), "stake-3")
   let #(state, first_events) =
-    two_p_set_kernel.apply_remote(two_p_set_kernel.new(), op)
-  let #(state, second_events) = two_p_set_kernel.apply_remote(state, op)
+    two_p_set_kernel.apply_remote(two_p_set_kernel.new(), operation)
+  let #(state, second_events) = two_p_set_kernel.apply_remote(state, operation)
 
   two_p_set_kernel.values(state) |> expect.to_equal([])
   first_events |> expect.to_equal([])
@@ -93,13 +95,13 @@ pub fn duplicate_remove_is_idempotent_test() -> Nil {
 }
 
 pub fn rollback_pending_remove_restores_active_membership_test() -> Nil {
-  let #(state, _, add_op, _) =
+  let #(state, _, add_operation, _) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
-  let state = ack(state, add_op)
-  let #(state, _, remove_op, message_id) =
+  let state = ack(state, add_operation)
+  let #(state, _, remove_operation, message_id) =
     two_p_set_kernel.remove(state, "stake-3")
   let assert Ok(#(state, events)) =
-    two_p_set_kernel.rollback(state, remove_op, message_id)
+    two_p_set_kernel.rollback(state, remove_operation, message_id)
 
   two_p_set_kernel.values(state) |> expect.to_equal(["stake-3"])
   events |> expect.to_equal([ElementAdded("stake-3")])
@@ -107,11 +109,12 @@ pub fn rollback_pending_remove_restores_active_membership_test() -> Nil {
 }
 
 pub fn summary_round_trips_tombstones_test() -> Nil {
-  let #(state, _, add_op, _) =
+  let #(state, _, add_operation, _) =
     two_p_set_kernel.add(two_p_set_kernel.new(), "stake-3")
-  let state = ack(state, add_op)
-  let #(state, _, remove_op, _) = two_p_set_kernel.remove(state, "stake-3")
-  let state = ack(state, remove_op)
+  let state = ack(state, add_operation)
+  let #(state, _, remove_operation, _) =
+    two_p_set_kernel.remove(state, "stake-3")
+  let state = ack(state, remove_operation)
 
   let raw = json.to_string(two_p_set_kernel.summary(state))
   let assert Ok(loaded) = two_p_set_kernel.from_summary(raw)

@@ -1,9 +1,10 @@
-//// Deterministic random JSON document and json0 op generation, shared by the
-//// TP1 property test and the multi-client convergence test. A faithful port of
-//// ottypes/json0's `test/json0-generator.coffee`: `generate_op` emits *valid*
-//// random ops for a snapshot (skipping legacy `si`/`sd` string ops, which the
-//// text0 subtype covers instead), threading the working document through
-//// `json_ot.apply` so later components see earlier mutations.
+//// Deterministic random JSON document and json0 operation generation, shared
+//// by the TP1 property test and the multi-client convergence test. A faithful
+//// port of ottypes/json0's `test/json0-generator.coffee`: `generate_operation`
+//// emits *valid* random operations for a snapshot (skipping legacy `si`/`sd`
+//// string operations, which the text0 subtype covers instead), threading the
+//// working document through `json_ot.apply` so later components see earlier
+//// mutations.
 
 import gleam/int
 import gleam/list
@@ -130,7 +131,8 @@ fn random_thing(random: Random, depth: Int) -> #(JsonValue, Random) {
   }
 }
 
-/// A random top-level document. Always a container so ops have somewhere to go.
+/// A random top-level document. Always a container so operations have somewhere
+/// to go.
 pub fn random_doc(random: Random) -> #(JsonValue, Random) {
   let #(coin, random) = random_real(random)
   case coin <. 0.5 {
@@ -159,7 +161,7 @@ pub fn random_doc(random: Random) -> #(JsonValue, Random) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Random op generation (port of json0-generator.coffee)
+// Random operation generation (port of json0-generator.coffee)
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn value_at(doc: JsonValue, path: List(PathKey)) -> Result(JsonValue, Nil) {
@@ -263,7 +265,8 @@ fn random_new_key_loop(
 }
 
 /// Generate a single valid component for `doc`, or `None` if the chosen spot
-/// affords no op we model. String/bool/null leaves are handled via replace.
+/// affords no operation we model. String/bool/null leaves are handled via
+/// replace.
 fn generate_component(
   doc: JsonValue,
   random: Random,
@@ -435,9 +438,9 @@ fn generate_leaf_replace(
   }
 }
 
-/// A random valid text0 subtype op over the string `s`: an insert of a word at
-/// a random position, or a delete of a real substring. Deletes reference the
-/// actual text so they always apply.
+/// A random valid text0 subtype operation over the string `s`: an insert of a
+/// word at a random position, or a delete of a real substring. Deletes
+/// reference the actual text so they always apply.
 fn generate_text0_component(
   path: List(PathKey),
   s: String,
@@ -493,18 +496,21 @@ fn int_max(a: Int, b: Int) -> Int {
   }
 }
 
-/// Generate a compound op valid for `doc`, threading the working document
-/// through `apply` so later components see earlier mutations.
-pub fn generate_op(doc: JsonValue, random: Random) -> #(json_ot.Op, Random) {
-  generate_op_loop(doc, random, 0.95, [])
+/// Generate a compound operation valid for `doc`, threading the working
+/// document through `apply` so later components see earlier mutations.
+pub fn generate_operation(
+  doc: JsonValue,
+  random: Random,
+) -> #(json_ot.Operation, Random) {
+  generate_operation_loop(doc, random, 0.95, [])
 }
 
-fn generate_op_loop(
+fn generate_operation_loop(
   work: JsonValue,
   random: Random,
   pct: Float,
   acc: List(Component),
-) -> #(json_ot.Op, Random) {
+) -> #(json_ot.Operation, Random) {
   let #(coin, random) = random_real(random)
   case coin <. pct {
     False -> #(list.reverse(acc), random)
@@ -514,7 +520,8 @@ fn generate_op_loop(
         None -> #(list.reverse(acc), random)
         Some(c) ->
           case json_ot.apply(work, [c]) {
-            Ok(work2) -> generate_op_loop(work2, random, pct *. 0.6, [c, ..acc])
+            Ok(work2) ->
+              generate_operation_loop(work2, random, pct *. 0.6, [c, ..acc])
             Error(_) -> #(list.reverse(acc), random)
           }
       }

@@ -218,7 +218,7 @@ pub type HubState {
     /// Whether writes from a client reach the service. `False` models a
     /// socket that has left `OPEN` without its close having been
     /// delivered yet — the window in which a real `WebSocket.send` is a
-    /// silent no-op unless the caller is told about it.
+    /// silent no-operation unless the caller is told about it.
     writable: Bool,
     /// How many more writes this hub will accept before behaving that
     /// way. Negative is unlimited; a budget is how a test makes exactly

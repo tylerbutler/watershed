@@ -1,8 +1,8 @@
 //// Pure port of FluidFramework's `packages/dds/map/src/mapKernel.ts`.
 ////
 //// There is no process and there are no side effects. Every operation returns
-//// the new state with the events and the outbound op that it produced. The
-//// runtime actor owns the sequencing work: the CSN, the RSN, and the ack
+//// the new state with the events and the outbound operation that it produced.
+//// The runtime actor owns the sequencing work: the CSN, the RSN, and the ack
 //// matching by `(client_id, csn)`. The kernel assumes only that the acks
 //// arrive in submission order (FIFO). The TypeScript kernel makes the same
 //// assumption in its reference-identity asserts.
@@ -14,7 +14,7 @@
 ////   type.
 //// - `pending`: the local optimistic changes that have no ack yet.
 ////   Consecutive sets to one key are collected into a "lifetime", so the
-////   iteration order stays correct across the remote ops.
+////   iteration order stays correct across the remote operations.
 
 import gleam/dict.{type Dict}
 import gleam/json.{type Json}
@@ -40,7 +40,7 @@ pub type PendingEntry {
 
 /// A map operation in its wire form, before the envelope and the encoding.
 /// Those belong to the wire layer.
-pub type MapOp {
+pub type MapOperation {
   Set(key: String, value: Json)
   Delete(key: String)
   Clear
@@ -62,7 +62,7 @@ pub type MapEvent {
 /// runtime actor, must treat this error as fatal and crash. It must not
 /// continue with divergent state.
 pub type KernelError {
-  UnexpectedAck(op: MapOp, detail: String)
+  UnexpectedAck(operation: MapOperation, detail: String)
 }
 
 pub fn new() -> MapState {
@@ -171,14 +171,14 @@ pub fn entries(state: MapState) -> List(#(String, Json)) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Local operations (optimistic apply + outbound op)
+// Local operations (optimistic apply + outbound operation)
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn set(
   state: MapState,
   key: String,
   value: Json,
-) -> #(MapState, List(MapEvent), MapOp) {
+) -> #(MapState, List(MapEvent), MapOperation) {
   let previous = get(state, key)
   // A new lifetime starts if there's no pending entry for the key, or the
   // latest one is a delete/clear (which terminates the prior lifetime).
@@ -198,11 +198,11 @@ pub fn set(
 pub fn delete(
   state: MapState,
   key: String,
-) -> #(MapState, List(MapEvent), MapOp) {
+) -> #(MapState, List(MapEvent), MapOperation) {
   let previous = get(state, key)
   let pending = list.append(state.pending, [PendingDelete(key)])
-  // Speculative deletion still sends the op, but only emits if we locally
-  // observed a value disappear.
+  // Speculative deletion still sends the operation, but only emits if we
+  // locally observed a value disappear.
   let events = case previous {
     Ok(value) -> [ValueChanged(key, Some(value), None, True)]
     Error(Nil) -> []
@@ -210,7 +210,7 @@ pub fn delete(
   #(MapState(..state, pending: pending), events, Delete(key))
 }
 
-pub fn clear(state: MapState) -> #(MapState, List(MapEvent), MapOp) {
+pub fn clear(state: MapState) -> #(MapState, List(MapEvent), MapOperation) {
   let visible = entries(state)
   let pending = list.append(state.pending, [PendingClear])
   let events = [
@@ -226,11 +226,14 @@ pub fn clear(state: MapState) -> #(MapState, List(MapEvent), MapOp) {
 // Remote operations
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Apply a sequenced op from another client. The kernel suppresses the events
-/// when the pending local changes hide the remote change in the optimistic
-/// view.
-pub fn apply_remote(state: MapState, op: MapOp) -> #(MapState, List(MapEvent)) {
-  case op {
+/// Apply a sequenced operation from another client. The kernel suppresses the
+/// events when the pending local changes hide the remote change in the
+/// optimistic view.
+pub fn apply_remote(
+  state: MapState,
+  operation: MapOperation,
+) -> #(MapState, List(MapEvent)) {
+  case operation {
     Set(key, value) -> {
       let previous = dict.get(state.sequenced, key) |> option.from_result
       let insertion_order = case dict.has_key(state.sequenced, key) {
@@ -298,26 +301,30 @@ pub fn apply_remote(state: MapState, op: MapOp) -> #(MapState, List(MapEvent)) {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Acks (own ops coming back sequenced)
+// Acks (own operations coming back sequenced)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Commit an acked local op, which moves it from `pending` to `sequenced`. The
-/// acks must arrive in submission order. A mismatch means that the runtime
-/// routed an ack for an op that the kernel never submitted, or that it routed
-/// the acks out of order. Either condition is fatal.
+/// Commit an acked local operation, which moves it from `pending` to
+/// `sequenced`. The acks must arrive in submission order. A mismatch means that
+/// the runtime routed an ack for an operation that the kernel never submitted,
+/// or that it routed the acks out of order. Either condition is fatal.
 ///
-/// An ack never emits an event. The optimistic view already showed the op at
-/// submit time.
-pub fn ack_local(state: MapState, op: MapOp) -> Result(MapState, KernelError) {
-  case op {
+/// An ack never emits an event. The optimistic view already showed the
+/// operation at submit time.
+pub fn ack_local(
+  state: MapState,
+  operation: MapOperation,
+) -> Result(MapState, KernelError) {
+  case operation {
     Clear ->
-      // Ops ack in submission order, so by the time our clear is sequenced
-      // every earlier pending entry has been acked: the clear must be at the
-      // head of the queue.
+      // Operations ack in submission order, so by the time our clear is
+      // sequenced every earlier pending entry has been acked: the clear must be
+      // at the head of the queue.
       case state.pending {
         [PendingClear, ..rest] ->
           Ok(MapState(sequenced: dict.new(), insertion_order: [], pending: rest))
-        _ -> Error(UnexpectedAck(op, "expected pending clear at queue head"))
+        _ ->
+          Error(UnexpectedAck(operation, "expected pending clear at queue head"))
       }
     Delete(key) ->
       case split_at_first_for_key(state.pending, key) {
@@ -332,7 +339,10 @@ pub fn ack_local(state: MapState, op: MapOp) -> Result(MapState, KernelError) {
         Ok(#(_, PendingLifetime(_, _), _))
         | Ok(#(_, PendingClear, _))
         | Error(Nil) ->
-          Error(UnexpectedAck(op, "expected pending delete for key " <> key))
+          Error(UnexpectedAck(
+            operation,
+            "expected pending delete for key " <> key,
+          ))
       }
     Set(key, _) ->
       case split_at_first_for_key(state.pending, key) {
@@ -361,7 +371,10 @@ pub fn ack_local(state: MapState, op: MapOp) -> Result(MapState, KernelError) {
         | Ok(#(_, PendingDelete(_), _))
         | Ok(#(_, PendingClear, _))
         | Error(Nil) ->
-          Error(UnexpectedAck(op, "expected pending lifetime for key " <> key))
+          Error(UnexpectedAck(
+            operation,
+            "expected pending lifetime for key " <> key,
+          ))
       }
   }
 }

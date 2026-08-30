@@ -1,17 +1,18 @@
 //// Multi-client convergence for `json_ot_kernel` against a simulated central
 //// sequencer. This is the end-to-end proof that the kernel + a
 //// kernel-agnostic (non-transforming) sequencer deliver OT: every replica that
-//// receives the same total order of ops must land on byte-identical
+//// receives the same total order of operations must land on byte-identical
 //// `sequenced` documents.
 ////
-//// The simulator mirrors `kernel_fuzz`'s delivery model: clients submit ops
-//// optimistically (stamped with their last-delivered SN as `ref_seq`), a
-//// sequencer assigns a total order, and every client delivers the whole log in
-//// SN order — acking its own ops, `apply_remote`-ing others'. Each client keeps
-//// a single op in flight and composes later edits into a buffer, so a client's
-//// ops never overlap each other's windows, but other clients' ops interleave
-//// between them — exercising the concurrency-window transform, not just the
-//// trivial single-op case.
+//// The simulator mirrors `kernel_fuzz`'s delivery model: clients submit
+//// operations optimistically (stamped with their last-delivered SN as
+//// `ref_seq`), a sequencer assigns a total order, and every client delivers
+//// the whole log in SN order — acking its own operations, `apply_remote`-ing
+//// others'. Each client keeps a single operation in flight and composes later
+//// edits into a buffer, so a client's operations never overlap each other's
+//// windows, but other clients' operations interleave between them — exercising
+//// the concurrency-window transform, not just the trivial single-operation
+//// case.
 
 import gleam/int
 import gleam/list
@@ -21,7 +22,7 @@ import qcheck
 import watershed/fuzz/kernel_fuzz
 import watershed/json_ot.{type JsonValue}
 import watershed/json_ot_gen.{type Random}
-import watershed/json_ot_kernel.{type JsonOtState, type JsonOtWireOp} as kernel
+import watershed/json_ot_kernel.{type JsonOtState, type JsonOtWireOperation} as kernel
 import watershed/ot_client
 
 const client_count = 3
@@ -33,7 +34,7 @@ fn ids() -> List(Int) {
 
 /// One sequenced entry in the shared log.
 type Entry {
-  Entry(seq: Int, author: Int, wire: JsonOtWireOp)
+  Entry(seq: Int, author: Int, wire: JsonOtWireOperation)
 }
 
 type ClientSimulation {
@@ -41,8 +42,8 @@ type ClientSimulation {
     state: JsonOtState,
     /// Number of log entries this client has delivered (its SN cursor).
     delivered: Int,
-    /// Ops submitted but not yet sequenced, in submission order.
-    outbox: List(JsonOtWireOp),
+    /// Operations submitted but not yet sequenced, in submission order.
+    outbox: List(JsonOtWireOperation),
   )
 }
 
@@ -79,24 +80,26 @@ fn put(simulation: Simulation, id: Int, c: ClientSimulation) -> Simulation {
   )
 }
 
-/// The minimum sequence number (Fluid MSN): the oldest reference point any op
-/// still in the system may need. A live client contributes its `delivered`
-/// cursor (the lowest `ref_seq` it can still stamp on a future op), while an op
-/// already in flight (queued or sequenced-but-not-everywhere-delivered) pins the
-/// MSN down to the `ref_seq` it was authored against, since receivers still need
-/// its concurrency window. A real sequencer derives this from the `ref_seq`
-/// clients stamp on their ops; the simulator reconstructs it from global state.
+/// The minimum sequence number (Fluid MSN): the oldest reference point any
+/// operation still in the system may need. A live client contributes its
+/// `delivered` cursor (the lowest `ref_seq` it can still stamp on a future
+/// operation), while an operation already in flight (queued or
+/// sequenced-but-not-everywhere-delivered) pins the MSN down to the `ref_seq`
+/// it was authored against, since receivers still need its concurrency window.
+/// A real sequencer derives this from the `ref_seq` clients stamp on their
+/// operations; the simulator reconstructs it from global state.
 fn minimum_sequence_number(simulation: Simulation) -> Int {
   let min_delivered =
     list.fold(simulation.clients, list.length(simulation.log), fn(acc, c) {
       int.min(acc, c.delivered)
     })
-  // Ops still queued to send pin the MSN to their reference point.
+  // Operations still queued to send pin the MSN to their reference point.
   let with_outbox =
     list.fold(simulation.clients, min_delivered, fn(acc, c) {
       list.fold(c.outbox, acc, fn(acc, wire) { int.min(acc, wire.ref_seq) })
     })
-  // Sequenced ops not yet delivered by every client still need their window.
+  // Sequenced operations not yet delivered by every client still need their
+  // window.
   list.fold(simulation.log, with_outbox, fn(acc, entry) {
     case entry.seq > min_delivered {
       True -> int.min(acc, entry.wire.ref_seq)
@@ -109,9 +112,9 @@ fn minimum_sequence_number(simulation: Simulation) -> Int {
 // Commands
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// A client authors an op against its optimistic view. If the kernel returns a
-/// wire op (nothing was in flight) it is queued to send; otherwise the edit was
-/// buffered and there is nothing to enqueue.
+/// A client authors an operation against its optimistic view. If the kernel
+/// returns a wire operation (nothing was in flight) it is queued to send;
+/// otherwise the edit was buffered and there is nothing to enqueue.
 fn do_submit(
   simulation: Simulation,
   id: Int,
@@ -121,7 +124,8 @@ fn do_submit(
   case kernel.view(c.state) {
     Error(e) -> panic as { "view failed: " <> string.inspect(e) }
     Ok(view_doc) -> {
-      let #(components, random) = json_ot_gen.generate_op(view_doc, random)
+      let #(components, random) =
+        json_ot_gen.generate_operation(view_doc, random)
       case components {
         [] -> #(simulation, random)
         _ ->
@@ -149,8 +153,8 @@ fn do_submit(
   }
 }
 
-/// The sequencer pulls the oldest queued op from `id`'s outbox and appends it
-/// to the total order.
+/// The sequencer pulls the oldest queued operation from `id`'s outbox and
+/// appends it to the total order.
 fn do_sequence(simulation: Simulation, id: Int) -> Simulation {
   let c = get(simulation, id)
   case c.outbox {
@@ -168,8 +172,8 @@ fn do_sequence(simulation: Simulation, id: Int) -> Simulation {
 }
 
 /// A client delivers the next sequenced entry it hasn't seen: an ack for its
-/// own op (which may release a buffered op onto its outbox), or `apply_remote`
-/// for someone else's.
+/// own operation (which may release a buffered operation onto its outbox), or
+/// `apply_remote` for someone else's.
 fn do_deliver_one(simulation: Simulation, id: Int) -> Simulation {
   let c = get(simulation, id)
   case list.drop(simulation.log, c.delivered) {
@@ -233,8 +237,8 @@ fn do_deliver_until(
   }
 }
 
-/// Sequence every queued op from every client, in a rotating order so authors
-/// interleave.
+/// Sequence every queued operation from every client, in a rotating order so
+/// authors interleave.
 fn sequence_all(simulation: Simulation) -> Simulation {
   case list.all(simulation.clients, fn(c) { c.outbox == [] }) {
     True -> simulation
@@ -261,14 +265,15 @@ fn run(seed: Int, rounds: Int) -> Result(Nil, String) {
   let simulation = new_simulation(doc)
   let #(simulation, _rng) = play_rounds(simulation, random, rounds)
   // Final synchronize: repeatedly sequence everything outstanding and deliver
-  // to all. Acks release buffered ops into outboxes, so loop until the system
-  // is fully settled — no queued ops and every client has delivered the log.
+  // to all. Acks release buffered operations into outboxes, so loop until the
+  // system is fully settled — no queued operations and every client has
+  // delivered the log.
   let simulation = drain(simulation)
   converged(simulation)
 }
 
-/// Sequence and deliver until nothing is outstanding: no queued ops in any
-/// outbox and every client has delivered the entire log.
+/// Sequence and deliver until nothing is outstanding: no queued operations in
+/// any outbox and every client has delivered the entire log.
 fn drain(simulation: Simulation) -> Simulation {
   let simulation = deliver_all(sequence_all(simulation))
   let settled =
@@ -299,9 +304,9 @@ fn play_one(simulation: Simulation, random: Random) -> #(Simulation, Random) {
   let #(choice, random) = json_ot_gen.random_int(random, 10)
   let #(id, random) = json_ot_gen.random_int(random, client_count)
   case choice {
-    // 0–4: author a local op.
+    // 0–4: author a local operation.
     n if n < 5 -> do_submit(simulation, id, random)
-    // 5–6: sequence one client's oldest queued op.
+    // 5–6: sequence one client's oldest queued operation.
     n if n < 7 -> #(do_sequence(simulation, id), random)
     // 7–8: deliver one entry to a client.
     n if n < 9 -> #(do_deliver_one(simulation, id), random)
@@ -310,8 +315,8 @@ fn play_one(simulation: Simulation, random: Random) -> #(Simulation, Random) {
   }
 }
 
-/// Every client's confirmed document must be byte-identical, with no ops left
-/// in flight, buffered, or unsequenced.
+/// Every client's confirmed document must be byte-identical, with no operations
+/// left in flight, buffered, or unsequenced.
 fn converged(simulation: Simulation) -> Result(Nil, String) {
   let docs = list.map(simulation.clients, fn(c) { c.state.sequenced })
   let leftover_pending =

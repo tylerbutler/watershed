@@ -145,7 +145,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     BodyChanged(_) -> #(refresh_anchor(model), effect.none())
 
     // The core of the demo, and one line of routing: the textarea owns the
-    // diff, the minimal op, and the rejected-index banner.
+    // diff, the minimal operation, and the rejected-index banner.
     Editor(inner) ->
       case model.editor {
         None -> #(model, effect.none())
@@ -216,7 +216,7 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 /// Draw these peers' carets in the editor.
 ///
 /// Whoever owns the document owns the presence driver; this takes the result.
-/// A no-op until the body channel resolves.
+/// A no-operation until the body channel resolves.
 pub fn set_peers(
   model: Model,
   peers: List(textarea.Peer),

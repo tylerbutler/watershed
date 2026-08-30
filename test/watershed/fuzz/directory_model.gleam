@@ -1,21 +1,21 @@
 //// `KernelModel` for the directory kernel (SharedDirectory port).
 ////
-//// ## Op wrapper
+//// ## Operation wrapper
 ////
 //// The harness `SequencedMeta` carries author + sequence number but not the
 //// author's reference sequence number or client sequence number, which the
 //// directory kernel needs (D12 stale-instance filter, create-info stamping).
-//// So the wire op is a `DirectoryCommand` that captures
+//// So the wire operation is a `DirectoryCommand` that captures
 //// `reference_sequence_number` (= the author's delivered cursor at submit)
 //// and `client_sequence_number` (= the local message id the submit
 //// assigned) — mirroring `or_map_model`'s `CommandRemove(..., ref_seq)`.
 ////
 //// ## Oracle soundness
 ////
-//// The oracle folds the sequenced op log through `apply_remote` alone, from a
-//// fresh directory, assigning 1-based sequence numbers exactly as the harness
-//// does (`client.delivered + 1`). This is the same pure-remote computation a
-//// read-only observer performs, independent of the incremental
+//// The oracle folds the sequenced operation log through `apply_remote` alone,
+//// from a fresh directory, assigning 1-based sequence numbers exactly as the
+//// harness does (`client.delivered + 1`). This is the same pure-remote
+//// computation a read-only observer performs, independent of the incremental
 //// sequenced/pending split every authoring client runs through submit → ack,
 //// so a convergence bug that "agrees on the wrong answer" is still caught.
 ////
@@ -35,18 +35,18 @@ import gleam/option.{type Option, None, Some}
 import gleam/string
 import qcheck
 import watershed/directory_kernel.{
-  type DirectoryOp, type DirectoryState, type SequencedMeta, Clear,
+  type DirectoryOperation, type DirectoryState, type SequencedMeta, Clear,
   CreateSubDirectory, Delete, DeleteSubDirectory, SequencedMeta, Set,
 }
 import watershed/fuzz/kernel_fuzz.{
   type KernelModel, type LogEntry, Capabilities, KernelModel,
 }
 
-/// The wire op: a directory op plus the submit-time metadata the kernel's
-/// `SequencedMeta` needs but the harness one does not carry.
+/// The wire operation: a directory operation plus the submit-time metadata the
+/// kernel's `SequencedMeta` needs but the harness one does not carry.
 pub type DirectoryCommand {
   DirectoryCommand(
-    op: DirectoryOp,
+    operation: DirectoryOperation,
     reference_sequence_number: Int,
     client_sequence_number: Int,
   )
@@ -56,8 +56,8 @@ pub type DirectoryCommand {
 // JSON round-trip (F4 failure fixtures)
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn op_payload_to_json(op: DirectoryOp) -> Json {
-  case op {
+fn operation_payload_to_json(operation: DirectoryOperation) -> Json {
+  case operation {
     Set(path, key, value) ->
       json.object([
         #("tag", json.string("Set")),
@@ -88,15 +88,15 @@ fn op_payload_to_json(op: DirectoryOp) -> Json {
   }
 }
 
-pub fn op_to_json(command: DirectoryCommand) -> Json {
+pub fn operation_to_json(command: DirectoryCommand) -> Json {
   json.object([
-    #("op", op_payload_to_json(command.op)),
+    #("op", operation_payload_to_json(command.operation)),
     #("ref_seq", json.int(command.reference_sequence_number)),
     #("client_seq", json.int(command.client_sequence_number)),
   ])
 }
 
-fn op_payload_decoder() -> decode.Decoder(DirectoryOp) {
+fn operation_payload_decoder() -> decode.Decoder(DirectoryOperation) {
   use tag <- decode.field("tag", decode.string)
   case tag {
     "Set" -> {
@@ -127,19 +127,19 @@ fn op_payload_decoder() -> decode.Decoder(DirectoryOp) {
   }
 }
 
-pub fn op_decoder() -> decode.Decoder(DirectoryCommand) {
-  use op <- decode.field("op", op_payload_decoder())
+pub fn operation_decoder() -> decode.Decoder(DirectoryCommand) {
+  use operation <- decode.field("op", operation_payload_decoder())
   use reference_sequence_number <- decode.field("ref_seq", decode.int)
   use client_sequence_number <- decode.field("client_seq", decode.int)
   decode.success(DirectoryCommand(
-    op,
+    operation,
     reference_sequence_number,
     client_sequence_number,
   ))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Op generation (bounded path/key space so ops actually collide)
+// Operation generation (bounded path/key space so operations actually collide)
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn path_from_int(n: Int) -> String {
@@ -167,8 +167,8 @@ fn pair_from_int(n: Int) -> #(String, String) {
   }
 }
 
-fn op_from_ints(kind: Int, a: Int, b: Int, c: Int) -> DirectoryCommand {
-  let op = case kind % 12 {
+fn operation_from_ints(kind: Int, a: Int, b: Int, c: Int) -> DirectoryCommand {
+  let operation = case kind % 12 {
     0 | 1 | 2 | 3 | 4 ->
       Set(path_from_int(a), key_from_int(b), json.int(c % 100))
     5 | 6 -> Delete(path_from_int(a), key_from_int(b))
@@ -182,17 +182,17 @@ fn op_from_ints(kind: Int, a: Int, b: Int, c: Int) -> DirectoryCommand {
       DeleteSubDirectory(parent, name)
     }
   }
-  DirectoryCommand(op, 0, 0)
+  DirectoryCommand(operation, 0, 0)
 }
 
-fn op_generator() -> qcheck.Generator(DirectoryCommand) {
+fn operation_generator() -> qcheck.Generator(DirectoryCommand) {
   qcheck.tuple4(
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
     qcheck.small_non_negative_int(),
   )
-  |> qcheck.map(fn(ints) { op_from_ints(ints.0, ints.1, ints.2, ints.3) })
+  |> qcheck.map(fn(ints) { operation_from_ints(ints.0, ints.1, ints.2, ints.3) })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -205,28 +205,40 @@ fn submit(
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(DirectoryState, Option(DirectoryCommand)) {
   let reference_sequence_number = meta.last_seen_seq
-  case command.op {
+  case command.operation {
     Set(path, key, value) ->
       case directory_kernel.set(state, path, key, value) {
-        Ok(#(state, _events, op, message_id)) -> #(
+        Ok(#(state, _events, operation, message_id)) -> #(
           state,
-          Some(DirectoryCommand(op, reference_sequence_number, message_id)),
+          Some(DirectoryCommand(
+            operation,
+            reference_sequence_number,
+            message_id,
+          )),
         )
         Error(_) -> #(state, None)
       }
     Delete(path, key) ->
       case directory_kernel.delete(state, path, key) {
-        Ok(#(state, _events, op, message_id)) -> #(
+        Ok(#(state, _events, operation, message_id)) -> #(
           state,
-          Some(DirectoryCommand(op, reference_sequence_number, message_id)),
+          Some(DirectoryCommand(
+            operation,
+            reference_sequence_number,
+            message_id,
+          )),
         )
         Error(_) -> #(state, None)
       }
     Clear(path) ->
       case directory_kernel.clear(state, path) {
-        Ok(#(state, _events, op, message_id)) -> #(
+        Ok(#(state, _events, operation, message_id)) -> #(
           state,
-          Some(DirectoryCommand(op, reference_sequence_number, message_id)),
+          Some(DirectoryCommand(
+            operation,
+            reference_sequence_number,
+            message_id,
+          )),
         )
         Error(_) -> #(state, None)
       }
@@ -234,18 +246,26 @@ fn submit(
       case
         directory_kernel.create_subdirectory(state, path, name, meta.client_id)
       {
-        Ok(#(state, _events, Some(op), message_id)) -> #(
+        Ok(#(state, _events, Some(operation), message_id)) -> #(
           state,
-          Some(DirectoryCommand(op, reference_sequence_number, message_id)),
+          Some(DirectoryCommand(
+            operation,
+            reference_sequence_number,
+            message_id,
+          )),
         )
         Ok(#(state, _events, None, _mid)) -> #(state, None)
         Error(_) -> #(state, None)
       }
     DeleteSubDirectory(path, name) ->
       case directory_kernel.delete_subdirectory(state, path, name) {
-        Ok(#(state, _events, Some(op), message_id)) -> #(
+        Ok(#(state, _events, Some(operation), message_id)) -> #(
           state,
-          Some(DirectoryCommand(op, reference_sequence_number, message_id)),
+          Some(DirectoryCommand(
+            operation,
+            reference_sequence_number,
+            message_id,
+          )),
         )
         Ok(#(state, _events, None, _mid)) -> #(state, None)
         Error(_) -> #(state, None)
@@ -273,7 +293,7 @@ fn apply_remote(
   let #(state, _events) =
     directory_kernel.apply_remote(
       state,
-      command.op,
+      command.operation,
       kernel_meta(command, meta),
       meta.self_id,
     )
@@ -286,7 +306,11 @@ fn ack_local(
   meta: kernel_fuzz.SequencedMeta,
 ) -> Result(DirectoryState, String) {
   case
-    directory_kernel.ack_local(state, command.op, kernel_meta(command, meta))
+    directory_kernel.ack_local(
+      state,
+      command.operation,
+      kernel_meta(command, meta),
+    )
   {
     Ok(state) -> Ok(state)
     Error(err) -> Error(string.inspect(err))
@@ -300,7 +324,7 @@ fn rollback(
   case directory_kernel.last_pending_message_id(state) {
     Error(Nil) -> state
     Ok(message_id) ->
-      case directory_kernel.rollback(state, command.op, message_id) {
+      case directory_kernel.rollback(state, command.operation, message_id) {
         Ok(#(state, _events)) -> state
         Error(_) -> state
       }
@@ -308,15 +332,15 @@ fn rollback(
 }
 
 /// Mirror a `SharedDirectory`'s `reSubmitCore`: when a reconnecting client
-/// resends a queued op, drop it if its pending edit no longer exists (its
-/// target subdirectory was deleted while offline) and otherwise re-stamp its
-/// reference sequence number to the client's current cursor, exactly as the
+/// resends a queued operation, drop it if its pending edit no longer exists
+/// (its target subdirectory was deleted while offline) and otherwise re-stamp
+/// its reference sequence number to the client's current cursor, exactly as the
 /// Fluid runtime does on every resend. Without this the harness would resend
 /// with a stale `reference_sequence_number`, making the kernel's
-/// instance-identity check resolve differently across clients and diverge.
-/// The kernel call also applies FF's
-/// resubmit-time state effects (a create resubmit undisposes its retained
-/// pending subtree), which is why the updated state is threaded back.
+/// instance-identity check resolve differently across clients and diverge. The
+/// kernel call also applies FF's resubmit-time state effects (a create resubmit
+/// undisposes its retained pending subtree), which is why the updated state is
+/// threaded back.
 fn resubmit(
   state: DirectoryState,
   command: DirectoryCommand,
@@ -325,14 +349,18 @@ fn resubmit(
   let #(state, out) =
     directory_kernel.resubmit(
       state,
-      command.op,
+      command.operation,
       command.client_sequence_number,
       meta.client_id,
     )
   #(
     state,
-    option.map(out, fn(op) {
-      DirectoryCommand(op, meta.last_seen_seq, command.client_sequence_number)
+    option.map(out, fn(operation) {
+      DirectoryCommand(
+        operation,
+        meta.last_seen_seq,
+        command.client_sequence_number,
+      )
     }),
   )
 }
@@ -342,25 +370,32 @@ fn apply_stashed(
   command: DirectoryCommand,
   meta: kernel_fuzz.SubmitMeta,
 ) -> #(DirectoryState, DirectoryCommand) {
-  case directory_kernel.apply_stashed_op(state, command.op, meta.client_id) {
-    Ok(#(state, _events, Some(op), message_id)) -> #(
+  case
+    directory_kernel.apply_stashed_operation(
       state,
-      DirectoryCommand(op, meta.last_seen_seq, message_id),
+      command.operation,
+      meta.client_id,
     )
-    // The stashed op was a local no-op (its target path wasn't reachable, or a
-    // create/delete that dedups against existing state), so `submit` would have
-    // routed nothing. The harness always routes what `apply_stashed` returns,
-    // so route a guaranteed global no-op (deleting a name no `gen_op` ever
-    // produces) rather than a phantom op that would appear only on ack.
+  {
+    Ok(#(state, _events, Some(operation), message_id)) -> #(
+      state,
+      DirectoryCommand(operation, meta.last_seen_seq, message_id),
+    )
+    // The stashed operation was a local no-operation (its target path wasn't
+    // reachable, or a create/delete that dedups against existing state), so
+    // `submit` would have routed nothing. The harness always routes what
+    // `apply_stashed` returns, so route a guaranteed global no-operation
+    // (deleting a name no `gen_operation` ever produces) rather than a phantom
+    // operation that would appear only on ack.
     Ok(#(state, _events, None, _mid)) -> #(state, nop_command(meta))
     Error(_) -> #(state, nop_command(meta))
   }
 }
 
-/// A wire op that is a no-op on every client: deleting a subdirectory whose name
-/// is never generated, so it exists nowhere. `apply_remote` and `ack_local`
-/// both treat a delete of an absent subdir as a no-op, leaving `observe`
-/// unchanged everywhere.
+/// A wire operation that is a no-operation on every client: deleting a
+/// subdirectory whose name is never generated, so it exists nowhere.
+/// `apply_remote` and `ack_local` both treat a delete of an absent subdir as a
+/// no-operation, leaving `observe` unchanged everywhere.
 fn nop_command(meta: kernel_fuzz.SubmitMeta) -> DirectoryCommand {
   DirectoryCommand(DeleteSubDirectory("/", "\u{1}nop"), meta.last_seen_seq, 0)
 }
@@ -415,7 +450,7 @@ fn canonicalize(tree: Tree) -> Tree {
 fn oracle(entries: List(LogEntry(DirectoryCommand))) -> Tree {
   let #(state, _seq) =
     list.fold(
-      kernel_fuzz.log_ops(entries),
+      kernel_fuzz.log_operations(entries),
       #(directory_kernel.new(), 1),
       fn(acc, item) {
         let #(state, seq) = acc
@@ -431,7 +466,7 @@ fn oracle(entries: List(LogEntry(DirectoryCommand))) -> Tree {
         // local-client id used by the dispose lifecycle only survives on
         // marker-retained (pending) nodes, so a sentinel is fine here.
         let #(state, _events) =
-          directory_kernel.apply_remote(state, command.op, meta, -1)
+          directory_kernel.apply_remote(state, command.operation, meta, -1)
         #(state, seq + 1)
       },
     )
@@ -459,18 +494,18 @@ pub fn model() -> KernelModel(DirectoryState, DirectoryCommand, Tree) {
     apply_remote: apply_remote,
     ack_local: ack_local,
     observe: observe,
-    gen_op: op_generator(),
+    gen_operation: operation_generator(),
     check: Some(check),
     canonicalize: Some(canonicalize),
     // A local ack can legitimately change this client's own view: when our
-    // subdirectory-create op is acked after a concurrent remote delete has
-    // already disposed that instance, sequencing our create *behind* the
+    // subdirectory-create operation is acked after a concurrent remote delete
+    // has already disposed that instance, sequencing our create *behind* the
     // delete removes the subtree we had shown optimistically (a "presence
     // flip"). This mirrors `SharedDirectory` and the claims/register kernels,
     // which likewise opt out of ack-view transparency.
     ack_preserves_view: False,
-    op_to_json: op_to_json,
-    op_decoder: op_decoder(),
+    operation_to_json: operation_to_json,
+    operation_decoder: operation_decoder(),
     capabilities: Capabilities(
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),

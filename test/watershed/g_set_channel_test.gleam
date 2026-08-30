@@ -57,7 +57,7 @@ fn bootstrap() -> Core {
   core
 }
 
-pub fn detached_g_set_attaches_and_then_emits_delta_ops_test() -> Nil {
+pub fn detached_g_set_attaches_and_then_emits_delta_operations_test() -> Nil {
   let address = "set-1"
   let core =
     bootstrap()
@@ -76,13 +76,13 @@ pub fn detached_g_set_attaches_and_then_emits_delta_ops_test() -> Nil {
     runtime_core.set(core, "root", "benchmarks", handle.encode_handle(address))
   attach_outbound |> list.length |> expect.to_equal(2)
 
-  let assert Ok(#(_core, events, [op])) =
+  let assert Ok(#(_core, events, [operation])) =
     runtime_core.g_set_add(core, address, "BM-22")
   events
   |> expect.to_equal([
     #(address, channel.GSetEvent(g_set_kernel.ElementAdded("BM-22"))),
   ])
-  let encoded = json.to_string(op.contents)
+  let encoded = json.to_string(operation.contents)
   encoded
   |> string.contains("\"address\":\"" <> address <> "\"")
   |> expect.to_be_true()
@@ -91,8 +91,8 @@ pub fn detached_g_set_attaches_and_then_emits_delta_ops_test() -> Nil {
 }
 
 pub fn g_set_snapshot_round_trips_test() -> Nil {
-  let #(state, _, op, _) = g_set_kernel.add(g_set_kernel.new(), "BM-17")
-  let assert Ok(state) = g_set_kernel.ack_local(state, op)
+  let #(state, _, operation, _) = g_set_kernel.add(g_set_kernel.new(), "BM-17")
+  let assert Ok(state) = g_set_kernel.ack_local(state, operation)
   let snapshot = channel.GSetSnapshot(state.sequenced)
   let encoded = channel.encode_snapshot(snapshot)
   let assert Ok(decoded) =

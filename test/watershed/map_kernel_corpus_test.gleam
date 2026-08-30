@@ -26,7 +26,7 @@ import startest
 import startest/expect
 import startest/test_tree.{type TestTree}
 import watershed/map_kernel.{
-  type MapEvent, type MapOp, type MapState, Cleared, ValueChanged,
+  type MapEvent, type MapOperation, type MapState, Cleared, ValueChanged,
 }
 
 const corpus_dir = "test/fixtures/corpus"
@@ -229,7 +229,7 @@ type ClientSimulation {
 type Simulation {
   Simulation(
     clients: Dict(String, ClientSimulation),
-    queue: List(#(String, MapOp)),
+    queue: List(#(String, MapOperation)),
   )
 }
 
@@ -268,22 +268,22 @@ fn run_step(
   }
 }
 
-/// Apply a local op optimistically on the issuing client and append the op
-/// to the global sequencing queue.
+/// Apply a local operation optimistically on the issuing client and append the
+/// operation to the global sequencing queue.
 fn submit(
   simulation: Simulation,
   client_id: String,
-  operate: fn(MapState) -> #(MapState, List(MapEvent), MapOp),
+  operate: fn(MapState) -> #(MapState, List(MapEvent), MapOperation),
 ) -> Simulation {
   let client = get_client(simulation, client_id)
-  let #(state, events, op) = operate(client.state)
+  let #(state, events, operation) = operate(client.state)
   Simulation(
     clients: dict.insert(
       simulation.clients,
       client_id,
       ClientSimulation(state:, log: list.append(client.log, events)),
     ),
-    queue: list.append(simulation.queue, [#(client_id, op)]),
+    queue: list.append(simulation.queue, [#(client_id, operation)]),
   )
 }
 
@@ -297,15 +297,15 @@ fn process(
   case count, simulation.queue {
     0, _ -> simulation
     _, [] -> panic as "corpus step processes more messages than outstanding"
-    _, [#(origin, op), ..rest] -> {
+    _, [#(origin, operation), ..rest] -> {
       let clients =
         list.fold(scenario.clients, simulation.clients, fn(clients, client_id) {
           let assert Ok(client) = dict.get(clients, client_id)
           let client = case client_id == origin {
             // The originating client treats the message as an ack of its
-            // oldest matching pending op; acks never emit events.
+            // oldest matching pending operation; acks never emit events.
             True ->
-              case map_kernel.ack_local(client.state, op) {
+              case map_kernel.ack_local(client.state, operation) {
                 Ok(state) -> ClientSimulation(..client, state:)
                 Error(error) ->
                   panic as {
@@ -316,7 +316,8 @@ fn process(
                   }
               }
             False -> {
-              let #(state, events) = map_kernel.apply_remote(client.state, op)
+              let #(state, events) =
+                map_kernel.apply_remote(client.state, operation)
               ClientSimulation(state:, log: list.append(client.log, events))
             }
           }

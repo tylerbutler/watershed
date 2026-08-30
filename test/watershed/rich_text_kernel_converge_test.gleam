@@ -8,16 +8,22 @@ import watershed/json_ot.{VBool, VObject, VString}
 import watershed/json_ot_gen.{type Random}
 import watershed/ot_client
 import watershed/rich_text
-import watershed/rich_text_kernel.{type RichTextState, type RichTextWireOp} as kernel
+import watershed/rich_text_kernel.{
+  type RichTextState, type RichTextWireOperation,
+} as kernel
 
 const client_count = 3
 
 type Entry {
-  Entry(seq: Int, author: Int, wire: RichTextWireOp)
+  Entry(seq: Int, author: Int, wire: RichTextWireOperation)
 }
 
 type Client {
-  Client(state: RichTextState, delivered: Int, outbox: List(RichTextWireOp))
+  Client(
+    state: RichTextState,
+    delivered: Int,
+    outbox: List(RichTextWireOperation),
+  )
 }
 
 type Simulation {

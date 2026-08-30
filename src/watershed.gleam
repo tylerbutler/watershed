@@ -366,10 +366,11 @@ pub fn root(document: Document(root)) -> SharedMap {
 
 @target(javascript)
 /// Create a new map channel. The map starts *detached*, which means that it is
-/// local only and its edits produce no op. It stays detached until a caller
-/// stores its handle, from `handle_of`, into an attached map. The runtime then
-/// attaches it, with its snapshot, and it starts to synchronize the edits of
-/// that map. The connection must be ready, which `on_ready` reports.
+/// local only and its edits produce no operation. It stays detached until a
+/// caller stores its handle, from `handle_of`, into an attached map. The
+/// runtime then attaches it, with its snapshot, and it starts to synchronize
+/// the edits of that map. The connection must be ready, which `on_ready`
+/// reports.
 pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {
   runtime.create_map(document.runtime)
   |> result.map(fn(address) {
@@ -395,8 +396,8 @@ pub fn is_handle(value: Json) -> Bool {
 @target(javascript)
 /// Resolve a handle value, from `get` or from `entries`, to the SharedMap that
 /// it references. A caller can retry after an error. A handle from a remote
-/// value can stay unresolved for a short time, while the attach op of the
-/// channel that it references is still in flight.
+/// value can stay unresolved for a short time, while the attach operation of
+/// the channel that it references is still in flight.
 pub fn resolve(
   document: Document(root),
   value: Json,
@@ -561,17 +562,17 @@ pub fn read(
 }
 
 @target(javascript)
-/// Write a whole record through a schema, as one op for each key. Concurrent
-/// edits to two other keys thus still merge, and the record view never
-/// overwrites the whole map. An optional prop with the value `None` deletes its
-/// key.
+/// Write a whole record through a schema, as one operation for each key.
+/// Concurrent edits to two other keys thus still merge, and the record view
+/// never overwrites the whole map. An optional prop with the value `None`
+/// deletes its key.
 pub fn write(
   typed_map: TypedMap(s),
   map_schema: schema.Schema(s, record),
   value: record,
 ) -> Nil {
-  list.each(schema.encode_ops(map_schema, value), fn(op) {
-    case op {
+  list.each(schema.encode_operations(map_schema, value), fn(operation) {
+    case operation {
       schema.Put(key, entry_value) -> set(typed_map.map, key, entry_value)
       schema.Delete(key) -> delete(typed_map.map, key)
     }
@@ -1022,8 +1023,8 @@ fn await_synced(
 
 @target(javascript)
 /// Resolve a field to its channel. The function tries again on a timer while the
-/// handle is absent, and while the attach op of the channel that it references
-/// is still in flight.
+/// handle is absent, and while the attach operation of the channel that it
+/// references is still in flight.
 fn resolve_with_retry(
   resolve: fn() -> Result(Option(shared), String),
   attempts: Int,
@@ -2449,9 +2450,9 @@ pub fn ordered_acquire(collection: OrderedCollection) -> String {
 ///
 /// `on_outcome` runs exactly one time. It gives `AcquiredItem` when this client
 /// won the head. It gives `QueueEmpty` when the queue became empty before the
-/// op sequenced. An acquire that loses emits no event, so `QueueEmpty` is the
-/// only signal that a loser receives. It gives `Aborted` when the document
-/// closes while the acquire is still in flight.
+/// operation sequenced. An acquire that loses emits no event, so `QueueEmpty`
+/// is the only signal that a loser receives. It gives `Aborted` when the
+/// document closes while the acquire is still in flight.
 pub fn ordered_acquire_with_outcome(
   collection: OrderedCollection,
   on_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
@@ -2559,10 +2560,10 @@ pub fn resolve_json_ot(
 }
 
 @target(javascript)
-/// Submit a json0 op to the channel, optimistically. An op is a list of
-/// components.
-pub fn submit_json_ot(json_ot: JsonOt, op: json_ot.Op) -> Nil {
-  runtime.submit_json_ot(json_ot.runtime, json_ot.address, op)
+/// Submit a json0 operation to the channel, optimistically. An operation is a
+/// list of components.
+pub fn submit_json_ot(json_ot: JsonOt, operation: json_ot.Operation) -> Nil {
+  runtime.submit_json_ot(json_ot.runtime, json_ot.address, operation)
 }
 
 @target(javascript)
@@ -3093,9 +3094,9 @@ pub fn diagnostics(document: Document(root)) -> Diagnostics {
 @target(javascript)
 /// Summarize the current confirmed state of the document to the storage of
 /// floodgate. A later client can then start from that snapshot, and it does not
-/// replay the full op history. The promise resolves with the summary handle,
-/// which is a git tree SHA. The connection must be synchronized, and the token
-/// must carry the `summary:write` scope.
+/// replay the full operation history. The promise resolves with the summary
+/// handle, which is a git tree SHA. The connection must be synchronized, and
+/// the token must carry the `summary:write` scope.
 pub fn summarize(document: Document(root)) -> Promise(Result(String, String)) {
   runtime.summarize(document.runtime)
 }
@@ -3114,7 +3115,7 @@ pub fn summarize(document: Document(root)) -> Promise(Result(String, String)) {
 /// other attempts. A lost race costs one unnecessary upload.
 ///
 /// The token must carry the `summary:write` scope, which `connect` includes by
-/// default. The policy applies from the next sequenced op.
+/// default. The policy applies from the next sequenced operation.
 pub fn auto_summarize(
   document: Document(root),
   policy: summary_policy.Policy,
@@ -3130,14 +3131,15 @@ pub fn stop_auto_summarize(document: Document(root)) -> Nil {
 }
 
 @target(javascript)
-/// The number of ops that sequenced after the newest summary that this client
-/// knows about. An automatic policy compares that number with its threshold,
-/// and a client that joins replays those ops on top of the checkpoint.
+/// The number of operations that sequenced after the newest summary that this
+/// client knows about. An automatic policy compares that number with its
+/// threshold, and a client that joins replays those operations on top of the
+/// checkpoint.
 ///
 /// On a document that no client has summarized, this number is the whole
 /// log.
-pub fn ops_since_summary(document: Document(root)) -> Int {
-  runtime.ops_since_summary(document.runtime)
+pub fn operations_since_summary(document: Document(root)) -> Int {
+  runtime.operations_since_summary(document.runtime)
 }
 
 @target(javascript)

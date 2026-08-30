@@ -11,16 +11,16 @@ pub type SequenceState {
     replica_id: ReplicaId,
     sequenced: Sequence(Json),
     optimistic: Sequence(Json),
-    pending: List(PendingOp),
+    pending: List(PendingOperation),
     next_pending_message_id: Int,
   )
 }
 
-pub type PendingOp {
-  PendingOp(op: SequenceOp, message_id: Int)
+pub type PendingOperation {
+  PendingOperation(operation: SequenceOperation, message_id: Int)
 }
 
-pub type SequenceOp {
+pub type SequenceOperation {
   Insert(index: Int, value: Json, delta: Sequence(Json))
   Delete(index: Int, delta: Sequence(Json))
   Move(from_index: Int, to_index: Int, delta: Sequence(Json))
@@ -70,18 +70,20 @@ pub fn length(state: SequenceState) -> Int {
 fn finish_local(
   state: SequenceState,
   optimistic: Sequence(Json),
-  op: SequenceOp,
-) -> #(SequenceState, List(SequenceEvent), SequenceOp, Int) {
+  operation: SequenceOperation,
+) -> #(SequenceState, List(SequenceEvent), SequenceOperation, Int) {
   let before = values(state)
   let message_id = state.next_pending_message_id
   let state =
     SequenceState(
       ..state,
       optimistic: optimistic,
-      pending: list.append(state.pending, [PendingOp(op, message_id)]),
+      pending: list.append(state.pending, [
+        PendingOperation(operation, message_id),
+      ]),
       next_pending_message_id: message_id + 1,
     )
-  #(state, changed_event(before, values(state)), op, message_id)
+  #(state, changed_event(before, values(state)), operation, message_id)
 }
 
 fn changed_event(before: List(Json), after: List(Json)) -> List(SequenceEvent) {
@@ -125,7 +127,10 @@ pub fn insert(
   state: SequenceState,
   index: Int,
   value: Json,
-) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp, Int), EditError) {
+) -> Result(
+  #(SequenceState, List(SequenceEvent), SequenceOperation, Int),
+  EditError,
+) {
   case sequence.try_insert_with_delta(state.optimistic, index, value) {
     Ok(#(optimistic, delta)) ->
       Ok(finish_local(state, optimistic, Insert(index, value, delta)))
@@ -137,7 +142,10 @@ pub fn insert(
 pub fn delete(
   state: SequenceState,
   index: Int,
-) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp, Int), EditError) {
+) -> Result(
+  #(SequenceState, List(SequenceEvent), SequenceOperation, Int),
+  EditError,
+) {
   case sequence.try_delete_with_delta(state.optimistic, index) {
     Ok(#(optimistic, delta)) ->
       Ok(finish_local(state, optimistic, Delete(index, delta)))
@@ -150,7 +158,10 @@ pub fn move(
   state: SequenceState,
   from_index: Int,
   to_index: Int,
-) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp, Int), EditError) {
+) -> Result(
+  #(SequenceState, List(SequenceEvent), SequenceOperation, Int),
+  EditError,
+) {
   case sequence.try_move_with_delta(state.optimistic, from_index, to_index) {
     Ok(#(optimistic, delta)) ->
       Ok(finish_local(state, optimistic, Move(from_index, to_index, delta)))
@@ -165,7 +176,10 @@ pub fn replace(
   state: SequenceState,
   index: Int,
   value: Json,
-) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp, Int), EditError) {
+) -> Result(
+  #(SequenceState, List(SequenceEvent), SequenceOperation, Int),
+  EditError,
+) {
   case sequence.try_delete_with_delta(state.optimistic, index) {
     Error(sequence.DeleteIndexOutOfBounds(index, length)) ->
       Error(ReplaceOutOfBounds(index, length))
@@ -201,10 +215,10 @@ pub fn p2p_merge(
 
 pub fn apply_remote(
   state: SequenceState,
-  op: SequenceOp,
+  operation: SequenceOperation,
 ) -> #(SequenceState, List(SequenceEvent)) {
   let before = values(state)
-  let sequenced = sequence.merge(state.sequenced, op_delta(op))
+  let sequenced = sequence.merge(state.sequenced, operation_delta(operation))
   let optimistic = replay_pending(sequenced, state.pending)
   let state =
     SequenceState(..state, sequenced: sequenced, optimistic: optimistic)
@@ -216,17 +230,17 @@ pub fn apply_remote(
 /// This function has the same behaviour as `text_kernel.commit_p2p`.
 fn commit_p2p(
   state: SequenceState,
-  op: SequenceOp,
-) -> #(SequenceState, List(SequenceEvent), SequenceOp) {
+  operation: SequenceOperation,
+) -> #(SequenceState, List(SequenceEvent), SequenceOperation) {
   let before = values(state)
-  let delta = op_delta(op)
+  let delta = operation_delta(operation)
   let state =
     SequenceState(
       ..state,
       sequenced: sequence.merge(state.sequenced, delta),
       optimistic: sequence.merge(state.optimistic, delta),
     )
-  #(state, changed_event(before, values(state)), op)
+  #(state, changed_event(before, values(state)), operation)
 }
 
 /// The ack-free p2p form of `insert`. It writes the same delta, but it merges
@@ -236,7 +250,7 @@ pub fn p2p_insert(
   state: SequenceState,
   index: Int,
   value: Json,
-) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp), EditError) {
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOperation), EditError) {
   case sequence.try_insert_with_delta(state.optimistic, index, value) {
     Ok(#(_, delta)) -> Ok(commit_p2p(state, Insert(index, value, delta)))
     Error(sequence.IndexOutOfBounds(index, length)) ->
@@ -248,7 +262,7 @@ pub fn p2p_insert(
 pub fn p2p_delete(
   state: SequenceState,
   index: Int,
-) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp), EditError) {
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOperation), EditError) {
   case sequence.try_delete_with_delta(state.optimistic, index) {
     Ok(#(_, delta)) -> Ok(commit_p2p(state, Delete(index, delta)))
     Error(sequence.DeleteIndexOutOfBounds(index, length)) ->
@@ -261,7 +275,7 @@ pub fn p2p_move(
   state: SequenceState,
   from_index: Int,
   to_index: Int,
-) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp), EditError) {
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOperation), EditError) {
   case sequence.try_move_with_delta(state.optimistic, from_index, to_index) {
     Ok(#(_, delta)) -> Ok(commit_p2p(state, Move(from_index, to_index, delta)))
     Error(sequence.MoveFromIndexOutOfBounds(index, length)) ->
@@ -276,7 +290,7 @@ pub fn p2p_replace(
   state: SequenceState,
   index: Int,
   value: Json,
-) -> Result(#(SequenceState, List(SequenceEvent), SequenceOp), EditError) {
+) -> Result(#(SequenceState, List(SequenceEvent), SequenceOperation), EditError) {
   case sequence.try_delete_with_delta(state.optimistic, index) {
     Error(sequence.DeleteIndexOutOfBounds(index, length)) ->
       Error(ReplaceOutOfBounds(index, length))
@@ -294,37 +308,40 @@ pub fn p2p_replace(
 
 pub fn ack_local(
   state: SequenceState,
-  op: SequenceOp,
+  operation: SequenceOperation,
 ) -> Result(SequenceState, KernelError) {
-  do_ack(state, op, None)
+  do_ack(state, operation, None)
 }
 
 pub fn ack_local_with_message_id(
   state: SequenceState,
-  op: SequenceOp,
+  operation: SequenceOperation,
   message_id: Int,
 ) -> Result(SequenceState, KernelError) {
-  do_ack(state, op, Some(message_id))
+  do_ack(state, operation, Some(message_id))
 }
 
 fn do_ack(
   state: SequenceState,
-  op: SequenceOp,
+  operation: SequenceOperation,
   expected_message_id: Option(Int),
 ) -> Result(SequenceState, KernelError) {
   case state.pending {
     [] -> Error(UnexpectedAck("pending queue is empty"))
-    [PendingOp(pending_op, pending_message_id), ..rest] -> {
+    [PendingOperation(pending_operation, pending_message_id), ..rest] -> {
       let id_matches = case expected_message_id {
         None -> True
         Some(message_id) -> message_id == pending_message_id
       }
-      case pending_op == op && id_matches {
+      case pending_operation == operation && id_matches {
         True ->
           Ok(
             SequenceState(
               ..state,
-              sequenced: sequence.merge(state.sequenced, op_delta(op)),
+              sequenced: sequence.merge(
+                state.sequenced,
+                operation_delta(operation),
+              ),
               pending: rest,
             ),
           )
@@ -339,13 +356,13 @@ fn do_ack(
 
 pub fn rollback(
   state: SequenceState,
-  op: SequenceOp,
+  operation: SequenceOperation,
   message_id: Int,
 ) -> Result(#(SequenceState, List(SequenceEvent)), KernelError) {
   case pop_last(state.pending) {
     Error(_) -> Error(UnexpectedRollback("pending queue is empty"))
-    Ok(#(PendingOp(pending_op, pending_message_id), rest)) ->
-      case pending_op == op && pending_message_id == message_id {
+    Ok(#(PendingOperation(pending_operation, pending_message_id), rest)) ->
+      case pending_operation == operation && pending_message_id == message_id {
         False ->
           Error(UnexpectedRollback(
             "expected newest pending message "
@@ -362,12 +379,12 @@ pub fn rollback(
   }
 }
 
-pub fn apply_stashed_op(
+pub fn apply_stashed_operation(
   state: SequenceState,
-  op: SequenceOp,
-) -> #(SequenceState, List(SequenceEvent), SequenceOp, Int) {
-  let optimistic = sequence.merge(state.optimistic, op_delta(op))
-  finish_local(state, optimistic, op)
+  operation: SequenceOperation,
+) -> #(SequenceState, List(SequenceEvent), SequenceOperation, Int) {
+  let optimistic = sequence.merge(state.optimistic, operation_delta(operation))
+  finish_local(state, optimistic, operation)
 }
 
 pub fn promote_attach(state: SequenceState) -> SequenceState {
@@ -439,8 +456,8 @@ pub fn edit_error_detail(error: EditError) -> String {
   }
 }
 
-fn op_delta(op: SequenceOp) -> Sequence(Json) {
-  case op {
+fn operation_delta(operation: SequenceOperation) -> Sequence(Json) {
+  case operation {
     Insert(_, _, delta)
     | Delete(_, delta)
     | Move(_, _, delta)
@@ -450,16 +467,16 @@ fn op_delta(op: SequenceOp) -> Sequence(Json) {
 
 fn replay_pending(
   sequenced: Sequence(Json),
-  pending: List(PendingOp),
+  pending: List(PendingOperation),
 ) -> Sequence(Json) {
   list.fold(pending, sequenced, fn(acc, pending) {
-    sequence.merge(acc, op_delta(pending.op))
+    sequence.merge(acc, operation_delta(pending.operation))
   })
 }
 
 fn pop_last(
-  pending: List(PendingOp),
-) -> Result(#(PendingOp, List(PendingOp)), Nil) {
+  pending: List(PendingOperation),
+) -> Result(#(PendingOperation, List(PendingOperation)), Nil) {
   case pending {
     [] -> Error(Nil)
     [only] -> Ok(#(only, []))

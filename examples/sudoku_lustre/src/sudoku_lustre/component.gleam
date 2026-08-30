@@ -289,8 +289,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 
 /// Assemble `SharedState` once all four nested channels have resolved: seed the
 /// givens on the claims channel (first-writer-wins, so every client can run it
-/// and later writers no-op) and start the per-channel subscriptions. A no-op
-/// until the last channel arrives or once already assembled.
+/// and later writers do nothing) and start the per-channel subscriptions. A
+/// no-operation until the last channel arrives or once already assembled.
 fn assemble(model: Model) -> #(Model, Effect(Msg)) {
   case model.shared, model.pending {
     None, PendingShared(Some(cells), Some(notes), Some(givens), Some(mistakes))

@@ -9,12 +9,12 @@
 //// and validates convergence (and the oracle, if supplied) at every
 //// `Synchronize`.
 ////
-//// F1 supports `ClientOp` / `Sequence` / `Deliver` / `Synchronize`; F2 adds
-//// `AddClient` (summary joins via `load_from_synced`); F3 adds
+//// F1 supports `ClientOperation` / `Sequence` / `Deliver` / `Synchronize`; F2
+//// adds `AddClient` (summary joins via `load_from_synced`); F3 adds
 //// `Disconnect` / `Reconnect` (resend-queue semantics) and the
-//// capability-gated `RollbackOp` / `StashedOp`; F4 adds `FUZZ_SEED` /
-//// `FUZZ_ITERATIONS` env config (`config_from_env`) and JSON failure
-//// fixtures (`dump_failure` / `script_decoder`) so a captured failing
+//// capability-gated `RollbackOperation` / `StashedOperation`; F4 adds
+//// `FUZZ_SEED` / `FUZZ_ITERATIONS` env config (`config_from_env`) and JSON
+//// failure fixtures (`dump_failure` / `script_decoder`) so a captured failing
 //// script survives as a permanent regression test with no transcription.
 ////
 //// The interpreter is written against `Result(Simulation, String)` internally
@@ -39,24 +39,26 @@ import simplifile
 // ─────────────────────────────────────────────────────────────────────────────
 
 /// Metadata threaded into `submit` from day one. Counter and map ignore it;
-/// claims (and later CAS-style consensus kernels) must compute an op's
+/// claims (and later CAS-style consensus kernels) must compute an operation's
 /// `ref_seq` at submit time from the submitting client's delivered cursor,
-/// which is exactly `last_seen_seq` (the sequence number of the last op this
-/// client has processed — server SNs are 1-based log positions, so a client
-/// that has delivered N ops has last seen SN N; 0 before it has seen any).
+/// which is exactly `last_seen_seq` (the sequence number of the last operation
+/// this client has processed — server SNs are 1-based log positions, so a
+/// client that has delivered N operations has last seen SN N; 0 before it has
+/// seen any).
 pub type SubmitMeta {
   SubmitMeta(client_id: Int, last_seen_seq: Int)
 }
 
 /// Metadata threaded through `apply_remote`/`ack_local` from day one. Counter
 /// and map ignore it; pact-map and ordered-collection (later milestones)
-/// resolve ops against the connected-client quorum, so the signature is
+/// resolve operations against the connected-client quorum, so the signature is
 /// right from F1 rather than retrofitted later.
 pub type SequencedMeta {
   SequencedMeta(
     /// The client currently processing this log entry.
     self_id: Int,
-    /// The client that authored the op, or the client that left for a leave.
+    /// The client that authored the operation, or the client that left for a
+    /// leave.
     client_id: Int,
     sequence_number: Int,
     min_sequence_number: Int,
@@ -67,7 +69,7 @@ pub type SequencedMeta {
 
 /// Optional per-kernel capabilities. Fields unused before their milestone
 /// (`load_from_synced` is F2, `rollback`/`apply_stashed` are F3) are `None`.
-pub type Capabilities(state, op, view) {
+pub type Capabilities(state, operation, view) {
   Capabilities(
     // Builds a joining client's state from client 0's caught-up state (a
     // summary round trip). The second argument is the NEW client's identity
@@ -76,35 +78,42 @@ pub type Capabilities(state, op, view) {
     // joiner's own identity, not the summarizer's. Identity-free kernels
     // ignore it.
     load_from_synced: Option(fn(state, Int) -> state),
-    oracle: Option(fn(List(LogEntry(op))) -> view),
-    rollback: Option(fn(state, op) -> state),
-    // Re-applies a stashed op, returning the (possibly rewritten) op to
-    // route onto the wire — mirroring `submit`, which may also rewrite.
-    // Kernels whose wire ops carry content computed at apply time (a
-    // pn_counter delta, or a remove's observed cursor) must hand back the
-    // rewritten op or every peer would receive an unusable one; kernels
-    // without that need return the op unchanged.
-    apply_stashed: Option(fn(state, op, SubmitMeta) -> #(state, op)),
-    /// Called for each queued op when a disconnected client reconnects and
-    /// resubmits, mirroring a DDS's `reSubmitCore`: the model may drop the op
-    /// (return `None` — e.g. its target instance was deleted while offline, so
-    /// the pending edit no longer exists) or rewrite it (return `Some`, e.g.
-    /// re-stamping its reference sequence number to the client's current
-    /// cursor, as the Fluid runtime does on every resend). The updated state is
-    /// threaded through the queue: FF's resubmit has state effects (a create
-    /// resubmit undisposes its pending subtree) that decide whether ops queued
-    /// *behind* it still have live targets. Models without instance lifecycle
-    /// leave this `None`; the harness then resends verbatim.
-    resubmit: Option(fn(state, op, SubmitMeta) -> #(state, Option(op))),
-    /// After applying a sequenced op, the delivering client may owe follow-on
-    /// ops. Returned ops are routed from that client without optimistic apply.
-    react: Option(fn(state, op, SequencedMeta, Int, Bool) -> List(op)),
+    oracle: Option(fn(List(LogEntry(operation))) -> view),
+    rollback: Option(fn(state, operation) -> state),
+    // Re-applies a stashed operation, returning the (possibly rewritten)
+    // operation to route onto the wire — mirroring `submit`, which may also
+    // rewrite. Kernels whose wire operations carry content computed at apply
+    // time (a pn_counter delta, or a remove's observed cursor) must hand back
+    // the rewritten operation or every peer would receive an unusable one;
+    // kernels without that need return the operation unchanged.
+    apply_stashed: Option(
+      fn(state, operation, SubmitMeta) -> #(state, operation),
+    ),
+    /// Called for each queued operation when a disconnected client reconnects
+    /// and resubmits, mirroring a DDS's `reSubmitCore`: the model may drop the
+    /// operation (return `None` — e.g. its target instance was deleted while
+    /// offline, so the pending edit no longer exists) or rewrite it (return
+    /// `Some`, e.g. re-stamping its reference sequence number to the client's
+    /// current cursor, as the Fluid runtime does on every resend). The updated
+    /// state is threaded through the queue: FF's resubmit has state effects (a
+    /// create resubmit undisposes its pending subtree) that decide whether
+    /// operations queued *behind* it still have live targets. Models without
+    /// instance lifecycle leave this `None`; the harness then resends verbatim.
+    resubmit: Option(
+      fn(state, operation, SubmitMeta) -> #(state, Option(operation)),
+    ),
+    /// After applying a sequenced operation, the delivering client may owe
+    /// follow-on operations. Returned operations are routed from that client
+    /// without optimistic apply.
+    react: Option(
+      fn(state, operation, SequencedMeta, Int, Bool) -> List(operation),
+    ),
     /// Apply a membership leave at its sequence point.
     remove_member: Option(fn(state, Int, SequencedMeta) -> state),
   )
 }
 
-pub type KernelModel(state, op, view) {
+pub type KernelModel(state, operation, view) {
   KernelModel(
     name: String,
     // Build a client's initial state from its identity: the client's index,
@@ -114,33 +123,34 @@ pub type KernelModel(state, op, view) {
     // ignore it — two PN replicas sharing an id silently lose increments
     // under max-merge, which is why the harness threads it from day one.
     init: fn(Int) -> state,
-    // Optimistically apply a local op, returning the new state and the op to
-    // route onto the wire — or `None` when the submit produces no op. Optimistic
-    // kernels (counter, map) always return `Some(op)` unchanged. Consensus
-    // kernels (claims) may return `None` (a synchronous no-op, e.g. a write-once
-    // claim on an already-committed key, or a duplicate suppressed to keep the
-    // kernel's one-pending-per-key invariant) and may return a *rewritten* op
+    // Optimistically apply a local operation, returning the new state and the
+    // operation to route onto the wire — or `None` when the submit produces no
+    // operation. Optimistic kernels (counter, map) always return
+    // `Some(operation)` unchanged. Consensus kernels (claims) may return `None`
+    // (a synchronous no-operation, e.g. a write-once claim on an
+    // already-committed key, or a duplicate suppressed to keep the kernel's
+    // one-pending-per-key invariant) and may return a *rewritten* operation
     // whose contents were computed at submit time from `SubmitMeta` (claims
     // fills in `ref_seq` from the client's delivered cursor).
-    submit: fn(state, op, SubmitMeta) -> #(state, Option(op)),
-    apply_remote: fn(state, op, SequencedMeta) -> Result(state, String),
-    ack_local: fn(state, op, SequencedMeta) -> Result(state, String),
+    submit: fn(state, operation, SubmitMeta) -> #(state, Option(operation)),
+    apply_remote: fn(state, operation, SequencedMeta) -> Result(state, String),
+    ack_local: fn(state, operation, SequencedMeta) -> Result(state, String),
     observe: fn(state) -> view,
-    gen_op: qcheck.Generator(op),
+    gen_operation: qcheck.Generator(operation),
     // Optional per-model invariant, checked against every client's state
     // after every command (config-gated by whether the model supplies one).
     // Map's rebase equivalence (optimistic view ≡ sequenced + pending
     // replayed) is the motivating use; counter has none.
     check: Option(fn(state) -> Result(Nil, String)),
     // Canonicalizes a `view` for the "ack transparency" comparison only
-    // (observe before/after `ack_local` of our own op). Some kernels
+    // (observe before/after `ack_local` of our own operation). Some kernels
     // (map) deliberately render sequenced entries before pending ones, so
-    // acking one of several pending ops can reorder `entries()` without
+    // acking one of several pending operations can reorder `entries()` without
     // changing its content — `None` compares raw views; map supplies a
     // sort-by-key so that reordering isn't mistaken for a lost/changed
     // value.
     canonicalize: Option(fn(view) -> view),
-    // Whether acking one's own op leaves `observe` unchanged. True for
+    // Whether acking one's own operation leaves `observe` unchanged. True for
     // optimistic kernels (counter/map show the value at submit, so the ack only
     // retires pending). False for non-optimistic consensus kernels (claims:
     // reads are committed-only, so acking a *winning* claim first makes it
@@ -148,13 +158,13 @@ pub type KernelModel(state, op, view) {
     // assertion in `deliver_one`; convergence and the oracle still validate
     // claims fully at every `Synchronize`.
     ack_preserves_view: Bool,
-    // F4: reproduction DX. Every op must be JSON-round-trippable so a
+    // F4: reproduction DX. Every operation must be JSON-round-trippable so a
     // shrunk failing script can be dumped to `test/fixtures/fuzz_failures/`
     // and replayed later with no transcription (see `dump_failure` and
     // `script_decoder`).
-    op_to_json: fn(op) -> Json,
-    op_decoder: Decoder(op),
-    capabilities: Capabilities(state, op, view),
+    operation_to_json: fn(operation) -> Json,
+    operation_decoder: Decoder(operation),
+    capabilities: Capabilities(state, operation, view),
   )
 }
 
@@ -162,27 +172,31 @@ pub type KernelModel(state, op, view) {
 // Simulator
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub type Client(state, op) {
-  Client(state: state, connected: Bool, resend: List(op), delivered: Int)
+pub type Client(state, operation) {
+  Client(state: state, connected: Bool, resend: List(operation), delivered: Int)
 }
 
-pub type LogEntry(op) {
-  OpEntry(client: Int, op: op, connected_clients: List(Int))
+pub type LogEntry(operation) {
+  OperationEntry(
+    client: Int,
+    operation: operation,
+    connected_clients: List(Int),
+  )
   LeaveEntry(client: Int)
 }
 
-pub type Simulation(state, op) {
+pub type Simulation(state, operation) {
   Simulation(
-    inbox: List(LogEntry(op)),
-    log: List(LogEntry(op)),
-    clients: List(Client(state, op)),
+    inbox: List(LogEntry(operation)),
+    log: List(LogEntry(operation)),
+    clients: List(Client(state, operation)),
   )
 }
 
 fn new_simulation(
-  model: KernelModel(state, op, view),
+  model: KernelModel(state, operation, view),
   client_count: Int,
-) -> Simulation(state, op) {
+) -> Simulation(state, operation) {
   Simulation(
     inbox: [],
     log: [],
@@ -197,13 +211,13 @@ fn new_simulation(
 
 /// The command language the fuzzer generates. F1 covers the four rows the
 /// plan tags `F1`; F2 adds `AddClient`; F3 adds `Disconnect`/`Reconnect`
-/// and the capability-gated `RollbackOp`/`StashedOp`.
-pub type Command(op) {
-  /// `submit` locally; push the op to the inbox if this client is
+/// and the capability-gated `RollbackOperation`/`StashedOperation`.
+pub type Command(operation) {
+  /// `submit` locally; push the operation to the inbox if this client is
   /// connected, else to its `resend` queue (mirroring a disconnected
   /// client trying to send).
-  ClientOp(client: Int, op: op)
-  /// Move up to `n` ops from the inbox to the log, oldest first.
+  ClientOperation(client: Int, operation: operation)
+  /// Move up to `n` operations from the inbox to the log, oldest first.
   Sequence(n: Int)
   /// Advance one client's cursor by up to `n` log entries.
   Deliver(client: Int, n: Int)
@@ -214,8 +228,9 @@ pub type Command(op) {
   /// a summary round trip under the joiner's own fresh identity. Cursor
   /// starts at the log end, matching a client that just
   /// loaded a snapshot and has nothing more to catch up on. Errors loudly
-  /// (rather than a silent no-op) when the model has no `load_from_synced`
-  /// capability, since that is always a harness/model wiring gap.
+  /// (rather than a silent no-operation) when the model has no
+  /// `load_from_synced` capability, since that is always a harness/model wiring
+  /// gap.
   AddClient
   /// Disconnect a client: its in-flight inbox entries (submitted, not yet
   /// sequenced) move to its `resend` queue in order and never reach the
@@ -226,16 +241,16 @@ pub type Command(op) {
   /// Reconnect a disconnected client and resubmit its `resend` queue to the
   /// inbox, in order, clearing the queue.
   Reconnect(client: Int)
-  /// `submit` locally, then immediately `capabilities.rollback` — the op
+  /// `submit` locally, then immediately `capabilities.rollback` — the operation
   /// never reaches the inbox/server. Errors loudly when the model has no
-  /// `rollback` capability, rather than silently no-op-ing.
-  RollbackOp(client: Int, op: op)
-  /// Apply `op` via `capabilities.apply_stashed` (as if resuming a stashed
-  /// local op after reconnect) instead of `submit`, then route the op it
-  /// returned (possibly a rewrite of the generated one) to the inbox/resend
-  /// queue exactly like `ClientOp`. Errors loudly when the model has no
-  /// `apply_stashed` capability.
-  StashedOp(client: Int, op: op)
+  /// `rollback` capability, rather than a silent no-operation.
+  RollbackOperation(client: Int, operation: operation)
+  /// Apply `operation` via `capabilities.apply_stashed` (as if resuming a
+  /// stashed local operation after reconnect) instead of `submit`, then route
+  /// the operation it returned (possibly a rewrite of the generated one) to the
+  /// inbox/resend queue exactly like `ClientOperation`. Errors loudly when the
+  /// model has no `apply_stashed` capability.
+  StashedOperation(client: Int, operation: operation)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -251,10 +266,10 @@ fn client_index(client: Int, client_count: Int) -> Int {
 }
 
 fn update_client(
-  simulation: Simulation(state, op),
+  simulation: Simulation(state, operation),
   index: Int,
-  f: fn(Client(state, op)) -> Client(state, op),
-) -> Simulation(state, op) {
+  f: fn(Client(state, operation)) -> Client(state, operation),
+) -> Simulation(state, operation) {
   let clients =
     list.index_map(simulation.clients, fn(client, i) {
       case i == index {
@@ -266,16 +281,16 @@ fn update_client(
 }
 
 fn get_client(
-  simulation: Simulation(state, op),
+  simulation: Simulation(state, operation),
   index: Int,
-) -> Client(state, op) {
+) -> Client(state, operation) {
   case list.take(simulation.clients, index + 1) |> list.last {
     Ok(client) -> client
     Error(_) -> panic as "client index out of range"
   }
 }
 
-fn connected_indices(simulation: Simulation(state, op)) -> List(Int) {
+fn connected_indices(simulation: Simulation(state, operation)) -> List(Int) {
   list.index_map(simulation.clients, fn(client, i) { #(i, client) })
   |> list.filter_map(fn(pair) {
     case pair.1.connected {
@@ -286,14 +301,14 @@ fn connected_indices(simulation: Simulation(state, op)) -> List(Int) {
 }
 
 fn meta_for(
-  simulation: Simulation(state, op),
+  simulation: Simulation(state, operation),
   sequence_number: Int,
   self_id: Int,
 ) -> SequencedMeta {
   let #(author, connected) = case
     list.take(simulation.log, sequence_number) |> list.last
   {
-    Ok(OpEntry(client, _, connected)) -> #(client, connected)
+    Ok(OperationEntry(client, _, connected)) -> #(client, connected)
     Ok(LeaveEntry(client)) -> #(client, connected_indices(simulation))
     Error(_) -> panic as "meta requested for an unsequenced op"
   }
@@ -314,50 +329,54 @@ fn meta_for(
   )
 }
 
-pub fn log_ops(entries: List(LogEntry(op))) -> List(#(Int, op)) {
+pub fn log_operations(
+  entries: List(LogEntry(operation)),
+) -> List(#(Int, operation)) {
   entries
   |> list.filter_map(fn(entry) {
     case entry {
-      OpEntry(client, op, _) -> Ok(#(client, op))
+      OperationEntry(client, operation, _) -> Ok(#(client, operation))
       LeaveEntry(_) -> Error(Nil)
     }
   })
 }
 
-fn route_op(
-  simulation: Simulation(state, op),
+fn route_operation(
+  simulation: Simulation(state, operation),
   index: Int,
-  op: op,
-) -> Simulation(state, op) {
+  operation: operation,
+) -> Simulation(state, operation) {
   let client = get_client(simulation, index)
   case client.connected {
     True ->
       Simulation(
         ..simulation,
-        inbox: list.append(simulation.inbox, [OpEntry(index, op, [])]),
+        inbox: list.append(simulation.inbox, [
+          OperationEntry(index, operation, []),
+        ]),
       )
     False ->
       update_client(simulation, index, fn(client) {
-        Client(..client, resend: list.append(client.resend, [op]))
+        Client(..client, resend: list.append(client.resend, [operation]))
       })
   }
 }
 
 fn route_reactions(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
   index: Int,
   state: state,
-  op: op,
+  operation: operation,
   meta: SequencedMeta,
   is_local: Bool,
-) -> Simulation(state, op) {
+) -> Simulation(state, operation) {
   case model.capabilities.react {
     None -> simulation
     Some(react) ->
-      react(state, op, meta, index, is_local)
-      |> list.fold(simulation, fn(simulation, op) {
-        route_op(simulation, index, op)
+      react(state, operation, meta, index, is_local)
+      |> list.fold(simulation, fn(simulation, operation) {
+        route_operation(simulation, index, operation)
       })
   }
 }
@@ -368,10 +387,10 @@ fn route_reactions(
 /// through inbox → log → delivery, so the FIFO-ack assumption holds by
 /// construction.
 fn deliver_one(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
   index: Int,
-) -> Result(Simulation(state, op), String) {
+) -> Result(Simulation(state, operation), String) {
   let client = get_client(simulation, index)
   case client.delivered >= list.length(simulation.log) {
     True -> Ok(simulation)
@@ -395,9 +414,9 @@ fn deliver_one(
             }),
           )
         }
-        OpEntry(author, op, _) if author == index -> {
+        OperationEntry(author, operation, _) if author == index -> {
           let before = model.observe(client.state)
-          case model.ack_local(client.state, op, meta) {
+          case model.ack_local(client.state, operation, meta) {
             Error(detail) ->
               Error(
                 "ack_local rejected op for client "
@@ -422,12 +441,13 @@ fn deliver_one(
                   advanced,
                   index,
                   new_state,
-                  op,
+                  operation,
                   meta,
                   True,
                 )
               // Non-optimistic kernels (claims) legitimately change `observe`
-              // when acking a winning op, so they opt out of this assertion.
+              // when acking a winning operation, so they opt out of this
+              // assertion.
               case model.ack_preserves_view {
                 False -> Ok(advanced)
                 True -> {
@@ -457,8 +477,8 @@ fn deliver_one(
             }
           }
         }
-        OpEntry(_author, op, _) -> {
-          case model.apply_remote(client.state, op, meta) {
+        OperationEntry(_author, operation, _) -> {
+          case model.apply_remote(client.state, operation, meta) {
             Error(detail) ->
               Error(
                 "apply_remote rejected op for client "
@@ -482,7 +502,7 @@ fn deliver_one(
                 advanced,
                 index,
                 new_state,
-                op,
+                operation,
                 meta,
                 False,
               ))
@@ -495,11 +515,11 @@ fn deliver_one(
 }
 
 fn deliver_n(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
   index: Int,
   n: Int,
-) -> Result(Simulation(state, op), String) {
+) -> Result(Simulation(state, operation), String) {
   case n <= 0 {
     True -> Ok(simulation)
     False -> {
@@ -510,9 +530,9 @@ fn deliver_n(
 }
 
 fn sequence_n(
-  simulation: Simulation(state, op),
+  simulation: Simulation(state, operation),
   n: Int,
-) -> Simulation(state, op) {
+) -> Simulation(state, operation) {
   case n <= 0 {
     True -> simulation
     False ->
@@ -520,8 +540,8 @@ fn sequence_n(
         [] -> simulation
         [head, ..rest] -> {
           let head = case head {
-            OpEntry(client, op, _) ->
-              OpEntry(client, op, connected_indices(simulation))
+            OperationEntry(client, operation, _) ->
+              OperationEntry(client, operation, connected_indices(simulation))
             LeaveEntry(client) -> LeaveEntry(client)
           }
           sequence_n(
@@ -538,9 +558,9 @@ fn sequence_n(
 }
 
 fn deliver_all_connected(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
-) -> Result(Simulation(state, op), String) {
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
+) -> Result(Simulation(state, operation), String) {
   list.try_fold(
     connected_indices(simulation),
     simulation,
@@ -557,8 +577,8 @@ fn deliver_all_connected(
 /// called right after a full `Synchronize`, so client 0 has no pending
 /// state and the oracle comparison is well-defined.
 fn validate_convergence(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
 ) -> Result(Nil, String) {
   case connected_indices(simulation) {
     [] -> Ok(Nil)
@@ -610,8 +630,8 @@ fn validate_convergence(
 /// Run the model's optional per-state invariant hook (e.g. map's rebase
 /// equivalence) against every client's current state.
 fn validate_check(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
 ) -> Result(Nil, String) {
   case model.check {
     None -> Ok(Nil)
@@ -635,9 +655,9 @@ fn validate_check(
 /// (a summary round trip: `from_sequenced(sequenced_entries(...))` for
 /// map). The new client's cursor starts at the log end, same as client 0's.
 fn add_client(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
-) -> Result(Simulation(state, op), String) {
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
+) -> Result(Simulation(state, operation), String) {
   case model.capabilities.load_from_synced {
     None ->
       Error(
@@ -674,14 +694,14 @@ fn add_client(
 /// its `resend` queue, in order, and mark it disconnected. Other clients'
 /// inbox entries and anything already in the log are untouched.
 fn disconnect(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
   index: Int,
-) -> Simulation(state, op) {
+) -> Simulation(state, operation) {
   let #(mine, others) =
     list.partition(simulation.inbox, fn(entry) {
       case entry {
-        OpEntry(client, _, _) -> client == index
+        OperationEntry(client, _, _) -> client == index
         LeaveEntry(_) -> False
       }
     })
@@ -699,7 +719,7 @@ fn disconnect(
         mine
           |> list.filter_map(fn(entry) {
             case entry {
-              OpEntry(_, op, _) -> Ok(op)
+              OperationEntry(_, operation, _) -> Ok(operation)
               LeaveEntry(_) -> Error(Nil)
             }
           }),
@@ -710,36 +730,37 @@ fn disconnect(
 
 /// Reconnect `index` and resubmit its `resend` queue to the inbox, in
 /// order, clearing the queue. When the model supplies a `resubmit` capability
-/// (mirroring a DDS's `reSubmitCore`), each queued op is passed through it
-/// against the client's *current* state — dropping ops whose target no longer
-/// exists and re-stamping those that survive — before being routed.
+/// (mirroring a DDS's `reSubmitCore`), each queued operation is passed through
+/// it against the client's *current* state — dropping operations whose target
+/// no longer exists and re-stamping those that survive — before being routed.
 fn reconnect(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
   index: Int,
-) -> Simulation(state, op) {
+) -> Simulation(state, operation) {
   let client = get_client(simulation, index)
   let #(client_state, resent) = case model.capabilities.resubmit {
     None -> #(client.state, client.resend)
     Some(resubmit) -> {
       let #(state, reversed) =
-        list.fold(client.resend, #(client.state, []), fn(acc, op) {
-          let #(state, acc_ops) = acc
+        list.fold(client.resend, #(client.state, []), fn(acc, operation) {
+          let #(state, acc_operations) = acc
           let #(state, out) =
             resubmit(
               state,
-              op,
+              operation,
               SubmitMeta(client_id: index, last_seen_seq: client.delivered),
             )
           case out {
-            Some(rewritten) -> #(state, [rewritten, ..acc_ops])
-            None -> #(state, acc_ops)
+            Some(rewritten) -> #(state, [rewritten, ..acc_operations])
+            None -> #(state, acc_operations)
           }
         })
       #(state, list.reverse(reversed))
     }
   }
-  let entries = list.map(resent, fn(op) { OpEntry(index, op, []) })
+  let entries =
+    list.map(resent, fn(operation) { OperationEntry(index, operation, []) })
   let simulation =
     update_client(simulation, index, fn(client) {
       Client(..client, state: client_state, connected: True, resend: [])
@@ -747,15 +768,15 @@ fn reconnect(
   Simulation(..simulation, inbox: list.append(simulation.inbox, entries))
 }
 
-/// `submit` then immediately `capabilities.rollback` — the op never
+/// `submit` then immediately `capabilities.rollback` — the operation never
 /// touches the inbox. Errors loudly when the model has no `rollback`
 /// capability.
-fn rollback_op(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+fn rollback_operation(
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
   index: Int,
-  op: op,
-) -> Result(Simulation(state, op), String) {
+  operation: operation,
+) -> Result(Simulation(state, operation), String) {
   case model.capabilities.rollback {
     None ->
       Error(
@@ -765,15 +786,16 @@ fn rollback_op(
       )
     Some(rollback) -> {
       let client = get_client(simulation, index)
-      let #(after_submit, maybe_op) =
+      let #(after_submit, maybe_operation) =
         model.submit(
           client.state,
-          op,
+          operation,
           SubmitMeta(client_id: index, last_seen_seq: client.delivered),
         )
-      // A submit that produced no op (a consensus-kernel no-op) has nothing to
-      // roll back; otherwise roll back the op the submit actually routed.
-      let rolled_back = case maybe_op {
+      // A submit that produced no operation (a consensus-kernel no-operation)
+      // has nothing to roll back; otherwise roll back the operation the submit
+      // actually routed.
+      let rolled_back = case maybe_operation {
         None -> after_submit
         Some(routed) -> rollback(after_submit, routed)
       }
@@ -786,16 +808,17 @@ fn rollback_op(
   }
 }
 
-/// Apply `op` via `capabilities.apply_stashed` instead of `submit`, then
-/// route the op it returned — which may be a rewrite of the generated one,
-/// mirroring `submit` — to the inbox/resend queue exactly like `ClientOp`.
-/// Errors loudly when the model has no `apply_stashed` capability.
-fn stashed_op(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+/// Apply `operation` via `capabilities.apply_stashed` instead of `submit`, then
+/// route the operation it returned — which may be a rewrite of the generated
+/// one, mirroring `submit` — to the inbox/resend queue exactly like
+/// `ClientOperation`. Errors loudly when the model has no `apply_stashed`
+/// capability.
+fn stashed_operation(
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
   index: Int,
-  op: op,
-) -> Result(Simulation(state, op), String) {
+  operation: operation,
+) -> Result(Simulation(state, operation), String) {
   case model.capabilities.apply_stashed {
     None ->
       Error(
@@ -808,7 +831,7 @@ fn stashed_op(
       let #(new_state, routed) =
         apply_stashed(
           client.state,
-          op,
+          operation,
           SubmitMeta(client_id: index, last_seen_seq: client.delivered),
         )
       let simulation =
@@ -816,8 +839,8 @@ fn stashed_op(
           Client(..client, state: new_state)
         })
       let simulation = case client.connected {
-        True -> route_op(simulation, index, routed)
-        False -> route_op(simulation, index, routed)
+        True -> route_operation(simulation, index, routed)
+        False -> route_operation(simulation, index, routed)
       }
       Ok(simulation)
     }
@@ -825,9 +848,9 @@ fn stashed_op(
 }
 
 fn synchronize(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
-) -> Result(Simulation(state, op), String) {
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
+) -> Result(Simulation(state, operation), String) {
   use simulation <- result.try(synchronize_loop(model, simulation, 0))
   use _ <- result.try(validate_convergence(model, simulation))
   Ok(simulation)
@@ -835,7 +858,7 @@ fn synchronize(
 
 const synchronize_round_cap = 32
 
-fn all_connected_delivered(simulation: Simulation(state, op)) -> Bool {
+fn all_connected_delivered(simulation: Simulation(state, operation)) -> Bool {
   connected_indices(simulation)
   |> list.all(fn(index) {
     let client = get_client(simulation, index)
@@ -844,10 +867,10 @@ fn all_connected_delivered(simulation: Simulation(state, op)) -> Bool {
 }
 
 fn synchronize_loop(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
   rounds: Int,
-) -> Result(Simulation(state, op), String) {
+) -> Result(Simulation(state, operation), String) {
   case list.is_empty(simulation.inbox) && all_connected_delivered(simulation) {
     True -> Ok(simulation)
     False ->
@@ -863,33 +886,34 @@ fn synchronize_loop(
 }
 
 fn interpret(
-  model: KernelModel(state, op, view),
-  simulation: Simulation(state, op),
+  model: KernelModel(state, operation, view),
+  simulation: Simulation(state, operation),
   client_count: Int,
-  command: Command(op),
-) -> Result(Simulation(state, op), String) {
+  command: Command(operation),
+) -> Result(Simulation(state, operation), String) {
   let result = case command {
-    ClientOp(client, op) -> {
+    ClientOperation(client, operation) -> {
       let index = client_index(client, client_count)
       let existing = get_client(simulation, index)
-      let #(new_state, maybe_op) =
+      let #(new_state, maybe_operation) =
         model.submit(
           existing.state,
-          op,
+          operation,
           SubmitMeta(client_id: index, last_seen_seq: existing.delivered),
         )
       let simulation =
         update_client(simulation, index, fn(client) {
           Client(..client, state: new_state)
         })
-      // Route the op the submit actually produced (which may be a rewritten
-      // op), or nothing when the submit was a synchronous no-op.
-      let simulation = case maybe_op {
+      // Route the operation the submit actually produced (which may be a
+      // rewritten operation), or nothing when the submit was a synchronous
+      // no-operation.
+      let simulation = case maybe_operation {
         None -> simulation
         Some(routed) ->
           case existing.connected {
-            True -> route_op(simulation, index, routed)
-            False -> route_op(simulation, index, routed)
+            True -> route_operation(simulation, index, routed)
+            False -> route_operation(simulation, index, routed)
           }
       }
       Ok(simulation)
@@ -905,10 +929,20 @@ fn interpret(
       Ok(disconnect(model, simulation, client_index(client, client_count)))
     Reconnect(client) ->
       Ok(reconnect(model, simulation, client_index(client, client_count)))
-    RollbackOp(client, op) ->
-      rollback_op(model, simulation, client_index(client, client_count), op)
-    StashedOp(client, op) ->
-      stashed_op(model, simulation, client_index(client, client_count), op)
+    RollbackOperation(client, operation) ->
+      rollback_operation(
+        model,
+        simulation,
+        client_index(client, client_count),
+        operation,
+      )
+    StashedOperation(client, operation) ->
+      stashed_operation(
+        model,
+        simulation,
+        client_index(client, client_count),
+        operation,
+      )
   }
   use simulation <- result.try(result)
   use _ <- result.try(validate_check(model, simulation))
@@ -919,18 +953,18 @@ fn interpret(
 // JSON: script (de)serialization for failure fixtures (F4)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// JSON-encode one `Command`. `op_to_json` comes from the model, since `op`
-/// is generic here.
+/// JSON-encode one `Command`. `operation_to_json` comes from the model, since
+/// `operation` is generic here.
 pub fn command_to_json(
-  op_to_json: fn(op) -> Json,
-  command: Command(op),
+  operation_to_json: fn(operation) -> Json,
+  command: Command(operation),
 ) -> Json {
   case command {
-    ClientOp(client, op) ->
+    ClientOperation(client, operation) ->
       json.object([
         #("tag", json.string("ClientOp")),
         #("client", json.int(client)),
-        #("op", op_to_json(op)),
+        #("op", operation_to_json(operation)),
       ])
     Sequence(n) ->
       json.object([#("tag", json.string("Sequence")), #("n", json.int(n))])
@@ -952,40 +986,42 @@ pub fn command_to_json(
         #("tag", json.string("Reconnect")),
         #("client", json.int(client)),
       ])
-    RollbackOp(client, op) ->
+    RollbackOperation(client, operation) ->
       json.object([
         #("tag", json.string("RollbackOp")),
         #("client", json.int(client)),
-        #("op", op_to_json(op)),
+        #("op", operation_to_json(operation)),
       ])
-    StashedOp(client, op) ->
+    StashedOperation(client, operation) ->
       json.object([
         #("tag", json.string("StashedOp")),
         #("client", json.int(client)),
-        #("op", op_to_json(op)),
+        #("op", operation_to_json(operation)),
       ])
   }
 }
 
 /// JSON-encode a whole script.
 pub fn script_to_json(
-  op_to_json: fn(op) -> Json,
-  script: List(Command(op)),
+  operation_to_json: fn(operation) -> Json,
+  script: List(Command(operation)),
 ) -> Json {
-  json.array(script, command_to_json(op_to_json, _))
+  json.array(script, command_to_json(operation_to_json, _))
 }
 
 /// Decode one `Command`. `Synchronize` is used as the placeholder zero-value
-/// for an unrecognized tag (it is the one `Command(op)` constructor that
-/// carries no `op`, so it works for any `op` type without needing a sample
-/// value from the caller).
-pub fn command_decoder(op_decoder: Decoder(op)) -> Decoder(Command(op)) {
+/// for an unrecognized tag (it is the one `Command(operation)` constructor that
+/// carries no `operation`, so it works for any `operation` type without needing
+/// a sample value from the caller).
+pub fn command_decoder(
+  operation_decoder: Decoder(operation),
+) -> Decoder(Command(operation)) {
   use tag <- decode.field("tag", decode.string)
   case tag {
     "ClientOp" -> {
       use client <- decode.field("client", decode.int)
-      use op <- decode.field("op", op_decoder)
-      decode.success(ClientOp(client, op))
+      use operation <- decode.field("op", operation_decoder)
+      decode.success(ClientOperation(client, operation))
     }
     "Sequence" -> {
       use n <- decode.field("n", decode.int)
@@ -1008,21 +1044,23 @@ pub fn command_decoder(op_decoder: Decoder(op)) -> Decoder(Command(op)) {
     }
     "RollbackOp" -> {
       use client <- decode.field("client", decode.int)
-      use op <- decode.field("op", op_decoder)
-      decode.success(RollbackOp(client, op))
+      use operation <- decode.field("op", operation_decoder)
+      decode.success(RollbackOperation(client, operation))
     }
     "StashedOp" -> {
       use client <- decode.field("client", decode.int)
-      use op <- decode.field("op", op_decoder)
-      decode.success(StashedOp(client, op))
+      use operation <- decode.field("op", operation_decoder)
+      decode.success(StashedOperation(client, operation))
     }
     other -> decode.failure(Synchronize, "Command tag " <> other)
   }
 }
 
 /// Decode a whole script.
-pub fn script_decoder(op_decoder: Decoder(op)) -> Decoder(List(Command(op))) {
-  decode.list(command_decoder(op_decoder))
+pub fn script_decoder(
+  operation_decoder: Decoder(operation),
+) -> Decoder(List(Command(operation))) {
+  decode.list(command_decoder(operation_decoder))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1049,9 +1087,9 @@ pub fn fixture_path(model_name: String) -> String {
 /// completes and the panic reaches the top of the test — no need to catch
 /// the panic to capture it.
 pub fn dump_failure(
-  model: KernelModel(state, op, view),
+  model: KernelModel(state, operation, view),
   client_count: Int,
-  script: List(Command(op)),
+  script: List(Command(operation)),
   detail: String,
 ) -> Result(String, simplifile.FileError) {
   let path = fixture_path(model.name)
@@ -1060,7 +1098,7 @@ pub fn dump_failure(
       #("model", json.string(model.name)),
       #("client_count", json.int(client_count)),
       #("detail", json.string(detail)),
-      #("script", script_to_json(model.op_to_json, script)),
+      #("script", script_to_json(model.operation_to_json, script)),
     ])
   use _ <- result.try(simplifile.create_directory_all(fixtures_dir))
   use _ <- result.try(simplifile.write(path, json.to_string(payload)))
@@ -1071,9 +1109,9 @@ pub fn dump_failure(
 /// validating convergence (and the `check` hook, if supplied) after every
 /// command, plus a final synchronize appended at the end of the script.
 pub fn try_run_script(
-  model: KernelModel(state, op, view),
+  model: KernelModel(state, operation, view),
   client_count: Int,
-  script: List(Command(op)),
+  script: List(Command(operation)),
 ) -> Result(Nil, String) {
   let simulation = new_simulation(model, client_count)
   use simulation <- result.try(
@@ -1089,9 +1127,9 @@ pub fn try_run_script(
 /// qcheck shrink and report the failing script (`string.inspect` of the
 /// command list).
 pub fn run_script(
-  model: KernelModel(state, op, view),
+  model: KernelModel(state, operation, view),
   client_count: Int,
-  script: List(Command(op)),
+  script: List(Command(operation)),
 ) -> Nil {
   case try_run_script(model, client_count, script) {
     Ok(Nil) -> Nil
@@ -1144,10 +1182,10 @@ pub fn config_from_env() -> qcheck.Config {
 /// `model`, using `config` (see `config_from_env` for the seeded/env-driven
 /// default).
 pub fn run(
-  model: KernelModel(state, op, view),
+  model: KernelModel(state, operation, view),
   config: qcheck.Config,
   client_count: Int,
-  script_generator: qcheck.Generator(List(Command(op))),
+  script_generator: qcheck.Generator(List(Command(operation))),
 ) -> Nil {
   qcheck.run(config, script_generator, fn(script) {
     run_script(model, client_count, script)

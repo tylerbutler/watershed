@@ -1285,7 +1285,7 @@ pub fn a_delta_for_a_differently_typed_address_is_rejected_test() -> Nil {
   let #(mesh, address) = crdt_sim.create(mesh, "peer-b", channel.InitGSet)
   let mesh = crdt_sim.settle(mesh)
   let peer_b = crdt_sim.document(mesh, "peer-b")
-  let assert Ok(#(_, _, op)) =
+  let assert Ok(#(_, _, operation)) =
     channel.apply_p2p_local(
       channel.new(channel.InitOrSet, replica: "peer-b"),
       channel.OrSetAddEdit("fig"),
@@ -1295,7 +1295,7 @@ pub fn a_delta_for_a_differently_typed_address_is_rejected_test() -> Nil {
       crdt_wire.MessageId("peer-b", 99),
       address,
       channel.OrSetChannel,
-      op,
+      operation,
     )
   let assert p2p.InvalidEnvelope(_, detail) =
     reject(
@@ -1425,7 +1425,7 @@ pub fn a_mistyped_buffered_delta_cannot_poison_its_channel_test() -> Nil {
     crdt_core.edit(peer, descriptor.address, channel.GSetAddEdit("fig"))
   let assert [genuine] = edited.broadcast
 
-  let assert Ok(#(_, _, poison_op)) =
+  let assert Ok(#(_, _, poison_operation)) =
     channel.apply_p2p_local(
       channel.new(channel.InitOrSet, replica: "peer-c"),
       channel.OrSetAddEdit("poison"),
@@ -1435,7 +1435,7 @@ pub fn a_mistyped_buffered_delta_cannot_poison_its_channel_test() -> Nil {
       crdt_wire.MessageId("peer-c", 1),
       descriptor.address,
       channel.OrSetChannel,
-      poison_op,
+      poison_operation,
     )
   let forger = foreign("peer-c", room, compatibility)
 
@@ -1466,7 +1466,7 @@ pub fn a_mistyped_buffered_delta_cannot_poison_its_channel_test() -> Nil {
 
 /// The suppression window is bounded and evicts oldest-first. Suppression
 /// is only an optimization, so an evicted id simply merges again — which is
-/// a no-op by CRDT law, asserted here rather than assumed.
+/// a no-operation by CRDT law, asserted here rather than assumed.
 pub fn the_recent_message_window_evicts_oldest_first_test() -> Nil {
   let limits =
     crdt_wire.Limits(..crdt_wire.default_limits(), recent_message_ids: 2)

@@ -7,16 +7,16 @@
 import gleam/json
 import watershed/counter_kernel.{Increment}
 import watershed/fuzz/counter_model
-import watershed/fuzz/kernel_fuzz.{AddClient, ClientOp, Synchronize}
+import watershed/fuzz/kernel_fuzz.{AddClient, ClientOperation, Synchronize}
 import watershed/fuzz/map_model
 import watershed/map_kernel.{Set}
 
 pub fn counter_add_client_joins_and_converges_test() -> Nil {
   let script = [
-    ClientOp(1, Increment(5)),
+    ClientOperation(1, Increment(5)),
     Synchronize,
     AddClient,
-    ClientOp(2, Increment(-3)),
+    ClientOperation(2, Increment(-3)),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(counter_model.model(), 3, script)
@@ -25,11 +25,11 @@ pub fn counter_add_client_joins_and_converges_test() -> Nil {
 
 pub fn map_add_client_joins_and_converges_test() -> Nil {
   let script = [
-    ClientOp(1, Set("a", json.int(1))),
-    ClientOp(2, Set("b", json.int(2))),
+    ClientOperation(1, Set("a", json.int(1))),
+    ClientOperation(2, Set("b", json.int(2))),
     Synchronize,
     AddClient,
-    ClientOp(1, Set("c", json.int(3))),
+    ClientOperation(1, Set("c", json.int(3))),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(map_model.model(), 3, script)

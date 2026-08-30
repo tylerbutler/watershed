@@ -466,8 +466,8 @@ pub fn order_is_monotonic_and_stays_outside_the_envelope_test() -> Nil {
 }
 
 pub fn a_relay_never_decodes_a_kernel_payload_test() -> Nil {
-  // A `delta` whose op is meaningless to any kernel. A merger would refuse
-  // it; a relay has no opinion, because it never looks.
+  // A `delta` whose operation is meaningless to any kernel. A merger would
+  // refuse it; a relay has no opinion, because it never looks.
   let inscrutable =
     "{\"v\":1,\"room\":\""
     <> room
@@ -880,7 +880,7 @@ fn skip(order: Int) -> String {
 /// An envelope the relay accepts and no client can ever merge: a
 /// structurally impeccable `delta` — a well-formed message id, an
 /// address that names its own creator, a declared channel type — for a
-/// kernel that does not exist, carrying an op that means nothing to any
+/// kernel that does not exist, carrying an operation that means nothing to any
 /// kernel that does.
 ///
 /// This is the shape a poisoned log entry has *after* the structural

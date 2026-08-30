@@ -1,7 +1,8 @@
 //// Focused unit tests for the generic `ot_client` helpers extracted from
-//// `json_ot_kernel`. These use toy op/error types (not json0's `Op`) to prove
-//// the mechanics are genuinely algebra-agnostic: any future kernel supplying
-//// its own transform/compose callbacks gets the same guarantees.
+//// `json_ot_kernel`. These use toy operation/error types (not json0's
+//// `Operation`) to prove the mechanics are genuinely algebra-agnostic: any
+//// future kernel supplying its own transform/compose callbacks gets the same
+//// guarantees.
 
 import gleam/option.{None, Some}
 import startest/expect
@@ -24,11 +25,11 @@ pub fn to_head_context_folds_window_in_seq_order_test() -> Nil {
   // Log entries deliberately out of order; the window (ref_seq=1, seq=5)
   // should only include seq 2, 3, 4, folded oldest-first.
   let log = [
-    LogEntry(seq: 3, op: []),
-    LogEntry(seq: 1, op: []),
-    LogEntry(seq: 4, op: []),
-    LogEntry(seq: 2, op: []),
-    LogEntry(seq: 5, op: []),
+    LogEntry(seq: 3, operation: []),
+    LogEntry(seq: 1, operation: []),
+    LogEntry(seq: 4, operation: []),
+    LogEntry(seq: 2, operation: []),
+    LogEntry(seq: 5, operation: []),
   ]
   ot_client.to_head_context(log, 1, 5, [], record_seq)
   |> expect.to_equal(Ok([4, 3, 2]))
@@ -37,21 +38,21 @@ pub fn to_head_context_folds_window_in_seq_order_test() -> Nil {
 pub fn to_head_context_excludes_boundary_entries_test() -> Nil {
   // Entries at exactly ref_seq or seq are excluded (strict window).
   let log = [
-    LogEntry(seq: 1, op: []),
-    LogEntry(seq: 2, op: []),
-    LogEntry(seq: 3, op: []),
+    LogEntry(seq: 1, operation: []),
+    LogEntry(seq: 2, operation: []),
+    LogEntry(seq: 3, operation: []),
   ]
   ot_client.to_head_context(log, 1, 3, [], record_seq)
   |> expect.to_equal(Ok([2]))
 }
 
-pub fn to_head_context_empty_window_returns_op_unchanged_test() -> Nil {
+pub fn to_head_context_empty_window_returns_operation_unchanged_test() -> Nil {
   ot_client.to_head_context([], 0, 1, [42], record_seq)
   |> expect.to_equal(Ok([42]))
 }
 
 pub fn to_head_context_propagates_transform_error_test() -> Nil {
-  let log = [LogEntry(seq: 2, op: [])]
+  let log = [LogEntry(seq: 2, operation: [])]
   let fail = fn(_current: List(Int), _entry: ot_client.LogEntry(List(Int))) {
     Error(Nil)
   }
@@ -60,7 +61,7 @@ pub fn to_head_context_propagates_transform_error_test() -> Nil {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Pending-op rebase (rebase_pending)
+// Pending-operation rebase (rebase_pending)
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn rebase_pending_returns_rebased_local_and_advanced_remote_test() -> Nil {
@@ -72,7 +73,7 @@ pub fn rebase_pending_returns_rebased_local_and_advanced_remote_test() -> Nil {
   |> expect.to_equal(Ok(#(InFlight(13), -7)))
 }
 
-/// The buffer rebases against the remote op that the wire layer already
+/// The buffer rebases against the remote operation that the wire layer already
 /// advanced, so the two layers do not see the same remote value.
 pub fn rebase_pending_rebases_the_buffer_one_layer_deeper_test() -> Nil {
   let rebase_local = fn(local: Int, remote: Int) { Ok(local + remote) }
@@ -86,7 +87,7 @@ pub fn rebase_pending_rebases_the_buffer_one_layer_deeper_test() -> Nil {
   |> expect.to_equal(Ok(#(InFlightAndBuffered(13, 93), -107)))
 }
 
-pub fn rebase_pending_with_no_local_op_returns_remote_unchanged_test() -> Nil {
+pub fn rebase_pending_with_no_local_operation_returns_remote_unchanged_test() -> Nil {
   let rebase_local = fn(local: Int, remote: Int) { Ok(local + remote) }
   let advance_remote = fn(remote: Int, local: Int) { Ok(remote - local) }
   ot_client.rebase_pending(Idle, 7, rebase_local, advance_remote)
@@ -144,16 +145,16 @@ pub fn pending_reads_report_each_layer_test() -> Nil {
 
 pub fn gc_log_retains_only_entries_above_msn_test() -> Nil {
   let log = [
-    LogEntry(seq: 1, op: Nil),
-    LogEntry(seq: 2, op: Nil),
-    LogEntry(seq: 3, op: Nil),
+    LogEntry(seq: 1, operation: Nil),
+    LogEntry(seq: 2, operation: Nil),
+    LogEntry(seq: 3, operation: Nil),
   ]
   ot_client.gc_log(log, 2)
-  |> expect.to_equal([LogEntry(seq: 3, op: Nil)])
+  |> expect.to_equal([LogEntry(seq: 3, operation: Nil)])
 }
 
 pub fn gc_log_keeps_everything_when_msn_is_zero_test() -> Nil {
-  let log = [LogEntry(seq: 1, op: Nil)]
+  let log = [LogEntry(seq: 1, operation: Nil)]
   ot_client.gc_log(log, 0) |> expect.to_equal(log)
 }
 
@@ -162,7 +163,7 @@ pub fn gc_log_keeps_everything_when_msn_is_zero_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Wire {
-  Wire(ref_seq: Int, op: String)
+  Wire(ref_seq: Int, operation: String)
 }
 
 pub fn promote_buffer_stamps_ref_seq_to_ack_seq_test() -> Nil {

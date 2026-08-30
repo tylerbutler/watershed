@@ -60,7 +60,7 @@ fn replay_fixture(path: String) -> Result(Nil, String) {
 }
 
 fn replay_with(
-  model: KernelModel(state, op, view),
+  model: KernelModel(state, operation, view),
   content: String,
   path: String,
 ) -> Result(Nil, String) {
@@ -69,7 +69,7 @@ fn replay_with(
     use detail <- decode.field("detail", decode.string)
     use script <- decode.field(
       "script",
-      kernel_fuzz.script_decoder(model.op_decoder),
+      kernel_fuzz.script_decoder(model.operation_decoder),
     )
     decode.success(#(client_count, detail, script))
   }

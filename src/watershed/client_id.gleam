@@ -3,9 +3,9 @@
 //// metadata use that integer.
 ////
 //// Two callers share this mapping. The runtime stamps `author` and `self` on
-//// sequenced ops. The `channel` module seeds the `self` field of a json0
-//// kernel. Every replica must derive the same integer for a given client, or
-//// the tie-break does not converge.
+//// sequenced operations. The `channel` module seeds the `self` field of a
+//// json0 kernel. Every replica must derive the same integer for a given
+//// client, or the tie-break does not converge.
 
 import gleam/int
 import gleam/list

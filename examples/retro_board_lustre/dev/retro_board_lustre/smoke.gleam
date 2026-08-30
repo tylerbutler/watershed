@@ -83,7 +83,7 @@ fn run_scenario(
   use <- delay(2000)
 
   // The app installs the same policy at a shipped threshold of 200; here it
-  // is low enough that the handful of ops below crosses it, so the run
+  // is low enough that the handful of operations below crosses it, so the run
   // exercises the whole summarize path rather than just the arming.
   let policy =
     summary_policy.policy()

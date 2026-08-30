@@ -195,14 +195,14 @@ fn profile_schema() -> schema.Schema(Player, Profile) {
   schema.schema(profile_decoder(), profile_entries)
 }
 
-/// Apply write ops to an entries list, as a backend `write` would against a
-/// map's current contents: `Put` upserts, `Delete` removes.
-fn apply_ops(
+/// Apply write operations to an entries list, as a backend `write` would
+/// against a map's current contents: `Put` upserts, `Delete` removes.
+fn apply_operations(
   entries: List(#(String, json.Json)),
-  ops: List(schema.WriteOp),
+  operations: List(schema.WriteOperation),
 ) -> List(#(String, json.Json)) {
-  list.fold(ops, entries, fn(acc, op) {
-    case op {
+  list.fold(operations, entries, fn(acc, operation) {
+    case operation {
       schema.Put(key, value) -> list.key_set(acc, key, value)
       schema.Delete(key) -> list.filter(acc, fn(entry) { entry.0 != key })
     }
@@ -211,15 +211,16 @@ fn apply_ops(
 
 pub fn decode_entries_round_trip_test() -> Nil {
   let value = Profile(name: "ada", score: 3, last: Some(6))
-  let entries = apply_ops([], schema.encode_ops(profile_schema(), value))
+  let entries =
+    apply_operations([], schema.encode_operations(profile_schema(), value))
   schema.decode_entries(profile_schema(), entries)
   |> expect.to_equal(Ok(value))
 }
 
-pub fn raw_schema_ops_are_puts_test() -> Nil {
+pub fn raw_schema_operations_are_puts_test() -> Nil {
   // The raw `schema(decoder, to_entries)` constructor wraps entries as Puts.
   let value = Profile(name: "ada", score: 3, last: None)
-  schema.encode_ops(profile_schema(), value)
+  schema.encode_operations(profile_schema(), value)
   |> expect.to_equal([
     schema.Put("name", json.string("ada")),
     schema.Put("score", json.int(3)),
@@ -330,14 +331,22 @@ fn built_profile_schema() -> schema.Schema(Player, Profile) {
 
 pub fn builder_round_trip_some_test() -> Nil {
   let value = Profile(name: "ada", score: 3, last: Some(6))
-  let entries = apply_ops([], schema.encode_ops(built_profile_schema(), value))
+  let entries =
+    apply_operations(
+      [],
+      schema.encode_operations(built_profile_schema(), value),
+    )
   schema.decode_entries(built_profile_schema(), entries)
   |> expect.to_equal(Ok(value))
 }
 
 pub fn builder_round_trip_none_test() -> Nil {
   let value = Profile(name: "grace", score: 9, last: None)
-  let entries = apply_ops([], schema.encode_ops(built_profile_schema(), value))
+  let entries =
+    apply_operations(
+      [],
+      schema.encode_operations(built_profile_schema(), value),
+    )
   schema.decode_entries(built_profile_schema(), entries)
   |> expect.to_equal(Ok(value))
 }
@@ -351,17 +360,20 @@ pub fn optional_none_writes_delete_test() -> Nil {
     #("last", json.int(6)),
   ]
   let value = Profile(name: "ada", score: 4, last: None)
-  let ops = schema.encode_ops(built_profile_schema(), value)
-  ops
+  let operations = schema.encode_operations(built_profile_schema(), value)
+  operations
   |> list.contains(schema.Delete("last"))
   |> expect.to_equal(True)
-  schema.decode_entries(built_profile_schema(), apply_ops(stale, ops))
+  schema.decode_entries(
+    built_profile_schema(),
+    apply_operations(stale, operations),
+  )
   |> expect.to_equal(Ok(value))
 }
 
 pub fn optional_some_writes_put_test() -> Nil {
   let value = Profile(name: "ada", score: 3, last: Some(6))
-  schema.encode_ops(built_profile_schema(), value)
+  schema.encode_operations(built_profile_schema(), value)
   |> list.contains(schema.Put("last", json.int(6)))
   |> expect.to_equal(True)
 }
@@ -412,7 +424,7 @@ type Solo {
 pub fn record1_round_trip_test() -> Nil {
   let s = schema.record1(Solo, schema.prop(name(), fn(s: Solo) { s.name }))
   let value = Solo(name: "lin")
-  let entries = apply_ops([], schema.encode_ops(s, value))
+  let entries = apply_operations([], schema.encode_operations(s, value))
   schema.decode_entries(s, entries) |> expect.to_equal(Ok(value))
 }
 
@@ -449,7 +461,7 @@ pub fn record9_round_trip_test() -> Nil {
       schema.optional_prop(int_field("f9"), fn(n: Nine) { n.f9 }),
     )
   let value = Nine(1, 2, 3, 4, 5, 6, 7, 8, None)
-  let entries = apply_ops([], schema.encode_ops(s, value))
+  let entries = apply_operations([], schema.encode_operations(s, value))
   schema.decode_entries(s, entries) |> expect.to_equal(Ok(value))
 }
 
@@ -537,6 +549,6 @@ pub fn text_channel_field_in_record_schema_test() -> Nil {
   schema.channel_field_key(doc) |> expect.to_equal("doc")
   // The record schema encodes/decodes its declared fields normally.
   let value = Solo(name: "lin")
-  let entries = apply_ops([], schema.encode_ops(s, value))
+  let entries = apply_operations([], schema.encode_operations(s, value))
   schema.decode_entries(s, entries) |> expect.to_equal(Ok(value))
 }

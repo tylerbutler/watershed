@@ -4,41 +4,51 @@
 import gleam/option.{type Option, None, Some}
 import startest/expect
 import watershed/task_manager_kernel.{
-  type PendingOp, type TaskManagerError, type TaskManagerEvent,
-  type TaskManagerOp, Abandon, Abandoned, Assigned, AssignedNow, Complete,
-  Completed, Lost, NotAssigned, PendingOp, PendingVolunteer, QueueChanged,
+  type PendingOperation, type TaskManagerError, type TaskManagerEvent,
+  type TaskManagerOperation, Abandon, Abandoned, Assigned, AssignedNow, Complete,
+  Completed, Lost, NotAssigned, PendingOperation, PendingVolunteer, QueueChanged,
   RolledBack, UnexpectedAck, UnexpectedResubmit, UnexpectedRollback, Volunteer,
   Waiting,
 }
 
 fn ack(
   state: task_manager_kernel.TaskManagerState,
-  op: TaskManagerOp,
+  operation: TaskManagerOperation,
   author: Int,
   message_id: Int,
 ) -> #(task_manager_kernel.TaskManagerState, List(TaskManagerEvent)) {
-  case task_manager_kernel.ack_local(state, op, author, message_id, [1, 2, 3]) {
+  case
+    task_manager_kernel.ack_local(state, operation, author, message_id, [
+      1,
+      2,
+      3,
+    ])
+  {
     Ok(pair) -> pair
     Error(_) -> panic as "expected ack_local to succeed"
   }
 }
 
 fn submitted(
-  triple: #(task_manager_kernel.TaskManagerState, Option(TaskManagerOp), a),
-) -> #(task_manager_kernel.TaskManagerState, TaskManagerOp, a) {
-  let #(state, op, outcome) = triple
-  case op {
-    Some(op) -> #(state, op, outcome)
+  triple: #(
+    task_manager_kernel.TaskManagerState,
+    Option(TaskManagerOperation),
+    a,
+  ),
+) -> #(task_manager_kernel.TaskManagerState, TaskManagerOperation, a) {
+  let #(state, operation, outcome) = triple
+  case operation {
+    Some(operation) -> #(state, operation, outcome)
     None -> panic as "expected op to be submitted"
   }
 }
 
 fn completed(
   result: Result(
-    #(task_manager_kernel.TaskManagerState, TaskManagerOp),
+    #(task_manager_kernel.TaskManagerState, TaskManagerOperation),
     TaskManagerError,
   ),
-) -> #(task_manager_kernel.TaskManagerState, TaskManagerOp) {
+) -> #(task_manager_kernel.TaskManagerState, TaskManagerOperation) {
   case result {
     Ok(pair) -> pair
     Error(_) -> panic as "expected complete to succeed"
@@ -49,15 +59,15 @@ fn resubmitted(
   result: Result(
     #(
       task_manager_kernel.TaskManagerState,
-      Option(TaskManagerOp),
-      Option(PendingOp),
+      Option(TaskManagerOperation),
+      Option(PendingOperation),
     ),
     TaskManagerError,
   ),
 ) -> #(
   task_manager_kernel.TaskManagerState,
-  Option(TaskManagerOp),
-  Option(PendingOp),
+  Option(TaskManagerOperation),
+  Option(PendingOperation),
 ) {
   case result {
     Ok(triple) -> triple
@@ -76,7 +86,7 @@ pub fn new_state_is_empty_test() -> Nil {
 }
 
 pub fn volunteer_is_pending_until_local_ack_test() -> Nil {
-  let #(state, op, outcome) =
+  let #(state, operation, outcome) =
     submitted(task_manager_kernel.volunteer(
       task_manager_kernel.new(),
       "task",
@@ -84,13 +94,13 @@ pub fn volunteer_is_pending_until_local_ack_test() -> Nil {
       10,
     ))
 
-  op |> expect.to_equal(Volunteer("task"))
+  operation |> expect.to_equal(Volunteer("task"))
   outcome |> expect.to_equal(Waiting)
   task_manager_kernel.summary_queues(state) |> expect.to_equal([])
   task_manager_kernel.queued_optimistically(state, "task", 1)
   |> expect.to_be_true()
 
-  let #(state, events) = ack(state, op, 1, 10)
+  let #(state, events) = ack(state, operation, 1, 10)
   events
   |> expect.to_equal([
     QueueChanged("task", None, Some(1)),
@@ -137,8 +147,8 @@ pub fn duplicate_remote_volunteer_does_not_duplicate_client_test() -> Nil {
   task_manager_kernel.summary_queues(state) |> expect.to_equal([#("task", [1])])
 }
 
-pub fn second_volunteer_while_pending_sends_no_second_op_test() -> Nil {
-  let #(state, op, _) =
+pub fn second_volunteer_while_pending_sends_no_second_operation_test() -> Nil {
+  let #(state, operation, _) =
     submitted(task_manager_kernel.volunteer(
       task_manager_kernel.new(),
       "task",
@@ -146,11 +156,11 @@ pub fn second_volunteer_while_pending_sends_no_second_op_test() -> Nil {
       10,
     ))
 
-  op |> expect.to_equal(Volunteer("task"))
-  let #(state, second_op, outcome) =
+  operation |> expect.to_equal(Volunteer("task"))
+  let #(state, second_operation, outcome) =
     task_manager_kernel.volunteer(state, "task", 1, 11)
 
-  second_op |> expect.to_equal(None)
+  second_operation |> expect.to_equal(None)
   outcome |> expect.to_equal(Waiting)
   task_manager_kernel.summary_queues(state) |> expect.to_equal([])
 }
@@ -163,10 +173,10 @@ pub fn abandon_after_pending_volunteer_flips_optimistic_membership_test() -> Nil
       1,
       10,
     ))
-  let #(state, abandon_op, events) =
+  let #(state, abandon_operation, events) =
     task_manager_kernel.abandon(state, "task", 1, 11)
 
-  abandon_op |> expect.to_equal(Some(Abandon("task")))
+  abandon_operation |> expect.to_equal(Some(Abandon("task")))
   events |> expect.to_equal([Abandoned("task")])
   task_manager_kernel.queued_optimistically(state, "task", 1)
   |> expect.to_be_false()
@@ -174,13 +184,13 @@ pub fn abandon_after_pending_volunteer_flips_optimistic_membership_test() -> Nil
 
 pub fn abandon_then_immediate_reacquire_follows_pending_order_test() -> Nil {
   let state = task_manager_kernel.from_summary([#("task", [1])])
-  let #(state, abandon_op, _) =
+  let #(state, abandon_operation, _) =
     task_manager_kernel.abandon(state, "task", 1, 10)
-  abandon_op |> expect.to_equal(Some(Abandon("task")))
+  abandon_operation |> expect.to_equal(Some(Abandon("task")))
 
-  let #(state, volunteer_op, _) =
+  let #(state, volunteer_operation, _) =
     task_manager_kernel.volunteer(state, "task", 1, 11)
-  volunteer_op |> expect.to_equal(Some(Volunteer("task")))
+  volunteer_operation |> expect.to_equal(Some(Volunteer("task")))
 
   let #(state, abandon_events) = ack(state, Abandon("task"), 1, 10)
   abandon_events
@@ -209,10 +219,10 @@ pub fn complete_requires_assignment_and_clears_waiters_test() -> Nil {
   }
 
   let state = task_manager_kernel.from_summary([#("task", [1, 2])])
-  let #(state, op) =
+  let #(state, operation) =
     completed(task_manager_kernel.complete(state, "task", 1, 10))
-  op |> expect.to_equal(Complete("task"))
-  let #(state, events) = ack(state, op, 1, 10)
+  operation |> expect.to_equal(Complete("task"))
+  let #(state, events) = ack(state, operation, 1, 10)
 
   events
   |> expect.to_equal([
@@ -391,11 +401,11 @@ pub fn resubmit_reissues_volunteer_unless_superseded_by_abandon_test() -> Nil {
       1,
       10,
     ))
-  let #(state, op, pending) =
+  let #(state, operation, pending) =
     resubmitted(task_manager_kernel.resubmit(state, Volunteer("task"), 10, 11))
 
-  op |> expect.to_equal(Some(Volunteer("task")))
-  pending |> expect.to_equal(Some(PendingOp(PendingVolunteer, 11)))
+  operation |> expect.to_equal(Some(Volunteer("task")))
+  pending |> expect.to_equal(Some(PendingOperation(PendingVolunteer, 11)))
   task_manager_kernel.queued_optimistically(state, "task", 1)
   |> expect.to_be_true()
 
@@ -407,14 +417,14 @@ pub fn resubmit_reissues_volunteer_unless_superseded_by_abandon_test() -> Nil {
       21,
     ))
   let #(state, _, _) = task_manager_kernel.abandon(state, "task", 1, 22)
-  let #(_, op, pending) =
+  let #(_, operation, pending) =
     resubmitted(task_manager_kernel.resubmit(state, Volunteer("task"), 21, 23))
 
-  op |> expect.to_equal(None)
+  operation |> expect.to_equal(None)
   pending |> expect.to_equal(None)
 }
 
-pub fn resubmit_and_ack_are_strict_about_matching_pending_ops_test() -> Nil {
+pub fn resubmit_and_ack_are_strict_about_matching_pending_operations_test() -> Nil {
   let state = task_manager_kernel.new()
 
   case task_manager_kernel.resubmit(state, Volunteer("task"), 10, 11) {
@@ -436,24 +446,24 @@ pub fn resubmit_and_ack_are_strict_about_matching_pending_ops_test() -> Nil {
   }
 }
 
-pub fn stashed_ops_are_ignored_test() -> Nil {
-  let #(state, op) =
-    task_manager_kernel.apply_stashed_op(
+pub fn stashed_operations_are_ignored_test() -> Nil {
+  let #(state, operation) =
+    task_manager_kernel.apply_stashed_operation(
       task_manager_kernel.new(),
       Volunteer("task"),
     )
 
-  op |> expect.to_equal(None)
+  operation |> expect.to_equal(None)
   task_manager_kernel.summary_queues(state) |> expect.to_equal([])
 }
 
 /// A volunteer from a client the roster does not name is dropped.
 ///
 /// This guard existed from the beginning and could never fire: the runtime
-/// unioned each op's author into the membership list it passed here, so
-/// `list.contains` was trivially true for every authored op. It is live now
-/// that `channel` passes `meta.roster` — the room at the op's sequence point,
-/// with no defensive additions — instead of `meta.quorum`.
+/// unioned each operation's author into the membership list it passed here, so
+/// `list.contains` was trivially true for every authored operation. It is live
+/// now that `channel` passes `meta.roster` — the room at the operation's
+/// sequence point, with no defensive additions — instead of `meta.quorum`.
 ///
 /// What it protects: `remove_client` on a sequenced `"leave"` is the only
 /// thing that frees a role whose holder walked away, so a client that reached

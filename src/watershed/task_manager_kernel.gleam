@@ -1,7 +1,7 @@
 //// Pure consensus queue kernel for Fluid TaskManager semantics.
 ////
 //// The kernel owns one committed FIFO queue for each task. It also owns the
-//// small amount of local pending-op metadata that the optimistic submit
+//// small amount of local pending-operation metadata that the optimistic submit
 //// guards, the strict local acks, rollback, and resubmit need. Promises,
 //// subscriptions, read-only checks, and reconnect policy stay in the runtime
 //// layer.
@@ -15,19 +15,19 @@ pub type TaskManagerState {
   TaskManagerState(
     /// Task id to FIFO client queue. The head of the queue owns the task.
     queues: Dict(String, List(Int)),
-    /// Task id to the FIFO of local pending ops for this client.
-    pending: Dict(String, List(PendingOp)),
+    /// Task id to the FIFO of local pending operations for this client.
+    pending: Dict(String, List(PendingOperation)),
   )
 }
 
-pub type TaskManagerOp {
+pub type TaskManagerOperation {
   Volunteer(task_id: String)
   Abandon(task_id: String)
   Complete(task_id: String)
 }
 
-pub type PendingOp {
-  PendingOp(kind: PendingKind, message_id: Int)
+pub type PendingOperation {
+  PendingOperation(kind: PendingKind, message_id: Int)
 }
 
 pub type PendingKind {
@@ -60,9 +60,9 @@ pub type VolunteerOutcome {
 
 pub type TaskManagerError {
   NotAssigned(task_id: String)
-  UnexpectedAck(op: TaskManagerOp, detail: String)
-  UnexpectedRollback(op: TaskManagerOp, detail: String)
-  UnexpectedResubmit(op: TaskManagerOp, detail: String)
+  UnexpectedAck(operation: TaskManagerOperation, detail: String)
+  UnexpectedRollback(operation: TaskManagerOperation, detail: String)
+  UnexpectedResubmit(operation: TaskManagerOperation, detail: String)
 }
 
 pub fn new() -> TaskManagerState {
@@ -117,9 +117,9 @@ pub fn queued_optimistically(
   self_id: Int,
 ) -> Bool {
   case latest_pending(state, task_id) {
-    Ok(PendingOp(PendingVolunteer, _)) -> True
-    Ok(PendingOp(PendingAbandon, _)) -> False
-    Ok(PendingOp(PendingComplete, _)) -> False
+    Ok(PendingOperation(PendingVolunteer, _)) -> True
+    Ok(PendingOperation(PendingAbandon, _)) -> False
+    Ok(PendingOperation(PendingComplete, _)) -> False
     Error(Nil) -> list.contains(queue_for(state, task_id), self_id)
   }
 }
@@ -129,7 +129,7 @@ pub fn volunteer(
   task_id: String,
   self_id: Int,
   message_id: Int,
-) -> #(TaskManagerState, Option(TaskManagerOp), VolunteerOutcome) {
+) -> #(TaskManagerState, Option(TaskManagerOperation), VolunteerOutcome) {
   case queued_optimistically(state, task_id, self_id) {
     True -> {
       let outcome = case assigned(state, task_id, self_id, True) {
@@ -140,7 +140,11 @@ pub fn volunteer(
     }
     False -> {
       let state =
-        add_pending(state, task_id, PendingOp(PendingVolunteer, message_id))
+        add_pending(
+          state,
+          task_id,
+          PendingOperation(PendingVolunteer, message_id),
+        )
       #(state, Some(Volunteer(task_id)), Waiting)
     }
   }
@@ -165,12 +169,16 @@ pub fn abandon(
   task_id: String,
   self_id: Int,
   message_id: Int,
-) -> #(TaskManagerState, Option(TaskManagerOp), List(TaskManagerEvent)) {
+) -> #(TaskManagerState, Option(TaskManagerOperation), List(TaskManagerEvent)) {
   case queued_optimistically(state, task_id, self_id) {
     False -> #(state, None, [])
     True -> {
       let state =
-        add_pending(state, task_id, PendingOp(PendingAbandon, message_id))
+        add_pending(
+          state,
+          task_id,
+          PendingOperation(PendingAbandon, message_id),
+        )
       #(state, Some(Abandon(task_id)), [Abandoned(task_id)])
     }
   }
@@ -189,12 +197,16 @@ pub fn complete(
   task_id: String,
   self_id: Int,
   message_id: Int,
-) -> Result(#(TaskManagerState, TaskManagerOp), TaskManagerError) {
+) -> Result(#(TaskManagerState, TaskManagerOperation), TaskManagerError) {
   case assigned(state, task_id, self_id, True) {
     False -> Error(NotAssigned(task_id))
     True -> {
       let state =
-        add_pending(state, task_id, PendingOp(PendingComplete, message_id))
+        add_pending(
+          state,
+          task_id,
+          PendingOperation(PendingComplete, message_id),
+        )
       Ok(#(state, Complete(task_id)))
     }
   }
@@ -209,11 +221,11 @@ pub fn complete_detached(
 
 pub fn apply_remote(
   state: TaskManagerState,
-  op: TaskManagerOp,
+  operation: TaskManagerOperation,
   author: Int,
   roster: List(Int),
 ) -> #(TaskManagerState, List(TaskManagerEvent)) {
-  case op {
+  case operation {
     Volunteer(task_id) ->
       apply_volunteer_core(state, task_id, author, roster, False)
     Abandon(task_id) -> apply_abandon_core(state, task_id, author, False)
@@ -223,17 +235,17 @@ pub fn apply_remote(
 
 pub fn ack_local(
   state: TaskManagerState,
-  op: TaskManagerOp,
+  operation: TaskManagerOperation,
   author: Int,
   message_id: Int,
   roster: List(Int),
 ) -> Result(#(TaskManagerState, List(TaskManagerEvent)), TaskManagerError) {
-  let task_id = op_task_id(op)
-  let expected = op_pending_kind(op)
+  let task_id = operation_task_id(operation)
+  let expected = operation_pending_kind(operation)
   case pop_oldest_pending(state, task_id, expected, message_id) {
-    Error(detail) -> Error(UnexpectedAck(op, detail))
+    Error(detail) -> Error(UnexpectedAck(operation, detail))
     Ok(state) -> {
-      let #(state, events) = case op {
+      let #(state, events) = case operation {
         Volunteer(_) ->
           apply_volunteer_core(state, task_id, author, roster, True)
         Abandon(_) -> apply_abandon_core(state, task_id, author, True)
@@ -303,25 +315,32 @@ pub fn scrub_not_in_roster(
 
 pub fn resubmit(
   state: TaskManagerState,
-  op: TaskManagerOp,
+  operation: TaskManagerOperation,
   message_id: Int,
   next_message_id: Int,
 ) -> Result(
-  #(TaskManagerState, Option(TaskManagerOp), Option(PendingOp)),
+  #(TaskManagerState, Option(TaskManagerOperation), Option(PendingOperation)),
   TaskManagerError,
 ) {
-  let task_id = op_task_id(op)
-  case remove_pending(state, task_id, op_pending_kind(op), message_id) {
-    Error(detail) -> Error(UnexpectedResubmit(op, detail))
+  let task_id = operation_task_id(operation)
+  case
+    remove_pending(
+      state,
+      task_id,
+      operation_pending_kind(operation),
+      message_id,
+    )
+  {
+    Error(detail) -> Error(UnexpectedResubmit(operation, detail))
     Ok(state) ->
-      case op {
+      case operation {
         Volunteer(_) -> {
           case latest_pending(state, task_id) {
-            Ok(PendingOp(PendingAbandon, _)) -> Ok(#(state, None, None))
-            Ok(PendingOp(PendingVolunteer, _))
-            | Ok(PendingOp(PendingComplete, _))
+            Ok(PendingOperation(PendingAbandon, _)) -> Ok(#(state, None, None))
+            Ok(PendingOperation(PendingVolunteer, _))
+            | Ok(PendingOperation(PendingComplete, _))
             | Error(Nil) -> {
-              let pending = PendingOp(PendingVolunteer, next_message_id)
+              let pending = PendingOperation(PendingVolunteer, next_message_id)
               let state = add_pending(state, task_id, pending)
               Ok(#(state, Some(Volunteer(task_id)), Some(pending)))
             }
@@ -335,20 +354,27 @@ pub fn resubmit(
 
 pub fn rollback(
   state: TaskManagerState,
-  op: TaskManagerOp,
+  operation: TaskManagerOperation,
   message_id: Int,
 ) -> Result(#(TaskManagerState, List(TaskManagerEvent)), TaskManagerError) {
-  let task_id = op_task_id(op)
-  case pop_latest_pending(state, task_id, op_pending_kind(op), message_id) {
-    Error(detail) -> Error(UnexpectedRollback(op, detail))
+  let task_id = operation_task_id(operation)
+  case
+    pop_latest_pending(
+      state,
+      task_id,
+      operation_pending_kind(operation),
+      message_id,
+    )
+  {
+    Error(detail) -> Error(UnexpectedRollback(operation, detail))
     Ok(state) -> Ok(#(state, [RolledBack(task_id)]))
   }
 }
 
-pub fn apply_stashed_op(
+pub fn apply_stashed_operation(
   state: TaskManagerState,
-  _op: TaskManagerOp,
-) -> #(TaskManagerState, Option(TaskManagerOp)) {
+  _operation: TaskManagerOperation,
+) -> #(TaskManagerState, Option(TaskManagerOperation)) {
   #(state, None)
 }
 
@@ -363,9 +389,9 @@ pub fn apply_stashed_op(
 ///
 /// Every replica must give the same result here, or the queues diverge. Thus
 /// this function takes `meta.roster`, which the kernel rebuilds at the sequence
-/// point of the op. It does not take `meta.quorum`, whose defensive additions
-/// differ between a replica that applies the op live and a replica that replays
-/// it.
+/// point of the operation. It does not take `meta.quorum`, whose defensive
+/// additions differ between a replica that applies the operation live and a
+/// replica that replays it.
 fn apply_volunteer_core(
   state: TaskManagerState,
   task_id: String,
@@ -459,11 +485,11 @@ fn remove_client_with_lost(
 fn add_pending(
   state: TaskManagerState,
   task_id: String,
-  op: PendingOp,
+  operation: PendingOperation,
 ) -> TaskManagerState {
   let pending = case dict.get(state.pending, task_id) {
-    Ok(ops) -> list.append(ops, [op])
-    Error(_) -> [op]
+    Ok(operations) -> list.append(operations, [operation])
+    Error(_) -> [operation]
   }
   TaskManagerState(
     ..state,
@@ -480,7 +506,7 @@ fn pop_oldest_pending(
   case dict.get(state.pending, task_id) {
     Error(_) -> Error("no pending op for task \"" <> task_id <> "\"")
     Ok([]) -> Error("no pending op for task \"" <> task_id <> "\"")
-    Ok([PendingOp(found_kind, found_id), ..rest]) -> {
+    Ok([PendingOperation(found_kind, found_id), ..rest]) -> {
       case found_kind == kind && found_id == message_id {
         True -> Ok(set_pending(state, task_id, rest))
         False -> Error("oldest pending op did not match")
@@ -498,10 +524,10 @@ fn pop_latest_pending(
   case dict.get(state.pending, task_id) {
     Error(_) -> Error("no pending op for task \"" <> task_id <> "\"")
     Ok([]) -> Error("no pending op for task \"" <> task_id <> "\"")
-    Ok(ops) -> {
-      let reversed = list.reverse(ops)
+    Ok(operations) -> {
+      let reversed = list.reverse(operations)
       case reversed {
-        [PendingOp(found_kind, found_id), ..rest] -> {
+        [PendingOperation(found_kind, found_id), ..rest] -> {
           case found_kind == kind && found_id == message_id {
             True -> Ok(set_pending(state, task_id, list.reverse(rest)))
             False -> Error("latest pending op did not match")
@@ -521,8 +547,8 @@ fn remove_pending(
 ) -> Result(TaskManagerState, String) {
   case dict.get(state.pending, task_id) {
     Error(_) -> Error("no pending op for task \"" <> task_id <> "\"")
-    Ok(ops) -> {
-      case remove_first_matching_pending(ops, kind, message_id, []) {
+    Ok(operations) -> {
+      case remove_first_matching_pending(operations, kind, message_id, []) {
         Error(_) -> Error("matching pending op not found")
         Ok(remaining) -> Ok(set_pending(state, task_id, remaining))
       }
@@ -531,18 +557,21 @@ fn remove_pending(
 }
 
 fn remove_first_matching_pending(
-  ops: List(PendingOp),
+  operations: List(PendingOperation),
   kind: PendingKind,
   message_id: Int,
-  seen: List(PendingOp),
-) -> Result(List(PendingOp), Nil) {
-  case ops {
+  seen: List(PendingOperation),
+) -> Result(List(PendingOperation), Nil) {
+  case operations {
     [] -> Error(Nil)
-    [PendingOp(found_kind, found_id) as op, ..rest] -> {
+    [PendingOperation(found_kind, found_id) as operation, ..rest] -> {
       case found_kind == kind && found_id == message_id {
         True -> Ok(list.append(list.reverse(seen), rest))
         False ->
-          remove_first_matching_pending(rest, kind, message_id, [op, ..seen])
+          remove_first_matching_pending(rest, kind, message_id, [
+            operation,
+            ..seen
+          ])
       }
     }
   }
@@ -551,11 +580,11 @@ fn remove_first_matching_pending(
 fn set_pending(
   state: TaskManagerState,
   task_id: String,
-  ops: List(PendingOp),
+  operations: List(PendingOperation),
 ) -> TaskManagerState {
-  let pending = case ops {
+  let pending = case operations {
     [] -> dict.delete(state.pending, task_id)
-    _ -> dict.insert(state.pending, task_id, ops)
+    _ -> dict.insert(state.pending, task_id, operations)
   }
   TaskManagerState(..state, pending: pending)
 }
@@ -563,27 +592,27 @@ fn set_pending(
 fn latest_pending(
   state: TaskManagerState,
   task_id: String,
-) -> Result(PendingOp, Nil) {
+) -> Result(PendingOperation, Nil) {
   case dict.get(state.pending, task_id) {
-    Ok(ops) ->
-      case list.reverse(ops) {
-        [op, ..] -> Ok(op)
+    Ok(operations) ->
+      case list.reverse(operations) {
+        [operation, ..] -> Ok(operation)
         [] -> Error(Nil)
       }
     Error(Nil) -> Error(Nil)
   }
 }
 
-fn op_task_id(op: TaskManagerOp) -> String {
-  case op {
+fn operation_task_id(operation: TaskManagerOperation) -> String {
+  case operation {
     Volunteer(task_id) -> task_id
     Abandon(task_id) -> task_id
     Complete(task_id) -> task_id
   }
 }
 
-fn op_pending_kind(op: TaskManagerOp) -> PendingKind {
-  case op {
+fn operation_pending_kind(operation: TaskManagerOperation) -> PendingKind {
+  case operation {
     Volunteer(_) -> PendingVolunteer
     Abandon(_) -> PendingAbandon
     Complete(_) -> PendingComplete

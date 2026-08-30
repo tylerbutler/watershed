@@ -2,13 +2,13 @@
 ////
 //// To connect a textarea to a text CRDT appears simple, and it is not. The
 //// `input` event gives you the *whole* new value. A simple bridge writes that
-//// value back as one replace-the-document op, and that op overwrites every
-//// concurrent remote keystroke.
+//// value back as one replace-the-document operation, and that operation
+//// overwrites every concurrent remote keystroke.
 ////
 //// The correct method is to diff against the current optimistic value of the
-//// channel, and to send the one minimal op that the keystroke implies. That op
-//// addresses the text in grapheme clusters, and not in the UTF-16 offsets that
-//// the browser reports.
+//// channel, and to send the one minimal operation that the keystroke implies.
+//// That operation addresses the text in grapheme clusters, and not in the
+//// UTF-16 offsets that the browser reports.
 ////
 //// The runtime can then refuse a stale index, when a peer edits the text
 //// between the render and the keystroke. Every write thus needs its `Result`
@@ -123,7 +123,7 @@
 ////
 //// The two answers meet in
 //// [`grapheme_diff.splice`](./grapheme_diff.html#splice), and they become one
-//// op.
+//// operation.
 ////
 //// To compose over a selection thus replaces that selection *in its current
 //// form*, and it consumes a concurrent edit of a peer inside it. To type over
@@ -164,7 +164,7 @@
 ////
 //// The component does not draw a peer whose anchors this replica cannot
 //// resolve yet, which occurs for content that the peer just created. It draws
-//// that peer after the op arrives.
+//// that peer after the operation arrives.
 
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
@@ -509,7 +509,7 @@ pub fn update(
           effect.none(),
         )
         // Diff against the channel's current optimistic string and send exactly
-        // one minimal op.
+        // one minimal operation.
         None, _ -> {
           let model = Model(..model, committed: None)
           let edit = grapheme_diff.diff(old: current(model), new: value)
@@ -518,12 +518,13 @@ pub fn update(
           // Snapshot *after* applying: on success this is the text the user
           // just typed, and on a rejected index it snaps the textarea back to
           // the truth the runtime kept. Either way the local kernel event that
-          // follows re-snapshots to the same string, so that write is a no-op.
+          // follows re-snapshots to the same string, so that write is a
+          // no-operation.
           let model = record(snapshot(model), result, edit)
 
           // Re-anchor against the string the *browser* holds, which is the one
           // the reported offsets index into. It is the snapshot too, unless the
-          // op was rejected — the one case where the two disagree.
+          // operation was rejected — the one case where the two disagree.
           let model =
             locate(anchor(model, value, selection_start, selection_end))
 
@@ -593,9 +594,9 @@ pub fn update(
           update(model, UserInput(value:, selection_start:, selection_end:))
 
         Some(composition) -> {
-          // Read once, before the op lands: applying the composition can move
-          // or delete the very graphemes the span is anchored to, so a second
-          // reading afterwards would answer a different question.
+          // Read once, before the operation lands: applying the composition can
+          // move or delete the very graphemes the span is anchored to, so a
+          // second reading afterwards would answer a different question.
           let #(start, end) = site(model, composition)
           let shift = start - composition.region.0
           let edit = commit(composition, value, start, end, shift)
@@ -669,7 +670,7 @@ fn site(model: Editor(channel), composition: Composition) -> #(Int, Int) {
   }
 }
 
-/// The one op that applies everything that the user composed.
+/// The one operation that applies everything that the user composed.
 ///
 /// The two halves of the session answer separate questions, and this function
 /// keeps them separate. The final value of the element says *what the user
@@ -689,8 +690,8 @@ fn commit(
 ) -> Edit {
   case value == composition.frozen {
     // An abandoned session — escaped, or committed to nothing. Replacing the
-    // region with its own text would be a no-op on this replica and a deletion
-    // of anything a peer put inside it meanwhile.
+    // region with its own text would be a no-operation on this replica and a
+    // deletion of anything a peer put inside it meanwhile.
     True -> grapheme_diff.NoChange
     False ->
       case
@@ -722,9 +723,9 @@ fn settle(
 ) -> #(Editor(channel), Effect(Msg)) {
   case model.value == rendered {
     // The ordinary case for a local keystroke: the channel is echoing text the
-    // model already rendered, so the vdom write is a no-op and the browser's
-    // own caret is exactly where the user put it. Touching the selection here
-    // would be fighting them for it.
+    // model already rendered, so the vdom write is a no-operation and the
+    // browser's own caret is exactly where the user put it. Touching the
+    // selection here would be fighting them for it.
     True -> #(model, effect.none())
     // The text moved under the element. The anchors moved with it, so resolve
     // them and put the caret back before the browser paints — and re-place the
@@ -1079,7 +1080,8 @@ fn locate(model: Editor(channel)) -> Editor(channel) {
           ))
         // An anchor this replica cannot name yet — usually content the peer
         // has only just created. Drop the cursor rather than guess; it comes
-        // back on the next announce, by which time the op will have arrived.
+        // back on the next announce, by which time the operation will have
+        // arrived.
         _, _ -> None
       }
       Peer(..peer, range:)
@@ -1426,7 +1428,7 @@ fn crdt_resolve_anchor(
   crdt_js.text_resolve_anchor(channel, anchor) |> result.replace_error(Nil)
 }
 
-/// Run a computed `Edit` value against the channel, as one minimal op.
+/// Run a computed `Edit` value against the channel, as one minimal operation.
 fn apply(model: Editor(channel), edit: Edit) -> Result(Nil, String) {
   case edit {
     grapheme_diff.NoChange -> Ok(Nil)

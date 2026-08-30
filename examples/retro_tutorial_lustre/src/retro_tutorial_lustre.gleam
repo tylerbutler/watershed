@@ -29,7 +29,7 @@ import watershed/transport_js
 import watershed_lustre
 
 import retro_tutorial_lustre/board.{type Column, type NoteCard}
-import retro_tutorial_lustre/board_op
+import retro_tutorial_lustre/board_operations
 import retro_tutorial_lustre/doc_schema
 
 /// These dev constants match `just integration-up`.
@@ -295,7 +295,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         _, Some(shared) -> {
           let created = transport_js.now_ms()
           let _ =
-            board_op.add_note(
+            board_operations.add_note(
               shared.notes,
               model.user_id,
               text,
@@ -316,7 +316,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     UpvoteClicked(id) ->
       case model.shared {
         Some(shared) -> {
-          board_op.upvote(shared.votes, id)
+          board_operations.upvote(shared.votes, id)
           #(snapshot(model), effect.none())
         }
         None -> #(model, effect.none())
@@ -325,7 +325,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     DownvoteClicked(id) ->
       case model.shared {
         Some(shared) -> {
-          board_op.downvote(shared.votes, id)
+          board_operations.downvote(shared.votes, id)
           #(snapshot(model), effect.none())
         }
         None -> #(model, effect.none())
@@ -408,7 +408,7 @@ fn snapshot(model: Model) -> Model {
 
   let #(board_state, error) = case model.shared {
     Some(shared) ->
-      case board_op.snapshot(title, shared.notes, shared.votes) {
+      case board_operations.snapshot(title, shared.notes, shared.votes) {
         Ok(b) -> #(b, error)
         Error(reason) -> #(board.empty(title), Some(reason))
       }

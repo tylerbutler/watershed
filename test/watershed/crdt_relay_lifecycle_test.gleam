@@ -2296,7 +2296,7 @@ fn claps(env: Setup, member: Member, times: Int) -> Nil {
 
 @target(javascript)
 /// `needed` encoded PnCounter increments from one seeder replica, each a
-/// distinct op a fresh client will *merge*. This is the valid content
+/// distinct operation a fresh client will *merge*. This is the valid content
 /// that makes a full room a *recoverable* one rather than a wedged one:
 /// there is nothing here to skip, so the drain-by-skip path that rescues
 /// an unmergeable room never fires, and a checkpoint is the only way down.

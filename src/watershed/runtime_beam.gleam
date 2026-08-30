@@ -8,17 +8,17 @@
 ////
 //// Resilience (M4):
 ////
-//// - **Gaps.** `runtime_core` buffers an op that arrives out of order, and it
-////   asks this actor to send a `requestOps` frame for an in-band catch-up. The
-////   buffer empties as it fills.
+//// - **Gaps.** `runtime_core` buffers an operation that arrives out of order,
+////   and it asks this actor to send a `requestOps` frame for an in-band
+////   catch-up. The buffer empties as it fills.
 //// - **Reconnect.** A channel that closes in the middle of a session, or a
 ////   nack that permits a retry, causes a rejoin and a new handshake with a new
 ////   client id. The handshake sends `lastSeenSequenceNumber`, so the server
-////   pushes the delta only. The actor reconciles the old ops that are still in
-////   flight against the catch-up stream, and it resubmits the remainder with
-////   new CSN values after it reaches the reconnect checkpoint. The actor
-////   applies an edit from the connecting interval optimistically, and it
-////   delays the push of that edit to the same resubmit.
+////   pushes the delta only. The actor reconciles the old operations that are
+////   still in flight against the catch-up stream, and it resubmits the
+////   remainder with new CSN values after it reaches the reconnect checkpoint.
+////   The actor applies an edit from the connecting interval optimistically,
+////   and it delays the push of that edit to the same resubmit.
 //// - **Nacks.** A fatal nack, which reports a bad scope, a bad size, or a hard
 ////   limit, crashes the actor. Every other nack causes a reconnect and a
 ////   reconcile.
@@ -123,9 +123,9 @@ const connect_timeout_ms = 10_000
 const heartbeat_interval_ms = 30_000
 
 @target(erlang)
-/// The server nacks a submission of more than 100 ops. Split a resubmit into
-/// chunks to stay below that limit.
-const max_ops_per_submission = 100
+/// The server nacks a submission of more than 100 operations. Split a resubmit
+/// into chunks to stay below that limit.
+const max_operations_per_submission = 100
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Transport seam
@@ -202,9 +202,9 @@ pub type Msg {
   /// Install the automatic summarization policy, or clear it. A value of
   /// `None` turns the policy off.
   SetAutoSummary(policy: Option(summary_policy.Policy))
-  /// The ops that sequenced after the newest checkpoint that this client
+  /// The operations that sequenced after the newest checkpoint that this client
   /// knows about.
-  OpsSinceSummary(reply: Subject(Int))
+  OperationsSinceSummary(reply: Subject(Int))
   // Receiver-process lifecycle
   ChannelReady(TransportHandle)
   ChannelFailed(String)
@@ -221,8 +221,8 @@ pub type Msg {
   AddOrderedItem(address: String, value: Json)
   AcquireOrderedItem(address: String, reply: Subject(String))
   /// The same as `AcquireOrderedItem`, and `outcome` also receives the
-  /// consensus result of the acquire when the op sequences, or immediately
-  /// when the channel is detached.
+  /// consensus result of the acquire when the operation sequences, or
+  /// immediately when the channel is detached.
   AcquireOrderedItemWithOutcome(
     address: String,
     outcome: Subject(ordered_collection_kernel.AcquireOutcome),
@@ -255,7 +255,7 @@ pub type Msg {
   )
   /// Insert `value` at the grapheme `index`, counted from zero. An empty
   /// edit, where `value` is `""`, changes nothing. It succeeds, and it
-  /// produces no event and no outbound op.
+  /// produces no event and no outbound operation.
   InsertText(
     address: String,
     index: Int,
@@ -285,7 +285,7 @@ pub type Msg {
     value: String,
     reply: Subject(Result(Nil, String)),
   )
-  SubmitJsonOt(address: String, components: json_ot.Op)
+  SubmitJsonOt(address: String, components: json_ot.Operation)
   SubmitRichText(address: String, delta: rich_text.Delta)
   IncrementOrMap(address: String, key: String, amount: Int)
   SetOrMapKey(address: String, key: String, value: String)
@@ -575,7 +575,7 @@ pub type Msg {
 pub type PresenceFrame {
   /// A `presence_state` snapshot, encoded as `Json`. The runtime does not
   /// decode it further, because it has no decoder for the metadata of the
-  /// application, and the op lane does have one.
+  /// application, and the operation lane does have one.
   PresenceState(payload: Json)
   PresenceDiff(payload: Json)
   PresenceError(payload: Json)
@@ -593,12 +593,12 @@ type Phase {
   Connecting(waiters: List(Subject(Result(Nil, String))))
   /// The socket is closed and the runtime is doing the handshake again. This
   /// state holds the core from before the reconnect, so its kernels, its
-  /// pending entries, and its in-flight ops all stay.
+  /// pending entries, and its in-flight operations all stay.
   Reconnecting(core: runtime_core.Core)
   /// The runtime is connected. `resubmit_at` is `Some(checkpoint)` while a
   /// reconnect still catches up to the point at which the runtime can
-  /// resubmit the ops with no ack. It is `None` after the runtime is fully
-  /// synchronized.
+  /// resubmit the operations with no ack. It is `None` after the runtime is
+  /// fully synchronized.
   Ready(core: runtime_core.Core, resubmit_at: Option(Int))
   Failed(reason: String)
 }
@@ -639,7 +639,8 @@ type State {
     /// part of the document.
     auto_summary: Option(summary_policy.Policy),
     /// Whether a `MaybeSummarize` wake-up is scheduled already. Without this
-    /// flag, a busy document would arm a new timer for every sequenced op.
+    /// flag, a busy document would arm a new timer for every sequenced
+    /// operation.
     summary_armed: Bool,
     self: Subject(Msg),
   )
@@ -789,8 +790,12 @@ pub fn auto_summarize(
 @target(erlang)
 /// How far the document moved past the newest checkpoint that this client knows
 /// about. The result is zero before the first handshake.
-pub fn ops_since_summary(runtime: Subject(Msg)) -> Int {
-  process.call(runtime, waiting: connect_timeout_ms, sending: OpsSinceSummary)
+pub fn operations_since_summary(runtime: Subject(Msg)) -> Int {
+  process.call(
+    runtime,
+    waiting: connect_timeout_ms,
+    sending: OperationsSinceSummary,
+  )
 }
 
 @target(erlang)
@@ -1081,16 +1086,16 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       actor.continue(state)
     }
 
-    OpsSinceSummary(reply) -> {
-      process.send(reply, read(state, 0, runtime_core.ops_since_summary))
+    OperationsSinceSummary(reply) -> {
+      process.send(reply, read(state, 0, runtime_core.operations_since_summary))
       actor.continue(state)
     }
 
     SetAutoSummary(policy) ->
-      // Arming waits for the next sequenced op rather than happening here: a
-      // document that is already past the threshold when the policy is
-      // installed is the common case on a busy document, and the op path is
-      // the one place that knows the phase has settled.
+      // Arming waits for the next sequenced operation rather than happening
+      // here: a document that is already past the threshold when the policy is
+      // installed is the common case on a busy document, and the operation path
+      // is the one place that knows the phase has settled.
       actor.continue(State(..state, auto_summary: policy))
 
     MaybeSummarize -> {
@@ -1105,9 +1110,9 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
               case do_summarize(state, core, channel) {
                 Ok(#(core, _handle)) ->
                   actor.continue(State(..state, phase: Ready(core, None)))
-                // A summarize op carries no ack, so there is nothing to
+                // A summarize operation carries no ack, so there is nothing to
                 // reconcile on failure: the checkpoint simply did not move,
-                // and the next sequenced op arms another attempt.
+                // and the next sequenced operation arms another attempt.
                 Error(_reason) -> actor.continue(state)
               }
           }
@@ -1733,7 +1738,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
 
     SubmitRipple(ripple_type, content) -> {
       // Fire-and-forget: push straight to the channel, no kernel/in-flight
-      // bookkeeping. No-op until a handshake has assigned a client id.
+      // bookkeeping. No-operation until a handshake has assigned a client id.
       case state.channel, client_id_of(state) {
         Some(channel), Some(client_id) ->
           push(
@@ -1922,14 +1927,14 @@ fn handle_inbound(
             )
           // Ask for the gap. Nothing else will: no server pushes it unprompted,
           // and the reactive `requestOps` in the `"op"` handler below needs an
-          // op to react to. See `runtime_core.catch_up_from`.
-          maybe_request_ops(
+          // operation to react to. See `runtime_core.catch_up_from`.
+          maybe_request_operations(
             state.channel,
             runtime_core.catch_up_from(core, checkpoint),
           )
-          // Presence is unsequenced, so it does not wait for the op catch-up
-          // `settle_reconnect` may still be pending — rejoining now is both
-          // correct and the fastest way back to a roster.
+          // Presence is unsequenced, so it does not wait for the operation
+          // catch-up `settle_reconnect` may still be pending — rejoining now is
+          // both correct and the fastest way back to a roster.
           notify_presence_session(state, core)
           settle_reconnect(state, core, checkpoint)
         }
@@ -1951,20 +1956,20 @@ fn handle_inbound(
       case state.phase {
         Ready(core, resubmit_at) -> {
           let #(core, events, resolutions, request_from, released) =
-            apply_ops(core, op_message(payload))
+            apply_operations(core, operation_message(payload))
           let state = resolve_claim_waiters(state, resolutions)
           let state = resolve_acquire_waiters(state, resolutions)
           fan_out(state.subscribers, events)
-          maybe_request_ops(state.channel, request_from)
+          maybe_request_operations(state.channel, request_from)
           case resubmit_at {
-            // Mid-reconnect: the ops a kernel just released are already in the
-            // in-flight queue, and `settle_reconnect` is about to restamp that
-            // whole queue with fresh client sequence numbers and send it.
-            // Sending them here as well would put two copies of each on the
-            // wire — the server sequences both, the client only expects the
-            // restamped one, and the stale ack fails the FIFO match. Every
-            // other submit path already gates on `resubmit_at`; this one is
-            // the only route by which an op reaches the wire without the
+            // Mid-reconnect: the operations a kernel just released are already
+            // in the in-flight queue, and `settle_reconnect` is about to
+            // restamp that whole queue with fresh client sequence numbers and
+            // send it. Sending them here as well would put two copies of each
+            // on the wire — the server sequences both, the client only expects
+            // the restamped one, and the stale ack fails the FIFO match. Every
+            // other submit path already gates on `resubmit_at`; this one is the
+            // only route by which an operation reaches the wire without the
             // application asking, which is why only the consensus kernels
             // (whose `Accept`s are released, not submitted) could trip it.
             Some(checkpoint) -> settle_reconnect(state, core, checkpoint)
@@ -1977,7 +1982,7 @@ fn handle_inbound(
             }
           }
         }
-        // Ops before/without a connected session (or while reconnecting)
+        // Operations before/without a connected session (or while reconnecting)
         // carry no state we can trust; ignore them.
         Connecting(_) | Reconnecting(_) | Failed(_) -> actor.continue(state)
       }
@@ -2034,9 +2039,9 @@ fn handle_inbound(
 }
 
 @target(erlang)
-/// Resubmit the ops with no ack, after the catch-up reaches the reconnect
-/// checkpoint. Before that point, stay in the catching-up state until more ops
-/// arrive.
+/// Resubmit the operations with no ack, after the catch-up reaches the
+/// reconnect checkpoint. Before that point, stay in the catching-up state until
+/// more operations arrive.
 fn settle_reconnect(
   state: State,
   core: runtime_core.Core,
@@ -2054,45 +2059,45 @@ fn settle_reconnect(
 }
 
 @target(erlang)
-fn op_message(payload: Json) -> List(SequencedDocumentMessage) {
+fn operation_message(payload: Json) -> List(SequencedDocumentMessage) {
   let message =
     require(
-      json.parse(json.to_string(payload), socket.op_message_decoder()),
+      json.parse(json.to_string(payload), socket.operation_message_decoder()),
       "op payload",
     )
   message.ops
 }
 
 @target(erlang)
-fn apply_ops(
+fn apply_operations(
   core: runtime_core.Core,
-  ops: List(SequencedDocumentMessage),
+  operations: List(SequencedDocumentMessage),
 ) -> #(
   runtime_core.Core,
   List(#(String, ChannelEvent)),
   List(#(String, Resolution)),
   Option(Int),
-  List(wire.OutboundOp),
+  List(wire.OutboundOperation),
 ) {
-  do_apply_ops(core, ops, [], [], None, [])
+  do_apply_operations(core, operations, [], [], None, [])
 }
 
 @target(erlang)
-fn do_apply_ops(
+fn do_apply_operations(
   core: runtime_core.Core,
-  ops: List(SequencedDocumentMessage),
+  operations: List(SequencedDocumentMessage),
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
   request_from: Option(Int),
-  released: List(wire.OutboundOp),
+  released: List(wire.OutboundOperation),
 ) -> #(
   runtime_core.Core,
   List(#(String, ChannelEvent)),
   List(#(String, Resolution)),
   Option(Int),
-  List(wire.OutboundOp),
+  List(wire.OutboundOperation),
 ) {
-  case ops {
+  case operations {
     [] -> #(
       core,
       list.reverse(events) |> list.flatten,
@@ -2100,15 +2105,15 @@ fn do_apply_ops(
       request_from,
       released,
     )
-    [op, ..rest] ->
-      case runtime_core.handle_sequenced(core, op) {
+    [operation, ..rest] ->
+      case runtime_core.handle_sequenced(core, operation) {
         Ok(#(core, ingested)) ->
-          do_apply_ops(
+          do_apply_operations(
             core,
             rest,
             [ingested.events, ..events],
             [ingested.resolutions, ..resolutions],
-            option.or(request_from, ingested.request_ops_from),
+            option.or(request_from, ingested.request_operations_from),
             list.append(released, ingested.outbound),
           )
         Error(core_error) ->
@@ -2270,9 +2275,9 @@ fn abort_outcome_waiters(state: State) -> State {
 }
 
 @target(erlang)
-/// Create an acquire id, submit the `Acquire` op, and reply with that id, so
-/// that the caller can complete or release the job later. The acquired item
-/// arrives in the sequenced `Acquired` event, because the queue is not
+/// Create an acquire id, submit the `Acquire` operation, and reply with that
+/// id, so that the caller can complete or release the job later. The acquired
+/// item arrives in the sequenced `Acquired` event, because the queue is not
 /// optimistic.
 fn handle_ordered_acquire(
   state: State,
@@ -2290,8 +2295,8 @@ fn handle_ordered_acquire(
 /// The same as `handle_ordered_acquire`, and the function also registers
 /// `outcome` to receive the consensus result of the acquire. That result
 /// arrives immediately for a detached channel, in the `AcquireResolved`
-/// resolution when the op sequences, or as `Aborted` when the document closes
-/// while the acquire is still in flight.
+/// resolution when the operation sequences, or as `Aborted` when the document
+/// closes while the acquire is still in flight.
 fn handle_ordered_acquire_with_outcome(
   state: State,
   address: String,
@@ -2476,7 +2481,11 @@ fn edit(
   state: State,
   operate: fn(runtime_core.Core) ->
     Result(
-      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      #(
+        runtime_core.Core,
+        List(#(String, ChannelEvent)),
+        List(wire.OutboundOperation),
+      ),
       runtime_core.CoreError,
     ),
 ) -> actor.Next(State, Msg) {
@@ -2489,8 +2498,8 @@ fn edit(
         Error(_) -> actor.continue(state)
         Ok(#(core, events, outbound)) -> {
           // Push immediately only when fully synced with a live channel;
-          // otherwise the op stays in-flight and `resubmit` sends it once, so a
-          // reconnect can't drop or duplicate it.
+          // otherwise the operation stays in-flight and `resubmit` sends it
+          // once, so a reconnect can't drop or duplicate it.
           case resubmit_at, state.channel {
             None, Some(channel) ->
               send_outbound(Some(channel), core.client_id, outbound)
@@ -2526,7 +2535,11 @@ fn edit_sequence_with_result(
   reply: Subject(Result(Nil, String)),
   operate: fn(runtime_core.Core) ->
     Result(
-      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      #(
+        runtime_core.Core,
+        List(#(String, ChannelEvent)),
+        List(wire.OutboundOperation),
+      ),
       runtime_core.CoreError,
     ),
   verb: String,
@@ -2544,7 +2557,7 @@ fn edit_sequence_with_result(
           fan_out(state.subscribers, events)
           actor.continue(State(..state, phase: Ready(core, resubmit_at)))
         }
-        Error(runtime_core.SequenceOpFailed(_, detail)) -> {
+        Error(runtime_core.SequenceOperationFailed(_, detail)) -> {
           process.send(reply, Error(detail))
           actor.continue(state)
         }
@@ -2563,7 +2576,7 @@ fn edit_sequence_with_result(
           fan_out(state.subscribers, events)
           actor.continue(State(..state, phase: Reconnecting(core)))
         }
-        Error(runtime_core.SequenceOpFailed(_, detail)) -> {
+        Error(runtime_core.SequenceOperationFailed(_, detail)) -> {
           process.send(reply, Error(detail))
           actor.continue(state)
         }
@@ -2591,7 +2604,11 @@ fn edit_text_with_result(
   reply: Subject(Result(Nil, String)),
   operate: fn(runtime_core.Core) ->
     Result(
-      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      #(
+        runtime_core.Core,
+        List(#(String, ChannelEvent)),
+        List(wire.OutboundOperation),
+      ),
       runtime_core.CoreError,
     ),
   verb: String,
@@ -2609,7 +2626,7 @@ fn edit_text_with_result(
           fan_out(state.subscribers, events)
           actor.continue(State(..state, phase: Ready(core, resubmit_at)))
         }
-        Error(runtime_core.TextOpFailed(_, detail)) -> {
+        Error(runtime_core.TextOperationFailed(_, detail)) -> {
           process.send(reply, Error(detail))
           actor.continue(state)
         }
@@ -2628,7 +2645,7 @@ fn edit_text_with_result(
           fan_out(state.subscribers, events)
           actor.continue(State(..state, phase: Reconnecting(core)))
         }
-        Error(runtime_core.TextOpFailed(_, detail)) -> {
+        Error(runtime_core.TextOperationFailed(_, detail)) -> {
           process.send(reply, Error(detail))
           actor.continue(state)
         }
@@ -2656,7 +2673,11 @@ fn edit_with_result(
   reply: Subject(Result(Nil, String)),
   operate: fn(runtime_core.Core) ->
     Result(
-      #(runtime_core.Core, List(#(String, ChannelEvent)), List(wire.OutboundOp)),
+      #(
+        runtime_core.Core,
+        List(#(String, ChannelEvent)),
+        List(wire.OutboundOperation),
+      ),
       runtime_core.CoreError,
     ),
   verb: String,
@@ -2763,13 +2784,13 @@ fn nack_is_fatal(item: Nack) -> Bool {
 }
 
 @target(erlang)
-fn maybe_request_ops(
+fn maybe_request_operations(
   channel: Option(TransportHandle),
   request_from: Option(Int),
 ) -> Nil {
   case channel, request_from {
     Some(channel), Some(from) ->
-      push(channel, "requestOps", socket.encode_request_ops(from: from))
+      push(channel, "requestOps", socket.encode_request_operations(from: from))
     _, _ -> Nil
   }
 }
@@ -2783,10 +2804,11 @@ fn maybe_request_ops(
 /// is pending.
 ///
 /// The delay keeps the cost of a room low. Every client crosses the threshold
-/// on the same op. Each client then waits for a different interval, which comes
-/// from its id. The first summary that sequences advances `last_summary_sn` on
-/// every client, and the rest of the room checks again in `MaybeSummarize` and
-/// stops. A lost race costs one unnecessary upload, and nothing more.
+/// on the same operation. Each client then waits for a different interval,
+/// which comes from its id. The first summary that sequences advances
+/// `last_summary_sn` on every client, and the rest of the room checks again in
+/// `MaybeSummarize` and stops. A lost race costs one unnecessary upload, and
+/// nothing more.
 fn arm_summary(state: State, core: runtime_core.Core) -> State {
   case state.auto_summary, state.summary_armed {
     Some(policy), False ->
@@ -2812,7 +2834,8 @@ fn handle_summarize(
   reply: Subject(Result(String, String)),
 ) -> actor.Next(State, Msg) {
   // Summarizing is only well-defined while fully synced with a live channel:
-  // the confirmed state is stable and the summarize op can go out immediately.
+  // the confirmed state is stable and the summarize operation can go out
+  // immediately.
   case state.phase, state.channel {
     Ready(core, None), Some(channel) ->
       case do_summarize(state, core, channel) {
@@ -2841,9 +2864,9 @@ fn handle_summarize(
 }
 
 @target(erlang)
-/// Upload the confirmed state as a summary blob. Then stamp the summarize op
-/// that references that blob, and push it. The function returns the new core
-/// and the tree SHA.
+/// Upload the confirmed state as a summary blob. Then stamp the summarize
+/// operation that references that blob, and push it. The function returns the
+/// new core and the tree SHA.
 fn do_summarize(
   state: State,
   core: runtime_core.Core,
@@ -2882,17 +2905,17 @@ fn do_summarize(
   push(
     channel,
     "submitOp",
-    socket.encode_submit_op(core.client_id, [[outbound]]),
+    socket.encode_submit_operation(core.client_id, [[outbound]]),
   )
   Ok(#(core, tree_sha))
 }
 
 @target(erlang)
-/// Close the gap between the seed point of the bootstrap and the earliest op
-/// that the server pushed in band. The function reads the missing prefix from
-/// the deltas REST endpoint, one page at a time, until the history has no gap.
-/// A bootstrap must not complete on a history with a gap, so every failure here
-/// is fatal.
+/// Close the gap between the seed point of the bootstrap and the earliest
+/// operation that the server pushed in band. The function reads the missing
+/// prefix from the deltas REST endpoint, one page at a time, until the history
+/// has no gap. A bootstrap must not complete on a history with a gap, so every
+/// failure here is fatal.
 fn complete_bootstrap(
   state: State,
   bootstrapped: runtime_core.Bootstrapped,
@@ -3011,14 +3034,21 @@ fn http_base_url(state: State) -> String {
 fn send_outbound(
   channel: Option(TransportHandle),
   client_id: String,
-  outbound: List(wire.OutboundOp),
+  outbound: List(wire.OutboundOperation),
 ) -> Nil {
   case channel, outbound {
     _, [] -> Nil
     Some(channel), _ ->
-      list.each(list.sized_chunk(outbound, max_ops_per_submission), fn(chunk) {
-        push(channel, "submitOp", socket.encode_submit_op(client_id, [chunk]))
-      })
+      list.each(
+        list.sized_chunk(outbound, max_operations_per_submission),
+        fn(chunk) {
+          push(
+            channel,
+            "submitOp",
+            socket.encode_submit_operation(client_id, [chunk]),
+          )
+        },
+      )
     None, _ -> Nil
   }
 }

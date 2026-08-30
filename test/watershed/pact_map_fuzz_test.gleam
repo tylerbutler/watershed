@@ -6,7 +6,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import startest/expect
 import watershed/fuzz/kernel_fuzz.{
-  ClientOp, Deliver, Disconnect, Sequence, Synchronize,
+  ClientOperation, Deliver, Disconnect, Sequence, Synchronize,
 }
 import watershed/fuzz/pact_map_model.{CommandSet}
 import watershed/fuzz/script_gen
@@ -18,8 +18,8 @@ fn weights() -> script_gen.Weights {
     ..script_gen.default_weights(),
     add_client: 2,
     reconnect: 0,
-    rollback_op: 0,
-    stashed_op: 0,
+    rollback_operation: 0,
+    stashed_operation: 0,
   )
 }
 
@@ -29,13 +29,13 @@ pub fn converges_and_matches_oracle_test() -> Nil {
     model,
     kernel_fuzz.config_from_env(),
     client_count,
-    script_gen.script_generator(model.gen_op, client_count, weights()),
+    script_gen.script_generator(model.gen_operation, client_count, weights()),
   )
 }
 
 pub fn set_fans_out_accepts_and_settles_test() -> Nil {
   let script = [
-    ClientOp(1, CommandSet("a", Some(json.int(1)), 0)),
+    ClientOperation(1, CommandSet("a", Some(json.int(1)), 0)),
     Synchronize,
   ]
   kernel_fuzz.try_run_script(pact_map_model.model(), client_count, script)
@@ -44,7 +44,7 @@ pub fn set_fans_out_accepts_and_settles_test() -> Nil {
 
 pub fn leave_can_settle_pending_proposal_test() -> Nil {
   let script = [
-    ClientOp(1, CommandSet("a", Some(json.int(1)), 0)),
+    ClientOperation(1, CommandSet("a", Some(json.int(1)), 0)),
     Sequence(1),
     Deliver(0, 1),
     Deliver(1, 1),
@@ -55,7 +55,7 @@ pub fn leave_can_settle_pending_proposal_test() -> Nil {
   |> expect.to_be_ok
 }
 
-pub fn op_json_round_trips_test() -> Nil {
+pub fn operation_json_round_trips_test() -> Nil {
   let model = pact_map_model.model()
   [
     CommandSet("a", Some(json.int(1)), 7),
@@ -63,7 +63,10 @@ pub fn op_json_round_trips_test() -> Nil {
   ]
   |> list.each(fn(command) {
     let assert Ok(decoded) =
-      json.parse(json.to_string(model.op_to_json(command)), model.op_decoder)
+      json.parse(
+        json.to_string(model.operation_to_json(command)),
+        model.operation_decoder,
+      )
     decoded |> expect.to_equal(command)
   })
 }

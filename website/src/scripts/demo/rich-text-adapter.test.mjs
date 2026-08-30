@@ -369,7 +369,7 @@ test("caller-owned inputs are not mutated", () => {
 
 test("transformSelection contract: wrapper reorders args and unwraps a generated-style Result", () => {
   // Stand-in for the generated `rich_text.transform_selection(delta,
-  // selection, is_own_op) -> Result(Selection, Error)` FFI export: Gleam's
+  // selection, is_own_operation) -> Result(Selection, Error)` FFI export: Gleam's
   // argument order (delta first), returning a tagged Ok/Error rather than a
   // plain Selection.
   function fakeGeneratedTransformSelection(delta, selection, isOwnOp) {

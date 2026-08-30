@@ -171,8 +171,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
 
     // Replace swaps the value at an index in place, keeping its position. It is
-    // one watershed op composed from a lattice delete + insert delta, not a
-    // native lattice primitive.
+    // one watershed operation composed from a lattice delete + insert delta,
+    // not a native lattice primitive.
     RenameClicked(index) ->
       case list_at(model.tracks, index) {
         Error(Nil) -> #(model, effect.none())

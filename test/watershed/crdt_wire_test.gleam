@@ -38,10 +38,10 @@ fn round_trip(message: crdt_wire.Message) -> crdt_wire.Envelope {
 fn authored(
   init: channel.ChannelInit,
   edit: channel.P2pEdit,
-) -> #(channel.ChannelState, channel.ChannelOp) {
-  let assert Ok(#(state, _events, op)) =
+) -> #(channel.ChannelState, channel.ChannelOperation) {
+  let assert Ok(#(state, _events, operation)) =
     channel.apply_p2p_local(channel.new(init, replica: replica), edit)
-  #(state, op)
+  #(state, operation)
 }
 
 fn descriptor(address: String, creator: String) -> crdt_wire.ChannelDescriptor {
@@ -131,12 +131,13 @@ pub fn channel_announcement_round_trips_test() -> Nil {
 }
 
 pub fn delta_round_trips_test() -> Nil {
-  let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
+  let #(_, operation) =
+    authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   round_trip(crdt_wire.Delta(
     crdt_wire.MessageId(replica, 17),
     "replica-a:1",
     channel.OrSetChannel,
-    op,
+    operation,
   ))
   Nil
 }
@@ -211,13 +212,13 @@ pub fn every_eligible_channel_type_round_trips_a_delta_test() -> Nil {
   ]
   |> list.each(fn(pair) {
     let #(init, edit) = pair
-    let #(state, op) = authored(init, edit)
+    let #(state, operation) = authored(init, edit)
     let channel_type = channel.init_type(init)
     round_trip(crdt_wire.Delta(
       crdt_wire.MessageId(replica, 1),
       "replica-a:1",
       channel_type,
-      op,
+      operation,
     ))
     round_trip(
       crdt_wire.ChannelAnnounce(crdt_wire.ChannelEntry(
@@ -286,14 +287,15 @@ pub fn an_empty_sender_identity_is_rejected_test() -> Nil {
 }
 
 pub fn an_unsupported_channel_type_is_rejected_test() -> Nil {
-  let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
+  let #(_, operation) =
+    authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
       wrap(crdt_wire.Delta(
         crdt_wire.MessageId(replica, 1),
         "replica-a:1",
         channel.OrSetChannel,
-        op,
+        operation,
       )),
     )
   let assert Error(p2p.UnsupportedChannel(channel.MapChannel)) =
@@ -305,14 +307,15 @@ pub fn an_unsupported_channel_type_is_rejected_test() -> Nil {
 }
 
 pub fn an_unknown_channel_type_is_rejected_test() -> Nil {
-  let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
+  let #(_, operation) =
+    authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
       wrap(crdt_wire.Delta(
         crdt_wire.MessageId(replica, 1),
         "replica-a:1",
         channel.OrSetChannel,
-        op,
+        operation,
       )),
     )
   let assert Error(p2p.InvalidEnvelope(_, _)) =
@@ -325,14 +328,15 @@ pub fn an_unknown_channel_type_is_rejected_test() -> Nil {
 
 /// Local counters start at 1, so zero is as forged as a negative one.
 pub fn a_non_positive_message_counter_is_rejected_test() -> Nil {
-  let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
+  let #(_, operation) =
+    authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
       wrap(crdt_wire.Delta(
         crdt_wire.MessageId(replica, 4),
         "replica-a:1",
         channel.OrSetChannel,
-        op,
+        operation,
       )),
     )
   ["[\"replica-a\",-4]", "[\"replica-a\",0]"]
@@ -348,14 +352,15 @@ pub fn a_non_positive_message_counter_is_rejected_test() -> Nil {
 }
 
 pub fn a_malformed_message_id_is_rejected_test() -> Nil {
-  let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
+  let #(_, operation) =
+    authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
       wrap(crdt_wire.Delta(
         crdt_wire.MessageId(replica, 4),
         "replica-a:1",
         channel.OrSetChannel,
-        op,
+        operation,
       )),
     )
   [
@@ -373,14 +378,15 @@ pub fn a_malformed_message_id_is_rejected_test() -> Nil {
 }
 
 pub fn a_delta_naming_an_invalid_address_is_rejected_test() -> Nil {
-  let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
+  let #(_, operation) =
+    authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
       wrap(crdt_wire.Delta(
         crdt_wire.MessageId(replica, 1),
         "replica-a:1",
         channel.OrSetChannel,
-        op,
+        operation,
       )),
     )
   let assert Error(p2p.InvalidEnvelope(_, detail)) =
@@ -393,14 +399,15 @@ pub fn a_delta_naming_an_invalid_address_is_rejected_test() -> Nil {
 }
 
 pub fn delta_contents_must_match_the_declared_channel_type_test() -> Nil {
-  let #(_, op) = authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
+  let #(_, operation) =
+    authored(channel.InitOrSet, channel.OrSetAddEdit("plum"))
   let raw =
     crdt_wire.envelope_to_string(
       wrap(crdt_wire.Delta(
         crdt_wire.MessageId(replica, 1),
         "replica-a:1",
         channel.OrSetChannel,
-        op,
+        operation,
       )),
     )
   let assert Error(p2p.InvalidEnvelope(_, detail)) =

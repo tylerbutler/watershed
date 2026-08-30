@@ -3,8 +3,8 @@ import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt, section } from "../../lib/excerpt";
-import boardOpsSource from "../../../../examples/retro_tutorial_lustre/src/board_ops.gleam?raw";
-import boardSource from "../../../../examples/retro_tutorial_lustre/src/board.gleam?raw";
+import boardOpsSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board_operations.gleam?raw";
+import boardSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam?raw";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
 import boardTestSource from "../../../../examples/retro_tutorial_lustre/test/board_test.gleam?raw";
 
@@ -51,7 +51,7 @@ watershed.set(board, id, json.int(current + 1))`;
       The vote API is three lines long. An upvote sends <code>+1</code>; a
       downvote sends <code>-1</code>.
     </p>
-    <span class="g-file">src/board_ops.gleam</span>
+    <span class="g-file">src/board_operations.gleam</span>
     <figure class="g-code">
       <Code code={voteOps} lang="gleam" theme={watershedCodeTheme} />
     </figure>
@@ -103,7 +103,7 @@ watershed.set(board, id, json.int(current + 1))`;
       back as a <code>Tally</code>, and anything else would mean the channel
       was set up in the wrong mode.
     </p>
-    <span class="g-file">src/board_ops.gleam</span>
+    <span class="g-file">src/board_operations.gleam</span>
     <figure class="g-code">
       <Code code={readVotes} lang="gleam" theme={watershedCodeTheme} />
     </figure>

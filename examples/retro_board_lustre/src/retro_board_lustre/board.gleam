@@ -1,18 +1,18 @@
 //// The render rule: flat channel state → what each column shows.
 ////
-//// A cross-column move is three ops across two channel kinds — delete from
-//// one sequence, insert into another, rewrite the note's `column` register —
-//// with no transaction spanning them. Under concurrent moves the reachable
-//// states include a note id sitting in two column sequences at once, or in
-//// none, or in a sequence that disagrees with its register. This module makes
-//// every reachable state render sensibly, by one rule:
+//// A cross-column move is three operations across two channel kinds — delete
+//// from one sequence, insert into another, rewrite the note's `column`
+//// register — with no transaction spanning them. Under concurrent moves the
+//// reachable states include a note id sitting in two column sequences at once,
+//// or in none, or in a sequence that disagrees with its register. This module
+//// makes every reachable state render sensibly, by one rule:
 ////
 //// **The note's `column` register is authoritative.**
 ////
 //// - A note id in a sequence whose column does not match its register is
 ////   skipped when rendering that sequence (the garbage entry stays in the
 ////   sequence — repair-on-render would mean every client issuing corrective
-////   ops on every render, and those clients fighting each other).
+////   operations on every render, and those clients fighting each other).
 //// - A note whose register names a column whose sequence does not contain its
 ////   id renders at the end of that column, ordered by `(created, id)`.
 //// - A note whose register names no known column at all renders in the
@@ -39,8 +39,9 @@ pub type NoteCard {
     note: Note,
     votes: Int,
     /// The id's **raw** index in its column's sequence — gaps included, since
-    /// skipped garbage still occupies sequence positions and sequence ops
-    /// address raw indexes. `None` for notes rendered from the register alone.
+    /// skipped garbage still occupies sequence positions and sequence
+    /// operations address raw indexes. `None` for notes rendered from the
+    /// register alone.
     seq_index: Option(Int),
   )
 }

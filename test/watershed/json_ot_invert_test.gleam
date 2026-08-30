@@ -1,7 +1,8 @@
-//// Rung 6: rollback support. `invert(op)` must produce an op that, applied to
-//// `apply(doc, op)`, restores the original `doc`. Deletes carry their
-//// pre-image (`od`/`ld`), so invert needs no external snapshot — the property
-//// that lets the runtime roll a nacked optimistic op back to its prior state.
+//// Rung 6: rollback support. `invert(operation)` must produce an operation
+//// that, applied to `apply(doc, operation)`, restores the original `doc`.
+//// Deletes carry their pre-image (`od`/`ld`), so invert needs no external
+//// snapshot — the property that lets the runtime roll a nacked optimistic
+//// operation back to its prior state.
 
 import startest/expect
 import watershed/json_ot.{
@@ -13,10 +14,10 @@ fn parse(raw: String) -> JsonValue {
   value
 }
 
-/// `apply(apply(doc, op), invert(op)) == doc`.
-fn round_trips(doc: JsonValue, op: json_ot.Op) -> Nil {
-  let assert Ok(edited) = json_ot.apply(doc, op)
-  json_ot.apply(edited, json_ot.invert(op))
+/// `apply(apply(doc, operation), invert(operation)) == doc`.
+fn round_trips(doc: JsonValue, operation: json_ot.Operation) -> Nil {
+  let assert Ok(edited) = json_ot.apply(doc, operation)
+  json_ot.apply(edited, json_ot.invert(operation))
   |> expect.to_equal(Ok(doc))
 }
 
@@ -79,10 +80,10 @@ pub fn nested_object_round_trips_test() -> Nil {
 }
 
 pub fn double_invert_is_identity_test() -> Nil {
-  let op = [
+  let operation = [
     json_ot.number_add([Key("n")], NInt(7)),
     json_ot.list_delete([Key("l"), Index(0)], VArray([])),
   ]
-  json_ot.invert(json_ot.invert(op))
-  |> expect.to_equal(op)
+  json_ot.invert(json_ot.invert(operation))
+  |> expect.to_equal(operation)
 }

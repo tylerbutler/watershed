@@ -68,15 +68,16 @@ const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
 
-/// Ops past the checkpoint before a summary is attempted.
+/// Operations past the checkpoint before a summary is attempted.
 ///
 /// One policy per document, set once, here. `auto_summarize` stores a single
 /// policy on the runtime rather than a list, so a panel that installed its own
 /// would set it for the whole showcase — and with panels initialised lazily,
 /// *which* policy won would depend on the order someone clicked. The number is
-/// the drum machine's, chosen because a jam writes one op per step toggle; the
-/// canvas, which emits ops by the thousand, has strictly more reason to want
-/// it, and this document carries every panel's ops in one log.
+/// the drum machine's, chosen because a jam writes one operation per step
+/// toggle; the canvas, which emits operations by the thousand, has strictly
+/// more reason to want it, and this document carries every panel's operations
+/// in one log.
 const summary_threshold = 200
 
 pub fn main() -> Nil {

@@ -15,7 +15,7 @@ import watershed/handle
 import watershed/map_kernel
 import watershed/runtime_core.{type Core}
 import watershed/sequence_kernel
-import watershed/wire.{type OutboundOp}
+import watershed/wire.{type OutboundOperation}
 import watershed/wire/op as wire_op
 
 const client_id = "default_doc_1"
@@ -62,15 +62,15 @@ fn bootstrap() -> Core {
   core
 }
 
-fn decode_attach(op: OutboundOp) -> #(String, channel.Snapshot) {
+fn decode_attach(operation: OutboundOperation) -> #(String, channel.Snapshot) {
   let assert Ok(dynamic_value) =
-    json.parse(json.to_string(op.contents), decode.dynamic)
-  let assert Ok(wire_op.AttachOp(address, snapshot)) =
-    wire_op.decode_op_contents(dynamic_value)
+    json.parse(json.to_string(operation.contents), decode.dynamic)
+  let assert Ok(wire_op.AttachOperation(address, snapshot)) =
+    wire_op.decode_operation_contents(dynamic_value)
   #(address, snapshot)
 }
 
-pub fn detached_sequence_attaches_then_emits_ops_test() -> Nil {
+pub fn detached_sequence_attaches_then_emits_operations_test() -> Nil {
   let address = "sequence-1"
   let core =
     bootstrap()
@@ -87,7 +87,7 @@ pub fn detached_sequence_attaches_then_emits_ops_test() -> Nil {
     ),
   ])
 
-  let assert Ok(#(core, _, [child_attach, root_handle_op])) =
+  let assert Ok(#(core, _, [child_attach, root_handle_operation])) =
     runtime_core.set(core, "root", "items", handle.encode_handle(address))
   let #(child_address, child_snapshot) = decode_attach(child_attach)
   child_address |> expect.to_equal(address)
@@ -96,16 +96,16 @@ pub fn detached_sequence_attaches_then_emits_ops_test() -> Nil {
   sequence_kernel.values(child_kernel) |> expect.to_equal([json.string("a")])
 
   let assert Ok(dynamic_value) =
-    json.parse(json.to_string(root_handle_op.contents), decode.dynamic)
-  let assert Ok(wire_op.ChannelOp("root", contents)) =
-    wire_op.decode_op_contents(dynamic_value)
-  let assert Ok(channel.MapOp(map_kernel.Set("items", value))) =
-    decode.run(contents, wire_op.channel_op_decoder(channel.MapChannel))
+    json.parse(json.to_string(root_handle_operation.contents), decode.dynamic)
+  let assert Ok(wire_op.ChannelOperation("root", contents)) =
+    wire_op.decode_operation_contents(dynamic_value)
+  let assert Ok(channel.MapOperation(map_kernel.Set("items", value))) =
+    decode.run(contents, wire_op.channel_operation_decoder(channel.MapChannel))
   value |> expect.to_equal(handle.encode_handle(address))
 
-  let assert Ok(#(core, _, [op])) =
+  let assert Ok(#(core, _, [operation])) =
     runtime_core.sequence_replace(core, address, 0, json.string("A"))
-  json.to_string(op.contents)
+  json.to_string(operation.contents)
   |> string.contains("\"type\":\"sequenceReplace\"")
   |> expect.to_be_true()
   runtime_core.sequence_values(core, address)
@@ -120,14 +120,14 @@ pub fn sequence_invalid_index_is_explicit_core_error_test() -> Nil {
 
   runtime_core.sequence_delete(core, "sequence-1", 0)
   |> expect.to_equal(
-    Error(runtime_core.SequenceOpFailed(
+    Error(runtime_core.SequenceOperationFailed(
       "sequence-1",
       "delete index 0 invalid for length 0",
     )),
   )
 }
 
-pub fn attached_sequence_move_and_delete_emit_ops_test() -> Nil {
+pub fn attached_sequence_move_and_delete_emit_operations_test() -> Nil {
   let address = "sequence-1"
   let core =
     bootstrap()
@@ -141,18 +141,18 @@ pub fn attached_sequence_move_and_delete_emit_ops_test() -> Nil {
   let assert Ok(#(core, _, _)) =
     runtime_core.set(core, "root", "items", handle.encode_handle(address))
 
-  let assert Ok(#(core, _, [move_op])) =
+  let assert Ok(#(core, _, [move_operation])) =
     runtime_core.sequence_move(core, address, 2, 0)
-  json.to_string(move_op.contents)
+  json.to_string(move_operation.contents)
   |> string.contains("\"type\":\"sequenceMove\"")
   |> expect.to_be_true()
   runtime_core.sequence_values(core, address)
   |> expect.to_equal([json.string("c"), json.string("a"), json.string("b")])
   runtime_core.sequence_length(core, address) |> expect.to_equal(3)
 
-  let assert Ok(#(core, _, [delete_op])) =
+  let assert Ok(#(core, _, [delete_operation])) =
     runtime_core.sequence_delete(core, address, 1)
-  json.to_string(delete_op.contents)
+  json.to_string(delete_operation.contents)
   |> string.contains("\"type\":\"sequenceDelete\"")
   |> expect.to_be_true()
   runtime_core.sequence_values(core, address)
@@ -161,27 +161,30 @@ pub fn attached_sequence_move_and_delete_emit_ops_test() -> Nil {
 }
 
 pub fn sequence_same_shape_treats_equivalent_numbers_as_equal_test() -> Nil {
-  let assert Ok(#(_, _, op, _)) =
+  let assert Ok(#(_, _, operation, _)) =
     sequence_kernel.insert(
       sequence_kernel.new(replica_id.new("client-a")),
       0,
       json.float(1.0),
     )
-  let assert sequence_kernel.Insert(index, _, delta) = op
+  let assert sequence_kernel.Insert(index, _, delta) = operation
   let echoed = sequence_kernel.Insert(index, json.int(1), delta)
 
-  channel.same_shape(channel.SequenceOp(op), channel.SequenceOp(echoed))
+  channel.same_shape(
+    channel.SequenceOperation(operation),
+    channel.SequenceOperation(echoed),
+  )
   |> expect.to_be_true()
 }
 
 pub fn sequence_same_shape_rejects_altered_delta_test() -> Nil {
-  let assert Ok(#(_, _, op, _)) =
+  let assert Ok(#(_, _, operation, _)) =
     sequence_kernel.insert(
       sequence_kernel.new(replica_id.new("client-a")),
       0,
       json.string("Ada"),
     )
-  let assert sequence_kernel.Insert(index, value, _) = op
+  let assert sequence_kernel.Insert(index, value, _) = operation
   let altered =
     sequence_kernel.Insert(
       index,
@@ -189,7 +192,10 @@ pub fn sequence_same_shape_rejects_altered_delta_test() -> Nil {
       sequence.new(replica_id.new("attacker")),
     )
 
-  channel.same_shape(channel.SequenceOp(op), channel.SequenceOp(altered))
+  channel.same_shape(
+    channel.SequenceOperation(operation),
+    channel.SequenceOperation(altered),
+  )
   |> expect.to_be_false()
 }
 
@@ -216,11 +222,11 @@ pub fn attached_sequence_insert_attaches_nested_handle_first_test() -> Nil {
   |> list.map(fn(entry) { entry.0 })
   |> expect.to_equal(["root", address])
 
-  let assert Ok(#(core, _, [child_attach, sequence_op])) =
+  let assert Ok(#(core, _, [child_attach, sequence_operation])) =
     runtime_core.sequence_insert(core, address, 0, nested_handle)
   let #(child_address, _) = decode_attach(child_attach)
   child_address |> expect.to_equal(child)
-  json.to_string(sequence_op.contents)
+  json.to_string(sequence_operation.contents)
   |> string.contains("\"type\":\"sequenceInsert\"")
   |> expect.to_be_true()
 
@@ -254,11 +260,11 @@ pub fn attached_sequence_replace_attaches_nested_handle_first_test() -> Nil {
   |> list.map(fn(entry) { entry.0 })
   |> expect.to_equal(["root", address])
 
-  let assert Ok(#(core, _, [child_attach, sequence_op])) =
+  let assert Ok(#(core, _, [child_attach, sequence_operation])) =
     runtime_core.sequence_replace(core, address, 0, nested_handle)
   let #(child_address, _) = decode_attach(child_attach)
   child_address |> expect.to_equal(child)
-  json.to_string(sequence_op.contents)
+  json.to_string(sequence_operation.contents)
   |> string.contains("\"type\":\"sequenceReplace\"")
   |> expect.to_be_true()
 
@@ -275,14 +281,17 @@ pub fn sequence_edit_errors_preserve_optimistic_state_test() -> Nil {
 
   runtime_core.sequence_insert(empty, address, 1, json.string("a"))
   |> expect.to_equal(
-    Error(runtime_core.SequenceOpFailed(address, "insert index 1 outside 0..0")),
+    Error(runtime_core.SequenceOperationFailed(
+      address,
+      "insert index 1 outside 0..0",
+    )),
   )
   runtime_core.sequence_values(empty, address) |> expect.to_equal([])
   runtime_core.sequence_length(empty, address) |> expect.to_equal(0)
 
   runtime_core.sequence_delete(empty, address, 0)
   |> expect.to_equal(
-    Error(runtime_core.SequenceOpFailed(
+    Error(runtime_core.SequenceOperationFailed(
       address,
       "delete index 0 invalid for length 0",
     )),
@@ -292,7 +301,7 @@ pub fn sequence_edit_errors_preserve_optimistic_state_test() -> Nil {
 
   runtime_core.sequence_move(empty, address, 0, 0)
   |> expect.to_equal(
-    Error(runtime_core.SequenceOpFailed(
+    Error(runtime_core.SequenceOperationFailed(
       address,
       "move source index 0 invalid for length 0",
     )),
@@ -302,7 +311,7 @@ pub fn sequence_edit_errors_preserve_optimistic_state_test() -> Nil {
 
   runtime_core.sequence_replace(empty, address, 0, json.string("A"))
   |> expect.to_equal(
-    Error(runtime_core.SequenceOpFailed(
+    Error(runtime_core.SequenceOperationFailed(
       address,
       "replace index 0 invalid for length 0",
     )),
@@ -314,7 +323,7 @@ pub fn sequence_edit_errors_preserve_optimistic_state_test() -> Nil {
     runtime_core.sequence_insert(empty, address, 0, json.string("a"))
   runtime_core.sequence_move(populated, address, 0, 1)
   |> expect.to_equal(
-    Error(runtime_core.SequenceOpFailed(
+    Error(runtime_core.SequenceOperationFailed(
       address,
       "move destination index 1 outside 0..0",
     )),
@@ -342,7 +351,7 @@ pub fn sequence_wrong_type_and_unknown_address_errors_test() -> Nil {
 }
 
 pub fn sequence_summary_round_trips_test() -> Nil {
-  let assert Ok(#(state, _, op, _)) =
+  let assert Ok(#(state, _, operation, _)) =
     sequence_kernel.insert(
       sequence_kernel.new(replica_id.new("a")),
       0,
@@ -351,7 +360,7 @@ pub fn sequence_summary_round_trips_test() -> Nil {
         #("first", json.int(1)),
       ]),
     )
-  let assert Ok(state) = sequence_kernel.ack_local(state, op)
+  let assert Ok(state) = sequence_kernel.ack_local(state, operation)
   let summary = channel.SequenceSummary(state.sequenced)
   let encoded = channel.encode_snapshot(summary)
   let assert Ok(decoded) =

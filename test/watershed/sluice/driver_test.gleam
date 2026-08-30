@@ -209,7 +209,7 @@ pub fn pause_holds_delivery_until_resume_test() -> Nil {
   watershed_beam.get(map_a, "k") |> expect.to_equal(Ok(json.string("v")))
   watershed_beam.get(map_b, "k") |> expect.to_equal(Error(Nil))
 
-  // Releasing B delivers the held op.
+  // Releasing B delivers the held operation.
   sluice.resume(sluice, doc_b)
   sluice.settle(sluice)
   watershed_beam.get(map_b, "k") |> expect.to_equal(Ok(json.string("v")))
@@ -234,8 +234,9 @@ pub fn claims_first_writer_wins_test() -> Nil {
   sluice.settle(sluice)
 
   // Both submit the same key before any delivery. Each `claim_once`
-  // synchronously pushes its op into the core, so A's reaches the sequencer
-  // first (it is called first) and wins — deterministically, no timing.
+  // synchronously pushes its operation into the core, so A's reaches the
+  // sequencer first (it is called first) and wins — deterministically, no
+  // timing.
   let reply_a = watershed_beam.claim_once(claims_a, "owner", json.string("A"))
   let reply_b = watershed_beam.claim_once(claims_b, "owner", json.string("B"))
   sluice.settle(sluice)
@@ -620,10 +621,11 @@ pub fn shared_text_invalid_bounds_return_errors_test() -> Nil {
 }
 
 @target(erlang)
-pub fn shared_text_no_op_edits_do_not_submit_test() -> Nil {
-  // No-op edits (an empty insert/append, or a zero-length delete/replace)
-  // must not submit a channel op: subscribers see no event, and a peer that
-  // never delivers anything still converges since nothing was ever sent.
+pub fn shared_text_no_operation_edits_do_not_submit_test() -> Nil {
+  // No-operation edits (an empty insert/append, or a zero-length
+  // delete/replace) must not submit a channel operation: subscribers see no
+  // event, and a peer that never delivers anything still converges since
+  // nothing was ever sent.
   let sluice = start("shared-text-no-op")
   let doc_a = connect(sluice, "user-a")
   let doc_b = connect(sluice, "user-b")
@@ -642,14 +644,14 @@ pub fn shared_text_no_op_edits_do_not_submit_test() -> Nil {
   let assert Ok(text_b) = watershed_beam.resolve_text(doc_b, handle)
   let events_a = watershed_beam.subscribe_text(text_a)
 
-  // An empty insert at a valid index is a no-op: it returns Ok(Nil), fires
-  // no event, and never reaches the wire.
+  // An empty insert at a valid index is a no-operation: it returns Ok(Nil),
+  // fires no event, and never reaches the wire.
   watershed_beam.text_insert(text_a, 2, "") |> expect.to_equal(Ok(Nil))
-  // A zero-length delete-range/replace-range is likewise a no-op.
+  // A zero-length delete-range/replace-range is likewise a no-operation.
   watershed_beam.text_delete_range(text_a, 2, 2) |> expect.to_equal(Ok(Nil))
   watershed_beam.text_replace_range(text_a, 2, 2, "")
   |> expect.to_equal(Ok(Nil))
-  // Appending "" is a no-op too.
+  // Appending "" is a no-operation too.
   watershed_beam.text_append(text_a, "") |> expect.to_equal(Ok(Nil))
 
   process.receive(from: events_a, within: 10) |> expect.to_equal(Error(Nil))
@@ -783,9 +785,9 @@ pub fn reconnect_rejoins_under_a_fresh_client_id_test() -> Nil {
 }
 
 @target(erlang)
-/// The reconnecting client replays the ops it missed rather than losing them,
-/// which is what makes the gap a gap and not a reset.
-pub fn reconnect_replays_the_ops_missed_while_away_test() -> Nil {
+/// The reconnecting client replays the operations it missed rather than losing
+/// them, which is what makes the gap a gap and not a reset.
+pub fn reconnect_replays_the_operations_missed_while_away_test() -> Nil {
   let sluice = start("reconnect-gap")
   let doc_a = connect(sluice, "user-a")
   let doc_b = connect(sluice, "user-b")
@@ -1041,10 +1043,11 @@ fn panel_decoder() -> decode.Decoder(PresencePanel) {
 
 @target(erlang)
 /// The full job lifecycle — add, acquire, release, re-acquire, complete — is
-/// observable end to end from both sides: the author's subscriber sees each op
-/// land on ack with `local: True`, a peer's with `local: False`, and a release
-/// surfaces as `Added(newly_added: False)` rather than a distinct event, which
-/// is the shape the work-queue demo renders "job returned to queue" from.
+/// observable end to end from both sides: the author's subscriber sees each
+/// operation land on ack with `local: True`, a peer's with `local: False`, and
+/// a release surfaces as `Added(newly_added: False)` rather than a distinct
+/// event, which is the shape the work-queue demo renders "job returned to
+/// queue" from.
 pub fn subscribe_ordered_collection_observes_the_full_lifecycle_test() -> Nil {
   let sluice = start("ordered-lifecycle")
   let doc_a = connect(sluice, "user-a")
@@ -1137,7 +1140,7 @@ fn drain_ordered_events(
 }
 
 @target(erlang)
-pub fn ops_since_summary_counts_the_unsummarized_log_test() -> Nil {
+pub fn operations_since_summary_counts_the_unsummarized_log_test() -> Nil {
   // Nothing has summarized this document, so every sequenced message is drift
   // a joining client would have to replay. That number is what the automatic
   // policy thresholds on, and it is the one thing about summaries visible
@@ -1146,28 +1149,29 @@ pub fn ops_since_summary_counts_the_unsummarized_log_test() -> Nil {
   let doc_a = connect(sluice, "user-a")
   sluice.settle(sluice)
 
-  let before = watershed_beam.ops_since_summary(doc_a)
+  let before = watershed_beam.operations_since_summary(doc_a)
   { before > 0 } |> expect.to_be_true()
 
   watershed_beam.set(watershed_beam.root(doc_a), "a", json.int(1))
   watershed_beam.set(watershed_beam.root(doc_a), "b", json.int(2))
   sluice.settle(sluice)
 
-  watershed_beam.ops_since_summary(doc_a) |> expect.to_equal(before + 2)
+  watershed_beam.operations_since_summary(doc_a) |> expect.to_equal(before + 2)
 }
 
 @target(erlang)
 pub fn a_failing_automatic_summary_leaves_the_document_working_test() -> Nil {
   // The sluice serves no summary storage and its documents carry no token, so
   // every attempt this policy makes fails at the first gate. That is the point:
-  // a summarize op has no ack and no rollback, so a failed attempt must be
-  // inert — the document keeps converging and the client keeps writing.
+  // a summarize operation has no ack and no rollback, so a failed attempt must
+  // be inert — the document keeps converging and the client keeps writing.
   let sluice = start("summary-attempt")
   let doc_a = connect(sluice, "user-a")
   let doc_b = connect(sluice, "user-b")
   sluice.settle(sluice)
 
-  // Threshold 1 with no jitter: an attempt is armed by the next sequenced op.
+  // Threshold 1 with no jitter: an attempt is armed by the next sequenced
+  // operation.
   let policy =
     summary_policy.policy()
     |> summary_policy.with_threshold(1)
@@ -1193,7 +1197,7 @@ pub fn a_failing_automatic_summary_leaves_the_document_working_test() -> Nil {
   watershed_beam.get(watershed_beam.root(doc_b), "after")
   |> expect.to_equal(Ok(json.int(1)))
   // The attempt failed, so nothing moved the checkpoint.
-  { watershed_beam.ops_since_summary(doc_a) > 0 } |> expect.to_be_true()
+  { watershed_beam.operations_since_summary(doc_a) > 0 } |> expect.to_be_true()
 }
 
 @target(erlang)
@@ -1201,12 +1205,12 @@ pub fn a_failing_automatic_summary_leaves_the_document_working_test() -> Nil {
 /// room agrees on one value when they return.
 ///
 /// A rejoin gives a client a **new** client id. The json0 transform side came
-/// from that id before, so each author rebased its own pending op under the id
-/// it held when it wrote the op, while every other client transformed the same
-/// op under the id that the rejoin assigned. The two replicas then gave the
-/// pair opposite sides, and the document forked: one client read `a` and the
-/// other read `b`. The side now comes from the sequence order, so the
-/// replacement that sequenced first wins everywhere.
+/// from that id before, so each author rebased its own pending operation under
+/// the id it held when it wrote the operation, while every other client
+/// transformed the same operation under the id that the rejoin assigned. The
+/// two replicas then gave the pair opposite sides, and the document forked: one
+/// client read `a` and the other read `b`. The side now comes from the sequence
+/// order, so the replacement that sequenced first wins everywhere.
 pub fn concurrent_json_ot_replace_across_a_reconnect_converges_test() -> Nil {
   let sluice = start("json-ot-replace-reconnect")
   let doc_a = connect(sluice, "user-a")

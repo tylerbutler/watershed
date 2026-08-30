@@ -279,7 +279,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
         connected: Connected,
       ),
       // Safe to start before `#playhead` is in the DOM: the loop looks the
-      // element up every frame and no-ops until it appears.
+      // element up every frame and does nothing until it appears.
       audio.start_playhead(engine),
     ]),
   )
@@ -292,10 +292,10 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
 fn bootstrap_effect(doc: Document(doc_schema.Machine)) -> Effect(Msg) {
   let root = watershed.root_typed(doc)
   effect.batch([
-    // A jam session writes a lot of small ops — a step toggle apiece — so this
-    // is the example where an unsummarized log grows fastest and a later joiner
-    // pays for it. The threshold is well below floodgate's 1000-op in-band
-    // window, so a joiner's catch-up stays in band.
+    // A jam session writes a lot of small operations — a step toggle apiece —
+    // so this is the example where an unsummarized log grows fastest and a
+    // later joiner pays for it. The threshold is well below floodgate's
+    // 1000-operation in-band window, so a joiner's catch-up stays in band.
     watershed_lustre.auto_summarize(
       document: doc,
       policy: summary_policy.policy() |> summary_policy.with_threshold(200),
@@ -316,8 +316,8 @@ fn bootstrap_effect(doc: Document(doc_schema.Machine)) -> Effect(Msg) {
 }
 
 /// Assemble `SharedState` once all five nested channels have resolved, and
-/// start the per-channel subscriptions. A no-op until the last channel arrives
-/// or once already assembled.
+/// start the per-channel subscriptions. A no-operation until the last channel
+/// arrives or once already assembled.
 fn assemble(model: Model) -> #(Model, Effect(Msg)) {
   case model.shared, model.pending {
     None,

@@ -14,11 +14,11 @@
 //// purpose:
 ////
 //// 1. **Claiming is a race the server referees.** `ordered_acquire` takes the
-////    FIFO head; nothing moves until the op sequences, so the button renders a
-////    pending state that resolves via the acquire's consensus outcome —
-////    `AcquiredItem` for the winner, `QueueEmpty` for a loser (whose op emits
-////    no event at all). Faking an optimistic transition would hide the most
-////    interesting thing the queue does.
+////    FIFO head; nothing moves until the operation sequences, so the button
+////    renders a pending state that resolves via the acquire's consensus
+////    outcome — `AcquiredItem` for the winner, `QueueEmpty` for a loser (whose
+////    operation emits no event at all). Faking an optimistic transition would
+////    hide the most interesting thing the queue does.
 //// 2. **A dying client cannot take its work with it.** Close a tab holding a
 ////    job and the server's sequenced `"leave"` re-releases the job to the
 ////    queue tail in every surviving replica — no code in this app does that.
@@ -378,8 +378,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }
 
     // The dwell timer fired. The id guard makes a stale timer — from a job
-    // already released — a no-op. Completion is confirmed by the sequenced
-    // `Completed(local: True)` ack, which is where the Done append happens.
+    // already released — a no-operation. Completion is confirmed by the
+    // sequenced `Completed(local: True)` ack, which is where the Done append
+    // happens.
     WorkDone(acquire_id) ->
       case model.shared, model.claim {
         Some(shared), Working(current, _) if current == acquire_id -> {

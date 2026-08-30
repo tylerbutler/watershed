@@ -9,7 +9,7 @@ import gleam/list
 import gleam/option.{Some}
 import startest/expect
 import watershed/claims_kernel.{
-  type ClaimEvent, type ClaimOp, type ClaimOutcome, type ClaimsState,
+  type ClaimEvent, type ClaimOperation, type ClaimOutcome, type ClaimsState,
   type KernelError, type SubmitResult, Aborted, Accepted, AlreadyClaimed,
   AlreadyPendingLocally, Claim, Claimed, Lost, Submitted, UnexpectedAck,
   UnexpectedRollback,
@@ -22,9 +22,9 @@ import watershed/claims_kernel.{
 
 fn submitted(
   result: Result(SubmitResult, KernelError),
-) -> #(ClaimsState, ClaimOp) {
+) -> #(ClaimsState, ClaimOperation) {
   case result {
-    Ok(Submitted(state, op)) -> #(state, op)
+    Ok(Submitted(state, operation)) -> #(state, operation)
     Ok(AlreadyClaimed(_)) | Error(_) -> panic as "expected Submitted"
   }
 }
@@ -50,17 +50,20 @@ fn expect_already_pending(
 
 fn ack(
   state: ClaimsState,
-  op: ClaimOp,
+  operation: ClaimOperation,
   seq: Int,
 ) -> #(ClaimsState, List(ClaimEvent), ClaimOutcome) {
-  case claims_kernel.ack_local(state, op, seq) {
+  case claims_kernel.ack_local(state, operation, seq) {
     Ok(triple) -> triple
     Error(_) -> panic as "expected ack_local to succeed"
   }
 }
 
-fn roll_back(state: ClaimsState, op: ClaimOp) -> #(ClaimsState, ClaimOutcome) {
-  case claims_kernel.rollback(state, op) {
+fn roll_back(
+  state: ClaimsState,
+  operation: ClaimOperation,
+) -> #(ClaimsState, ClaimOutcome) {
+  case claims_kernel.rollback(state, operation) {
     Ok(pair) -> pair
     Error(_) -> panic as "expected rollback to succeed"
   }
@@ -77,8 +80,8 @@ fn expect_unexpected_rollback(
 }
 
 fn stashed(
-  result: Result(#(ClaimsState, ClaimOp), KernelError),
-) -> #(ClaimsState, ClaimOp) {
+  result: Result(#(ClaimsState, ClaimOperation), KernelError),
+) -> #(ClaimsState, ClaimOperation) {
   case result {
     Ok(pair) -> pair
     Error(_) -> panic as "expected apply_stashed_op to succeed"
@@ -137,7 +140,7 @@ pub fn cas_against_loaded_seq_zero_entry_succeeds_test() -> Nil {
   // A loaded entry carries seq 0; CAS captures ref_seq = 0, and the equality
   // acceptance path accepts it against that seq-0 entry.
   let loaded = claims_kernel.from_summary([#("key", string_value("v0"), 0)])
-  let #(state, op) =
+  let #(state, operation) =
     submitted(claims_kernel.compare_and_set_claim(
       loaded,
       "key",
@@ -145,8 +148,8 @@ pub fn cas_against_loaded_seq_zero_entry_succeeds_test() -> Nil {
       7,
     ))
   // ref_seq is the entry's seq (0), not last_seen_seq (7).
-  op |> expect.to_equal(Claim("key", string_value("v1"), 0))
-  let #(state, _events, outcome) = ack(state, op, 1)
+  operation |> expect.to_equal(Claim("key", string_value("v1"), 0))
+  let #(state, _events, outcome) = ack(state, operation, 1)
   outcome |> expect.to_equal(Accepted(string_value("v1")))
   claims_kernel.get(state, "key") |> expect.to_equal(Ok(string_value("v1")))
 }
@@ -157,41 +160,41 @@ pub fn cas_against_loaded_seq_zero_entry_succeeds_test() -> Nil {
 
 pub fn submit_is_not_optimistically_visible_test() -> Nil {
   // The map-style-port trap: a pending claim must NOT be visible to reads.
-  let #(state, op) =
+  let #(state, operation) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k",
       string_value("v"),
       0,
     ))
-  op |> expect.to_equal(Claim("k", string_value("v"), 0))
+  operation |> expect.to_equal(Claim("k", string_value("v"), 0))
   claims_kernel.get(state, "k") |> expect.to_equal(Error(Nil))
   claims_kernel.has(state, "k") |> expect.to_be_false()
 }
 
 pub fn ack_commits_and_emits_local_claimed_test() -> Nil {
-  let #(state, op) =
+  let #(state, operation) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k",
       string_value("v"),
       0,
     ))
-  let #(state, events, outcome) = ack(state, op, 1)
+  let #(state, events, outcome) = ack(state, operation, 1)
   outcome |> expect.to_equal(Accepted(string_value("v")))
   events |> expect.to_equal([Claimed("k", True)])
   claims_kernel.get(state, "k") |> expect.to_equal(Ok(string_value("v")))
 }
 
 pub fn try_set_on_committed_key_returns_already_claimed_test() -> Nil {
-  let #(state, op) =
+  let #(state, operation) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k",
       string_value("first"),
       0,
     ))
-  let #(state, _events, _outcome) = ack(state, op, 1)
+  let #(state, _events, _outcome) = ack(state, operation, 1)
   // Second attempt sees the committed value and sends nothing.
   claims_kernel.claim_once(state, "k", string_value("second"), 1)
   |> expect_already_claimed
@@ -199,7 +202,7 @@ pub fn try_set_on_committed_key_returns_already_claimed_test() -> Nil {
 }
 
 pub fn duplicate_pending_claim_errors_test() -> Nil {
-  let #(state, _op) =
+  let #(state, _operation) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "dup",
@@ -214,16 +217,16 @@ pub fn duplicate_pending_claim_errors_test() -> Nil {
 // Connected state, multiple clients — first-writer-wins
 // ─────────────────────────────────────────────────────────────────────────────
 
-pub fn first_sequenced_op_wins_on_every_client_test() -> Nil {
+pub fn first_sequenced_operation_wins_on_every_client_test() -> Nil {
   // Client A and B race key "k". A is sequenced first (seq 1), B second (seq 2).
-  let #(state_a, op_a) =
+  let #(state_a, operation_a) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k",
       string_value("A"),
       0,
     ))
-  let #(state_b, op_b) =
+  let #(state_b, operation_b) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k",
@@ -231,32 +234,36 @@ pub fn first_sequenced_op_wins_on_every_client_test() -> Nil {
       0,
     ))
 
-  // Client A: acks its own winning op, then rejects B's remote op.
-  let #(state_a, _e1, outcome_a) = ack(state_a, op_a, 1)
+  // Client A: acks its own winning operation, then rejects B's remote
+  // operation.
+  let #(state_a, _e1, outcome_a) = ack(state_a, operation_a, 1)
   outcome_a |> expect.to_equal(Accepted(string_value("A")))
-  let #(state_a, events_a2) = claims_kernel.apply_remote(state_a, op_b, 2)
+  let #(state_a, events_a2) =
+    claims_kernel.apply_remote(state_a, operation_b, 2)
   events_a2 |> expect.to_equal([])
   claims_kernel.get(state_a, "k") |> expect.to_equal(Ok(string_value("A")))
 
-  // Client B: applies A's remote win, then its own op loses at ack.
-  let #(state_b, events_b1) = claims_kernel.apply_remote(state_b, op_a, 1)
+  // Client B: applies A's remote win, then its own operation loses at ack.
+  let #(state_b, events_b1) =
+    claims_kernel.apply_remote(state_b, operation_a, 1)
   events_b1 |> expect.to_equal([Claimed("k", False)])
-  let #(state_b, events_b2, outcome_b) = ack(state_b, op_b, 2)
+  let #(state_b, events_b2, outcome_b) = ack(state_b, operation_b, 2)
   outcome_b |> expect.to_equal(Lost(Some(string_value("A"))))
   events_b2 |> expect.to_equal([])
   claims_kernel.get(state_b, "k") |> expect.to_equal(Ok(string_value("A")))
 }
 
-pub fn rejected_remote_op_leaves_state_unchanged_test() -> Nil {
-  // Commit "k"="A" at seq 1, then a stale op with a non-matching ref_seq.
-  let #(state, op_a) =
+pub fn rejected_remote_operation_leaves_state_unchanged_test() -> Nil {
+  // Commit "k"="A" at seq 1, then a stale operation with a non-matching
+  // ref_seq.
+  let #(state, operation_a) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k",
       string_value("A"),
       0,
     ))
-  let #(state, _e, _o) = ack(state, op_a, 1)
+  let #(state, _e, _o) = ack(state, operation_a, 1)
   let stale = Claim("k", string_value("B"), 0)
   let #(after, events) = claims_kernel.apply_remote(state, stale, 2)
   events |> expect.to_equal([])
@@ -281,9 +288,10 @@ pub fn independent_keys_do_not_conflict_test() -> Nil {
 }
 
 pub fn remote_win_does_not_disturb_local_pending_test() -> Nil {
-  // S10: client B has a pending claim on "k". A remote op wins "k" first; B's
-  // pending entry survives and only resolves (as a loss) when B's op sequences.
-  let #(state_b, op_b) =
+  // S10: client B has a pending claim on "k". A remote operation wins "k"
+  // first; B's pending entry survives and only resolves (as a loss) when B's
+  // operation sequences.
+  let #(state_b, operation_b) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k",
@@ -295,7 +303,7 @@ pub fn remote_win_does_not_disturb_local_pending_test() -> Nil {
   events |> expect.to_equal([Claimed("k", False)])
   // The pending entry is untouched by the remote apply: ack still resolves it
   // (as a loss) rather than erroring on a missing pending entry.
-  let #(state_b, _e, outcome) = ack(state_b, op_b, 2)
+  let #(state_b, _e, outcome) = ack(state_b, operation_b, 2)
   outcome |> expect.to_equal(Lost(Some(string_value("A"))))
   claims_kernel.get(state_b, "k") |> expect.to_equal(Ok(string_value("A")))
 }
@@ -306,15 +314,15 @@ pub fn remote_win_does_not_disturb_local_pending_test() -> Nil {
 
 pub fn cas_succeeds_on_unclaimed_key_test() -> Nil {
   // No entry: ref_seq falls back to last_seen_seq.
-  let #(state, op) =
+  let #(state, operation) =
     submitted(claims_kernel.compare_and_set_claim(
       claims_kernel.new(),
       "k",
       string_value("v"),
       5,
     ))
-  op |> expect.to_equal(Claim("k", string_value("v"), 5))
-  let #(_state, _e, outcome) = ack(state, op, 6)
+  operation |> expect.to_equal(Claim("k", string_value("v"), 5))
+  let #(_state, _e, outcome) = ack(state, operation, 6)
   outcome |> expect.to_equal(Accepted(string_value("v")))
 }
 
@@ -376,9 +384,9 @@ pub fn concurrent_cas_first_writer_wins_test() -> Nil {
 
 pub fn cas_uses_exact_equality_not_greater_or_equal_test() -> Nil {
   // Ported from claims.spec.ts:420 ("CAS rejects when refSeq is greater than
-  // entry sequenceNumber"). Two CAS ops both capture ref_seq = 2; the first
-  // sequenced advances the entry to seq 3, so the second — ref_seq 2 against
-  // entry seq 3 — must be rejected.
+  // entry sequenceNumber"). Two CAS operations both capture ref_seq = 2; the
+  // first sequenced advances the entry to seq 3, so the second — ref_seq 2
+  // against entry seq 3 — must be rejected.
   let #(state, op0) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
@@ -399,7 +407,7 @@ pub fn cas_uses_exact_equality_not_greater_or_equal_test() -> Nil {
   cas1 |> expect.to_equal(Claim("k", string_value("value1"), 1))
   let #(state, _e, _o) = ack(state, cas1, 2)
 
-  // Now two competing CAS ops, both observing entry seq 2 -> ref_seq 2.
+  // Now two competing CAS operations, both observing entry seq 2 -> ref_seq 2.
   let #(state_c1, cas2) =
     submitted(claims_kernel.compare_and_set_claim(
       state,
@@ -431,14 +439,15 @@ pub fn cas_uses_exact_equality_not_greater_or_equal_test() -> Nil {
   |> expect.to_equal(Ok(string_value("value1again")))
 }
 
-pub fn write_once_op_with_stale_high_ref_seq_is_rejected_test() -> Nil {
-  // The op that actually discriminates `==` from `>=` (the port above asserts
-  // the right spec outcomes but passes under both rules). A write-once claim
-  // captures `ref_seq` from the container-wide last sequence number, which can
-  // exceed a key's own older committed SN — e.g. a client whose container
-  // advanced on other channels while it never saw an early, low-SN claim on
-  // this key. Such an op MUST be rejected (write-once holds); `==` rejects it,
-  // `>=` would wrongly accept and overwrite the committed claim.
+pub fn write_once_operation_with_stale_high_ref_seq_is_rejected_test() -> Nil {
+  // The operation that actually discriminates `==` from `>=` (the port above
+  // asserts the right spec outcomes but passes under both rules). A write-once
+  // claim captures `ref_seq` from the container-wide last sequence number,
+  // which can exceed a key's own older committed SN — e.g. a client whose
+  // container advanced on other channels while it never saw an early, low-SN
+  // claim on this key. Such an operation MUST be rejected (write-once holds);
+  // `==` rejects it, `>=` would wrongly accept and overwrite the committed
+  // claim.
   let state = claims_kernel.from_summary([#("k", string_value("A"), 2)])
   let stale = Claim("k", string_value("B"), 5)
   let #(after, events) = claims_kernel.apply_remote(state, stale, 6)
@@ -447,7 +456,7 @@ pub fn write_once_op_with_stale_high_ref_seq_is_rejected_test() -> Nil {
 }
 
 pub fn cas_on_key_with_pending_claim_errors_test() -> Nil {
-  let #(state, _op) =
+  let #(state, _operation) =
     submitted(claims_kernel.compare_and_set_claim(
       claims_kernel.new(),
       "k",
@@ -461,14 +470,14 @@ pub fn cas_on_key_with_pending_claim_errors_test() -> Nil {
 pub fn try_set_on_committed_key_beats_pending_cas_guard_test() -> Nil {
   // S7 ordering: try_set checks committed state *before* the pending guard, so
   // it returns AlreadyClaimed even while a CAS for that key is pending.
-  let #(state, op) =
+  let #(state, operation) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k",
       string_value("committed"),
       0,
     ))
-  let #(state, _e, _o) = ack(state, op, 1)
+  let #(state, _e, _o) = ack(state, operation, 1)
   // A CAS on the committed key is now pending.
   let #(state, _cas) =
     submitted(claims_kernel.compare_and_set_claim(
@@ -488,14 +497,14 @@ pub fn try_set_on_committed_key_beats_pending_cas_guard_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn rollback_removes_pending_and_aborts_test() -> Nil {
-  let #(state, op) =
+  let #(state, operation) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k",
       string_value("v"),
       0,
     ))
-  let #(state, outcome) = roll_back(state, op)
+  let #(state, outcome) = roll_back(state, operation)
   outcome |> expect.to_equal(Aborted)
   claims_kernel.pending_values(state) |> expect.to_equal([])
   claims_kernel.get(state, "k") |> expect.to_equal(Error(Nil))
@@ -510,12 +519,15 @@ pub fn rollback_with_no_pending_errors_test() -> Nil {
   |> expect_unexpected_rollback
 }
 
-pub fn stashed_op_reregisters_pending_and_returns_op_verbatim_test() -> Nil {
+pub fn stashed_operation_reregisters_pending_and_returns_operation_verbatim_test() -> Nil {
   // The original ref_seq (3) must be preserved for resubmission.
-  let op = Claim("k", string_value("v"), 3)
+  let operation = Claim("k", string_value("v"), 3)
   let #(state, resubmit) =
-    stashed(claims_kernel.apply_stashed_op(claims_kernel.new(), op))
-  resubmit |> expect.to_equal(op)
+    stashed(claims_kernel.apply_stashed_operation(
+      claims_kernel.new(),
+      operation,
+    ))
+  resubmit |> expect.to_equal(operation)
   // The key is now guarded against a duplicate local submit.
   claims_kernel.claim_once(state, "k", string_value("other"), 9)
   |> expect_already_pending("k")
@@ -523,11 +535,19 @@ pub fn stashed_op_reregisters_pending_and_returns_op_verbatim_test() -> Nil {
   claims_kernel.get(state, "k") |> expect.to_equal(Error(Nil))
 }
 
-pub fn stashed_op_on_pending_key_errors_test() -> Nil {
-  let op = Claim("k", string_value("v"), 0)
+pub fn stashed_operation_on_pending_key_errors_test() -> Nil {
+  let operation = Claim("k", string_value("v"), 0)
   let #(state, _resubmit) =
-    stashed(claims_kernel.apply_stashed_op(claims_kernel.new(), op))
-  case claims_kernel.apply_stashed_op(state, Claim("k", string_value("w"), 0)) {
+    stashed(claims_kernel.apply_stashed_operation(
+      claims_kernel.new(),
+      operation,
+    ))
+  case
+    claims_kernel.apply_stashed_operation(
+      state,
+      Claim("k", string_value("w"), 0),
+    )
+  {
     Error(AlreadyPendingLocally(pending_key)) ->
       expect.to_equal(pending_key, "k")
     Ok(_) | Error(UnexpectedAck(..)) | Error(UnexpectedRollback(..)) ->
@@ -536,14 +556,14 @@ pub fn stashed_op_on_pending_key_errors_test() -> Nil {
 }
 
 pub fn abort_all_returns_sorted_keys_and_clears_pending_test() -> Nil {
-  let #(state, _op) =
+  let #(state, _operation) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k2",
       string_value("b"),
       0,
     ))
-  let #(state, _op) =
+  let #(state, _operation) =
     submitted(claims_kernel.compare_and_set_claim(
       state,
       "k1",
@@ -556,7 +576,7 @@ pub fn abort_all_returns_sorted_keys_and_clears_pending_test() -> Nil {
 }
 
 pub fn pending_values_exposes_a_single_pending_value_test() -> Nil {
-  let #(state, _op) =
+  let #(state, _operation) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k",
@@ -567,14 +587,14 @@ pub fn pending_values_exposes_a_single_pending_value_test() -> Nil {
 }
 
 pub fn pending_values_exposes_every_pending_value_test() -> Nil {
-  let #(state, _op) =
+  let #(state, _operation) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "k1",
       string_value("a"),
       0,
     ))
-  let #(state, _op) =
+  let #(state, _operation) =
     submitted(claims_kernel.claim_once(state, "k2", string_value("b"), 0))
   let values = claims_kernel.pending_values(state)
   list.length(values) |> expect.to_equal(2)
@@ -587,7 +607,7 @@ pub fn pending_values_exposes_every_pending_value_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn summary_round_trips_values_and_sequence_numbers_test() -> Nil {
-  let #(state, op) =
+  let #(state, operation) =
     submitted(claims_kernel.claim_once(
       claims_kernel.new(),
       "a",
@@ -595,7 +615,7 @@ pub fn summary_round_trips_values_and_sequence_numbers_test() -> Nil {
       0,
     ))
   // Committed at server sequence number 5 — the SN must survive the round trip.
-  let #(state, _e, _o) = ack(state, op, 5)
+  let #(state, _e, _o) = ack(state, operation, 5)
   let entries = claims_kernel.summary_entries(state)
   entries |> expect.to_equal([#("a", string_value("v1"), 5)])
   let loaded = claims_kernel.from_summary(entries)
@@ -606,15 +626,15 @@ pub fn cas_after_load_uses_persisted_sequence_number_test() -> Nil {
   // Loaded entry carries seq 5; CAS captures ref_seq = 5 (not last_seen 99),
   // and the equality path accepts against seq 5.
   let loaded = claims_kernel.from_summary([#("k", string_value("v0"), 5)])
-  let #(state, op) =
+  let #(state, operation) =
     submitted(claims_kernel.compare_and_set_claim(
       loaded,
       "k",
       string_value("v1"),
       99,
     ))
-  op |> expect.to_equal(Claim("k", string_value("v1"), 5))
-  let #(state, _e, outcome) = ack(state, op, 6)
+  operation |> expect.to_equal(Claim("k", string_value("v1"), 5))
+  let #(state, _e, outcome) = ack(state, operation, 6)
   outcome |> expect.to_equal(Accepted(string_value("v1")))
   claims_kernel.get(state, "k") |> expect.to_equal(Ok(string_value("v1")))
 }
@@ -622,9 +642,9 @@ pub fn cas_after_load_uses_persisted_sequence_number_test() -> Nil {
 pub fn null_value_round_trips_with_has_true_test() -> Nil {
   // JSON null is a legitimate claimed value; `has` distinguishes it from
   // "never set", and it survives a summary round trip.
-  let #(state, op) =
+  let #(state, operation) =
     submitted(claims_kernel.claim_once(claims_kernel.new(), "k", json.null(), 0))
-  let #(state, _e, outcome) = ack(state, op, 1)
+  let #(state, _e, outcome) = ack(state, operation, 1)
   outcome |> expect.to_equal(Accepted(json.null()))
   claims_kernel.get(state, "k") |> expect.to_equal(Ok(json.null()))
   claims_kernel.has(state, "k") |> expect.to_be_true()

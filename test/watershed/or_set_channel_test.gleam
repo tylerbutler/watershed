@@ -58,7 +58,7 @@ fn bootstrap() -> Core {
   core
 }
 
-pub fn detached_or_set_attaches_and_then_emits_delta_ops_test() -> Nil {
+pub fn detached_or_set_attaches_and_then_emits_delta_operations_test() -> Nil {
   let address = "set-1"
   let core =
     bootstrap()
@@ -77,13 +77,13 @@ pub fn detached_or_set_attaches_and_then_emits_delta_ops_test() -> Nil {
     runtime_core.set(core, "root", "members", handle.encode_handle(address))
   attach_outbound |> list_length |> expect.to_equal(2)
 
-  let assert Ok(#(_core, events, [op])) =
+  let assert Ok(#(_core, events, [operation])) =
     runtime_core.or_set_add(core, address, "bob")
   events
   |> expect.to_equal([
     #(address, channel.OrSetEvent(or_set_kernel.ElementAdded("bob"))),
   ])
-  let encoded = json.to_string(op.contents)
+  let encoded = json.to_string(operation.contents)
   encoded
   |> string.contains("\"address\":\"" <> address <> "\"")
   |> expect.to_be_true()
@@ -92,9 +92,9 @@ pub fn detached_or_set_attaches_and_then_emits_delta_ops_test() -> Nil {
 }
 
 pub fn or_set_snapshot_round_trips_test() -> Nil {
-  let #(state, _, op, _) =
+  let #(state, _, operation, _) =
     or_set_kernel.add(or_set_kernel.new(replica_id.new("a")), "a")
-  let assert Ok(state) = or_set_kernel.ack_local(state, op)
+  let assert Ok(state) = or_set_kernel.ack_local(state, operation)
   let snapshot = channel.OrSetSnapshot(state.sequenced)
   let encoded = channel.encode_snapshot(snapshot)
   let assert Ok(decoded) =

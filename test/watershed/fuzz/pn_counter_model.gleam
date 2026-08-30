@@ -4,22 +4,22 @@
 //// which concurrent updates from two clients would max-merge onto one
 //// replica key and silently lose increments.
 ////
-//// The generated op is a claims-style slot-filling command: `gen_op` leaves
-//// `delta: None`, and `submit`/`apply_stashed` rewrite the op with the
-//// cumulative delta the kernel computed at apply time (H2 exists so the
-//// stash path can hand that rewrite back for routing).
+//// The generated operation is a claims-style slot-filling command:
+//// `gen_operation` leaves `delta: None`, and `submit`/`apply_stashed` rewrite
+//// the operation with the cumulative delta the kernel computed at apply time
+//// (H2 exists so the stash path can hand that rewrite back for routing).
 ////
 //// ## Oracle soundness (independent of `merge`)
 ////
-//// The oracle sums the sequenced ops' intent *amounts*. The kernel's merged
-//// value is Σ over replicas of (max cumulative positive − max cumulative
-//// negative), which equals the per-replica amount sums — and hence the
-//// oracle — provided every sequenced delta's cumulative count is monotone
-//// per replica half and computed off a base containing all of that
-//// replica's prior sequenced-or-pending deltas. That holds by construction:
-//// `update` computes deltas off `optimistic` inside the kernel, per-client
-//// op order is FIFO through inbox → resend → log, and rolled-back ops never
-//// reach the log (the rollback recompute rebases the next cumulative
+//// The oracle sums the sequenced operations' intent *amounts*. The kernel's
+//// merged value is Σ over replicas of (max cumulative positive − max
+//// cumulative negative), which equals the per-replica amount sums — and hence
+//// the oracle — provided every sequenced delta's cumulative count is monotone
+//// per replica half and computed off a base containing all of that replica's
+//// prior sequenced-or-pending deltas. That holds by construction: `update`
+//// computes deltas off `optimistic` inside the kernel, per-client operation
+//// order is FIFO through inbox → resend → log, and rolled-back operations
+//// never reach the log (the rollback recompute rebases the next cumulative
 //// correctly, so a rollback never breaks monotonicity of *routed* deltas).
 
 import gleam/dynamic/decode
@@ -35,10 +35,10 @@ import watershed/fuzz/kernel_fuzz.{
 }
 import watershed/pn_counter_kernel.{type PnCounterState, PendingDelta, Update}
 
-/// The generated op. `delta` is a slot filled by `submit`/`apply_stashed`
-/// (`None` until then): pre-submit ops genuinely have no delta, and a bogus
-/// placeholder delta would be a live footgun under merge, unlike a bogus
-/// int.
+/// The generated operation. `delta` is a slot filled by
+/// `submit`/`apply_stashed` (`None` until then): pre-submit operations
+/// genuinely have no delta, and a bogus placeholder delta would be a live
+/// footgun under merge, unlike a bogus int.
 pub type PnCommand {
   PnCommand(amount: Int, delta: Option(PNCounter))
 }
@@ -53,9 +53,10 @@ fn client_replica_id(id: Int) -> ReplicaId {
 /// `{"amount": Int, "delta": null | String}`. The delta is double-encoded
 /// (a JSON string holding the lattice envelope) because lattice exposes
 /// only string-based `from_json`, no composable `decode.Decoder(PNCounter)`.
-/// Dumped scripts mostly contain pre-submit ops (`delta: null`), but
-/// replayed `StashedOp`/`RollbackOp` fixtures must round-trip totally.
-fn op_to_json(command: PnCommand) -> json.Json {
+/// Dumped scripts mostly contain pre-submit operations (`delta: null`), but
+/// replayed `StashedOperation`/`RollbackOperation` fixtures must round-trip
+/// totally.
+fn operation_to_json(command: PnCommand) -> json.Json {
   json.object([
     #("amount", json.int(command.amount)),
     #("delta", case command.delta {
@@ -65,7 +66,7 @@ fn op_to_json(command: PnCommand) -> json.Json {
   ])
 }
 
-fn op_decoder() -> decode.Decoder(PnCommand) {
+fn operation_decoder() -> decode.Decoder(PnCommand) {
   use amount <- decode.field("amount", decode.int)
   use delta <- decode.field(
     "delta",
@@ -89,17 +90,17 @@ fn amount_from_int(n: Int) -> Int {
   n % 21 - 10
 }
 
-fn op_generator() -> qcheck.Generator(PnCommand) {
+fn operation_generator() -> qcheck.Generator(PnCommand) {
   qcheck.small_non_negative_int()
   |> qcheck.map(fn(n) { PnCommand(amount_from_int(n), None) })
 }
 
-/// A routed op must carry the delta `submit`/`apply_stashed` filled in; a
-/// `None` here is a model wiring bug, not a kernel bug — fail loudly.
-fn command_to_kernel_op(
+/// A routed operation must carry the delta `submit`/`apply_stashed` filled in;
+/// a `None` here is a model wiring bug, not a kernel bug — fail loudly.
+fn command_to_kernel_operation(
   command: PnCommand,
   context: String,
-) -> pn_counter_kernel.PnCounterOp {
+) -> pn_counter_kernel.PnCounterOperation {
   case command.delta {
     Some(delta) -> Update(command.amount, delta)
     None ->
@@ -110,16 +111,16 @@ fn command_to_kernel_op(
   }
 }
 
-/// Applies optimistically and rewrites the op with the kernel-computed
+/// Applies optimistically and rewrites the operation with the kernel-computed
 /// cumulative delta (claims precedent). Never returns `None`.
 fn submit(
   state: PnCounterState,
   command: PnCommand,
   _meta: kernel_fuzz.SubmitMeta,
 ) -> #(PnCounterState, Option(PnCommand)) {
-  let #(state, _events, op, _message_id) =
+  let #(state, _events, operation, _message_id) =
     pn_counter_kernel.update(state, command.amount)
-  let Update(amount, delta) = op
+  let Update(amount, delta) = operation
   #(state, Some(PnCommand(amount, Some(delta))))
 }
 
@@ -131,7 +132,7 @@ fn apply_remote(
   let #(state, _events) =
     pn_counter_kernel.apply_remote(
       state,
-      command_to_kernel_op(command, "apply_remote"),
+      command_to_kernel_operation(command, "apply_remote"),
     )
   Ok(state)
 }
@@ -144,7 +145,7 @@ fn ack_local(
   case
     pn_counter_kernel.ack_local(
       state,
-      command_to_kernel_op(command, "ack_local"),
+      command_to_kernel_operation(command, "ack_local"),
     )
   {
     Ok(state) -> Ok(state)
@@ -156,7 +157,7 @@ fn ack_local(
 /// Sum of sequenced intent amounts — see the module doc for why this equals
 /// the merged CRDT value without touching `merge`.
 fn oracle(entries: List(LogEntry(PnCommand))) -> Int {
-  list.fold(kernel_fuzz.log_ops(entries), 0, fn(total, entry) {
+  list.fold(kernel_fuzz.log_operations(entries), 0, fn(total, entry) {
     total + { entry.1 }.amount
   })
 }
@@ -172,7 +173,7 @@ fn rollback(state: PnCounterState, command: PnCommand) -> PnCounterState {
       case
         pn_counter_kernel.rollback(
           state,
-          command_to_kernel_op(command, "rollback"),
+          command_to_kernel_operation(command, "rollback"),
           message_id,
         )
       {
@@ -182,19 +183,20 @@ fn rollback(state: PnCounterState, command: PnCommand) -> PnCounterState {
   }
 }
 
-/// A generated stashed op has no delta, so fabricate the next cumulative
+/// A generated stashed operation has no delta, so fabricate the next cumulative
 /// one through the kernel's own update path — state-identical to a genuine
-/// merge-based `apply_stashed_op` of that delta (whose duplicate-idempotence
-/// is pinned by unit tests) — and hand the rewritten op back for routing
-/// (H2), keeping it valid for every peer's `apply_remote`/`ack_local`.
+/// merge-based `apply_stashed_operation` of that delta (whose
+/// duplicate-idempotence is pinned by unit tests) — and hand the rewritten
+/// operation back for routing (H2), keeping it valid for every peer's
+/// `apply_remote`/`ack_local`.
 fn apply_stashed(
   state: PnCounterState,
   command: PnCommand,
   _meta: kernel_fuzz.SubmitMeta,
 ) -> #(PnCounterState, PnCommand) {
-  let #(state, _events, op, _message_id) =
+  let #(state, _events, operation, _message_id) =
     pn_counter_kernel.update(state, command.amount)
-  let Update(amount, delta) = op
+  let Update(amount, delta) = operation
   #(state, PnCommand(amount, Some(delta)))
 }
 
@@ -217,14 +219,14 @@ pub fn model() -> KernelModel(PnCounterState, PnCommand, Int) {
     apply_remote: apply_remote,
     ack_local: ack_local,
     observe: pn_counter_kernel.value,
-    gen_op: op_generator(),
+    gen_operation: operation_generator(),
     // The strongest per-step probe in the suite: cache coherence checked
     // after every command on every client.
     check: Some(pn_counter_kernel.check_cache_coherence),
     canonicalize: None,
     ack_preserves_view: True,
-    op_to_json: op_to_json,
-    op_decoder: op_decoder(),
+    operation_to_json: operation_to_json,
+    operation_decoder: operation_decoder(),
     capabilities: Capabilities(
       load_from_synced: Some(load_from_synced),
       oracle: Some(oracle),

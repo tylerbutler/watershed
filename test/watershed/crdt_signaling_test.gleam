@@ -289,7 +289,8 @@ pub fn a_leave_is_announced_and_an_empty_room_is_deleted_test() -> Nil {
   actions |> expect.to_equal([Send(1, crdt_signaling.PeerLeft("beta"))])
   crdt_signaling.members(rooms, room) |> expect.to_equal(["alpha"])
 
-  // A disconnect after a leave is a no-op: the connection is already gone.
+  // A disconnect after a leave is a no-operation: the connection is already
+  // gone.
   let #(rooms, actions) = crdt_signaling.disconnect(rooms, 2)
   actions |> expect.to_equal([])
 

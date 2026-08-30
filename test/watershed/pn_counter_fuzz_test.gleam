@@ -7,7 +7,7 @@ import gleam/list
 import gleam/option.{None, Some}
 import lattice_core/replica_id
 import startest/expect
-import watershed/fuzz/kernel_fuzz.{ClientOp, KernelModel, Synchronize}
+import watershed/fuzz/kernel_fuzz.{ClientOperation, KernelModel, Synchronize}
 import watershed/fuzz/pn_counter_model.{PnCommand}
 import watershed/fuzz/script_gen
 import watershed/pn_counter_kernel.{Update}
@@ -19,8 +19,8 @@ const client_count = 3
 fn weights() -> script_gen.Weights {
   script_gen.Weights(
     ..script_gen.default_weights(),
-    rollback_op: 8,
-    stashed_op: 8,
+    rollback_operation: 8,
+    stashed_operation: 8,
   )
 }
 
@@ -30,24 +30,28 @@ pub fn converges_and_matches_oracle_test() -> Nil {
     model,
     kernel_fuzz.config_from_env(),
     client_count,
-    script_gen.script_generator(model.gen_op, client_count, weights()),
+    script_gen.script_generator(model.gen_operation, client_count, weights()),
   )
 }
 
-/// Fixture DX (PN6): ops round-trip through the model's JSON codec with and
-/// without a filled delta slot. Generated scripts only ever dump `delta:
-/// null` ops (they are captured pre-submit), so the delta branch — needed
-/// for hand-crafted or future rewritten-op fixtures — is pinned here.
-pub fn op_json_round_trips_with_and_without_delta_test() -> Nil {
+/// Fixture DX (PN6): operations round-trip through the model's JSON codec with
+/// and without a filled delta slot. Generated scripts only ever dump `delta:
+/// null` operations (they are captured pre-submit), so the delta branch —
+/// needed for hand-crafted or future rewritten-operation fixtures — is pinned
+/// here.
+pub fn operation_json_round_trips_with_and_without_delta_test() -> Nil {
   let model = pn_counter_model.model()
-  let #(_, _, op, _) =
+  let #(_, _, operation, _) =
     pn_counter_kernel.update(pn_counter_kernel.new(replica_id.new("a")), -6)
-  let Update(amount, delta) = op
+  let Update(amount, delta) = operation
 
   [PnCommand(3, None), PnCommand(amount, Some(delta))]
   |> list.each(fn(command) {
     let assert Ok(decoded) =
-      json.parse(json.to_string(model.op_to_json(command)), model.op_decoder)
+      json.parse(
+        json.to_string(model.operation_to_json(command)),
+        model.operation_decoder,
+      )
     decoded |> expect.to_equal(command)
   })
 }
@@ -64,8 +68,8 @@ pub fn shared_replica_id_loses_increments_test() -> Nil {
       pn_counter_kernel.new(replica_id.new("client-0"))
     })
   let script = [
-    ClientOp(1, PnCommand(3, None)),
-    ClientOp(2, PnCommand(5, None)),
+    ClientOperation(1, PnCommand(3, None)),
+    ClientOperation(2, PnCommand(5, None)),
     Synchronize,
   ]
   case kernel_fuzz.try_run_script(buggy, client_count, script) {

@@ -6,8 +6,8 @@
 //// cluster. The two counts agree only for text that contains BMP scalars and
 //// no combining marks. The first emoji, accent, or flag ends that agreement.
 //// If you read a caret position on one side and use it on the other side, the
-//// bridge puts an op at the wrong position. This is the most frequent error in
-//// a collaborative text bridge.
+//// bridge puts an operation at the wrong position. This is the most frequent
+//// error in a collaborative text bridge.
 ////
 //// Both directions clamp, and neither one fails. An offset after the end gives
 //// the end. A negative offset gives zero. An offset inside a cluster, for

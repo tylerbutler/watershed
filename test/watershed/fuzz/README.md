@@ -57,10 +57,10 @@ is a permanent regression test, populated automatically the first time
 `gleam test` or `just fuzz` hits a failure — no transcription into a new
 test function required.
 
-### Adding `op_to_json` / `op_decoder` to a new `KernelModel`
+### Adding `operation_to_json` / `operation_decoder` to a new `KernelModel`
 
-Every `KernelModel` must supply `op_to_json: fn(op) -> Json` and
-`op_decoder: Decoder(op)` so its ops round-trip through the failure-fixture
-JSON. See `counter_model.gleam` (a single-constructor op, encoded as a bare
-int) and `map_model.gleam` (a multi-constructor op, encoded as a tagged
-object) for the two shapes you're likely to need.
+Every `KernelModel` must supply `operation_to_json: fn(operation) -> Json` and
+`operation_decoder: Decoder(operation)` so its operations round-trip through the
+failure-fixture JSON. See `counter_model.gleam` (a single-constructor operation,
+encoded as a bare int) and `map_model.gleam` (a multi-constructor operation,
+encoded as a tagged object) for the two shapes you're likely to need.

@@ -1,10 +1,10 @@
 //// Pure port of FluidFramework's ConsensusRegisterCollection core semantics.
 ////
 //// This kernel is not optimistic, the same as `claims_kernel`. A local write
-//// is not visible until its op sequences. Unlike claims, the kernel keeps
-//// every sequenced write as a version. It updates the atomic slot only if the
-//// write knew the current atomic version
-//// (`ref_seq >= atomic.sequence_number`).
+//// is not visible until its operation sequences. Unlike claims, the kernel
+//// keeps every sequenced write as a version. It updates the atomic slot only
+//// if the write knew the current atomic version (`ref_seq >=
+//// atomic.sequence_number`).
 
 import gleam/dict.{type Dict}
 import gleam/json.{type Json}
@@ -26,9 +26,9 @@ pub type VersionedValue {
   VersionedValue(value: Json, sequence_number: Int)
 }
 
-/// The one register-collection op. `ref_seq` is the last sequence number that
-/// the author saw at submit time. A resubmit keeps that value.
-pub type WriteOp {
+/// The one register-collection operation. `ref_seq` is the last sequence number
+/// that the author saw at submit time. A resubmit keeps that value.
+pub type WriteOperation {
   Write(key: String, value: Json, ref_seq: Int)
 }
 
@@ -107,15 +107,15 @@ pub fn keys(state: RegisterState) -> List(String) {
   dict.keys(state.registers) |> list.sort(string.compare)
 }
 
-/// The attached submit path. Build an op with the last-seen sequence number
-/// that the runtime supplies. The state does not change, because a read is not
-/// optimistic.
+/// The attached submit path. Build an operation with the last-seen sequence
+/// number that the runtime supplies. The state does not change, because a read
+/// is not optimistic.
 pub fn write(
   _state: RegisterState,
   key: String,
   value: Json,
   last_seen_seq: Int,
-) -> WriteOp {
+) -> WriteOperation {
   Write(key, value, last_seen_seq)
 }
 
@@ -132,37 +132,54 @@ pub fn write_detached(
 
 pub fn apply_remote(
   state: RegisterState,
-  op: WriteOp,
+  operation: WriteOperation,
   seq: Int,
 ) -> #(RegisterState, List(RegisterEvent)) {
   let #(state, _is_winner, events) =
-    apply_write(state, op.key, op.value, op.ref_seq, seq, False)
+    apply_write(
+      state,
+      operation.key,
+      operation.value,
+      operation.ref_seq,
+      seq,
+      False,
+    )
   #(state, events)
 }
 
 pub fn ack_local(
   state: RegisterState,
-  op: WriteOp,
+  operation: WriteOperation,
   seq: Int,
 ) -> #(RegisterState, List(RegisterEvent), Bool) {
   let #(state, is_winner, events) =
-    apply_write(state, op.key, op.value, op.ref_seq, seq, True)
+    apply_write(
+      state,
+      operation.key,
+      operation.value,
+      operation.ref_seq,
+      seq,
+      True,
+    )
   #(state, events, is_winner)
 }
 
 /// A rollback resolves the deferred write result as false. There is no pending
 /// kernel state to undo, because a write is not visible until its ack.
-pub fn rollback(state: RegisterState, _op: WriteOp) -> #(RegisterState, Bool) {
+pub fn rollback(
+  state: RegisterState,
+  _operation: WriteOperation,
+) -> #(RegisterState, Bool) {
   #(state, False)
 }
 
-/// The kernel resubmits a stashed op without a change. In particular, it keeps
-/// `ref_seq`.
-pub fn apply_stashed_op(
+/// The kernel resubmits a stashed operation without a change. In particular, it
+/// keeps `ref_seq`.
+pub fn apply_stashed_operation(
   state: RegisterState,
-  op: WriteOp,
-) -> #(RegisterState, WriteOp) {
-  #(state, op)
+  operation: WriteOperation,
+) -> #(RegisterState, WriteOperation) {
+  #(state, operation)
 }
 
 fn apply_write(

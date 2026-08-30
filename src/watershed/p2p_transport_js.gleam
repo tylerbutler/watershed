@@ -1213,7 +1213,7 @@ fn handle_candidate(cell: Cell(State), from: String, candidate: String) -> Nil {
     Error(Nil) -> Nil
     Ok(peer) ->
       case peer.have_remote_description {
-        // Re-adding a candidate the ICE agent already has is a no-op by
+        // Re-adding a candidate the ICE agent already has is a no-operation by
         // specification, so an applied duplicate needs no guard here.
         True -> {
           let state = transport_js.get_cell(cell)

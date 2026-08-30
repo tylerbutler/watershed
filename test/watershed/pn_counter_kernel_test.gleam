@@ -26,9 +26,9 @@ fn expect_coherent(state: pn_counter_kernel.PnCounterState) -> Nil {
 
 fn ack(
   state: pn_counter_kernel.PnCounterState,
-  op: pn_counter_kernel.PnCounterOp,
+  operation: pn_counter_kernel.PnCounterOperation,
 ) -> pn_counter_kernel.PnCounterState {
-  case pn_counter_kernel.ack_local(state, op) {
+  case pn_counter_kernel.ack_local(state, operation) {
     Ok(state) -> state
     Error(_) -> panic as "expected ack to succeed"
   }
@@ -36,10 +36,10 @@ fn ack(
 
 fn rollback(
   state: pn_counter_kernel.PnCounterState,
-  op: pn_counter_kernel.PnCounterOp,
+  operation: pn_counter_kernel.PnCounterOperation,
   message_id: Int,
 ) -> #(pn_counter_kernel.PnCounterState, List(pn_counter_kernel.PnCounterEvent)) {
-  case pn_counter_kernel.rollback(state, op, message_id) {
+  case pn_counter_kernel.rollback(state, operation, message_id) {
     Ok(result) -> result
     Error(_) -> panic as "expected rollback to succeed"
   }
@@ -100,12 +100,13 @@ pub fn new_state_is_zero_test() -> Nil {
 }
 
 pub fn update_is_optimistically_visible_test() -> Nil {
-  let #(state, events, op, message_id) = pn_counter_kernel.update(new_a(), 10)
+  let #(state, events, operation, message_id) =
+    pn_counter_kernel.update(new_a(), 10)
   pn_counter_kernel.value(state) |> expect.to_equal(10)
   pn_counter_kernel.sequenced_value(state) |> expect.to_equal(0)
   message_id |> expect.to_equal(0)
   events |> expect.to_equal([Updated(10, 10)])
-  let Update(amount, _delta) = op
+  let Update(amount, _delta) = operation
   amount |> expect.to_equal(10)
   expect_coherent(state)
 }
@@ -129,8 +130,8 @@ pub fn update_message_ids_increment_test() -> Nil {
 }
 
 pub fn apply_remote_applies_delta_and_emits_diff_test() -> Nil {
-  let #(_, _, op, _) = pn_counter_kernel.update(new_a(), 7)
-  let #(state, events) = pn_counter_kernel.apply_remote(new_b(), op)
+  let #(_, _, operation, _) = pn_counter_kernel.update(new_a(), 7)
+  let #(state, events) = pn_counter_kernel.apply_remote(new_b(), operation)
   pn_counter_kernel.value(state) |> expect.to_equal(7)
   pn_counter_kernel.sequenced_value(state) |> expect.to_equal(7)
   state.pending |> expect.to_equal([])
@@ -139,28 +140,37 @@ pub fn apply_remote_applies_delta_and_emits_diff_test() -> Nil {
 }
 
 pub fn concurrent_updates_converge_in_both_orders_test() -> Nil {
-  let #(_, _, op_a, _) = pn_counter_kernel.update(new_a(), 10)
-  let #(_, _, op_b, _) = pn_counter_kernel.update(new_b(), 20)
+  let #(_, _, operation_a, _) = pn_counter_kernel.update(new_a(), 10)
+  let #(_, _, operation_b, _) = pn_counter_kernel.update(new_b(), 20)
 
-  // Two fresh observers receive the ops in opposite orders.
+  // Two fresh observers receive the operations in opposite orders.
   let #(observer_c, _) =
-    pn_counter_kernel.apply_remote(pn_counter_kernel.new(replica("c")), op_a)
-  let #(observer_c, _) = pn_counter_kernel.apply_remote(observer_c, op_b)
+    pn_counter_kernel.apply_remote(
+      pn_counter_kernel.new(replica("c")),
+      operation_a,
+    )
+  let #(observer_c, _) = pn_counter_kernel.apply_remote(observer_c, operation_b)
   let #(observer_d, _) =
-    pn_counter_kernel.apply_remote(pn_counter_kernel.new(replica("d")), op_b)
-  let #(observer_d, _) = pn_counter_kernel.apply_remote(observer_d, op_a)
+    pn_counter_kernel.apply_remote(
+      pn_counter_kernel.new(replica("d")),
+      operation_b,
+    )
+  let #(observer_d, _) = pn_counter_kernel.apply_remote(observer_d, operation_a)
 
   pn_counter_kernel.value(observer_c) |> expect.to_equal(30)
   pn_counter_kernel.value(observer_d) |> expect.to_equal(30)
 }
 
 pub fn concurrent_mixed_sign_updates_converge_test() -> Nil {
-  let #(_, _, op_a, _) = pn_counter_kernel.update(new_a(), 10)
-  let #(_, _, op_b, _) = pn_counter_kernel.update(new_b(), -4)
+  let #(_, _, operation_a, _) = pn_counter_kernel.update(new_a(), 10)
+  let #(_, _, operation_b, _) = pn_counter_kernel.update(new_b(), -4)
 
   let #(observer, _) =
-    pn_counter_kernel.apply_remote(pn_counter_kernel.new(replica("c")), op_a)
-  let #(observer, _) = pn_counter_kernel.apply_remote(observer, op_b)
+    pn_counter_kernel.apply_remote(
+      pn_counter_kernel.new(replica("c")),
+      operation_a,
+    )
+  let #(observer, _) = pn_counter_kernel.apply_remote(observer, operation_b)
   pn_counter_kernel.value(observer) |> expect.to_equal(6)
 }
 
@@ -169,12 +179,13 @@ pub fn concurrent_mixed_sign_updates_converge_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn duplicate_remote_delta_is_idempotent_and_silent_test() -> Nil {
-  let #(_, _, op, _) = pn_counter_kernel.update(new_a(), 3)
-  let #(state, first_events) = pn_counter_kernel.apply_remote(new_b(), op)
+  let #(_, _, operation, _) = pn_counter_kernel.update(new_a(), 3)
+  let #(state, first_events) =
+    pn_counter_kernel.apply_remote(new_b(), operation)
   first_events |> expect.to_equal([Updated(3, 3)])
 
   // Re-merging the same delta changes nothing and emits nothing.
-  let #(state, second_events) = pn_counter_kernel.apply_remote(state, op)
+  let #(state, second_events) = pn_counter_kernel.apply_remote(state, operation)
   pn_counter_kernel.value(state) |> expect.to_equal(3)
   second_events |> expect.to_equal([])
   expect_coherent(state)
@@ -202,8 +213,8 @@ pub fn later_delta_subsumes_earlier_ones_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 pub fn ack_local_retires_pending_without_value_change_test() -> Nil {
-  let #(state, _, op, _) = pn_counter_kernel.update(new_a(), 5)
-  let state = ack(state, op)
+  let #(state, _, operation, _) = pn_counter_kernel.update(new_a(), 5)
+  let state = ack(state, operation)
   pn_counter_kernel.value(state) |> expect.to_equal(5)
   pn_counter_kernel.sequenced_value(state) |> expect.to_equal(5)
   state.pending |> expect.to_equal([])
@@ -225,21 +236,21 @@ pub fn ack_local_is_fifo_test() -> Nil {
 }
 
 pub fn ack_local_with_message_id_validates_metadata_test() -> Nil {
-  let #(state, _, op, message_id) = pn_counter_kernel.update(new_a(), 4)
+  let #(state, _, operation, message_id) = pn_counter_kernel.update(new_a(), 4)
   expect_unexpected_ack(pn_counter_kernel.ack_local_with_message_id(
     state,
-    op,
+    operation,
     message_id + 1,
   ))
 
   let assert Ok(state) =
-    pn_counter_kernel.ack_local_with_message_id(state, op, message_id)
+    pn_counter_kernel.ack_local_with_message_id(state, operation, message_id)
   state.pending |> expect.to_equal([])
 }
 
 pub fn ack_without_pending_is_an_error_test() -> Nil {
-  let #(_, _, op, _) = pn_counter_kernel.update(new_a(), 1)
-  expect_unexpected_ack(pn_counter_kernel.ack_local(new_a(), op))
+  let #(_, _, operation, _) = pn_counter_kernel.update(new_a(), 1)
+  expect_unexpected_ack(pn_counter_kernel.ack_local(new_a(), operation))
 }
 
 pub fn rollback_undoes_newest_pending_update_test() -> Nil {
@@ -271,12 +282,12 @@ pub fn rollback_validates_newest_pending_metadata_test() -> Nil {
 /// The `optimistic` recompute test: merge is not invertible, so rollback
 /// rebuilds the cache from `sequenced` plus the remaining pending deltas —
 /// a remote contribution that arrived mid-flight must survive.
-pub fn rollback_across_remote_ops_preserves_remote_delta_test() -> Nil {
-  let #(state, _, op, message_id) = pn_counter_kernel.update(new_a(), 10)
-  let #(_, _, remote_op, _) = pn_counter_kernel.update(new_b(), 20)
-  let #(state, _) = pn_counter_kernel.apply_remote(state, remote_op)
+pub fn rollback_across_remote_operations_preserves_remote_delta_test() -> Nil {
+  let #(state, _, operation, message_id) = pn_counter_kernel.update(new_a(), 10)
+  let #(_, _, remote_operation, _) = pn_counter_kernel.update(new_b(), 20)
+  let #(state, _) = pn_counter_kernel.apply_remote(state, remote_operation)
 
-  let #(state, events) = rollback(state, op, message_id)
+  let #(state, events) = rollback(state, operation, message_id)
   pn_counter_kernel.value(state) |> expect.to_equal(20)
   state.pending |> expect.to_equal([])
   events |> expect.to_equal([Updated(-10, 20)])
@@ -284,28 +295,28 @@ pub fn rollback_across_remote_ops_preserves_remote_delta_test() -> Nil {
 }
 
 pub fn rollback_without_pending_is_an_error_test() -> Nil {
-  let #(_, _, op, _) = pn_counter_kernel.update(new_a(), 1)
-  expect_unexpected_rollback(pn_counter_kernel.rollback(new_a(), op, 0))
+  let #(_, _, operation, _) = pn_counter_kernel.update(new_a(), 1)
+  expect_unexpected_rollback(pn_counter_kernel.rollback(new_a(), operation, 0))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
 // CRDT-specific: stash idempotence, summaries, cache coherence
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The headline safety property: re-applying a stashed op whose delta was
-/// already sequenced (the client reloaded from a summary that contains it)
-/// changes nothing — where counter's re-increment path would double-count.
-/// The op still re-pends and is returned unchanged for routing.
-pub fn apply_stashed_op_is_idempotent_under_duplication_test() -> Nil {
-  let #(state, _, op, _) = pn_counter_kernel.update(new_a(), 5)
-  let state = ack(state, op)
+/// The headline safety property: re-applying a stashed operation whose delta
+/// was already sequenced (the client reloaded from a summary that contains it)
+/// changes nothing — where counter's re-increment path would double-count. The
+/// operation still re-pends and is returned unchanged for routing.
+pub fn apply_stashed_operation_is_idempotent_under_duplication_test() -> Nil {
+  let #(state, _, operation, _) = pn_counter_kernel.update(new_a(), 5)
+  let state = ack(state, operation)
   pn_counter_kernel.value(state) |> expect.to_equal(5)
 
   let #(state, events, routed, message_id) =
-    pn_counter_kernel.apply_stashed_op(state, op)
+    pn_counter_kernel.apply_stashed_operation(state, operation)
   pn_counter_kernel.value(state) |> expect.to_equal(5)
   events |> expect.to_equal([])
-  routed |> expect.to_equal(op)
+  routed |> expect.to_equal(operation)
   case state.pending {
     [pn_counter_kernel.PendingDelta(_, amount, id)] -> {
       amount |> expect.to_equal(5)
@@ -315,20 +326,20 @@ pub fn apply_stashed_op_is_idempotent_under_duplication_test() -> Nil {
   }
   expect_coherent(state)
 
-  // Acking the replayed op still works and leaves the value untouched.
-  let state = ack(state, op)
+  // Acking the replayed operation still works and leaves the value untouched.
+  let state = ack(state, operation)
   pn_counter_kernel.value(state) |> expect.to_equal(5)
   expect_coherent(state)
 }
 
-pub fn apply_stashed_op_applies_a_genuinely_new_delta_test() -> Nil {
-  let #(_, _, op, _) = pn_counter_kernel.update(new_a(), 5)
-  // A state that never saw the op (fresh reload from an empty summary).
+pub fn apply_stashed_operation_applies_a_genuinely_new_delta_test() -> Nil {
+  let #(_, _, operation, _) = pn_counter_kernel.update(new_a(), 5)
+  // A state that never saw the operation (fresh reload from an empty summary).
   let #(state, events, routed, _) =
-    pn_counter_kernel.apply_stashed_op(new_a(), op)
+    pn_counter_kernel.apply_stashed_operation(new_a(), operation)
   pn_counter_kernel.value(state) |> expect.to_equal(5)
   events |> expect.to_equal([Updated(5, 5)])
-  routed |> expect.to_equal(op)
+  routed |> expect.to_equal(operation)
   expect_coherent(state)
 }
 
@@ -336,10 +347,10 @@ pub fn apply_stashed_op_applies_a_genuinely_new_delta_test() -> Nil {
 /// loaded client's own updates must land under its replica key, not the
 /// summarizer's — pins lattice's keep-`a`'s-id merge re-branding idiom.
 pub fn from_summary_rebrands_under_the_loader_identity_test() -> Nil {
-  let #(state, _, op_a, _) = pn_counter_kernel.update(new_a(), 3)
-  let state = ack(state, op_a)
-  let #(_, _, op_b, _) = pn_counter_kernel.update(new_b(), 4)
-  let #(state, _) = pn_counter_kernel.apply_remote(state, op_b)
+  let #(state, _, operation_a, _) = pn_counter_kernel.update(new_a(), 3)
+  let state = ack(state, operation_a)
+  let #(_, _, operation_b, _) = pn_counter_kernel.update(new_b(), 4)
+  let #(state, _) = pn_counter_kernel.apply_remote(state, operation_b)
 
   let summary_json = json.to_string(pn_counter_kernel.summary(state))
   let assert Ok(loaded) =
@@ -350,8 +361,8 @@ pub fn from_summary_rebrands_under_the_loader_identity_test() -> Nil {
   expect_coherent(loaded)
 
   // c's subsequent update lands under "c", alongside a's and b's counts.
-  let #(loaded, _, op_c, _) = pn_counter_kernel.update(loaded, 1)
-  let loaded = ack(loaded, op_c)
+  let #(loaded, _, operation_c, _) = pn_counter_kernel.update(loaded, 1)
+  let loaded = ack(loaded, operation_c)
   summary_counts(loaded, "positive")
   |> expect.to_equal(dict.from_list([#("a", 3), #("b", 4), #("c", 1)]))
 }
@@ -380,7 +391,7 @@ pub fn summary_reflects_both_halves_test() -> Nil {
 /// summary, and a client loaded from that summary converges when the same
 /// delta later arrives sequenced.
 pub fn summary_excludes_pending_and_still_converges_test() -> Nil {
-  let #(state, _, op, _) = pn_counter_kernel.update(new_a(), 9)
+  let #(state, _, operation, _) = pn_counter_kernel.update(new_a(), 9)
   pn_counter_kernel.value(state) |> expect.to_equal(9)
   summary_counts(state, "positive") |> expect.to_equal(dict.new())
 
@@ -389,7 +400,7 @@ pub fn summary_excludes_pending_and_still_converges_test() -> Nil {
     pn_counter_kernel.from_summary(summary_json, replica("c"))
   pn_counter_kernel.value(loaded) |> expect.to_equal(0)
 
-  let #(loaded, _) = pn_counter_kernel.apply_remote(loaded, op)
+  let #(loaded, _) = pn_counter_kernel.apply_remote(loaded, operation)
   pn_counter_kernel.value(loaded) |> expect.to_equal(9)
   expect_coherent(loaded)
 }
@@ -397,8 +408,8 @@ pub fn summary_excludes_pending_and_still_converges_test() -> Nil {
 pub fn cache_coherence_holds_across_a_scripted_sequence_test() -> Nil {
   let #(state, _, op1, _) = pn_counter_kernel.update(new_a(), 5)
   expect_coherent(state)
-  let #(_, _, remote_op, _) = pn_counter_kernel.update(new_b(), -2)
-  let #(state, _) = pn_counter_kernel.apply_remote(state, remote_op)
+  let #(_, _, remote_operation, _) = pn_counter_kernel.update(new_b(), -2)
+  let #(state, _) = pn_counter_kernel.apply_remote(state, remote_operation)
   expect_coherent(state)
   let #(state, _, op2, message_id2) = pn_counter_kernel.update(state, 4)
   expect_coherent(state)
@@ -414,15 +425,17 @@ pub fn cache_coherence_holds_across_a_scripted_sequence_test() -> Nil {
 /// later positive delta does not subsume an earlier negative one.
 pub fn sign_routing_keeps_halves_independent_test() -> Nil {
   let #(state, _, _, _) = pn_counter_kernel.update(new_a(), 5)
-  let #(state, _, op_negative, _) = pn_counter_kernel.update(state, -3)
-  let #(state, _, op_positive, _) = pn_counter_kernel.update(state, 2)
+  let #(state, _, operation_negative, _) = pn_counter_kernel.update(state, -3)
+  let #(state, _, operation_positive, _) = pn_counter_kernel.update(state, 2)
   pn_counter_kernel.value(state) |> expect.to_equal(4)
   expect_coherent(state)
 
-  // op_positive carries A's cumulative positive (+7) but none of the
-  // negative half; op_negative carries the cumulative negative (−3).
-  let #(observer, _) = pn_counter_kernel.apply_remote(new_b(), op_positive)
+  // operation_positive carries A's cumulative positive (+7) but none of the
+  // negative half; operation_negative carries the cumulative negative (−3).
+  let #(observer, _) =
+    pn_counter_kernel.apply_remote(new_b(), operation_positive)
   pn_counter_kernel.value(observer) |> expect.to_equal(7)
-  let #(observer, _) = pn_counter_kernel.apply_remote(observer, op_negative)
+  let #(observer, _) =
+    pn_counter_kernel.apply_remote(observer, operation_negative)
   pn_counter_kernel.value(observer) |> expect.to_equal(4)
 }

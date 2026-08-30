@@ -81,9 +81,9 @@ fn run_scenario(
   use <- delay(2000)
 
   // The app installs the same policy, at the shipped threshold. Here it is low
-  // enough that the handful of ops below crosses it, so the run exercises the
-  // whole path — upload, summarize op, checkpoint — rather than just the
-  // arming. Nothing below calls `summarize`.
+  // enough that the handful of operations below crosses it, so the run
+  // exercises the whole path — upload, summarize operation, checkpoint — rather
+  // than just the arming. Nothing below calls `summarize`.
   let policy =
     summary_policy.policy()
     |> summary_policy.with_threshold(6)
@@ -176,9 +176,9 @@ fn toggle_scenario(
 
   // By now the room is well past the threshold, so a checkpoint should have
   // been written without anything here asking for one. The observable is the
-  // client's own drift falling back below the ops it has authored.
+  // client's own drift falling back below the operations it has authored.
   use <- delay(1500)
-  let summarized = watershed.ops_since_summary(doc_a) < 6
+  let summarized = watershed.operations_since_summary(doc_a) < 6
 
   case
     seeded

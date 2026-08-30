@@ -47,7 +47,8 @@ fn change_votes(votes: OrMap, id: String, amount: Int) -> Nil {
 /// Read the board from the shared channels.
 ///
 /// `notes` must be a RegisterMode OR-map and `votes` must be a TallyMode
-/// OR-map. Returns `Error` with a description when a channel has the wrong mode.
+/// OR-map. Returns `Error` with a description when a channel has the wrong
+/// mode.
 pub fn snapshot(
   title: String,
   notes: OrMap,

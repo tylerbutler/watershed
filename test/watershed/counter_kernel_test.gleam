@@ -3,9 +3,9 @@ import watershed/counter_kernel.{Increment, Incremented, PendingIncrement}
 
 fn ack(
   state: counter_kernel.CounterState,
-  op: counter_kernel.CounterOp,
+  operation: counter_kernel.CounterOperation,
 ) -> counter_kernel.CounterState {
-  case counter_kernel.ack_local(state, op) {
+  case counter_kernel.ack_local(state, operation) {
     Ok(state) -> state
     Error(_) -> panic as "expected ack to succeed"
   }
@@ -13,10 +13,10 @@ fn ack(
 
 fn rollback(
   state: counter_kernel.CounterState,
-  op: counter_kernel.CounterOp,
+  operation: counter_kernel.CounterOperation,
   message_id: Int,
 ) -> #(counter_kernel.CounterState, List(counter_kernel.CounterEvent)) {
-  case counter_kernel.rollback(state, op, message_id) {
+  case counter_kernel.rollback(state, operation, message_id) {
     Ok(result) -> result
     Error(_) -> panic as "expected rollback to succeed"
   }
@@ -53,11 +53,11 @@ pub fn new_counter_is_zero_test() -> Nil {
 }
 
 pub fn increment_is_optimistically_visible_test() -> Nil {
-  let #(state, events, op, message_id) =
+  let #(state, events, operation, message_id) =
     counter_kernel.increment(counter_kernel.new(), 10)
   state.value |> expect.to_equal(10)
   state.pending |> expect.to_equal([PendingIncrement(10, 0)])
-  op |> expect.to_equal(Increment(10))
+  operation |> expect.to_equal(Increment(10))
   message_id |> expect.to_equal(0)
   events |> expect.to_equal([Incremented(10, 10)])
 }
@@ -79,24 +79,25 @@ pub fn remote_increment_applies_delta_and_emits_event_test() -> Nil {
 }
 
 pub fn concurrent_increments_converge_test() -> Nil {
-  let #(client_a, _, op_a, _) =
+  let #(client_a, _, operation_a, _) =
     counter_kernel.increment(counter_kernel.new(), 10)
-  let #(client_b, _, op_b, _) =
+  let #(client_b, _, operation_b, _) =
     counter_kernel.increment(counter_kernel.new(), 20)
 
-  let client_a = ack(client_a, op_a)
-  let #(client_a, _) = counter_kernel.apply_remote(client_a, op_b)
+  let client_a = ack(client_a, operation_a)
+  let #(client_a, _) = counter_kernel.apply_remote(client_a, operation_b)
 
-  let #(client_b, _) = counter_kernel.apply_remote(client_b, op_a)
-  let client_b = ack(client_b, op_b)
+  let #(client_b, _) = counter_kernel.apply_remote(client_b, operation_a)
+  let client_b = ack(client_b, operation_b)
 
   client_a.value |> expect.to_equal(30)
   client_b.value |> expect.to_equal(30)
 }
 
 pub fn ack_local_removes_pending_without_event_or_value_change_test() -> Nil {
-  let #(state, _, op, _) = counter_kernel.increment(counter_kernel.new(), 5)
-  let state = ack(state, op)
+  let #(state, _, operation, _) =
+    counter_kernel.increment(counter_kernel.new(), 5)
+  let state = ack(state, operation)
   state.value |> expect.to_equal(5)
   state.pending |> expect.to_equal([])
 }
@@ -114,16 +115,16 @@ pub fn ack_local_is_fifo_test() -> Nil {
 }
 
 pub fn ack_local_with_message_id_validates_metadata_test() -> Nil {
-  let #(state, _, op, message_id) =
+  let #(state, _, operation, message_id) =
     counter_kernel.increment(counter_kernel.new(), 4)
   expect_unexpected_ack(counter_kernel.ack_local_with_message_id(
     state,
-    op,
+    operation,
     message_id + 1,
   ))
 
   let assert Ok(state) =
-    counter_kernel.ack_local_with_message_id(state, op, message_id)
+    counter_kernel.ack_local_with_message_id(state, operation, message_id)
   state.pending |> expect.to_equal([])
 }
 
@@ -134,13 +135,13 @@ pub fn ack_without_pending_is_an_error_test() -> Nil {
   ))
 }
 
-pub fn apply_stashed_op_reuses_increment_path_test() -> Nil {
-  let #(state, events, op, message_id) =
-    counter_kernel.apply_stashed_op(counter_kernel.new(), Increment(9))
+pub fn apply_stashed_operation_reuses_increment_path_test() -> Nil {
+  let #(state, events, operation, message_id) =
+    counter_kernel.apply_stashed_operation(counter_kernel.new(), Increment(9))
   state.value |> expect.to_equal(9)
   state.pending |> expect.to_equal([PendingIncrement(9, 0)])
   events |> expect.to_equal([Incremented(9, 9)])
-  op |> expect.to_equal(Increment(9))
+  operation |> expect.to_equal(Increment(9))
   message_id |> expect.to_equal(0)
 }
 
@@ -169,12 +170,12 @@ pub fn rollback_validates_newest_pending_metadata_test() -> Nil {
   state.value |> expect.to_equal(1)
 }
 
-pub fn rollback_across_remote_ops_preserves_remote_delta_test() -> Nil {
-  let #(state, _, op, message_id) =
+pub fn rollback_across_remote_operations_preserves_remote_delta_test() -> Nil {
+  let #(state, _, operation, message_id) =
     counter_kernel.increment(counter_kernel.new(), 10)
   let #(state, _) = counter_kernel.apply_remote(state, Increment(20))
 
-  let #(state, events) = rollback(state, op, message_id)
+  let #(state, events) = rollback(state, operation, message_id)
   state.value |> expect.to_equal(20)
   state.pending |> expect.to_equal([])
   events |> expect.to_equal([Incremented(-10, 20)])

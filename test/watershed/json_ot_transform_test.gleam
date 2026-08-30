@@ -1,13 +1,13 @@
 //// Port of the transform assertions in `ottypes/json0`'s `test/json0.coffee`.
-//// Legacy `si`/`sd` string-op cases and `text0`/`mock` subtype cases are
-//// deferred to the text0 rung; every structural (obj/list/number/move) case
-//// is ported here as the TP1 acceptance oracle.
+//// Legacy `si`/`sd` string-operation cases and `text0`/`mock` subtype cases
+//// are deferred to the text0 rung; every structural (obj/list/number/move)
+//// case is ported here as the TP1 acceptance oracle.
 
 import gleam/list as _
 import startest/expect
 import watershed/json_ot.{
-  type Component, type JsonValue, type Op, Index, Key, Lft, NInt, Rgt, VArray,
-  VNull, VNumber, VObject, VString,
+  type Component, type JsonValue, type Operation, Index, Key, Lft, NInt, Rgt,
+  VArray, VNull, VNumber, VObject, VString,
 }
 
 // ── tiny builders ────────────────────────────────────────────────────────────
@@ -68,8 +68,12 @@ fn number_add(path: List(json_ot.PathKey), delta: Int) -> Component {
   json_ot.number_add(path, NInt(delta))
 }
 
-fn transform(op: Op, other: Op, side: json_ot.Side) -> Op {
-  let assert Ok(result) = json_ot.transform(op, other, side)
+fn transform(
+  operation: Operation,
+  other: Operation,
+  side: json_ot.Side,
+) -> Operation {
+  let assert Ok(result) = json_ot.transform(operation, other, side)
   result
 }
 
@@ -90,7 +94,7 @@ pub fn ld_bumps_past_li_test() -> Nil {
   |> expect.to_equal([list_delete([Index(1)], number_value(2))])
 }
 
-pub fn ops_on_deleted_elements_become_noops_test() -> Nil {
+pub fn operations_on_deleted_elements_become_noops_test() -> Nil {
   transform(
     [list_insert([Index(0)], string_value("x"))],
     [list_delete([Index(0)], string_value("y"))],
@@ -105,7 +109,7 @@ pub fn ops_on_deleted_elements_become_noops_test() -> Nil {
   |> expect.to_equal([])
 }
 
-pub fn ops_on_replaced_elements_become_noops_test() -> Nil {
+pub fn operations_on_replaced_elements_become_noops_test() -> Nil {
   transform(
     [list_insert([Index(0)], string_value("hi"))],
     [list_replace([Index(0)], string_value("x"), string_value("y"))],
@@ -153,9 +157,10 @@ pub fn replace_null_vs_insert_test() -> Nil {
   |> expect.to_equal([list_replace([Index(1)], VNull, string_value("x"))])
 }
 
-// ── list: moves carry ops with the element ────────────────────────────────────
+// ── list: moves carry operations with the element
+// ────────────────────────────────────
 
-pub fn moves_ops_with_element_test() -> Nil {
+pub fn moves_operations_with_element_test() -> Nil {
   transform(
     [list_delete([Index(4)], string_value("x"))],
     [list_move([Index(4)], 10)],
@@ -541,7 +546,7 @@ pub fn simultaneous_object_inserts_left_wins_test() -> Nil {
   |> expect.to_equal([])
 }
 
-pub fn parallel_object_ops_miss_each_other_test() -> Nil {
+pub fn parallel_object_operations_miss_each_other_test() -> Nil {
   transform(
     [object_insert([Key("a")], string_value("x"))],
     [object_insert([Key("b")], string_value("z"))],
@@ -677,29 +682,33 @@ pub fn deleted_data_reflects_edits_test() -> Nil {
 // ── number: transformX keeps na merges intact (diamond) ───────────────────────
 
 pub fn na_merge_diamond_test() -> Nil {
-  let right_op = [
+  let right_operation = [
     object_replace([], number_value(0), number_value(15)),
     number_add([], 4),
     number_add([], 1),
     number_add([], 1),
   ]
-  let left_op = [number_add([], 4), number_add([], -1)]
-  let assert Ok(right_) = json_ot.transform(right_op, left_op, Rgt)
-  let assert Ok(left_) = json_ot.transform(left_op, right_op, Lft)
+  let left_operation = [number_add([], 4), number_add([], -1)]
+  let assert Ok(right_) =
+    json_ot.transform(right_operation, left_operation, Rgt)
+  let assert Ok(left_) = json_ot.transform(left_operation, right_operation, Lft)
   let assert Ok(s_c) = json_ot.apply(number_value(21), left_)
   let assert Ok(c_s) = json_ot.apply(number_value(3), right_)
   s_c |> expect.to_equal(c_s)
 }
 
-// ── object insert tie-break interplay with multi-op transformX ────────────────
+// ── object insert tie-break interplay with multi-operation transformX
+// ────────────────
 
 pub fn object_replacement_diamond_property_test() -> Nil {
-  let right_ops = [object_replace([], VNull, object([]))]
-  let left_ops = [object_replace([], VNull, string_value(""))]
-  let assert Ok(right_has) = json_ot.apply(VNull, right_ops)
-  let assert Ok(left_has) = json_ot.apply(VNull, left_ops)
-  let assert Ok(left_) = json_ot.transform(left_ops, right_ops, Lft)
-  let assert Ok(right_) = json_ot.transform(right_ops, left_ops, Rgt)
+  let right_operations = [object_replace([], VNull, object([]))]
+  let left_operations = [object_replace([], VNull, string_value(""))]
+  let assert Ok(right_has) = json_ot.apply(VNull, right_operations)
+  let assert Ok(left_has) = json_ot.apply(VNull, left_operations)
+  let assert Ok(left_) =
+    json_ot.transform(left_operations, right_operations, Lft)
+  let assert Ok(right_) =
+    json_ot.transform(right_operations, left_operations, Rgt)
   let assert Ok(a) = json_ot.apply(right_has, left_)
   let assert Ok(b) = json_ot.apply(left_has, right_)
   a |> expect.to_equal(left_has)
