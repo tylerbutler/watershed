@@ -588,7 +588,7 @@ fn refresh_anchor(model: Model) -> Model {
         dict.get(model.score_drafts, match_key)
         |> option.from_result
         |> option.unwrap("")
-      let value = match_result.to_json(MatchResult(winner:, score:))
+      let value = bracket.to_json(MatchResult(winner:, score:))
       watershed.register_write(matches, match_key, value)
       #(
         Model(..model, pending: set.insert(model.pending, match_key)),
@@ -599,7 +599,7 @@ fn refresh_anchor(model: Model) -> Model {
 
 // ... and in the register event handler:
 AtomicChanged(key, value, _local) -> {
-  let result = match_result.from_json(value)
+  let result = bracket.from_json(value)
   Model(
     ..model,
     results: dict.insert(model.results, key, result),

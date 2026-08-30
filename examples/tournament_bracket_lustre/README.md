@@ -30,11 +30,12 @@ match:
 | `r2m1`, `r2m2` | Semifinal | Winners of `r1m1`/`r1m2`, `r1m3`/`r1m4` |
 | `r3m1` | Final | Winners of `r2m1`/`r2m2` |
 
-Each register's value is one JSON object, `{"winner": ..., "score": ...}`
-(`match_result.gleam`) — both fields always change together in a single
-`register_write`, so there is no window where a winner is recorded without a
-score. Bracket topology and advancement (`bracket.gleam`) are plain data, not
-watershed state: the document only ever needs to carry *who won each match*.
+Each register's value is one JSON object, `{"winner": ..., "score": ...}` —
+both fields always change together in a single `register_write`, so there is
+no window where a winner is recorded without a score. The `MatchResult` codec,
+bracket topology, and advancement all live in `bracket.gleam` as plain data,
+not watershed state: the document only ever needs to carry *who won each
+match*.
 
 ## Reads use `Atomic`, not `Lww`
 

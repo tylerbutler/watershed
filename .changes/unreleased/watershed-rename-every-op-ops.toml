@@ -1,3 +1,3 @@
 package = "watershed"
 kind = "Breaking"
-body = "Rename every `op`/`ops` Gleam identifier to `operation`/`operations`: types such as `ChannelOp` and `PendingOp`, record fields such as `InFlight.operation` and `OutboundOp.operation_type`, functions such as `ops_since_summary` and `encode_channel_op`, and the `watershed/rich_text/op_iterator` module. Wire keys, protocol tags, and the `watershed/wire/op` module path are unchanged."
+body = "Rename every `op`/`ops` Gleam identifier to `operation`/`operations`: types such as `ChannelOp` and `PendingOp`, record fields such as `InFlight.operation` and `OutboundOperation.operation_type`, functions such as `ops_since_summary` and `encode_channel_op`, and the `watershed/rich_text/op_iterator` module. Wire keys, protocol tags, and the `watershed/wire/op` module path are unchanged."

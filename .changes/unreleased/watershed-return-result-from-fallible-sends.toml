@@ -1,0 +1,3 @@
+package = "watershed"
+kind = "Breaking"
+body = "Return a descriptive `Result` from the fallible send APIs that previously answered a bare `Bool`. `crdt_sequencer_js.send_envelope`, `attest`, and `declare_support` now return `Result(Nil, SendError)` with `RelayClosed`, `RelayNotReady`, or `SendFailed`; `p2p_transport_js.send` now returns `Result(Nil, SendError)` with `TransportClosed`, `UnknownPeer`, `ChannelNotOpen`, or `SendFailed`. Migration: replace `is_ok`-style boolean checks with a `case` on the `Result` (or `result.is_ok` where the reason is genuinely unused) and match the named `SendError` variants to react to each refusal."

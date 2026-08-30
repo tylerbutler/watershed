@@ -218,18 +218,19 @@ fn start(
   let root: watershed_beam.TypedMap(GameRoot) =
     watershed_beam.root_typed(document)
 
-  // The root map carries plain typed values alongside the roster handle.
-  case watershed_beam.get_field(root, game()) {
-    Ok(Some(_)) -> Nil
+  // The root map carries plain typed values alongside the roster handle. A
+  // failed read is not the same as an absent field: the stored value could not
+  // be decoded, so report the error instead of overwriting the stored value.
+  use _ <- result.try(case watershed_beam.get_field(root, game()) {
+    Ok(Some(_)) -> Ok(Nil)
     Ok(None) -> {
       watershed_beam.set_field(root, game(), "watershed dice scores")
       watershed_beam.set_field(root, die_sides(), face_count)
+      Ok(Nil)
     }
-    Error(_) -> {
-      watershed_beam.set_field(root, game(), "watershed dice scores")
-      watershed_beam.set_field(root, die_sides(), face_count)
-    }
-  }
+    Error(reason) ->
+      Error("Reading the game field failed: " <> string.inspect(reason))
+  })
 
   use roster <- result.try(ensure_roster(document, root))
   use me <- result.try(watershed_beam.create_typed_map(document))

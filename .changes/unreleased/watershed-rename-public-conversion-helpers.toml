@@ -1,0 +1,3 @@
+package = "watershed"
+kind = "Breaking"
+body = "Rename the public conversion helpers to `x_to_y` or a precise domain verb: `or_map_kernel.mode_from_spec_string` becomes `spec_string_to_mode`, `json_ot.from_json_string` becomes `parse_json`, `rich_text.document_from_json_string` becomes `parse_document`, and `rich_text.delta_from_json_string` becomes `parse_delta`. Behavior, wire format, and return types are unchanged — identifiers only. Migration: update call sites to the new names."
