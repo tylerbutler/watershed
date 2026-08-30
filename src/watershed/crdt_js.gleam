@@ -1446,8 +1446,8 @@ fn publish(
     False -> Nil
     True ->
       case crdt_sequencer_js.attest(relay, digest) {
-        True -> Nil
-        False -> relay_unwritable(cell)
+        Ok(Nil) -> Nil
+        Error(_) -> relay_unwritable(cell)
       }
   }
 }
@@ -1878,6 +1878,7 @@ fn relay_send(cell: Cell(State), message: Message) -> Bool {
         relay,
         crdt_core.encode(state.document, message),
       )
+      |> result.is_ok()
   }
 }
 

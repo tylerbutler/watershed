@@ -301,8 +301,8 @@ pub fn driver(hub: Hub) -> Driver {
               hub_state.writable,
               hub_state.write_budget
             {
-              Some(_), True, 0 -> False
-              Some(_), True, budget -> {
+              Ok(_), True, 0 -> False
+              Ok(_), True, budget -> {
                 set(hub, HubState(..hub_state, write_budget: budget - 1))
                 enqueue(hub, ToRelay(connection, payload))
                 True
@@ -352,8 +352,8 @@ fn run(hub: Hub, effect: Effect) -> Nil {
   case effect {
     OpenClient(connection) ->
       case live(hub, connection) {
-        None -> Nil
-        Some(_socket) -> {
+        Error(Nil) -> Nil
+        Ok(_socket) -> {
           // The relay speaks first, exactly as the reference service does.
           let state = get(hub)
           let #(relay, actions) = crdt_relay.connect(state.relay, connection)
@@ -365,8 +365,8 @@ fn run(hub: Hub, effect: Effect) -> Nil {
       let state = get(hub)
       set(hub, HubState(..state, inbound: [raw, ..state.inbound]))
       case live(hub, connection) {
-        None -> Nil
-        Some(_) -> {
+        Error(Nil) -> Nil
+        Ok(_) -> {
           let state = get(hub)
           let #(relay, actions, _tag) =
             crdt_relay.serve(state.relay, connection, raw)
@@ -377,8 +377,8 @@ fn run(hub: Hub, effect: Effect) -> Nil {
     }
     ToClient(connection, raw) ->
       case live(hub, connection) {
-        None -> Nil
-        Some(socket) -> socket.on_message(raw)
+        Error(Nil) -> Nil
+        Ok(socket) -> socket.on_message(raw)
       }
     CloseClient(connection, detail) ->
       case dict.get(get(hub).sockets, connection) {
@@ -461,10 +461,10 @@ fn drop(hub: Hub, connection: Int, detail: String) -> Nil {
 }
 
 @target(javascript)
-fn live(hub: Hub, connection: Int) -> Option(Socket) {
+fn live(hub: Hub, connection: Int) -> Result(Socket, Nil) {
   case dict.get(get(hub).sockets, connection) {
-    Ok(socket) if socket.open -> Some(socket)
-    _ -> None
+    Ok(socket) if socket.open -> Ok(socket)
+    _ -> Error(Nil)
   }
 }
 

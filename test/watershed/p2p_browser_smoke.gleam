@@ -124,8 +124,8 @@ fn hub_signaling(hub: Hub) -> Signaling {
         ]),
       )
       case find_member(hub, to) {
-        Some(deliver) -> deliver(Message(from, payload))
-        None -> Nil
+        Ok(deliver) -> deliver(Message(from, payload))
+        Error(Nil) -> Nil
       }
     },
     leave: fn(session) {
@@ -140,13 +140,13 @@ fn hub_signaling(hub: Hub) -> Signaling {
 }
 
 @target(javascript)
-fn find_member(hub: Hub, peer_id: String) -> Option(fn(Signal) -> Nil) {
+fn find_member(hub: Hub, peer_id: String) -> Result(fn(Signal) -> Nil, Nil) {
   case
     transport_js.get_cell(hub.cell).members
     |> list.filter(fn(member) { member.0 == peer_id })
   {
-    [member, ..] -> Some(member.1)
-    [] -> None
+    [member, ..] -> Ok(member.1)
+    [] -> Error(Nil)
   }
 }
 
@@ -276,8 +276,8 @@ fn send_to(node: Node, peer: String, message: crdt_wire.Message) -> Nil {
           crdt_core.encode(document, message),
         )
       {
-        True -> Nil
-        False ->
+        Ok(Nil) -> Nil
+        Error(_) ->
           note(
             node,
             "send "

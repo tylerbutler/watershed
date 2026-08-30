@@ -178,8 +178,8 @@ fn run(world: World, effect: Effect) -> Nil {
   case effect {
     DeliverSignal(to, signal) ->
       case find_member(get(world), to) {
-        Some(member) -> member.on_signal(signal)
-        None -> Nil
+        Ok(member) -> member.on_signal(signal)
+        Error(Nil) -> Nil
       }
     FireHook(owner, remote, action) ->
       // A hook for a link that has since been closed is a browser callback
@@ -308,8 +308,8 @@ pub fn signaling(world: World) -> Signaling {
         "signaling.send " <> from <> "->" <> to <> " " <> tag(payload),
       )
       case find_member(get(world), to) {
-        Some(_) -> enqueue(world, [DeliverSignal(to, Message(from, payload))])
-        None -> Nil
+        Ok(_) -> enqueue(world, [DeliverSignal(to, Message(from, payload))])
+        Error(Nil) -> Nil
       }
     },
     leave: fn(session) {
@@ -747,8 +747,8 @@ pub fn reconnect(world: World, a: String, b: String) -> Nil {
 /// which is the case that would otherwise hang.
 pub fn fail_signaling(world: World, to: String, detail: String) -> Nil {
   case find_member(get(world), to) {
-    Some(member) -> member.on_signal(p2p_transport_js.Failed(detail))
-    None -> Nil
+    Ok(member) -> member.on_signal(p2p_transport_js.Failed(detail))
+    Error(Nil) -> Nil
   }
 }
 
@@ -898,10 +898,10 @@ fn with_link(
 }
 
 @target(javascript)
-fn find_member(state: WorldState, peer_id: String) -> Option(Member) {
+fn find_member(state: WorldState, peer_id: String) -> Result(Member, Nil) {
   case list.filter(state.members, fn(member) { member.peer_id == peer_id }) {
-    [member, ..] -> Some(member)
-    [] -> None
+    [member, ..] -> Ok(member)
+    [] -> Error(Nil)
   }
 }
 

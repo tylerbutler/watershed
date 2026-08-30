@@ -826,15 +826,41 @@ pub fn peer_diagnostics(transport: Transport, peer_id: String) -> String {
 }
 
 @target(javascript)
-/// Send one encoded document message to one peer. A `False` result means that
-/// the peer has no open channel. The caller decides whether that condition
-/// needs a state exchange later, so this function returns a value and it
-/// reports no error.
-pub fn send(transport: Transport, peer_id: String, payload: String) -> Bool {
+/// Why a send did not reach the peer.
+///
+/// `TransportClosed` and `UnknownPeer` name the two ways this function
+/// refuses a send before it looks at the channel: `close` ran, or the
+/// caller named a peer this transport does not track. `ChannelNotOpen` means
+/// the peer is known but its document channel has not opened yet.
+/// `SendFailed` means the channel was open and the browser still refused the
+/// payload.
+pub type SendError {
+  TransportClosed
+  UnknownPeer
+  ChannelNotOpen
+  SendFailed
+}
+
+@target(javascript)
+/// Send one encoded document message to one peer. An `Error` result names
+/// which of the four ways the payload did not reach the peer. The caller
+/// decides whether that condition needs a state exchange later, so this
+/// function returns a value and it raises no exception.
+pub fn send(
+  transport: Transport,
+  peer_id: String,
+  payload: String,
+) -> Result(Nil, SendError) {
   let state = transport_js.get_cell(transport.cell)
   case state.closed, dict.get(state.peers, peer_id) {
-    False, Ok(peer) if peer.open -> state.rtc.send(peer_id, payload)
-    _, _ -> False
+    True, _ -> Error(TransportClosed)
+    False, Error(Nil) -> Error(UnknownPeer)
+    False, Ok(peer) if peer.open ->
+      case state.rtc.send(peer_id, payload) {
+        True -> Ok(Nil)
+        False -> Error(SendFailed)
+      }
+    False, Ok(_) -> Error(ChannelNotOpen)
   }
 }
 
@@ -845,8 +871,8 @@ pub fn broadcast(transport: Transport, payload: String) -> Int {
   open_peers(transport)
   |> list.fold(0, fn(sent, peer_id) {
     case send(transport, peer_id, payload) {
-      True -> sent + 1
-      False -> sent
+      Ok(Nil) -> sent + 1
+      Error(_) -> sent
     }
   })
 }
@@ -969,8 +995,8 @@ fn handle_peer_joined(cell: Cell(State), peer_id: String) -> Nil {
       // failure tears the peer down before `open` returns. Nothing after
       // it may assume the peer survived.
       case open_connection(cell, peer_id) {
-        False -> Nil
-        True -> ensure_channel(cell, peer_id)
+        Error(Nil) -> Nil
+        Ok(Nil) -> ensure_channel(cell, peer_id)
       }
   }
 }
@@ -1013,17 +1039,18 @@ fn ensure_channel(cell: Cell(State), peer_id: String) -> Nil {
 
 @target(javascript)
 /// Build the browser connection for a peer that the transport just started to
-/// track, and report that peer as connecting. A `False` result means that the
-/// construction of the peer failed.
-fn open_connection(cell: Cell(State), peer_id: String) -> Bool {
+/// track, and report that peer as connecting. An `Error(Nil)` result means
+/// that the peer was torn down before the browser call returned, so the
+/// construction never lands.
+fn open_connection(cell: Cell(State), peer_id: String) -> Result(Nil, Nil) {
   let state = transport_js.get_cell(cell)
   state.rtc.open(peer_id, state.configuration, hooks(cell))
   case tracked(cell, peer_id) {
-    False -> False
+    False -> Error(Nil)
     True -> {
       update_peer(cell, peer_id, fn(peer) { Peer(..peer, announced: True) })
       state.callbacks.on_status(PeerConnecting(peer_id))
-      True
+      Ok(Nil)
     }
   }
 }
@@ -1085,8 +1112,8 @@ fn ensure_peer_for_offer(
     Ok(#(peer, False)) -> Ok(peer)
     Ok(#(peer, True)) ->
       case open_connection(cell, peer_id) {
-        True -> Ok(peer)
-        False -> Error(Nil)
+        Ok(Nil) -> Ok(peer)
+        Error(Nil) -> Error(Nil)
       }
   }
   case ensured {

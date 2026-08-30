@@ -33,7 +33,8 @@ import watershed/p2p_fake
 @target(javascript)
 import watershed/p2p_transport_js.{
   type Callbacks, type Signal, type Status, type Transport, Answer, Callbacks,
-  Candidate, Message, Offer, PeerJoined, PeerLeft, Signaling,
+  Candidate, ChannelNotOpen, Message, Offer, PeerJoined, PeerLeft, Signaling,
+  TransportClosed, UnknownPeer,
 }
 @target(javascript)
 import watershed/transport_js.{type Cell}
@@ -400,7 +401,7 @@ pub fn document_strings_cross_the_data_channel_verbatim_test() -> Nil {
     "{\"v\":1,\"room\":\"trip-planning\",\"from\":\"replica-a\","
     <> "\"session\":\"s1\",\"message\":{\"type\":\"delta\"}}"
 
-  p2p_transport_js.send(a, "peer-b", envelope) |> expect.to_be_true()
+  p2p_transport_js.send(a, "peer-b", envelope) |> expect.to_be_ok()
   p2p_fake.settle(world)
   saw(events_b, "doc peer-a " <> envelope) |> expect.to_be_true()
 
@@ -459,8 +460,10 @@ pub fn send_to_a_peer_without_an_open_channel_reports_not_delivered_test() -> Ni
 
   p2p_transport_js.known_peers(a) |> expect.to_equal(["peer-z"])
   p2p_transport_js.open_peers(a) |> expect.to_equal([])
-  p2p_transport_js.send(a, "peer-z", "hello") |> expect.to_be_false()
-  p2p_transport_js.send(a, "nobody", "hello") |> expect.to_be_false()
+  p2p_transport_js.send(a, "peer-z", "hello")
+  |> expect.to_equal(Error(ChannelNotOpen))
+  p2p_transport_js.send(a, "nobody", "hello")
+  |> expect.to_equal(Error(UnknownPeer))
   p2p_transport_js.broadcast(a, "hello") |> expect.to_equal(0)
 }
 
@@ -1345,7 +1348,8 @@ pub fn a_closed_transport_ignores_later_signals_test() -> Nil {
 
   p2p_transport_js.known_peers(a) |> expect.to_equal([])
   p2p_fake.called(world, "peer-a open peer-y") |> expect.to_be_false()
-  p2p_transport_js.send(a, "peer-z", "hello") |> expect.to_be_false()
+  p2p_transport_js.send(a, "peer-z", "hello")
+  |> expect.to_equal(Error(TransportClosed))
   p2p_transport_js.broadcast(a, "hello") |> expect.to_equal(0)
   count(entries(events_a), "status SignalingLeft") |> expect.to_equal(1)
 }

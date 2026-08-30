@@ -162,20 +162,20 @@ pub fn random_doc(random: Random) -> #(JsonValue, Random) {
 // Random op generation (port of json0-generator.coffee)
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn value_at(doc: JsonValue, path: List(PathKey)) -> Option(JsonValue) {
+fn value_at(doc: JsonValue, path: List(PathKey)) -> Result(JsonValue, Nil) {
   case path {
-    [] -> Some(doc)
+    [] -> Ok(doc)
     [step, ..rest] ->
       case doc, step {
         VObject(members), Key(key) ->
           case list.key_find(members, key) {
             Ok(v) -> value_at(v, rest)
-            Error(_) -> None
+            Error(_) -> Error(Nil)
           }
         VArray(items), Index(i) ->
           case list.drop(items, i) {
             [v, ..] if i >= 0 -> value_at(v, rest)
-            _ -> None
+            _ -> Error(Nil)
           }
         VNull, _
         | VBool(_), _
@@ -183,7 +183,7 @@ fn value_at(doc: JsonValue, path: List(PathKey)) -> Option(JsonValue) {
         | VString(_), _
         | VArray(_), Key(_)
         | VObject(_), Index(_)
-        -> None
+        -> Error(Nil)
       }
   }
 }
@@ -270,8 +270,8 @@ fn generate_component(
 ) -> #(Option(Component), Random) {
   let #(path, random) = random_path(doc, random)
   case value_at(doc, path) {
-    None -> #(None, random)
-    Some(operand) -> {
+    Error(Nil) -> #(None, random)
+    Ok(operand) -> {
       let is_list = parent_is_list(path)
       generate_component_for(doc, path, operand, is_list, random)
     }
@@ -292,13 +292,13 @@ fn generate_component_for(
     True -> {
       // newIndex ranges over the parent list's length.
       let parent_length = case value_at(doc, drop_last(path)) {
-        Some(VArray(items)) -> list.length(items)
-        Some(VNull)
-        | Some(VBool(_))
-        | Some(VNumber(_))
-        | Some(VString(_))
-        | Some(VObject(_))
-        | None -> 1
+        Ok(VArray(items)) -> list.length(items)
+        Ok(VNull)
+        | Ok(VBool(_))
+        | Ok(VNumber(_))
+        | Ok(VString(_))
+        | Ok(VObject(_))
+        | Error(Nil) -> 1
       }
       let #(new_index, random) = random_int(random, int_max(1, parent_length))
       #(Some(json_ot.list_move(path, new_index)), random)

@@ -71,6 +71,21 @@ pub type Connection {
 }
 
 @target(javascript)
+/// Why a write did not reach the relay.
+///
+/// `RelayClosed` and `RelayNotReady` name the two ways this module refuses a
+/// write on its own: `close` ran, or the greeting of the relay has not
+/// arrived yet. `SendFailed` names the one way the socket itself refused a
+/// string that this module was ready to send. The caller must act on any of
+/// the three immediately, because this module never retries a dropped
+/// write.
+pub type SendError {
+  RelayClosed
+  RelayNotReady
+  SendFailed
+}
+
+@target(javascript)
 /// What a driver reports. `on_close` is terminal for that socket, and each
 /// successful `open` call gives exactly one of them. The far end can close the
 /// connection, the socket can error, or the transport can stop. `on_close`
@@ -436,11 +451,10 @@ pub fn healthy(relay: Relay) -> Nil {
 /// drops it. The caller is on another path, and a queue here would deliver the
 /// history of a document in the wrong order after a reconnect.
 ///
-/// A `False` result means that the string did not reach an open socket. The
-/// lane was never ready, or a caller closed it, or the socket closed below it.
-/// The caller must act on that result immediately, because this module never
-/// writes again.
-pub fn send_envelope(relay: Relay, payload: String) -> Bool {
+/// An `Error` result means that the string did not reach an open socket. The
+/// `SendError` names which of the three ways that happened. The caller must
+/// act on that result immediately, because this module never writes again.
+pub fn send_envelope(relay: Relay, payload: String) -> Result(Nil, SendError) {
   write(relay, payload)
 }
 
@@ -448,7 +462,7 @@ pub fn send_envelope(relay: Relay, payload: String) -> Bool {
 /// Attest a digest for the state that this client published, and quote the
 /// highest order that this client accounted for, which it processed or reported
 /// as skipped. The relay answers on `on_attested`.
-pub fn attest(relay: Relay, digest: String) -> Bool {
+pub fn attest(relay: Relay, digest: String) -> Result(Nil, SendError) {
   let state = transport_js.get_cell(relay.cell)
   write(
     relay,
@@ -468,7 +482,7 @@ pub fn attest(relay: Relay, digest: String) -> Bool {
 /// `CheckpointRequest` frame. A client that never calls this function receives
 /// the same treatment as a client that a developer built before the frame
 /// existed: the relay never sends it one.
-pub fn declare_support(relay: Relay) -> Bool {
+pub fn declare_support(relay: Relay) -> Result(Nil, SendError) {
   write(
     relay,
     crdt_relay.control_to_string(crdt_relay.Supports(checkpoint_requests: True)),
@@ -476,11 +490,17 @@ pub fn declare_support(relay: Relay) -> Bool {
 }
 
 @target(javascript)
-fn write(relay: Relay, payload: String) -> Bool {
+fn write(relay: Relay, payload: String) -> Result(Nil, SendError) {
   let state = transport_js.get_cell(relay.cell)
   case state.closed, state.ready, state.connection {
-    False, True, Some(connection) -> connection.send(payload)
-    _, _, _ -> False
+    False, True, Some(connection) ->
+      case connection.send(payload) {
+        True -> Ok(Nil)
+        False -> Error(SendFailed)
+      }
+    True, _, _ -> Error(RelayClosed)
+    False, False, _ -> Error(RelayNotReady)
+    False, True, None -> Error(RelayNotReady)
   }
 }
 
