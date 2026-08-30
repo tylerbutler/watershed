@@ -33,6 +33,7 @@ import gleam/io
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleam/string
 
 import watershed/map_kernel.{type MapEvent, Cleared, ValueChanged}
@@ -83,20 +84,16 @@ type PlayerState {
 /// seals it to exactly those declared keys (no hand-repeated list); `versioned`
 /// marks a version so a read can reject a mismatched stored version. One
 /// declaration replaces the old decoder / encoder / seal-list trio.
-fn player_schema() -> schema.Schema(Player, PlayerState) {
-  let assert Ok(sealed) =
-    schema.record4(
-      PlayerState,
-      schema.prop(player_name(), fn(p: PlayerState) { p.name }),
-      schema.optional_prop(player_last_roll(), fn(p: PlayerState) {
-        p.last_roll
-      }),
-      schema.prop(player_total(), fn(p: PlayerState) { p.total }),
-      schema.prop(player_rolls(), fn(p: PlayerState) { p.rolls }),
-    )
-    |> schema.versioned(1)
-    |> schema.sealed_known
-  sealed
+fn player_schema() -> Result(schema.Schema(Player, PlayerState), Nil) {
+  schema.record4(
+    PlayerState,
+    schema.prop(player_name(), fn(p: PlayerState) { p.name }),
+    schema.optional_prop(player_last_roll(), fn(p: PlayerState) { p.last_roll }),
+    schema.prop(player_total(), fn(p: PlayerState) { p.total }),
+    schema.prop(player_rolls(), fn(p: PlayerState) { p.rolls }),
+  )
+  |> schema.versioned(1)
+  |> schema.sealed_known
 }
 
 fn player_name() -> Field(Player, String) {
@@ -203,77 +200,90 @@ pub fn main() -> Nil {
       io.println("Connection failed: " <> reason)
     }
     Ok(doc) -> {
-      let root: watershed_beam.TypedMap(GameRoot) =
-        watershed_beam.root_typed(doc)
-
-      // The root map carries plain typed values alongside the roster handle.
-      case watershed_beam.get_field(root, game()) {
-        Ok(Some(_)) -> Nil
-        _ -> {
-          watershed_beam.set_field(root, game(), "watershed dice scores")
-          watershed_beam.set_field(root, die_sides(), face_count)
-        }
+      case start(doc, player_id) {
+        Ok(Nil) -> Nil
+        Error(reason) -> io.println("Setup failed: " <> reason)
       }
-
-      let roster = ensure_roster(doc, root)
-
-      // Our own player map: populated while detached (local-only), then
-      // attached — snapshot and all — by storing its handle in the roster.
-      // A single `write` fills every key; `stamp` records the schema version.
-      let assert Ok(me) = watershed_beam.create_typed_map(doc)
-      watershed_beam.write(
-        me,
-        player_schema(),
-        PlayerState(name: player_id, last_roll: None, total: 0, rolls: 0),
-      )
-      watershed_beam.stamp(me, player_schema())
-      watershed_beam.set_child(roster, player_slot(player_id), me)
-
-      let roll_due = process.new_subject()
-      let selector =
-        process.new_selector()
-        |> process.select_map(
-          watershed_beam.subscribe_typed(roster),
-          RosterChanged,
-        )
-        |> process.select_map(watershed_beam.subscribe_typed(me), ScoreChanged)
-        |> process.select_map(roll_due, fn(_) { RollDue })
-
-      let state =
-        State(
-          doc: doc,
-          my_id: player_id,
-          me: me,
-          roster: roster,
-          known: dict.from_list([#(player_id, me)]),
-          selector: selector,
-          roll_due: roll_due,
-          total: 0,
-          rolls: 0,
-        )
-
-      // Resolve and watch every player already registered in the roster.
-      // `typed_children` resolves each roster handle to a typed player map in
-      // one pass — the typed view of a dynamic (id-keyed) collection.
-      let state =
-        watershed_beam.typed_children(doc, roster)
-        |> list.fold(state, fn(state, child) {
-          case child.1 {
-            Ok(map) -> adopt_player(state, child.0, map)
-            Error(_) -> state
-          }
-        })
-      print_scoreboard(state)
-
-      io.println(
-        "Rolling every "
-        <> int.to_string(roll_interval_ms / 1000)
-        <> "s; press Ctrl+C to stop.",
-      )
-      schedule_roll(roll_due, first_roll_delay_ms)
-      event_loop(state)
     }
   }
+}
+
+// ── Post-connect setup ────────────────────────────────────────────────────────
+
+fn start(
+  doc: watershed_beam.Document(GameRoot),
+  player_id: String,
+) -> Result(Nil, String) {
+  let root: watershed_beam.TypedMap(GameRoot) = watershed_beam.root_typed(doc)
+
+  // The root map carries plain typed values alongside the roster handle.
+  case watershed_beam.get_field(root, game()) {
+    Ok(Some(_)) -> Nil
+    _ -> {
+      watershed_beam.set_field(root, game(), "watershed dice scores")
+      watershed_beam.set_field(root, die_sides(), face_count)
+    }
+  }
+
+  use roster <- result.try(ensure_roster(doc, root))
+  use me <- result.try(watershed_beam.create_typed_map(doc))
+  use schema <- result.try(
+    player_schema() |> result.map_error(fn(_) { "Schema build failed" }),
+  )
+
+  // Our own player map: populated while detached (local-only), then
+  // attached — snapshot and all — by storing its handle in the roster.
+  // A single `write` fills every key; `stamp` records the schema version.
+  watershed_beam.write(
+    me,
+    schema,
+    PlayerState(name: player_id, last_roll: None, total: 0, rolls: 0),
+  )
+  watershed_beam.stamp(me, schema)
+  watershed_beam.set_child(roster, player_slot(player_id), me)
+
+  let roll_due = process.new_subject()
+  let selector =
+    process.new_selector()
+    |> process.select_map(watershed_beam.subscribe_typed(roster), RosterChanged)
+    |> process.select_map(watershed_beam.subscribe_typed(me), ScoreChanged)
+    |> process.select_map(roll_due, fn(_) { RollDue })
+
+  let state =
+    State(
+      doc: doc,
+      my_id: player_id,
+      me: me,
+      roster: roster,
+      known: dict.from_list([#(player_id, me)]),
+      selector: selector,
+      roll_due: roll_due,
+      total: 0,
+      rolls: 0,
+    )
+
+  // Resolve and watch every player already registered in the roster.
+  // `typed_children` resolves each roster handle to a typed player map in
+  // one pass — the typed view of a dynamic (id-keyed) collection.
+  let state =
+    watershed_beam.typed_children(doc, roster)
+    |> list.fold(state, fn(state, child) {
+      case child.1 {
+        Ok(map) -> adopt_player(state, child.0, map)
+        Error(_) -> state
+      }
+    })
+  print_scoreboard(state)
+
+  io.println(
+    "Rolling every "
+    <> int.to_string(roll_interval_ms / 1000)
+    <> "s; press Ctrl+C to stop.",
+  )
+  schedule_roll(roll_due, first_roll_delay_ms)
+  event_loop(state)
+
+  Ok(Nil)
 }
 
 // ── Event loop ────────────────────────────────────────────────────────────────
@@ -285,16 +295,20 @@ fn event_loop(state: State) -> Nil {
       let new_total = state.total + roll
       let new_rolls = state.rolls + 1
       io.println("You rolled a " <> int.to_string(roll) <> ".")
-      watershed_beam.write(
-        state.me,
-        player_schema(),
-        PlayerState(
-          name: state.my_id,
-          last_roll: Some(roll),
-          total: new_total,
-          rolls: new_rolls,
-        ),
-      )
+      case player_schema() {
+        Ok(schema) ->
+          watershed_beam.write(
+            state.me,
+            schema,
+            PlayerState(
+              name: state.my_id,
+              last_roll: Some(roll),
+              total: new_total,
+              rolls: new_rolls,
+            ),
+          )
+        Error(_) -> Nil
+      }
       let state = State(..state, total: new_total, rolls: new_rolls)
       print_scoreboard(state)
       schedule_roll(state.roll_due, roll_interval_ms)
@@ -334,16 +348,20 @@ fn event_loop(state: State) -> Nil {
 fn ensure_roster(
   doc: watershed_beam.Document(GameRoot),
   root: watershed_beam.TypedMap(GameRoot),
-) -> watershed_beam.TypedMap(Roster) {
+) -> Result(watershed_beam.TypedMap(Roster), String) {
   case resolve_child_retry(doc, root, players(), resolve_attempts) {
-    Ok(Some(roster)) -> roster
+    Ok(Some(roster)) -> Ok(roster)
     _ -> {
-      let assert Ok(created) = watershed_beam.create_typed_map(doc)
-      watershed_beam.set_child(root, players(), created)
-      wait_synced(doc)
-      case resolve_child_retry(doc, root, players(), resolve_attempts) {
-        Ok(Some(roster)) -> roster
-        _ -> panic as "failed to resolve roster"
+      case watershed_beam.create_typed_map(doc) {
+        Error(reason) -> Error("Roster map creation failed: " <> reason)
+        Ok(created) -> {
+          watershed_beam.set_child(root, players(), created)
+          wait_synced(doc)
+          case resolve_child_retry(doc, root, players(), resolve_attempts) {
+            Ok(Some(roster)) -> Ok(roster)
+            _ -> Error("Failed to resolve roster after creation")
+          }
+        }
       }
     }
   }
@@ -449,15 +467,19 @@ fn print_scoreboard(state: State) -> Nil {
 
 /// One player's stats, read from the map as a single typed record.
 fn player_line(map: watershed_beam.TypedMap(Player)) -> String {
-  case watershed_beam.read(map, player_schema()) {
-    Ok(player) ->
-      "total="
-      <> int.to_string(player.total)
-      <> "  rolls="
-      <> int.to_string(player.rolls)
-      <> "  last="
-      <> option.unwrap(option.map(player.last_roll, int.to_string), "-")
-    Error(_) -> "(loading…)"
+  case player_schema() {
+    Error(_) -> "(schema error)"
+    Ok(schema) ->
+      case watershed_beam.read(map, schema) {
+        Ok(player) ->
+          "total="
+          <> int.to_string(player.total)
+          <> "  rolls="
+          <> int.to_string(player.rolls)
+          <> "  last="
+          <> option.unwrap(option.map(player.last_roll, int.to_string), "-")
+        Error(_) -> "(loading…)"
+      }
   }
 }
 

@@ -98,10 +98,19 @@ pub fn feeders(id: MatchId) -> Result(#(MatchId, MatchId), Nil) {
 
 /// The two fixed seed names for a quarterfinal, by adjacent pairing:
 /// qf1 = seed 1 v 2, qf2 = seed 3 v 4, qf3 = seed 5 v 6, qf4 = seed 7 v 8.
-pub fn quarterfinal_seeds(index: Int) -> #(String, String) {
-  let assert Ok(a) = list_at(seeds, { index - 1 } * 2)
-  let assert Ok(b) = list_at(seeds, { index - 1 } * 2 + 1)
-  #(a, b)
+/// Returns `Error(Nil)` when `index` is outside 1..4.
+pub fn quarterfinal_seeds(index: Int) -> Result(#(String, String), Nil) {
+  case index >= 1 && index <= 4 {
+    False -> Error(Nil)
+    True ->
+      case
+        list_at(seeds, { index - 1 } * 2),
+        list_at(seeds, { index - 1 } * 2 + 1)
+      {
+        Ok(a), Ok(b) -> Ok(#(a, b))
+        _, _ -> Error(Nil)
+      }
+  }
 }
 
 fn list_at(items: List(a), index: Int) -> Result(a, Nil) {
@@ -120,8 +129,10 @@ pub fn slots_for(
 ) -> #(Slot, Slot) {
   case id, feeders(id) {
     MatchId(Quarterfinal, index), _ -> {
-      let #(a, b) = quarterfinal_seeds(index)
-      #(SeedSlot(a), SeedSlot(b))
+      case quarterfinal_seeds(index) {
+        Ok(#(a, b)) -> #(SeedSlot(a), SeedSlot(b))
+        Error(Nil) -> #(Undecided, Undecided)
+      }
     }
     _, Ok(#(feeder_a, feeder_b)) -> #(
       slot_from_feeder(feeder_a, results),

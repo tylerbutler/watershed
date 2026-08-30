@@ -6,8 +6,7 @@ pub type Puzzle {
 }
 
 pub fn default_puzzle() -> Puzzle {
-  let assert Ok(puzzle) = by_id("classic")
-  puzzle
+  classic()
 }
 
 /// The puzzle with this id. The result is `Error(Nil)` when no puzzle has it.

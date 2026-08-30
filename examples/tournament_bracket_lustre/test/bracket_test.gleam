@@ -72,3 +72,15 @@ pub fn match_keys_follow_the_planned_layout_test() -> Nil {
   bracket.all_match_keys()
   |> should.equal(["r1m1", "r1m2", "r1m3", "r1m4", "r2m1", "r2m2", "r3m1"])
 }
+
+pub fn quarterfinal_seeds_returns_correct_pairs_test() -> Nil {
+  bracket.quarterfinal_seeds(1) |> should.equal(Ok(#("Alaric", "Beatrix")))
+  bracket.quarterfinal_seeds(2) |> should.equal(Ok(#("Cassius", "Delphine")))
+  bracket.quarterfinal_seeds(3) |> should.equal(Ok(#("Ewan", "Farrah")))
+  bracket.quarterfinal_seeds(4) |> should.equal(Ok(#("Gideon", "Halcyon")))
+}
+
+pub fn quarterfinal_seeds_returns_error_for_invalid_index_test() -> Nil {
+  bracket.quarterfinal_seeds(0) |> should.be_error
+  bracket.quarterfinal_seeds(5) |> should.be_error
+}

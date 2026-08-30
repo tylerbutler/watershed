@@ -407,7 +407,11 @@ fn snapshot(model: Model) -> Model {
   }
 
   let board_state = case model.shared {
-    Some(shared) -> board_op.snapshot(title, shared.notes, shared.votes)
+    Some(shared) ->
+      case board_op.snapshot(title, shared.notes, shared.votes) {
+        Ok(b) -> b
+        Error(_) -> board.empty(title)
+      }
     None -> board.empty(title)
   }
 

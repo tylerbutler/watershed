@@ -4,6 +4,7 @@
 //// Each helper takes only the channel it needs.
 
 import gleam/list
+import gleam/result
 
 import watershed.{type OrMap}
 import watershed/or_map_kernel
@@ -46,23 +47,35 @@ fn change_votes(votes: OrMap, id: String, amount: Int) -> Nil {
 /// Read the board from the shared channels.
 ///
 /// `notes` must be a RegisterMode OR-map and `votes` must be a TallyMode
-/// OR-map. A wrong mode is a setup bug, not user data to ignore.
-pub fn snapshot(title: String, notes: OrMap, votes: OrMap) -> board.Snapshot {
-  board.snapshot(title, note_entries(notes), vote_entries(votes))
+/// OR-map. Returns `Error` with a description when a channel has the wrong mode.
+pub fn snapshot(
+  title: String,
+  notes: OrMap,
+  votes: OrMap,
+) -> Result(board.Snapshot, String) {
+  use note_list <- result.try(note_entries(notes))
+  use vote_list <- result.try(vote_entries(votes))
+  Ok(board.snapshot(title, note_list, vote_list))
 }
 
-fn note_entries(notes: OrMap) -> List(#(String, Note)) {
+fn note_entries(notes: OrMap) -> Result(List(#(String, Note)), String) {
   watershed.or_map_entries(notes)
-  |> list.map(fn(entry) {
-    let assert or_map_kernel.Register(value) = entry.1
-    #(entry.0, note.from_register(value))
+  |> list.try_map(fn(entry) {
+    case entry.1 {
+      or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))
+      or_map_kernel.Tally(_) ->
+        Error("notes channel has wrong mode; expected RegisterMode")
+    }
   })
 }
 
-fn vote_entries(votes: OrMap) -> List(#(String, Int)) {
+fn vote_entries(votes: OrMap) -> Result(List(#(String, Int)), String) {
   watershed.or_map_entries(votes)
-  |> list.map(fn(entry) {
-    let assert or_map_kernel.Tally(count) = entry.1
-    #(entry.0, count)
+  |> list.try_map(fn(entry) {
+    case entry.1 {
+      or_map_kernel.Tally(count) -> Ok(#(entry.0, count))
+      or_map_kernel.Register(_) ->
+        Error("votes channel has wrong mode; expected TallyMode")
+    }
   })
 }

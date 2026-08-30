@@ -5,6 +5,7 @@
 
 import gleam/list
 import gleam/option.{Some}
+import gleam/result
 import gleeunit/should
 
 import retro_tutorial_lustre/board
@@ -59,7 +60,9 @@ fn board_of(
 ) -> board.Snapshot {
   let root = watershed.root_typed(doc)
   let assert Ok(Some(title)) = watershed.get_field(root, doc_schema.title())
-  board_op.snapshot(title, channels.notes, channels.votes)
+  let assert Ok(board) =
+    board_op.snapshot(title, channels.notes, channels.votes)
+  board
 }
 
 pub fn concurrent_adds_keep_both_notes_test() -> Nil {
@@ -122,4 +125,34 @@ pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {
   board_a |> should.equal(board_b)
   let assert Ok(card) = board.find_card(board_a, id)
   card.votes |> should.equal(1)
+}
+
+pub fn snapshot_returns_error_for_wrong_mode_notes_test() -> Nil {
+  // notes must be RegisterMode; a TallyMode map with entries yields Error.
+  let sluice = sluice_js.start(tenant: "default", document: "retro-bad-notes")
+  let doc = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+  let assert Ok(wrong_notes) =
+    watershed.create_or_map(doc, or_map_kernel.TallyMode)
+  watershed.or_map_increment(wrong_notes, "note-1", 1)
+  let assert Ok(votes) = watershed.create_or_map(doc, or_map_kernel.TallyMode)
+  board_op.snapshot("test", wrong_notes, votes)
+  |> result.is_error
+  |> should.be_true
+}
+
+pub fn snapshot_returns_error_for_wrong_mode_votes_test() -> Nil {
+  // votes must be TallyMode; a RegisterMode map with entries yields Error.
+  let sluice = sluice_js.start(tenant: "default", document: "retro-bad-votes")
+  let doc = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+  let assert Ok(notes) =
+    watershed.create_or_map(doc, or_map_kernel.RegisterMode)
+  // wrong_votes is RegisterMode — add_note populates it with Register entries.
+  let assert Ok(wrong_votes) =
+    watershed.create_or_map(doc, or_map_kernel.RegisterMode)
+  board_op.add_note(wrong_votes, "user-a", "setup", board.WentWell, 1, 1)
+  board_op.snapshot("test", notes, wrong_votes)
+  |> result.is_error
+  |> should.be_true
 }
