@@ -77,12 +77,22 @@ test = [
 # compile, and only `just _test-compile-fail` may build them (expecting failure).
 build-erlang = ["watershed_lustre", "examples/*_lustre", "tools/compile-fail/*"]
 build-javascript = ["examples/dice_cli", "examples/scoreboard_cli", "tools/compile-fail/*"]
+bundle = [
+    ".",
+    "watershed_lustre",
+    "examples/dice_cli",
+    "examples/scoreboard_cli",
+    "tools/compile-fail/*",
+]
 
 [tools.trellis.tasks.build-erlang]
 command = "gleam build --target erlang"
 
 [tools.trellis.tasks.build-javascript]
 command = "gleam build --target javascript"
+
+[tools.trellis.tasks.bundle]
+command = "pnpm run build"
 
 # `watershed` and `watershed_lustre` are consumed by git ref, not from the
 # registry, so they get changelogs, versions, and tags but are never pushed to

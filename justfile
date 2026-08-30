@@ -24,12 +24,10 @@ _build-gleam:
     trellis run build-erlang
     trellis run build-javascript
 
-# The browser bundles. These are pnpm scripts (esbuild), not Gleam builds, and
-# each example is a self-contained pnpm workspace with its own lockfile — the
-# root `pnpm-workspace.yaml` deliberately declares `packages: []` so `pnpm -r`
-# will not reach down here. Hence the glob rather than trellis or pnpm recursion.
+# The browser bundles. Trellis runs the pnpm script from each example's own
+# directory, so pnpm uses that example's workspace and lockfile.
 _build-bundles:
-    for d in examples/*/package.json; do pnpm --dir "$(dirname "$d")" run build; done
+    trellis run bundle --serial
 
 # Run tests
 test: _test-gleam _test-js _test-compile-fail
