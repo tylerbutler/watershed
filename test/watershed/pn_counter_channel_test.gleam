@@ -114,7 +114,7 @@ pub fn pn_counter_snapshot_round_trips_test() -> Nil {
 
 pub fn pn_counter_channel_type_round_trips_test() -> Nil {
   channel.type_to_string(channel.PnCounterChannel)
-  |> channel.type_from_string
+  |> channel.string_to_type
   |> expect.to_equal(Ok(channel.PnCounterChannel))
 }
 

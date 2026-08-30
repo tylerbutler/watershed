@@ -77,7 +77,7 @@ pub fn text_channel_construction_reports_text_type_test() -> Nil {
   channel.channel_type(state) |> expect.to_equal(channel.TextChannel)
   channel.init_type(channel.InitText) |> expect.to_equal(channel.TextChannel)
   channel.type_to_string(channel.TextChannel) |> expect.to_equal("text")
-  channel.type_from_string("text") |> expect.to_equal(Ok(channel.TextChannel))
+  channel.string_to_type("text") |> expect.to_equal(Ok(channel.TextChannel))
 
   let assert channel.TextState(kernel) = state
   text_kernel.value(kernel) |> expect.to_equal("")

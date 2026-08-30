@@ -55,7 +55,7 @@ import watershed/two_p_set_kernel
 import watershed/wire
 
 /// The kinds of channel that a document can host. `type_to_string` and
-/// `type_from_string` convert between this type and the `channelType` strings
+/// `string_to_type` convert between this type and the `channelType` strings
 /// of the wire.
 pub type ChannelType {
   MapChannel
@@ -121,7 +121,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
   }
 }
 
-pub fn type_from_string(raw: String) -> Result(ChannelType, Nil) {
+pub fn string_to_type(raw: String) -> Result(ChannelType, Nil) {
   case raw {
     _ if raw == wire.channel_type_map -> Ok(MapChannel)
     _ if raw == wire.channel_type_counter -> Ok(CounterChannel)

@@ -1210,7 +1210,7 @@ fn init_for(snapshot: Snapshot) -> Result(ChannelInit, P2pError) {
 }
 
 fn eligible_type(raw: String, from: String) -> Result(ChannelType, P2pError) {
-  case channel.type_from_string(raw) {
+  case channel.string_to_type(raw) {
     Error(_) -> Error(rejected(from, "unknown channel type " <> raw))
     Ok(channel_type) -> p2p.validate(channel_type)
   }

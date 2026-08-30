@@ -361,7 +361,10 @@ fn palette_row(model: Model) -> Element(Msg) {
           False -> "swatch"
         }),
         attribute.attribute("style", swatch_style(color)),
-        attribute.attribute("aria-pressed", bool_text(model.color == color)),
+        attribute.attribute(
+          "aria-pressed",
+          bool_to_string(model.color == color),
+        ),
         attribute.attribute("aria-label", name),
         attribute.title(name),
         event.on_click(PalettePicked(color)),
@@ -383,7 +386,7 @@ fn indices(count: Int) -> List(Int) {
   int.range(from: count - 1, to: -1, with: [], run: list.prepend)
 }
 
-fn bool_text(value: Bool) -> String {
+fn bool_to_string(value: Bool) -> String {
   case value {
     True -> "true"
     False -> "false"

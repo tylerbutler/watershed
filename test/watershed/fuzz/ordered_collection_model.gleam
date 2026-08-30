@@ -85,7 +85,7 @@ fn disposition_to_string(disposition: Disposition) -> String {
   }
 }
 
-fn disposition_from_string(value: String) -> Disposition {
+fn string_to_disposition(value: String) -> Disposition {
   case value {
     "release" -> ReleaseAfterAcquire
     _ -> CompleteAfterAcquire
@@ -137,7 +137,7 @@ fn op_decoder() -> decode.Decoder(OrderedCommand) {
       decode.success(CommandAcquire(
         raw_id,
         acquire_id,
-        disposition_from_string(disposition),
+        string_to_disposition(disposition),
       ))
     }
     "Complete" -> {

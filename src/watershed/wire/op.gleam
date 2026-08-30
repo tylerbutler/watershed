@@ -1281,7 +1281,7 @@ pub fn attach_envelope_decoder() -> Decoder(OpContents) {
     "attach" -> {
       use address <- decode.field("address", decode.string)
       use channel_type <- decode.field("channelType", decode.string)
-      case channel.type_from_string(channel_type) {
+      case channel.string_to_type(channel_type) {
         Ok(channel_type) -> {
           use snapshot <- decode.field(
             "snapshot",

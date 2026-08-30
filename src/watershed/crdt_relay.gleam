@@ -341,7 +341,7 @@ pub fn message_kind_to_string(kind: MessageKind) -> String {
   }
 }
 
-fn message_kind_from_string(raw: String) -> Result(MessageKind, Nil) {
+fn string_to_message_kind(raw: String) -> Result(MessageKind, Nil) {
   case raw {
     "hello" -> Ok(HelloMessage)
     "channel" -> Ok(ChannelMessage)
@@ -708,7 +708,7 @@ fn decode_document(raw: String) -> Result(ClientFrame, Refusal) {
   )
   use _ <- result.try(check_room(room))
   use kind <- result.try(
-    message_kind_from_string(message_type)
+    string_to_message_kind(message_type)
     |> result.replace_error(UnsupportedMessage(message_type)),
   )
   use _ <- result.try(check_shape(raw, kind))
@@ -935,7 +935,7 @@ fn record_decoder() -> Decoder(RawRecord) {
   decode.success(RawRecord(order, kind, session, envelope, digest, checkpoint))
 }
 
-pub fn record_from_string(line: String) -> Result(LogRecord, Nil) {
+pub fn string_to_record(line: String) -> Result(LogRecord, Nil) {
   case json.parse(line, record_decoder()) {
     Error(_) -> Error(Nil)
     Ok(RawRecord(order, "state", session, envelope, _, _)) ->
@@ -2115,7 +2115,7 @@ pub fn replay(relay: Relay, room: String, lines: List(String)) -> Relay {
   // held rather than as a re-encoding of them.
   let read =
     list.filter_map(lines, fn(line) {
-      record_from_string(line) |> result.map(fn(record) { #(line, record) })
+      string_to_record(line) |> result.map(fn(record) { #(line, record) })
     })
   let records = list.map(read, fn(pair) { pair.1 })
   let log =

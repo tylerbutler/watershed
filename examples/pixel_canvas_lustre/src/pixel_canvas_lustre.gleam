@@ -213,7 +213,7 @@ fn toolbar(model: Model) -> Element(Msg) {
     html.button(
       [
         event.on_click(ToggledOffline(!model.offline)),
-        attribute.attribute("aria-pressed", bool_text(model.offline)),
+        attribute.attribute("aria-pressed", bool_to_string(model.offline)),
         attribute.disabled(!connected),
       ],
       [
@@ -260,7 +260,7 @@ fn error_line(model: Model) -> Element(Msg) {
   }
 }
 
-fn bool_text(value: Bool) -> String {
+fn bool_to_string(value: Bool) -> String {
   case value {
     True -> "true"
     False -> "false"

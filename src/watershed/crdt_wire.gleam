@@ -606,7 +606,7 @@ fn check_unique_addresses(
 }
 
 fn eligible_type(raw: String, from: String) -> Result(ChannelType, P2pError) {
-  case channel.type_from_string(raw) {
+  case channel.string_to_type(raw) {
     Error(_) -> Error(invalid(from, "unknown channel type " <> raw))
     Ok(channel_type) -> p2p.validate(channel_type)
   }

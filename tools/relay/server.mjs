@@ -120,7 +120,7 @@ import {
   replay,
   render_sockets as renderSockets,
   render_storage as renderStorage,
-  record_from_string as recordFromString,
+  string_to_record as stringToRecord,
   attested_digest as attestedDigest,
   carried_orders as carriedOrders,
   checkpoint_order as checkpointOrder,
@@ -438,13 +438,13 @@ export function openRelayStore({
     const torn = tail !== "";
     const whole = rows.filter((line) => line !== "");
     if (readOnly) {
-      const readable = whole.filter((line) => recordFromString(line).isOk());
+      const readable = whole.filter((line) => stringToRecord(line).isOk());
       stats.unreadableLines += whole.length - readable.length;
-      if (torn && recordFromString(tail).isOk()) readable.push(tail);
+      if (torn && stringToRecord(tail).isOk()) readable.push(tail);
       return readable;
     }
     for (const [index, line] of whole.entries()) {
-      if (recordFromString(line).isOk()) continue;
+      if (stringToRecord(line).isOk()) continue;
       if (onCorruptLog === "fail") {
         throw new CorruptLogError(file, index + 1, "unreadable record");
       }
@@ -462,7 +462,7 @@ export function openRelayStore({
     }
     // A tail that happens to be complete is kept; one that is not is the
     // half-written frame the crash interrupted.
-    if (torn && recordFromString(tail).isOk()) whole.push(tail);
+    if (torn && stringToRecord(tail).isOk()) whole.push(tail);
     if (torn) {
       const staging = file + ".tmp";
       writeFileSync(staging, whole.map((line) => line + "\n").join(""));

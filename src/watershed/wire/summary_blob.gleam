@@ -107,7 +107,7 @@ fn channel_snapshot_decoder() -> Decoder(ChannelSnapshot) {
   use address <- decode.field("address", decode.string)
   use channel_type <- decode.field("type", decode.string)
   // Only recognize known channel types.
-  case channel.type_from_string(channel_type) {
+  case channel.string_to_type(channel_type) {
     Ok(channel_type) -> {
       use snapshot <- decode.field(
         "data",

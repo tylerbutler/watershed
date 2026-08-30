@@ -1526,7 +1526,7 @@ fn assert_text_channel_round_trip(op: text_kernel.TextOp) -> Nil {
 
 pub fn text_channel_type_wire_name_test() -> Nil {
   channel.type_to_string(channel.TextChannel) |> expect.to_equal("text")
-  channel.type_from_string("text") |> expect.to_equal(Ok(channel.TextChannel))
+  channel.string_to_type("text") |> expect.to_equal(Ok(channel.TextChannel))
 }
 
 pub fn text_insert_channel_op_round_trips_test() -> Nil {

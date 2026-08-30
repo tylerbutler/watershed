@@ -615,7 +615,7 @@ pub fn every_record_round_trips_test() -> Nil {
     crdt_relay.DigestRecord(5, "abc123", 3),
   ]
   |> list.each(fn(record) {
-    crdt_relay.record_from_string(crdt_relay.record_to_string(record))
+    crdt_relay.string_to_record(crdt_relay.record_to_string(record))
     |> expect.to_equal(Ok(record))
   })
 }
@@ -623,7 +623,7 @@ pub fn every_record_round_trips_test() -> Nil {
 /// A marker written before markers named their entry still reads back,
 /// with the entry it names left for `replay` to infer.
 pub fn a_marker_without_a_checkpoint_still_reads_test() -> Nil {
-  crdt_relay.record_from_string("{\"o\":5,\"k\":\"digest\",\"d\":\"abc123\"}")
+  crdt_relay.string_to_record("{\"o\":5,\"k\":\"digest\",\"d\":\"abc123\"}")
   |> expect.to_equal(Ok(crdt_relay.DigestRecord(5, "abc123", 0)))
 }
 

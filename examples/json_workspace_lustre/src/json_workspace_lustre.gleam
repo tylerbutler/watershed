@@ -806,7 +806,7 @@ fn scalar_text(value: JsonValue) -> String {
     json_ot.VString(text) -> text
     json_ot.VNumber(json_ot.NInt(integer)) -> int.to_string(integer)
     json_ot.VNumber(json_ot.NFloat(float_value)) -> float.to_string(float_value)
-    json_ot.VBool(flag) -> bool_text(flag)
+    json_ot.VBool(flag) -> bool_to_string(flag)
     json_ot.VNull -> ""
     json_ot.VObject(_) | json_ot.VArray(_) -> ""
   }
@@ -850,7 +850,7 @@ fn add_form_value(form: AddForm) -> Result(JsonValue, String) {
   }
 }
 
-fn bool_text(value: Bool) -> String {
+fn bool_to_string(value: Bool) -> String {
   case value {
     True -> "true"
     False -> "false"
@@ -872,7 +872,7 @@ fn view(model: Model) -> Element(Msg) {
       html.button(
         [
           event.on_click(ToggledOffline(!model.offline)),
-          attribute.aria_pressed(bool_text(model.offline)),
+          attribute.aria_pressed(bool_to_string(model.offline)),
           attribute.disabled(model.doc == None),
         ],
         [
@@ -1217,9 +1217,9 @@ fn render_bool_leaf(path: List(PathKey), value: Bool) -> Element(Msg) {
     [
       attribute.class("json-bool"),
       event.on_click(BoolToggled(path, value)),
-      attribute.aria_pressed(bool_text(value)),
+      attribute.aria_pressed(bool_to_string(value)),
     ],
-    [html.text(bool_text(value))],
+    [html.text(bool_to_string(value))],
   )
 }
 

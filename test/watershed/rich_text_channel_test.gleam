@@ -61,7 +61,7 @@ pub fn rich_text_channel_type_round_trips_test() -> Nil {
   channel.type_to_string(channel.RichTextChannel)
   |> expect.to_equal(wire.channel_type_rich_text)
   channel.type_to_string(channel.RichTextChannel)
-  |> channel.type_from_string
+  |> channel.string_to_type
   |> expect.to_equal(Ok(channel.RichTextChannel))
 }
 

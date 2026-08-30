@@ -16,7 +16,7 @@
 //
 // Each editor:
 //   - submits only user-sourced Quill deltas, decoded through the generated
-//     `rich_text` codec (`delta_from_json_string`) and routed through
+//     `rich_text` codec (`parse_delta`) and routed through
 //     `watershed.submit_rich_text` via the shared rig's `submit` (so pending
 //     markers, op log, and convergence status all come from the same place
 //     every other rig demo uses);
@@ -77,7 +77,7 @@ function resultOk<T>(result: unknown): result is { 0: T } {
 /** Decode a Quill Delta's `.ops` (or a bare op array) through the generated
  * codec, or `null` on a decode `Error` (logged, never thrown/swallowed). */
 function decodeDelta(ops: QuillOp[], context: string): unknown | null {
-  const result = richText.delta_from_json_string(JSON.stringify(ops));
+  const result = richText.parse_delta(JSON.stringify(ops));
   if (resultOk<unknown>(result)) return (result as { 0: unknown })[0];
   console.error(
     `watershed rich-text demo: could not decode ${context} as a rich_text delta`,

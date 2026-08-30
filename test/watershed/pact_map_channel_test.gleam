@@ -192,7 +192,7 @@ pub fn pact_map_snapshot_round_trips_test() -> Nil {
 
 pub fn pact_map_channel_type_round_trips_test() -> Nil {
   channel.type_to_string(channel.PactMapChannel)
-  |> channel.type_from_string
+  |> channel.string_to_type
   |> expect.to_equal(Ok(channel.PactMapChannel))
 }
 
