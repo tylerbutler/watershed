@@ -625,7 +625,11 @@ pub fn decode_server(raw: String) -> Result(ServerFrame, String) {
 pub fn supports_relay(frame: ServerFrame) -> Bool {
   case frame {
     Connected(supports, _) -> supports
-    _ -> False
+    Frame(_, _)
+    | Synced(_)
+    | Attested(_, _)
+    | CheckpointRequest
+    | Refused(_, _) -> False
   }
 }
 
@@ -661,7 +665,8 @@ fn control_decoder() -> Decoder(ControlShape) {
 pub fn decode_client(raw: String) -> Result(ClientFrame, Refusal) {
   use _ <- result.try(case int.compare(byte_size(raw), max_frame_bytes()) {
     order.Gt -> Error(FrameTooLarge(byte_size(raw)))
-    _ -> Ok(Nil)
+    order.Lt -> Ok(Nil)
+    order.Eq -> Ok(Nil)
   })
   case json.parse(raw, control_decoder()) {
     Ok(ControlShape("attest", digest, up_to, _, _)) ->
@@ -755,7 +760,7 @@ fn check_shape(raw: String, kind: MessageKind) -> Result(Nil, Refusal) {
             "channel " <> address <> " claims a creator its address denies",
           ))
         _, False -> Error(Malformed("channel declares an empty channel type"))
-        _, _ -> Ok(Nil)
+        True, True -> Ok(Nil)
       }
     }
     DeltaMessage -> {
@@ -852,7 +857,7 @@ fn check_room(room: String) -> Result(Nil, Refusal) {
       Error(InvalidRoom(
         "room name is longer than " <> int.to_string(max_room_bytes) <> " bytes",
       ))
-    _, _ -> Ok(Nil)
+    False, False -> Ok(Nil)
   }
 }
 
@@ -1616,7 +1621,7 @@ fn admit(
       case taken, dict.size(found.clients) >= max_room_clients {
         True, _ -> Error(DuplicateSession(session))
         _, True -> Error(RoomFull(max_room_clients))
-        _, _ -> {
+        False, False -> {
           let client =
             Client(
               from: from,
@@ -1780,7 +1785,13 @@ fn room_has_capacity(
     False ->
       case message, dict.get(found.clients, connection) {
         StateMessage, Ok(client) -> client.supports_checkpoints
-        _, _ -> False
+        StateMessage, Error(_)
+        | HelloMessage, _
+        | ChannelMessage, _
+        | DeltaMessage, _
+        | StateRequestMessage, _
+        | DigestMessage, _
+        -> False
       }
   }
 }
@@ -1825,7 +1836,8 @@ fn send_checkpoint_request(
       ),
       [Send(connection, CheckpointRequest)],
     )
-    _ -> #(found, [])
+    Ok(_) -> #(found, [])
+    Error(Nil) -> #(found, [])
   }
 }
 
@@ -2021,7 +2033,7 @@ fn attest(
         }
       }
     }
-    _ -> {
+    Some(_) | None -> {
       let found = Room(..found, next_order: order + 1)
       Ok(#(store(relay, room, found), [Send(connection, Attested(order, ""))]))
     }
@@ -2141,7 +2153,8 @@ pub fn replay(relay: Relay, room: String, lines: List(String)) -> Relay {
           if order <= held
         -> carried
         DigestRecord(_, _, _), _ -> Some(record)
-        _, _ -> carried
+        StateRecord(_, _, _), _ -> carried
+        TrafficRecord(_, _, _), _ -> carried
       }
     })
   let #(attested, attested_order, marked) = case marker {
@@ -2154,7 +2167,9 @@ pub fn replay(relay: Relay, room: String, lines: List(String)) -> Relay {
     // describing the room, and the entry it names is still the room's
     // canonical state.
     Some(DigestRecord(order, _, checkpoint)) -> #("", order, checkpoint)
-    _ -> #("", 0, 0)
+    None -> #("", 0, 0)
+    Some(StateRecord(_, _, _)) -> #("", 0, 0)
+    Some(TrafficRecord(_, _, _)) -> #("", 0, 0)
   }
   let checkpoint_order = case
     marked > 0 && list.any(log, fn(entry) { entry.order == marked })
@@ -2211,7 +2226,8 @@ pub fn render_sockets(actions: List(Action)) -> List(#(Int, String, String)) {
     case action {
       Send(connection, frame) -> Ok(#(connection, server_to_string(frame), ""))
       Close(connection, reason) -> Ok(#(connection, "", reason))
-      _ -> Error(Nil)
+      Append(_, _) -> Error(Nil)
+      Compact(_, _) -> Error(Nil)
     }
   })
 }
@@ -2230,7 +2246,8 @@ pub fn render_storage(
     case action {
       Append(room, line) -> Ok(#(room, "append", [line]))
       Compact(room, lines) -> Ok(#(room, "compact", lines))
-      _ -> Error(Nil)
+      Send(_, _) -> Error(Nil)
+      Close(_, _) -> Error(Nil)
     }
   })
 }

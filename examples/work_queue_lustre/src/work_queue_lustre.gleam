@@ -366,7 +366,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     ClearMissed ->
       case model.claim {
         Missed -> #(Model(..model, claim: Idle), effect.none())
-        _ -> #(model, effect.none())
+        Idle -> #(model, effect.none())
+        PendingClaim -> #(model, effect.none())
+        Working(_, _) -> #(model, effect.none())
       }
 
     // The dwell timer fired. The id guard makes a stale timer — from a job

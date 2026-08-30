@@ -219,7 +219,11 @@ fn start(
   // The root map carries plain typed values alongside the roster handle.
   case watershed_beam.get_field(root, game()) {
     Ok(Some(_)) -> Nil
-    _ -> {
+    Ok(None) -> {
+      watershed_beam.set_field(root, game(), "watershed dice scores")
+      watershed_beam.set_field(root, die_sides(), face_count)
+    }
+    Error(_) -> {
       watershed_beam.set_field(root, game(), "watershed dice scores")
       watershed_beam.set_field(root, die_sides(), face_count)
     }

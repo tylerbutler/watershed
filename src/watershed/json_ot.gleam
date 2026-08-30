@@ -261,7 +261,8 @@ fn update_at(
               })
             Error(Nil) -> Error(BadPath("object key not found: " <> key))
           }
-        _ -> Error(BadPath("expected object at path step " <> key))
+        VNull | VBool(_) | VNumber(_) | VString(_) | VArray(_) ->
+          Error(BadPath("expected object at path step " <> key))
       }
     [Index(index), ..rest] ->
       case doc {
@@ -275,7 +276,7 @@ fn update_at(
             Error(_) ->
               Error(BadPath("list index out of range: " <> int.to_string(index)))
           }
-        _ ->
+        VNull | VBool(_) | VNumber(_) | VString(_) | VObject(_) ->
           Error(BadPath("expected array at path step " <> int.to_string(index)))
       }
   }
@@ -289,12 +290,14 @@ fn edit_root(doc: JsonValue, c: Component) -> Result(JsonValue, OtError) {
     Component(na: Some(delta), ..) ->
       case doc {
         VNumber(n) -> Ok(VNumber(num_add(n, delta)))
-        _ -> Error(BadValue("na target is not a number"))
+        VNull | VBool(_) | VString(_) | VArray(_) | VObject(_) ->
+          Error(BadValue("na target is not a number"))
       }
     Component(subtype: Some(#(name, sub_op)), ..) ->
       apply_subtype(name, doc, sub_op)
     Component(od: Some(_), ..) -> Ok(VNull)
-    _ -> Error(BadValue("invalid or missing instruction at root"))
+    Component(oi: None, na: None, subtype: None, od: None, ..) ->
+      Error(BadValue("invalid or missing instruction at root"))
   }
 }
 
@@ -325,16 +328,19 @@ fn edit_object_member(
           edit_member_value(members, key, fn(v) {
             case v {
               VNumber(n) -> Ok(VNumber(num_add(n, delta)))
-              _ -> Error(BadValue("na target is not a number"))
+              VNull | VBool(_) | VString(_) | VArray(_) | VObject(_) ->
+                Error(BadValue("na target is not a number"))
             }
           })
         Component(subtype: Some(#(name, sub_op)), ..) ->
           edit_member_value(members, key, fn(v) {
             apply_subtype(name, v, sub_op)
           })
-        _ -> Error(BadValue("invalid object edit at key " <> key))
+        Component(oi: None, od: None, na: None, subtype: None, ..) ->
+          Error(BadValue("invalid object edit at key " <> key))
       }
-    _ -> Error(BadPath("expected object for key " <> key))
+    VNull | VBool(_) | VNumber(_) | VString(_) | VArray(_) ->
+      Error(BadPath("expected object for key " <> key))
   }
 }
 
@@ -384,16 +390,19 @@ fn edit_list_element(
           edit_element_value(items, index, fn(v) {
             case v {
               VNumber(n) -> Ok(VNumber(num_add(n, delta)))
-              _ -> Error(BadValue("na target is not a number"))
+              VNull | VBool(_) | VString(_) | VArray(_) | VObject(_) ->
+                Error(BadValue("na target is not a number"))
             }
           })
         Component(subtype: Some(#(name, sub_op)), ..) ->
           edit_element_value(items, index, fn(v) {
             apply_subtype(name, v, sub_op)
           })
-        _ -> Error(BadValue("invalid list edit"))
+        Component(li: None, ld: None, lm: None, na: None, subtype: None, ..) ->
+          Error(BadValue("invalid list edit"))
       }
-    _ -> Error(BadPath("expected array for index"))
+    VNull | VBool(_) | VNumber(_) | VString(_) | VObject(_) ->
+      Error(BadPath("expected array for index"))
   }
 }
 
@@ -828,7 +837,16 @@ fn transform_matrix(
       Ok(other_oi_branch(c, other, common, common_operand, side))
     Component(od: Some(_), ..) ->
       Ok(other_od_branch(c, other, common, common_operand))
-    _ -> Ok([c])
+    Component(
+      subtype: None,
+      na: None,
+      li: None,
+      ld: None,
+      lm: None,
+      oi: None,
+      od: None,
+      ..,
+    ) -> Ok([c])
   }
 }
 
@@ -1294,7 +1312,8 @@ type TextComp {
 fn text0_parse_op(op: JsonValue) -> Result(List(TextComp), OtError) {
   case op {
     VArray(items) -> list.try_map(items, text0_parse_component)
-    _ -> Error(BadValue("text0 op must be an array"))
+    VNull | VBool(_) | VNumber(_) | VString(_) | VObject(_) ->
+      Error(BadValue("text0 op must be an array"))
   }
 }
 
@@ -1303,7 +1322,9 @@ fn text0_parse_component(component: JsonValue) -> Result(TextComp, OtError) {
     VObject(members) -> {
       let pos = case list.key_find(members, "p") {
         Ok(VNumber(NInt(n))) -> Ok(n)
-        _ -> Error(BadValue("text0 component missing integer position"))
+        Ok(_) -> Error(BadValue("text0 component missing integer position"))
+        Error(Nil) ->
+          Error(BadValue("text0 component missing integer position"))
       }
       use p <- result.try(pos)
       case p < 0 {
@@ -1316,7 +1337,8 @@ fn text0_parse_component(component: JsonValue) -> Result(TextComp, OtError) {
           }
       }
     }
-    _ -> Error(BadValue("text0 component must be an object"))
+    VNull | VBool(_) | VNumber(_) | VString(_) | VArray(_) ->
+      Error(BadValue("text0 component must be an object"))
   }
 }
 
@@ -1341,7 +1363,7 @@ fn str_inject(s1: String, pos: Int, s2: String) -> String {
 fn text0_is_empty_component(component: TextComp) -> Bool {
   case component {
     TIns(_, "") | TDel(_, "") -> True
-    _ -> False
+    TIns(_, _) | TDel(_, _) -> False
   }
 }
 
@@ -1388,7 +1410,8 @@ fn text0_merge(last: TextComp, component: TextComp) -> Result(TextComp, Nil) {
         True -> Ok(TDel(cp, str_inject(cd, lp - cp, ld)))
         False -> Error(Nil)
       }
-    _, _ -> Error(Nil)
+    TIns(_, _), TDel(_, _) -> Error(Nil)
+    TDel(_, _), TIns(_, _) -> Error(Nil)
   }
 }
 
@@ -1628,7 +1651,8 @@ fn text0_apply(
       )
       Ok(VString(result))
     }
-    _ -> Error(BadValue("text0 op can only apply to a string"))
+    VNull | VBool(_) | VNumber(_) | VArray(_) | VObject(_) ->
+      Error(BadValue("text0 op can only apply to a string"))
   }
 }
 

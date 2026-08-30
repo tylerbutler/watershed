@@ -1052,9 +1052,14 @@ fn type_tag(value: JsonValue) -> String {
     json_ot.VObject(members) ->
       case list.key_find(members, "type") {
         Ok(json_ot.VString(tag)) -> tag
-        _ -> ""
+        Ok(_) -> ""
+        Error(Nil) -> ""
       }
-    _ -> ""
+    json_ot.VNull -> ""
+    json_ot.VBool(_) -> ""
+    json_ot.VNumber(_) -> ""
+    json_ot.VString(_) -> ""
+    json_ot.VArray(_) -> ""
   }
 }
 

@@ -243,7 +243,8 @@ pub fn set_register(
 fn stamp(clock: Dict(String, Int), key: String, wall_clock: Int) -> Int {
   case dict.get(clock, key) {
     Ok(seen) if seen >= wall_clock -> seen + 1
-    _ -> wall_clock
+    Ok(_) -> wall_clock
+    Error(Nil) -> wall_clock
   }
 }
 
@@ -255,7 +256,8 @@ fn observe(
 ) -> Dict(String, Int) {
   case dict.get(clock, key) {
     Ok(seen) if seen >= timestamp -> clock
-    _ -> dict.insert(clock, key, timestamp)
+    Ok(_) -> dict.insert(clock, key, timestamp)
+    Error(Nil) -> dict.insert(clock, key, timestamp)
   }
 }
 

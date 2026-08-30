@@ -619,7 +619,8 @@ fn check_size(
 ) -> Result(Nil, P2pError) {
   case int.compare(bytes, limit) {
     order.Gt -> Error(to_error(bytes, limit))
-    _ -> Ok(Nil)
+    order.Lt -> Ok(Nil)
+    order.Eq -> Ok(Nil)
   }
 }
 

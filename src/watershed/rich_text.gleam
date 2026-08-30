@@ -6,12 +6,12 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/json_ot.{
-  type JsonValue, NInt, VArray, VNull, VNumber, VObject, VString,
+  type JsonValue, NFloat, NInt, VArray, VBool, VNull, VNumber, VObject, VString,
 }
 import watershed/rich_text/attribute_map.{type Attributes}
 import watershed/rich_text/op_iterator.{
   type Iterator, type IteratorError, type Operation, Delete, DeleteKind, Insert,
-  InsertEmbed, InsertText, Retain, SplitBoundary,
+  InsertEmbed, InsertText, Retain, RetainKind, SplitBoundary,
 }
 import watershed/rich_text/utf16
 
@@ -158,7 +158,10 @@ pub fn document_operations(document: Document) -> Result(Document, Error) {
             acc,
             InsertEmbed(embed, attribute_map.without_nulls(attributes)),
           ))
-        _ -> Error(Malformed("document", "documents may contain inserts only"))
+        Delete(_) ->
+          Error(Malformed("document", "documents may contain inserts only"))
+        Retain(_, _) ->
+          Error(Malformed("document", "documents may contain inserts only"))
       }
     })
   {
@@ -393,7 +396,8 @@ fn decode_operations(
 ) -> Result(List(Operation), Error) {
   case value {
     VArray(values) -> decode_operations_list(values, document_only, 0, [])
-    _ -> Error(Malformed("operations", "must be an array"))
+    VNull | VBool(_) | VNumber(_) | VString(_) | VObject(_) ->
+      Error(Malformed("operations", "must be an array"))
   }
 }
 
@@ -458,7 +462,7 @@ fn decode_operation(
           }
       }
     }
-    _ ->
+    VNull | VBool(_) | VNumber(_) | VString(_) | VArray(_) ->
       Error(Malformed("operation " <> int.to_string(index), "must be an object"))
   }
 }
@@ -502,7 +506,7 @@ fn decode_action(
     _, _, Some(value) ->
       decode_length(value, "retain", index)
       |> result.map(fn(amount) { Retain(amount, attributes) })
-    _, _, _ ->
+    None, None, None ->
       Error(Malformed(
         "operation " <> int.to_string(index),
         "missing action key",
@@ -532,7 +536,13 @@ fn decode_length(
 ) -> Result(Int, Error) {
   case value {
     VNumber(NInt(amount)) if amount > 0 -> Ok(amount)
-    _ ->
+    VNumber(NInt(_))
+    | VNumber(NFloat(_))
+    | VNull
+    | VBool(_)
+    | VString(_)
+    | VArray(_)
+    | VObject(_) ->
       Error(Malformed(
         "operation " <> int.to_string(index),
         kind <> " must be a positive integer",
@@ -580,7 +590,11 @@ fn compose_loop(
           use #(op, next_left) <- result.try(take_checked(left, amount))
           compose_loop(next_left, right, push(result, op))
         }
-        _, _ -> {
+        DeleteKind, Insert
+        | DeleteKind, RetainKind
+        | RetainKind, Insert
+        | RetainKind, RetainKind
+        -> {
           use #(left_op, next_left) <- result.try(take_checked(left, amount))
           use #(right_op, next_right) <- result.try(take_checked(right, amount))
           let next_result = case right_op {
@@ -627,9 +641,12 @@ fn compose_loop(
             Delete(_) ->
               case left_op {
                 Retain(_, _) -> push(result, Delete(amount))
-                _ -> result
+                InsertText(_, _) -> result
+                InsertEmbed(_, _) -> result
+                Delete(_) -> result
               }
-            _ -> result
+            InsertText(_, _) -> result
+            InsertEmbed(_, _) -> result
           }
           compose_loop(next_left, next_right, next_result)
         }
@@ -671,7 +688,11 @@ fn transform_core(
           use #(op, next_other) <- result.try(take_remaining(other))
           transform_core(source, next_other, priority, push(result, op))
         }
-        _, _ -> {
+        DeleteKind, DeleteKind
+        | DeleteKind, RetainKind
+        | RetainKind, DeleteKind
+        | RetainKind, RetainKind
+        -> {
           let amount = next_amount(source, other)
           use #(source_op, next_source) <- result.try(take_checked(
             source,
@@ -693,7 +714,8 @@ fn transform_core(
                   ),
                 ),
               )
-            _, _ -> result
+            _, InsertText(_, _) -> result
+            _, InsertEmbed(_, _) -> result
           }
           transform_core(next_source, next_other, priority, next_result)
         }
@@ -811,7 +833,8 @@ fn transform_position_loop(
             False ->
               transform_position_loop(next, index, offset + amount, priority)
           }
-        _ -> transform_position_loop(next, index, offset + amount, priority)
+        RetainKind ->
+          transform_position_loop(next, index, offset + amount, priority)
       }
     }
   }
@@ -884,7 +907,8 @@ fn push(operations: List(Operation), operation: Operation) -> List(Operation) {
     InsertText("", _) -> operations
     Delete(amount) if amount <= 0 -> operations
     Retain(amount, _) if amount <= 0 -> operations
-    _ -> push_nonempty(operations, operation)
+    InsertText(_, _) | InsertEmbed(_, _) | Delete(_) | Retain(_, _) ->
+      push_nonempty(operations, operation)
   }
 }
 
@@ -907,7 +931,11 @@ fn push_nonempty(
         Retain(a, attributes_a), Retain(b, attributes_b)
           if attributes_a == attributes_b
         -> list.reverse([Retain(a + b, attributes_a), ..before_reversed])
-        _, _ -> list.append(operations, [operation])
+        Delete(_), _
+        | InsertText(_, _), _
+        | InsertEmbed(_, _), _
+        | Retain(_, _), _
+        -> list.append(operations, [operation])
       }
   }
 }

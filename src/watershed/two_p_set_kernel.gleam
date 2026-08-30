@@ -326,7 +326,8 @@ fn events_between(
     case was_present, is_present {
       False, True -> Ok(ElementAdded(element))
       True, False -> Ok(ElementRemoved(element))
-      _, _ -> Error(Nil)
+      True, True -> Error(Nil)
+      False, False -> Error(Nil)
     }
   })
 }

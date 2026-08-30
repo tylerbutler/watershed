@@ -215,7 +215,11 @@ fn view(channel: JsonOt) -> JsonValue {
 fn member(value: JsonValue, key: String) -> Result(JsonValue, Nil) {
   case value {
     json_ot.VObject(members) -> list.key_find(members, key)
-    _ -> Error(Nil)
+    json_ot.VNull -> Error(Nil)
+    json_ot.VBool(_) -> Error(Nil)
+    json_ot.VNumber(_) -> Error(Nil)
+    json_ot.VString(_) -> Error(Nil)
+    json_ot.VArray(_) -> Error(Nil)
   }
 }
 
@@ -230,7 +234,11 @@ fn json_ot_inspect(value: JsonValue) -> String {
   case value {
     json_ot.VString(text) -> text
     json_ot.VNumber(json_ot.NInt(integer)) -> int.to_string(integer)
-    _ -> "?"
+    json_ot.VNumber(json_ot.NFloat(_)) -> "?"
+    json_ot.VNull -> "?"
+    json_ot.VBool(_) -> "?"
+    json_ot.VArray(_) -> "?"
+    json_ot.VObject(_) -> "?"
   }
 }
 

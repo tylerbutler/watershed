@@ -804,7 +804,24 @@ pub fn apply_remote(
       let #(kernel, events) = text_kernel.apply_remote(kernel, op)
       Ok(#(TextState(kernel), list.map(events, TextEvent), []))
     }
-    state, _ -> Error(wrong_channel_type(state, "remote op"))
+    MapState(_), _
+    | CounterState(_), _
+    | PnCounterState(_), _
+    | OrMapState(_), _
+    | OrSetState(_), _
+    | GSetState(_), _
+    | TwoPSetState(_), _
+    | RegisterCollectionState(_), _
+    | ClaimsState(_), _
+    | TaskManagerState(_), _
+    | PactMapState(_), _
+    | JsonOtState(_), _
+    | DirectoryState(_), _
+    | OrderedCollectionState(_), _
+    | SequenceState(_), _
+    | RichTextState(_), _
+    | TextState(_), _
+    -> Error(wrong_channel_type(state, "remote op"))
   }
 }
 
@@ -858,7 +875,22 @@ fn pact_map_reaction_ops(
 pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
   case state {
     PactMapState(_) -> True
-    _ -> False
+    MapState(_)
+    | CounterState(_)
+    | PnCounterState(_)
+    | OrMapState(_)
+    | OrSetState(_)
+    | GSetState(_)
+    | TwoPSetState(_)
+    | RegisterCollectionState(_)
+    | ClaimsState(_)
+    | TaskManagerState(_)
+    | JsonOtState(_)
+    | DirectoryState(_)
+    | OrderedCollectionState(_)
+    | SequenceState(_)
+    | RichTextState(_)
+    | TextState(_) -> False
   }
 }
 
@@ -896,7 +928,20 @@ pub fn on_leave(
         task_manager_kernel.remove_client(kernel, client_id)
       #(TaskManagerState(kernel), list.map(events, TaskManagerEvent))
     }
-    _ -> #(state, [])
+    MapState(_)
+    | CounterState(_)
+    | PnCounterState(_)
+    | OrMapState(_)
+    | OrSetState(_)
+    | GSetState(_)
+    | TwoPSetState(_)
+    | RegisterCollectionState(_)
+    | ClaimsState(_)
+    | JsonOtState(_)
+    | DirectoryState(_)
+    | SequenceState(_)
+    | RichTextState(_)
+    | TextState(_) -> #(state, [])
   }
 }
 
@@ -1140,7 +1185,16 @@ pub fn ack_local(
             | Error(task_manager_kernel.NotAssigned(detail)) ->
               Error(UnexpectedAck(detail))
           }
-        _ ->
+        NoMeta
+        | CounterMeta(_)
+        | PnCounterMeta(_)
+        | OrMapMeta(_)
+        | OrSetMeta(_)
+        | GSetMeta(_)
+        | TwoPSetMeta(_)
+        | DirectoryMeta(_)
+        | SequenceMeta(_)
+        | TextMeta(_) ->
           Error(UnexpectedAck(
             "task-manager ack is missing its local message id",
           ))
@@ -1167,7 +1221,17 @@ pub fn ack_local(
             Ok(kernel) -> Ok(#(DirectoryState(kernel), [], None))
             Error(error) -> Error(UnexpectedAck(directory_error_detail(error)))
           }
-        _ -> Error(UnexpectedAck("directory ack is missing its local metadata"))
+        NoMeta
+        | CounterMeta(_)
+        | PnCounterMeta(_)
+        | OrMapMeta(_)
+        | OrSetMeta(_)
+        | GSetMeta(_)
+        | TwoPSetMeta(_)
+        | TaskManagerMeta(_)
+        | SequenceMeta(_)
+        | TextMeta(_) ->
+          Error(UnexpectedAck("directory ack is missing its local metadata"))
       }
     OrderedCollectionState(kernel), OrderedCollectionOp(op) -> {
       // The queue kernel is non-optimistic: the own op takes effect here, on
@@ -1179,7 +1243,10 @@ pub fn ack_local(
       let resolution = case op, outcome {
         ordered_collection_kernel.Acquire(acquire_id), Some(outcome) ->
           Some(AcquireResolved(acquire_id, outcome))
-        _, _ -> None
+        ordered_collection_kernel.Acquire(_), None -> None
+        ordered_collection_kernel.Add(_), _ -> None
+        ordered_collection_kernel.Complete(_), _ -> None
+        ordered_collection_kernel.Release(_), _ -> None
       }
       Ok(#(
         OrderedCollectionState(kernel),
@@ -1198,7 +1265,16 @@ pub fn ack_local(
             | Error(sequence_kernel.UnexpectedRollback(detail)) ->
               Error(UnexpectedAck(detail))
           }
-        _ ->
+        NoMeta
+        | CounterMeta(_)
+        | PnCounterMeta(_)
+        | OrMapMeta(_)
+        | OrSetMeta(_)
+        | GSetMeta(_)
+        | TwoPSetMeta(_)
+        | TaskManagerMeta(_)
+        | DirectoryMeta(_)
+        | TextMeta(_) ->
           Error(UnexpectedAck("sequence ack is missing its local message id"))
       }
     RichTextState(kernel), RichTextOp(op) ->
@@ -1219,9 +1295,36 @@ pub fn ack_local(
             | Error(text_kernel.UnexpectedRollback(detail)) ->
               Error(UnexpectedAck(detail))
           }
-        _ -> Error(UnexpectedAck("text ack is missing its local message id"))
+        NoMeta
+        | CounterMeta(_)
+        | PnCounterMeta(_)
+        | OrMapMeta(_)
+        | OrSetMeta(_)
+        | GSetMeta(_)
+        | TwoPSetMeta(_)
+        | TaskManagerMeta(_)
+        | DirectoryMeta(_)
+        | SequenceMeta(_) ->
+          Error(UnexpectedAck("text ack is missing its local message id"))
       }
-    state, _ -> Error(wrong_channel_type(state, "local ack"))
+    MapState(_), _
+    | CounterState(_), _
+    | PnCounterState(_), _
+    | OrMapState(_), _
+    | OrSetState(_), _
+    | GSetState(_), _
+    | TwoPSetState(_), _
+    | RegisterCollectionState(_), _
+    | ClaimsState(_), _
+    | TaskManagerState(_), _
+    | PactMapState(_), _
+    | JsonOtState(_), _
+    | DirectoryState(_), _
+    | OrderedCollectionState(_), _
+    | SequenceState(_), _
+    | RichTextState(_), _
+    | TextState(_), _
+    -> Error(wrong_channel_type(state, "local ack"))
   }
 }
 
@@ -1373,7 +1476,24 @@ pub fn apply_p2p_local(
       let #(kernel, events, op) = text_kernel.p2p_append(kernel, value)
       Ok(#(TextState(kernel), list.map(events, TextEvent), TextOp(op)))
     }
-    state, _ -> Error(unsupported_p2p(state, "local p2p edit"))
+    MapState(_), _
+    | CounterState(_), _
+    | PnCounterState(_), _
+    | OrMapState(_), _
+    | OrSetState(_), _
+    | GSetState(_), _
+    | TwoPSetState(_), _
+    | RegisterCollectionState(_), _
+    | ClaimsState(_), _
+    | TaskManagerState(_), _
+    | PactMapState(_), _
+    | JsonOtState(_), _
+    | DirectoryState(_), _
+    | OrderedCollectionState(_), _
+    | SequenceState(_), _
+    | RichTextState(_), _
+    | TextState(_), _
+    -> Error(unsupported_p2p(state, "local p2p edit"))
   }
 }
 
@@ -1462,7 +1582,24 @@ pub fn merge_p2p_snapshot(
       let #(kernel, events) = text_kernel.p2p_merge(kernel, other)
       Ok(#(TextState(kernel), list.map(events, TextEvent)))
     }
-    state, _ -> Error(unsupported_p2p(state, "remote p2p snapshot"))
+    MapState(_), _
+    | CounterState(_), _
+    | PnCounterState(_), _
+    | OrMapState(_), _
+    | OrSetState(_), _
+    | GSetState(_), _
+    | TwoPSetState(_), _
+    | RegisterCollectionState(_), _
+    | ClaimsState(_), _
+    | TaskManagerState(_), _
+    | PactMapState(_), _
+    | JsonOtState(_), _
+    | DirectoryState(_), _
+    | OrderedCollectionState(_), _
+    | SequenceState(_), _
+    | RichTextState(_), _
+    | TextState(_), _
+    -> Error(unsupported_p2p(state, "remote p2p snapshot"))
   }
 }
 
@@ -1512,7 +1649,21 @@ pub fn take_outbound(
       let #(kernel, out) = rich_text_kernel.take_outbound(kernel)
       #(RichTextState(kernel), option.map(out, RichTextOp))
     }
-    _ -> #(state, None)
+    MapState(_)
+    | CounterState(_)
+    | PnCounterState(_)
+    | OrMapState(_)
+    | OrSetState(_)
+    | GSetState(_)
+    | TwoPSetState(_)
+    | RegisterCollectionState(_)
+    | ClaimsState(_)
+    | TaskManagerState(_)
+    | PactMapState(_)
+    | DirectoryState(_)
+    | OrderedCollectionState(_)
+    | SequenceState(_)
+    | TextState(_) -> #(state, None)
   }
 }
 
@@ -1561,7 +1712,24 @@ pub fn same_shape(ours: ChannelOp, echoed: ChannelOp) -> Bool {
     RichTextOp(ours), RichTextOp(echoed) ->
       ours.ref_seq == echoed.ref_seq && ours.delta == echoed.delta
     TextOp(ours), TextOp(echoed) -> same_text_shape(ours, echoed)
-    _, _ -> False
+    MapOp(_), _
+    | CounterOp(_), _
+    | PnCounterOp(_), _
+    | OrMapOp(_), _
+    | OrSetOp(_), _
+    | GSetOp(_), _
+    | TwoPSetOp(_), _
+    | RegisterCollectionOp(_), _
+    | ClaimsOp(_), _
+    | TaskManagerOp(_), _
+    | PactMapOp(_), _
+    | JsonOtOp(_), _
+    | DirectoryOp(_, _), _
+    | OrderedCollectionOp(_), _
+    | SequenceOp(_), _
+    | RichTextOp(_), _
+    | TextOp(_), _
+    -> False
   }
 }
 
@@ -1587,7 +1755,11 @@ fn same_sequence_shape(
       i == i2
       && same_json_value(value, value2)
       && same_sequence_delta(delta, delta2)
-    _, _ -> False
+    sequence_kernel.Insert(_, _, _), _
+    | sequence_kernel.Delete(_, _), _
+    | sequence_kernel.Move(_, _, _), _
+    | sequence_kernel.Replace(_, _, _), _
+    -> False
   }
 }
 
@@ -1621,7 +1793,11 @@ fn same_text_shape(
     -> s == s2 && e == e2 && value == value2 && same_text_delta(delta, delta2)
     text_kernel.Append(value, delta), text_kernel.Append(value2, delta2) ->
       value == value2 && same_text_delta(delta, delta2)
-    _, _ -> False
+    text_kernel.Insert(_, _, _), _
+    | text_kernel.DeleteRange(_, _, _), _
+    | text_kernel.ReplaceRange(_, _, _, _), _
+    | text_kernel.Append(_, _), _
+    -> False
   }
 }
 
@@ -1645,7 +1821,12 @@ fn same_directory_shape(
     directory_kernel.DeleteSubDirectory(p, n),
       directory_kernel.DeleteSubDirectory(p2, n2)
     -> p == p2 && n == n2
-    _, _ -> False
+    directory_kernel.Set(_, _, _), _
+    | directory_kernel.Delete(_, _), _
+    | directory_kernel.Clear(_), _
+    | directory_kernel.CreateSubDirectory(_, _), _
+    | directory_kernel.DeleteSubDirectory(_, _), _
+    -> False
   }
 }
 
@@ -1656,7 +1837,8 @@ fn same_map_shape(ours: map_kernel.MapOp, echoed: map_kernel.MapOp) -> Bool {
     map_kernel.Delete(our_key), map_kernel.Delete(echoed_key) ->
       our_key == echoed_key
     map_kernel.Clear, map_kernel.Clear -> True
-    _, _ -> False
+    map_kernel.Set(_, _), _ | map_kernel.Delete(_), _ | map_kernel.Clear, _ ->
+      False
   }
 }
 
@@ -1673,7 +1855,10 @@ fn same_or_map_shape(
     -> our_key == echoed_key && our_value == echoed_value && our_ts == echoed_ts
     or_map_kernel.Remove(our_key, _), or_map_kernel.Remove(echoed_key, _) ->
       our_key == echoed_key
-    _, _ -> False
+    or_map_kernel.Increment(_, _, _), _
+    | or_map_kernel.SetRegister(_, _, _, _), _
+    | or_map_kernel.Remove(_, _), _
+    -> False
   }
 }
 
@@ -1687,7 +1872,7 @@ fn same_or_set_shape(
     or_set_kernel.Remove(our_element, _),
       or_set_kernel.Remove(echoed_element, _)
     -> our_element == echoed_element
-    _, _ -> False
+    or_set_kernel.Add(_, _), _ | or_set_kernel.Remove(_, _), _ -> False
   }
 }
 
@@ -1712,7 +1897,7 @@ fn same_two_p_set_shape(
     two_p_set_kernel.Remove(our_element, _),
       two_p_set_kernel.Remove(echoed_element, _)
     -> our_element == echoed_element
-    _, _ -> False
+    two_p_set_kernel.Add(_, _), _ | two_p_set_kernel.Remove(_, _), _ -> False
   }
 }
 
@@ -1730,7 +1915,10 @@ fn same_task_manager_shape(
     task_manager_kernel.Complete(our_task),
       task_manager_kernel.Complete(echoed_task)
     -> our_task == echoed_task
-    _, _ -> False
+    task_manager_kernel.Volunteer(_), _
+    | task_manager_kernel.Abandon(_), _
+    | task_manager_kernel.Complete(_), _
+    -> False
   }
 }
 
@@ -1771,7 +1959,24 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     RichTextSnapshot(ours), RichTextSnapshot(echoed) -> ours == echoed
     TextSummary(ours), TextSummary(echoed) ->
       same_json_value(text.to_json(ours), text.to_json(echoed))
-    _, _ -> False
+    MapSnapshot(_), _
+    | CounterSnapshot(_), _
+    | PnCounterSnapshot(_), _
+    | OrMapSnapshot(_, _), _
+    | OrSetSnapshot(_), _
+    | GSetSnapshot(_), _
+    | TwoPSetSnapshot(_), _
+    | RegisterCollectionSnapshot(_), _
+    | ClaimsSnapshot(_), _
+    | TaskManagerSnapshot(_), _
+    | PactMapSnapshot(_), _
+    | JsonOtSnapshot(_), _
+    | DirectorySnapshot(_), _
+    | OrderedCollectionSnapshot(_, _), _
+    | SequenceSummary(_), _
+    | RichTextSnapshot(_), _
+    | TextSummary(_), _
+    -> False
   }
 }
 
@@ -2051,7 +2256,7 @@ fn same_pact_map_shape(
       && our_ref == echoed_ref
     pact_map_kernel.Accept(our_key), pact_map_kernel.Accept(echoed_key) ->
       our_key == echoed_key
-    _, _ -> False
+    pact_map_kernel.Set(_, _, _), _ | pact_map_kernel.Accept(_), _ -> False
   }
 }
 
@@ -2077,7 +2282,11 @@ fn same_ordered_shape(
     ordered_collection_kernel.Release(our_id),
       ordered_collection_kernel.Release(echoed_id)
     -> our_id == echoed_id
-    _, _ -> False
+    ordered_collection_kernel.Add(_), _
+    | ordered_collection_kernel.Acquire(_), _
+    | ordered_collection_kernel.Complete(_), _
+    | ordered_collection_kernel.Release(_), _
+    -> False
   }
 }
 

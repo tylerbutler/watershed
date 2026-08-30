@@ -2252,7 +2252,7 @@ fn resolve_claim_waiters(
             }
             Error(_) -> acc
           }
-        _ -> acc
+        AcquireResolved(_, _) -> acc
       }
     })
   State(..state, claim_waiters: claim_waiters)
@@ -2399,7 +2399,7 @@ fn resolve_acquire_waiters(
             }
             Error(_) -> acc
           }
-        _ -> acc
+        ClaimResolved(_, _) -> acc
       }
     })
   State(..state, acquire_waiters: acquire_waiters)
