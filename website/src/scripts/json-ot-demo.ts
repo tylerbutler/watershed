@@ -122,7 +122,7 @@ export function initJsonOtDemo() {
     submit(
       client,
       "field:gauge.trend",
-      op(jsonOt.obj_replace(path(K("gauge"), K("trend")), S(current), S(next))),
+      op(jsonOt.object_replace(path(K("gauge"), K("trend")), S(current), S(next))),
       `set .gauge.trend "${next}"`,
     );
   }
@@ -137,7 +137,7 @@ export function initJsonOtDemo() {
     submit(
       client,
       "field:site",
-      op(jsonOt.obj_replace(path(K("site")), S(current), S(next))),
+      op(jsonOt.object_replace(path(K("site")), S(current), S(next))),
       `set .site "${next}"`,
     );
   }
@@ -249,15 +249,15 @@ export function initJsonOtDemo() {
       rt,
       address,
       op(
-        jsonOt.obj_insert(path(K("crew")), vArray(CREW_BASE)),
-        jsonOt.obj_insert(
+        jsonOt.object_insert(path(K("crew")), vArray(CREW_BASE)),
+        jsonOt.object_insert(
           path(K("gauge")),
           vObject([
             ["stage", N(STAGE_BASE)],
             ["trend", S(TREND_BASE)],
           ]),
         ),
-        jsonOt.obj_insert(path(K("site")), S(SITE_BASE)),
+        jsonOt.object_insert(path(K("site")), S(SITE_BASE)),
       ),
     );
   }
