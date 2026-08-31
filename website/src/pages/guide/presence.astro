@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt, section } from "../../lib/excerpt";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
@@ -154,6 +155,7 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       chip row can render “you” once, deliberately, instead of showing you twice
       and calling it a bug report.
     </p>
+    <FieldNoteRef id="presence-idiom" />
   </div>
 
   <div class="g-block">
@@ -179,6 +181,7 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       status attached to that, not for anything that updates many times a
       second.
     </p>
+    <FieldNoteRef id="protocol-on-ripples" />
   </div>
 
   <div class="g-out">

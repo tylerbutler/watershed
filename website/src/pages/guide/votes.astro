@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt, section } from "../../lib/excerpt";
 import boardSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam?raw";
@@ -154,6 +155,7 @@ watershed.set(board, id, json.int(current + 1))`;
       the question actually demands it — a tally that fits is worth more than
       a fancier structure that doesn’t.
     </p>
+    <FieldNoteRef id="unsettled-writes" />
   </div>
 
   <div class="g-out">

@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt, section } from "../../lib/excerpt";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
@@ -143,6 +144,7 @@ const layout = `retro_tutorial_lustre/
     <figure class="g-code">
       <Code code={readiness} lang="gleam" theme={watershedCodeTheme} />
     </figure>
+    <FieldNoteRef id="ffi-surface" />
   </div>
 
   <div class="g-block">
@@ -187,6 +189,7 @@ const layout = `retro_tutorial_lustre/
       <code>TallyMode</code> stores one signed number per key for votes. You
       choose the mode when you create the channel.
     </p>
+    <FieldNoteRef id="claims-seeding" />
   </div>
 
   <div class="g-block">
@@ -243,6 +246,7 @@ const layout = `retro_tutorial_lustre/
       JavaScript can’t pause and wait the way an OTP process (an
       Erlang-style lightweight process) can.
     </p>
+    <FieldNoteRef id="shared-core-two-runtimes" />
   </div>
 
   <div class="g-block">

@@ -2,6 +2,7 @@
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "../components/Ecosystem.astro";
 import Demo from "../components/Demo.astro";
+import RelatedFieldNotes from "../components/RelatedFieldNotes.astro";
 import { categories, structuresBySlug } from "../data/structures";
 
 interface Props {
@@ -164,6 +165,8 @@ const familyViews = category.structures
       ))
     }
   </main>
+
+  <RelatedFieldNotes page={`/structures/${slug}`} />
 
   <nav class="cat-nav" aria-label="More on data structures">
     <a class="cat-nav-side" href={`/structures/${prev.slug}`}>

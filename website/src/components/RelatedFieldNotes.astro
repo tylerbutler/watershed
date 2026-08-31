@@ -1,0 +1,110 @@
+---
+// The field-notes strip for atlas and runtime sheets: the practices whose
+// `related` names this page's route, so a reader stuck on this structure or
+// behavior meets the pattern where the problem lives. Renders nothing when no
+// practice claims the page.
+import {
+  practiceExampleName,
+  practiceHref,
+  relatedPractices,
+} from "../data/practices";
+
+interface Props {
+  /** The route of the sheet this strip sits on, e.g. "/structures/sequences". */
+  page: string;
+}
+
+const { page } = Astro.props;
+const notes = relatedPractices(page);
+---
+
+{
+  notes.length > 0 && (
+    <aside class="rfn" aria-labelledby="rfn-title">
+      <div class="rfn-inner">
+        <h2 id="rfn-title">Field notes from the examples</h2>
+        <p class="rfn-lede">
+          Where the problems on this sheet came up in a real application, and
+          the move that held.
+        </p>
+        <ul class="rfn-list">
+          {notes.map((practice) => (
+            <li>
+              <a href={practiceHref(practice)}>{practice.title}</a>
+              <p>{practice.rule}</p>
+              <span class="annot">{practiceExampleName(practice)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
+    </aside>
+  )
+}
+
+<style>
+  .rfn {
+    border-top: 1px solid var(--hairline);
+    background: var(--surface);
+  }
+
+  .rfn-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+    padding: var(--space-2xl) var(--content-pad);
+  }
+
+  .rfn h2 {
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+  }
+
+  .rfn-lede {
+    margin-top: var(--space-sm);
+    color: var(--muted);
+    max-width: 56ch;
+  }
+
+  .rfn-list {
+    list-style: none;
+    margin: var(--space-xl) 0 0;
+    padding: 0;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(18rem, 1fr));
+    gap: var(--space-lg);
+  }
+
+  .rfn-list li {
+    display: grid;
+    gap: var(--space-xs);
+    align-content: start;
+    padding: var(--space-lg);
+    border: 1px solid var(--ink);
+    background: var(--bg);
+  }
+
+  .rfn-list a {
+    font-weight: 620;
+    font-stretch: 112%;
+    font-size: 1.05rem;
+    text-decoration: none;
+    color: var(--ink);
+  }
+
+  .rfn-list a:hover {
+    color: var(--overprint-deep);
+  }
+
+  .rfn-list p {
+    margin: 0;
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .rfn-list .annot {
+    color: var(--muted);
+  }
+</style>

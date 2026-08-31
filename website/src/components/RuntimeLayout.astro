@@ -1,6 +1,7 @@
 ---
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "./Ecosystem.astro";
+import RelatedFieldNotes from "./RelatedFieldNotes.astro";
 import { runtimeBySlug, runtimeNeighbours } from "../data/runtime";
 
 interface Props {
@@ -29,6 +30,8 @@ const { prev, next } = runtimeNeighbours(slug);
   <main class="doc-body">
     <slot />
   </main>
+
+  <RelatedFieldNotes page={`/runtime/${slug}`} />
 
   <nav class="r-pager" aria-label="Runtime sheets">
     {

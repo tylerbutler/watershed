@@ -8,11 +8,43 @@
 // sync when an example changes.
 //
 // Each practice is filed under the /guide step whose work it belongs to, and
-// renders as field notes at the foot of that step. /patterns is the index over
-// all of them, not their home.
+// renders as field notes at the foot of that step. /patterns indexes them the
+// other way — by problem theme — and `related` surfaces each one on the
+// atlas and runtime sheets where its problem shows up.
 // ──────────────────────────────────────────────────────────────────────────
 import { examples, type Example } from "./examples";
 import { steps, type StepSlug } from "./guide";
+
+/** The problem themes /patterns groups by: what you're stuck on, not where
+ *  the procedure happens to teach it. */
+export const themes = [
+  {
+    slug: "architecture",
+    title: "Architecture & composition",
+    blurb:
+      "Where the seams go: what the shell owns, what a component is allowed to touch, and which loops must never call back into the app.",
+  },
+  {
+    slug: "conflicts",
+    title: "Conflicts & consistency",
+    blurb:
+      "Two clients act on the same state at once. These are the moves that keep the UI honest while the structure settles who wins.",
+  },
+  {
+    slug: "coordination",
+    title: "Presence & coordination",
+    blurb:
+      "Facts that should die with the session — who's here, who drives — and the envelopes that carry them without ever touching the document.",
+  },
+  {
+    slug: "testing",
+    title: "Testing & diagnostics",
+    blurb:
+      "Pinning the claims that matter deterministically, in-process, with the runtime's own instruments on screen before you guess at a sync bug.",
+  },
+] as const;
+
+export type ThemeSlug = (typeof themes)[number]["slug"];
 
 export interface Practice {
   /** Anchor slug, on the guide step this practice is filed under. */
@@ -21,6 +53,12 @@ export interface Practice {
   title: string;
   /** The build-guide step whose work this practice belongs to. */
   step: StepSlug;
+  /** The problem theme /patterns files this under. */
+  theme: ThemeSlug;
+  /** Routes of the atlas / runtime sheets where this practice's problem
+   *  shows up, e.g. "/structures/sequences". Renders a field-notes strip
+   *  on those pages. */
+  related?: string[];
   /** `Example.id` of the app that demonstrates this practice. */
   example: string;
   /** One-sentence imperative rule. */
@@ -42,6 +80,8 @@ export const practices: Practice[] = [
     id: "relay-decorator",
     title: "Treat the server as an optional decorator",
     step: "connect",
+    theme: "architecture",
+    related: ["/runtime/p2p", "/structures/counters"],
     example: "clap_counter_lustre",
     rule: "When the app is peer-to-peer, add durability as a config decorator that readiness never waits on.",
     body: [
@@ -78,6 +118,7 @@ fn with_relay(
     id: "shared-core-two-runtimes",
     title: "One shared core, two runtimes",
     step: "connect",
+    theme: "architecture",
     example: "dice_cli",
     rule: "Prove the core is portable by joining the same document from an OTP actor and a browser tab.",
     body: [
@@ -109,6 +150,8 @@ fn with_relay(
     id: "diagnostics-first",
     title: "Sample diagnostics on every event",
     step: "connect",
+    theme: "testing",
+    related: ["/runtime/optimistic", "/runtime/reconnect"],
     example: "dice_lustre",
     rule: "Render the runtime's own diagnostics before guessing at a sync bug.",
     body: [
@@ -140,6 +183,8 @@ fn with_relay(
     id: "quorum-pending-roster",
     title: "Propose on release, render the pending signoff",
     step: "votes",
+    theme: "conflicts",
+    related: ["/structures/coordination", "/runtime/optimistic"],
     example: "drum_machine_lustre",
     rule: "A consensus write is a proposal, not an edit: commit it once per gesture and show who has not signed off.",
     body: [
@@ -176,6 +221,7 @@ BpmCommitted ->
     id: "realtime-out-of-band",
     title: "Keep latency-critical loops out of the update path",
     step: "presence",
+    theme: "architecture",
     example: "drum_machine_lustre",
     rule: "A real-time loop reads a plain snapshot the app pushes to it; it never calls back into the application.",
     body: [
@@ -214,6 +260,8 @@ BpmCommitted ->
     id: "presence-idiom",
     title: "The minimal presence idiom",
     step: "presence",
+    theme: "coordination",
+    related: ["/runtime/presence"],
     example: "retro_tutorial_lustre",
     rule: "One declared presence effect, one typed payload, and a roster filtered of the local session at the edge.",
     body: [
@@ -253,6 +301,8 @@ fn remote_peers(
     id: "protocol-on-ripples",
     title: "Ride an application protocol on ripples",
     step: "presence",
+    theme: "coordination",
+    related: ["/runtime/presence"],
     example: "grocery_triptych_lustre",
     rule: "Coordination that should die with the session gets its own message envelope on ripples, never a document channel.",
     body: [
@@ -287,6 +337,7 @@ pub fn should_acknowledge(
     id: "pure-modules",
     title: "Extract pure modules; test without a server",
     step: "testing",
+    theme: "testing",
     example: "grocery_triptych_lustre",
     rule: "Pull decision logic out of update into pure modules, and let most of the suite need no doc, no sluice, no server.",
     body: [
@@ -325,6 +376,8 @@ pub fn flush(state: State, generation: Int) -> #(State, Bool) {
     id: "ffi-surface",
     title: "Hand a rendering surface to FFI, and bootstrap on Connected",
     step: "connect",
+    theme: "architecture",
+    related: ["/foundations/lifecycle"],
     example: "pixel_canvas_lustre",
     rule: "Give a canvas to an FFI module that owns its pixels, and run ensure_* only after the connection handshake.",
     body: [
@@ -354,6 +407,8 @@ Connected(Error(reason)) -> #(
     id: "fallible-edits",
     title: "Fallible edits render; never assert on a mutation",
     step: "notes",
+    theme: "conflicts",
+    related: ["/structures/sequences", "/runtime/optimistic"],
     example: "playlist_lustre",
     rule: "Every index-addressed edit returns a Result, because a peer can delete the row between render and click.",
     body: [
@@ -395,6 +450,8 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
     id: "authoritative-channel",
     title: "When a move is not atomic, crown one channel authoritative",
     step: "notes",
+    theme: "conflicts",
+    related: ["/structures/sequences", "/structures/coordination"],
     example: "retro_board_lustre",
     rule: "A cross-channel move cannot be transactional, so pick the channel that wins and reconcile at render time.",
     body: [
@@ -446,6 +503,8 @@ fn render_column(
     id: "stamp-schema",
     title: "Stamp the schema; refuse bad reads",
     step: "notes",
+    theme: "architecture",
+    related: ["/structures/maps", "/foundations/schema"],
     example: "scoreboard_cli",
     rule: "Seed a detached typed map in one write, stamp its schema version, then attach, so incompatible layouts fail at read time instead of silently.",
     body: [
@@ -476,6 +535,8 @@ let selector =
     id: "typedmap-panels",
     title: "Panels take a TypedMap, never a root",
     step: "connect",
+    theme: "architecture",
+    related: ["/structures/maps", "/foundations/topology"],
     example: "showcase_lustre",
     rule: "A composable component's init takes a typed map (standalone it happens to be the root; nested it is a child), and document-scoped effects stay in the shell.",
     body: [
@@ -512,6 +573,8 @@ fn bootstrap_effect(document: Document(document_schema.Showcase)) -> Effect(Msg)
     id: "claims-seeding",
     title: "Seed idempotently with Claims",
     step: "connect",
+    theme: "conflicts",
+    related: ["/structures/coordination", "/foundations/lifecycle"],
     example: "sudoku_lustre",
     rule: "When every client must agree on initial data, let every client run the same seeding loop through first-writer-wins claims.",
     body: [
@@ -549,6 +612,8 @@ fn bootstrap_effect(document: Document(document_schema.Showcase)) -> Effect(Msg)
     id: "anchors-not-offsets",
     title: "Anchors, not offsets",
     step: "notes",
+    theme: "conflicts",
+    related: ["/structures/sequences"],
     example: "text_lustre",
     rule: "Never store a text position as an integer: hold an anchor and re-resolve it after every edit.",
     body: [
@@ -574,6 +639,8 @@ fn refresh_anchor(model: Model) -> Model {
     id: "unsettled-writes",
     title: "Show writes that have not settled",
     step: "votes",
+    theme: "conflicts",
+    related: ["/structures/coordination", "/runtime/optimistic"],
     example: "tournament_bracket_lustre",
     rule: "When a structure is not optimistic, say so in the UI: pending until the event that proves the write sequenced.",
     body: [
@@ -614,6 +681,8 @@ AtomicChanged(key, value, _local) -> {
     id: "deterministic-death",
     title: "Test client death deterministically",
     step: "testing",
+    theme: "testing",
+    related: ["/structures/coordination", "/runtime/reconnect"],
     example: "work_queue_lustre",
     rule: "The interesting event is a client dying mid-job. Reproduce it in-process with a disconnect that sequences the same leave the server would.",
     body: [
@@ -700,4 +769,29 @@ export const practicesByStep: Record<StepSlug, Practice[]> = Object.fromEntries(
 /** Deep link to a practice, on the guide step that renders it. */
 export function practiceHref(practice: Practice): string {
   return `/guide/${practice.step}#${practice.id}`;
+}
+
+/** theme slug → the practices filed under it, in catalog order. */
+export const practicesByTheme: Record<ThemeSlug, Practice[]> = Object.fromEntries(
+  themes.map((theme) => [
+    theme.slug,
+    practices.filter((practice) => practice.theme === theme.slug),
+  ]),
+) as Record<ThemeSlug, Practice[]>;
+
+/** The practice with this id, for inline field-note callouts. Throws at build
+ *  time on a stale id, so a renamed practice cannot leave a dead callout. */
+export function practiceById(id: string): Practice {
+  const practice = practices.find((p) => p.id === id);
+  if (!practice) {
+    throw new Error(`no practice with id ${id}`);
+  }
+  return practice;
+}
+
+/** The practices whose problem shows up on the given sheet route, e.g.
+ *  "/structures/sequences" — for the field-notes strip on atlas and runtime
+ *  pages. */
+export function relatedPractices(page: string): Practice[] {
+  return practices.filter((practice) => practice.related?.includes(page));
 }

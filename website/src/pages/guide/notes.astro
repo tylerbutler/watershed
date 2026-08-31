@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt, section } from "../../lib/excerpt";
 import noteSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam?raw";
@@ -60,6 +61,7 @@ const addClicked = section(
       <a href="/examples#retro_board_lustre">advanced retro board</a> splits
       the column into its own field so moves can be tracked properly.
     </p>
+    <FieldNoteRef id="authoritative-channel" />
     <span class="g-file">src/note.gleam</span>
     <figure class="g-code">
       <Code code={noteRecord} lang="gleam" theme={watershedCodeTheme} />
@@ -78,6 +80,7 @@ const addClicked = section(
         recognize as broken beats a crash that takes the whole board down.
       </p>
     </div>
+    <FieldNoteRef id="stamp-schema" />
   </div>
 
   <div class="g-block">

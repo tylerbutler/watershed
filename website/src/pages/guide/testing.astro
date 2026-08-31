@@ -1,6 +1,7 @@
 ---
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
+import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt } from "../../lib/excerpt";
 import convergenceSource from "../../../../examples/retro_tutorial_lustre/test/convergence_test.gleam?raw";
@@ -105,6 +106,7 @@ const layout = `retro_tutorial_lustre/
       the board state: if a test reimplemented the write instead of calling
       the real one, all it would prove is that the copy agrees with itself.
     </p>
+    <FieldNoteRef id="pure-modules" />
   </div>
 
   <div class="g-block">
@@ -163,6 +165,7 @@ const layout = `retro_tutorial_lustre/
         the demo back on step 03 draws its log of what happened.
       </p>
     </div>
+    <FieldNoteRef id="deterministic-death" />
   </div>
 
   <div class="g-block">

@@ -1,0 +1,47 @@
+---
+// An inline callout in guide prose pointing at the field note that carries
+// this idea further. The note itself renders at the foot of its step, so a
+// same-step link is a jump down the page; practiceById throws at build time
+// if the id goes stale.
+import { practiceById, practiceHref } from "../data/practices";
+
+interface Props {
+  /** `Practice.id` of the note to point at. */
+  id: string;
+}
+
+const practice = practiceById(Astro.props.id);
+---
+
+<p class="fnr">
+  <span class="fnr-label annot">Field note</span>
+  <a href={practiceHref(practice)}>{practice.title} &#8595;</a>
+</p>
+
+<style>
+  .fnr {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-md);
+    margin-top: var(--space-md);
+    padding: var(--space-sm) var(--space-md);
+    border-left: 2px solid var(--overprint);
+    background: var(--surface);
+    font-size: var(--text-sm);
+  }
+
+  .fnr-label {
+    color: var(--overprint-deep);
+    white-space: nowrap;
+  }
+
+  .fnr a {
+    font-weight: 600;
+    text-decoration: none;
+    color: var(--ink);
+  }
+
+  .fnr a:hover {
+    color: var(--overprint-deep);
+  }
+</style>

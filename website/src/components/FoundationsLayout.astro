@@ -1,6 +1,7 @@
 ---
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "./Ecosystem.astro";
+import RelatedFieldNotes from "./RelatedFieldNotes.astro";
 import { foundationsBySlug, foundationsNeighbours } from "../data/foundations";
 
 interface Props {
@@ -32,6 +33,8 @@ const { prev, next } = foundationsNeighbours(slug);
   <main class="doc-body">
     <slot />
   </main>
+
+  <RelatedFieldNotes page={`/foundations/${slug}`} />
 
   <nav class="fd-pager" aria-label="Foundations sheets">
     {

@@ -1,32 +1,34 @@
 ---
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "../components/Ecosystem.astro";
-import { steps } from "../data/guide";
+import { stepBySlug } from "../data/guide";
 import {
   practiceExampleName,
   practiceHref,
-  practicesByStep,
+  practicesByTheme,
+  themes,
 } from "../data/practices";
 
 // The practices themselves render as field notes at the foot of each /guide
-// step. This page is only the index across all of them.
-const ledger = steps
-  .map((step) => ({ step, items: practicesByStep[step.slug] }))
+// step. This page is only the index across all of them — grouped by the
+// problem you're stuck on, not by the step that teaches it.
+const ledger = themes
+  .map((theme) => ({ theme, items: practicesByTheme[theme.slug] }))
   .filter(({ items }) => items.length > 0);
 ---
 
 <Sheet
   title="watershed — patterns from the examples"
-  description="An index of every implementation practice, filed under the build-guide step where you would need it."
+  description="An index of every implementation practice, grouped by the problem it solves, each linking to the build-guide step that teaches it."
 >
   <header class="p-hero">
     <div class="p-hero-inner">
       <p class="p-crumbs annot"><a href="/">&#8592; watershed</a> / Patterns</p>
       <h1>Each example exists<br />to prove one thing.</h1>
       <p class="p-lede">
-        Every rule below appears on the build-guide step that needs it, alongside
-        code from the application that tests it. This sheet is the index across
-        the whole procedure.
+        Every rule below lives on the build-guide step that needs it, alongside
+        code from the application that proves it. This sheet cuts across the
+        procedure the other way — by the problem you're staring at.
       </p>
       <div class="p-actions">
         <a class="cta-primary" href="#index">Read the index &#8595;</a>
@@ -37,14 +39,12 @@ const ledger = steps
 
   <main id="index" class="p-main">
     {
-      ledger.map(({ step, items }) => (
+      ledger.map(({ theme, items }) => (
         <section class="p-step">
           <header class="p-step-head">
-            <p class="annot">Step {step.n}</p>
-            <h2>
-              <a href={`/guide/${step.slug}`}>{step.title}</a>
-            </h2>
-            <p class="p-step-goal">{step.goal}</p>
+            <p class="annot">{items.length} {items.length === 1 ? "note" : "notes"}</p>
+            <h2>{theme.title}</h2>
+            <p class="p-step-goal">{theme.blurb}</p>
           </header>
           <ol class="p-rules">
             {items.map((practice) => (
@@ -55,7 +55,8 @@ const ledger = steps
                 <p class="p-rule">{practice.rule}</p>
                 <p class="annot p-rule-src">
                   {practiceExampleName(practice)} &middot;{" "}
-                  {practice.snippetFile}
+                  {practice.snippetFile} &middot; Step{" "}
+                  {stepBySlug[practice.step].n}
                 </p>
               </li>
             ))}
