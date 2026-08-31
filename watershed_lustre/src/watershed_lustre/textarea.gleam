@@ -882,10 +882,10 @@ fn peer_view(peer: Peer) -> List(Element(Msg)) {
       html.div(
         [
           attribute.style("position", "absolute"),
-          attribute.style("left", px(band.x)),
-          attribute.style("top", px(band.y)),
-          attribute.style("width", px(band.width)),
-          attribute.style("height", px(band.height)),
+          attribute.style("left", pixels(band.x)),
+          attribute.style("top", pixels(band.y)),
+          attribute.style("width", pixels(band.width)),
+          attribute.style("height", pixels(band.height)),
           attribute.style("background", peer.colour),
           // Legible over text without hiding it, and without needing the
           // caller to know the peer's colour is a highlight.
@@ -902,10 +902,10 @@ fn peer_view(peer: Peer) -> List(Element(Msg)) {
       html.div(
         [
           attribute.style("position", "absolute"),
-          attribute.style("left", px(rect.x)),
-          attribute.style("top", px(rect.y)),
+          attribute.style("left", pixels(rect.x)),
+          attribute.style("top", pixels(rect.y)),
           attribute.style("width", "2px"),
-          attribute.style("height", px(rect.height)),
+          attribute.style("height", pixels(rect.height)),
           attribute.style("background", peer.colour),
         ],
         [
@@ -937,7 +937,7 @@ fn peer_view(peer: Peer) -> List(Element(Msg)) {
   list.append(bands, caret)
 }
 
-fn px(value: Float) -> String {
+fn pixels(value: Float) -> String {
   float.to_string(value) <> "px"
 }
 
@@ -1302,7 +1302,9 @@ fn place(model: Editor(channel), response: String) -> Editor(channel) {
     Ok(measurements) -> {
       let peers =
         list.map(model.peers, fn(peer) {
-          case list.find(measurements, fn(m) { m.0 == peer.id }) {
+          case
+            list.find(measurements, fn(measurement) { measurement.0 == peer.id })
+          {
             Ok(#(_, caret, bands)) -> Peer(..peer, caret:, bands:)
             Error(_) -> Peer(..peer, caret: None, bands: [])
           }

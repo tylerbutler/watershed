@@ -42,9 +42,12 @@ fn text_document() -> CrdtDocument(schema.TextChannel) {
   document
 }
 
-fn run(eff: Effect(textarea.Msg), sink: Cell(List(textarea.Msg))) -> Nil {
+fn run(
+  effect_to_run: Effect(textarea.Msg),
+  sink: Cell(List(textarea.Msg)),
+) -> Nil {
   effect.perform(
-    eff,
+    effect_to_run,
     fn(msg) {
       transport_js.set_cell(sink, [msg, ..transport_js.get_cell(sink)])
     },

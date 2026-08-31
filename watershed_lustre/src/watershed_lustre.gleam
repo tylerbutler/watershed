@@ -855,9 +855,12 @@ pub fn presence(
 
 /// Replace the presence metadata of this client. The effect dispatches no
 /// message back.
-pub fn update_presence(handle: presence_js.Handle(a), meta: a) -> Effect(msg) {
+pub fn update_presence(
+  handle: presence_js.Handle(a),
+  metadata: a,
+) -> Effect(msg) {
   use _dispatch <- effect.from
-  presence_js.update(handle, meta)
+  presence_js.update(handle, metadata)
 }
 
 /// Stop the presence tracking. In server mode the peers see the departure

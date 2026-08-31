@@ -151,13 +151,13 @@ fn unfiled(
 
 fn card(
   id: String,
-  n: Note,
+  note: Note,
   votes_by_id: Dict(String, Int),
   sequence_index: Option(Int),
 ) -> NoteCard {
   NoteCard(
     id: id,
-    note: n,
+    note: note,
     votes: dict.get(votes_by_id, id) |> result.unwrap(0),
     sequence_index: sequence_index,
   )

@@ -284,10 +284,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.editor {
         None -> #(Model(..model, peers: roster), effect.none())
         Some(editor) -> {
-          let #(editor, fx) = textarea.set_peers(editor, roster)
+          let #(editor, editor_effect) = textarea.set_peers(editor, roster)
           #(
             Model(..model, peers: roster, editor: Some(editor)),
-            effect.map(fx, Inner),
+            effect.map(editor_effect, Inner),
           )
         }
       }
@@ -296,11 +296,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.editor {
         None -> #(model, effect.none())
         Some(editor) -> {
-          let #(after, fx) = textarea.update(editor, inner)
+          let #(after, editor_effect) = textarea.update(editor, inner)
           let #(announced, events) = emitted(editor, after, model.announced)
           #(
             Model(..model, editor: Some(after), announced:),
-            effect.batch([effect.map(fx, Inner), events]),
+            effect.batch([effect.map(editor_effect, Inner), events]),
           )
         }
       }

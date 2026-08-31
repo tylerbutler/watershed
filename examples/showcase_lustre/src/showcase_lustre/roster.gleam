@@ -53,12 +53,12 @@ pub fn panel_label(where: Where) -> String {
   }
 }
 
-pub fn encode(p: ShowcasePresence) -> Json {
+pub fn encode(presence: ShowcasePresence) -> Json {
   json.object([
-    #("name", json.string(p.name)),
-    #("color", json.string(p.color)),
-    #("panel", json.string(panel_label(p.where))),
-    #("at", encode_where(p.where)),
+    #("name", json.string(presence.name)),
+    #("color", json.string(presence.color)),
+    #("panel", json.string(panel_label(presence.where))),
+    #("at", encode_where(presence.where)),
   ])
 }
 

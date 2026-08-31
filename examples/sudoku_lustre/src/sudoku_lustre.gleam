@@ -67,11 +67,11 @@ pub type SudokuPresence {
   SudokuPresence(color: String, name: String, cursor: component.Cursor)
 }
 
-fn encode_presence(p: SudokuPresence) -> Json {
+fn encode_presence(presence: SudokuPresence) -> Json {
   json.object([
-    #("color", json.string(p.color)),
-    #("name", json.string(p.name)),
-    #("cursor", component.encode_cursor(p.cursor)),
+    #("color", json.string(presence.color)),
+    #("name", json.string(presence.name)),
+    #("cursor", component.encode_cursor(presence.cursor)),
   ])
 }
 

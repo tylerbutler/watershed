@@ -118,7 +118,8 @@ fn sequenced_message(
 fn ingest(core: Core, sequenced: types.SequencedDocumentMessage) -> Core {
   case runtime_core.handle_sequenced(core, sequenced) {
     Ok(#(core, _)) -> core
-    Error(err) -> panic as { "handle_sequenced failed: " <> string.inspect(err) }
+    Error(error) ->
+      panic as { "handle_sequenced failed: " <> string.inspect(error) }
   }
 }
 
@@ -151,8 +152,8 @@ fn expect_ok(
 ) -> #(Core, List(wire.OutboundOperation)) {
   case result {
     Ok(#(core, _events, outbound)) -> #(core, outbound)
-    Error(err) ->
-      panic as { "directory command failed: " <> string.inspect(err) }
+    Error(error) ->
+      panic as { "directory command failed: " <> string.inspect(error) }
   }
 }
 
@@ -291,7 +292,7 @@ fn ack(
     )
   {
     Ok(state) -> state
-    Error(err) -> panic as { "ack failed: " <> string.inspect(err) }
+    Error(error) -> panic as { "ack failed: " <> string.inspect(error) }
   }
 }
 

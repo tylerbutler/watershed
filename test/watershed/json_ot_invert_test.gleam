@@ -27,19 +27,19 @@ pub fn number_add_round_trips_test() -> Nil {
 
 pub fn object_insert_round_trips_test() -> Nil {
   round_trips(parse("{\"x\":1}"), [
-    json_ot.obj_insert([Key("y")], VString("b")),
+    json_ot.object_insert([Key("y")], VString("b")),
   ])
 }
 
 pub fn object_delete_round_trips_test() -> Nil {
   round_trips(parse("{\"x\":1,\"y\":\"b\"}"), [
-    json_ot.obj_delete([Key("y")], VString("b")),
+    json_ot.object_delete([Key("y")], VString("b")),
   ])
 }
 
 pub fn object_replace_round_trips_test() -> Nil {
   round_trips(parse("{\"x\":\"old\"}"), [
-    json_ot.obj_replace([Key("x")], VString("old"), VString("new")),
+    json_ot.object_replace([Key("x")], VString("old"), VString("new")),
   ])
 }
 
@@ -65,13 +65,13 @@ pub fn multi_component_round_trips_test() -> Nil {
   round_trips(parse("{\"n\":1,\"list\":[10,20]}"), [
     json_ot.number_add([Key("n")], NInt(4)),
     json_ot.list_insert([Key("list"), Index(0)], VNumber(NInt(5))),
-    json_ot.obj_insert([Key("tag")], VString("x")),
+    json_ot.object_insert([Key("tag")], VString("x")),
   ])
 }
 
 pub fn nested_object_round_trips_test() -> Nil {
   round_trips(parse("{\"a\":{\"b\":{\"c\":\"z\"}}}"), [
-    json_ot.obj_replace(
+    json_ot.object_replace(
       [Key("a"), Key("b"), Key("c")],
       VString("z"),
       VString("q"),

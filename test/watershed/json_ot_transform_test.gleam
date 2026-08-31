@@ -49,11 +49,11 @@ fn list_move(path: List(json_ot.PathKey), to: Int) -> Component {
 }
 
 fn object_insert(path: List(json_ot.PathKey), value: JsonValue) -> Component {
-  json_ot.obj_insert(path, value)
+  json_ot.object_insert(path, value)
 }
 
 fn object_delete(path: List(json_ot.PathKey), value: JsonValue) -> Component {
-  json_ot.obj_delete(path, value)
+  json_ot.object_delete(path, value)
 }
 
 fn object_replace(
@@ -61,7 +61,7 @@ fn object_replace(
   old_value: JsonValue,
   new_value: JsonValue,
 ) -> Component {
-  json_ot.obj_replace(path, old_value, new_value)
+  json_ot.object_replace(path, old_value, new_value)
 }
 
 fn number_add(path: List(json_ot.PathKey), delta: Int) -> Component {

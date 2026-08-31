@@ -36,9 +36,10 @@ fn meta(
 fn remote(
   state: DirectoryState,
   operation: DirectoryOperation,
-  m: SequencedMeta,
+  metadata: SequencedMeta,
 ) -> DirectoryState {
-  let #(state, _events) = directory_kernel.apply_remote(state, operation, m, 0)
+  let #(state, _events) =
+    directory_kernel.apply_remote(state, operation, metadata, 0)
   state
 }
 

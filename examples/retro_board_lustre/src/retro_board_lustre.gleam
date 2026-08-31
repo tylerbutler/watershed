@@ -82,10 +82,10 @@ pub type BoardPresence {
   BoardPresence(color: String, name: String)
 }
 
-fn encode_presence(p: BoardPresence) -> json.Json {
+fn encode_presence(presence: BoardPresence) -> json.Json {
   json.object([
-    #("color", json.string(p.color)),
-    #("name", json.string(p.name)),
+    #("color", json.string(presence.color)),
+    #("name", json.string(presence.name)),
   ])
 }
 

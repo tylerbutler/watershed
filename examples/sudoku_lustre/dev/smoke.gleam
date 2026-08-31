@@ -42,10 +42,10 @@ type Ping {
   Ping(cell: String, editing: Bool)
 }
 
-fn encode_ping(p: Ping) -> Json {
+fn encode_ping(ping: Ping) -> Json {
   json.object([
-    #("cell", json.string(p.cell)),
-    #("editing", json.bool(p.editing)),
+    #("cell", json.string(ping.cell)),
+    #("editing", json.bool(ping.editing)),
   ])
 }
 

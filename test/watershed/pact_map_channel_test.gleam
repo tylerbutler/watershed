@@ -119,7 +119,8 @@ fn expect_ok(
 ) -> #(Core, List(wire.OutboundOperation)) {
   case result {
     Ok(#(core, _events, outbound)) -> #(core, outbound)
-    Error(err) -> panic as { "pact_map command failed: " <> string.inspect(err) }
+    Error(error) ->
+      panic as { "pact_map command failed: " <> string.inspect(error) }
   }
 }
 
@@ -129,7 +130,8 @@ fn ingest(
 ) -> #(Core, runtime_core.Ingested) {
   case runtime_core.handle_sequenced(core, sequenced) {
     Ok(pair) -> pair
-    Error(err) -> panic as { "handle_sequenced failed: " <> string.inspect(err) }
+    Error(error) ->
+      panic as { "handle_sequenced failed: " <> string.inspect(error) }
   }
 }
 
@@ -351,7 +353,7 @@ fn apply(
     )
   case channel.apply_remote(state, operation, meta) {
     Ok(result) -> result
-    Error(err) -> panic as { "apply_remote failed: " <> string.inspect(err) }
+    Error(error) -> panic as { "apply_remote failed: " <> string.inspect(error) }
   }
 }
 

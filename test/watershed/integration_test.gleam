@@ -1671,9 +1671,9 @@ fn wait_until(attempts: Int, check: fn() -> Bool) -> Bool {
 fn wait_until_ok(attempts: Int, check: fn() -> Result(a, b)) -> Result(a, b) {
   case check() {
     Ok(value) -> Ok(value)
-    Error(err) ->
+    Error(error) ->
       case attempts {
-        0 -> Error(err)
+        0 -> Error(error)
         _ -> {
           process.sleep(100)
           wait_until_ok(attempts - 1, check)
@@ -1770,15 +1770,15 @@ fn run_json_ot_converge_test() -> Nil {
   let map_a = watershed_beam.root(document_a)
   let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(jot_a) = watershed_beam.create_json_ot(document_a)
-  watershed_beam.set(map_a, "doc", watershed_beam.json_ot_handle_of(jot_a))
-  let jot_b = resolve_json_ot_key_or_panic(document_b, map_b, "doc")
+  let assert Ok(json_ot_a) = watershed_beam.create_json_ot(document_a)
+  watershed_beam.set(map_a, "doc", watershed_beam.json_ot_handle_of(json_ot_a))
+  let json_ot_b = resolve_json_ot_key_or_panic(document_b, map_b, "doc")
 
-  watershed_beam.submit_json_ot(jot_a, [
-    json_ot.obj_insert([json_ot.Key("a")], json_ot.VString("from-a")),
+  watershed_beam.submit_json_ot(json_ot_a, [
+    json_ot.object_insert([json_ot.Key("a")], json_ot.VString("from-a")),
   ])
-  watershed_beam.submit_json_ot(jot_b, [
-    json_ot.obj_insert([json_ot.Key("b")], json_ot.VString("from-b")),
+  watershed_beam.submit_json_ot(json_ot_b, [
+    json_ot.object_insert([json_ot.Key("b")], json_ot.VString("from-b")),
   ])
 
   let expected =
@@ -1789,8 +1789,9 @@ fn run_json_ot_converge_test() -> Nil {
       ]),
     )
   wait_until(50, fn() {
-    watershed_beam.json_ot_view(jot_a) == watershed_beam.json_ot_view(jot_b)
-    && watershed_beam.json_ot_view(jot_a) == expected
+    watershed_beam.json_ot_view(json_ot_a)
+    == watershed_beam.json_ot_view(json_ot_b)
+    && watershed_beam.json_ot_view(json_ot_a) == expected
   })
   |> expect.to_be_true()
 
@@ -1806,30 +1807,31 @@ fn run_json_ot_conflict_test() -> Nil {
   let map_a = watershed_beam.root(document_a)
   let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(jot_a) = watershed_beam.create_json_ot(document_a)
-  watershed_beam.set(map_a, "doc", watershed_beam.json_ot_handle_of(jot_a))
-  let jot_b = resolve_json_ot_key_or_panic(document_b, map_b, "doc")
+  let assert Ok(json_ot_a) = watershed_beam.create_json_ot(document_a)
+  watershed_beam.set(map_a, "doc", watershed_beam.json_ot_handle_of(json_ot_a))
+  let json_ot_b = resolve_json_ot_key_or_panic(document_b, map_b, "doc")
 
   // Seed a numeric field and wait for both sides to see it.
-  watershed_beam.submit_json_ot(jot_a, [
-    json_ot.obj_insert([json_ot.Key("n")], json_ot.VNumber(json_ot.NInt(0))),
+  watershed_beam.submit_json_ot(json_ot_a, [
+    json_ot.object_insert([json_ot.Key("n")], json_ot.VNumber(json_ot.NInt(0))),
   ])
   let seeded = Ok(json_ot.VObject([#("n", json_ot.VNumber(json_ot.NInt(0)))]))
-  wait_until(50, fn() { watershed_beam.json_ot_view(jot_b) == seeded })
+  wait_until(50, fn() { watershed_beam.json_ot_view(json_ot_b) == seeded })
   |> expect.to_be_true()
 
   // Concurrent increments to the same field commute to the sum.
-  watershed_beam.submit_json_ot(jot_a, [
+  watershed_beam.submit_json_ot(json_ot_a, [
     json_ot.number_add([json_ot.Key("n")], json_ot.NInt(3)),
   ])
-  watershed_beam.submit_json_ot(jot_b, [
+  watershed_beam.submit_json_ot(json_ot_b, [
     json_ot.number_add([json_ot.Key("n")], json_ot.NInt(4)),
   ])
 
   let expected = Ok(json_ot.VObject([#("n", json_ot.VNumber(json_ot.NInt(7)))]))
   wait_until(50, fn() {
-    watershed_beam.json_ot_view(jot_a) == watershed_beam.json_ot_view(jot_b)
-    && watershed_beam.json_ot_view(jot_a) == expected
+    watershed_beam.json_ot_view(json_ot_a)
+    == watershed_beam.json_ot_view(json_ot_b)
+    && watershed_beam.json_ot_view(json_ot_a) == expected
   })
   |> expect.to_be_true()
 
@@ -1843,11 +1845,11 @@ fn run_json_ot_summary_test() -> Nil {
   let document_a = connect_or_panic(document_id, "user-a")
   let map_a = watershed_beam.root(document_a)
 
-  let assert Ok(jot_a) = watershed_beam.create_json_ot(document_a)
-  watershed_beam.submit_json_ot(jot_a, [
-    json_ot.obj_insert([json_ot.Key("title")], json_ot.VString("hello")),
+  let assert Ok(json_ot_a) = watershed_beam.create_json_ot(document_a)
+  watershed_beam.submit_json_ot(json_ot_a, [
+    json_ot.object_insert([json_ot.Key("title")], json_ot.VString("hello")),
   ])
-  watershed_beam.set(map_a, "doc", watershed_beam.json_ot_handle_of(jot_a))
+  watershed_beam.set(map_a, "doc", watershed_beam.json_ot_handle_of(json_ot_a))
 
   wait_until(50, fn() { watershed_beam.is_synced(document_a) })
   |> expect.to_be_true()
@@ -1858,9 +1860,9 @@ fn run_json_ot_summary_test() -> Nil {
 
   let document_c = connect_or_panic(document_id, "user-c")
   let map_c = watershed_beam.root(document_c)
-  let jot_c = resolve_json_ot_key_or_panic(document_c, map_c, "doc")
+  let json_ot_c = resolve_json_ot_key_or_panic(document_c, map_c, "doc")
   let expected = Ok(json_ot.VObject([#("title", json_ot.VString("hello"))]))
-  wait_until(50, fn() { watershed_beam.json_ot_view(jot_c) == expected })
+  wait_until(50, fn() { watershed_beam.json_ot_view(json_ot_c) == expected })
   |> expect.to_be_true()
 
   watershed_beam.close(document_a)
@@ -1881,7 +1883,7 @@ fn resolve_json_ot_key_or_panic(
       }
     })
   case resolved {
-    Ok(jot) -> jot
+    Ok(json_ot) -> json_ot
     Error(reason) ->
       panic as { "resolving json_ot at key " <> key <> " failed: " <> reason }
   }
@@ -1914,16 +1916,22 @@ fn run_rich_text_converge_test() -> Nil {
   let map_a = watershed_beam.root(document_a)
   let map_b = watershed_beam.root(document_b)
 
-  let assert Ok(rt_a) = watershed_beam.create_rich_text(document_a)
-  watershed_beam.set(map_a, "doc", watershed_beam.rich_text_handle_of(rt_a))
-  let rt_b = resolve_rich_text_key_or_panic(document_b, map_b, "doc")
+  let assert Ok(rich_text_a) = watershed_beam.create_rich_text(document_a)
+  watershed_beam.set(
+    map_a,
+    "doc",
+    watershed_beam.rich_text_handle_of(rich_text_a),
+  )
+  let rich_text_b = resolve_rich_text_key_or_panic(document_b, map_b, "doc")
 
   // Seed plain text and wait for both sides to see it before diverging.
   let assert Ok(seed) = rich_text.parse_delta("[{\"insert\":\"Hello World\"}]")
-  watershed_beam.submit_rich_text(rt_a, seed)
+  watershed_beam.submit_rich_text(rich_text_a, seed)
   let assert Ok(seeded) =
     rich_text.parse_document("[{\"insert\":\"Hello World\"}]")
-  wait_until(50, fn() { watershed_beam.rich_text_view(rt_b) == Ok(seeded) })
+  wait_until(50, fn() {
+    watershed_beam.rich_text_view(rich_text_b) == Ok(seeded)
+  })
   |> expect.to_be_true()
 
   // A bolds "Hello" (the first 5 UTF-16 code units); B concurrently appends
@@ -1936,7 +1944,7 @@ fn run_rich_text_converge_test() -> Nil {
       5,
       rich_text.attributes([#("bold", json_ot.VBool(True))]),
     )
-  watershed_beam.submit_rich_text(rt_a, a_edit)
+  watershed_beam.submit_rich_text(rich_text_a, a_edit)
 
   let assert Ok(b_retain) =
     rich_text.delta_retain(
@@ -1946,15 +1954,16 @@ fn run_rich_text_converge_test() -> Nil {
     )
   let assert Ok(b_edit) =
     rich_text.delta_insert_text(b_retain, " 😀", rich_text.attributes([]))
-  watershed_beam.submit_rich_text(rt_b, b_edit)
+  watershed_beam.submit_rich_text(rich_text_b, b_edit)
 
   let assert Ok(expected) =
     rich_text.parse_document(
       "[{\"insert\":\"Hello\",\"attributes\":{\"bold\":true}},{\"insert\":\" World 😀\"}]",
     )
   wait_until(50, fn() {
-    watershed_beam.rich_text_view(rt_a) == watershed_beam.rich_text_view(rt_b)
-    && watershed_beam.rich_text_view(rt_a) == Ok(expected)
+    watershed_beam.rich_text_view(rich_text_a)
+    == watershed_beam.rich_text_view(rich_text_b)
+    && watershed_beam.rich_text_view(rich_text_a) == Ok(expected)
   })
   |> expect.to_be_true()
 
@@ -1976,7 +1985,7 @@ fn resolve_rich_text_key_or_panic(
       }
     })
   case resolved {
-    Ok(rt) -> rt
+    Ok(rich_text) -> rich_text
     Error(reason) ->
       panic as { "resolving rich_text at key " <> key <> " failed: " <> reason }
   }

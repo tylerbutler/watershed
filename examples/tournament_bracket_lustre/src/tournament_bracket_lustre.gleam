@@ -82,10 +82,10 @@ pub type BracketPresence {
   BracketPresence(color: String, name: String)
 }
 
-fn encode_presence(p: BracketPresence) -> json.Json {
+fn encode_presence(presence: BracketPresence) -> json.Json {
   json.object([
-    #("color", json.string(p.color)),
-    #("name", json.string(p.name)),
+    #("color", json.string(presence.color)),
+    #("name", json.string(presence.name)),
   ])
 }
 

@@ -36,7 +36,7 @@ pub fn local_edit_then_ack_test() -> Nil {
 /// A remote operation on a fresh document applies straight to `sequenced`.
 pub fn apply_remote_on_empty_test() -> Nil {
   let state = kernel.from_value(VObject([]))
-  let operation = [json_ot.obj_insert([Key("x")], VString("y"))]
+  let operation = [json_ot.object_insert([Key("x")], VString("y"))]
 
   let assert Ok(#(state, _events)) =
     kernel.apply_remote(state, JsonOtWireOperation(0, operation), 1, -1)
@@ -80,8 +80,8 @@ pub fn concurrent_same_index_insert_converges_test() -> Nil {
 /// order, which every replica reads in the same way.
 pub fn concurrent_same_path_replace_converges_test() -> Nil {
   let document = VObject([#("title", VString("x"))])
-  let op0 = [json_ot.obj_replace([Key("title")], VString("x"), VString("a"))]
-  let op1 = [json_ot.obj_replace([Key("title")], VString("x"), VString("b"))]
+  let op0 = [json_ot.object_replace([Key("title")], VString("x"), VString("a"))]
+  let op1 = [json_ot.object_replace([Key("title")], VString("x"), VString("b"))]
 
   let c0 = kernel.from_value(document)
   let assert Ok(#(c0, _, _)) = kernel.submit(c0, op0, 0)

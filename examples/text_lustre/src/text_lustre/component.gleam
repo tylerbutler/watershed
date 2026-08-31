@@ -290,7 +290,7 @@ fn refresh_anchor(model: Model) -> Model {
   case model.editor, model.anchor {
     Some(editor), Some(anchor) ->
       case watershed.text_resolve_anchor(textarea.channel(editor), anchor) {
-        Ok(pos) -> Model(..model, anchor_pos: Some(pos))
+        Ok(position) -> Model(..model, anchor_pos: Some(position))
         Error(_) -> Model(..model, anchor_pos: None)
       }
     _, _ -> Model(..model, anchor_pos: None)
@@ -365,9 +365,9 @@ fn error_view(model: Model) -> Element(Msg) {
 
 fn anchor_view(model: Model) -> Element(Msg) {
   let detail = case model.anchor, model.anchor_pos {
-    Some(_), Some(pos) ->
+    Some(_), Some(position) ->
       "pinned · resolves to grapheme "
-      <> int.to_string(pos)
+      <> int.to_string(position)
       <> " of "
       <> int.to_string(length(model))
     Some(_), None -> "pinned · anchor target is currently unresolvable"

@@ -104,9 +104,9 @@ fn solo_document(
 /// Perform an effect, routing every dispatched `Msg` into `sink` (prepended, so
 /// `messages` reverses it back to arrival order). The non-`dispatch` actions are
 /// unused by this module's effects.
-fn run(eff: Effect(Msg), sink: Cell(List(Msg))) -> Nil {
+fn run(effect_to_run: Effect(Msg), sink: Cell(List(Msg))) -> Nil {
   effect.perform(
-    eff,
+    effect_to_run,
     fn(msg) {
       transport_js.set_cell(sink, [msg, ..transport_js.get_cell(sink)])
     },
@@ -185,10 +185,13 @@ fn is_subscribed(msg: Msg) -> Bool {
   }
 }
 
-fn has_status(msgs: List(Msg), pred: fn(Status) -> Bool) -> Bool {
-  list.any(msgs, fn(msg) {
+fn has_status(
+  recorded_messages: List(Msg),
+  predicate: fn(Status) -> Bool,
+) -> Bool {
+  list.any(recorded_messages, fn(msg) {
     case msg {
-      Statused(status) -> pred(status)
+      Statused(status) -> predicate(status)
       Held(_)
       | Readied(_)
       | Subscribed(_)
@@ -201,18 +204,19 @@ fn has_status(msgs: List(Msg), pred: fn(Status) -> Bool) -> Bool {
   })
 }
 
-fn find_connection(msgs: List(Msg)) -> CrdtConnection {
-  let assert Ok(Held(connection)) = list.find(msgs, is_held)
+fn find_connection(recorded_messages: List(Msg)) -> CrdtConnection {
+  let assert Ok(Held(connection)) = list.find(recorded_messages, is_held)
   connection
 }
 
-fn find_subscription(msgs: List(Msg)) -> Subscription {
-  let assert Ok(Subscribed(subscription)) = list.find(msgs, is_subscribed)
+fn find_subscription(recorded_messages: List(Msg)) -> Subscription {
+  let assert Ok(Subscribed(subscription)) =
+    list.find(recorded_messages, is_subscribed)
   subscription
 }
 
-fn subscriptions(msgs: List(Msg)) -> List(Subscription) {
-  list.filter_map(msgs, fn(msg) {
+fn subscriptions(recorded_messages: List(Msg)) -> List(Subscription) {
+  list.filter_map(recorded_messages, fn(msg) {
     case msg {
       Subscribed(subscription) -> Ok(subscription)
       Held(_)
@@ -227,9 +231,9 @@ fn subscriptions(msgs: List(Msg)) -> List(Subscription) {
   })
 }
 
-fn count_set_events(msgs: List(Msg)) -> Int {
+fn count_set_events(recorded_messages: List(Msg)) -> Int {
   list.length(
-    list.filter(msgs, fn(msg) {
+    list.filter(recorded_messages, fn(msg) {
       case msg {
         Grow(_) | TwoPhase(_) | Observed(_) -> True
         Held(_)
@@ -258,17 +262,18 @@ pub fn attach_defers_then_delivers_connection_ready_and_status_test() -> Promise
   let assert [] = messages(sink)
 
   use _ <- promise.await(flush())
-  let msgs = messages(sink)
+  let recorded_messages = messages(sink)
 
   // The connection to retain, and a successful readiness, both arrive.
-  let assert True = list.any(msgs, is_held)
-  let assert True = list.any(msgs, fn(msg) { msg == Readied(Ok(Nil)) })
+  let assert True = list.any(recorded_messages, is_held)
+  let assert True =
+    list.any(recorded_messages, fn(msg) { msg == Readied(Ok(Nil)) })
 
   // And in that order: even though readiness resolved synchronously (a solo
   // replica), nothing dispatched before the first `Held` is a `Readied` — an
   // app retains the `CrdtConnection` before it is told the room is usable.
   let assert False =
-    list.take_while(msgs, fn(msg) { !is_held(msg) })
+    list.take_while(recorded_messages, fn(msg) { !is_held(msg) })
     |> list.any(fn(msg) {
       case msg {
         Readied(_) -> True
@@ -285,7 +290,7 @@ pub fn attach_defers_then_delivers_connection_ready_and_status_test() -> Promise
 
   // The lifecycle statuses a solo join walks through are all reported.
   let assert True =
-    has_status(msgs, fn(status) {
+    has_status(recorded_messages, fn(status) {
       case status {
         crdt_js.Joined(_, _) -> True
         crdt_js.Transport(_)
@@ -314,7 +319,7 @@ pub fn attach_defers_then_delivers_connection_ready_and_status_test() -> Promise
       }
     })
   let assert True =
-    has_status(msgs, fn(status) {
+    has_status(recorded_messages, fn(status) {
       case status {
         crdt_js.RosterKnown([]) -> True
         crdt_js.Transport(_)
@@ -344,7 +349,7 @@ pub fn attach_defers_then_delivers_connection_ready_and_status_test() -> Promise
       }
     })
   let assert True =
-    has_status(msgs, fn(status) {
+    has_status(recorded_messages, fn(status) {
       case status {
         crdt_js.Ready -> True
         crdt_js.Transport(_)
@@ -402,13 +407,13 @@ pub fn subscribe_and_mutation_defer_then_deliver_event_and_outcome_test() -> Pro
   let assert True = messages(sink) == before
 
   use _ <- promise.await(flush())
-  let msgs = messages(sink)
+  let recorded_messages = messages(sink)
 
   // The subscription handle came back (so it can be retained for unsubscribe).
-  let assert True = list.any(msgs, is_subscribed)
+  let assert True = list.any(recorded_messages, is_subscribed)
   // The local edit fanned an event carrying the new total, 5.
   let assert True =
-    list.any(msgs, fn(msg) {
+    list.any(recorded_messages, fn(msg) {
       case msg {
         Counter(pn_counter_kernel.Updated(_applied, 5)) -> True
         Held(_)
@@ -423,7 +428,8 @@ pub fn subscribe_and_mutation_defer_then_deliver_event_and_outcome_test() -> Pro
       }
     })
   // The mutation reported a typed success.
-  let assert True = list.any(msgs, fn(msg) { msg == Outcome(Ok(Nil)) })
+  let assert True =
+    list.any(recorded_messages, fn(msg) { msg == Outcome(Ok(Nil)) })
   // And the read-side agrees.
   let assert Ok(5) = crdt_js.pn_counter_value(counter)
 
@@ -665,9 +671,9 @@ pub fn multiple_channels_subscribe_mutate_and_clean_up_independently_test() -> P
   )
   run(crdt.perform(fn() { crdt_js.or_set_add(observed, "c") }, Outcome), sink)
   use _ <- promise.await(flush())
-  let msgs = messages(sink)
+  let recorded_messages = messages(sink)
   let assert True =
-    list.any(msgs, fn(msg) {
+    list.any(recorded_messages, fn(msg) {
       case msg {
         Grow(g_set_kernel.ElementAdded("a")) -> True
         Held(_)
@@ -682,7 +688,7 @@ pub fn multiple_channels_subscribe_mutate_and_clean_up_independently_test() -> P
       }
     })
   let assert True =
-    list.any(msgs, fn(msg) {
+    list.any(recorded_messages, fn(msg) {
       case msg {
         TwoPhase(two_p_set_kernel.ElementAdded("b")) -> True
         Held(_)
@@ -697,7 +703,7 @@ pub fn multiple_channels_subscribe_mutate_and_clean_up_independently_test() -> P
       }
     })
   let assert True =
-    list.any(msgs, fn(msg) {
+    list.any(recorded_messages, fn(msg) {
       case msg {
         Observed(or_set_kernel.ElementAdded("c")) -> True
         Held(_)

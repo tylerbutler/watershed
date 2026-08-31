@@ -314,7 +314,7 @@ fn ack_local(
     )
   {
     Ok(state) -> Ok(state)
-    Error(err) -> Error(string.inspect(err))
+    Error(error) -> Error(string.inspect(error))
   }
 }
 
@@ -485,7 +485,7 @@ fn oracle(entries: List(LogEntry(DirectoryCommand))) -> Tree {
 fn check(state: DirectoryState) -> Result(Nil, String) {
   case directory_kernel.check_invariants(state) {
     Ok(Nil) -> Ok(Nil)
-    Error(err) -> Error(string.inspect(err))
+    Error(error) -> Error(string.inspect(error))
   }
 }
 

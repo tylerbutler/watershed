@@ -1234,7 +1234,7 @@ pub fn concurrent_json_ot_replace_across_a_reconnect_converges_test() -> Nil {
     watershed_beam.json_ot_handle_of(json_a),
   )
   watershed_beam.submit_json_ot(json_a, [
-    json_ot.obj_insert([json_ot.Key("title")], json_ot.VString("x")),
+    json_ot.object_insert([json_ot.Key("title")], json_ot.VString("x")),
   ])
   sluice.settle(sluice)
 
@@ -1247,14 +1247,14 @@ pub fn concurrent_json_ot_replace_across_a_reconnect_converges_test() -> Nil {
   sluice.drop(sluice, document_a)
   sluice.drop(sluice, document_b)
   watershed_beam.submit_json_ot(json_a, [
-    json_ot.obj_replace(
+    json_ot.object_replace(
       [json_ot.Key("title")],
       json_ot.VString("x"),
       json_ot.VString("a"),
     ),
   ])
   watershed_beam.submit_json_ot(json_b, [
-    json_ot.obj_replace(
+    json_ot.object_replace(
       [json_ot.Key("title")],
       json_ot.VString("x"),
       json_ot.VString("b"),

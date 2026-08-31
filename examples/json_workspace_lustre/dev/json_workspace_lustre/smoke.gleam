@@ -157,10 +157,10 @@ fn run_scenario(
   watershed.go_offline(document_a)
   watershed.go_offline(document_b)
   watershed.submit_json_ot(channel_a, [
-    json_ot.obj_insert([Key("title")], json_ot.VString("field notes")),
+    json_ot.object_insert([Key("title")], json_ot.VString("field notes")),
   ])
   watershed.submit_json_ot(channel_b, [
-    json_ot.obj_insert([Key("version")], json_ot.VNumber(json_ot.NInt(1))),
+    json_ot.object_insert([Key("version")], json_ot.VNumber(json_ot.NInt(1))),
   ])
 
   use <- delay(500)

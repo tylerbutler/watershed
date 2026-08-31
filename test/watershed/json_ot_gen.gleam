@@ -324,7 +324,7 @@ fn generate_component_for(
               random,
             )
             Some(False) | None -> #(
-              Some(json_ot.obj_replace(path, operand, new_value)),
+              Some(json_ot.object_replace(path, operand, new_value)),
               random,
             )
           }
@@ -385,7 +385,7 @@ fn generate_structural(
           let #(key, random) = random_new_key(operand, random)
           let #(new_value, random) = random_thing(random, 1)
           #(
-            Some(json_ot.obj_insert(list.append(path, [Key(key)]), new_value)),
+            Some(json_ot.object_insert(list.append(path, [Key(key)]), new_value)),
             random,
           )
         }
@@ -393,7 +393,7 @@ fn generate_structural(
           let #(index, random) = random_int(random, list.length(members))
           case list.drop(members, index) {
             [#(key, v), ..] -> #(
-              Some(json_ot.obj_delete(list.append(path, [Key(key)]), v)),
+              Some(json_ot.object_delete(list.append(path, [Key(key)]), v)),
               random,
             )
             [] -> #(None, random)
@@ -438,7 +438,7 @@ fn generate_leaf_replace(
       random,
     )
     Some(False) | None -> #(
-      Some(json_ot.obj_replace(path, operand, new_value)),
+      Some(json_ot.object_replace(path, operand, new_value)),
       random,
     )
   }

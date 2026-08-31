@@ -48,7 +48,7 @@ import gleam/list
 import gleam/order.{type Order}
 import gleam/string
 
-import watershed/json_ot.{type JsonValue, type Num}
+import watershed/json_ot.{type JsonValue, type Number}
 
 /// The largest integer that a JavaScript number holds exactly, which is
 /// 2^53 - 1. Above that value the two targets no longer hold the same value.
@@ -124,7 +124,7 @@ pub fn sorted(items: List(JsonValue)) -> List(JsonValue) {
 
 /// Render a number, so that every JSON form of one value gives one text. `1`,
 /// `1.0`, and `1e0` all become `1`. Two values that differ keep two texts.
-fn number_to_string(value: Num) -> String {
+fn number_to_string(value: Number) -> String {
   case value {
     json_ot.NInt(int) ->
       case int.absolute_value(int) <= exact_int_ceiling {

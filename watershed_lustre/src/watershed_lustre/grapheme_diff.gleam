@@ -53,15 +53,15 @@ pub fn diff(old old: String, new new: String) -> Edit {
     False -> {
       let old_graphemes = string.to_graphemes(old)
       let new_graphemes = string.to_graphemes(new)
-      let old_len = list.length(old_graphemes)
-      let new_len = list.length(new_graphemes)
+      let old_length = list.length(old_graphemes)
+      let new_length = list.length(new_graphemes)
 
       // Longest common grapheme prefix.
       let prefix = common_prefix_length(old_graphemes, new_graphemes, 0)
 
       // Longest common grapheme suffix, computed on the reversed remainders so
       // it never overlaps the prefix already consumed on either side.
-      let max_suffix = int.min(old_len - prefix, new_len - prefix)
+      let max_suffix = int.min(old_length - prefix, new_length - prefix)
       let suffix =
         common_prefix_length(
           list.reverse(old_graphemes),
@@ -71,11 +71,11 @@ pub fn diff(old old: String, new new: String) -> Edit {
         |> int.min(max_suffix)
 
       let removed_start = prefix
-      let removed_end = old_len - suffix
+      let removed_end = old_length - suffix
       let inserted =
         new_graphemes
         |> list.drop(prefix)
-        |> list.take(new_len - suffix - prefix)
+        |> list.take(new_length - suffix - prefix)
         |> string.join("")
 
       case removed_start == removed_end, inserted {

@@ -128,10 +128,10 @@ pub fn divergent_edits_on_different_keys_converge_across_reconnect_test() -> Nil
   // Neither client can see the other's edit yet — that is what makes the two
   // writes concurrent, not merely sequential.
   watershed.submit_json_ot(a, [
-    json_ot.obj_insert([Key("title")], json_ot.VString("field notes")),
+    json_ot.object_insert([Key("title")], json_ot.VString("field notes")),
   ])
   watershed.submit_json_ot(b, [
-    json_ot.obj_insert([Key("version")], json_ot.VNumber(json_ot.NInt(1))),
+    json_ot.object_insert([Key("version")], json_ot.VNumber(json_ot.NInt(1))),
   ])
 
   watershed.go_online(document_a)
@@ -155,7 +155,7 @@ pub fn concurrent_same_path_replacements_converge_test() -> Nil {
     room("jw-same-path-replace")
   let a = create_document(document_a, directory_a, "/", "config")
   watershed.submit_json_ot(a, [
-    json_ot.obj_insert([Key("title")], json_ot.VString("draft")),
+    json_ot.object_insert([Key("title")], json_ot.VString("draft")),
   ])
   sluice_js.settle(sluice)
   let b = open_document(document_b, directory_b, "/", "config")
@@ -164,14 +164,14 @@ pub fn concurrent_same_path_replacements_converge_test() -> Nil {
   watershed.go_offline(document_a)
   watershed.go_offline(document_b)
   watershed.submit_json_ot(a, [
-    json_ot.obj_replace(
+    json_ot.object_replace(
       [Key("title")],
       json_ot.VString("draft"),
       json_ot.VString("from-a"),
     ),
   ])
   watershed.submit_json_ot(b, [
-    json_ot.obj_replace(
+    json_ot.object_replace(
       [Key("title")],
       json_ot.VString("draft"),
       json_ot.VString("from-b"),
@@ -192,7 +192,7 @@ pub fn concurrent_increments_land_on_the_sum_test() -> Nil {
     room("jw-increments")
   let a = create_document(document_a, directory_a, "/", "counter")
   watershed.submit_json_ot(a, [
-    json_ot.obj_insert([Key("count")], json_ot.VNumber(json_ot.NInt(0))),
+    json_ot.object_insert([Key("count")], json_ot.VNumber(json_ot.NInt(0))),
   ])
   sluice_js.settle(sluice)
   let b = open_document(document_b, directory_b, "/", "counter")
@@ -227,11 +227,11 @@ pub fn concurrent_same_name_document_creation_converges_on_one_handle_test() -> 
   watershed.go_offline(document_b)
   let a = create_document(document_a, directory_a, "/", "config")
   watershed.submit_json_ot(a, [
-    json_ot.obj_insert([Key("owner")], json_ot.VString("a")),
+    json_ot.object_insert([Key("owner")], json_ot.VString("a")),
   ])
   let b = create_document(document_b, directory_b, "/", "config")
   watershed.submit_json_ot(b, [
-    json_ot.obj_insert([Key("owner")], json_ot.VString("b")),
+    json_ot.object_insert([Key("owner")], json_ot.VString("b")),
   ])
   watershed.go_online(document_a)
   watershed.go_online(document_b)
@@ -279,7 +279,7 @@ pub fn deleting_a_folder_does_not_break_an_already_open_document_test() -> Nil {
   // The channel keeps working on both sides: deleting the folder removed
   // reachability, not the document.
   watershed.submit_json_ot(a, [
-    json_ot.obj_insert([Key("still")], json_ot.VString("alive")),
+    json_ot.object_insert([Key("still")], json_ot.VString("alive")),
   ])
   sluice_js.settle(sluice)
   member(view(a), "still") |> should.equal(Some(json_ot.VString("alive")))

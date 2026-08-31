@@ -113,7 +113,8 @@ fn expect_ok(
 ) -> #(Core, List(wire.OutboundOperation)) {
   case result {
     Ok(#(core, _events, outbound)) -> #(core, outbound)
-    Error(err) -> panic as { "ordered command failed: " <> string.inspect(err) }
+    Error(error) ->
+      panic as { "ordered command failed: " <> string.inspect(error) }
   }
 }
 
@@ -123,7 +124,8 @@ fn ingest(
 ) -> #(Core, runtime_core.Ingested) {
   case runtime_core.handle_sequenced(core, sequenced) {
     Ok(pair) -> pair
-    Error(err) -> panic as { "handle_sequenced failed: " <> string.inspect(err) }
+    Error(error) ->
+      panic as { "handle_sequenced failed: " <> string.inspect(error) }
   }
 }
 

@@ -441,7 +441,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           if current == old && new_value != old
         -> {
           watershed.submit_json_ot(open.channel, [
-            json_ot.obj_replace(path, old, new_value),
+            json_ot.object_replace(path, old, new_value),
           ])
           #(
             Model(
@@ -473,7 +473,11 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       case model.open, current_at(model.open, path) {
         Some(open), Ok(json_ot.VBool(current)) if current == old -> {
           watershed.submit_json_ot(open.channel, [
-            json_ot.obj_replace(path, json_ot.VBool(old), json_ot.VBool(!old)),
+            json_ot.object_replace(
+              path,
+              json_ot.VBool(old),
+              json_ot.VBool(!old),
+            ),
           ])
           #(Model(..model, error: None), effect.none())
         }
@@ -496,7 +500,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     DeleteKeyClicked(path, old) ->
       case model.open, current_at(model.open, path) {
         Some(open), Ok(current) if current == old -> {
-          watershed.submit_json_ot(open.channel, [json_ot.obj_delete(path, old)])
+          watershed.submit_json_ot(open.channel, [
+            json_ot.object_delete(path, old),
+          ])
           #(Model(..model, error: None), effect.none())
         }
         Some(_), _ -> stale_edit(model)
@@ -556,7 +562,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                 False -> {
                   let path = list.append(form.at, [Key(form.key)])
                   watershed.submit_json_ot(open.channel, [
-                    json_ot.obj_insert(path, value),
+                    json_ot.object_insert(path, value),
                   ])
                   #(Model(..model, add_form: None, error: None), effect.none())
                 }

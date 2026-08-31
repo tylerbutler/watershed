@@ -35,9 +35,9 @@ type Msg {
 /// Perform an effect, routing every dispatched `Msg` into `sink` (prepended, so
 /// `messages` reverses it back to arrival order). The non-`dispatch` actions
 /// are unused by the claims effects.
-fn run(eff: Effect(Msg), sink: Cell(List(Msg))) -> Nil {
+fn run(effect_to_run: Effect(Msg), sink: Cell(List(Msg))) -> Nil {
   effect.perform(
-    eff,
+    effect_to_run,
     fn(msg) {
       transport_js.set_cell(sink, [msg, ..transport_js.get_cell(sink)])
     },

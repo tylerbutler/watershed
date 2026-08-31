@@ -37,21 +37,21 @@ pub fn number_add_wrong_type_errors_test() -> Nil {
 
 pub fn object_insert_test() -> Nil {
   apply_ok(parse("{\"x\":\"a\"}"), [
-    json_ot.obj_insert([Key("y")], VString("b")),
+    json_ot.object_insert([Key("y")], VString("b")),
   ])
   |> expect.to_equal(parse("{\"x\":\"a\",\"y\":\"b\"}"))
 }
 
 pub fn object_delete_test() -> Nil {
   apply_ok(parse("{\"x\":\"a\"}"), [
-    json_ot.obj_delete([Key("x")], VString("a")),
+    json_ot.object_delete([Key("x")], VString("a")),
   ])
   |> expect.to_equal(parse("{}"))
 }
 
 pub fn object_replace_test() -> Nil {
   apply_ok(parse("{\"x\":\"a\"}"), [
-    json_ot.obj_replace([Key("x")], VString("a"), VString("b")),
+    json_ot.object_replace([Key("x")], VString("a"), VString("b")),
   ])
   |> expect.to_equal(parse("{\"x\":\"b\"}"))
 }
@@ -113,7 +113,7 @@ pub fn list_move_forward_test() -> Nil {
 pub fn multi_component_operation_test() -> Nil {
   apply_ok(parse("{\"x\":1}"), [
     json_ot.number_add([Key("x")], NInt(2)),
-    json_ot.obj_insert([Key("y")], VString("hi")),
+    json_ot.object_insert([Key("y")], VString("hi")),
   ])
   |> expect.to_equal(parse("{\"x\":3,\"y\":\"hi\"}"))
 }
@@ -122,8 +122,8 @@ pub fn object_keys_are_sorted_test() -> Nil {
   // Insertion order differs from sorted order; equality must be canonical.
   let a =
     apply_ok(parse("{}"), [
-      json_ot.obj_insert([Key("z")], VNumber(NInt(1))),
-      json_ot.obj_insert([Key("a")], VNumber(NInt(2))),
+      json_ot.object_insert([Key("z")], VNumber(NInt(1))),
+      json_ot.object_insert([Key("a")], VNumber(NInt(2))),
     ])
   let assert VObject([#("a", _), #("z", _)]) = a
   Nil
