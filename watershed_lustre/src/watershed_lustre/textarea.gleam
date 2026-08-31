@@ -194,7 +194,7 @@ import watershed_lustre/grapheme_offset
 /// A handle for the DOM root, or the Shadow Root, that lustre supplies to
 /// `effect.before_paint`. The `restore_selection` function and the
 /// `measure_cursors` function do not accept the bare `Dynamic` value. The
-/// `as_dom_root` function makes the one conversion from that value. Both FFI
+/// `dynamic_to_dom_root` function makes the one conversion from that value. Both FFI
 /// declarations below name the type that they receive.
 type DomRoot
 
@@ -205,11 +205,11 @@ type DomRoot
 /// `fn(fn(fn(message) -> Nil, Dynamic) -> Nil) -> Effect(message)`: lustre calls the
 /// given function with the DOM root as a bare `Dynamic` value, and no lustre
 /// version in the `>= 5.0.0 and < 6.0.0` range in `manifest.toml` offers an
-/// exact type at that boundary. `as_dom_root` makes the one conversion, right
+/// exact type at that boundary. `dynamic_to_dom_root` makes the one conversion, right
 /// where lustre calls in, so every other function in this module — and every
 /// caller — sees only the opaque `DomRoot`.
 @external(javascript, "./textarea_ffi.mjs", "identity")
-fn as_dom_root(root: Dynamic) -> DomRoot
+fn dynamic_to_dom_root(root: Dynamic) -> DomRoot
 
 @external(javascript, "./textarea_ffi.mjs", "restore_selection")
 fn restore_selection(
@@ -1000,12 +1000,12 @@ pub fn cursor(model: Editor(channel)) -> Option(Cursor) {
 /// `watershed.text_anchor_from_json` reads that shape back.
 pub fn cursor_to_json(cursor: Cursor) -> Json {
   json.object([
-    #("start", json.string(anchor_json(cursor.start))),
-    #("end", json.string(anchor_json(cursor.end))),
+    #("start", json.string(text_anchor_to_json_string(cursor.start))),
+    #("end", json.string(text_anchor_to_json_string(cursor.end))),
   ])
 }
 
-fn anchor_json(anchor: TextAnchor) -> String {
+fn text_anchor_to_json_string(anchor: TextAnchor) -> String {
   json.to_string(watershed.text_anchor_to_json(anchor))
 }
 
@@ -1286,7 +1286,9 @@ fn measure(model: Editor(channel)) -> Effect(Msg) {
       let request = json.to_string(json.preprocessed_array(drawable))
       let instance = model.instance
       use dispatch, root <- effect.before_paint
-      dispatch(Measured(measure_cursors(as_dom_root(root), instance, request)))
+      dispatch(
+        Measured(measure_cursors(dynamic_to_dom_root(root), instance, request)),
+      )
     }
   }
 }
@@ -1336,7 +1338,7 @@ fn restore(model: Editor(channel)) -> Effect(Msg) {
       let #(start, end) = selection.raw
       let instance = model.instance
       use _dispatch, root <- effect.before_paint
-      restore_selection(as_dom_root(root), instance, start, end)
+      restore_selection(dynamic_to_dom_root(root), instance, start, end)
     }
   }
 }

@@ -352,12 +352,12 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
 fn refresh_snapshots(model: Model) -> Model {
   case model.shared {
     Some(shared) ->
-      apply_shared_snapshots(model, shared, snapshots_of_shared(shared))
+      apply_shared_snapshots(model, shared, shared_to_snapshots(shared))
     None -> model
   }
 }
 
-fn snapshots_of_shared(shared: SharedPantry) -> Snapshots {
+fn shared_to_snapshots(shared: SharedPantry) -> Snapshots {
   pantry_snapshot.from_values(
     grow_only: watershed.g_set_values(shared.grow_only),
     two_phase: watershed.two_p_set_values(shared.two_phase),
@@ -693,7 +693,7 @@ fn set_tombstone_state(
 
 fn refresh_live_shared(model: Model) -> Result(Model, String) {
   use shared <- result.try(resolve_live_shared(model))
-  Ok(apply_shared_snapshots(model, shared, snapshots_of_shared(shared)))
+  Ok(apply_shared_snapshots(model, shared, shared_to_snapshots(shared)))
 }
 
 fn resolve_live_shared(model: Model) -> Result(SharedPantry, String) {

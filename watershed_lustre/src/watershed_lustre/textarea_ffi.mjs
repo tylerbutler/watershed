@@ -9,7 +9,7 @@
 // the app root (or a shadow root) to search from — so several instances, and a
 // future custom-element wrapper, both resolve to the right element.
 //
-// `identity` is the coercion behind `as_dom_root`: lustre hands the root over
+// `identity` is the coercion behind `dynamic_to_dom_root`: lustre hands the root over
 // as a bare `Dynamic`, and this module relabels it as the opaque `DomRoot`
 // instead of naming `restore_selection`/`measure_cursors`'s parameter after
 // `gleam/dynamic`. The value crosses unchanged; only its Gleam-side type name
