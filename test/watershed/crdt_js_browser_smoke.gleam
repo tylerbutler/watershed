@@ -131,8 +131,11 @@ pub fn run(room: String, url: String, claps: Int) -> Promise(String) {
               peer.merges_at_ready,
               transport_js.get_cell(peer.merges),
             )
-            let assert Ok(total) = value(peer)
-            transport_js.set_cell(peer.value_at_ready, total)
+            case value(peer) {
+              Ok(total) -> transport_js.set_cell(peer.value_at_ready, total)
+              Error(_) ->
+                note(peer, "ready: the document had no readable total")
+            }
           }
           Error(error) -> note(peer, "ready: " <> crdt_js.describe_error(error))
         }
@@ -185,8 +188,10 @@ pub fn run(room: String, url: String, claps: Int) -> Promise(String) {
 
   use seen <- promise.await(
     wait_until(fn() {
-      let assert Ok(count) = peer_count(peer)
-      count >= 1
+      case peer_count(peer) {
+        Ok(count) -> count >= 1
+        Error(_) -> False
+      }
     }),
   )
   case seen {
@@ -214,19 +219,25 @@ fn clap_and_converge(peer: Peer, claps: Int) -> Promise(String) {
   let target = claps * 2
   use converged <- promise.await(
     wait_until(fn() {
-      let assert Ok(total) = value(peer)
-      total == target
+      case value(peer) {
+        Ok(total) -> total == target
+        Error(_) -> False
+      }
     }),
   )
   let failure = case converged {
     True -> ""
-    False -> {
-      let assert Ok(total) = value(peer)
-      "the totals never converged: this page holds "
-      <> int.to_string(total)
-      <> " of "
-      <> int.to_string(target)
-    }
+    False ->
+      case value(peer) {
+        Ok(total) ->
+          "the totals never converged: this page holds "
+          <> int.to_string(total)
+          <> " of "
+          <> int.to_string(target)
+        Error(_) ->
+          "the totals never converged: this page never had a readable total of "
+          <> int.to_string(target)
+      }
   }
   promise.resolve(report(peer, claps, converged, failure))
 }
@@ -237,13 +248,31 @@ fn clap_and_converge(peer: Peer, claps: Int) -> Promise(String) {
 
 @target(javascript)
 fn report(peer: Peer, claps: Int, converged: Bool, failure: String) -> String {
-  let assert Ok(current_value) = value(peer)
-  let assert Ok(current_replica) = replica(peer)
-  let assert Ok(current_digest) = digest(peer)
-  let assert Ok(current_peers) = peer_count(peer)
+  let #(current_value, value_problems) = case value(peer) {
+    Ok(current_value) -> #(current_value, [])
+    Error(_) -> #(-1, ["report: value was unavailable"])
+  }
+  let #(current_replica, replica_problems) = case replica(peer) {
+    Ok(current_replica) -> #(current_replica, [])
+    Error(_) -> #("unknown", ["report: replica was unavailable"])
+  }
+  let #(current_digest, digest_problems) = case digest(peer) {
+    Ok(current_digest) -> #(current_digest, [])
+    Error(_) -> #("unknown", ["report: digest was unavailable"])
+  }
+  let #(current_peers, peer_problems) = case peer_count(peer) {
+    Ok(current_peers) -> #(current_peers, [])
+    Error(_) -> #(-1, ["report: peer count was unavailable"])
+  }
+  let problems =
+    problems_of(peer)
+    |> list.append(value_problems)
+    |> list.append(replica_problems)
+    |> list.append(digest_problems)
+    |> list.append(peer_problems)
   let problems = case failure {
-    "" -> problems_of(peer)
-    _ -> list.append(problems_of(peer), [failure])
+    "" -> problems
+    _ -> list.append(problems, [failure])
   }
   json.object([
     #("ok", json.bool(converged && problems == [])),
