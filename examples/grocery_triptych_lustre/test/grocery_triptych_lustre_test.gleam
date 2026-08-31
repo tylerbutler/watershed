@@ -36,28 +36,24 @@ pub fn rows_cover_the_union_without_dropping_absent_panels_test() -> Nil {
       grow_only: True,
       two_phase: False,
       observed: True,
-      diverges: True,
     ),
     pantry_snapshot.Row(
       item: "bread",
       grow_only: False,
       two_phase: True,
       observed: False,
-      diverges: True,
     ),
     pantry_snapshot.Row(
       item: "cereal",
       grow_only: False,
       two_phase: False,
       observed: True,
-      diverges: True,
     ),
     pantry_snapshot.Row(
       item: "eggs",
       grow_only: True,
       two_phase: True,
       observed: True,
-      diverges: False,
     ),
   ])
 }
@@ -93,6 +89,26 @@ pub fn remove_action_requires_a_removable_copy_test() -> Nil {
 
   pantry_snapshot.row_has_removable_copy(milk)
   |> should.equal(False)
+}
+
+pub fn divergence_is_derived_from_row_presence_test() -> Nil {
+  pantry_snapshot.Row(
+    item: "eggs",
+    grow_only: True,
+    two_phase: True,
+    observed: True,
+  )
+  |> pantry_snapshot.diverges
+  |> should.equal(False)
+
+  pantry_snapshot.Row(
+    item: "milk",
+    grow_only: True,
+    two_phase: False,
+    observed: True,
+  )
+  |> pantry_snapshot.diverges
+  |> should.equal(True)
 }
 
 pub fn concurrent_peer_go_timeout_covers_ack_window_test() -> Nil {

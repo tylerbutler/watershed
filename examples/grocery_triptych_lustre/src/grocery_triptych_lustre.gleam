@@ -2397,7 +2397,7 @@ fn shared_row_view(
   html.li([attribute.class("shared-row")], [
     html.div([attribute.class("row-main")], [
       html.span([attribute.class("item")], [html.text(row.item)]),
-      divergence_marker(row.diverges),
+      divergence_marker(pantry_snapshot.diverges(row)),
     ]),
     html.div([attribute.class("remove-action")], [
       html.button(
@@ -2583,7 +2583,7 @@ fn panel_row_view(panel: Panel, row: Row) -> Element(Msg) {
   html.li([attribute.class(panel_row_class(panel, row))], [
     html.div([attribute.class("row-main")], [
       html.span([attribute.class("item")], [html.text(row.item)]),
-      divergence_marker(row.diverges),
+      divergence_marker(pantry_snapshot.diverges(row)),
     ]),
     presence_badge(panel_present(panel, row)),
   ])
@@ -2664,7 +2664,7 @@ fn panel_present(panel: Panel, row: Row) -> Bool {
 }
 
 fn panel_row_class(panel: Panel, row: Row) -> String {
-  case row.diverges, panel_is_outlier(panel, row) {
+  case pantry_snapshot.diverges(row), panel_is_outlier(panel, row) {
     True, True -> "panel-row diverges outlier"
     True, False -> "panel-row diverges"
     False, _ -> "panel-row"

@@ -28,15 +28,10 @@ pub fn from_values(
 }
 
 /// One rendered row, driven by the union of all three snapshots so absence can
-/// still be shown explicitly per panel.
+/// still be shown explicitly per panel. Divergence is derived from the three
+/// presence fields, so the row cannot store a conflicting marker state.
 pub type Row {
-  Row(
-    item: String,
-    grow_only: Bool,
-    two_phase: Bool,
-    observed: Bool,
-    diverges: Bool,
-  )
+  Row(item: String, grow_only: Bool, two_phase: Bool, observed: Bool)
 }
 
 pub type DiffCounts {
@@ -65,7 +60,6 @@ pub fn rows(snapshots: Snapshots) -> List(Row) {
       grow_only: grow_only,
       two_phase: two_phase,
       observed: observed,
-      diverges: row_diverges(grow_only, two_phase, observed),
     )
   })
 }
@@ -73,10 +67,12 @@ pub fn rows(snapshots: Snapshots) -> List(Row) {
 /// Count every row that shows a divergence marker in each panel header.
 pub fn diff_counts(rows: List(Row)) -> DiffCounts {
   list.fold(rows, empty_diff_counts(), fn(counts, row) {
+    let row_diverges = diverges(row)
+
     DiffCounts(
-      grow_only: maybe_increment(counts.grow_only, row.diverges),
-      two_phase: maybe_increment(counts.two_phase, row.diverges),
-      observed: maybe_increment(counts.observed, row.diverges),
+      grow_only: maybe_increment(counts.grow_only, row_diverges),
+      two_phase: maybe_increment(counts.two_phase, row_diverges),
+      observed: maybe_increment(counts.observed, row_diverges),
     )
   })
 }
@@ -97,6 +93,10 @@ pub fn two_phase_is_outlier(row: Row) -> Bool {
 
 pub fn observed_is_outlier(row: Row) -> Bool {
   row.observed != row.grow_only && row.observed != row.two_phase
+}
+
+pub fn diverges(row: Row) -> Bool {
+  row_diverges(row.grow_only, row.two_phase, row.observed)
 }
 
 fn maybe_increment(total: Int, should_increment: Bool) -> Int {
