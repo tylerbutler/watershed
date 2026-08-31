@@ -5,7 +5,6 @@ import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt, section } from "../../lib/excerpt";
 import noteSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam?raw";
 import boardSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam?raw";
-import boardOpsSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board_operations.gleam?raw";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
 
 const noteRecord = excerpt(noteSource, "pub type Note {", "pub fn id(");
@@ -14,8 +13,8 @@ const codec = excerpt(
   "pub fn to_json(",
   "pub fn from_register(",
 );
-const addNote = excerpt(boardOpsSource, "pub fn add_note(");
-const readNotes = excerpt(boardOpsSource, "fn note_entries(");
+const addNote = excerpt(boardSource, "pub fn add_note(");
+const readNotes = excerpt(boardSource, "fn note_entries(");
 const ordering = excerpt(
   boardSource,
   "fn notes_in_column(",
@@ -88,13 +87,13 @@ const addClicked = section(
       random number added just to keep ids unique — is there because two notes
       from one author can land in the same millisecond.
     </p>
-    <span class="g-file">src/board_operations.gleam</span>
+    <span class="g-file">src/board.gleam</span>
     <figure class="g-code">
       <Code code={addNote} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      <code>board_operations</code> exists so the UI and the tests call the
-      exact same write function, not two separate copies of the same logic.
+      <code>board</code> keeps the UI and the tests on the exact same write
+      function, not two separate copies of the same logic.
       If a test reimplemented the write instead of calling it, all that would
       prove is that the reimplementation agrees with itself. Step 06 depends on
       this.
@@ -116,7 +115,7 @@ const addClicked = section(
       mean the channel was set up in the wrong mode: a bug in your own startup
       code, not messy user data to defend against.
     </p>
-    <span class="g-file">src/board_operations.gleam</span>
+    <span class="g-file">src/board.gleam</span>
     <figure class="g-code">
       <Code code={readNotes} lang="gleam" theme={watershedCodeTheme} />
     </figure>

@@ -17,8 +17,8 @@ const voteRace = excerpt(
 );
 
 const scripted = `// Two adds, then deliver one message at a time instead of all at once.
-board_operations.add_note(a.notes, "user-a", "deploys got faster", board.WentWell, 1000, 1)
-board_operations.add_note(b.notes, "user-b", "standup stayed short", board.WentWell, 1000, 1)
+board.add_note(a.notes, "user-a", "deploys got faster", board.WentWell, 1000, 1)
+board.add_note(b.notes, "user-b", "standup stayed short", board.WentWell, 1000, 1)
 
 sluice_js.step(sluice)     // deliver exactly one queued message
 // ... assert the half-delivered board here ...
@@ -34,7 +34,7 @@ const layout = `retro_tutorial_lustre/
 │   ├── document_schema.gleam       step 01 · title, notes, votes
 │   ├── note.gleam                  step 02 · the note record and its codec
 │   ├── board.gleam                 step 02 · pure canonical snapshot
-│   ├── board_operations.gleam      steps 02 and 04 · the shared writes
+│   ├── board.gleam                 steps 02 and 04 · the shared writes
 │   └── retro_tutorial_lustre.gleam every sheet · connection, update, view
 └── test/
     ├── note_codec_test.gleam       round trips, including malformed payloads
@@ -92,7 +92,7 @@ const layout = `retro_tutorial_lustre/
   <div class="g-block">
     <h2>Assert on the board, not on the map</h2>
     <p>
-      The tests read the board through <code>board_operations.snapshot</code>
+      The tests read the board through <code>board.snapshot_from_channels</code>
       — the exact same function the UI renders from. That is deliberate. If the
       tests instead asserted directly on the raw map entries, they could pass
       while the actual board people look at was sorting its columns
@@ -102,9 +102,9 @@ const layout = `retro_tutorial_lustre/
       <Code code={boardOf} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
-      This is exactly why <code>board_operations</code> exists as its own
-      module: if a test reimplemented the write instead of calling the real
-      one, all it would prove is that the copy agrees with itself.
+      This is exactly why <code>board</code> keeps the write functions with
+      the board state: if a test reimplemented the write instead of calling
+      the real one, all it would prove is that the copy agrees with itself.
     </p>
   </div>
 

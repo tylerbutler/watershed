@@ -9,7 +9,6 @@ import gleam/result
 import gleeunit/should
 
 import retro_tutorial_lustre/board
-import retro_tutorial_lustre/board_operations
 import retro_tutorial_lustre/document_schema
 import watershed.{type Document, type OrMap}
 import watershed/or_map_kernel
@@ -69,7 +68,7 @@ fn board_of(
   let assert Ok(Some(title)) =
     watershed.get_field(root, document_schema.title())
   let assert Ok(board) =
-    board_operations.snapshot(title, channels.notes, channels.votes)
+    board.snapshot_from_channels(title, channels.notes, channels.votes)
   board
 }
 
@@ -77,7 +76,7 @@ pub fn concurrent_adds_keep_both_notes_test() -> Nil {
   let #(sluice, document_a, document_b, a, b) = room("retro-tutorial-adds")
 
   let first =
-    board_operations.add_note(
+    board.add_note(
       a.notes,
       "user-a",
       "deploys got faster",
@@ -86,7 +85,7 @@ pub fn concurrent_adds_keep_both_notes_test() -> Nil {
       1,
     )
   let second =
-    board_operations.add_note(
+    board.add_note(
       b.notes,
       "user-b",
       "standup stayed short",
@@ -112,7 +111,7 @@ pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {
   let #(sluice, document_a, document_b, a, b) = room("retro-tutorial-votes")
 
   let id =
-    board_operations.add_note(
+    board.add_note(
       a.notes,
       "user-a",
       "ship week went smoothly",
@@ -122,9 +121,9 @@ pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {
     )
   sluice_js.settle(sluice)
 
-  board_operations.upvote(a.votes, id)
-  board_operations.upvote(b.votes, id)
-  board_operations.downvote(b.votes, id)
+  board.upvote(a.votes, id)
+  board.upvote(b.votes, id)
+  board.downvote(b.votes, id)
   sluice_js.settle(sluice)
 
   let board_a = board_of(document_a, a)
@@ -145,7 +144,7 @@ pub fn snapshot_returns_error_for_wrong_mode_notes_test() -> Nil {
   watershed.or_map_increment(wrong_notes, "note-1", 1)
   let assert Ok(votes) =
     watershed.create_or_map(document, or_map_kernel.TallyMode)
-  board_operations.snapshot("test", wrong_notes, votes)
+  board.snapshot_from_channels("test", wrong_notes, votes)
   |> result.is_error
   |> should.be_true
 }
@@ -160,15 +159,8 @@ pub fn snapshot_returns_error_for_wrong_mode_votes_test() -> Nil {
   // wrong_votes is RegisterMode — add_note populates it with Register entries.
   let assert Ok(wrong_votes) =
     watershed.create_or_map(document, or_map_kernel.RegisterMode)
-  board_operations.add_note(
-    wrong_votes,
-    "user-a",
-    "setup",
-    board.WentWell,
-    1,
-    1,
-  )
-  board_operations.snapshot("test", notes, wrong_votes)
+  board.add_note(wrong_votes, "user-a", "setup", board.WentWell, 1, 1)
+  board.snapshot_from_channels("test", notes, wrong_votes)
   |> result.is_error
   |> should.be_true
 }
