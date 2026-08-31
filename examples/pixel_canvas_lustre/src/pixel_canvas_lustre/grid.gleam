@@ -63,7 +63,7 @@ fn coordinate(raw: String) -> Result(Int, Nil) {
         // `int.parse` accepts a leading sign, which would let "-1" through as a
         // two-character field, so the range check has to do the real work.
         Ok(value) if value >= 0 && value < size -> Ok(value)
-        _ -> Error(Nil)
+        Ok(_) | Error(_) -> Error(Nil)
       }
   }
 }

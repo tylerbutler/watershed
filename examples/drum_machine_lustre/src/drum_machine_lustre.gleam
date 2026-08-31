@@ -650,7 +650,7 @@ fn quorum_of(previous: Option(Proposal), bpm: Int, waiting: List(Int)) -> Int {
   let seen = list.length(waiting)
   case previous {
     Some(p) if p.bpm == bpm -> int.max(p.quorum, seen)
-    _ -> seen
+    Some(_) | None -> seen
   }
 }
 

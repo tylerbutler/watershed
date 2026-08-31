@@ -581,7 +581,8 @@ fn public_entries(tracked: List(Tracked(a))) -> List(PresenceEntry(a)) {
   |> list.sort(fn(left, right) {
     case string.compare(left.key, right.key) {
       order.Eq -> string.compare(left.session_id, right.session_id)
-      other -> other
+      order.Lt -> order.Lt
+      order.Gt -> order.Gt
     }
   })
 }

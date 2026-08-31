@@ -338,7 +338,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     FocusClicked(id) -> {
       let focus = case model.focus {
         Some(current) if current == id -> None
-        _ -> Some(id)
+        Some(_) | None -> Some(id)
       }
       let model = Model(..model, focus: focus)
       #(model, announce_focus(model))
@@ -665,7 +665,7 @@ fn note_view(model: Model, card: NoteCard) -> Element(Msg) {
 fn focus_button_label(model: Model, id: String) -> String {
   case model.focus {
     Some(current) if current == id -> "Focused"
-    _ -> "Focus"
+    Some(_) | None -> "Focus"
   }
 }
 
@@ -674,14 +674,14 @@ fn focus_names(model: Model, id: String) -> List(String) {
     Some(current) if current == id -> [
       presence.short_name(model.user_id) <> " (you)",
     ]
-    _ -> []
+    Some(_) | None -> []
   }
   let peers =
     model.peers
     |> list.filter_map(fn(peer) {
       case peer.meta.focused_note {
         Some(current) if current == id -> Ok(peer.meta.name)
-        _ -> Error(Nil)
+        Some(_) | None -> Error(Nil)
       }
     })
   list.append(local, peers)

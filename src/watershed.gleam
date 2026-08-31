@@ -1558,7 +1558,22 @@ pub fn subscribe_counter(
   use event <- subscribe_narrowed(counter.runtime, counter.address, handler)
   case event {
     channel.CounterEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -1638,7 +1653,22 @@ pub fn subscribe_or_map(
   use event <- subscribe_narrowed(or_map.runtime, or_map.address, handler)
   case event {
     channel.OrMapEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -1699,7 +1729,22 @@ pub fn subscribe_or_set(
   use event <- subscribe_narrowed(or_set.runtime, or_set.address, handler)
   case event {
     channel.OrSetEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -1801,7 +1846,22 @@ pub fn subscribe_sequence(
   use event <- subscribe_narrowed(sequence.runtime, sequence.address, handler)
   case event {
     channel.SequenceEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -1964,7 +2024,22 @@ pub fn subscribe_text(
   use event <- subscribe_narrowed(text.runtime, text.address, handler)
   case event {
     channel.TextEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_) -> None
   }
 }
 
@@ -2051,7 +2126,22 @@ pub fn subscribe_register_collection(
   )
   case event {
     channel.RegisterCollectionEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2121,7 +2211,22 @@ pub fn subscribe_claims(
   use event <- subscribe_narrowed(claims.runtime, claims.address, handler)
   case event {
     channel.ClaimsEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2201,7 +2306,22 @@ pub fn subscribe_task_manager(
   use event <- subscribe_narrowed(manager.runtime, manager.address, handler)
   case event {
     channel.TaskManagerEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2266,7 +2386,22 @@ pub fn subscribe_pn_counter(
   )
   case event {
     channel.PnCounterEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2346,7 +2481,22 @@ pub fn subscribe_pact_map(
   use event <- subscribe_narrowed(pact_map.runtime, pact_map.address, handler)
   case event {
     channel.PactMapEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2518,7 +2668,22 @@ pub fn subscribe_ordered_collection(
   )
   case event {
     channel.OrderedCollectionEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2583,7 +2748,22 @@ pub fn subscribe_json_ot(
   use event <- subscribe_narrowed(json_ot.runtime, json_ot.address, handler)
   case event {
     channel.JsonOtEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2655,7 +2835,22 @@ pub fn subscribe_rich_text(
   use event <- subscribe_narrowed(rich_text.runtime, rich_text.address, handler)
   case event {
     channel.RichTextEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2721,7 +2916,22 @@ pub fn subscribe_g_set(
   use event <- subscribe_narrowed(set.runtime, set.address, handler)
   case event {
     channel.GSetEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2799,7 +3009,22 @@ pub fn subscribe_two_p_set(
   use event <- subscribe_narrowed(set.runtime, set.address, handler)
   case event {
     channel.TwoPSetEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2958,7 +3183,22 @@ pub fn subscribe_directory(
   use event <- subscribe_narrowed(directory.runtime, directory.address, handler)
   case event {
     channel.DirectoryEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -3241,7 +3481,22 @@ pub fn subscribe(
   use event <- subscribe_narrowed(map.runtime, map.address, handler)
   case event {
     channel.MapEvent(inner) -> Some(inner)
-    _ -> None
+    channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -3277,7 +3532,23 @@ fn field_change(
       ))
     channel.MapEvent(map_kernel.Cleared(local)) ->
       Some(schema.FieldChange(Ok(None), Ok(None), local))
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 

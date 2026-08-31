@@ -258,7 +258,7 @@ pub fn apply(document: Document, delta: Delta) -> Result(Document, Error) {
   |> result.map_error(fn(error) {
     case error {
       Malformed(_, reason) -> InvalidApply(reason)
-      other -> other
+      InvalidApply(_) | InvalidBoundary(_) -> error
     }
   })
 }

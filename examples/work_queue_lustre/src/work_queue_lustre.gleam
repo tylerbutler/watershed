@@ -487,7 +487,7 @@ fn snapshot(model: Model) -> Model {
         |> fn(found) {
           case found {
             Ok(#(_, [head, ..])) -> Some(head)
-            _ -> None
+            Ok(_) | Error(_) -> None
           }
         }
       Model(

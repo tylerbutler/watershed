@@ -70,7 +70,15 @@ pub fn generated_scripts_never_author_from_client_zero_test() -> Nil {
               panic as "generated script rolled back an op from client 0"
             StashedOperation(0, _) ->
               panic as "generated script stashed an op from client 0"
-            _ -> Nil
+            ClientOperation(_, _)
+            | kernel_fuzz.Sequence(_)
+            | kernel_fuzz.Deliver(_, _)
+            | kernel_fuzz.Synchronize
+            | AddClient
+            | Disconnect(_)
+            | Reconnect(_)
+            | RollbackOperation(_, _)
+            | StashedOperation(_, _) -> Nil
           }
         })
       },

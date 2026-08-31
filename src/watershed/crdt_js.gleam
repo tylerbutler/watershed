@@ -2014,7 +2014,13 @@ fn callbacks(cell: Cell(State)) -> p2p_transport_js.Callbacks {
         // readiness result, and it never reaches the callback.
         p2p_transport_js.PeerClosed(peer_id) ->
           defer(cell, DeferredClose(peer_id))
-        _ -> Nil
+        p2p_transport_js.SignalingJoined(..)
+        | p2p_transport_js.SignalingLeft
+        | p2p_transport_js.PeerConnecting(_)
+        | p2p_transport_js.PeerOpen(_)
+        | p2p_transport_js.PeerFailed(..)
+        | p2p_transport_js.IceState(..)
+        | p2p_transport_js.PeerCount(_) -> Nil
       }
     },
     on_error: fn(error) {
@@ -2025,7 +2031,20 @@ fn callbacks(cell: Cell(State)) -> p2p_transport_js.Callbacks {
         // After readiness this is status and nothing more: the mesh does
         // not need signaling to keep running.
         p2p.SignalingFailed(_) -> resolve_ready(cell, Error(error))
-        _ -> Nil
+        p2p.UnsupportedChannel(_)
+        | p2p.RootMismatch(..)
+        | p2p.ChannelTypeMismatch(..)
+        | p2p.DocumentClosed
+        | p2p.CompatibilityMismatch(..)
+        | p2p.ProtocolMismatch(..)
+        | p2p.RoomMismatch
+        | p2p.RoomFull(_)
+        | p2p.SequencerUnavailable(_)
+        | p2p.SequencerUnsupported
+        | p2p.PeerConnectionFailed(..)
+        | p2p.InvalidEnvelope(..)
+        | p2p.SnapshotTooLarge(..)
+        | p2p.ReplicaCollision(_) -> Nil
       }
     },
   )
@@ -2256,7 +2275,12 @@ fn receive_envelope(
   case envelope.message {
     crdt_wire.Digest(_) ->
       crdt_core.receive_with_digest(document, envelope, document_digest(cell))
-    _ -> crdt_core.receive(document, envelope)
+    crdt_wire.Hello(..)
+    | crdt_wire.ChannelAnnounce(_)
+    | crdt_wire.Delta(..)
+    | crdt_wire.StateRequest
+    | crdt_wire.State(_)
+    | crdt_wire.Rejected(..) -> crdt_core.receive(document, envelope)
   }
 }
 
@@ -2947,7 +2971,22 @@ pub fn subscribe_pn_counter(
   use event <- subscribe_narrowed(handle, handler)
   case event {
     channel.PnCounterEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2959,7 +2998,22 @@ pub fn subscribe_or_map(
   use event <- subscribe_narrowed(handle, handler)
   case event {
     channel.OrMapEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2971,7 +3025,22 @@ pub fn subscribe_or_set(
   use event <- subscribe_narrowed(handle, handler)
   case event {
     channel.OrSetEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2983,7 +3052,22 @@ pub fn subscribe_g_set(
   use event <- subscribe_narrowed(handle, handler)
   case event {
     channel.GSetEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -2995,7 +3079,22 @@ pub fn subscribe_two_p_set(
   use event <- subscribe_narrowed(handle, handler)
   case event {
     channel.TwoPSetEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -3007,7 +3106,22 @@ pub fn subscribe_sequence(
   use event <- subscribe_narrowed(handle, handler)
   case event {
     channel.SequenceEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
   }
 }
 
@@ -3019,7 +3133,22 @@ pub fn subscribe_text(
   use event <- subscribe_narrowed(handle, handler)
   case event {
     channel.TextEvent(inner) -> Some(inner)
-    _ -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_) -> None
   }
 }
 
@@ -3222,7 +3351,22 @@ pub fn pn_counter_value(
   use state <- read(handle, channel.PnCounterChannel)
   case state {
     channel.PnCounterState(kernel) -> pn_counter_kernel.value(kernel)
-    _ -> 0
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.OrMapState(_)
+    | channel.OrSetState(_)
+    | channel.GSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> 0
   }
 }
 
@@ -3268,7 +3412,22 @@ pub fn or_map_value(
   use state <- read(handle, channel.OrMapChannel)
   case state {
     channel.OrMapState(kernel) -> or_map_kernel.get(kernel, key)
-    _ -> Error(Nil)
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrSetState(_)
+    | channel.GSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> Error(Nil)
   }
 }
 
@@ -3297,7 +3456,22 @@ pub fn or_map_entries(
   use state <- read(handle, channel.OrMapChannel)
   case state {
     channel.OrMapState(kernel) -> or_map_kernel.entries(kernel)
-    _ -> []
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrSetState(_)
+    | channel.GSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> []
   }
 }
 
@@ -3327,7 +3501,22 @@ pub fn or_set_contains(
   use state <- read(handle, channel.OrSetChannel)
   case state {
     channel.OrSetState(kernel) -> or_set_kernel.contains(kernel, element)
-    _ -> False
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrMapState(_)
+    | channel.GSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> False
   }
 }
 
@@ -3338,7 +3527,22 @@ pub fn or_set_values(
   use state <- read(handle, channel.OrSetChannel)
   case state {
     channel.OrSetState(kernel) -> or_set_kernel.values(kernel)
-    _ -> []
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrMapState(_)
+    | channel.GSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> []
   }
 }
 
@@ -3360,7 +3564,22 @@ pub fn g_set_contains(
   use state <- read(handle, channel.GSetChannel)
   case state {
     channel.GSetState(kernel) -> g_set_kernel.contains(kernel, element)
-    _ -> False
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrMapState(_)
+    | channel.OrSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> False
   }
 }
 
@@ -3371,7 +3590,22 @@ pub fn g_set_values(
   use state <- read(handle, channel.GSetChannel)
   case state {
     channel.GSetState(kernel) -> g_set_kernel.values(kernel)
-    _ -> []
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrMapState(_)
+    | channel.OrSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> []
   }
 }
 
@@ -3401,7 +3635,22 @@ pub fn two_p_set_contains(
   use state <- read(handle, channel.TwoPSetChannel)
   case state {
     channel.TwoPSetState(kernel) -> two_p_set_kernel.contains(kernel, element)
-    _ -> False
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrMapState(_)
+    | channel.OrSetState(_)
+    | channel.GSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> False
   }
 }
 
@@ -3412,7 +3661,22 @@ pub fn two_p_set_values(
   use state <- read(handle, channel.TwoPSetChannel)
   case state {
     channel.TwoPSetState(kernel) -> two_p_set_kernel.values(kernel)
-    _ -> []
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrMapState(_)
+    | channel.OrSetState(_)
+    | channel.GSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> []
   }
 }
 
@@ -3460,7 +3724,22 @@ pub fn sequence_values(
   use state <- read(handle, channel.SequenceChannel)
   case state {
     channel.SequenceState(kernel) -> sequence_kernel.values(kernel)
-    _ -> []
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrMapState(_)
+    | channel.OrSetState(_)
+    | channel.GSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> []
   }
 }
 
@@ -3509,7 +3788,22 @@ pub fn text_value(
   use state <- read(handle, channel.TextChannel)
   case state {
     channel.TextState(kernel) -> text_kernel.value(kernel)
-    _ -> ""
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrMapState(_)
+    | channel.OrSetState(_)
+    | channel.GSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_) -> ""
   }
 }
 
@@ -3521,7 +3815,22 @@ pub fn text_length(
   use state <- read(handle, channel.TextChannel)
   case state {
     channel.TextState(kernel) -> text_kernel.length(kernel)
-    _ -> 0
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.PnCounterState(_)
+    | channel.OrMapState(_)
+    | channel.OrSetState(_)
+    | channel.GSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_) -> 0
   }
 }
 

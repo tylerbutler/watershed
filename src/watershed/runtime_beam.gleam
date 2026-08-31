@@ -2828,7 +2828,7 @@ fn nack_is_fatal(item: Nack) -> Bool {
   case item.content.error_type {
     nack.InvalidScopeError -> True
     nack.LimitExceededError -> True
-    _ -> item.content.code == 413
+    nack.ThrottlingError | nack.BadRequestError -> item.content.code == 413
   }
 }
 

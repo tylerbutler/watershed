@@ -274,7 +274,12 @@ fn through_delta(
       let assert Some(delta) = composed
       delta
     }
-    _ -> panic as "unknown fixture delta"
+    json_ot.VNull
+    | json_ot.VBool(_)
+    | json_ot.VNumber(_)
+    | json_ot.VString(_)
+    | json_ot.VArray(_)
+    | json_ot.VObject(_) -> panic as "unknown fixture delta"
   }
 }
 

@@ -358,7 +358,7 @@ fn ensure_roster(
 ) -> Result(watershed_beam.TypedMap(Roster), String) {
   case resolve_child_retry(document, root, players(), resolve_attempts) {
     Ok(Some(roster)) -> Ok(roster)
-    _ -> {
+    Ok(None) | Error(_) -> {
       case watershed_beam.create_typed_map(document) {
         Error(reason) -> Error("Roster map creation failed: " <> reason)
         Ok(created) -> {
@@ -368,7 +368,8 @@ fn ensure_roster(
             resolve_child_retry(document, root, players(), resolve_attempts)
           {
             Ok(Some(roster)) -> Ok(roster)
-            _ -> Error("Failed to resolve roster after creation")
+            Ok(None) | Error(_) ->
+              Error("Failed to resolve roster after creation")
           }
         }
       }

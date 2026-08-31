@@ -1273,7 +1273,8 @@ pub fn disconnect(relay: Relay, connection: Int) -> #(Relay, List(Action)) {
               clients: dict.delete(found.clients, connection),
               pending: case found.pending {
                 Some(#(owner, _)) if owner == connection -> None
-                other -> other
+                Some(_) as kept -> kept
+                None -> None
               },
             ),
           )

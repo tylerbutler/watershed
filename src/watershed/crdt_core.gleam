@@ -1024,7 +1024,11 @@ fn or_map_values(value: JsonValue) -> JsonValue {
     json_ot.VArray(items) ->
       json_ot.VArray(list.map(items, map_member(_, "crdt", inner)))
       |> ordered
-    other -> other
+    json_ot.VNull
+    | json_ot.VBool(_)
+    | json_ot.VNumber(_)
+    | json_ot.VString(_)
+    | json_ot.VObject(_) -> value
   }
 }
 
@@ -1039,7 +1043,11 @@ fn inner(value: JsonValue) -> JsonValue {
           json_ot.VString(canonical_json.to_string(merge_relevant(parsed)))
         Error(_) -> value
       }
-    other -> other
+    json_ot.VNull
+    | json_ot.VBool(_)
+    | json_ot.VNumber(_)
+    | json_ot.VArray(_)
+    | json_ot.VObject(_) -> value
   }
 }
 
@@ -1079,7 +1087,11 @@ fn map_member(
           }
         }),
       )
-    other -> other
+    json_ot.VNull
+    | json_ot.VBool(_)
+    | json_ot.VNumber(_)
+    | json_ot.VString(_)
+    | json_ot.VArray(_) -> value
   }
 }
 
@@ -1092,7 +1104,11 @@ fn map_each(
       json_ot.VObject(
         list.map(members, fn(member) { #(member.0, transform(member.1)) }),
       )
-    other -> other
+    json_ot.VNull
+    | json_ot.VBool(_)
+    | json_ot.VNumber(_)
+    | json_ot.VString(_)
+    | json_ot.VArray(_) -> value
   }
 }
 
@@ -1102,7 +1118,11 @@ fn without(value: JsonValue, names: List(String)) -> JsonValue {
       json_ot.VObject(
         list.filter(members, fn(member) { !list.contains(names, member.0) }),
       )
-    other -> other
+    json_ot.VNull
+    | json_ot.VBool(_)
+    | json_ot.VNumber(_)
+    | json_ot.VString(_)
+    | json_ot.VArray(_) -> value
   }
 }
 
@@ -1112,7 +1132,11 @@ fn without(value: JsonValue, names: List(String)) -> JsonValue {
 fn ordered(value: JsonValue) -> JsonValue {
   case value {
     json_ot.VArray(items) -> json_ot.VArray(canonical_json.sorted(items))
-    other -> other
+    json_ot.VNull
+    | json_ot.VBool(_)
+    | json_ot.VNumber(_)
+    | json_ot.VString(_)
+    | json_ot.VObject(_) -> value
   }
 }
 
@@ -1206,7 +1230,17 @@ fn init_for(snapshot: Snapshot) -> Result(ChannelInit, P2pError) {
     channel.TwoPSetSnapshot(_) -> Ok(channel.InitTwoPSet)
     channel.SequenceSummary(_) -> Ok(channel.InitSequence)
     channel.TextSummary(_) -> Ok(channel.InitText)
-    other -> Error(p2p.UnsupportedChannel(channel.snapshot_type(other)))
+    channel.MapSnapshot(_)
+    | channel.CounterSnapshot(_)
+    | channel.RegisterCollectionSnapshot(_)
+    | channel.ClaimsSnapshot(_)
+    | channel.TaskManagerSnapshot(_)
+    | channel.PactMapSnapshot(_)
+    | channel.JsonOtSnapshot(_)
+    | channel.DirectorySnapshot(_)
+    | channel.OrderedCollectionSnapshot(..)
+    | channel.RichTextSnapshot(_) ->
+      Error(p2p.UnsupportedChannel(channel.snapshot_type(snapshot)))
   }
 }
 

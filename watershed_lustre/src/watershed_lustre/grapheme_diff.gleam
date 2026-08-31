@@ -175,7 +175,7 @@ pub fn replacement(
             |> list.take(new_length - tail - start)
             |> string.join(""),
           )
-        _, _ -> Error(Nil)
+        True, False | False, True | False, False -> Error(Nil)
       }
   }
 }

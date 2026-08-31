@@ -1286,7 +1286,7 @@ pub fn task_manager_volunteer(
           )
           case resubmit_at {
             None -> send_outbound(state.channel, core.client_id, outbound)
-            _ -> Nil
+            Some(_) -> Nil
           }
           fan_out(state.subscribers, events)
           outcome
@@ -1340,7 +1340,7 @@ pub fn task_manager_complete(
           )
           case resubmit_at {
             None -> send_outbound(state.channel, core.client_id, outbound)
-            _ -> Nil
+            Some(_) -> Nil
           }
           fan_out(state.subscribers, events)
           Ok(Nil)
@@ -2694,7 +2694,7 @@ fn edit(
           // once, so a reconnect can't drop or duplicate it.
           case resubmit_at {
             None -> send_outbound(state.channel, core.client_id, outbound)
-            _ -> Nil
+            Some(_) -> Nil
           }
           fan_out(state.subscribers, events)
         }
@@ -2824,7 +2824,7 @@ fn nack_is_fatal(item: Nack) -> Bool {
   case item.content.error_type {
     nack.InvalidScopeError -> True
     nack.LimitExceededError -> True
-    _ -> item.content.code == 413
+    nack.ThrottlingError | nack.BadRequestError -> item.content.code == 413
   }
 }
 

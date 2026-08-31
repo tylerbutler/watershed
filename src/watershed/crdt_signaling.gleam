@@ -158,7 +158,14 @@ pub type Refusal {
 pub fn is_terminal(refusal: Refusal) -> Bool {
   case refusal {
     UnknownTarget(_) -> False
-    _ -> True
+    FrameTooLarge(_)
+    | Malformed(_)
+    | NotJoined
+    | AlreadyJoined
+    | DuplicatePeerId(_)
+    | RoomFull(_)
+    | CrossRoomTarget(_)
+    | InvalidId(_) -> True
   }
 }
 

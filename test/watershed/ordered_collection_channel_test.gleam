@@ -444,7 +444,24 @@ fn added_value(
 ) -> Result(String, Nil) {
   list.fold(events, Error(Nil), fn(found, tagged) {
     case found, tagged.1 {
-      Ok(_), _ -> found
+      Ok(_), channel.MapEvent(_)
+      | Ok(_), channel.CounterEvent(_)
+      | Ok(_), channel.PnCounterEvent(_)
+      | Ok(_), channel.OrMapEvent(_)
+      | Ok(_), channel.OrSetEvent(_)
+      | Ok(_), channel.GSetEvent(_)
+      | Ok(_), channel.TwoPSetEvent(_)
+      | Ok(_), channel.RegisterCollectionEvent(_)
+      | Ok(_), channel.ClaimsEvent(_)
+      | Ok(_), channel.TaskManagerEvent(_)
+      | Ok(_), channel.PactMapEvent(_)
+      | Ok(_), channel.JsonOtEvent(_)
+      | Ok(_), channel.DirectoryEvent(_)
+      | Ok(_), channel.OrderedCollectionEvent(_)
+      | Ok(_), channel.SequenceEvent(_)
+      | Ok(_), channel.RichTextEvent(_)
+      | Ok(_), channel.TextEvent(_)
+      -> found
       Error(_),
         channel.OrderedCollectionEvent(ordered_collection_kernel.Added(
           value,
@@ -452,7 +469,24 @@ fn added_value(
           _,
         ))
       -> Ok(json.to_string(value))
-      Error(_), _ -> Error(Nil)
+      Error(_), channel.MapEvent(_)
+      | Error(_), channel.CounterEvent(_)
+      | Error(_), channel.PnCounterEvent(_)
+      | Error(_), channel.OrMapEvent(_)
+      | Error(_), channel.OrSetEvent(_)
+      | Error(_), channel.GSetEvent(_)
+      | Error(_), channel.TwoPSetEvent(_)
+      | Error(_), channel.RegisterCollectionEvent(_)
+      | Error(_), channel.ClaimsEvent(_)
+      | Error(_), channel.TaskManagerEvent(_)
+      | Error(_), channel.PactMapEvent(_)
+      | Error(_), channel.JsonOtEvent(_)
+      | Error(_), channel.DirectoryEvent(_)
+      | Error(_), channel.OrderedCollectionEvent(_)
+      | Error(_), channel.SequenceEvent(_)
+      | Error(_), channel.RichTextEvent(_)
+      | Error(_), channel.TextEvent(_)
+      -> Error(Nil)
     }
   })
 }
@@ -511,7 +545,24 @@ fn acquired_value(
 ) -> Result(String, Nil) {
   list.fold(events, Error(Nil), fn(found, tagged) {
     case found, tagged.1 {
-      Ok(_), _ -> found
+      Ok(_), channel.MapEvent(_)
+      | Ok(_), channel.CounterEvent(_)
+      | Ok(_), channel.PnCounterEvent(_)
+      | Ok(_), channel.OrMapEvent(_)
+      | Ok(_), channel.OrSetEvent(_)
+      | Ok(_), channel.GSetEvent(_)
+      | Ok(_), channel.TwoPSetEvent(_)
+      | Ok(_), channel.RegisterCollectionEvent(_)
+      | Ok(_), channel.ClaimsEvent(_)
+      | Ok(_), channel.TaskManagerEvent(_)
+      | Ok(_), channel.PactMapEvent(_)
+      | Ok(_), channel.JsonOtEvent(_)
+      | Ok(_), channel.DirectoryEvent(_)
+      | Ok(_), channel.OrderedCollectionEvent(_)
+      | Ok(_), channel.SequenceEvent(_)
+      | Ok(_), channel.RichTextEvent(_)
+      | Ok(_), channel.TextEvent(_)
+      -> found
       Error(_),
         channel.OrderedCollectionEvent(ordered_collection_kernel.Acquired(
           value,
@@ -519,7 +570,24 @@ fn acquired_value(
           _,
         ))
       -> Ok(json.to_string(value))
-      Error(_), _ -> Error(Nil)
+      Error(_), channel.MapEvent(_)
+      | Error(_), channel.CounterEvent(_)
+      | Error(_), channel.PnCounterEvent(_)
+      | Error(_), channel.OrMapEvent(_)
+      | Error(_), channel.OrSetEvent(_)
+      | Error(_), channel.GSetEvent(_)
+      | Error(_), channel.TwoPSetEvent(_)
+      | Error(_), channel.RegisterCollectionEvent(_)
+      | Error(_), channel.ClaimsEvent(_)
+      | Error(_), channel.TaskManagerEvent(_)
+      | Error(_), channel.PactMapEvent(_)
+      | Error(_), channel.JsonOtEvent(_)
+      | Error(_), channel.DirectoryEvent(_)
+      | Error(_), channel.OrderedCollectionEvent(_)
+      | Error(_), channel.SequenceEvent(_)
+      | Error(_), channel.RichTextEvent(_)
+      | Error(_), channel.TextEvent(_)
+      -> Error(Nil)
     }
   })
 }

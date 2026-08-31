@@ -499,7 +499,7 @@ pub fn update(
         // Provisional IME text, not an edit. The session owns the element until
         // it commits, and every intermediate it produces is superseded by the
         // next one.
-        Some(_), _ -> #(model, effect.none())
+        Some(_), Some(_) | Some(_), None -> #(model, effect.none())
 
         // The echo of a commit this component already applied — see `committed`.
         // Diffing it would re-apply the composition against a channel that has
@@ -510,7 +510,7 @@ pub fn update(
         )
         // Diff against the channel's current optimistic string and send exactly
         // one minimal operation.
-        None, _ -> {
+        None, Some(_) | None, None -> {
           let model = Model(..model, committed: None)
           let edit = grapheme_diff.diff(old: current(model), new: value)
           let result = apply(model, edit)
@@ -1055,7 +1055,7 @@ pub fn set_peers(
       case list.find(model.peers, fn(old) { old.id == peer.id }) {
         // Same peer, same cursor: keep what was already measured.
         Ok(old) if old.cursor == peer.cursor -> old
-        _ -> peer
+        Ok(_) | Error(_) -> peer
       }
     })
 
@@ -1082,7 +1082,7 @@ fn locate(model: Editor(channel)) -> Editor(channel) {
         // has only just created. Drop the cursor rather than guess; it comes
         // back on the next announce, by which time the operation will have
         // arrived.
-        _, _ -> None
+        Ok(_), Error(_) | Error(_), Ok(_) | Error(_), Error(_) -> None
       }
       Peer(..peer, range:)
     })
@@ -1159,7 +1159,7 @@ fn anchor(
         // the anchors the rest would.
         Some(selection) if selection.raw == #(selection_start, selection_end) ->
           model
-        _ ->
+        Some(_) | None ->
           pin(
             model,
             grapheme_offset.from_utf16(text, selection_start),
@@ -1409,7 +1409,8 @@ fn crdt_snapshot(
 ) -> Result(#(String, Int), String) {
   case crdt_js.text_value(channel), crdt_js.text_length(channel) {
     Ok(value), Ok(length) -> Ok(#(value, length))
-    Error(reason), _ | _, Error(reason) -> Error(crdt_js.describe_error(reason))
+    Ok(_), Error(reason) | Error(reason), Ok(_) | Error(reason), Error(_) ->
+      Error(crdt_js.describe_error(reason))
   }
 }
 

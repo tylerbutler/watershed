@@ -160,14 +160,28 @@ fn attached(document: CrdtDocument(root), sink: Cell(List(Msg))) -> Nil {
 fn is_held(msg: Msg) -> Bool {
   case msg {
     Held(_) -> True
-    _ -> False
+    Readied(_)
+    | Statused(_)
+    | Subscribed(_)
+    | Counter(_)
+    | Grow(_)
+    | TwoPhase(_)
+    | Observed(_)
+    | Outcome(_) -> False
   }
 }
 
 fn is_subscribed(msg: Msg) -> Bool {
   case msg {
     Subscribed(_) -> True
-    _ -> False
+    Held(_)
+    | Readied(_)
+    | Statused(_)
+    | Counter(_)
+    | Grow(_)
+    | TwoPhase(_)
+    | Observed(_)
+    | Outcome(_) -> False
   }
 }
 
@@ -175,7 +189,14 @@ fn has_status(msgs: List(Msg), pred: fn(Status) -> Bool) -> Bool {
   list.any(msgs, fn(msg) {
     case msg {
       Statused(status) -> pred(status)
-      _ -> False
+      Held(_)
+      | Readied(_)
+      | Subscribed(_)
+      | Counter(_)
+      | Grow(_)
+      | TwoPhase(_)
+      | Observed(_)
+      | Outcome(_) -> False
     }
   })
 }
@@ -194,7 +215,14 @@ fn subscriptions(msgs: List(Msg)) -> List(Subscription) {
   list.filter_map(msgs, fn(msg) {
     case msg {
       Subscribed(subscription) -> Ok(subscription)
-      _ -> Error(Nil)
+      Held(_)
+      | Readied(_)
+      | Statused(_)
+      | Counter(_)
+      | Grow(_)
+      | TwoPhase(_)
+      | Observed(_)
+      | Outcome(_) -> Error(Nil)
     }
   })
 }
@@ -204,7 +232,12 @@ fn count_set_events(msgs: List(Msg)) -> Int {
     list.filter(msgs, fn(msg) {
       case msg {
         Grow(_) | TwoPhase(_) | Observed(_) -> True
-        _ -> False
+        Held(_)
+        | Readied(_)
+        | Statused(_)
+        | Subscribed(_)
+        | Counter(_)
+        | Outcome(_) -> False
       }
     }),
   )
@@ -239,7 +272,14 @@ pub fn attach_defers_then_delivers_connection_ready_and_status_test() -> Promise
     |> list.any(fn(msg) {
       case msg {
         Readied(_) -> True
-        _ -> False
+        Held(_)
+        | Statused(_)
+        | Subscribed(_)
+        | Counter(_)
+        | Grow(_)
+        | TwoPhase(_)
+        | Observed(_)
+        | Outcome(_) -> False
       }
     })
 
@@ -248,21 +288,88 @@ pub fn attach_defers_then_delivers_connection_ready_and_status_test() -> Promise
     has_status(msgs, fn(status) {
       case status {
         crdt_js.Joined(_, _) -> True
-        _ -> False
+        crdt_js.Transport(_)
+        | crdt_js.TransportError(_)
+        | crdt_js.RosterKnown(_)
+        | crdt_js.AwaitingState(_)
+        | crdt_js.Ready
+        | crdt_js.PeerReady(_)
+        | crdt_js.PeerGone(_)
+        | crdt_js.PeerRejected(..)
+        | crdt_js.StateMerged(..)
+        | crdt_js.RejectedByPeer(..)
+        | crdt_js.Failed(_)
+        | crdt_js.SubscriberFailed(..)
+        | crdt_js.RelayConnecting(_)
+        | crdt_js.RelayUnsupported(_)
+        | crdt_js.RelaySyncingStatus
+        | crdt_js.RelayRecovering
+        | crdt_js.RelayPrimary(_)
+        | crdt_js.RelayCheckpointRequested
+        | crdt_js.RelayCheckpointed(_)
+        | crdt_js.RelayFallback(_)
+        | crdt_js.RelayRetry(_)
+        | crdt_js.RelayRejected(..)
+        | crdt_js.RelayFailed(_) -> False
       }
     })
   let assert True =
     has_status(msgs, fn(status) {
       case status {
         crdt_js.RosterKnown([]) -> True
-        _ -> False
+        crdt_js.Transport(_)
+        | crdt_js.TransportError(_)
+        | crdt_js.Joined(..)
+        | crdt_js.RosterKnown(_)
+        | crdt_js.AwaitingState(_)
+        | crdt_js.Ready
+        | crdt_js.PeerReady(_)
+        | crdt_js.PeerGone(_)
+        | crdt_js.PeerRejected(..)
+        | crdt_js.StateMerged(..)
+        | crdt_js.RejectedByPeer(..)
+        | crdt_js.Failed(_)
+        | crdt_js.SubscriberFailed(..)
+        | crdt_js.RelayConnecting(_)
+        | crdt_js.RelayUnsupported(_)
+        | crdt_js.RelaySyncingStatus
+        | crdt_js.RelayRecovering
+        | crdt_js.RelayPrimary(_)
+        | crdt_js.RelayCheckpointRequested
+        | crdt_js.RelayCheckpointed(_)
+        | crdt_js.RelayFallback(_)
+        | crdt_js.RelayRetry(_)
+        | crdt_js.RelayRejected(..)
+        | crdt_js.RelayFailed(_) -> False
       }
     })
   let assert True =
     has_status(msgs, fn(status) {
       case status {
         crdt_js.Ready -> True
-        _ -> False
+        crdt_js.Transport(_)
+        | crdt_js.TransportError(_)
+        | crdt_js.Joined(..)
+        | crdt_js.RosterKnown(_)
+        | crdt_js.AwaitingState(_)
+        | crdt_js.PeerReady(_)
+        | crdt_js.PeerGone(_)
+        | crdt_js.PeerRejected(..)
+        | crdt_js.StateMerged(..)
+        | crdt_js.RejectedByPeer(..)
+        | crdt_js.Failed(_)
+        | crdt_js.SubscriberFailed(..)
+        | crdt_js.RelayConnecting(_)
+        | crdt_js.RelayUnsupported(_)
+        | crdt_js.RelaySyncingStatus
+        | crdt_js.RelayRecovering
+        | crdt_js.RelayPrimary(_)
+        | crdt_js.RelayCheckpointRequested
+        | crdt_js.RelayCheckpointed(_)
+        | crdt_js.RelayFallback(_)
+        | crdt_js.RelayRetry(_)
+        | crdt_js.RelayRejected(..)
+        | crdt_js.RelayFailed(_) -> False
       }
     })
 
@@ -304,7 +411,15 @@ pub fn subscribe_and_mutation_defer_then_deliver_event_and_outcome_test() -> Pro
     list.any(msgs, fn(msg) {
       case msg {
         Counter(pn_counter_kernel.Updated(_applied, 5)) -> True
-        _ -> False
+        Held(_)
+        | Readied(_)
+        | Statused(_)
+        | Subscribed(_)
+        | Counter(_)
+        | Grow(_)
+        | TwoPhase(_)
+        | Observed(_)
+        | Outcome(_) -> False
       }
     })
   // The mutation reported a typed success.
@@ -364,7 +479,14 @@ pub fn unsubscribe_stops_events_without_stopping_mutations_test() -> Promise(
 fn is_counter(msg: Msg) -> Bool {
   case msg {
     Counter(_) -> True
-    _ -> False
+    Held(_)
+    | Readied(_)
+    | Statused(_)
+    | Subscribed(_)
+    | Grow(_)
+    | TwoPhase(_)
+    | Observed(_)
+    | Outcome(_) -> False
   }
 }
 
@@ -423,7 +545,15 @@ pub fn sequenced_only_without_a_sequencer_fails_readiness_test() -> Promise(Nil)
     list.any(messages(sink), fn(msg) {
       case msg {
         Readied(Error(p2p.SequencerUnavailable(_detail))) -> True
-        _ -> False
+        Held(_)
+        | Readied(_)
+        | Statused(_)
+        | Subscribed(_)
+        | Counter(_)
+        | Grow(_)
+        | TwoPhase(_)
+        | Observed(_)
+        | Outcome(_) -> False
       }
     })
 
@@ -482,7 +612,15 @@ pub fn an_invalid_mutation_surfaces_as_a_typed_error_test() -> Promise(Nil) {
     list.any(messages(sink), fn(msg) {
       case msg {
         Outcome(Error(_error)) -> True
-        _ -> False
+        Held(_)
+        | Readied(_)
+        | Statused(_)
+        | Subscribed(_)
+        | Counter(_)
+        | Grow(_)
+        | TwoPhase(_)
+        | Observed(_)
+        | Outcome(_) -> False
       }
     })
 
@@ -532,21 +670,45 @@ pub fn multiple_channels_subscribe_mutate_and_clean_up_independently_test() -> P
     list.any(msgs, fn(msg) {
       case msg {
         Grow(g_set_kernel.ElementAdded("a")) -> True
-        _ -> False
+        Held(_)
+        | Readied(_)
+        | Statused(_)
+        | Subscribed(_)
+        | Counter(_)
+        | Grow(_)
+        | TwoPhase(_)
+        | Observed(_)
+        | Outcome(_) -> False
       }
     })
   let assert True =
     list.any(msgs, fn(msg) {
       case msg {
         TwoPhase(two_p_set_kernel.ElementAdded("b")) -> True
-        _ -> False
+        Held(_)
+        | Readied(_)
+        | Statused(_)
+        | Subscribed(_)
+        | Counter(_)
+        | Grow(_)
+        | TwoPhase(_)
+        | Observed(_)
+        | Outcome(_) -> False
       }
     })
   let assert True =
     list.any(msgs, fn(msg) {
       case msg {
         Observed(or_set_kernel.ElementAdded("c")) -> True
-        _ -> False
+        Held(_)
+        | Readied(_)
+        | Statused(_)
+        | Subscribed(_)
+        | Counter(_)
+        | Grow(_)
+        | TwoPhase(_)
+        | Observed(_)
+        | Outcome(_) -> False
       }
     })
   // Read-side agrees for every channel.

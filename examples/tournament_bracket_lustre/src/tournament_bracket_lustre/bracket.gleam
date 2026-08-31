@@ -110,7 +110,7 @@ pub fn quarterfinal_seeds(index: Int) -> Result(#(String, String), Nil) {
         list_at(seeds, { index - 1 } * 2 + 1)
       {
         Ok(a), Ok(b) -> Ok(#(a, b))
-        _, _ -> Error(Nil)
+        Ok(_), Error(_) | Error(_), Ok(_) | Error(_), Error(_) -> Error(Nil)
       }
   }
 }
@@ -130,17 +130,19 @@ pub fn slots_for(
   results: Dict(String, MatchResult),
 ) -> #(Slot, Slot) {
   case id, feeders(id) {
-    MatchId(Quarterfinal, index), _ -> {
+    MatchId(Quarterfinal, index), Ok(_)
+    | MatchId(Quarterfinal, index), Error(_)
+    -> {
       case quarterfinal_seeds(index) {
         Ok(#(a, b)) -> #(SeedSlot(a), SeedSlot(b))
         Error(Nil) -> #(Undecided, Undecided)
       }
     }
-    _, Ok(#(feeder_a, feeder_b)) -> #(
+    MatchId(_, _), Ok(#(feeder_a, feeder_b)) -> #(
       slot_from_feeder(feeder_a, results),
       slot_from_feeder(feeder_b, results),
     )
-    _, Error(Nil) -> #(Undecided, Undecided)
+    MatchId(_, _), Error(Nil) -> #(Undecided, Undecided)
   }
 }
 
@@ -162,7 +164,10 @@ pub fn is_reportable(id: MatchId, results: Dict(String, MatchResult)) -> Bool {
     False ->
       case slots_for(id, results) {
         #(Undecided, _) | #(_, Undecided) -> False
-        #(_, _) -> True
+        #(SeedSlot(_), SeedSlot(_))
+        | #(SeedSlot(_), WinnerSlot(_))
+        | #(WinnerSlot(_), SeedSlot(_))
+        | #(WinnerSlot(_), WinnerSlot(_)) -> True
       }
   }
 }

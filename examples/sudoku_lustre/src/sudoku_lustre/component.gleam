@@ -596,7 +596,7 @@ fn error_view(error: Option(String)) -> Element(Msg) {
 fn puzzle_from_map(map: TypedMap(document_schema.SudokuDocument)) -> Puzzle {
   case watershed.get_field(map, document_schema.puzzle()) {
     Ok(Some(id)) -> puzzle.by_id(id) |> result.unwrap(puzzle.default_puzzle())
-    _ -> puzzle.default_puzzle()
+    Ok(None) | Error(_) -> puzzle.default_puzzle()
   }
 }
 

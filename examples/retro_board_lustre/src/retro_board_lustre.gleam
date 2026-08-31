@@ -689,7 +689,21 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       // drag state — `info` is only readable while the drag is live.
       let model = case dnd_msg {
         groups.DragEnd -> snapshot(apply_drop(model))
-        _ -> model
+        groups.DragStart(..)
+        | groups.Drag(_)
+        | groups.DragOver(..)
+        | groups.DragEnter(_)
+        | groups.DragLeave
+        | groups.TouchStart(..)
+        | groups.TouchMove(_)
+        | groups.TouchEnd(_)
+        | groups.TouchSelect(..)
+        | groups.TouchDropStart(_)
+        | groups.TouchDrop(..)
+        | groups.TouchCancel
+        | groups.TouchTimeout(_)
+        | groups.TouchDurationMet(_)
+        | groups.TouchDropCooldownComplete(_) -> model
       }
       let #(dnd_model, _unaltered) =
         model.dnd.update(dnd_msg, model.dnd.model, drag_items(model))
@@ -1142,7 +1156,7 @@ fn column_view(model: Model, column: Column) -> Element(Msg) {
   }
   let highlight = case drop_column(model) {
     Ok(target) if target == column -> " drop-target"
-    _ -> ""
+    Ok(_) | Error(_) -> ""
   }
   // The footer is the "drop at the end" target — it also makes an empty
   // column droppable at all. Only a live drop target while dragging.

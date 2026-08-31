@@ -580,7 +580,7 @@ fn bump_idx_at(path: List(PathKey), i: Int, delta: Int) -> List(PathKey) {
   map_path_at(path, i, fn(pk) {
     case pk {
       Index(n) -> Index(n + delta)
-      other -> other
+      Key(_) -> pk
     }
   })
 }

@@ -2165,7 +2165,7 @@ fn strip_storage_pending(
         }
       PendingDelete(_, id) if id == message_id -> Error(Nil)
       PendingClear(id) if id == message_id -> Error(Nil)
-      other -> Ok(other)
+      PendingDelete(_, _) | PendingClear(_) -> Ok(entry)
     }
   })
 }
@@ -2290,7 +2290,7 @@ fn put_candidate_child(
             PendingCreate(n, _, entry_id, folded)
               if n == name && entry_id == id
             -> PendingCreate(n, child, entry_id, folded)
-            other -> other
+            PendingCreate(..) | PendingRemove(..) -> entry
           }
         }),
       )

@@ -43,7 +43,7 @@ pub fn tags_of(pairs: List(String), note: String) -> List(String) {
   |> list.filter_map(fn(entry) {
     case string.split_once(entry, "\t") {
       Ok(#(n, tag)) if n == note -> Ok(tag)
-      _ -> Error(Nil)
+      Ok(_) | Error(_) -> Error(Nil)
     }
   })
   |> list.sort(string.compare)
@@ -55,7 +55,7 @@ pub fn notes_with_tag(pairs: List(String), tag: String) -> List(String) {
   |> list.filter_map(fn(entry) {
     case string.split_once(entry, "\t") {
       Ok(#(note, t)) if t == tag -> Ok(note)
-      _ -> Error(Nil)
+      Ok(_) | Error(_) -> Error(Nil)
     }
   })
 }
@@ -71,7 +71,7 @@ pub fn all_tags(pairs: List(String), notes: List(String)) -> List(String) {
           True -> Ok(tag)
           False -> Error(Nil)
         }
-      _ -> Error(Nil)
+      Error(_) -> Error(Nil)
     }
   })
   |> list.unique
