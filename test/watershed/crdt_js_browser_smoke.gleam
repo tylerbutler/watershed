@@ -131,7 +131,8 @@ pub fn run(room: String, url: String, claps: Int) -> Promise(String) {
               peer.merges_at_ready,
               transport_js.get_cell(peer.merges),
             )
-            transport_js.set_cell(peer.value_at_ready, value(peer))
+            let assert Ok(total) = value(peer)
+            transport_js.set_cell(peer.value_at_ready, total)
           }
           Error(error) -> note(peer, "ready: " <> crdt_js.describe_error(error))
         }
@@ -182,7 +183,12 @@ pub fn run(room: String, url: String, claps: Int) -> Promise(String) {
       },
     )
 
-  use seen <- promise.await(wait_until(fn() { peer_count(peer) >= 1 }))
+  use seen <- promise.await(
+    wait_until(fn() {
+      let assert Ok(count) = peer_count(peer)
+      count >= 1
+    }),
+  )
   case seen {
     False ->
       promise.resolve(report(peer, claps, False, "no peer ever appeared"))
@@ -196,27 +202,33 @@ fn clap_and_converge(peer: Peer, claps: Int) -> Promise(String) {
   // race: neither waits for the other's total.
   list.each(upto(claps), fn(_) {
     case document_of(peer) {
-      Some(document) ->
+      Ok(document) ->
         case crdt_js.pn_counter_update(crdt_js.root(document), 1) {
           Ok(Nil) -> Nil
           Error(error) -> note(peer, "clap: " <> crdt_js.describe_error(error))
         }
-      None -> note(peer, "clap before the document was ready")
+      Error(_) -> note(peer, "clap before the document was ready")
     }
   })
 
   let target = claps * 2
-  use converged <- promise.await(wait_until(fn() { value(peer) == target }))
-  promise.resolve(
-    report(peer, claps, converged, case converged {
-      True -> ""
-      False ->
-        "the totals never converged: this page holds "
-        <> int.to_string(value(peer))
-        <> " of "
-        <> int.to_string(target)
+  use converged <- promise.await(
+    wait_until(fn() {
+      let assert Ok(total) = value(peer)
+      total == target
     }),
   )
+  let failure = case converged {
+    True -> ""
+    False -> {
+      let assert Ok(total) = value(peer)
+      "the totals never converged: this page holds "
+      <> int.to_string(total)
+      <> " of "
+      <> int.to_string(target)
+    }
+  }
+  promise.resolve(report(peer, claps, converged, failure))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -225,17 +237,21 @@ fn clap_and_converge(peer: Peer, claps: Int) -> Promise(String) {
 
 @target(javascript)
 fn report(peer: Peer, claps: Int, converged: Bool, failure: String) -> String {
+  let assert Ok(current_value) = value(peer)
+  let assert Ok(current_replica) = replica(peer)
+  let assert Ok(current_digest) = digest(peer)
+  let assert Ok(current_peers) = peer_count(peer)
   let problems = case failure {
     "" -> problems_of(peer)
     _ -> list.append(problems_of(peer), [failure])
   }
   json.object([
     #("ok", json.bool(converged && problems == [])),
-    #("replica", json.string(replica(peer))),
+    #("replica", json.string(current_replica)),
     #("claps", json.int(claps)),
-    #("value", json.int(value(peer))),
-    #("digest", json.string(digest(peer))),
-    #("peers", json.int(peer_count(peer))),
+    #("value", json.int(current_value)),
+    #("digest", json.string(current_digest)),
+    #("peers", json.int(current_peers)),
     #("ready", json.bool(transport_js.get_cell(peer.ready))),
     #("rosterPeers", json.int(transport_js.get_cell(peer.roster))),
     #("merges", json.int(transport_js.get_cell(peer.merges))),
@@ -294,43 +310,48 @@ fn render(status: crdt_js.Status) -> String {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-fn document_of(peer: Peer) -> Option(CrdtDocument(schema.PnCounterChannel)) {
-  transport_js.get_cell(peer.document)
+fn document_of(
+  peer: Peer,
+) -> Result(CrdtDocument(schema.PnCounterChannel), Nil) {
+  case transport_js.get_cell(peer.document) {
+    Some(document) -> Ok(document)
+    None -> Error(Nil)
+  }
 }
 
 @target(javascript)
-fn value(peer: Peer) -> Int {
+fn value(peer: Peer) -> Result(Int, Nil) {
   case document_of(peer) {
-    Some(document) ->
+    Ok(document) ->
       case crdt_js.pn_counter_value(crdt_js.root(document)) {
-        Ok(total) -> total
-        Error(_) -> -1
+        Ok(total) -> Ok(total)
+        Error(_) -> Error(Nil)
       }
-    None -> -1
+    Error(_) -> Error(Nil)
   }
 }
 
 @target(javascript)
-fn digest(peer: Peer) -> String {
+fn digest(peer: Peer) -> Result(String, Nil) {
   case document_of(peer) {
-    Some(document) -> crdt_js.digest(document)
-    None -> ""
+    Ok(document) -> Ok(crdt_js.digest(document))
+    Error(_) -> Error(Nil)
   }
 }
 
 @target(javascript)
-fn replica(peer: Peer) -> String {
+fn replica(peer: Peer) -> Result(String, Nil) {
   case document_of(peer) {
-    Some(document) -> crdt_js.replica_id(document)
-    None -> ""
+    Ok(document) -> Ok(crdt_js.replica_id(document))
+    Error(_) -> Error(Nil)
   }
 }
 
 @target(javascript)
-fn peer_count(peer: Peer) -> Int {
+fn peer_count(peer: Peer) -> Result(Int, Nil) {
   case document_of(peer) {
-    Some(document) -> crdt_js.peer_count(document)
-    None -> 0
+    Ok(document) -> Ok(crdt_js.peer_count(document))
+    Error(_) -> Error(Nil)
   }
 }
 

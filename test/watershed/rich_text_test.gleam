@@ -156,8 +156,8 @@ fn replay_fixture(file: String) -> Nil {
   let assert Ok(inverse_a) = rich_text.invert(a, base)
   expect_delta(inverse_a, required(inverse, "a"))
   let composed = case get(deltas, "b") {
-    None -> None
-    Some(b_json) -> {
+    Error(_) -> None
+    Ok(b_json) -> {
       let assert Ok(b) = rich_text.delta_from_json(b_json)
       let assert Ok(applied_b) = rich_text.apply(base, b)
       expect_document(applied_b, required(apply, "b"))
@@ -180,11 +180,11 @@ fn replay_fixture(file: String) -> Nil {
       let assert Ok(after_b_then_a) = rich_text.apply(applied_b, a_star)
       after_a_then_b |> expect.to_equal(after_b_then_a)
       case get(apply, "compose") {
-        None -> Nil
-        Some(expected) -> {
+        Ok(expected) -> {
           let assert Ok(applied_composed) = rich_text.apply(base, composed)
           expect_document(applied_composed, expected)
         }
+        Error(_) -> Nil
       }
       Some(composed)
     }
@@ -215,11 +215,11 @@ fn required(fields: List(#(String, JsonValue)), key: String) -> JsonValue {
   value
 }
 
-fn get(fields: List(#(String, JsonValue)), key: String) -> Option(JsonValue) {
-  case list.key_find(fields, key) {
-    Ok(value) -> Some(value)
-    Error(_) -> None
-  }
+fn get(
+  fields: List(#(String, JsonValue)),
+  key: String,
+) -> Result(JsonValue, Nil) {
+  list.key_find(fields, key)
 }
 
 fn object(value: JsonValue) -> List(#(String, JsonValue)) {

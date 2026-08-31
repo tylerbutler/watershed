@@ -296,8 +296,8 @@ pub fn two_clients_converge_via_sequenced_operations_test() -> Nil {
     drive(core_a, core_b, id_b, sequence_number, acq_operation)
 
   // The head (job1) is delivered to B via the Acquired event.
-  acquired_value(b_events)
-  |> expect.to_equal(Some(json.to_string(json.string("job1"))))
+  let assert Ok(acquired) = acquired_value(b_events)
+  acquired |> expect.to_equal(json.to_string(json.string("job1")))
   runtime_core.ordered_size(core_a, ordered_address) |> expect.to_equal(Ok(1))
   runtime_core.ordered_size(core_b, ordered_address) |> expect.to_equal(Ok(1))
 
@@ -321,8 +321,8 @@ pub fn two_clients_converge_via_sequenced_operations_test() -> Nil {
   let assert [acq2_operation] = acq2
   let #(core_a, core_b, sequence_number, a_events) =
     drive(core_a, core_b, id_a, sequence_number, acq2_operation)
-  acquired_value(a_events)
-  |> expect.to_equal(Some(json.to_string(json.string("job2"))))
+  let assert Ok(acquired) = acquired_value(a_events)
+  acquired |> expect.to_equal(json.to_string(json.string("job2")))
 
   let #(core_a, comp) =
     expect_ok(runtime_core.ordered_complete(core_a, ordered_address, "acq-2"))
@@ -372,8 +372,8 @@ pub fn acquired_job_re_releases_on_client_leave_test() -> Nil {
   // B leaves: the server sequences a "leave" carrying B's id; A re-releases
   // job1 back to the queue, surfacing it as an Added event.
   let #(core_a, ingested) = ingest(core_a, leave_msg(id_b, sequence_number + 1))
-  added_value(ingested.events)
-  |> expect.to_equal(Some(json.to_string(json.string("job1"))))
+  let assert Ok(added) = added_value(ingested.events)
+  added |> expect.to_equal(json.to_string(json.string("job1")))
   runtime_core.ordered_queue(core_a, ordered_address)
   |> list.map(json.to_string)
   |> expect.to_equal([json.to_string(json.string("job1"))])
@@ -387,8 +387,8 @@ pub fn acquired_job_re_releases_on_client_leave_test() -> Nil {
   let assert [acq2_operation] = acq2
   let #(core_a, ingested_a) =
     ingest(core_a, sequenced_message(id_a, sequence_number + 2, acq2_operation))
-  acquired_value(ingested_a.events)
-  |> expect.to_equal(Some(json.to_string(json.string("job1"))))
+  let assert Ok(acquired) = acquired_value(ingested_a.events)
+  acquired |> expect.to_equal(json.to_string(json.string("job1")))
 }
 
 /// A membership `"leave"` for a client that holds no jobs (and matches no
@@ -441,18 +441,18 @@ fn leave_msg(
 
 fn added_value(
   events: List(#(String, channel.ChannelEvent)),
-) -> option.Option(String) {
-  list.fold(events, None, fn(found, tagged) {
+) -> Result(String, Nil) {
+  list.fold(events, Error(Nil), fn(found, tagged) {
     case found, tagged.1 {
-      Some(_), _ -> found
-      None,
+      Ok(_), _ -> found
+      Error(_),
         channel.OrderedCollectionEvent(ordered_collection_kernel.Added(
           value,
           _,
           _,
         ))
-      -> Some(json.to_string(value))
-      None, _ -> None
+      -> Ok(json.to_string(value))
+      Error(_), _ -> Error(Nil)
     }
   })
 }
@@ -508,18 +508,18 @@ fn drive(
 
 fn acquired_value(
   events: List(#(String, channel.ChannelEvent)),
-) -> option.Option(String) {
-  list.fold(events, None, fn(found, tagged) {
+) -> Result(String, Nil) {
+  list.fold(events, Error(Nil), fn(found, tagged) {
     case found, tagged.1 {
-      Some(_), _ -> found
-      None,
+      Ok(_), _ -> found
+      Error(_),
         channel.OrderedCollectionEvent(ordered_collection_kernel.Acquired(
           value,
           _,
           _,
         ))
-      -> Some(json.to_string(value))
-      None, _ -> None
+      -> Ok(json.to_string(value))
+      Error(_), _ -> Error(Nil)
     }
   })
 }
