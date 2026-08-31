@@ -1082,12 +1082,13 @@ fn other_oi_branch(
     False -> [c]
     True ->
       // `other` inserts a value at a strictly-shallower path than `c`: it just
-      // (re)created an ancestor of `c`'s operand, so `c`'s deeper edit is stale
-      // and must be dropped. This mirrors the `object_insert+object_delete` (replace) and `object_delete`
-      // branches, which both drop `c` when `!common_operand`. Canonical json0
-      // omits this guard because it never generates a deeper concurrent edit
-      // from a shared base; watershed's optimistic clients can, so we converge
-      // it here rather than emit an inapplicable operation.
+      // (re)created an ancestor of `c`'s operand, so `c`'s deeper edit is
+      // stale and must be dropped. This mirrors the
+      // `object_insert+object_delete` (replace) and `object_delete` branches,
+      // which both drop `c` when `!common_operand`. Canonical json0 omits this
+      // guard because it never generates a deeper concurrent edit from a
+      // shared base; watershed's optimistic clients can, so we converge it
+      // here rather than emit an inapplicable operation.
       case common_operand {
         False -> []
         True ->
@@ -1478,25 +1479,25 @@ fn text0_split_last(
 /// overlapping deletes.
 fn text0_merge(last: TextComp, component: TextComp) -> Result(TextComp, Nil) {
   case last, component {
-    TextInsert(last_position, list_insert),
+    TextInsert(last_position, last_insert),
       TextInsert(component_position, component_insert)
     ->
       case
         last_position <= component_position
-        && component_position <= last_position + string.length(list_insert)
+        && component_position <= last_position + string.length(last_insert)
       {
         True ->
           Ok(TextInsert(
             last_position,
             string_inject(
-              list_insert,
+              last_insert,
               component_position - last_position,
               component_insert,
             ),
           ))
         False -> Error(Nil)
       }
-    TextDelete(last_position, list_delete),
+    TextDelete(last_position, last_delete),
       TextDelete(component_position, component_delete)
     ->
       case
@@ -1509,7 +1510,7 @@ fn text0_merge(last: TextComp, component: TextComp) -> Result(TextComp, Nil) {
             string_inject(
               component_delete,
               last_position - component_position,
-              list_delete,
+              last_delete,
             ),
           ))
         False -> Error(Nil)
