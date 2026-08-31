@@ -22,25 +22,25 @@ export const themes = [
     slug: "architecture",
     title: "Architecture & composition",
     blurb:
-      "Where the seams go: what the shell owns, what a component is allowed to touch, and which loops must never call back into the app.",
+      "Decide what the shell owns, what a component may touch, and which work must stay outside the app.",
   },
   {
     slug: "conflicts",
     title: "Conflicts & consistency",
     blurb:
-      "Two clients act on the same state at once. These are the moves that keep the UI honest while the structure settles who wins.",
+      "Two clients change the same state at once. Keep the UI honest while the shared structure settles the result.",
   },
   {
     slug: "coordination",
     title: "Presence & coordination",
     blurb:
-      "Facts that should die with the session — who's here, who drives — and the envelopes that carry them without ever touching the document.",
+      "Some facts belong to the session, not the document: who's here, who drives, and what they need to tell each other.",
   },
   {
     slug: "testing",
     title: "Testing & diagnostics",
     blurb:
-      "Pinning the claims that matter deterministically, in-process, with the runtime's own instruments on screen before you guess at a sync bug.",
+      "Reproduce the failures that matter, and read the runtime's own diagnostics before you guess at a sync bug.",
   },
 ] as const;
 
@@ -83,10 +83,10 @@ export const practices: Practice[] = [
     theme: "architecture",
     related: ["/runtime/p2p", "/structures/counters"],
     example: "clap_counter_lustre",
-    rule: "When the app is peer-to-peer, add durability as a config decorator that readiness never waits on.",
+    rule: "A peer-to-peer app may use a relay for durability, but it should not need one to start.",
     body: [
-      "The clap counter is the one example built on the state-based CRDT stack: no sequencer, no tenant, no token. A relay exists only if the URL names one, and one decorator function pipes it into the config.",
-      "The readiness policy stays Auto, so a relay that is down costs a status line, not the application. This prevents quiet dependence: a demo that silently required a server would lie about what the P2P mode needs.",
+      "The clap counter has no sequencer, tenant, or token. If the URL names a relay, one function adds it to the peer-to-peer config.",
+      "The app still becomes ready when that relay is down. It reports the outage instead of turning an optional service into a hidden requirement.",
     ],
     snippet: `let config =
   crdt_js.config(
@@ -120,10 +120,10 @@ fn with_relay(
     step: "connect",
     theme: "architecture",
     example: "dice_cli",
-    rule: "Prove the core is portable by joining the same document from an OTP actor and a browser tab.",
+    rule: "Keep the shared core portable by connecting to the same document from the BEAM and the browser.",
     body: [
-      "dice_cli is an Erlang-target client for the same floodgate document dice_lustre edits from a browser. The kernel, wire format, and runtime core are the same modules; only the transport shell differs. On the BEAM the app is a recursive receive loop over one selector instead of an MVU update function.",
-      "The pair also documents a real deployment gotcha: connect to 127.0.0.1, not localhost. Erlang's IPv6-first resolution can stall long enough for the server to drop the idle socket.",
+      "dice_cli and dice_lustre edit the same floodgate document. They share the kernel, wire format, and runtime core; only the outer program changes. The browser uses an MVU update function, while the BEAM client uses a receive loop.",
+      "The CLI connects to 127.0.0.1 instead of localhost. Erlang may try IPv6 first and leave the socket idle long enough for the server to close it.",
     ],
     snippet: `fn event_loop(
   map: watershed.SharedMap,
@@ -153,10 +153,10 @@ fn with_relay(
     theme: "testing",
     related: ["/runtime/optimistic", "/runtime/reconnect"],
     example: "dice_lustre",
-    rule: "Render the runtime's own diagnostics before guessing at a sync bug.",
+    rule: "Put the runtime's diagnostics on screen before you debug synchronization.",
     body: [
-      "The smallest browser example keeps a diagnostics line on screen and refreshes it on every event: connection phase, client id, last-seen sequence number, in-flight and buffered op counts, and the resubmit checkpoint. Its README reads each field as a triage recipe.",
-      "This is the canonical shape of a sync bug report. A stuck in_flight count, a climbing buffered count, or a phase that never reaches synced each point at a different layer. None of them are visible from the application state alone.",
+      "The smallest browser example updates one diagnostics line after every event. It shows the connection phase, client id, sequence numbers, queued operations, and resubmit checkpoint.",
+      "Those values tell you where to look. A stuck in_flight count, a growing buffer, and a connection that never reaches synced point to different problems that application state cannot show.",
     ],
     snippet: `fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {
   "phase="
@@ -186,10 +186,10 @@ fn with_relay(
     theme: "conflicts",
     related: ["/structures/coordination", "/runtime/optimistic"],
     example: "drum_machine_lustre",
-    rule: "A consensus write is a proposal, not an edit: commit it once per gesture and show who has not signed off.",
+    rule: "Send one consensus proposal per gesture, then show whose approval is still missing.",
     body: [
-      "Tempo is held in a PactMap: a change is accepted only when every connected client signs off. The slider therefore proposes on release, never per pointer move. A proposal per frame would flood a protocol that rejects a second proposal outright while one is pending.",
-      "The pending state is rendered, not hidden: the roster of outstanding signoffs stays on screen and the control stays disabled, with a poll to catch the transitions the kernel does not report. Matching “you” in that roster uses the same client-id derivation the kernels use, so the match is exact.",
+      "A PactMap stores the tempo and accepts a change after every connected client approves it. The slider sends its proposal on release. Sending one on every pointer move would overwhelm a protocol that allows only one pending proposal.",
+      "While the group decides, the UI disables the slider and names the clients that have not approved. A short poll catches changes that the kernel does not report as events.",
     ],
     snippet: `// Propose on release, never per pointer move. A \`pact_map_set\` per frame
 // would flood the protocol with proposals that invalidate each other —
@@ -223,10 +223,10 @@ BpmCommitted ->
     step: "presence",
     theme: "architecture",
     example: "drum_machine_lustre",
-    rule: "A real-time loop reads a plain snapshot the app pushes to it; it never calls back into the application.",
+    rule: "Let a real-time loop read a plain snapshot. Do not make it wait on the application.",
     body: [
-      "The audio engine is an FFI module running a lookahead scheduler: a 25 ms interval schedules every step falling inside the next 100 ms against the audio clock. It reads a mutable pattern array that Gleam pushes updates into. If the scheduler had to ask the application for the pattern, document latency would become audio jitter.",
-      "The same file documents the background-tab trap: browsers throttle timers while the audio clock keeps running, so a naive scheduler greets a returning tab with a burst of every step it missed. The tick resyncs instead of catching up.",
+      "The audio engine runs in an FFI module. Every 25 ms, it schedules the steps due in the next 100 ms against the audio clock. Gleam pushes pattern updates into a plain array, so document delays cannot become audio jitter.",
+      "Background tabs create another trap: browsers slow timers while the audio clock keeps moving. When the tab returns, the scheduler resets its timing instead of playing every missed step at once.",
     ],
     snippet: `function tick(engine) {
   const ctx = engine.ctx;
@@ -263,10 +263,10 @@ BpmCommitted ->
     theme: "coordination",
     related: ["/runtime/presence"],
     example: "retro_tutorial_lustre",
-    rule: "One declared presence effect, one typed payload, and a roster filtered of the local session at the edge.",
+    rule: "Declare one presence effect, use one typed payload, and remove the local session before the roster enters your model.",
     body: [
-      "The tutorial retro board is the guide's worked example, and its presence wiring is the template the larger apps elaborate. A single effect declares the driver with an encoder/decoder pair, and the roster helper filters out the local session before the model ever sees it.",
-      "Presence state includes the local session by design; the filtering is an application decision, made once, at the edge. Every peer cursor and avatar stack in the other examples is this same dozen lines with a richer payload.",
+      "The tutorial retro board shows the smallest complete presence setup. One effect starts the driver with an encoder and decoder. A helper removes the local session from the roster before the app stores it.",
+      "watershed includes the local session on purpose; each app decides whether to show it. The richer cursors and avatar lists in other examples use the same setup with more data.",
     ],
     snippet: `fn presence_effect(
   model: Model,
@@ -304,10 +304,10 @@ fn remote_peers(
     theme: "coordination",
     related: ["/runtime/presence"],
     example: "grocery_triptych_lustre",
-    rule: "Coordination that should die with the session gets its own message envelope on ripples, never a document channel.",
+    rule: "Send short-lived coordination over ripples, not through a document channel.",
     body: [
-      "The triptych's guided scenarios need two tabs to agree on who drives: an invitation, an acknowledgement, a go signal, status updates. All of it rides ripples inside a typed envelope with a run id, and none of it touches durable state. A browsing session's handshake has no business surviving in the document.",
-      "The envelope module is pure: run matching, self-filtering, ack selection, and foreign-type rejection are plain functions over decoded messages, which is what makes the protocol testable without a server.",
+      "The triptych's guided scenarios ask two tabs to choose a driver and exchange invitations, acknowledgements, and status updates. Ripples deliver those messages with a run id, and the document stores none of them.",
+      "Plain functions match runs, ignore the sender's own messages, choose acknowledgements, and reject unknown message types. That keeps the protocol testable without a server.",
     ],
     snippet: `pub fn matches_run(expected_run_id: String, inbound: Inbound) -> Bool {
   run_id(inbound.message) == expected_run_id
@@ -339,10 +339,10 @@ pub fn should_acknowledge(
     step: "testing",
     theme: "testing",
     example: "grocery_triptych_lustre",
-    rule: "Pull decision logic out of update into pure modules, and let most of the suite need no doc, no sluice, no server.",
+    rule: "Move decisions into pure modules so most tests need no document, sluice, or server.",
     body: [
-      "The triptych has the repo's largest pure-logic suite (around a thousand lines across protocol, scenario-state, and guard tests), because everything that decides was extracted from everything that performs. The 23-line refresh guard below is the smallest specimen: a generation counter that drops stale coalesced refreshes.",
-      "The payoff is proportion: the expensive convergence and browser smoke tests are reserved for claims only they can make, while every branch of the decision logic runs as ordinary unit tests.",
+      "The triptych separates decisions from effects. Its protocol, scenario state, and guards run as ordinary unit tests. The small refresh guard below uses a generation counter to discard an old refresh after a newer one arrives.",
+      "Convergence and browser tests still cover behavior that needs a runtime. They stay small because pure tests cover the decision branches.",
     ],
     snippet: `pub type State {
   State(current_generation: Int, pending: Bool)
@@ -379,10 +379,10 @@ pub fn flush(state: State, generation: Int) -> #(State, Bool) {
     theme: "architecture",
     related: ["/foundations/lifecycle"],
     example: "pixel_canvas_lustre",
-    rule: "Give a canvas to an FFI module that owns its pixels, and run ensure_* only after the connection handshake.",
+    rule: "Let an FFI module own the canvas pixels, and create shared channels only after the connection opens.",
     body: [
-      "The canvas is rendered by Lustre as a childless element and painted by an FFI module that owns the byte buffer and 2D context. Two rules keep that safe: width and height must stay static in view (a diff rewriting them wipes the surface), and the context is resolved lazily per call, so no mount-ordering effect is needed.",
-      "Bootstrap belongs in the Connected arm, not GotHandle: attaching a channel needs a ready connection, while resolving a handle does not. Fire ensure_* early and the app paints locally while sharing nothing.",
+      "Lustre renders an empty canvas; an FFI module owns its byte buffer and 2D context. The view keeps the canvas size fixed because changing it erases the pixels. The FFI module looks up the context when it needs it, so mount order does not need another effect.",
+      "The app creates its shared channel after Connected, not after GotHandle. A handle can resolve before the connection is ready, which would leave the app painting a canvas that no peer can see.",
     ],
     snippet: `Connected(Ok(_)) ->
   case model.document {
@@ -410,10 +410,10 @@ Connected(Error(reason)) -> #(
     theme: "conflicts",
     related: ["/structures/sequences", "/runtime/optimistic"],
     example: "playlist_lustre",
-    rule: "Every index-addressed edit returns a Result, because a peer can delete the row between render and click.",
+    rule: "Handle every index-based edit as fallible. A peer may change the list between render and click.",
     body: [
-      "Sequence operations (insert, move, replace, delete) are fallible by design: the index a client renders can be stale by the time it clicks. The playlist funnels every edit through one helper that surfaces the runtime's own error message as a banner, and no mutation is ever unwrapped with an assert.",
-      "The boundary behaviour is part of the contract: an out-of-bounds edit is refused, not clamped. Clamping would silently reorder the wrong element; the refusal is honest and renderable.",
+      "A remote insert or delete can make a rendered index stale before the user clicks. The playlist sends every sequence edit through one helper and shows the runtime error in a banner instead of asserting success.",
+      "The runtime refuses an index outside the list. It does not clamp the index, because that could move or delete the wrong track.",
     ],
     snippet: `MoveDownClicked(index) -> #(
   mutate(model, "move", fn(seq) {
@@ -453,10 +453,10 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
     theme: "conflicts",
     related: ["/structures/sequences", "/structures/coordination"],
     example: "retro_board_lustre",
-    rule: "A cross-channel move cannot be transactional, so pick the channel that wins and reconcile at render time.",
+    rule: "A move across channels is not atomic. Choose one source of truth and reconcile the rest while rendering.",
     body: [
-      "Dragging a sticky note is three operations across two channel kinds, with no transaction. The board makes the note's column register authoritative and reconciles in the view: an id sitting in the wrong column's sequence is skipped, a note missing from its sequence renders at the tail ordered by creation time, and unknown columns route to an unfiled strip.",
-      "Stale garbage is left in place deliberately. Repair-on-render would have every client issuing corrective ops and fighting; instead, repair rides the next user action, which sweeps the id out of every sequence it no longer belongs in.",
+      "Dragging a sticky note takes three operations across two channel types. The note's column field decides where it belongs. The view skips an id in the wrong column, puts missing ids at the end, and sends unknown columns to an unfiled strip.",
+      "The view does not write repairs. If every client tried to clean up while rendering, they could fight over more operations. The next user move removes the stale id from the other columns.",
     ],
     snippet: `/// One column: the sequenced head in sequence order, then the unsequenced
 /// tail in \`(created, id)\` order.
@@ -506,10 +506,10 @@ fn render_column(
     theme: "architecture",
     related: ["/structures/maps", "/foundations/schema"],
     example: "scoreboard_cli",
-    rule: "Seed a detached typed map in one write, stamp its schema version, then attach, so incompatible layouts fail at read time instead of silently.",
+    rule: "Fill and stamp a typed map before attaching it, so an incompatible reader gets an error.",
     body: [
-      "The scoreboard builds the deepest handle topology in the repo: root, roster, and one typed child map per player. A new player's map is filled while still detached (one write covers every key), then stamped with its schema version and attached by storing the handle in the roster.",
-      "The stamp is the part nothing else demonstrates: a future build reading this map through an incompatible schema errors instead of returning half-decoded state. The module also wraps child resolution in a retry, because a remote handle can be transiently unresolvable while its attach op is in flight.",
+      "The scoreboard has a root map, a roster, and one typed child map for each player. It fills a new player map in one write, stamps the schema version, then attaches the map to the roster.",
+      "That stamp protects future readers from decoding the map with the wrong schema. Child lookup also retries because a remote handle may arrive before the operation that attaches its map.",
     ],
     snippet: `// attached — snapshot and all — by storing its handle in the roster.
 // A single \`write\` fills every key; \`stamp\` records the schema version.
@@ -538,10 +538,10 @@ let selector =
     theme: "architecture",
     related: ["/structures/maps", "/foundations/topology"],
     example: "showcase_lustre",
-    rule: "A composable component's init takes a typed map (standalone it happens to be the root; nested it is a child), and document-scoped effects stay in the shell.",
+    rule: "Give a reusable component a typed map, whether that map is a root or a child. Keep document-wide effects in the shell.",
     body: [
-      "The showcase mounts four other examples as panels of one document. That works because each of those apps exposes a component whose init takes a TypedMap, never a document root: nothing inside a panel can tell whether its map is the whole document or one child of it. The shell declares one ChildField per panel and ensures all four in one batch.",
-      "Document-scoped effects belong to the shell, and each has a concrete failure mode if a panel ran its own: two presence drivers share a ripple kind and cross-decode silently; go_offline is per-document and cannot be scoped down; the summary policy is one slot per document, so which panel's policy won would depend on click order.",
+      "The showcase mounts four examples as panels in one document. Each panel accepts a TypedMap and cannot tell whether it received the root or a child map. The shell creates one child field for each panel.",
+      "The shell also owns presence, offline mode, and summary policy because they affect the whole document. If panels started their own copies, presence messages could mix and the panels could compete over one shared setting.",
     ],
     snippet: `/// Every tab runs this unconditionally. \`ensure_child\` creates a map only if
 /// the key is absent, so two tabs opening a *cold* document can both create one
@@ -576,10 +576,10 @@ fn bootstrap_effect(document: Document(document_schema.Showcase)) -> Effect(Msg)
     theme: "conflicts",
     related: ["/structures/coordination", "/foundations/lifecycle"],
     example: "sudoku_lustre",
-    rule: "When every client must agree on initial data, let every client run the same seeding loop through first-writer-wins claims.",
+    rule: "Let every client seed the same initial values through first-writer-wins claims.",
     body: [
-      "Sudoku givens are seeded with try_set_claim: the first writer of each cell wins, and every later attempt is a harmless no-op. That means there is no initializer to elect and no bootstrap protocol: every client runs the identical loop, and all of them converge on the same puzzle.",
-      "This is the general answer to “who sets up the document?” for any value that must be written exactly once: make the write idempotent at the structure level instead of coordinating at the application level.",
+      "Every Sudoku client runs the same loop over the given cells. try_set_claim keeps the first value for each cell and ignores later attempts, so the clients settle on one puzzle without electing an initializer.",
+      "Use this for initial values that must be written once. The shared structure settles duplicate work, so the app needs no separate setup protocol.",
     ],
     snippet: `fn seed_givens(claims: Claims, puzzle: Puzzle, row: Int, col: Int) -> Nil {
   case row >= 9 {
@@ -615,10 +615,10 @@ fn bootstrap_effect(document: Document(document_schema.Showcase)) -> Effect(Msg)
     theme: "conflicts",
     related: ["/structures/sequences"],
     example: "text_lustre",
-    rule: "Never store a text position as an integer: hold an anchor and re-resolve it after every edit.",
+    rule: "Store an anchor instead of a text offset, then resolve its current position after each edit.",
     body: [
-      "The text editor never replaces the whole document (each input event is grapheme-diffed into one minimal insert, delete, or replace), so every stored position would go stale on every remote edit. So positions are anchors: the pinned bookmark, the local caret across remote edits, and shared cursors riding presence are all the same primitive, resolved back to a grapheme index on demand.",
-      "The bias argument encodes the ProseMirror/Yjs association conventions: a collapsed caret hangs off the preceding grapheme, a range hugs its content. An anchor that has gone stale resolves to an error, and the app drops the marker instead of guessing.",
+      "The editor turns each input into a small insert, delete, or replace. Remote edits would make saved integer positions stale, so bookmarks, carets, and shared cursors all use anchors that resolve to the current grapheme index.",
+      "Anchor bias decides which nearby text a caret or selection follows as edits arrive. If an anchor no longer resolves, the app removes the marker instead of guessing.",
     ],
     snippet: `/// Resolve the pinned anchor to its current grapheme position, or drop it to
 /// \`None\` if it has gone stale/unknown.
@@ -642,10 +642,10 @@ fn refresh_anchor(model: Model) -> Model {
     theme: "conflicts",
     related: ["/structures/coordination", "/runtime/optimistic"],
     example: "tournament_bracket_lustre",
-    rule: "When a structure is not optimistic, say so in the UI: pending until the event that proves the write sequenced.",
+    rule: "When writes are not optimistic, show them as pending until the confirming event arrives.",
     body: [
-      "A RegisterCollection holds the match results, read with the Atomic policy (the linearizable CAS winner, not last-write-wins). The kernel shows no local write before it sequences, so the bracket is the deliberate inverse of every optimistic example: a submitted result renders as “submitted, awaiting confirmation…” until its event lands.",
-      "The two event kinds divide the truth cleanly: VersionChanged fires for every sequenced write and feeds the visible log of losing reports; AtomicChanged fires only for the CAS winner and is the sole source of official results. Conflicting submissions converge on one winner without discarding the loser.",
+      "A RegisterCollection stores each match result under the Atomic policy, which chooses one compare-and-swap winner. Local writes stay hidden until the server orders them, so the bracket shows a submitted result as awaiting confirmation.",
+      "VersionChanged reports every ordered submission, including the ones that lose. AtomicChanged reports only the winner and updates the official bracket. The log keeps the competing reports visible.",
     ],
     snippet: `ReportClicked(match_key, winner) ->
   case model.matches {
@@ -684,10 +684,10 @@ AtomicChanged(key, value, _local) -> {
     theme: "testing",
     related: ["/structures/coordination", "/runtime/reconnect"],
     example: "work_queue_lustre",
-    rule: "The interesting event is a client dying mid-job. Reproduce it in-process with a disconnect that sequences the same leave the server would.",
+    rule: "Test a client dying mid-job with an in-process disconnect that produces the same leave event as the server.",
     body: [
-      "The work queue's whole claim is recovery: close a tab holding a job and the surviving replicas return it to the queue tail; close the dispatcher and the queued backup inherits the role. No application code participates, which is exactly why it needs a deterministic test, not a demo.",
-      "sluice_js.disconnect sequences the same leave a real server would, so worker death becomes an ordinary in-process scenario. The suite is equally explicit about its limit: it cannot vouch that floodgate emits a leave for a vanished socket; that one claim is what the live smoke exists for.",
+      "The work queue promises to recover when a client disappears. If a worker dies, the job returns to the queue. If the dispatcher dies, the next client takes over. An automated test needs to prove both transitions.",
+      "sluice_js.disconnect produces the same leave event that the server would, so the test runs in process and on demand. A live smoke test covers the remaining boundary: whether floodgate notices a vanished socket and sends that event.",
     ],
     snippet: `pub fn held_job_returns_to_queue_when_holder_disconnects_test() {
   let #(sluice, document_a, document_b) = room("wq-worker-dies")
