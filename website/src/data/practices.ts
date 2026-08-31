@@ -2,10 +2,10 @@
 // watershed — practices catalog
 // One entry per technique, each anchored to the ONE checked-in example that
 // demonstrates it best. This is the inverse of the old /patterns page: not
-// conventions that recur across apps, but the specific thing each app was
-// built to prove, with the code that proves it. Snippets are copied (and
-// trimmed) from the example source named in `snippetFile` — keep them in
-// sync when an example changes.
+// conventions that recur across apps, but one implementation practice paired
+// with example code that demonstrates it. Snippets are copied (and trimmed)
+// from the example source named in `snippetFile` — keep them in sync when an
+// example changes.
 //
 // Each practice is filed under the /guide step whose work it belongs to, and
 // renders as field notes at the foot of that step. /patterns indexes them the

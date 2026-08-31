@@ -68,19 +68,24 @@ const layout = `retro_tutorial_lustre/
   <div class="g-block">
     <h2>Connect to a live document</h2>
     <p>
-      A watershed <strong>document</strong> is one shared board, addressed by a{" "}
-      <code>tenant</code> id and a <code>document</code> id. The tenant id
-      groups documents; the document id picks one board in that group. Any
-      client that opens the same pair of names joins the same live board —
-      open the same link in two tabs and you’re looking at the same board in
-      both.
+      A watershed <strong>document</strong> is a collection of data stored in
+      collaborative structures. Watershed defines how those structures sync;
+      your application decides what their data means. In this tutorial, each
+      document is one retro board.
+    </p>
+    <p>
+      A <code>tenant</code> id and a <code>document</code> id address the
+      document. The tenant id groups documents; the document id picks one board
+      in that group. Any client that opens the same pair of names joins the same
+      live board — open the same link in two tabs and you’re looking at the same
+      board in both.
     </p>
     <p>
       Connecting does two things. First it catches you up: the server replays
-      the board’s whole history of edits, so you land on the current state
-      instead of an empty one. Then it keeps the line open, streaming every
-      later edit — yours and everyone else’s — in the single order the server
-      assigns.
+      the document’s whole history of edits, so this board opens at its current
+      state instead of an empty one. Then it keeps the line open, streaming
+      every later edit — yours and everyone else’s — in the single order the
+      server assigns.
     </p>
     <span class="g-file">src/retro_tutorial_lustre.gleam</span>
     <figure class="g-code">
@@ -115,12 +120,16 @@ const layout = `retro_tutorial_lustre/
     </figure>
     <div class="g-note">
       <p>
-        <strong><code>connect_dev</code> is for your laptop.</strong> It mints a
-        dev token in the browser from a shared secret, which is exactly what you
-        want against <code>just integration-up</code> and exactly what you do not
-        want in production. There, issue the token from a backend and call
-        <code>watershed_lustre.connect</code> instead. The rest of this sheet is
-        identical either way.
+        <strong>Development and production put token signing on opposite sides
+        of the browser boundary.</strong> <code>connect_dev</code> keeps this
+        tutorial self-contained by signing an HS256 token in the browser with
+        the tenant secret expected by <code>just integration-up</code>. A
+        production browser cannot hold that secret: anyone who extracts it
+        could mint tokens for the tenant. Your backend must authenticate the
+        user, sign the token, and send only that token to the browser, which
+        passes it to <code>watershed_lustre.connect</code>. The two functions
+        make that credential boundary explicit; after token creation, both use
+        the same connection path.
       </p>
     </div>
   </div>

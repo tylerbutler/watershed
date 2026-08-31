@@ -107,11 +107,13 @@ player map
   <div class="g-block">
     <h2>Independently addressed pieces, not one atomic tree</h2>
     <p>
-      This is the whole shape of a watershed document: a set of channels, each
-      with its own address, each syncing on its own terms, tied together only
-      by handles stored as ordinary values. The dice-scoreboard example's
-      roster of players, keyed by id, looks like this on the wire — a root
-      map, a child map, and a further map nested under that:
+      A watershed document collects data in a set of channels, each with its
+      own address, each syncing on its own terms, tied together only by handles
+      stored as ordinary values. Your application decides what that collection
+      represents: the build guide makes each document a retro board, while the
+      dice-scoreboard example makes each one a scoreboard. Its roster of
+      players, keyed by id, looks like this on the wire — a root map, a child
+      map, and a further map nested under that:
     </p>
     <figure class="g-code">
       <Code code={layoutDiagram} lang="text" theme={watershedCodeTheme} />

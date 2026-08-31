@@ -43,7 +43,8 @@ import { steps } from "../../data/guide";
             Once notes work, you’ll open the board in two tabs and add notes
             from both at the same instant. Both notes survive, and you’ll see
             why. Votes get the same treatment: build the count first, then
-            look at the mistake it avoids.
+            compare it with a read-modify-write counter that loses concurrent
+            votes.
           </p>
           <p class="gi-prereq">
             You’ll need the <a href="https://gleam.run/getting-started/">Gleam toolchain</a>{" "}

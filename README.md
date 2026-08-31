@@ -1,9 +1,11 @@
 # watershed
 
-Collaborative data structures for Gleam. Many people edit the same document at
-once; watershed applies each edit locally the moment it happens, sequences it
-through a server, and converges every client on the same state — across
-concurrent edits, dropped connections, and reloads.
+Collaborative data structures for Gleam. A watershed document is a collection
+of data stored in those structures; your application decides what the data
+means. Many people can edit the same document at once. Watershed applies each
+edit locally the moment it happens, sequences it through a server, and
+converges every client on the same state — across concurrent edits, dropped
+connections, and reloads.
 
 It runs on both Gleam targets from one codebase: an OTP actor on the BEAM, and
 the browser via the JavaScript target ([Lustre bindings](watershed_lustre)
