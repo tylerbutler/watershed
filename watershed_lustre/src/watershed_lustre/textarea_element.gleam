@@ -395,6 +395,10 @@ fn passthrough(model: Model) -> List(Attribute(msg)) {
   }
 }
 
+type SharedTextProperty {
+  SharedTextProperty(value: Dynamic)
+}
+
 // ── Property decoding ────────────────────────────────────────────────────────
 
 /// Accept a live `SharedText` value from the `channel` property. The decoder
@@ -407,7 +411,8 @@ fn channel_decoder() -> Decoder(Msg) {
   use _address <- decode.field("address", decode.string)
   use _runtime <- decode.field("runtime", decode.dynamic)
   use handle <- decode.then(decode.dynamic)
-  decode.success(ChannelReceived(dynamic_to_shared_text(handle)))
+  let property = SharedTextProperty(handle)
+  decode.success(ChannelReceived(shared_text_property_to_shared_text(property)))
 }
 
 fn peers_decoder() -> Decoder(Msg) {
@@ -423,9 +428,10 @@ fn peers_decoder() -> Decoder(Msg) {
 
 // The two halves of the module's one unsafe seam, kept adjacent so it is
 // auditable in a single screen: a handle leaves the typed world as a property
-// value here, and re-enters it — shape-checked by `channel_decoder` — there.
+// value here, and re-enters it — shape-checked by `channel_decoder` and wrapped
+// in `SharedTextProperty` — there.
 @external(javascript, "./textarea_element_ffi.mjs", "identity")
 fn shared_text_to_json(channel: SharedText) -> Json
 
-@external(javascript, "./textarea_element_ffi.mjs", "identity")
-fn dynamic_to_shared_text(value: Dynamic) -> SharedText
+@external(javascript, "./textarea_element_ffi.mjs", "sharedTextPropertyToSharedText")
+fn shared_text_property_to_shared_text(value: SharedTextProperty) -> SharedText
