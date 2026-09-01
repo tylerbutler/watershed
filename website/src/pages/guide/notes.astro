@@ -55,14 +55,15 @@ const addClicked = section(
     <p>
       Which means the column is stored inside the note itself. That’s the
       tradeoff: moving a note between columns means rewriting the whole note,
-      so if two people move the same note at the same moment, whichever move
-      happens second wins and the other is silently dropped. The tutorial
-      doesn’t offer moves at all, and this is why — the{" "}
-      <a href="/examples#retro_board_lustre">advanced retro board</a> splits
-      the column into its own field so moves can be tracked properly.
+      so if two people move the same note at the same moment, the register keeps
+      the write with the later clock value and the other disappears. The
+      tutorial doesn’t offer moves at all. The{" "}
+      <a href="/examples#retro_board_lustre">advanced retro board</a> keeps the
+      column on the note and adds a sequence per column, then treats the note’s
+      column register as authoritative when it reconciles the two.
     </p>
     <FieldNoteRef id="authoritative-channel" />
-    <span class="g-file">src/note.gleam</span>
+    <span class="g-file">src/retro_tutorial_lustre/note.gleam</span>
     <figure class="g-code">
       <Code code={noteRecord} lang="gleam" theme={watershedCodeTheme} />
     </figure>
@@ -90,7 +91,7 @@ const addClicked = section(
       random number added just to keep ids unique — is there because two notes
       from one author can land in the same millisecond.
     </p>
-    <span class="g-file">src/board.gleam</span>
+    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
     <figure class="g-code">
       <Code code={addNote} lang="gleam" theme={watershedCodeTheme} />
     </figure>
@@ -111,14 +112,14 @@ const addClicked = section(
     <h2>Reading back: entries in, board out</h2>
     <p>
       <code>or_map_entries</code> hands you every live key together with its
-      value. In a <code>RegisterMode</code> map, every value comes back as a{" "}
-      <code>Register</code>, and the <code>let assert</code> below says so
-      directly in the code — it’s Gleam’s way of asserting a fact you’re
-      relying on. If you ever got a <code>Tally</code> here instead, that would
-      mean the channel was set up in the wrong mode: a bug in your own startup
-      code, not messy user data to defend against.
+      value. The tutorial creates this map in <code>RegisterMode</code>, so
+      every value should be a <code>Register</code>. The <code>case</code>{" "}
+      below checks that assumption for each entry and returns an explicit error
+      if it finds a <code>Tally</code>. That would mean the channel was set up
+      in the wrong mode: a bug in your own startup code, not messy user data to
+      defend against.
     </p>
-    <span class="g-file">src/board.gleam</span>
+    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
     <figure class="g-code">
       <Code code={readNotes} lang="gleam" theme={watershedCodeTheme} />
     </figure>
@@ -130,7 +131,7 @@ const addClicked = section(
       order. If two notes ever get the same creation timestamp, the id breaks
       the tie, identically, everywhere.
     </p>
-    <span class="g-file">src/board.gleam</span>
+    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
     <figure class="g-code">
       <Code code={ordering} lang="gleam" theme={watershedCodeTheme} />
     </figure>
@@ -169,8 +170,9 @@ const addClicked = section(
     <span class="annot">You can now</span>
     <p>
       Open the board in two tabs, add a note in one, and watch it appear in
-      the other — with a vote count of <code>0</code> under it, because
-      nothing can move it yet. Step 04 makes those numbers real.
+      the other, with <code>votes 0</code> under it. The buttons are already
+      wired; step 04 explains why their tally updates don’t lose concurrent
+      votes.
     </p>
   </div>
 </GuideLayout>

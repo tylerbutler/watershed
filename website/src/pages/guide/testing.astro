@@ -32,14 +32,16 @@ const layout = `retro_tutorial_lustre/
 ├── build.mjs                       esbuild bundle for the browser
 ├── index.html                      mount point and all of the styling
 ├── src/
-│   ├── document_schema.gleam       step 01 · title, notes, votes
-│   ├── note.gleam                  step 02 · the note record and its codec
-│   ├── board.gleam                 steps 02 and 04 · pure canonical snapshot and the shared writes
-│   └── retro_tutorial_lustre.gleam every sheet · connection, update, view
+│   ├── retro_tutorial_lustre.gleam every sheet · connection, update, view
+│   └── retro_tutorial_lustre/
+│       ├── document_schema.gleam   step 01 · title, notes, votes
+│       ├── note.gleam              step 02 · the note record and its codec
+│       └── board.gleam             steps 02 and 04 · pure canonical snapshot and shared writes
 └── test/
+    ├── retro_tutorial_lustre_test.gleam  the gleeunit entry point
     ├── note_codec_test.gleam       round trips, including malformed payloads
     ├── board_test.gleam            ordering, tally joins, unfiled notes
-    └── convergence_test.gleam      this sheet · the two races`;
+    └── convergence_test.gleam      this sheet · two races and two wrong-mode guards`;
 ---
 
 <GuideLayout
@@ -73,9 +75,9 @@ const layout = `retro_tutorial_lustre/
     </p>
     <p>
       So setting up a test room means: one sluice, two documents connecting to
-      it, one settle to let both handshakes finish, the channels created on
-      client A, and a second settle so client B can pick up those same
-      channels from the shared root map.
+      it, one settle to let both handshakes finish, the title and channels
+      written on client A, and a second settle so client B can pick up that
+      state from the shared root map.
     </p>
     <span class="g-file">test/convergence_test.gleam</span>
     <figure class="g-code">
@@ -114,8 +116,9 @@ const layout = `retro_tutorial_lustre/
     <p>
       The add race checks two things:{" "}
       <code>board_a |> should.equal(board_b)</code> confirms both tabs ended
-      up showing the identical board, and the note count plus the two lookups
-      confirm they didn’t end up identical by both losing the same note.
+      up showing the identical board, and the note count, two lookups, and
+      column tally confirm they didn’t end up identical by both losing the same
+      note.
     </p>
     <figure class="g-code">
       <Code code={addRace} lang="gleam" theme={watershedCodeTheme} />
@@ -158,11 +161,13 @@ const layout = `retro_tutorial_lustre/
         <strong>More controls.</strong> Both <code>sluice</code> and
         <code>sluice_js</code> provide <code>pause</code> / <code>resume</code>
         {" "}to hold back one client’s messages specifically, and{" "}
-        <code>advance(ms)</code> to move the sluice’s own internal clock
-        forward for message timestamps. Presence works differently — it uses
-        the real system clock instead. The JavaScript version also exposes
-        <code>step_info</code> with details about each delivery, which is how
-        the demo back on step 03 draws its log of what happened.
+        <code>advance(ms)</code> to move the sluice’s logical clock forward.
+        On <code>sluice_js</code>, advancing also fires every timer that became
+        due. Hand its scheduler to <code>presence_js.start_with_scheduler</code>{" "}
+        and presence runs on that clock too, so heartbeat and expiry tests
+        advance without waiting on wall time. The JavaScript version also
+        exposes <code>step_info</code> with details about each delivery, which
+        is how the demo back on step 03 draws its log of what happened.
       </p>
     </div>
     <FieldNoteRef id="deterministic-death" />
@@ -220,9 +225,10 @@ gleam test`}
   <div class="g-out">
     <span class="annot">You can now</span>
     <p>
-      Run <code>gleam test</code> and get <code>8 passed, no failures</code> in
-      about a second: two convergence races, the board’s ordering and joins, and
-      the note codec — no server, no browser, no timing luck.
+      Run <code>gleam test</code> and get <code>10 passed, no failures</code> in
+      about a second: two convergence races, two wrong-mode guards, the board’s
+      ordering and joins, and the note codec — no server, no browser, no timing
+      luck.
     </p>
   </div>
 </GuideLayout>

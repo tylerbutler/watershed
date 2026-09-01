@@ -13,7 +13,7 @@ import { watershedCodeTheme } from "../styles/code-theme";
 const tsDeclare = `import { SchemaFactory } from "fluid-framework";
 
 // This id is written into the document. It becomes the *stored* schema,
-// and from here on the service enforces it.
+// and from here on every client's SharedTree enforces it.
 const sf = new SchemaFactory("com.example.sprintboard");
 
 class Card extends sf.object("Card", {
@@ -92,7 +92,7 @@ const gleamRoot = `fn bootstrap(document: Document(document_schema.Board)) -> Ef
   ])
 }`;
 
-const tsReadWrite = `// Writing is checked by the compiler and again by the service.
+const tsReadWrite = `// Writing is checked by the compiler and again by SharedTree.
 board.title = "Q3 sprint board";
 
 // Reading is total. \`title\` is a string, and no client running this
@@ -120,8 +120,8 @@ card.owner = undefined; // clears the optional property`;
 const gleamRecord = `/// \`record3\` derives the decoder AND the per-key encoder from one
 /// prop list, so the two can never drift. \`sealed_known\` seals the
 /// schema to exactly these keys without a hand-repeated list, and
-/// \`versioned\` stamps a version and rejects an incompatible future layout.
-fn card_schema() -> schema.Schema(Card, CardState) {
+/// \`versioned\` stamps a version and rejects any stored version that differs.
+fn card_schema() -> Result(schema.Schema(Card, CardState), Nil) {
   schema.record3(
     CardState,
     schema.prop(card_title(), fn(c: CardState) { c.title }),
@@ -135,9 +135,10 @@ fn card_schema() -> schema.Schema(Card, CardState) {
 // \`write\` emits one op per key, never a blob — so a peer editing
 // \`owner\` at the same time keeps their edit. An optional prop that is
 // \`None\` deletes its key rather than skipping it.
+use card_schema <- result.try(card_schema())
 watershed.write(
   card,
-  card_schema(),
+  card_schema,
   CardState(title: "Ship it", column: "doing", owner: None),
 )`;
 
@@ -177,14 +178,14 @@ const stopAll = Tree.on(board, "treeChanged", renderEverything);
 const gleamEvents = `// Per field. The change carries the decoded previous value AND the
 // new one, plus whether this client made it — and a peer's
 // type-confused write surfaces here as \`Error(Invalid(_))\`.
-let changes = watershed.subscribe_field(root, document_schema.title())
-
-case process.receive(from: changes, within: 5000) {
-  Ok(FieldChange(value: Ok(Some(title)), local: False, ..)) ->
+watershed.subscribe_field(root, document_schema.title(), fn(change) {
+  case change {
+    FieldChange(value: Ok(Some(title)), local: False, ..) ->
     render_header(title)
-  Ok(FieldChange(value: Error(_), ..)) -> keep_previous_header()
-  _ -> Nil
-}`;
+    FieldChange(value: Error(_), ..) -> keep_previous_header()
+    _ -> Nil
+  }
+})`;
 
 const gleamPerKind = `// Or subscribe per channel. Each handler sees only its own channel's
 // event type — a counter subscriber never pattern-matches a map event.
@@ -222,7 +223,7 @@ const rows = [
   },
   {
     axis: "A peer writes the wrong type",
-    tree: "cannot happen under the stored schema; the write is rejected",
+    tree: "cannot happen under the stored schema; SharedTree rejects the write on that client",
     ws: "reaches the document, and surfaces as Error(Invalid(_)) on your read",
   },
   {
@@ -278,14 +279,14 @@ const rows = [
   {
     axis: "Implementation size",
     tree: "77,804 lines in the Fluid tree package",
-    ws: "686 lines in watershed/schema.gleam",
+    ws: "about 700 lines in watershed/schema.gleam",
   },
 ];
 ---
 
 <Sheet
   title="watershed — SharedTree and the schema layer"
-  description="Fluid Framework's SharedTree puts the schema inside the document, where the service enforces it. watershed's typed layer puts it in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, and an honest list of what SharedTree has that watershed does not."
+  description="Fluid Framework's SharedTree puts a stored schema inside the document and enforces it in each client. watershed's typed layer puts its schema in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, and an honest list of what SharedTree has that watershed does not."
 >
   <header class="st-hero">
     <div class="st-hero-inner">
@@ -309,9 +310,9 @@ const rows = [
       <p>
         SharedTree makes the schema <em>the document</em>. The
         <code>SchemaFactory</code> id you pick is written into the container as
-        the <strong>stored schema</strong>, and from then on the service
-        enforces it. A client whose view schema disagrees cannot silently write
-        the wrong shape. Because there is one tree under one rebasable
+        the <strong>stored schema</strong>, and from then on every client’s
+        SharedTree enforces it. A client whose view schema disagrees cannot
+        silently write the wrong shape. Because there is one tree under one rebasable
         changeset algebra, transactions, undo/redo, node identity, cross-parent
         moves, and a real schema-upgrade path all fall out of the same
         machinery.
@@ -608,8 +609,8 @@ const rows = [
         <strong>77,804 lines</strong> — a multi-year project to reproduce in
         any language, and one watershed would take on only for a compelling
         product need. watershed’s entire schema vocabulary is
-        <code>src/watershed/schema.gleam</code>, <strong>686 lines</strong>.
-        That is the trade.
+        one <strong>roughly 700-line</strong> module:
+        <code>src/watershed/schema.gleam</code>. That is the trade.
       </p>
     </div>
   </main>

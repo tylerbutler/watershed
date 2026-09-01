@@ -4,14 +4,13 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 
 const local = `import gleam/json
-import gleam/option.{Some}
 import watershed
 
 // set applies to your replica *now* — get reads it back before the
 // server has seen it. The UI never waits on the network.
 watershed.set(survey, "depth-07", json.float(3.4))
-let assert Some(value) = watershed.get(survey, "depth-07")
-// => Some(3.4), already visible. This value is *pending*: drawn in magenta,
+let assert Ok(value) = watershed.get(survey, "depth-07")
+// value == json.float(3.4), already visible. This value is *pending*: drawn in magenta,
 // a prediction of where the server's order will place it.`;
 ---
 
@@ -73,13 +72,13 @@ let assert Some(value) = watershed.get(survey, "depth-07")
       supersedes yours and the magenta re-prints as the winning ink value.
     </p>
     <p>
-      Some structures reject rather than overwrite. A{" "}
+      Some structures don’t apply a change optimistically at all. A{" "}
       <a href="/structures/coordination#claims">claim</a> is first-writer-wins:
-      if your claim files while a peer already holds the slot, the ack carries a
-      refusal, the optimistic marker clears, and a margin note records that you
-      lost it. In every case the correction arrives through the same ack path:
-      there is no rollback branch for you to write, and no torn intermediate
-      state for a user to catch.
+      the request can show as pending, but shared claim state does not change
+      until the server accepts it. If a peer already holds the slot, the refusal
+      clears that pending request and a margin note records that you lost it.
+      Watershed handles both optimistic correction and non-optimistic refusal;
+      neither needs a rollback branch in your application.
     </p>
     <div class="g-note">
       <p>

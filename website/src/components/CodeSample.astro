@@ -5,7 +5,7 @@ import { watershedCodeTheme } from "../styles/code-theme";
 const sample = `import gleam/erlang/process
 import gleam/io
 import gleam/json
-import watershed
+import watershed_beam
 import watershed/map_kernel.{type MapEvent, ValueChanged}
 
 type Msg {
@@ -17,7 +17,7 @@ pub fn main() {
   // returns a Result — asserted here for brevity; a supervised app matches
   // the Error case and lets OTP restart the link.
   let assert Ok(doc) =
-    watershed.connect(
+    watershed_beam.connect(
       host: "127.0.0.1",
       port: 4000,
       tenant: "dev-tenant",
@@ -25,14 +25,14 @@ pub fn main() {
       token: token,
       user_id: "gauge-1",
     )
-  let gauges = watershed.root(doc)
+  let gauges = watershed_beam.root(doc)
 
   let selector =
     process.new_selector()
-    |> process.select_map(watershed.subscribe(gauges), MapChanged)
+    |> process.select_map(watershed_beam.subscribe(gauges), MapChanged)
 
   // Optimistic write: applies now and emits locally, then goes to the server.
-  watershed.set(gauges, "mill-race", json.int(24))
+  watershed_beam.set(gauges, "mill-race", json.int(24))
 
   let MapChanged(event) = process.selector_receive_forever(selector)
   case event {
@@ -53,8 +53,10 @@ pub fn main() {
         sequence numbers, and the highest-sequenced write wins per key.
       </p>
       <p>
-        The same API runs on the Erlang target as an OTP actor and on the
-        JavaScript target inside a Lustre single-page app: see{" "}
+        The same core runs on the Erlang target as an OTP actor and on the
+        JavaScript target inside a Lustre single-page app. The facades differ
+        at the edge: <code>watershed_beam</code> blocks and returns a{" "}
+        <code>Subject</code>, while <code>watershed</code> uses callbacks. See{" "}
         <a href="https://github.com/tylerbutler/watershed/tree/main/examples"
           >the examples</a
         > for both, verified converging against a live floodgate sequencer.

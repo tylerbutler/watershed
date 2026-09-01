@@ -34,7 +34,7 @@ const focusNames = excerpt(appSource, "fn focus_names(");
 
 <GuideLayout
   slug="presence"
-  description="Step five of the watershed build guide: publish the note a teammate is reading through presence, a roster that clears itself out the moment someone disconnects, instead of storing it in the document where it would stick around forever."
+  description="Step five of the watershed build guide: publish the note a teammate is reading through presence, a roster that clears itself out when someone leaves, instead of storing it in the document where it would stick around forever."
 >
   <div class="g-block">
     <h2>Some facts should be allowed to expire</h2>
@@ -52,10 +52,10 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       <strong>Ripples</strong> are the raw form: a message broadcast to every
       other client connected to this document right now, with no ordering
       guarantee and nothing saved anywhere — on purpose.
-      <strong>Presence</strong> is the roster built on top of ripples, and it’s
-      the one you want here, because a raw ripple would leave a peer’s last
-      marker stuck on screen even after they close the tab; presence knows how
-      to clear itself when someone leaves.
+      <strong>Presence</strong> is the roster built on that same ephemeral
+      tier, and it’s the one you want here, because a raw ripple would leave a
+      peer’s last marker stuck on screen even after they close the tab;
+      presence knows how to clear itself when someone leaves.
     </p>
   </div>
 

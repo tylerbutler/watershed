@@ -51,11 +51,13 @@ const layout = `retro_tutorial_lustre/
 ├── build.mjs
 ├── index.html
 ├── src/
-│   ├── document_schema.gleam       ← this sheet
-│   ├── note.gleam                  ← step 02
-│   ├── board.gleam                 ← step 02
-│   └── retro_tutorial_lustre.gleam ← every sheet
+│   ├── retro_tutorial_lustre.gleam ← every sheet
+│   └── retro_tutorial_lustre/
+│       ├── document_schema.gleam   ← this sheet
+│       ├── note.gleam              ← step 02
+│       └── board.gleam             ← step 02
 └── test/
+    ├── retro_tutorial_lustre_test.gleam
     ├── note_codec_test.gleam
     ├── board_test.gleam
     └── convergence_test.gleam      ← step 06`;
@@ -172,7 +174,7 @@ const layout = `retro_tutorial_lustre/
       handle to another channel kind entirely — see{" "}
       <a href="/foundations/schema">Foundations · schemas and fields</a>.
     </p>
-    <span class="g-file">src/document_schema.gleam</span>
+    <span class="g-file">src/retro_tutorial_lustre/document_schema.gleam</span>
     <figure class="g-code">
       <Code code={schemaSource} lang="gleam" theme={watershedCodeTheme} />
     </figure>
@@ -202,13 +204,14 @@ const layout = `retro_tutorial_lustre/
   </div>
 
   <div class="g-block">
-    <h2>Render only when both channels are home</h2>
+    <h2>Build the board only when both channels are ready</h2>
     <p>
       Each call to <code>ensure_or_map</code> hands its map back separately,
-      and the two don’t arrive together. Render as soon as one shows up and
-      you’d get a notes list with no vote totals for a moment, so instead the
-      app holds both results in a <code>PendingShared</code> pair and waits to
-      render anything until both channels are in.
+      and the two don’t arrive together. Build the board as soon as one shows
+      up and you’d get shared state with one channel missing, so the app holds
+      both results in a <code>PendingShared</code> pair and doesn’t assemble
+      the board until both are in. Until then, the shell still renders and its
+      status line reports <code>channels 1/2</code>.
     </p>
     <figure class="g-code">
       <Code code={assemble} lang="gleam" theme={watershedCodeTheme} />
@@ -224,9 +227,10 @@ const layout = `retro_tutorial_lustre/
     <div class="g-note">
       <p>
         <strong>One message for both origins.</strong> A local edit and a remote
-        edit both dispatch <code>SharedChanged</code>, and both re-read the board
-        through one render path. There is no “my write” branch, because the
-        moment you write one you start maintaining two versions of the truth.
+        edit both end in the same <code>snapshot</code> re-read. The local
+        branch calls it after writing; a remote change reaches it through{" "}
+        <code>SharedChanged</code>. Keeping one snapshot path prevents the two
+        origins from producing different board state.
       </p>
     </div>
   </div>
@@ -250,8 +254,8 @@ const layout = `retro_tutorial_lustre/
       On the BEAM, there’s no two-message dance to design around:{" "}
       <code>connect</code> simply pauses your code until the document has
       fully caught up, so by the time you’re holding a handle, it’s already
-      synced. That’s the one real difference between the two runtimes — and
-      it’s exactly why the browser path above needs the two-message pattern:
+      synced. That’s the difference that changes how you design the connection,
+      and it’s why the browser path above needs the two-message pattern:
       JavaScript can’t pause and wait the way an OTP process (an
       Erlang-style lightweight process) can.
     </p>
@@ -261,9 +265,10 @@ const layout = `retro_tutorial_lustre/
   <div class="g-block">
     <h2>Run it</h2>
     <p>
-      Here is the whole project, so you know where each later sheet is putting
-      its file. Nothing below <code>src/</code> exists yet except the schema and
-      the app shell.
+      Here is the project’s source and test layout, so you know where each later
+      sheet puts its file. The board and note modules arrive in step 02; the
+      app shell already imports them, so use the complete example and read the
+      guide forward.
     </p>
     <figure class="g-code">
       <Code code={layout} lang="text" theme={watershedCodeTheme} />

@@ -128,15 +128,16 @@ const ensuredArms = section(
         that key means every client converges on the same one handle
         eventually, even if nobody observes it on the same tick. The
         candidate that loses stays attached to the document, just
-        unreferenced — nothing errors. The one retry loop{" "}
-        <code>ensure_*</code> runs for you is narrower than that: it retries
-        when the field has no handle yet, and also when the handle is present
-        but its channel hasn't resolved locally yet, for up to five seconds,
-        and reports an <code>Error</code> if the attach still hasn't shown up
-        by then. If your app needs the channel
-        it's holding to track the field through a concurrent bootstrap, subscribe to the root and
-        resolve again when the field changes — <code>ensure_*</code> gets
-        you an attached channel, not a lock on being last.
+        unreferenced — nothing errors. A seeding call can spend about five
+        seconds waiting for its candidate write to sync, then about five more
+        resolving the handle that won the field. If the sync wait runs out, it
+        proceeds to resolution; it reports an <code>Error</code> only if the
+        handle still hasn’t resolved when the second wait ends. That path can
+        take up to about ten seconds in total. If your app needs the channel
+        it's holding to track the field through a concurrent bootstrap,
+        subscribe to the root and resolve again when the field changes —{" "}
+        <code>ensure_*</code> gets you an attached channel, not a lock on being
+        last.
       </p>
     </div>
   </div>

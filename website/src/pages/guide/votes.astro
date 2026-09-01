@@ -48,10 +48,10 @@ watershed.set(board, id, json.int(current + 1))`;
       up, never by picking one write as the winner.
     </p>
     <p>
-      The vote API is three lines long. An upvote sends <code>+1</code>; a
-      downvote sends <code>-1</code>.
+      The vote API is three functions, one line of work each. An upvote sends
+      <code>+1</code>; a downvote sends <code>-1</code>.
     </p>
-    <span class="g-file">src/board.gleam</span>
+    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
     <figure class="g-code">
       <Code code={voteOps} lang="gleam" theme={watershedCodeTheme} />
     </figure>
@@ -90,8 +90,8 @@ watershed.set(board, id, json.int(current + 1))`;
     </p>
     <p>
       The <a href="/counter-bug">counter bug</a> page runs the losing version
-      and the fix against the same two clicks, live, if you’d rather watch it
-      happen than read about it.
+      and a commuting fix against the same two clicks, then shows the same idea
+      with signed deltas.
     </p>
   </div>
 
@@ -103,7 +103,7 @@ watershed.set(board, id, json.int(current + 1))`;
       back as a <code>Tally</code>, and anything else would mean the channel
       was set up in the wrong mode.
     </p>
-    <span class="g-file">src/board.gleam</span>
+    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
     <figure class="g-code">
       <Code code={readVotes} lang="gleam" theme={watershedCodeTheme} />
     </figure>
@@ -112,20 +112,19 @@ watershed.set(board, id, json.int(current + 1))`;
       tally shows <code>0</code> rather than nothing, so a fresh note and a note
       voted back down to zero look the same — which is what a reader expects.
     </p>
-    <span class="g-file">src/board.gleam</span>
+    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
     <figure class="g-code">
       <Code code={attach} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <div class="g-note">
       <p>
-        <strong>Two channels means two clocks.</strong> A vote can arrive at
-        your tab before the note it belongs to does — they travel on separate
-        channels, so there’s no guarantee they show up in the order you’d
-        expect. Looking up a note for a given vote is just a lookup, not a
-        promise that the note is already there, so an orphaned tally simply
-        has nothing to attach to for a moment — and appears the instant the
-        note catches up. Design the read so that being briefly out of step is
-        boring, not broken.
+        <strong>Two channels, one order.</strong> Both maps belong to the same
+        document, so every tab applies their operations in the order the
+        sequencer picked. A vote cannot overtake the note it belongs to. The
+        read still cannot assume that every tally has a note: a note that never
+        arrived, or one removed later, leaves a tally with nothing to attach to.
+        The read is note-driven, so each card looks up its tally and a tally
+        without a note is never visited.
       </p>
     </div>
     <span class="g-file">test/board_test.gleam</span>
@@ -162,8 +161,8 @@ watershed.set(board, id, json.int(current + 1))`;
     <span class="annot">You can now</span>
     <p>
       Open two tabs, hammer <code>+1</code> and <code>-1</code> on the same note
-      from both, and get an honest total every time — the same
-      <code>+1</code> you expect, even when all three clicks overlap.
+      from both, and get an honest total every time — every click counted,
+      whatever order the sequencer assigns.
     </p>
   </div>
 </GuideLayout>

@@ -65,7 +65,7 @@ export interface Practice {
   rule: string;
   /** Two or three short paragraphs: why it holds, the failure it prevents. */
   body: string[];
-  /** Verbatim excerpt from the example's source. */
+  /** Excerpt adapted from the example's source. */
   snippet: string;
   /** Language of the snippet, for syntax highlighting. */
   snippetLang: "gleam" | "js";
@@ -123,10 +123,10 @@ fn with_relay(
     rule: "Keep the shared core portable by connecting to the same document from the BEAM and the browser.",
     body: [
       "dice_cli and dice_lustre edit the same floodgate document. They share the kernel, wire format, and runtime core; only the outer program changes. The browser uses an MVU update function, while the BEAM client uses a receive loop.",
-      "The CLI connects to 127.0.0.1 instead of localhost. Erlang may try IPv6 first and leave the socket idle long enough for the server to close it.",
+      "The CLI connects to 127.0.0.1 instead of localhost. Erlang's resolver stalls about eight seconds on the AAAA lookup, long enough for the server to drop the connection.",
     ],
     snippet: `fn event_loop(
-  map: watershed.SharedMap,
+  map: watershed_beam.SharedMap,
   selector: process.Selector(CliMsg),
   roll_due: process.Subject(Nil),
 ) -> Nil {
@@ -174,7 +174,7 @@ fn with_relay(
   <> " resubmit_at="
   <> option_int(diagnostics.resubmit_checkpoint)
   <> " synced="
-  <> bool_string(diagnostics.synced)
+  <> bool_to_string(diagnostics.synced)
 }`,
     snippetLang: "gleam",
     snippetFile: "src/dice_lustre.gleam",
@@ -254,7 +254,7 @@ BpmCommitted ->
   }
 }`,
     snippetLang: "js",
-    snippetFile: "src/audio_ffi.mjs",
+    snippetFile: "src/drum_machine_lustre/audio_ffi.mjs",
   },
   {
     id: "presence-idiom",
@@ -327,11 +327,13 @@ pub fn should_acknowledge(
   case inbound.message {
     Invitation(_) ->
       ready && !busy && !already_seen && !from_self(self_id, inbound)
-    _ -> False
+    Acknowledgement(_) -> False
+    Go(_, _) -> False
+    Status(_, _, _) -> False
   }
 }`,
     snippetLang: "gleam",
-    snippetFile: "src/scenario_protocol.gleam",
+    snippetFile: "src/grocery_triptych_lustre/scenario_protocol.gleam",
   },
   {
     id: "pure-modules",
@@ -368,9 +370,9 @@ pub fn flush(state: State, generation: Int) -> #(State, Bool) {
   }
 }`,
     snippetLang: "gleam",
-    snippetFile: "src/refresh_guard.gleam",
+    snippetFile: "src/grocery_triptych_lustre/refresh_guard.gleam",
     testNote:
-      "Seven test files (protocol, scenario state, guards, actions) run pure, alongside a much smaller sluice and smoke tier.",
+      "Six test files (protocol, scenario state, guards, actions) run pure, alongside one sluice convergence file and the smoke tier.",
   },
   {
     id: "ffi-surface",
@@ -416,8 +418,8 @@ Connected(Error(reason)) -> #(
       "The runtime refuses an index outside the list. It does not clamp the index, because that could move or delete the wrong track.",
     ],
     snippet: `MoveDownClicked(index) -> #(
-  mutate(model, "move", fn(seq) {
-    watershed.sequence_move(seq, index, index + 1)
+  mutate(model, "move", fn(sequence) {
+    watershed.sequence_move(sequence, index, index + 1)
   }),
   effect.none(),
 )
@@ -461,13 +463,13 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
     snippet: `/// One column: the sequenced head in sequence order, then the unsequenced
 /// tail in \`(created, id)\` order.
 fn render_column(
-  col: Column,
+  column: Column,
   ids: List(String),
   notes: List(#(String, Note)),
   notes_by_id: Dict(String, Note),
   votes_by_id: Dict(String, Int),
 ) -> List(NoteCard) {
-  let col_id = column.id(col)
+  let column_id = column.id(column)
   // Sequenced head: keep an id only if its note exists (a deleted note's
   // sequence entry dies here), its register matches this column, and this is
   // its first occurrence in the sequence.
@@ -478,7 +480,7 @@ fn render_column(
       let #(cards, kept) = acc
       let #(id, index) = entry
       case dict.has_key(kept, id), dict.get(notes_by_id, id) {
-        False, Ok(n) if n.column == col_id -> #(
+        False, Ok(n) if n.column == column_id -> #(
           [card(id, n, votes_by_id, Some(index)), ..cards],
           dict.insert(kept, id, Nil),
         )
@@ -490,14 +492,14 @@ fn render_column(
   let tail =
     notes
     |> list.filter(fn(entry) {
-      entry.1.column == col_id && !dict.has_key(kept, entry.0)
+      entry.1.column == column_id && !dict.has_key(kept, entry.0)
     })
     |> list.sort(by_created_then_id)
     |> list.map(fn(entry) { card(entry.0, entry.1, votes_by_id, None) })
   list.append(head, tail)
 }`,
     snippetLang: "gleam",
-    snippetFile: "src/board.gleam",
+    snippetFile: "src/retro_board_lustre/board.gleam",
   },
   {
     id: "stamp-schema",
@@ -511,22 +513,26 @@ fn render_column(
       "The scoreboard has a root map, a roster, and one typed child map for each player. It fills a new player map in one write, stamps the schema version, then attaches the map to the roster.",
       "That stamp protects future readers from decoding the map with the wrong schema. Child lookup also retries because a remote handle may arrive before the operation that attaches its map.",
     ],
-    snippet: `// attached — snapshot and all — by storing its handle in the roster.
+    snippet: `// Our own player map: populated while detached (local-only), then
+// attached — snapshot and all — by storing its handle in the roster.
 // A single \`write\` fills every key; \`stamp\` records the schema version.
-let assert Ok(me) = watershed.create_typed_map(document)
-watershed.write(
+use me <- result.try(watershed_beam.create_typed_map(document))
+use schema <- result.try(
+  player_schema() |> result.map_error(fn(_) { "Schema build failed" }),
+)
+watershed_beam.write(
   me,
-  player_schema(),
+  schema,
   PlayerState(name: player_id, last_roll: None, total: 0, rolls: 0),
 )
-watershed.stamp(me, player_schema())
-watershed.set_child(roster, player_slot(player_id), me)
+watershed_beam.stamp(me, schema)
+watershed_beam.set_child(roster, player_slot(player_id), me)
 
 let roll_due = process.new_subject()
 let selector =
   process.new_selector()
-  |> process.select_map(watershed.subscribe_typed(roster), RosterChanged)
-  |> process.select_map(watershed.subscribe_typed(me), ScoreChanged)
+  |> process.select_map(watershed_beam.subscribe_typed(roster), RosterChanged)
+  |> process.select_map(watershed_beam.subscribe_typed(me), ScoreChanged)
   |> process.select_map(roll_due, fn(_) { RollDue })`,
     snippetLang: "gleam",
     snippetFile: "src/scoreboard_cli.gleam",
@@ -578,29 +584,30 @@ fn bootstrap_effect(document: Document(document_schema.Showcase)) -> Effect(Msg)
     example: "sudoku_lustre",
     rule: "Let every client seed the same initial values through first-writer-wins claims.",
     body: [
-      "Every Sudoku client runs the same loop over the given cells. try_set_claim keeps the first value for each cell and ignores later attempts, so the clients settle on one puzzle without electing an initializer.",
+      "Every Sudoku client runs the same loop over the given cells. claim_once keeps the first value for each cell and ignores later attempts, so the clients settle on one puzzle without electing an initializer.",
       "Use this for initial values that must be written once. The shared structure settles duplicate work, so the app needs no separate setup protocol.",
     ],
-    snippet: `fn seed_givens(claims: Claims, puzzle: Puzzle, row: Int, col: Int) -> Nil {
+    snippet: `fn seed_givens(
+  claims: Claims,
+  active_puzzle: Puzzle,
+  row: Int,
+  column: Int,
+) -> Nil {
   case row >= 9 {
     True -> Nil
     False -> {
-      let given = puzzles.given_at(puzzle, row, col)
+      let given = puzzle.given_at(active_puzzle, row, column)
       case given > 0 {
         True -> {
           let _ =
-            watershed.try_set_claim(
-              claims,
-              cell_key(row, col),
-              json.int(given),
-            )
+            watershed.claim_once(claims, cell_key(row, column), json.int(given))
           Nil
         }
         False -> Nil
       }
-      case col == 8 {
-        True -> seed_givens(claims, puzzle, row + 1, 0)
-        False -> seed_givens(claims, puzzle, row, col + 1)
+      case column == 8 {
+        True -> seed_givens(claims, active_puzzle, row + 1, 0)
+        False -> seed_givens(claims, active_puzzle, row, column + 1)
       }
     }
   }
@@ -626,7 +633,7 @@ fn refresh_anchor(model: Model) -> Model {
   case model.editor, model.anchor {
     Some(editor), Some(anchor) ->
       case watershed.text_resolve_anchor(textarea.channel(editor), anchor) {
-        Ok(pos) -> Model(..model, anchor_pos: Some(pos))
+        Ok(position) -> Model(..model, anchor_pos: Some(position))
         Error(_) -> Model(..model, anchor_pos: None)
       }
     _, _ -> Model(..model, anchor_pos: None)

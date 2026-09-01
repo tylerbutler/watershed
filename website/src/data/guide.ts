@@ -38,7 +38,7 @@ export const steps = [
     slug: "race",
     title: "Try two edits at once",
     goal: "Add notes from both tabs at the same instant and confirm both appear.",
-    surface: "sluice · or_map_set · or_map_increment",
+    surface: "sluice · or_map_set_json · or_map_entries",
   },
   {
     n: "04",
@@ -51,7 +51,7 @@ export const steps = [
     n: "05",
     slug: "presence",
     title: "Add presence",
-    goal: "Show who is looking at each note, and clear it the moment they leave.",
+    goal: "Show who is looking at each note, and clear it when they leave.",
     surface: "presence.config · watershed_lustre.presence · update_presence",
   },
   {
