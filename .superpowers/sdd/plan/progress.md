@@ -49,3 +49,8 @@ Task 5: 10 Gleam snippets migrated, 7 TS literals with syntax check, 27 new test
 Task 5: One fixture package (tools/website-samples), Trellis-integrated.
 Task 5: Homepage BEAM sample from dice_cli; sudoku_lustre for nest/per-kind.
 Task 5: `excerpt()` still has no production callers (deprecated since Task 3).
+Task 6: complete (commit 494f171, review pending)
+Task 6: 7 drift gates, 206 tests, 12 negative/mutation cases.
+Task 6: Wired into website prebuild and justfile test recipe.
+Task 6: Explicit allowlists: 4 literal Gleam pages, 10 descriptor files, 4 marker dirs.
+Task 6: `excerpt()` still has no production callers (deprecated since Task 3).
