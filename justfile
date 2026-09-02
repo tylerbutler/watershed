@@ -30,7 +30,7 @@ _build-bundles:
     trellis run bundle --serial
 
 # Run tests
-test: _test-gleam _test-js _test-compile-fail
+test: _test-gleam _test-js _test-compile-fail _test-website-snippets
 
 # Every member with a `test/` directory, each on the target its own gleam.toml
 # pins. This covers the Lustre bindings package (grapheme diff, UTF-16 offset
@@ -68,6 +68,13 @@ _test-compile-fail:
       exit 1
     fi
     echo "ok  two_root_tags is rejected, as it must be"
+
+# Source-backed snippet drift gates — the website test suite that enforces
+# source paths exist, marker IDs are unique and referenced, literal Gleam is
+# allowlisted, and registries are source-backed. Runs the drift gate suite
+# plus every targeted snippet test from the website package.
+_test-website-snippets:
+    cd website && pnpm test:snippet && pnpm test:snippet-markers && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
