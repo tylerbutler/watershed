@@ -14,23 +14,3 @@ import { snippetFromDefinition } from "./snippet.ts";
 export function excerpt(source: string, ...heads: string[]): string {
   return snippetFromDefinition(source, "", "gleam", ...heads).code;
 }
-
-/**
- * Quote a contiguous run of lines: from the first line starting with `from`,
- * up to but not including the first later line starting with `to`. Use this
- * for the inside of a big `case`, where the unit worth showing is a few
- * branches rather than a whole definition.
- */
-export function section(source: string, from: string, to: string): string {
-  const lines = source.split("\n");
-  const start = lines.findIndex((line) => line.startsWith(from));
-  if (start === -1) throw new Error(`section: no line starts with ${from}`);
-  const end = lines.findIndex(
-    (line, i) => i > start && line.startsWith(to),
-  );
-  if (end === -1) throw new Error(`section: no line starts with ${to}`);
-  return lines
-    .slice(start, end)
-    .join("\n")
-    .replace(/\s+$/, "");
-}

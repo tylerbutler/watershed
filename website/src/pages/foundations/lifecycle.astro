@@ -1,26 +1,21 @@
 ---
-import { Code } from "astro:components";
 import FoundationsLayout from "../../components/FoundationsLayout.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt, section } from "../../lib/excerpt";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { snippetFromDefinition, snippetFromMarker } from "../../lib/snippet.ts";
 import watershedMain from "../../../../src/watershed.gleam?raw";
 import watershedLustre from "../../../../watershed_lustre/src/watershed_lustre.gleam?raw";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
 
-const connectFn = excerpt(watershedLustre, "pub fn connect(");
-const readiness = section(
-  appSource,
-  "    GotDocument(document) -> {",
-  "    EnsuredNotes(Ok(notes)) ->",
-);
-const ensureChannel = excerpt(watershedMain, "fn ensure_channel(");
-const bootstrapEffect = excerpt(appSource, "fn bootstrap_effect(");
-const assemble = excerpt(appSource, "fn assemble(model: Model) -> #(Model, Effect(Msg)) {");
-const ensuredArms = section(
-  appSource,
-  "    EnsuredNotes(Ok(notes)) ->",
-  "    SharedChanged ->",
-);
+const appPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam";
+const lustrePath = "watershed_lustre/src/watershed_lustre.gleam";
+const mainPath = "src/watershed.gleam";
+
+const connectFnSnippet = snippetFromDefinition(watershedLustre, lustrePath, "gleam", "pub fn connect(");
+const readinessSnippet = snippetFromMarker(appSource, appPath, "gleam", "update-readiness");
+const ensureChannelSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "fn ensure_channel(");
+const bootstrapEffectSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn bootstrap_effect(");
+const assembleSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn assemble(model: Model) -> #(Model, Effect(Msg)) {");
+const ensuredArmsSnippet = snippetFromMarker(appSource, appPath, "gleam", "lifecycle-ensured-arms");
 ---
 
 <FoundationsLayout
@@ -37,9 +32,7 @@ const ensuredArms = section(
       runs later, once the handshake and the full history replay are done and
       your local state genuinely matches everyone else's.
     </p>
-    <figure class="g-code">
-      <Code code={connectFn} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={connectFnSnippet} />
     <p>
       You can start a root subscription the moment <code>got_document</code>{" "}
       fires — there's nothing to lose by watching for changes early. Creating
@@ -81,9 +74,7 @@ const ensuredArms = section(
       bootstrap once the second one lands, which reads the same whichever
       order you reason about it in.
     </p>
-    <figure class="g-code">
-      <Code code={readiness} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={readinessSnippet} />
   </div>
 
   <div class="g-block">
@@ -108,9 +99,7 @@ const ensuredArms = section(
       last-writer-wins on that key settles any race without a candidate or a
       wait.
     </p>
-    <figure class="g-code">
-      <Code code={ensureChannel} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={ensureChannelSnippet} />
     <div class="g-note">
       <p>
         <strong>Two clients racing to create the same channel both create
@@ -151,9 +140,7 @@ const ensuredArms = section(
       for each nested channel the schema needs, and a subscription on the
       root.
     </p>
-    <figure class="g-code">
-      <Code code={bootstrapEffect} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={bootstrapEffectSnippet} />
   </div>
 
   <div class="g-block">
@@ -166,12 +153,8 @@ const ensuredArms = section(
       in, and only assemble something worth rendering once every channel the
       schema needs is in hand.
     </p>
-    <figure class="g-code">
-      <Code code={ensuredArms} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <figure class="g-code">
-      <Code code={assemble} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={ensuredArmsSnippet} />
+    <SnippetBlock snippet={assembleSnippet} />
   </div>
 
   <div class="g-block">

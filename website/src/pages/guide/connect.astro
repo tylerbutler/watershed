@@ -1,49 +1,29 @@
 ---
-import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt, section } from "../../lib/excerpt";
-import { snippetFromDefinition, snippetFromLiteral } from "../../lib/snippet.ts";
+import { snippetFromDefinition, snippetFromMarker, snippetFromLiteral } from "../../lib/snippet.ts";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
 import schemaSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam?raw";
 import gleamToml from "../../../../examples/retro_tutorial_lustre/gleam.toml?raw";
 
-const devConstantsSnippet = snippetFromLiteral(
-  section(appSource, "/// These dev constants match", "pub fn main("),
-  "gleam",
-  "src/retro_tutorial_lustre.gleam",
-);
-const startSnippet = snippetFromDefinition(
-  appSource,
-  "src/retro_tutorial_lustre.gleam",
-  "gleam",
-  "pub fn main(",
-);
-const connectEffect = excerpt(appSource, "fn init(");
-const readiness = section(
-  appSource,
-  "    GotDocument(document) -> {",
-  "    EnsuredNotes(Ok(notes)) ->",
-);
+const appPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam";
 
-const bootstrapSnippet = snippetFromDefinition(
-  appSource,
-  "src/retro_tutorial_lustre.gleam",
-  "gleam",
-  "fn bootstrap_effect(",
-);
+const devConstantsSnippet = snippetFromMarker(appSource, appPath, "gleam", "guide-connect-dev-constants");
+const startSnippet = snippetFromDefinition(appSource, appPath, "gleam", "pub fn main(");
+const connectEffectSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn init(");
+const readinessSnippet = snippetFromMarker(appSource, appPath, "gleam", "update-readiness");
+const bootstrapSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn bootstrap_effect(");
 const schemaSnippet = snippetFromLiteral(
   schemaSource,
   "gleam",
-  "src/retro_tutorial_lustre/document_schema.gleam",
+  "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam",
 );
-const gleamTomlSnippet = snippetFromLiteral(gleamToml, "toml", "gleam.toml");
+const gleamTomlSnippet = snippetFromLiteral(gleamToml, "toml", "examples/retro_tutorial_lustre/gleam.toml");
+const assembleSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn assemble(");
 
-const assemble = excerpt(appSource, "fn assemble(");
-
-const beam = `import gleam/erlang/process.{type Subject}
+const beamSnippet = snippetFromLiteral(
+  `import gleam/erlang/process.{type Subject}
 import watershed/map_kernel
 import watershed_beam
 
@@ -62,9 +42,13 @@ let assert Ok(doc) =
 
 // Root-map changes arrive as a Subject you select on, not as a callback.
 let events: Subject(map_kernel.MapEvent) =
-  watershed_beam.subscribe(watershed_beam.root(doc))`;
+  watershed_beam.subscribe(watershed_beam.root(doc))`,
+  "gleam",
+  "watershed_beam (comparison)",
+);
 
-const layout = `retro_tutorial_lustre/
+const layoutSnippet = snippetFromLiteral(
+  `retro_tutorial_lustre/
 ├── gleam.toml
 ├── package.json
 ├── pnpm-workspace.yaml
@@ -80,7 +64,19 @@ const layout = `retro_tutorial_lustre/
     ├── retro_tutorial_lustre_test.gleam
     ├── note_codec_test.gleam
     ├── board_test.gleam
-    └── convergence_test.gleam      ← step 06`;
+    └── convergence_test.gleam      ← step 06`,
+  "text",
+  "examples/retro_tutorial_lustre/",
+);
+
+const runSnippet = snippetFromLiteral(
+  `cd examples/retro_tutorial_lustre
+pnpm install
+pnpm build
+pnpm serve      # http://localhost:8080`,
+  "sh",
+  "(shell)",
+);
 ---
 
 <GuideLayout
@@ -133,9 +129,7 @@ const layout = `retro_tutorial_lustre/
       your <code>init</code> just returns the connection as one more effect —
       the same way it returns any other effect in Lustre.
     </p>
-    <figure class="g-code">
-      <Code code={connectEffect} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={connectEffectSnippet} />
     <div class="g-note">
       <p>
         <strong>Development and production put token signing on opposite sides
@@ -168,9 +162,7 @@ const layout = `retro_tutorial_lustre/
       building the board once whichever one arrives second has shown up. That
       is the whole reason for the double <code>case</code> below.
     </p>
-    <figure class="g-code">
-      <Code code={readiness} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={readinessSnippet} />
     <FieldNoteRef id="ffi-surface" />
   </div>
 
@@ -223,9 +215,7 @@ const layout = `retro_tutorial_lustre/
       the board until both are in. Until then, the shell still renders and its
       status line reports <code>channels 1/2</code>.
     </p>
-    <figure class="g-code">
-      <Code code={assemble} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={assembleSnippet} />
     <p>
       The subscriptions come last, and they matter more than they look. A
       subscription only tells you about changes that happen <em>after</em> you
@@ -254,12 +244,11 @@ const layout = `retro_tutorial_lustre/
       connecting and subscribing look different, because the two runtimes work
       differently.
     </p>
-    <figure class="g-code">
-      <Code code={beam} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">
+    <SnippetBlock snippet={beamSnippet}>
+      <figcaption slot="caption" class="annot">
         watershed_beam · for comparison only, the tutorial stays in the browser
       </figcaption>
-    </figure>
+    </SnippetBlock>
     <p>
       On the BEAM, there’s no two-message dance to design around:{" "}
       <code>connect</code> simply pauses your code until the document has
@@ -280,9 +269,7 @@ const layout = `retro_tutorial_lustre/
       app shell already imports them, so use the complete example and read the
       guide forward.
     </p>
-    <figure class="g-code">
-      <Code code={layout} lang="text" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={layoutSnippet} />
     <p>
       watershed is not published to Hex yet, so the two <code>path</code>
       dependencies resolve because this example lives in <code>examples/</code>
@@ -296,16 +283,7 @@ const layout = `retro_tutorial_lustre/
       Start a floodgate development server on port <code>4000</code> with{" "}
       <code>just integration-up</code>, then:
     </p>
-    <figure class="g-code">
-      <Code
-        code={`cd examples/retro_tutorial_lustre
-pnpm install
-pnpm build
-pnpm serve      # http://localhost:8080`}
-        lang="sh"
-        theme={watershedCodeTheme}
-      />
-    </figure>
+    <SnippetBlock snippet={runSnippet} />
   </div>
 
   <div class="g-out">

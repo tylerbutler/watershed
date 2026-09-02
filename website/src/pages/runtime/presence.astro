@@ -1,15 +1,19 @@
 ---
-import { Code } from "astro:components";
 import RuntimeLayout from "../../components/RuntimeLayout.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { snippetFromLiteral } from "../../lib/snippet.ts";
 
-const cfg = `import watershed/presence
+const cfgSnippet = snippetFromLiteral(
+  `import watershed/presence
 
 // One codec, one mode. \`Auto\` takes server presence where the server
 // offers it and falls back to the ripple heartbeat where it does not.
 let config =
   presence.config(encode_cursor, cursor_decoder())
-  |> presence.with_mode(presence.Auto)`;
+  |> presence.with_mode(presence.Auto)`,
+  "gleam",
+  "(illustrative — presence configuration)",
+);
 ---
 
 <RuntimeLayout
@@ -64,9 +68,7 @@ let config =
       <strong>Presence</strong> closes it, and offers one API over two ways of
       doing so.
     </p>
-    <figure class="g-code">
-      <Code code={cfg} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={cfgSnippet} />
     <p>
       A <strong>session</strong> is one tab, device, or process; a
       <strong>key</strong> groups the sessions of one authenticated person. Two

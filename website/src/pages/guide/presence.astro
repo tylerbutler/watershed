@@ -1,35 +1,28 @@
 ---
-import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt, section } from "../../lib/excerpt";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { snippetFromDefinition, snippetFromMarker } from "../../lib/snippet.ts";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
 
-const payload = excerpt(
-  appSource,
+const appPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam";
+
+const payloadSnippet = snippetFromDefinition(
+  appSource, appPath, "gleam",
   "pub type BoardPresence {",
   "fn encode_presence(",
   "fn presence_decoder(",
 );
-const presenceEffect = excerpt(
-  appSource,
+const presenceEffectSnippet = snippetFromDefinition(
+  appSource, appPath, "gleam",
   "fn presence_effect(",
   "fn current_presence(",
 );
-const announce = excerpt(appSource, "fn announce_focus(");
-const focusClicked = section(
-  appSource,
-  "    FocusClicked(id) -> {",
-  "    PresenceStarted(handle) -> {",
-);
-const presenceEvents = section(
-  appSource,
-  "    PresenceEvent(event) ->",
-  "    ReconnectClicked ->",
-);
-const remotePeers = excerpt(appSource, "fn remote_peers(");
-const focusNames = excerpt(appSource, "fn focus_names(");
+const announceSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn announce_focus(");
+const focusClickedSnippet = snippetFromMarker(appSource, appPath, "gleam", "guide-presence-focus-clicked");
+const presenceEventsSnippet = snippetFromMarker(appSource, appPath, "gleam", "guide-presence-events");
+const remotePeersSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn remote_peers(");
+const focusNamesSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn focus_names(");
 ---
 
 <GuideLayout
@@ -67,10 +60,7 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       person is looking at — <code>None</code> when they are looking at the board
       as a whole.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre.gleam</span>
-    <figure class="g-code">
-      <Code code={payload} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={payloadSnippet} />
     <p>
       Note the <code>optional_field</code> on the way in. Someone running last
       week’s version of the app might not send <code>focused_note</code> at
@@ -89,9 +79,7 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       ping), no expiry timer, and no cleanup process to remove people who
       disappeared without saying goodbye.
     </p>
-    <figure class="g-code">
-      <Code code={presenceEffect} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={presenceEffectSnippet} />
     <div class="g-note">
       <p>
         <strong>Two implementations, one API.</strong> Where the server can
@@ -113,12 +101,8 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       one function that says what this client looks like to everyone else, and no
       way for the announced state and the real state to drift.
     </p>
-    <figure class="g-code">
-      <Code code={announce} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <figure class="g-code">
-      <Code code={focusClicked} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={announceSnippet} />
+    <SnippetBlock snippet={focusClickedSnippet} />
     <p>
       Clicking a note toggles that id in <code>model.focus</code>; the clear
       branch drops it back to <code>None</code>. Both republish through
@@ -135,9 +119,7 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       whole roster either way, instead of trying to patch it in place. Redrawing
       the whole list is cheap, and it can never end up out of sync with reality.
     </p>
-    <figure class="g-code">
-      <Code code={presenceEvents} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={presenceEventsSnippet} />
     <p>
       The interesting part is what happens when something goes wrong. If one
       teammate’s presence data doesn’t decode, that single entry is ignored — a
@@ -147,9 +129,7 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       board itself keeps working: notes and votes don’t depend on presence, so
       losing presence never takes them down.
     </p>
-    <figure class="g-code">
-      <Code code={remotePeers} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={remotePeersSnippet} />
     <p>
       Your own entry is in that roster too. Filtering it out by session means the
       chip row can render “you” once, deliberately, instead of showing you twice
@@ -166,9 +146,7 @@ const focusNames = excerpt(appSource, "fn focus_names(");
       at it comes from the temporary one — presence. The card combines both,
       freshly, every time it’s drawn.
     </p>
-    <figure class="g-code">
-      <Code code={focusNames} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={focusNamesSnippet} />
     <p>
       Same idea, now with the actual function: <code>focus_names</code> combines
       your own local focus with anyone else’s whose focused note matches this

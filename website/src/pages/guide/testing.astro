@@ -1,31 +1,37 @@
 ---
-import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt } from "../../lib/excerpt";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { snippetFromDefinition, snippetFromLiteral } from "../../lib/snippet.ts";
 import convergenceSource from "../../../../examples/retro_tutorial_lustre/test/convergence_test.gleam?raw";
 
-const room = excerpt(convergenceSource, "fn room(", "fn channels_of(");
-const boardOf = excerpt(convergenceSource, "fn board_of(");
-const addRace = excerpt(
-  convergenceSource,
+const convergencePath = "examples/retro_tutorial_lustre/test/convergence_test.gleam";
+
+const roomSnippet = snippetFromDefinition(convergenceSource, convergencePath, "gleam", "fn room(", "fn channels_of(");
+const boardOfSnippet = snippetFromDefinition(convergenceSource, convergencePath, "gleam", "fn board_of(");
+const addRaceSnippet = snippetFromDefinition(
+  convergenceSource, convergencePath, "gleam",
   "pub fn concurrent_adds_keep_both_notes_test(",
 );
-const voteRace = excerpt(
-  convergenceSource,
+const voteRaceSnippet = snippetFromDefinition(
+  convergenceSource, convergencePath, "gleam",
   "pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test(",
 );
 
-const scripted = `// Two adds, then deliver one message at a time instead of all at once.
+const scriptedSnippet = snippetFromLiteral(
+  `// Two adds, then deliver one message at a time instead of all at once.
 board.add_note(a.notes, "user-a", "deploys got faster", board.WentWell, 1000, 1)
 board.add_note(b.notes, "user-b", "standup stayed short", board.WentWell, 1000, 1)
 
 sluice_js.step(sluice)     // deliver exactly one queued message
 // ... assert the half-delivered board here ...
-sluice_js.settle(sluice)   // then deliver everything else that's left`;
+sluice_js.settle(sluice)   // then deliver everything else that's left`,
+  "gleam",
+  "(illustrative — scripted delivery)",
+);
 
-const layout = `retro_tutorial_lustre/
+const layoutSnippet = snippetFromLiteral(
+  `retro_tutorial_lustre/
 ├── gleam.toml                      dependencies and the javascript target
 ├── package.json                    pnpm build / pnpm serve
 ├── pnpm-workspace.yaml
@@ -41,7 +47,17 @@ const layout = `retro_tutorial_lustre/
     ├── retro_tutorial_lustre_test.gleam  the gleeunit entry point
     ├── note_codec_test.gleam       round trips, including malformed payloads
     ├── board_test.gleam            ordering, tally joins, unfiled notes
-    └── convergence_test.gleam      this sheet · two races and two wrong-mode guards`;
+    └── convergence_test.gleam      this sheet · two races and two wrong-mode guards`,
+  "text",
+  "examples/retro_tutorial_lustre/",
+);
+
+const runTestsSnippet = snippetFromLiteral(
+  `cd examples/retro_tutorial_lustre
+gleam test`,
+  "sh",
+  "(shell)",
+);
 ---
 
 <GuideLayout
@@ -79,10 +95,7 @@ const layout = `retro_tutorial_lustre/
       written on client A, and a second settle so client B can pick up that
       state from the shared root map.
     </p>
-    <span class="g-file">test/convergence_test.gleam</span>
-    <figure class="g-code">
-      <Code code={room} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={roomSnippet} />
     <p>
       Neither settle call is decoration. Skip the second one, and client B is
       looking at a root map that doesn’t have those channels in it yet — so{" "}
@@ -100,9 +113,7 @@ const layout = `retro_tutorial_lustre/
       while the actual board people look at was sorting its columns
       differently on each tab.
     </p>
-    <figure class="g-code">
-      <Code code={boardOf} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={boardOfSnippet} />
     <p>
       This is exactly why <code>board</code> keeps the write functions with
       the board state: if a test reimplemented the write instead of calling
@@ -120,9 +131,7 @@ const layout = `retro_tutorial_lustre/
       column tally confirm they didn’t end up identical by both losing the same
       note.
     </p>
-    <figure class="g-code">
-      <Code code={addRace} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={addRaceSnippet} />
     <p>
       The vote race sends three votes across two clients and checks they
       settle at <code>+1</code>. Same shape, same settle call, and no{" "}
@@ -130,9 +139,7 @@ const layout = `retro_tutorial_lustre/
       the timing works out, it calls <code>settle</code> and gets the same
       answer every single time.
     </p>
-    <figure class="g-code">
-      <Code code={voteRace} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={voteRaceSnippet} />
     <div class="g-note">
       <p>
         <strong>Assert on the specific outcome, not just equality.</strong> A
@@ -153,9 +160,7 @@ const layout = `retro_tutorial_lustre/
       It doesn’t change the order things were already assigned; the order you
       called the submit functions in decides that.
     </p>
-    <figure class="g-code">
-      <Code code={scripted} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={scriptedSnippet} />
     <div class="g-note">
       <p>
         <strong>More controls.</strong> Both <code>sluice</code> and
@@ -179,9 +184,7 @@ const layout = `retro_tutorial_lustre/
       Six sheets, one source tree. Everything the procedure built, in the order
       it built it:
     </p>
-    <figure class="g-code">
-      <Code code={layout} lang="text" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={layoutSnippet} />
     <p>
       Every snippet in this guide that comes from the project is quoted from
       these files at build time, so what you read here and what compiles cannot
@@ -190,14 +193,7 @@ const layout = `retro_tutorial_lustre/
         <code>examples/retro_tutorial_lustre</code></a>, and it is meant to be
       copied out and renamed.
     </p>
-    <figure class="g-code">
-      <Code
-        code={`cd examples/retro_tutorial_lustre
-gleam test`}
-        lang="sh"
-        theme={watershedCodeTheme}
-      />
-    </figure>
+    <SnippetBlock snippet={runTestsSnippet} />
   </div>
 
   <div class="g-block">

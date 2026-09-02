@@ -1,36 +1,36 @@
 ---
-import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt, section } from "../../lib/excerpt";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { snippetFromDefinition, snippetFromMarker, snippetFromLiteral } from "../../lib/snippet.ts";
 import boardSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam?raw";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
 import boardTestSource from "../../../../examples/retro_tutorial_lustre/test/board_test.gleam?raw";
 
-const voteOps = excerpt(
-  boardSource,
-  "pub fn upvote(",
-  "pub fn downvote(",
-  "fn change_votes(",
-);
-const readVotes = excerpt(boardSource, "fn vote_entries(");
-const attach = excerpt(boardSource, "fn card(");
-const voteClicks = section(
-  appSource,
-  "    UpvoteClicked(id) ->",
-  "    FocusClicked(id) -> {",
-);
-const orphanTest = excerpt(
+const boardPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam";
+const appPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam";
+const boardTestPath = "examples/retro_tutorial_lustre/test/board_test.gleam";
+
+const voteOpsSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "pub fn upvote(", "pub fn downvote(", "fn change_votes(");
+const readVotesSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "fn vote_entries(");
+const attachSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "fn card(");
+const voteClicksSnippet = snippetFromMarker(appSource, appPath, "gleam", "guide-votes-vote-clicks");
+const orphanTestSnippet = snippetFromDefinition(
   boardTestSource,
+  boardTestPath,
+  "gleam",
   "pub fn tallies_attach_to_matching_notes_and_orphans_are_ignored_test(",
 );
 
-const lossy = `// The version that loses a vote: a plain number in a SharedMap.
+const lossySnippet = snippetFromLiteral(
+  `// The version that loses a vote: a plain number in a SharedMap.
 // Two clients read 4, both write 5, and the second write is not wrong —
 // it is just the last one.
 let current = read_total(board, id)
-watershed.set(board, id, json.int(current + 1))`;
+watershed.set(board, id, json.int(current + 1))`,
+  "gleam",
+  "(illustrative — not in the tutorial source)",
+);
 ---
 
 <GuideLayout
@@ -51,14 +51,8 @@ watershed.set(board, id, json.int(current + 1))`;
       The vote API is three functions, one line of work each. An upvote sends
       <code>+1</code>; a downvote sends <code>-1</code>.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
-    <figure class="g-code">
-      <Code code={voteOps} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <span class="g-file">src/retro_tutorial_lustre.gleam</span>
-    <figure class="g-code">
-      <Code code={voteClicks} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={voteOpsSnippet} />
+    <SnippetBlock snippet={voteClicksSnippet} />
     <p>
       Both branches re-read the board immediately after writing. The change
       applies to your own copy the moment you click, so the number moves right
@@ -74,9 +68,7 @@ watershed.set(board, id, json.int(current + 1))`;
       A simpler-looking approach stores the total as a plain number and
       updates it like this:
     </p>
-    <figure class="g-code">
-      <Code code={lossy} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={lossySnippet} />
     <p>
       It reads, adds one, writes the result back. <em>Read</em> is the
       problem: by the time your write reaches the server, the number it was
@@ -103,19 +95,13 @@ watershed.set(board, id, json.int(current + 1))`;
       back as a <code>Tally</code>, and anything else would mean the channel
       was set up in the wrong mode.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
-    <figure class="g-code">
-      <Code code={readVotes} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={readVotesSnippet} />
     <p>
       The board joins them by note id when it builds each card. A note with no
       tally shows <code>0</code> rather than nothing, so a fresh note and a note
       voted back down to zero look the same — which is what a reader expects.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
-    <figure class="g-code">
-      <Code code={attach} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={attachSnippet} />
     <div class="g-note">
       <p>
         <strong>Two channels, one order.</strong> Both maps belong to the same
@@ -127,13 +113,11 @@ watershed.set(board, id, json.int(current + 1))`;
         without a note is never visited.
       </p>
     </div>
-    <span class="g-file">test/board_test.gleam</span>
-    <figure class="g-code">
-      <Code code={orphanTest} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">
-        the tally for a note that isn’t there renders nowhere and breaks nothing
+    <SnippetBlock snippet={orphanTestSnippet}>
+      <figcaption slot="caption" class="annot">
+        the tally for a note that isn't there renders nowhere and breaks nothing
       </figcaption>
-    </figure>
+    </SnippetBlock>
   </div>
 
   <div class="g-block">

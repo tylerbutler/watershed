@@ -31,6 +31,7 @@ import watershed_lustre
 import retro_tutorial_lustre/board.{type Column, type NoteCard}
 import retro_tutorial_lustre/document_schema
 
+// docs:snippet-start guide-connect-dev-constants
 /// These dev constants match `just integration-up`.
 /// Change them when you point the example at another server.
 const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
@@ -38,6 +39,7 @@ const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
+// docs:snippet-end guide-connect-dev-constants
 
 pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
@@ -230,6 +232,7 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
+    // docs:snippet-start update-readiness
     GotDocument(document) -> {
       let model = Model(..model, document: Some(document))
       let presence_start = presence_effect(model, document)
@@ -254,7 +257,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, status: Failed(reason), last_error: Some(reason)),
       effect.none(),
     )
+    // docs:snippet-end update-readiness
 
+    // docs:snippet-start lifecycle-ensured-arms
     EnsuredNotes(Ok(notes)) ->
       Model(
         ..model,
@@ -276,6 +281,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, last_error: Some("votes channel failed: " <> reason)),
       effect.none(),
     )
+    // docs:snippet-end lifecycle-ensured-arms
 
     SharedChanged -> #(snapshot(model), effect.none())
 
@@ -287,6 +293,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
+    // docs:snippet-start guide-notes-add-clicked
     // These watershed mutations apply synchronously.
     // The subscriptions deliver the render message `SharedChanged`.
     // These branches do not need Lustre effect wrappers.
@@ -315,7 +322,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
       }
     }
+    // docs:snippet-end guide-notes-add-clicked
 
+    // docs:snippet-start guide-votes-vote-clicks
     UpvoteClicked(id) ->
       case model.shared {
         Some(shared) -> {
@@ -333,7 +342,9 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
         None -> #(model, effect.none())
       }
+    // docs:snippet-end guide-votes-vote-clicks
 
+    // docs:snippet-start guide-presence-focus-clicked
     FocusClicked(id) -> {
       let focus = case model.focus {
         Some(current) if current == id -> None
@@ -347,12 +358,14 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let model = Model(..model, focus: None)
       #(model, announce_focus(model))
     }
+    // docs:snippet-end guide-presence-focus-clicked
 
     PresenceStarted(handle) -> {
       let model = Model(..model, presence: Some(handle))
       #(model, announce_focus(model))
     }
 
+    // docs:snippet-start guide-presence-events
     PresenceEvent(event) ->
       case event {
         presence.State(entries) | presence.Changed(_, entries) -> #(
@@ -372,6 +385,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           effect.none(),
         )
       }
+    // docs:snippet-end guide-presence-events
 
     ReconnectClicked ->
       case model.document {

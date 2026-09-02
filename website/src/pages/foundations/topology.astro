@@ -1,23 +1,25 @@
 ---
-import { Code } from "astro:components";
 import FoundationsLayout from "../../components/FoundationsLayout.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt } from "../../lib/excerpt";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { snippetFromDefinition, snippetFromLiteral } from "../../lib/snippet.ts";
 import watershedMain from "../../../../src/watershed.gleam?raw";
 
-const rootTyped = excerpt(
-  watershedMain,
+const mainPath = "src/watershed.gleam";
+
+const rootTypedSnippet = snippetFromDefinition(
+  watershedMain, mainPath, "gleam",
   "pub fn root_typed(document: Document(root)) -> TypedMap(root) {",
 );
-const handleOf = excerpt(watershedMain, "pub fn handle_of(map: SharedMap) -> Json {");
-const createMap = excerpt(
-  watershedMain,
+const handleOfSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "pub fn handle_of(map: SharedMap) -> Json {");
+const createMapSnippet = snippetFromDefinition(
+  watershedMain, mainPath, "gleam",
   "pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {",
 );
-const resolveFn = excerpt(watershedMain, "pub fn resolve(");
-const resolveChild = excerpt(watershedMain, "pub fn resolve_child(");
+const resolveFnSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "pub fn resolve(");
+const resolveChildSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "pub fn resolve_child(");
 
-const layoutDiagram = `root
+const layoutDiagramSnippet = snippetFromLiteral(
+  `root
 ├─ "game"      = "watershed dice scores"   (Field(GameRoot, String))
 ├─ "die_sides" = 6                         (Field(GameRoot, Int))
 └─ "players"   = handle ──▶ roster         (ChildField(GameRoot, Roster))
@@ -29,7 +31,10 @@ player map
 ├─ "name"
 ├─ "last_roll"
 ├─ "total"
-└─ "rolls"`;
+└─ "rolls"`,
+  "text",
+  "examples/scoreboard_cli/src/scoreboard_cli.gleam (diagram)",
+);
 ---
 
 <FoundationsLayout
@@ -46,9 +51,7 @@ player map
       <code>Msg</code> constructor, usually. Everything your schema declares
       hangs off that one map.
     </p>
-    <figure class="g-code">
-      <Code code={rootTyped} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={rootTypedSnippet} />
   </div>
 
   <div class="g-block">
@@ -62,9 +65,7 @@ player map
       document. Reading that key back gives you the marker, not the child's
       contents; you resolve it separately to reach the channel it points to.
     </p>
-    <figure class="g-code">
-      <Code code={handleOf} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={handleOfSnippet} />
   </div>
 
   <div class="g-block">
@@ -78,16 +79,12 @@ player map
       of the world. Create a map and forget to store its handle anywhere, and
       it just quietly stays a local orphan.
     </p>
-    <figure class="g-code">
-      <Code code={createMap} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={createMapSnippet} />
     <p>
       Going the other way, <code>resolve</code> turns a handle you read back
       out of a map into the live channel it names.
     </p>
-    <figure class="g-code">
-      <Code code={resolveFn} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={resolveFnSnippet} />
   </div>
 
   <div class="g-block">
@@ -115,12 +112,7 @@ player map
       players, keyed by id, looks like this on the wire — a root map, a child
       map, and a further map nested under that:
     </p>
-    <figure class="g-code">
-      <Code code={layoutDiagram} lang="text" theme={watershedCodeTheme} />
-      <figcaption class="annot">
-        diagram · shape of examples/scoreboard_cli/src/scoreboard_cli.gleam
-      </figcaption>
-    </figure>
+    <SnippetBlock snippet={layoutDiagramSnippet} />
     <p>
       Nothing about that layout is a single data structure the way a JSON
       document or an in-memory tree is. Each named piece is its own channel,
@@ -151,9 +143,7 @@ player map
         resolving returns an error you can retry, not a broken document.
       </li>
     </ul>
-    <figure class="g-code">
-      <Code code={resolveChild} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={resolveChildSnippet} />
     <div class="g-note">
       <p>
         <strong>That retry isn't an edge case to special-case away.</strong> Every

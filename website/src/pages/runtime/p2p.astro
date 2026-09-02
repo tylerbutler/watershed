@@ -1,9 +1,10 @@
 ---
-import { Code } from "astro:components";
 import RuntimeLayout from "../../components/RuntimeLayout.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { snippetFromLiteral } from "../../lib/snippet.ts";
 
-const cfg = `import watershed/crdt_js
+const cfgSnippet = snippetFromLiteral(
+  `import watershed/crdt_js
 import watershed/p2p
 
 // Auto starts on WebRTC and attempts the relay in parallel — it never
@@ -17,7 +18,10 @@ let config =
     signaling: signaling,
   )
   |> crdt_js.with_transport_policy(crdt_js.Auto)
-  |> crdt_js.with_sequencer(crdt_js.sequencer("wss://relay.example/room"))`;
+  |> crdt_js.with_sequencer(crdt_js.sequencer("wss://relay.example/room"))`,
+  "gleam",
+  "(illustrative — CRDT document configuration)",
+);
 ---
 
 <RuntimeLayout
@@ -100,9 +104,7 @@ let config =
       A <code>CrdtDocument</code> chooses its transports once, at
       <code>config</code> time:
     </p>
-    <figure class="g-code">
-      <Code code={cfg} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={cfgSnippet} />
     <p>
       <strong><code>Auto</code></strong> is the default: the mesh and any
       configured relay each come up on their own schedule, readiness waits

@@ -1,8 +1,7 @@
 ---
-import { Code } from "astro:components";
 import FoundationsLayout from "../../components/FoundationsLayout.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt } from "../../lib/excerpt";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { snippetFromDefinition } from "../../lib/snippet.ts";
 import schemaModule from "../../../../src/watershed/schema.gleam?raw";
 import watershedMain from "../../../../src/watershed.gleam?raw";
 import retroSchema from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam?raw";
@@ -10,41 +9,44 @@ import showcaseSchema from "../../../../examples/showcase_lustre/src/showcase_lu
 import sudokuSchema from "../../../../examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam?raw";
 import scoreboard from "../../../../examples/scoreboard_cli/src/scoreboard_cli.gleam?raw";
 
-const fieldType = excerpt(schemaModule, "pub opaque type Field(schema, a) {");
-const titleField = excerpt(
-  retroSchema,
+const schemaPath = "src/watershed/schema.gleam";
+const mainPath = "src/watershed.gleam";
+const retroSchemaPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam";
+const showcaseSchemaPath = "examples/showcase_lustre/src/showcase_lustre/document_schema.gleam";
+const sudokuSchemaPath = "examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam";
+const scoreboardPath = "examples/scoreboard_cli/src/scoreboard_cli.gleam";
+
+const fieldTypeSnippet = snippetFromDefinition(schemaModule, schemaPath, "gleam", "pub opaque type Field(schema, a) {");
+const titleFieldSnippet = snippetFromDefinition(
+  retroSchema, retroSchemaPath, "gleam",
   "pub fn title() -> Field(BoardDocument, String) {",
 );
-
-const childFieldType = excerpt(
-  schemaModule,
+const childFieldTypeSnippet = snippetFromDefinition(
+  schemaModule, schemaPath, "gleam",
   "pub opaque type ChildField(schema, child) {",
 );
-const textChild = excerpt(
-  showcaseSchema,
+const textChildSnippet = snippetFromDefinition(
+  showcaseSchema, showcaseSchemaPath, "gleam",
   "pub fn text() -> ChildField(Showcase, text_schema.TextDocument) {",
 );
-
-const channelFieldType = excerpt(
-  schemaModule,
+const channelFieldTypeSnippet = snippetFromDefinition(
+  schemaModule, schemaPath, "gleam",
   "pub opaque type ChannelField(schema, kind) {",
 );
-const sudokuFields = excerpt(
-  sudokuSchema,
+const sudokuFieldsSnippet = snippetFromDefinition(
+  sudokuSchema, sudokuSchemaPath, "gleam",
   "pub fn cells() -> ChannelField(SudokuDocument, MapChannel) {",
   "pub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) {",
   "pub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) {",
   "pub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) {",
 );
-
-const fieldError = excerpt(schemaModule, "pub type FieldError {");
-const getField = excerpt(watershedMain, "pub fn get_field(");
-
-const playerSchema = excerpt(
-  scoreboard,
+const fieldErrorSnippet = snippetFromDefinition(schemaModule, schemaPath, "gleam", "pub type FieldError {");
+const getFieldSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "pub fn get_field(");
+const playerSchemaSnippet = snippetFromDefinition(
+  scoreboard, scoreboardPath, "gleam",
   "fn player_schema() -> Result(schema.Schema(Player, PlayerState), Nil) {",
 );
-const stampFn = excerpt(watershedMain, "pub fn stamp(");
+const stampFnSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "pub fn stamp(");
 ---
 
 <FoundationsLayout
@@ -75,15 +77,8 @@ const stampFn = excerpt(watershedMain, "pub fn stamp(");
       a function call, so a field's name has to be a function, not a
       constant.
     </p>
-    <figure class="g-code">
-      <Code code={fieldType} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <figure class="g-code">
-      <Code code={titleField} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">
-        watershed · examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam
-      </figcaption>
-    </figure>
+    <SnippetBlock snippet={fieldTypeSnippet} />
+    <SnippetBlock snippet={titleFieldSnippet} />
     <p>
       <code>BoardDocument</code> is the tag. Nothing ever constructs a{" "}
       <code>BoardDocument</code> value — it exists so <code>title()</code> can only
@@ -117,15 +112,8 @@ const stampFn = excerpt(watershedMain, "pub fn stamp(");
       still tells you which schema the child map uses, so reading through it
       is just as typed as reading a plain field.
     </p>
-    <figure class="g-code">
-      <Code code={childFieldType} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <figure class="g-code">
-      <Code code={textChild} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">
-        watershed · examples/showcase_lustre/src/showcase_lustre/document_schema.gleam
-      </figcaption>
-    </figure>
+    <SnippetBlock snippet={childFieldTypeSnippet} />
+    <SnippetBlock snippet={textChildSnippet} />
     <p>
       <a href="/foundations/topology">The next sheet</a> covers what "handle"
       really means here — the child map is a separate channel, not a branch of
@@ -145,16 +133,8 @@ const stampFn = excerpt(watershedMain, "pub fn stamp(");
       functions that understands that kind, so calling a counter's resolver on
       an OR-set field is a compile error, not a runtime surprise.
     </p>
-    <figure class="g-code">
-      <Code code={channelFieldType} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <figure class="g-code">
-      <Code code={sudokuFields} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">
-        watershed · examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam —
-        four slots, four different merge rules
-      </figcaption>
-    </figure>
+    <SnippetBlock snippet={channelFieldTypeSnippet} />
+    <SnippetBlock snippet={sudokuFieldsSnippet} />
     <p>
       Each of those four fields answers "what happens when two players touch
       this at once" on its own terms. <a href="/structures">The field
@@ -174,12 +154,8 @@ const stampFn = excerpt(watershedMain, "pub fn stamp(");
       what you expect, and it hands you a <code>Result</code> instead of the
       bare value.
     </p>
-    <figure class="g-code">
-      <Code code={fieldError} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <figure class="g-code">
-      <Code code={getField} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={fieldErrorSnippet} />
+    <SnippetBlock snippet={getFieldSnippet} />
     <div class="g-note">
       <p>
         <strong>The error is the interesting case, not the exception.</strong>{" "}
@@ -210,12 +186,7 @@ const stampFn = excerpt(watershedMain, "pub fn stamp(");
       key by key, exactly like two plain fields would — nothing about{" "}
       <code>Schema</code> makes the record's keys succeed or fail together.
     </p>
-    <figure class="g-code">
-      <Code code={playerSchema} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">
-        watershed · examples/scoreboard_cli/src/scoreboard_cli.gleam
-      </figcaption>
-    </figure>
+    <SnippetBlock snippet={playerSchemaSnippet} />
     <p>
       <code>sealed_known</code> closes the record to exactly the keys its
       props declared, with no key list to repeat by hand and let go stale.{" "}
@@ -226,9 +197,7 @@ const stampFn = excerpt(watershedMain, "pub fn stamp(");
       call <code>stamp</code> yourself, by convention, once right after you
       create the map, or every reader treats it as unversioned.
     </p>
-    <figure class="g-code">
-      <Code code={stampFn} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={stampFnSnippet} />
     <p>
       Build a whole-record <code>Schema</code> when a group of keys only makes
       sense together, like a player's name and score. Keep using plain{" "}

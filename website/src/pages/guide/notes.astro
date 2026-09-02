@@ -1,32 +1,23 @@
 ---
-import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt, section } from "../../lib/excerpt";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { snippetFromDefinition, snippetFromMarker } from "../../lib/snippet.ts";
 import noteSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam?raw";
 import boardSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam?raw";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
 
-const noteRecord = excerpt(noteSource, "pub type Note {", "pub fn id(");
-const codec = excerpt(
-  noteSource,
-  "pub fn to_json(",
-  "pub fn from_register(",
-);
-const addNote = excerpt(boardSource, "pub fn add_note(");
-const readNotes = excerpt(boardSource, "fn note_entries(");
-const ordering = excerpt(
-  boardSource,
-  "fn notes_in_column(",
-  "fn by_created_then_id(",
-);
-const unfiled = excerpt(boardSource, "fn unfiled(");
-const addClicked = section(
-  appSource,
-  "    // These watershed mutations apply synchronously.",
-  "    UpvoteClicked(id) ->",
-);
+const notePath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam";
+const boardPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam";
+const appPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam";
+
+const noteRecordSnippet = snippetFromDefinition(noteSource, notePath, "gleam", "pub type Note {", "pub fn id(");
+const codecSnippet = snippetFromDefinition(noteSource, notePath, "gleam", "pub fn to_json(", "pub fn from_register(");
+const addNoteSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "pub fn add_note(");
+const readNotesSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "fn note_entries(");
+const orderingSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "fn notes_in_column(", "fn by_created_then_id(");
+const unfiledSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "fn unfiled(");
+const addClickedSnippet = snippetFromMarker(appSource, appPath, "gleam", "guide-notes-add-clicked");
 ---
 
 <GuideLayout
@@ -63,13 +54,8 @@ const addClicked = section(
       column register as authoritative when it reconciles the two.
     </p>
     <FieldNoteRef id="authoritative-channel" />
-    <span class="g-file">src/retro_tutorial_lustre/note.gleam</span>
-    <figure class="g-code">
-      <Code code={noteRecord} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <figure class="g-code">
-      <Code code={codec} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={noteRecordSnippet} />
+    <SnippetBlock snippet={codecSnippet} />
     <div class="g-note">
       <p>
         <strong>Anyone can write anything.</strong> The typed <code>Note</code>{" "}
@@ -91,10 +77,7 @@ const addClicked = section(
       random number added just to keep ids unique — is there because two notes
       from one author can land in the same millisecond.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
-    <figure class="g-code">
-      <Code code={addNote} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={addNoteSnippet} />
     <p>
       <code>board</code> keeps the UI and the tests on the exact same write
       function, not two separate copies of the same logic.
@@ -102,10 +85,7 @@ const addClicked = section(
       prove is that the reimplementation agrees with itself. Step 06 depends on
       this.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre.gleam</span>
-    <figure class="g-code">
-      <Code code={addClicked} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={addClickedSnippet} />
   </div>
 
   <div class="g-block">
@@ -119,10 +99,7 @@ const addClicked = section(
       in the wrong mode: a bug in your own startup code, not messy user data to
       defend against.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
-    <figure class="g-code">
-      <Code code={readNotes} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={readNotesSnippet} />
     <p>
       From there, turning that list into a board is just a plain function: no
       side effects, no network calls, data in and data out. Group notes by
@@ -131,10 +108,7 @@ const addClicked = section(
       order. If two notes ever get the same creation timestamp, the id breaks
       the tie, identically, everywhere.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre/board.gleam</span>
-    <figure class="g-code">
-      <Code code={ordering} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={orderingSnippet} />
     <div class="g-note">
       <p>
         <strong>Sort by content, never by arrival.</strong> Two tabs receive
@@ -156,9 +130,7 @@ const addClicked = section(
       option available: the note is real, someone typed it, and it would vanish
       with no trace.
     </p>
-    <figure class="g-code">
-      <Code code={unfiled} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={unfiledSnippet} />
     <p>
       Unknown columns land in <code>unfiled</code> and render in their own
       section. It costs one small function and it is the difference between a
