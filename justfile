@@ -70,14 +70,23 @@ _test-compile-fail:
     echo "ok  two_root_tags is rejected, as it must be"
 
 # Source-backed snippet drift gates — the website test suite that enforces
-# source paths exist, marker IDs are unique and referenced, literal Gleam is
-# allowlisted, only SnippetBlock renders code, and registries are
-# source-backed. Runs the drift gate suite plus every targeted snippet test
-# from the website package, and the global-stylesheet test that keeps the
+# every rendered snippet id is declared and generated, marker IDs are unique
+# and quoted, literal Gleam is allowlisted, only SnippetBlock renders code,
+# and only the loader reads the generated manifest. Regenerates the manifest
+# first, then runs the drift gate suite plus every targeted snippet test from
+# the website package, and the global-stylesheet test that keeps the
 # source-path chip keyboard-focusable — a snippet's citation is a link, so
 # losing its focus ring is a drift of the same system.
-_test-website-snippets:
-    cd website && pnpm test:snippet && pnpm test:snippet-markers && pnpm test:practice-snippets && pnpm test:guide-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles
+_test-website-snippets: website-snippets
+    cd website && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles
+
+# Generate the website's snippet manifest from `website/snippets.json`.
+# The output, `website/src/generated/snippets.json`, is ignored rather than
+# committed: it is derived from the marked sources and the configuration, so
+# a checked-in copy could only ever disagree with them. `pnpm build` and
+# `pnpm dev` run this too, so the website never reads a stale manifest.
+website-snippets:
+    cd tools/source-snippets && gleam run -m source_snippets/cli -- ../../website/snippets.json ../../website/src/generated/snippets.json
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by

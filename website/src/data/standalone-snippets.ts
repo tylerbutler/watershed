@@ -1,107 +1,53 @@
 // ──────────────────────────────────────────────────────────────────────────
-// Standalone snippet registry — source-backed code excerpts for the
-// homepage, runtime pages, and the SharedTree comparison. Each Gleam
-// snippet is extracted from a compiled source (example or fixture);
-// TypeScript snippets are explicit literals with syntax checking.
+// Standalone snippet registry — the source-backed code the homepage, the
+// runtime sheets, and the SharedTree comparison quote, plus the Fluid
+// TypeScript the comparison sets beside it.
+//
+// The Gleam side is generated: `website/snippets.json` declares each range,
+// `tools/source-snippets` extracts it, and the loader fails the build on an
+// id nothing generates. The TypeScript side stays illustrative — Fluid
+// Framework is external, so there is no checked-in source to quote — and
+// each literal is parsed at test time instead.
 // ──────────────────────────────────────────────────────────────────────────
-import {
-  combineSnippets,
-  snippetFromDefinition,
-  snippetFromLiteral,
-  snippetFromMarker,
-  type Snippet,
-} from "../lib/snippet.ts";
-
-// ── Raw source imports (Gleam — compiled examples) ─────────────────────────
-import diceCLISource from "../../../examples/dice_cli/src/dice_cli.gleam?raw";
-import sudokuSchemaSource from "../../../examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam?raw";
-import sudokuComponentSource from "../../../examples/sudoku_lustre/src/sudoku_lustre/component.gleam?raw";
-
-// ── Raw source imports (Gleam — website fixture) ───────────────────────────
-import boardSchemaSource from "../../../tools/website-samples/src/website_samples/board_schema.gleam?raw";
-import boardAppSource from "../../../tools/website-samples/src/website_samples/board_app.gleam?raw";
-import optimisticSource from "../../../tools/website-samples/src/website_samples/optimistic_sample.gleam?raw";
-import p2pSource from "../../../tools/website-samples/src/website_samples/p2p_sample.gleam?raw";
-
-// ── Source paths (repo-relative, for citation and links) ───────────────────
-const paths = {
-  diceCLI: "examples/dice_cli/src/dice_cli.gleam",
-  sudokuSchema: "examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam",
-  sudokuComponent: "examples/sudoku_lustre/src/sudoku_lustre/component.gleam",
-  boardSchema: "tools/website-samples/src/website_samples/board_schema.gleam",
-  boardApp: "tools/website-samples/src/website_samples/board_app.gleam",
-  optimistic: "tools/website-samples/src/website_samples/optimistic_sample.gleam",
-  p2p: "tools/website-samples/src/website_samples/p2p_sample.gleam",
-} as const;
+import { snippetFromLiteral, sourceSnippet, type Snippet } from "../lib/snippet.ts";
 
 // ── Gleam snippets ─────────────────────────────────────────────────────────
 
-/** Every standalone Gleam snippet, keyed by extraction id. */
+/** Every standalone Gleam snippet, keyed by generated id. */
 export const standaloneSnippets: Record<string, Snippet> = {
   // Homepage BEAM sample — the full connect → root → subscribe → set → loop
   // flow from the dice CLI example.
-  "homepage-beam": snippetFromMarker(
-    diceCLISource, paths.diceCLI, "gleam", "homepage-beam",
-  ),
+  "homepage-beam": sourceSnippet("homepage-beam"),
 
   // Runtime / optimistic — local set + immediate get
-  "optimistic-local": snippetFromMarker(
-    optimisticSource, paths.optimistic, "gleam", "optimistic-local",
-  ),
+  "optimistic-local": sourceSnippet("optimistic-local"),
 
   // Runtime / p2p — CRDT document configuration
-  "p2p-config": snippetFromMarker(
-    p2pSource, paths.p2p, "gleam", "p2p-config",
-  ),
+  "p2p-config": sourceSnippet("p2p-config"),
 
   // SharedTree comparison — schema declaration
-  "sharedtree-declare": snippetFromMarker(
-    boardSchemaSource, paths.boardSchema, "gleam", "sharedtree-declare",
-  ),
+  "sharedtree-declare": sourceSnippet("sharedtree-declare"),
 
   // SharedTree comparison — bootstrap with ensure_*
-  "sharedtree-bootstrap": snippetFromMarker(
-    boardAppSource, paths.boardApp, "gleam", "sharedtree-bootstrap",
-  ),
+  "sharedtree-bootstrap": sourceSnippet("sharedtree-bootstrap"),
 
   // SharedTree comparison — typed read / write
-  "sharedtree-read-write": snippetFromMarker(
-    boardAppSource, paths.boardApp, "gleam", "sharedtree-read-write",
-  ),
+  "sharedtree-read-write": sourceSnippet("sharedtree-read-write"),
 
   // SharedTree comparison — record schema + write
-  "sharedtree-record": snippetFromMarker(
-    boardAppSource, paths.boardApp, "gleam", "sharedtree-record",
-  ),
+  "sharedtree-record": sourceSnippet("sharedtree-record"),
 
   // SharedTree comparison — field subscription events
-  "sharedtree-events": snippetFromMarker(
-    boardAppSource, paths.boardApp, "gleam", "sharedtree-events",
-  ),
+  "sharedtree-events": sourceSnippet("sharedtree-events"),
 
-  // SharedTree comparison — one root, four channel merge policies.
-  // The four channel fields carry their own markers so the schema sheet can
-  // quote them without the tag and the two plain fields above them. This
-  // sheet wants the whole block, so it joins the five ranges back together
-  // in source order.
-  "sharedtree-nest": [
-    "sudoku-schema-head",
-    "sudoku-schema-cells",
-    "sudoku-schema-notes",
-    "sudoku-schema-givens",
-    "sudoku-schema-mistakes",
-  ]
-    .map((marker) =>
-      snippetFromMarker(sudokuSchemaSource, paths.sudokuSchema, "gleam", marker),
-    )
-    .reduce((joined, next) =>
-      combineSnippets(joined, next, paths.sudokuSchema),
-    ),
+  // SharedTree comparison — one root, four channel merge policies. The four
+  // channel fields carry their own markers so the schema sheet can quote them
+  // without the tag and the two plain fields above them; this sheet wants the
+  // whole block, so the configuration composes the five ranges back together.
+  "sharedtree-nest": sourceSnippet("sharedtree-nest"),
 
   // SharedTree comparison — narrowed per-kind subscriptions
-  "sharedtree-per-kind": snippetFromMarker(
-    sudokuComponentSource, paths.sudokuComponent, "gleam", "sharedtree-per-kind",
-  ),
+  "sharedtree-per-kind": sourceSnippet("sharedtree-per-kind"),
 };
 
 // ── SharedTree TypeScript literals ─────────────────────────────────────────

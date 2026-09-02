@@ -1,14 +1,21 @@
 // ──────────────────────────────────────────────────────────────────────────
-// Snippet model and extractor.
-// Guide sheets quote the checked-in examples rather than retyping them.
-// A snippet cannot drift from the source it claims to show.
-// `?raw` imports provide the whole file. These functions pull one unit of
-// code out of it and fail the build when that unit is gone or invalid.
+// Snippet model and manifest loader.
+//
+// Sheets quote the checked-in examples rather than retyping them, so a
+// snippet cannot drift from the source it claims to show. The extraction
+// itself is not done here: `tools/source-snippets` reads the marker ranges
+// declared in `website/snippets.json` and writes `src/generated/snippets.json`,
+// which is generated, ignored, and rebuilt before every build and test run.
+//
+// This module decodes that manifest, refuses anything malformed, and hands
+// out one snippet per id. A missing id or a bad entry fails the build here
+// rather than putting unchecked code in front of a reader.
 // ──────────────────────────────────────────────────────────────────────────
+import generatedManifest from "../generated/snippets.json" with { type: "json" };
 
 /** One unit of code shown to the reader. */
 export interface Snippet {
-  /** The extracted code text. */
+  /** The code text, exactly as the generator selected it. */
   code: string;
   /** Language identifier for syntax highlighting. */
   language: string;
@@ -20,55 +27,77 @@ export interface Snippet {
   origin: SnippetOrigin;
 }
 
+/**
+ * Where a snippet's code comes from.
+ *
+ * `source` and `file` are both generated: one names the marker ranges it
+ * composed, the other is a complete module with its directive lines removed.
+ * `literal` is hand-written illustrative code that has no compiled source.
+ */
 export type SnippetOrigin =
-  | { kind: "definition"; heads: string[] }
-  | { kind: "marker"; name: string }
+  | { kind: "source"; markers: string[] }
   | { kind: "file" }
-  | { kind: "literal" }
-  | { kind: "composite"; parts: SnippetOrigin[] };
+  | { kind: "literal" };
 
-const MARKER_START = /^\s*\/\/\s*docs:snippet-start\s+(\S+)\s*$/;
-const MARKER_END = /^\s*\/\/\s*docs:snippet-end\s+(\S+)\s*$/;
+/** The manifest schema this loader understands. */
+const MANIFEST_VERSION = 1;
 
 /**
- * Extract one or more top-level definitions from source, in the order given.
- * Comments directly above each definition are included.
- * Multiple definitions are separated by a blank line.
+ * Decode a generated manifest into one snippet per id.
+ *
+ * The argument is `unknown` on purpose: the manifest is a build artefact
+ * from another program, so nothing about its shape is assumed. Every
+ * departure from the schema throws, naming the entry at fault. There is no
+ * fallback, because a silently empty manifest would take every code block
+ * off the site without failing the build.
  */
-export function snippetFromDefinition(
-  source: string,
-  sourcePath: string,
-  language: string,
-  ...heads: string[]
-): Snippet {
-  if (heads.length === 0) {
-    throw new Error("snippetFromDefinition: no heads provided");
+export function decodeManifest(value: unknown): Map<string, Snippet> {
+  const document = asRecord(value, "manifest");
+
+  if (document.version !== MANIFEST_VERSION) {
+    throw new Error(
+      `snippet manifest: version ${JSON.stringify(document.version)} is not the supported version ${MANIFEST_VERSION}`,
+    );
   }
-  const lines = source.split("\n");
-  const code = heads
-    .map((head) => extractDefinition(lines, head, sourcePath))
-    .join("\n\n");
-  return { code, language, sourcePath, origin: { kind: "definition", heads } };
+
+  const entries = asRecord(document.snippets, "snippets");
+  const snippets = new Map<string, Snippet>();
+  for (const id of Object.keys(entries).sort()) {
+    snippets.set(id, decodeEntry(id, entries[id]));
+  }
+  return snippets;
 }
 
+const snippets = decodeManifest(generatedManifest);
+
 /**
- * Extract a named marker range from source.
- * Removes the marker lines. Normalizes indentation of the extracted range.
+ * The generated snippet with this id.
+ *
+ * The id is the one declared in `website/snippets.json`. An id nothing
+ * generates is a typo or a stale reference, and either way the reader would
+ * get a blank where code belongs, so it throws.
  */
-export function snippetFromMarker(
-  source: string,
-  sourcePath: string,
-  language: string,
-  name: string,
-): Snippet {
-  const code = extractMarkerRange(source, name, sourcePath);
-  return { code, language, sourcePath, origin: { kind: "marker", name } };
+export function sourceSnippet(id: string): Snippet {
+  const snippet = snippets.get(id);
+  if (snippet === undefined) {
+    throw new Error(
+      `snippet: no generated snippet with id "${id}" — website/snippets.json declares the ids, and the manifest is generated from it`,
+    );
+  }
+  return snippet;
+}
+
+/** Every generated id, sorted, for tests and inventory checks. */
+export function sourceSnippetIds(): string[] {
+  return [...snippets.keys()];
 }
 
 /**
- * Wrap an existing code string as a Snippet without extracting from source.
- * Use for full-file imports or manually curated code strings that are not
- * extracted with snippetFromDefinition or snippetFromMarker.
+ * Hand-written code as a Snippet.
+ *
+ * Use it for illustrative code with no compiled source: a comparison with
+ * another library, a shell command, a directory listing. Everything that
+ * quotes real source comes from the manifest instead.
  */
 export function snippetFromLiteral(
   code: string,
@@ -76,226 +105,99 @@ export function snippetFromLiteral(
   sourcePath: string,
   sourceUrl?: string,
 ): Snippet {
+  requireText(code, "code", "literal snippet");
+  requireText(language, "language", "literal snippet");
+  requireText(sourcePath, "sourcePath", "literal snippet");
   return { code, language, sourcePath, sourceUrl, origin: { kind: "literal" } };
 }
 
 /**
- * A whole source file as one snippet, without its marker directive lines.
+ * The same snippet with a link on its source path.
  *
- * A sheet that shows a complete module cannot use a marker range: the Gleam
- * formatter moves a directive written above a `////` module doc comment
- * below it, which would drop the header from the listing. Other sheets still
- * quote parts of the same module by marker, so the directives are dropped
- * here rather than shown to the reader.
- *
- * The Gleam generator's `wholeFile` selector produces the same string for the
- * same file, byte for byte: directive lines removed, one blank line kept at
- * each seam, every other byte and the final newline untouched.
+ * A source URL is frontend policy — where this repository happens to be
+ * published — so it is added here rather than generated. Everything the
+ * manifest decided is copied through untouched, and the snippet passed in is
+ * left alone.
  */
-export function snippetFromWholeFile(
-  source: string,
-  sourcePath: string,
-  language: string,
-): Snippet {
-  return {
-    code: withoutMarkerDirectives(source),
-    language,
-    sourcePath,
-    origin: { kind: "file" },
-  };
+export function withSourceUrl(snippet: Snippet, sourceUrl: string): Snippet {
+  requireText(sourceUrl, "sourceUrl", "source link");
+  return { ...snippet, sourceUrl };
 }
 
-/**
- * The source text with snippet marker directives removed.
- *
- * The formatter puts a blank line on each side of a directive line that
- * stands between two items. Dropping the directive line alone would leave
- * two blank lines, so one of the two goes with it.
- */
-function withoutMarkerDirectives(source: string): string {
-  const lines = source.split("\n");
-  const kept: string[] = [];
-  let previousIsBlank = false;
-  for (let i = 0; i < lines.length; i += 1) {
-    if (isMarkerDirective(lines[i])) {
-      if (previousIsBlank && lines[i + 1]?.trim() === "") i += 1;
-      continue;
-    }
-    kept.push(lines[i]);
-    previousIsBlank = lines[i].trim() === "";
-  }
-  return kept.join("\n");
-}
-
-/**
- * Join two extractions from the same file into one snippet.
- *
- * The result's origin is a composite that keeps *both* parts, in order.
- * An earlier version kept only the first part's origin, which made a
- * two-marker snippet claim single-marker provenance — a gate reading
- * `origin` then vouched for half the code it was shown. Nothing may
- * describe a joined snippet by one of its halves.
- */
-export function combineSnippets(
-  first: Snippet,
-  second: Snippet,
-  sourcePath: string,
-  separator = "\n\n",
-): Snippet {
-  return {
-    code: first.code + separator + second.code,
-    language: first.language,
-    sourcePath,
-    origin: { kind: "composite", parts: [first.origin, second.origin] },
-  };
-}
-
-/**
- * Every non-composite origin reachable from `origin`, in order.
- * A composite contributes its parts, recursively; every other kind
- * contributes itself. Use this rather than `origin.kind` when asking
- * whether a snippet is source-backed.
- */
-export function originParts(origin: SnippetOrigin): SnippetOrigin[] {
-  if (origin.kind !== "composite") return [origin];
-  return origin.parts.flatMap(originParts);
-}
-
-/** True when no part of this snippet's origin is a hand-written literal. */
+/** True when this snippet is generated from real source, not hand-written. */
 export function isSourceBacked(snippet: Snippet): boolean {
-  return originParts(snippet.origin).every((o) => o.kind !== "literal");
+  return snippet.origin.kind !== "literal";
 }
 
-// ── Definition extraction ──────────────────────────────────────────────────
+// ── Decoding ──────────────────────────────────────────────────────────────
 
-function isMarkerDirective(line: string): boolean {
-  return MARKER_START.test(line) || MARKER_END.test(line);
+function decodeEntry(id: string, value: unknown): Snippet {
+  const entry = asRecord(value, `entry "${id}"`);
+  return Object.freeze({
+    code: decodeField(id, entry.code, "code"),
+    language: decodeField(id, entry.language, "language"),
+    sourcePath: decodeField(id, entry.sourcePath, "sourcePath"),
+    origin: decodeOrigin(id, entry.origin),
+  });
 }
 
-function extractDefinition(
-  lines: string[],
-  head: string,
-  sourcePath: string,
-): string {
-  const loc = sourcePath || "(source)";
-  const start = lines.findIndex((line) => line.startsWith(head));
-  if (start === -1) {
+function decodeField(id: string, value: unknown, field: string): string {
+  if (typeof value !== "string" || value.trim() === "") {
     throw new Error(
-      `snippet: no top-level line starts with "${head}" in ${loc}`,
+      `snippet manifest: entry "${id}" has no usable ${field} (${JSON.stringify(value)})`,
+    );
+  }
+  return value;
+}
+
+function decodeOrigin(id: string, value: unknown): SnippetOrigin {
+  const origin = asRecord(value, `entry "${id}" origin`);
+
+  if (origin.kind === "file") {
+    if ("markers" in origin) {
+      throw new Error(
+        `snippet manifest: entry "${id}" is a whole-file listing, so it must name no markers`,
+      );
+    }
+    return Object.freeze({ kind: "file" as const });
+  }
+
+  if (origin.kind !== "source") {
+    throw new Error(
+      `snippet manifest: entry "${id}" has origin kind ${JSON.stringify(origin.kind)}, which is neither "source" nor "file"`,
     );
   }
 
-  // Include the comment block directly above the definition. A marker
-  // directive is punctuation for the generator, not part of the definition,
-  // so the walk stops at one instead of quoting it back to the reader.
-  let from = start;
-  while (
-    from > 0 &&
-    /^\s*\/\//.test(lines[from - 1]) &&
-    !isMarkerDirective(lines[from - 1])
-  ) {
-    from -= 1;
-  }
-
-  let depth = 0;
-  let opened = false;
-  for (let i = start; i < lines.length; i += 1) {
-    for (const char of lines[i]) {
-      if (char === "{") {
-        depth += 1;
-        opened = true;
-      } else if (char === "}") {
-        depth -= 1;
-      }
-    }
-    if (opened && depth === 0) return lines.slice(from, i + 1).join("\n");
-    // A definition with no braces ends at the next blank line.
-    if (!opened && lines[i].trim() === "") {
-      return lines.slice(from, i).join("\n");
-    }
-  }
-
-  throw new Error(`snippet: "${head}" is never closed in ${loc}`);
-}
-
-// ── Marker extraction ──────────────────────────────────────────────────────
-// Markers use the form: // docs:snippet-start <name> / // docs:snippet-end <name>
-
-function extractMarkerRange(
-  source: string,
-  name: string,
-  sourcePath: string,
-): string {
-  const loc = sourcePath || "(source)";
-  const lines = source.split("\n");
-
-  const starts: Array<{ index: number; name: string }> = [];
-  const ends: Array<{ index: number; name: string }> = [];
-
-  for (let i = 0; i < lines.length; i += 1) {
-    const sm = MARKER_START.exec(lines[i]);
-    const em = MARKER_END.exec(lines[i]);
-    if (sm) starts.push({ index: i, name: sm[1] });
-    if (em) ends.push({ index: i, name: em[1] });
-  }
-
-  const matchStarts = starts.filter((s) => s.name === name);
-  if (matchStarts.length === 0) {
-    throw new Error(`snippet: no start marker for "${name}" in ${loc}`);
-  }
-  if (matchStarts.length > 1) {
-    throw new Error(`snippet: duplicate start marker for "${name}" in ${loc}`);
-  }
-
-  const matchEnds = ends.filter((e) => e.name === name);
-  if (matchEnds.length === 0) {
-    throw new Error(`snippet: no end marker for "${name}" in ${loc}`);
-  }
-  if (matchEnds.length > 1) {
-    throw new Error(`snippet: duplicate end marker for "${name}" in ${loc}`);
-  }
-
-  const start = matchStarts[0];
-  const end = matchEnds[0];
-
-  if (end.index <= start.index) {
+  const markers = origin.markers;
+  if (!Array.isArray(markers) || markers.length === 0) {
     throw new Error(
-      `snippet: end marker for "${name}" comes before start in ${loc}`,
+      `snippet manifest: entry "${id}" selects marker ranges but names no markers`,
     );
   }
-
-  for (const s of starts) {
-    if (s.name !== name && s.index > start.index && s.index < end.index) {
+  for (const marker of markers) {
+    if (typeof marker !== "string" || marker.trim() === "") {
       throw new Error(
-        `snippet: nested start marker "${s.name}" inside "${name}" in ${loc}`,
+        `snippet manifest: entry "${id}" has an empty marker id in its markers list`,
       );
     }
   }
-
-  for (const e of ends) {
-    if (e.name !== name && e.index > start.index && e.index < end.index) {
-      throw new Error(
-        `snippet: mismatched end marker "${e.name}" inside "${name}" in ${loc}`,
-      );
-    }
-  }
-
-  const rangeLines = lines.slice(start.index + 1, end.index);
-
-  if (rangeLines.every((l) => l.trim() === "")) {
-    throw new Error(`snippet: empty range for "${name}" in ${loc}`);
-  }
-
-  return dedent(rangeLines);
+  return Object.freeze({
+    kind: "source" as const,
+    markers: Object.freeze([...markers]) as string[],
+  });
 }
 
-function dedent(lines: string[]): string {
-  const nonEmpty = lines.filter((l) => l.trim() !== "");
-  const minIndent = Math.min(
-    ...nonEmpty.map((l) => l.match(/^( *)/)?.[1].length ?? 0),
-  );
-  return lines
-    .map((l) => (l.trim() === "" ? "" : l.slice(minIndent)))
-    .join("\n")
-    .replace(/[\n\s]+$/, "");
+function asRecord(value: unknown, what: string): Record<string, unknown> {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(
+      `snippet manifest: ${what} is ${JSON.stringify(value) ?? "undefined"}, not an object`,
+    );
+  }
+  return value as Record<string, unknown>;
+}
+
+function requireText(value: string, field: string, what: string): void {
+  if (value.trim() === "") {
+    throw new Error(`snippet: ${what} needs a ${field}`);
+  }
 }

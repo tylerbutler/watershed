@@ -2,21 +2,12 @@
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { snippetFromDefinition, snippetFromLiteral } from "../../lib/snippet.ts";
-import convergenceSource from "../../../../examples/retro_tutorial_lustre/test/convergence_test.gleam?raw";
+import { snippetFromLiteral, sourceSnippet } from "../../lib/snippet.ts";
 
-const convergencePath = "examples/retro_tutorial_lustre/test/convergence_test.gleam";
-
-const roomSnippet = snippetFromDefinition(convergenceSource, convergencePath, "gleam", "fn room(", "fn channels_of(");
-const boardOfSnippet = snippetFromDefinition(convergenceSource, convergencePath, "gleam", "fn board_of(");
-const addRaceSnippet = snippetFromDefinition(
-  convergenceSource, convergencePath, "gleam",
-  "pub fn concurrent_adds_keep_both_notes_test(",
-);
-const voteRaceSnippet = snippetFromDefinition(
-  convergenceSource, convergencePath, "gleam",
-  "pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test(",
-);
+const roomSnippet = sourceSnippet("guide-testing-room");
+const boardOfSnippet = sourceSnippet("guide-testing-board-of");
+const addRaceSnippet = sourceSnippet("guide-testing-add-race");
+const voteRaceSnippet = sourceSnippet("guide-testing-vote-race");
 
 const scriptedSnippet = snippetFromLiteral(
   `// Two adds, then deliver one message at a time instead of all at once.

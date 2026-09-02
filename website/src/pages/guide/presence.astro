@@ -2,27 +2,15 @@
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { snippetFromDefinition, snippetFromMarker } from "../../lib/snippet.ts";
-import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
+import { sourceSnippet } from "../../lib/snippet.ts";
 
-const appPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam";
-
-const payloadSnippet = snippetFromDefinition(
-  appSource, appPath, "gleam",
-  "pub type BoardPresence {",
-  "fn encode_presence(",
-  "fn presence_decoder(",
-);
-const presenceEffectSnippet = snippetFromDefinition(
-  appSource, appPath, "gleam",
-  "fn presence_effect(",
-  "fn current_presence(",
-);
-const announceSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn announce_focus(");
-const focusClickedSnippet = snippetFromMarker(appSource, appPath, "gleam", "guide-presence-focus-clicked");
-const presenceEventsSnippet = snippetFromMarker(appSource, appPath, "gleam", "guide-presence-events");
-const remotePeersSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn remote_peers(");
-const focusNamesSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn focus_names(");
+const payloadSnippet = sourceSnippet("guide-presence-payload");
+const presenceEffectSnippet = sourceSnippet("guide-presence-effect");
+const announceSnippet = sourceSnippet("guide-presence-announce");
+const focusClickedSnippet = sourceSnippet("guide-presence-focus-clicked");
+const presenceEventsSnippet = sourceSnippet("guide-presence-events");
+const remotePeersSnippet = sourceSnippet("guide-presence-remote-peers");
+const focusNamesSnippet = sourceSnippet("guide-presence-focus-names");
 ---
 
 <GuideLayout

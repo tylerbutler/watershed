@@ -2,9 +2,15 @@
 // Drift gates — dependency-free checks that fail when source-backed
 // snippets drift from the compiled source they claim to show.
 //
+// The code itself is selected by `tools/source-snippets`, which reads
+// `website/snippets.json` and writes an ignored manifest. These gates police
+// the seams around that: markers stay unique and quoted, ids stay declared,
+// no page reaches around the loader, and literal Gleam stays allowlisted.
+//
 // Each gate catches one category of drift. Negative tests prove the gate
 // fires for fabricated drift; positive tests prove the codebase is clean.
 //
+// Generate the manifest first: `just website-snippets`.
 // Run: node --strip-types --test src/data/drift-gates.test.ts
 // ──────────────────────────────────────────────────────────────────────────
 import { describe, it } from "node:test";
@@ -51,27 +57,18 @@ const MARKER_SOURCE_DIRS = [
   "watershed_lustre/test",
 ];
 
-/** Files that contain snippet descriptors via ?raw imports + extractor calls.
- *  Registries are the centralized source; pages use direct extraction. */
-const SNIPPET_DESCRIPTOR_FILES = [
-  // Centralized registries
-  "src/data/guide-snippets.ts",
-  "src/data/practice-snippets.ts",
-  "src/data/standalone-snippets.ts",
-  // Pages with direct extraction
-  "src/pages/foundations/topology.astro",
-  "src/pages/foundations/schema.astro",
-  "src/pages/foundations/lifecycle.astro",
-  "src/pages/guide/connect.astro",
-  "src/pages/guide/notes.astro",
-  "src/pages/guide/votes.astro",
-  "src/pages/guide/presence.astro",
-  "src/pages/guide/testing.astro",
-];
-
 /** The generator configuration, website-relative. It names every marker range
  *  the Gleam manifest is built from. */
 const SNIPPET_CONFIG = "snippets.json";
+
+/** The generated manifest, website-relative. Ignored by git, rebuilt before
+ *  every build and test run, and read by exactly one module. */
+const SNIPPET_MANIFEST = "src/generated/snippets.json";
+
+/** The one module allowed to import the generated manifest. Everything else
+ *  asks for a snippet by id, so no page can reach past the loader's
+ *  validation and render an entry it decoded itself. */
+const MANIFEST_READER = "src/lib/snippet.ts";
 
 // ══════════════════════════════════════════════════════════════════════════
 // Helpers
@@ -140,30 +137,15 @@ function extractRawImportPaths(source: string, fileAbsDir: string): string[] {
   return paths;
 }
 
-/** Extract marker IDs from snippetFromMarker(..., "name") calls. */
-function extractMarkerRefs(source: string): string[] {
+/** Extract snippet ids from sourceSnippet("id") calls. */
+function extractSourceSnippetIds(source: string): string[] {
   const ids: string[] = [];
-  // The marker ID is the last string argument before the closing paren.
-  // [\s\S]*? handles multiline calls.
-  const re = /snippetFromMarker\s*\([\s\S]*?,\s*["']([^"']+)["']\s*,?\s*\)/g;
+  const re = /sourceSnippet\(\s*["']([^"']+)["']\s*\)/g;
   let m;
   while ((m = re.exec(source)) !== null) {
     ids.push(m[1]);
   }
   return ids;
-}
-
-/** Extract values from `const paths = { ... } as const;` blocks. */
-function extractPathsObjectValues(source: string): string[] {
-  const block = source.match(/const paths\s*=\s*\{([^}]+)\}\s*as const/s);
-  if (!block) return [];
-  const values: string[] = [];
-  const re = /:\s*["']([^"']*)["']/g;
-  let m;
-  while ((m = re.exec(block[1])) !== null) {
-    values.push(m[1]);
-  }
-  return values;
 }
 
 /**
@@ -310,14 +292,15 @@ function findAstroPages(): string[] {
   return results;
 }
 
-/** Files that are explicitly exempt from the scope-wide raw-Gleam and
- *  literal-Gleam gates — the snippet library itself, test files, and
- *  the drift gates test. */
+/**
+ * Files that are explicitly exempt from the scope-wide raw-Gleam and
+ * literal-Gleam gates — the snippet library itself, test files, and
+ * the drift gates test.
+ */
 const GATE_EXEMPT_PATTERNS = [
   /\.test\.ts$/,          // test suites
   /drift-gates\.test\./,  // this file
-  /\/lib\/snippet\.ts$/,  // the extractor implementation
-  /\/lib\/snippet-markers\.test\./,  // marker test suite
+  /\/lib\/snippet\.ts$/,  // the snippet library
 ];
 
 /** All authored website source modules: src/**\/*.astro and src/**\/*.ts,
@@ -342,18 +325,9 @@ function findAllAuthoredModules(): string[] {
   return results;
 }
 
-/**
- * Files that are allowed to import from the snippet library or use
- * ?raw Gleam imports. Anything not in this set or in
- * LITERAL_GLEAM_ALLOWLIST that touches raw Gleam trips the gate.
- */
-const ALLOWED_SNIPPET_USERS = new Set([
-  ...SNIPPET_DESCRIPTOR_FILES,
-  ...LITERAL_GLEAM_ALLOWLIST,
-]);
-
 // ══════════════════════════════════════════════════════════════════════════
-// Pre-computed data: markers from Gleam sources, refs from descriptor files
+// Pre-computed data: markers from Gleam sources, references from the
+// generator configuration
 // ══════════════════════════════════════════════════════════════════════════
 
 /** Marker occurrence in a single file. */
@@ -425,29 +399,15 @@ function scanAllMarkers(): {
   return { byId, diagnostics };
 }
 
-/** All marker IDs referenced by snippet descriptor files (registries + pages)
- *  and by the generator configuration.
+/**
+ * Every marker id the generator configuration names.
  *
- *  `website/snippets.json` is a descriptor too: it names the marker ranges the
- *  Gleam generator composes into the manifest. A marker only that file names
- *  is referenced, not an orphan. */
+ * `website/snippets.json` is the only descriptor left: the frontend asks for
+ * output ids, and the configuration is what turns an output id into marker
+ * ranges. A marker only that file names is referenced, not an orphan.
+ */
 function collectMarkerReferences(): Set<string> {
-  const refs = new Set<string>();
-
-  for (const file of SNIPPET_DESCRIPTOR_FILES) {
-    const absPath = resolve(websiteRoot, file);
-    if (!existsSync(absPath)) continue;
-    const source = readFileSync(absPath, "utf-8");
-    for (const id of extractMarkerRefs(source)) {
-      refs.add(id);
-    }
-  }
-
-  for (const id of configuredMarkers()) {
-    refs.add(id);
-  }
-
-  return refs;
+  return new Set(configuredMarkers());
 }
 
 /** Every marker id named by the generator configuration. */
@@ -481,54 +441,95 @@ function configuredMarkerSources(): Map<string, string> {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// Gate 1: Referenced source paths exist
+// Gate 1: Every rendered id is declared, generated, and cites a real file
+//
+// The frontend no longer names source files; it names snippet ids. An id the
+// configuration does not declare is a snippet nobody generates, and an id
+// nothing on the site asks for is a configured range nobody reads. Both are
+// drift, in opposite directions, so both fail here.
 // ══════════════════════════════════════════════════════════════════════════
 
-describe("Gate: source paths exist", () => {
-  describe("positive — all declared paths resolve to real files", () => {
-    for (const file of SNIPPET_DESCRIPTOR_FILES) {
-      it(`${file}: every ?raw import resolves`, () => {
-        const absPath = resolve(websiteRoot, file);
-        const source = readFileSync(absPath, "utf-8");
-        const fileDir = dirname(absPath);
-        const importPaths = extractRawImportPaths(source, fileDir);
+/** Snippet id → the authored modules that ask for it. */
+function collectRequestedIds(): Map<string, string[]> {
+  const requested = new Map<string, string[]>();
+  for (const absModule of findAllAuthoredModules()) {
+    const relModule = relative(websiteRoot, absModule);
+    for (const id of extractSourceSnippetIds(readFileSync(absModule, "utf-8"))) {
+      if (!requested.has(id)) requested.set(id, []);
+      requested.get(id)!.push(relModule);
+    }
+  }
+  return requested;
+}
 
-        assert.ok(importPaths.length > 0, `${file} has no ?raw imports`);
+/** Every entry of the generated manifest, by id. */
+function generatedEntries(): Map<string, { sourcePath: string; code: string }> {
+  const manifestPath = resolve(websiteRoot, SNIPPET_MANIFEST);
+  if (!existsSync(manifestPath)) {
+    throw new Error(
+      `${SNIPPET_MANIFEST} is missing — generate it with \`just website-snippets\` before running the gates`,
+    );
+  }
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
+    snippets: Record<string, { sourcePath: string; code: string }>;
+  };
+  return new Map(Object.entries(manifest.snippets));
+}
 
-        for (const p of importPaths) {
-          const abs = resolve(repoRoot, p);
-          assert.ok(
-            existsSync(abs),
-            `${file}: ?raw import path "${p}" does not exist at repo root`,
-          );
-        }
+describe("Gate: every rendered snippet id is declared and generated", () => {
+  const requested = collectRequestedIds();
+  const configuredIds = new Set(configuredSnippets().map((entry) => entry.id));
+  const generated = generatedEntries();
+
+  describe("positive — the site, the configuration, and the manifest agree", () => {
+    it("the site asks for snippets by id", () => {
+      assert.ok(
+        requested.size > 40,
+        `only ${requested.size} snippet ids are requested — the scan is not finding the pages`,
+      );
+    });
+
+    for (const [id, users] of requested) {
+      it(`"${id}" is declared in ${SNIPPET_CONFIG}`, () => {
+        assert.ok(
+          configuredIds.has(id),
+          `${users.join(", ")} asks for "${id}", which ${SNIPPET_CONFIG} does not declare`,
+        );
+      });
+
+      it(`"${id}" is in the generated manifest and cites a real file`, () => {
+        const entry = generated.get(id);
+        assert.ok(entry, `"${id}" is not in ${SNIPPET_MANIFEST}`);
+        assert.ok(entry.code.trim().length > 0, `"${id}" generated empty code`);
+        assert.ok(
+          existsSync(resolve(repoRoot, entry.sourcePath)),
+          `"${id}" cites "${entry.sourcePath}", which does not exist at repo root`,
+        );
       });
     }
 
-    for (const file of ["src/data/practice-snippets.ts", "src/data/standalone-snippets.ts"]) {
-      it(`${file}: every paths object value is a real file`, () => {
-        const absPath = resolve(websiteRoot, file);
-        const source = readFileSync(absPath, "utf-8");
-        const pathValues = extractPathsObjectValues(source);
-
-        assert.ok(pathValues.length > 0, `${file} has no paths object`);
-
-        for (const p of pathValues) {
-          const abs = resolve(repoRoot, p);
-          assert.ok(
-            existsSync(abs),
-            `${file}: sourcePath "${p}" does not exist at repo root`,
-          );
-        }
-      });
-    }
+    it("no configured snippet goes unquoted", () => {
+      const unread = [...configuredIds].filter((id) => !requested.has(id)).sort();
+      assert.deepEqual(
+        unread,
+        [],
+        `these ids are configured and generated but nothing on the site renders them:\n${unread.join("\n")}`,
+      );
+    });
   });
 
-  describe("negative — catches a missing source path", () => {
-    it("rejects a nonexistent path", () => {
-      const fakePath = "examples/nonexistent_project/src/main.gleam";
-      const abs = resolve(repoRoot, fakePath);
-      assert.ok(!existsSync(abs), "fake path should not exist");
+  describe("negative — catches an id nothing generates", () => {
+    it("an invented id is not declared", () => {
+      assert.ok(!configuredIds.has("guide-connect-invented"));
+      assert.ok(!generated.has("guide-connect-invented"));
+    });
+
+    it("finds the ids a module requests", () => {
+      const fake = `const a = sourceSnippet("guide-connect-main");\nconst b = sourceSnippet("practice-ffi-surface");`;
+      assert.deepEqual(extractSourceSnippetIds(fake), [
+        "guide-connect-main",
+        "practice-ffi-surface",
+      ]);
     });
 
     it("validates repo root is correct", () => {
@@ -859,7 +860,7 @@ export const extra = snippetFromLiteral(\`import gleam/io\nfn main() { io.printl
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// Gate 4: Source-backed registries — no literal Gleam in registries
+// Gate 4: Source-backed registries — every entry is a generated id
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("Gate: registries are source-backed", () => {
@@ -874,6 +875,18 @@ describe("Gate: registries are source-backed", () => {
     );
   });
 
+  it("practice-snippets.ts names one generated id per practice", () => {
+    const source = readFileSync(
+      resolve(websiteRoot, "src/data/practice-snippets.ts"),
+      "utf-8",
+    );
+    assert.equal(
+      extractSourceSnippetIds(source).length,
+      17,
+      "every practice reads its code from the manifest",
+    );
+  });
+
   it("standalone-snippets.ts has no literal Gleam", () => {
     const source = readFileSync(
       resolve(websiteRoot, "src/data/standalone-snippets.ts"),
@@ -882,6 +895,17 @@ describe("Gate: registries are source-backed", () => {
     assert.ok(
       !hasLiteralGleamCall(source),
       "standalone-snippets.ts must not use snippetFromLiteral with 'gleam' — Gleam snippets are source-backed",
+    );
+  });
+
+  it("standalone-snippets.ts reads its Gleam from the manifest", () => {
+    const source = readFileSync(
+      resolve(websiteRoot, "src/data/standalone-snippets.ts"),
+      "utf-8",
+    );
+    assert.ok(
+      extractSourceSnippetIds(source).length >= 10,
+      "the homepage, runtime, and SharedTree Gleam all come from generated ids",
     );
   });
 
@@ -899,92 +923,113 @@ describe("Gate: registries are source-backed", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// Gate 5: Source-backed descriptors have a displayed source path
+// Gate 5: Only the loader reads the generated manifest
+//
+// The loader validates every entry before anything renders it. A module that
+// imports the generated JSON for itself skips that check, and its snippet
+// would be whatever the file happened to hold.
 // ══════════════════════════════════════════════════════════════════════════
 
-describe("Gate: source-backed descriptors have sourcePath", () => {
-  for (const file of ["src/data/practice-snippets.ts", "src/data/standalone-snippets.ts"]) {
-    it(`${file}: paths object has no empty values`, () => {
-      const source = readFileSync(resolve(websiteRoot, file), "utf-8");
-      const values = extractPathsObjectValues(source);
+/** True when the module imports the generated manifest. */
+function importsGeneratedManifest(source: string): boolean {
+  return /["'][^"']*generated\/snippets\.json["']/.test(source);
+}
 
-      for (const v of values) {
-        assert.ok(v.trim().length > 0, `${file}: empty sourcePath in paths object`);
+describe("Gate: only the snippet loader reads the generated manifest", () => {
+  const modules = findAllAuthoredModules();
+
+  describe("positive — no authored module imports the manifest", () => {
+    for (const absModule of modules) {
+      const relModule = relative(websiteRoot, absModule);
+      if (relModule === MANIFEST_READER) continue;
+
+      it(`${relModule}: does not import ${SNIPPET_MANIFEST}`, () => {
         assert.ok(
-          v.includes("/"),
-          `${file}: sourcePath "${v}" does not look like a repo-relative path (no "/")`,
+          !importsGeneratedManifest(readFileSync(absModule, "utf-8")),
+          `${relModule} imports the generated manifest — ask for a snippet by id so the loader validates it`,
         );
-      }
-    });
-  }
+      });
+    }
+  });
 
-  describe("negative — catches empty or missing sourcePath", () => {
-    it("rejects empty string as a valid path", () => {
-      const fakeSource = `const paths = { bad: "" } as const;`;
-      const values = extractPathsObjectValues(fakeSource);
-      assert.equal(values.length, 1);
-      assert.equal(values[0], "");
+  describe("positive — the loader does read it, and validates it", () => {
+    const loader = readFileSync(resolve(websiteRoot, MANIFEST_READER), "utf-8");
+
+    it("the loader imports the generated manifest", () => {
+      assert.ok(importsGeneratedManifest(loader));
+    });
+
+    it("the loader decodes rather than casts", () => {
+      assert.ok(
+        loader.includes("decodeManifest"),
+        "the manifest must go through a decoder that can reject it",
+      );
+      assert.ok(
+        !/\bas any\b/.test(loader),
+        "the loader must not assert the manifest's shape with `as any`",
+      );
+    });
+  });
+
+  describe("negative — catches a module that reads the manifest itself", () => {
+    it("detects a generated-manifest import", () => {
+      const fake = `import manifest from "../generated/snippets.json" with { type: "json" };`;
+      assert.ok(importsGeneratedManifest(fake));
+    });
+
+    it("does not flag the checked-in configuration", () => {
+      const fake = `const config = JSON.parse(readFileSync("snippets.json", "utf-8"));`;
+      assert.ok(!importsGeneratedManifest(fake));
     });
   });
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// Gate 6: No new ?raw Gleam imports outside known descriptor files
+// Gate 6: No ?raw source imports anywhere
+//
+// Source extraction moved out of the website. A page that reads a .gleam or
+// .mjs file with Vite's `?raw` is extracting again, by hand, past every
+// check the generator and the loader make.
 // ══════════════════════════════════════════════════════════════════════════
 
-describe("Gate: no unregistered Gleam imports in authored modules", () => {
+describe("Gate: no raw source imports in authored modules", () => {
   const modules = findAllAuthoredModules();
-  const knownFiles = new Set(
-    [...SNIPPET_DESCRIPTOR_FILES, ...LITERAL_GLEAM_ALLOWLIST].map((f) => resolve(websiteRoot, f)),
-  );
 
   for (const absModule of modules) {
     const relModule = relative(websiteRoot, absModule);
 
-    it(`${relModule}: no ?raw Gleam imports outside known descriptor files`, () => {
-      if (knownFiles.has(absModule)) return; // known file, checked by other gates
+    it(`${relModule}: no ?raw import of a source file`, () => {
       const source = readFileSync(absModule, "utf-8");
       const rawImports = extractRawImportPaths(source, dirname(absModule));
-      const gleamImports = rawImports.filter((p) => p.endsWith(".gleam"));
+      const sourceImports = rawImports.filter(
+        (p) => p.endsWith(".gleam") || p.endsWith(".mjs"),
+      );
 
-      assert.equal(
-        gleamImports.length,
-        0,
-        `${relModule} has Gleam ?raw imports [${gleamImports.join(", ")}] but is not in SNIPPET_DESCRIPTOR_FILES — add it or use a registry`,
+      assert.deepEqual(
+        sourceImports,
+        [],
+        `${relModule} reads source with ?raw [${sourceImports.join(", ")}] — ask for a generated snippet by id instead`,
       );
     });
   }
 
-  describe("negative — catches a new data module with raw Gleam import", () => {
-    it("detects ?raw .gleam import in unknown module", () => {
+  describe("negative — catches a module that reads source with ?raw", () => {
+    it("detects ?raw .gleam import in a module", () => {
       const fake = `import counterSource from "../../../examples/clap_counter/src/main.gleam?raw";\n`;
       const rawImports = extractRawImportPaths(fake, websiteRoot);
-      const gleamImports = rawImports.filter((p) => p.endsWith(".gleam"));
-      assert.ok(gleamImports.length > 0, "should detect raw Gleam import");
+      const sourceImports = rawImports.filter((p) => p.endsWith(".gleam"));
+      assert.ok(sourceImports.length > 0, "should detect raw Gleam import");
+    });
+
+    it("leaves a non-source ?raw import alone", () => {
+      const fake = `import gleamToml from "../../../examples/retro_tutorial_lustre/gleam.toml?raw";\n`;
+      const rawImports = extractRawImportPaths(fake, websiteRoot);
+      const sourceImports = rawImports.filter(
+        (p) => p.endsWith(".gleam") || p.endsWith(".mjs"),
+      );
+      assert.deepEqual(sourceImports, [], "a TOML listing is not extracted source");
     });
   });
-});
-
-// ══════════════════════════════════════════════════════════════════════════
-// Gate 7: ?raw import paths and paths objects agree
-// ══════════════════════════════════════════════════════════════════════════
-
-describe("Gate: registry imports match paths objects", () => {
-  for (const file of ["src/data/practice-snippets.ts", "src/data/standalone-snippets.ts"]) {
-    it(`${file}: every paths value has a matching ?raw import`, () => {
-      const absPath = resolve(websiteRoot, file);
-      const source = readFileSync(absPath, "utf-8");
-      const pathValues = new Set(extractPathsObjectValues(source));
-      const rawImports = new Set(extractRawImportPaths(source, dirname(absPath)));
-
-      for (const p of pathValues) {
-        assert.ok(
-          rawImports.has(p),
-          `${file}: paths object has "${p}" but no matching ?raw import`,
-        );
-      }
-    });
-  }
 });
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -1221,7 +1266,7 @@ describe("Gate: snippets are built by the extractor, never by hand", () => {
         const source = readFileSync(absModule, "utf-8");
         assert.ok(
           !hasHandBuiltSnippet(source),
-          `${relModule} builds a Snippet-shaped object by hand — use snippetFromDefinition, snippetFromMarker, snippetFromLiteral, or combineSnippets`,
+          `${relModule} builds a Snippet-shaped object by hand — use sourceSnippet, snippetFromLiteral, or withSourceUrl`,
         );
       });
     }
@@ -1276,7 +1321,7 @@ const snippet = {
   code: \`pub fn main() { io.println("hi") }\`,
   language: "gleam",
   sourcePath: "examples/not_really/src/main.gleam",
-  origin: { kind: "marker", name: "invented" },
+  origin: { kind: "source", markers: ["invented"] },
 };
 ---
 <SnippetBlock snippet={snippet} />`;
@@ -1289,7 +1334,7 @@ const snippet = {
     });
 
     it("detects a hand-built origin even without a code key", () => {
-      const fake = `const o = { ...base, origin: { kind: "definition", heads: ["fn x("] } };`;
+      const fake = `const o = { ...base, origin: { kind: "source", markers: ["invented"] } };`;
       assert.ok(hasHandBuiltSnippet(fake), "an invented origin is a forged citation");
     });
 

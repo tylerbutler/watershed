@@ -2,25 +2,13 @@
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { snippetFromDefinition, snippetFromMarker, snippetFromLiteral } from "../../lib/snippet.ts";
-import boardSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam?raw";
-import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
-import boardTestSource from "../../../../examples/retro_tutorial_lustre/test/board_test.gleam?raw";
+import { snippetFromLiteral, sourceSnippet } from "../../lib/snippet.ts";
 
-const boardPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam";
-const appPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam";
-const boardTestPath = "examples/retro_tutorial_lustre/test/board_test.gleam";
-
-const voteOpsSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "pub fn upvote(", "pub fn downvote(", "fn change_votes(");
-const readVotesSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "fn vote_entries(");
-const attachSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "fn card(");
-const voteClicksSnippet = snippetFromMarker(appSource, appPath, "gleam", "guide-votes-vote-clicks");
-const orphanTestSnippet = snippetFromDefinition(
-  boardTestSource,
-  boardTestPath,
-  "gleam",
-  "pub fn tallies_attach_to_matching_notes_and_orphans_are_ignored_test(",
-);
+const voteOpsSnippet = sourceSnippet("guide-votes-vote-ops");
+const readVotesSnippet = sourceSnippet("guide-votes-vote-entries");
+const attachSnippet = sourceSnippet("guide-votes-card");
+const voteClicksSnippet = sourceSnippet("guide-votes-vote-clicks");
+const orphanTestSnippet = sourceSnippet("guide-votes-orphan-test");
 
 const lossySnippet = snippetFromLiteral(
   `// The version that loses a vote: a plain number in a SharedMap.

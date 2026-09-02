@@ -1,22 +1,13 @@
 ---
 import FoundationsLayout from "../../components/FoundationsLayout.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { snippetFromDefinition, snippetFromLiteral } from "../../lib/snippet.ts";
-import watershedMain from "../../../../src/watershed.gleam?raw";
+import { snippetFromLiteral, sourceSnippet } from "../../lib/snippet.ts";
 
-const mainPath = "src/watershed.gleam";
-
-const rootTypedSnippet = snippetFromDefinition(
-  watershedMain, mainPath, "gleam",
-  "pub fn root_typed(document: Document(root)) -> TypedMap(root) {",
-);
-const handleOfSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "pub fn handle_of(map: SharedMap) -> Json {");
-const createMapSnippet = snippetFromDefinition(
-  watershedMain, mainPath, "gleam",
-  "pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {",
-);
-const resolveFnSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "pub fn resolve(");
-const resolveChildSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "pub fn resolve_child(");
+const rootTypedSnippet = sourceSnippet("foundations-topology-root-typed");
+const handleOfSnippet = sourceSnippet("foundations-topology-handle-of");
+const createMapSnippet = sourceSnippet("foundations-topology-create-map");
+const resolveFnSnippet = sourceSnippet("foundations-topology-resolve");
+const resolveChildSnippet = sourceSnippet("foundations-topology-resolve-child");
 
 const layoutDiagramSnippet = snippetFromLiteral(
   `root

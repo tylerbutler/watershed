@@ -2,22 +2,15 @@
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { snippetFromDefinition, snippetFromMarker } from "../../lib/snippet.ts";
-import noteSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam?raw";
-import boardSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam?raw";
-import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
+import { sourceSnippet } from "../../lib/snippet.ts";
 
-const notePath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam";
-const boardPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam";
-const appPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam";
-
-const noteRecordSnippet = snippetFromDefinition(noteSource, notePath, "gleam", "pub type Note {", "pub fn id(");
-const codecSnippet = snippetFromDefinition(noteSource, notePath, "gleam", "pub fn to_json(", "pub fn from_register(");
-const addNoteSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "pub fn add_note(");
-const readNotesSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "fn note_entries(");
-const orderingSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "fn notes_in_column(", "fn by_created_then_id(");
-const unfiledSnippet = snippetFromDefinition(boardSource, boardPath, "gleam", "fn unfiled(");
-const addClickedSnippet = snippetFromMarker(appSource, appPath, "gleam", "guide-notes-add-clicked");
+const noteRecordSnippet = sourceSnippet("guide-notes-note-record");
+const codecSnippet = sourceSnippet("guide-notes-codec");
+const addNoteSnippet = sourceSnippet("guide-notes-add-note");
+const readNotesSnippet = sourceSnippet("guide-notes-note-entries");
+const orderingSnippet = sourceSnippet("guide-notes-ordering");
+const unfiledSnippet = sourceSnippet("guide-notes-unfiled");
+const addClickedSnippet = sourceSnippet("guide-notes-add-clicked");
 ---
 
 <GuideLayout

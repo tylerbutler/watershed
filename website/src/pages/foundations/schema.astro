@@ -1,52 +1,18 @@
 ---
 import FoundationsLayout from "../../components/FoundationsLayout.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { snippetFromDefinition } from "../../lib/snippet.ts";
-import schemaModule from "../../../../src/watershed/schema.gleam?raw";
-import watershedMain from "../../../../src/watershed.gleam?raw";
-import retroSchema from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam?raw";
-import showcaseSchema from "../../../../examples/showcase_lustre/src/showcase_lustre/document_schema.gleam?raw";
-import sudokuSchema from "../../../../examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam?raw";
-import scoreboard from "../../../../examples/scoreboard_cli/src/scoreboard_cli.gleam?raw";
+import { sourceSnippet } from "../../lib/snippet.ts";
 
-const schemaPath = "src/watershed/schema.gleam";
-const mainPath = "src/watershed.gleam";
-const retroSchemaPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam";
-const showcaseSchemaPath = "examples/showcase_lustre/src/showcase_lustre/document_schema.gleam";
-const sudokuSchemaPath = "examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam";
-const scoreboardPath = "examples/scoreboard_cli/src/scoreboard_cli.gleam";
-
-const fieldTypeSnippet = snippetFromDefinition(schemaModule, schemaPath, "gleam", "pub opaque type Field(schema, a) {");
-const titleFieldSnippet = snippetFromDefinition(
-  retroSchema, retroSchemaPath, "gleam",
-  "pub fn title() -> Field(BoardDocument, String) {",
-);
-const childFieldTypeSnippet = snippetFromDefinition(
-  schemaModule, schemaPath, "gleam",
-  "pub opaque type ChildField(schema, child) {",
-);
-const textChildSnippet = snippetFromDefinition(
-  showcaseSchema, showcaseSchemaPath, "gleam",
-  "pub fn text() -> ChildField(Showcase, text_schema.TextDocument) {",
-);
-const channelFieldTypeSnippet = snippetFromDefinition(
-  schemaModule, schemaPath, "gleam",
-  "pub opaque type ChannelField(schema, kind) {",
-);
-const sudokuFieldsSnippet = snippetFromDefinition(
-  sudokuSchema, sudokuSchemaPath, "gleam",
-  "pub fn cells() -> ChannelField(SudokuDocument, MapChannel) {",
-  "pub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) {",
-  "pub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) {",
-  "pub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) {",
-);
-const fieldErrorSnippet = snippetFromDefinition(schemaModule, schemaPath, "gleam", "pub type FieldError {");
-const getFieldSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "pub fn get_field(");
-const playerSchemaSnippet = snippetFromDefinition(
-  scoreboard, scoreboardPath, "gleam",
-  "fn player_schema() -> Result(schema.Schema(Player, PlayerState), Nil) {",
-);
-const stampFnSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "pub fn stamp(");
+const fieldTypeSnippet = sourceSnippet("foundations-schema-field-type");
+const titleFieldSnippet = sourceSnippet("foundations-schema-title-field");
+const childFieldTypeSnippet = sourceSnippet("foundations-schema-child-field-type");
+const textChildSnippet = sourceSnippet("foundations-schema-text-child");
+const channelFieldTypeSnippet = sourceSnippet("foundations-schema-channel-field-type");
+const sudokuFieldsSnippet = sourceSnippet("foundations-schema-sudoku-fields");
+const fieldErrorSnippet = sourceSnippet("foundations-schema-field-error");
+const getFieldSnippet = sourceSnippet("foundations-schema-get-field");
+const playerSchemaSnippet = sourceSnippet("foundations-schema-player-schema");
+const stampFnSnippet = sourceSnippet("foundations-schema-stamp");
 ---
 
 <FoundationsLayout

@@ -1,21 +1,14 @@
 ---
 import FoundationsLayout from "../../components/FoundationsLayout.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { snippetFromDefinition, snippetFromMarker } from "../../lib/snippet.ts";
-import watershedMain from "../../../../src/watershed.gleam?raw";
-import watershedLustre from "../../../../watershed_lustre/src/watershed_lustre.gleam?raw";
-import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
+import { sourceSnippet } from "../../lib/snippet.ts";
 
-const appPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam";
-const lustrePath = "watershed_lustre/src/watershed_lustre.gleam";
-const mainPath = "src/watershed.gleam";
-
-const connectFnSnippet = snippetFromDefinition(watershedLustre, lustrePath, "gleam", "pub fn connect(");
-const readinessSnippet = snippetFromMarker(appSource, appPath, "gleam", "update-readiness");
-const ensureChannelSnippet = snippetFromDefinition(watershedMain, mainPath, "gleam", "fn ensure_channel(");
-const bootstrapEffectSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn bootstrap_effect(");
-const assembleSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn assemble(model: Model) -> #(Model, Effect(Msg)) {");
-const ensuredArmsSnippet = snippetFromMarker(appSource, appPath, "gleam", "lifecycle-ensured-arms");
+const connectFnSnippet = sourceSnippet("foundations-lifecycle-connect");
+const readinessSnippet = sourceSnippet("foundations-lifecycle-readiness");
+const ensureChannelSnippet = sourceSnippet("foundations-lifecycle-ensure-channel");
+const bootstrapEffectSnippet = sourceSnippet("foundations-lifecycle-bootstrap");
+const assembleSnippet = sourceSnippet("foundations-lifecycle-assemble");
+const ensuredArmsSnippet = sourceSnippet("foundations-lifecycle-ensured-arms");
 ---
 
 <FoundationsLayout

@@ -4,8 +4,8 @@
 // demonstrates it best. This is the inverse of the old /patterns page: not
 // conventions that recur across apps, but one implementation practice paired
 // with example code that demonstrates it. Snippets are source-backed
-// descriptors from the practice registry — the registry imports each example
-// source with `?raw` and extracts the relevant definition or marker range.
+// descriptors from the practice registry — the registry names one generated
+// id per practice, and the generator extracts the marker range it declares.
 //
 // Each practice is filed under the /guide step whose work it belongs to, and
 // renders as field notes at the foot of that step. /patterns indexes them the
