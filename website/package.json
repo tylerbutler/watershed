@@ -20,7 +20,8 @@
     "test:drift-gates": "node --strip-types --test src/data/drift-gates.test.ts",
     "test:copy-gates": "node --strip-types --test src/data/copy-gates.test.ts",
     "test:global-styles": "node --test src/styles/global.test.mjs",
-    "test:guide-race-styles": "node scripts/check-guide-race-styles.mjs"
+    "test:guide-race-styles": "node scripts/check-guide-race-styles.mjs",
+    "test:netlify-contract": "node scripts/netlify-erlang-contract.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.2.8",

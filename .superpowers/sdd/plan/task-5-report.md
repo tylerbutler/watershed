@@ -237,3 +237,77 @@ files.
    generic `source_snippets` package.
 4. **`findAstroPages` in the gates is dead code**, and was already dead at
    `e888a76`. Left alone rather than swept in with this change.
+
+---
+
+## Review fix — Netlify Erlang toolchain
+
+### Finding
+
+The website prebuild now runs the Erlang-target `tools/source-snippets` CLI
+(`pnpm snippets`), but Netlify installs only Gleam. The committed
+`netlify.toml` uses base `website` and `website/scripts/netlify-build.sh`,
+so deploy lacks `escript` and `erlc`.
+
+### Fix
+
+Three files, smallest Netlify-native approach:
+
+| File | Change |
+| --- | --- |
+| `website/Aptfile` | Lists `erlang-base`, which provides `escript` and `erlc` on the Ubuntu build image. Read by `netlify-plugin-apt` before the build command. |
+| `netlify.toml` | Adds `[[plugins]] package = "netlify-plugin-apt"` so the Aptfile is honoured. |
+| `website/scripts/netlify-build.sh` | Early loop checks `escript` and `erlc` are on PATH; exits with actionable diagnostics naming the Aptfile and plugin if either is missing. Comments updated to describe source-snippet manifest generation. |
+
+### Test — RED then GREEN
+
+`website/scripts/netlify-erlang-contract.test.mjs` — 5 assertions, no
+dependencies beyond `node:test` and `node:fs`:
+
+1. `website/Aptfile` exists.
+2. Aptfile lists an `erlang` package.
+3. `netlify.toml` references `netlify-plugin-apt`.
+4. `netlify-build.sh` mentions `escript`.
+5. `netlify-build.sh` mentions `erlc`.
+
+RED (before fix — all 5 fail):
+```
+$ node scripts/netlify-erlang-contract.test.mjs
+✖ website/Aptfile exists
+✖ Aptfile lists an Erlang package that provides escript
+✖ netlify.toml configures the apt plugin
+✖ netlify-build.sh checks for escript before building
+✖ netlify-build.sh checks for erlc before building
+ℹ pass 0  ℹ fail 5
+```
+
+GREEN (after fix — all 5 pass):
+```
+$ node scripts/netlify-erlang-contract.test.mjs
+✔ website/Aptfile exists
+✔ Aptfile lists an Erlang package that provides escript
+✔ netlify.toml configures the apt plugin
+✔ netlify-build.sh checks for escript before building
+✔ netlify-build.sh checks for erlc before building
+ℹ pass 5  ℹ fail 0
+```
+
+Wired into `pnpm test:netlify-contract` in `website/package.json` and
+appended to `just _test-website-snippets` so it runs with every website
+test invocation.
+
+### Verification
+
+| Command | Result |
+| --- | --- |
+| `bash -n website/scripts/netlify-build.sh` | Syntax OK |
+| `cd website && pnpm build` | prebuild + build, 36 pages |
+| `just _test-website-snippets` | all suites pass, 0 failures |
+
+### Concern
+
+`erlang-base` is the correct package name across Ubuntu 20.04–24.04 (the
+Netlify build image range). If a future image drops to a minimal base that
+splits `erlc` into `erlang-dev`, the contract test will still pass (it checks
+the script, not the package contents) but the deploy will fail at the
+toolchain check with an actionable message naming the Aptfile.

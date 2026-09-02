@@ -1,0 +1,8 @@
+# Ubuntu packages for the Netlify build image.
+# Installed by netlify-plugin-apt before the build command runs.
+#
+# The website prebuild generates the source-snippet manifest by running
+# tools/source-snippets, an Erlang-target Gleam CLI.  Gleam compiles to
+# Erlang source and then invokes erlc/escript, neither of which ships in
+# Netlify's image.  erlang-base provides both plus the BEAM runtime.
+erlang-base

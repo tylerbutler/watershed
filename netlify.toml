@@ -11,3 +11,7 @@
 [build.environment]
   NODE_VERSION = "22"
   GLEAM_VERSION = "1.16.0"
+
+# Install packages from website/Aptfile (erlang-base for escript/erlc).
+[[plugins]]
+  package = "netlify-plugin-apt"
