@@ -55,6 +55,13 @@ export const foundationsDocs: FoundationDoc[] = [
       "Connect typed outputs to local or collaborative inputs, reject bad edges deterministically, and plan each local event without replaying it on every client.",
     concept: "Output · Input · EffectiveGraph · LocalIntent · Delivery",
   },
+  {
+    slug: "workspaces",
+    title: "Workspaces and instances",
+    gloss:
+      "Persist a manifest, layout, and connection graph under one child map; derive the usable view without erasing data this client cannot understand.",
+    concept: "ManifestEntry · Snapshot · Prepared · delete_instance",
+  },
 ];
 
 /** slug → doc, for cross-links. */

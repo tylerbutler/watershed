@@ -1,0 +1,164 @@
+---
+import { Code } from "astro:components";
+import FoundationsLayout from "../../components/FoundationsLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt } from "../../lib/excerpt";
+import workspaceModule from "../../../../src/watershed/workspace.gleam?raw";
+import workspaceBeam from "../../../../src/watershed/workspace_beam.gleam?raw";
+import workspaceTests from "../../../../test/watershed/workspace_beam_test.gleam?raw";
+
+const channelFields = excerpt(
+  workspaceModule,
+  "pub fn manifest_field(",
+  "pub fn layout_field(",
+  "pub fn connections_field(",
+);
+const manifestEntry = excerpt(workspaceModule, "pub type ManifestEntry {");
+const snapshotFn = excerpt(workspaceModule, "pub fn snapshot(");
+const preparationState = excerpt(
+  workspaceModule,
+  "pub type PreparationState(subtree) {",
+);
+const prepareFn = excerpt(workspaceModule, "pub fn prepare(");
+const deleteFn = excerpt(workspaceBeam, "pub fn delete_instance(");
+const preservationTest = excerpt(
+  workspaceTests,
+  "pub fn workspace_lifecycle_converges_and_preserves_deleted_data_test() -> Nil {",
+);
+---
+
+<FoundationsLayout
+  slug="workspaces"
+  description="A watershed workspace persists component instances, layout, and port connections beneath one child map, then derives a catalog-aware view while preserving data the local host cannot use."
+>
+  <div class="g-block">
+    <h2>One root slot opens the whole workspace</h2>
+    <p>
+      A composed app still has one typed document root. Give the workspace one
+      <code>ChildField</code> there, and it owns three channels below it: a map
+      of component instances, a sequence for presentation order, and a
+      sequence of port connections.
+    </p>
+    <figure class="g-code">
+      <Code code={channelFields} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      The JavaScript and BEAM adapters create those channels while they are
+      detached, wire their handles into the workspace map, then attach the
+      complete subtree through the root. A peer never needs three magic keys
+      at the application root, and component data never shares the workspace's
+      control namespace.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>The manifest points at data; it doesn't swallow it</h2>
+    <p>
+      Each manifest value names the stable instance and component version,
+      carries its config as JSON, and embeds a handle to that component's own
+      child map. The config can vary by component kind. The child map remains
+      a separate collaborative structure with one owner.
+    </p>
+    <figure class="g-code">
+      <Code code={manifestEntry} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Handle discovery walks nested JSON. Writing this record therefore
+      attaches the child map before the manifest operation reaches another
+      client. A late joiner reads the same entry and resolves the same map.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Stored data and usable data are different lists</h2>
+    <p>
+      Collaborative state can outlive the code that wrote it. A manifest can
+      name a component this build doesn't carry. A layout can repeat an
+      instance. Two independently safe graph edits can form a cycle after
+      merge. Deleting those records on sight would turn one client's ignorance
+      into everybody's data loss.
+    </p>
+    <p>
+      <code>workspace.snapshot</code> keeps the raw values, decodes what it can,
+      removes duplicate or dangling layout references from the effective view,
+      and asks <code>port_graph.effective</code> for the deterministic acyclic
+      graph. Every rejected value comes back as a diagnostic. Nothing gets
+      rewritten.
+    </p>
+    <figure class="g-code">
+      <Code code={snapshotFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2><code>Prepared</code> stops before <code>Ready</code></h2>
+    <p>
+      Persistence can answer three questions without pretending it ran a
+      component: does the catalog know this exact kind and version, does the
+      config decode, and does the child map resolve? A successful answer is{" "}
+      <code>Prepared</code>. An unsupported version is{" "}
+      <code>Unavailable</code>. Bad stored data or config is{" "}
+      <code>Failed</code>. A handle still in flight stays{" "}
+      <code>Loading</code>.
+    </p>
+    <figure class="g-code">
+      <Code code={preparationState} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={prepareFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>Prepared is not running.</strong> The next layer calls the
+        descriptor's start closure, installs subscriptions, and reaches{" "}
+        <code>Ready</code>. Keeping the names separate makes a startup failure
+        impossible to hide behind a resolved handle.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Deletion removes reachability, not history</h2>
+    <p>
+      One delete touches three channels, so order matters. The adapter removes
+      every layout reference, removes every connection that reaches the
+      instance, and deletes the manifest key last. Repeating the operation
+      finishes a partial attempt instead of failing on already-missing data.
+    </p>
+    <figure class="g-code">
+      <Code code={deleteFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Watershed doesn't have channel garbage collection. The instance map
+      stays attached and disappears only from workspace reachability. A caller
+      that retained its handle can still read it—the test pins that behavior
+      instead of calling the orphan “deleted.”
+    </p>
+    <figure class="g-code">
+      <Code code={preservationTest} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        source: test/watershed/workspace_beam_test.gleam
+      </figcaption>
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h3>The runtime boundary is still real</h3>
+    <p>
+      These modules persist and prepare instances. They don't execute a
+      delivery, mutate a target component, mount a view, or keep a component
+      subscription alive. That shell comes next; the workspace gives it one
+      stable snapshot to reconcile.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">The workspace</span>
+    <p>
+      One child map owns the manifest, layout, and wiring. Raw collaborative
+      data stays intact; the local catalog derives the view it can safely use.
+      From here, <a href="/guide">the survey procedure</a> returns to the
+      document runtime watershed ships end to end today.
+    </p>
+  </div>
+</FoundationsLayout>

@@ -159,13 +159,14 @@ const portsFn = excerpt(componentModule, "pub fn ports(");
   </div>
 
   <div class="g-block">
-    <h3>You supply the component runtime</h3>
+    <h3>The workspace carries the definitions forward</h3>
     <p>
       Use this module to define descriptors, build catalogs, validate config,
-      look up versions, and call a start closure. Your host must persist its
-      instance manifest, assign child maps, mount views, maintain
-      subscriptions, stop instances, and migrate data. Watershed ships the
-      catalog foundation. You supply that host runtime.
+      look up versions, and call a start closure.{" "}
+      <a href="/foundations/workspaces">The workspace layer</a> persists
+      instances and assigns their child maps. Your host still mounts views,
+      maintains component subscriptions, executes port deliveries, and owns
+      migration policy.
     </p>
   </div>
 

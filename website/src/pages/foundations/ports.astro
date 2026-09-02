@@ -196,7 +196,10 @@ Descriptor ---------> EffectiveGraph ---------> Delivery
       payloads, call component code, execute local effects, submit
       collaborative mutations, and enforce capability policy. The runtime must
       also remember which edges one cascading trace crossed between plan calls.
-      Watershed ships the dispatch planner. You supply the runtime.
+      Watershed ships the dispatch planner.{" "}
+      <a href="/foundations/workspaces">The workspace layer</a> gives that
+      planner a persisted manifest and graph. You supply the runtime that acts
+      on its deliveries.
     </p>
   </div>
 
@@ -207,8 +210,9 @@ Descriptor ---------> EffectiveGraph ---------> Delivery
       the host checks schema IDs and descriptors. The effective graph turns an
       invalid stored edge set into one deterministic acyclic view. Dispatch
       plans ordered deliveries for local intent and suppresses a replicated
-      echo. From here, <a href="/guide">the build guide</a> returns to the
-      document runtime watershed ships end to end today.
+      echo. Next:{" "}
+      <a href="/foundations/workspaces">how a workspace keeps instances, order,
+      and wiring in one document without throwing unfamiliar data away</a>.
     </p>
   </div>
 </FoundationsLayout>

@@ -39,6 +39,12 @@ The workspace layer owns three durable structures:
 - an ordered layout;
 - a connection graph.
 
+The root stores one handle to a workspace child map. That child map stores
+handles to a manifest map, a layout sequence, and a connection sequence. Each
+manifest value embeds the handle to its instance child map. Handle discovery is
+recursive, so writing the manifest entry attaches that child before another
+client receives the entry.
+
 Each manifest entry contains:
 
 - a stable instance ID;
@@ -156,6 +162,12 @@ The shell tracks four instance states:
 - `Unavailable`;
 - `Failed`.
 
+Workspace persistence has one earlier local state, `Prepared`. It means the
+stored kind and version exist in the local catalog, the config is valid, and
+the instance child map resolves. It does not mean the component has started.
+The runtime shell turns a prepared instance into `Ready` only after bootstrap
+and required subscriptions succeed.
+
 `Unavailable` means the local catalog lacks the component kind or version.
 `Failed` means the shell found a descriptor but could not decode the config,
 resolve the subtree, bootstrap the component, or maintain a required
@@ -164,9 +176,18 @@ subscription.
 Stopping an instance releases subscriptions and view resources. It does not
 delete the component's collaborative data.
 
-Deleting data requires a separate workspace operation. The operation removes
-the manifest entry, its layout references, its graph edges, and the instance
-subtree according to an explicit deletion policy.
+Deleting data requires a separate workspace operation. The first release
+removes the manifest entry, its layout references, and its graph edges. It
+unlinks the instance child map but does not clear it. Watershed has no
+channel-level garbage collector, so the attached subtree remains in the
+document and stays readable through a handle retained before deletion.
+
+Deletion removes layout and graph references before it removes the manifest
+entry. The operation is safe to repeat, including after a partial attempt.
+Workspace mutations are not transactions: readers can briefly observe an
+entry before its layout reference, or cleaned references before the final
+manifest delete. Effective views omit dangling references and keep the stored
+data available for diagnostics.
 
 The first release supports several component versions side by side. It does not
 perform automatic migrations. A host can add an explicit migration later or
