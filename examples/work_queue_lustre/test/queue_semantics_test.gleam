@@ -148,6 +148,7 @@ pub fn two_claims_one_job_exactly_one_wins_test() -> Nil {
 
 // ── The kill ─────────────────────────────────────────────────────────────────
 
+// docs:snippet-start practice-deterministic-death-test
 /// A worker dies mid-job: the server's sequenced `"leave"` re-releases the job
 /// to the queue in the surviving replica — as `Added(newly_added: False)`, the
 /// signal the board renders "job returned" from — and the survivor can take it
@@ -185,6 +186,8 @@ pub fn held_job_returns_to_queue_when_holder_disconnects_test() -> Nil {
   transport_js.get_cell(outcomes_b)
   |> should.equal([AcquiredItem(id_b, payload)])
 }
+
+// docs:snippet-end practice-deterministic-death-test
 
 /// The dispatcher dies and the queued backup inherits the role. The surviving
 /// tab is promoted by a bare `QueueChanged` — **no** `Assigned` event fires on

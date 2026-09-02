@@ -87,14 +87,21 @@ pub fn run_id(message: Message) -> String {
   }
 }
 
+// docs:snippet-start practice-protocol-matches-run
 pub fn matches_run(expected_run_id: String, inbound: Inbound) -> Bool {
   run_id(inbound.message) == expected_run_id
 }
 
+// docs:snippet-end practice-protocol-matches-run
+
+// docs:snippet-start practice-protocol-from-self
 pub fn from_self(self_id: String, inbound: Inbound) -> Bool {
   inbound.from_peer == self_id
 }
 
+// docs:snippet-end practice-protocol-from-self
+
+// docs:snippet-start practice-protocol-should-acknowledge
 pub fn should_acknowledge(
   self_id: String,
   ready: Bool,
@@ -110,6 +117,8 @@ pub fn should_acknowledge(
     Status(_, _, _) -> False
   }
 }
+
+// docs:snippet-end practice-protocol-should-acknowledge
 
 pub fn select_first_ack(
   self_id: String,

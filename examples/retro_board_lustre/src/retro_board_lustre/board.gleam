@@ -98,6 +98,7 @@ pub fn total_occurrences(board: RenderedBoard, id: String) -> Int {
   |> list.count(fn(card) { card.id == id })
 }
 
+// docs:snippet-start practice-authoritative-render-column
 /// One column: the sequenced head in sequence order, then the unsequenced
 /// tail in `(created, id)` order.
 fn render_column(
@@ -136,6 +137,8 @@ fn render_column(
     |> list.map(fn(entry) { card(entry.0, entry.1, votes_by_id, None) })
   list.append(head, tail)
 }
+
+// docs:snippet-end practice-authoritative-render-column
 
 /// Notes whose register names no known column — codec fallbacks and documents
 /// written by other builds. Rendered, not dropped.

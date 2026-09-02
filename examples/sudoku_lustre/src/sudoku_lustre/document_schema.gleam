@@ -18,7 +18,7 @@ import watershed/schema.{
   type MapChannel, type OrSetChannel,
 }
 
-// docs:snippet-start sharedtree-nest
+// docs:snippet-start sudoku-schema-head
 /// Phantom tag scoping every field below to the Sudoku root map.
 pub type SudokuDocument
 
@@ -32,27 +32,39 @@ pub fn title() -> Field(SudokuDocument, String) {
   schema.field("title", json.string, decode.string)
 }
 
+// docs:snippet-end sudoku-schema-head
+
+// docs:snippet-start sudoku-schema-cells
 /// The player-entered digits, keyed `r{row}c{column}` → digit.
 pub fn cells() -> ChannelField(SudokuDocument, MapChannel) {
   schema.channel_field("cells")
   // last write wins, per key
 }
 
+// docs:snippet-end sudoku-schema-cells
+
+// docs:snippet-start sudoku-schema-notes
 /// The pencil-mark notes, as `r{row}c{column}={digit}` set elements.
 pub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) {
   schema.channel_field("notes")
   // add wins over a concurrent remove
 }
 
+// docs:snippet-end sudoku-schema-notes
+
+// docs:snippet-start sudoku-schema-givens
 /// The puzzle's immutable givens, first-writer-wins claims per cell.
 pub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) {
   schema.channel_field("givens")
   // the first writer owns the slot
 }
 
+// docs:snippet-end sudoku-schema-givens
+
+// docs:snippet-start sudoku-schema-mistakes
 /// The shared mistake tally.
 pub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) {
   schema.channel_field("mistakes")
   // commutative increments
 }
-// docs:snippet-end sharedtree-nest
+// docs:snippet-end sudoku-schema-mistakes

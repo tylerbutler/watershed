@@ -6,6 +6,7 @@ import {
   snippetFromDefinition,
   snippetFromMarker,
   snippetFromLiteral,
+  sourceWithoutMarkers,
 } from "./snippet.ts";
 
 // ── snippetFromDefinition ─────────────────────────────────────────────────
@@ -29,6 +30,24 @@ test("includes adjacent comments directly above the definition", () => {
   ].join("\n");
   const s = snippetFromDefinition(source, "src/math.gleam", "gleam", "pub fn add(");
   assert.ok(s.code.startsWith("// Adds two integers.\npub fn add("));
+});
+
+test("stops the comment walk at a marker directive above the definition", () => {
+  const source = [
+    "// docs:snippet-end previous-range",
+    "// docs:snippet-start math-add",
+    "/// Adds two integers.",
+    "pub fn add(a: Int, b: Int) -> Int {",
+    "  a + b",
+    "}",
+    "// docs:snippet-end math-add",
+    "",
+  ].join("\n");
+  const s = snippetFromDefinition(source, "src/math.gleam", "gleam", "pub fn add(");
+  assert.equal(
+    s.code,
+    "/// Adds two integers.\npub fn add(a: Int, b: Int) -> Int {\n  a + b\n}",
+  );
 });
 
 test("multi-definition extraction joins results with a blank line", () => {
@@ -251,4 +270,44 @@ test("snippetFromLiteral populates all Snippet fields", () => {
 test("snippetFromLiteral: sourceUrl is undefined when omitted", () => {
   const s = snippetFromLiteral("let x = 1", "gleam", "src/foo.gleam");
   assert.equal(s.sourceUrl, undefined);
+});
+
+// ── sourceWithoutMarkers ──────────────────────────────────────────────────
+
+test("removes marker directives and the blank lines they leave behind", () => {
+  const source = [
+    "pub type Board",
+    "",
+    "// docs:snippet-start board-title",
+    "pub fn title() {",
+    "  1",
+    "}",
+    "",
+    "// docs:snippet-end board-title",
+    "",
+    "pub fn notes() {",
+    "  2",
+    "}",
+    "",
+  ].join("\n");
+  assert.equal(
+    sourceWithoutMarkers(source),
+    [
+      "pub type Board",
+      "",
+      "pub fn title() {",
+      "  1",
+      "}",
+      "",
+      "pub fn notes() {",
+      "  2",
+      "}",
+      "",
+    ].join("\n"),
+  );
+});
+
+test("leaves a source without markers untouched", () => {
+  const source = "pub fn a() {\n  1\n}\n\npub fn b() {\n  2\n}\n";
+  assert.equal(sourceWithoutMarkers(source), source);
 });

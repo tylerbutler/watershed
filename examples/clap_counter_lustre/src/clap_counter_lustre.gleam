@@ -162,6 +162,7 @@ fn connect(room: String) -> Effect(Msg) {
   )
 }
 
+// docs:snippet-start practice-relay-with-relay
 /// Attach the optional relay named by `?relay=`, and nothing at all
 /// without one. The policy stays `Auto` either way: readiness never waits
 /// for a relay, so a URL pointing at a service that is down costs a
@@ -174,6 +175,8 @@ fn with_relay(
     url -> crdt_js.with_sequencer(config, crdt_js.sequencer(url))
   }
 }
+
+// docs:snippet-end practice-relay-with-relay
 
 /// ICE servers, entirely from the URL: watershed ships none, and a demo
 /// that quietly used somebody else's STUN server would be lying about

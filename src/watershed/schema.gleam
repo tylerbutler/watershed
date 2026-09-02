@@ -63,6 +63,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 
+// docs:snippet-start schema-field-type
 /// A typed key: its name, the encoder from its value to `Json`, and the decoder
 /// back. `schema` is a phantom tag that limits the field to one map shape. `a`
 /// is the value type. The type is opaque, so nothing can change the codec.
@@ -70,6 +71,9 @@ pub opaque type Field(schema, a) {
   Field(key: String, encode: fn(a) -> Json, decode: Decoder(a))
 }
 
+// docs:snippet-end schema-field-type
+
+// docs:snippet-start schema-child-field-type
 /// A typed key whose stored value is a handle to a nested map of the shape
 /// `child`. It carries the key only. The backend encodes and resolves the
 /// handle, with the `handle_of` and `resolve` functions.
@@ -77,6 +81,9 @@ pub opaque type ChildField(schema, child) {
   ChildField(key: String)
 }
 
+// docs:snippet-end schema-child-field-type
+
+// docs:snippet-start schema-field-error
 /// The reason that a typed read failed.
 ///
 /// - `Missing`: a required single field was absent. See `get_required`.
@@ -91,6 +98,8 @@ pub type FieldError {
   UnknownKeys(keys: List(String))
   SchemaMismatch(expected: Int, found: Int)
 }
+
+// docs:snippet-end schema-field-error
 
 /// Define a typed field.
 pub fn field(
@@ -162,10 +171,13 @@ pub type SequenceChannel
 /// A collaborative plain-text channel.
 pub type TextChannel
 
+// docs:snippet-start schema-channel-field-type
 /// A typed key whose stored value is a handle to a channel of `kind`.
 pub opaque type ChannelField(schema, kind) {
   ChannelField(key: String)
 }
+
+// docs:snippet-end schema-channel-field-type
 
 /// Define a typed channel field. Write the kind in an annotation, or let the
 /// inference find it:

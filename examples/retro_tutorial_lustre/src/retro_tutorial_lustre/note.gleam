@@ -7,6 +7,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/json.{type Json}
 
+// docs:snippet-start retro-note-type
 pub type Note {
   Note(
     text: String,
@@ -18,6 +19,9 @@ pub type Note {
   )
 }
 
+// docs:snippet-end retro-note-type
+
+// docs:snippet-start retro-note-id
 /// Stable note identity. Edits and votes use this id for the life of the note.
 /// The nonce keeps two notes from one author distinct in one ms tick.
 pub fn id(author: String, created: Int, nonce: Int) -> String {
@@ -29,6 +33,9 @@ pub fn id(author: String, created: Int, nonce: Int) -> String {
   <> int.to_string(nonce)
 }
 
+// docs:snippet-end retro-note-id
+
+// docs:snippet-start retro-note-to-json
 pub fn to_json(note: Note) -> Json {
   json.object([
     #("text", json.string(note.text)),
@@ -38,6 +45,8 @@ pub fn to_json(note: Note) -> Json {
   ])
 }
 
+// docs:snippet-end retro-note-to-json
+
 pub fn decoder() -> Decoder(Note) {
   use text <- decode.field("text", decode.string)
   use column <- decode.field("column", decode.string)
@@ -46,6 +55,7 @@ pub fn decoder() -> Decoder(Note) {
   decode.success(Note(text:, column:, author:, created:))
 }
 
+// docs:snippet-start retro-note-from-register
 /// Decode a raw register value. A bad payload stays visible and does not crash.
 pub fn from_register(value: String) -> Note {
   case json.parse(value, decoder()) {
@@ -54,3 +64,4 @@ pub fn from_register(value: String) -> Note {
       Note(text: "(unreadable note)", column: "", author: "—", created: 0)
   }
 }
+// docs:snippet-end retro-note-from-register

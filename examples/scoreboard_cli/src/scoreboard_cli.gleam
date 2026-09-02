@@ -79,6 +79,7 @@ type PlayerState {
   PlayerState(name: String, last_roll: Option(Int), total: Int, rolls: Int)
 }
 
+// docs:snippet-start scoreboard-player-schema
 /// The player-map schema. `record4` derives the decoder *and* the per-key
 /// encoder from a single prop list, so they can never drift; `sealed_known`
 /// seals it to exactly those declared keys (no hand-repeated list); `versioned`
@@ -95,6 +96,8 @@ fn player_schema() -> Result(schema.Schema(Player, PlayerState), Nil) {
   |> schema.versioned(1)
   |> schema.sealed_known
 }
+
+// docs:snippet-end scoreboard-player-schema
 
 fn player_name() -> Field(Player, String) {
   schema.field("name", json.string, decode.string)

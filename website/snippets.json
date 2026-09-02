@@ -1,0 +1,690 @@
+{
+  "version": 1,
+  "sourceRoot": "..",
+  "markerRoots": [
+    "src",
+    "test",
+    "watershed_lustre/src",
+    "watershed_lustre/test",
+    "tools/website-samples/src",
+    "examples/clap_counter_lustre/src",
+    "examples/dice_cli/src",
+    "examples/dice_lustre/src",
+    "examples/drum_machine_lustre/src",
+    "examples/drum_machine_lustre/test",
+    "examples/grocery_triptych_lustre/src",
+    "examples/grocery_triptych_lustre/test",
+    "examples/json_workspace_lustre/src",
+    "examples/json_workspace_lustre/test",
+    "examples/markdown_notes_lustre/src",
+    "examples/markdown_notes_lustre/test",
+    "examples/pixel_canvas_lustre/src",
+    "examples/pixel_canvas_lustre/test",
+    "examples/playlist_lustre/src",
+    "examples/release_checklist_lustre/src",
+    "examples/release_checklist_lustre/test",
+    "examples/retro_board_lustre/src",
+    "examples/retro_board_lustre/test",
+    "examples/retro_tutorial_lustre/src",
+    "examples/retro_tutorial_lustre/test",
+    "examples/scoreboard_cli/src",
+    "examples/showcase_lustre/src",
+    "examples/showcase_lustre/test",
+    "examples/sudoku_lustre/src",
+    "examples/sudoku_lustre/test",
+    "examples/text_lustre/src",
+    "examples/tournament_bracket_lustre/src",
+    "examples/tournament_bracket_lustre/test",
+    "examples/work_queue_lustre/src",
+    "examples/work_queue_lustre/test"
+  ],
+  "extensions": [
+    ".gleam",
+    ".mjs"
+  ],
+  "snippets": [
+    {
+      "id": "foundations-lifecycle-assemble",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-assemble"
+      ]
+    },
+    {
+      "id": "foundations-lifecycle-bootstrap",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-bootstrap-effect"
+      ]
+    },
+    {
+      "id": "foundations-lifecycle-connect",
+      "sourcePath": "watershed_lustre/src/watershed_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "watershed-lustre-connect"
+      ]
+    },
+    {
+      "id": "foundations-lifecycle-ensure-channel",
+      "sourcePath": "src/watershed.gleam",
+      "language": "gleam",
+      "markers": [
+        "watershed-ensure-channel"
+      ]
+    },
+    {
+      "id": "foundations-lifecycle-ensured-arms",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "lifecycle-ensured-arms"
+      ]
+    },
+    {
+      "id": "foundations-lifecycle-readiness",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "update-readiness"
+      ]
+    },
+    {
+      "id": "foundations-schema-channel-field-type",
+      "sourcePath": "src/watershed/schema.gleam",
+      "language": "gleam",
+      "markers": [
+        "schema-channel-field-type"
+      ]
+    },
+    {
+      "id": "foundations-schema-child-field-type",
+      "sourcePath": "src/watershed/schema.gleam",
+      "language": "gleam",
+      "markers": [
+        "schema-child-field-type"
+      ]
+    },
+    {
+      "id": "foundations-schema-field-error",
+      "sourcePath": "src/watershed/schema.gleam",
+      "language": "gleam",
+      "markers": [
+        "schema-field-error"
+      ]
+    },
+    {
+      "id": "foundations-schema-field-type",
+      "sourcePath": "src/watershed/schema.gleam",
+      "language": "gleam",
+      "markers": [
+        "schema-field-type"
+      ]
+    },
+    {
+      "id": "foundations-schema-get-field",
+      "sourcePath": "src/watershed.gleam",
+      "language": "gleam",
+      "markers": [
+        "watershed-get-field"
+      ]
+    },
+    {
+      "id": "foundations-schema-player-schema",
+      "sourcePath": "examples/scoreboard_cli/src/scoreboard_cli.gleam",
+      "language": "gleam",
+      "markers": [
+        "scoreboard-player-schema"
+      ]
+    },
+    {
+      "id": "foundations-schema-stamp",
+      "sourcePath": "src/watershed.gleam",
+      "language": "gleam",
+      "markers": [
+        "watershed-stamp"
+      ]
+    },
+    {
+      "id": "foundations-schema-sudoku-fields",
+      "sourcePath": "examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam",
+      "language": "gleam",
+      "markers": [
+        "sudoku-schema-cells",
+        "sudoku-schema-notes",
+        "sudoku-schema-givens",
+        "sudoku-schema-mistakes"
+      ]
+    },
+    {
+      "id": "foundations-schema-text-child",
+      "sourcePath": "examples/showcase_lustre/src/showcase_lustre/document_schema.gleam",
+      "language": "gleam",
+      "markers": [
+        "showcase-schema-text"
+      ]
+    },
+    {
+      "id": "foundations-schema-title-field",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-schema-title"
+      ]
+    },
+    {
+      "id": "foundations-topology-create-map",
+      "sourcePath": "src/watershed.gleam",
+      "language": "gleam",
+      "markers": [
+        "watershed-create-map"
+      ]
+    },
+    {
+      "id": "foundations-topology-handle-of",
+      "sourcePath": "src/watershed.gleam",
+      "language": "gleam",
+      "markers": [
+        "watershed-handle-of"
+      ]
+    },
+    {
+      "id": "foundations-topology-resolve",
+      "sourcePath": "src/watershed.gleam",
+      "language": "gleam",
+      "markers": [
+        "watershed-resolve"
+      ]
+    },
+    {
+      "id": "foundations-topology-resolve-child",
+      "sourcePath": "src/watershed.gleam",
+      "language": "gleam",
+      "markers": [
+        "watershed-resolve-child"
+      ]
+    },
+    {
+      "id": "foundations-topology-root-typed",
+      "sourcePath": "src/watershed.gleam",
+      "language": "gleam",
+      "markers": [
+        "watershed-root-typed"
+      ]
+    },
+    {
+      "id": "guide-connect-assemble",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-assemble"
+      ]
+    },
+    {
+      "id": "guide-connect-bootstrap",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-bootstrap-effect"
+      ]
+    },
+    {
+      "id": "guide-connect-dev-constants",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "guide-connect-dev-constants"
+      ]
+    },
+    {
+      "id": "guide-connect-init",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-init"
+      ]
+    },
+    {
+      "id": "guide-connect-main",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-main"
+      ]
+    },
+    {
+      "id": "guide-connect-readiness",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "update-readiness"
+      ]
+    },
+    {
+      "id": "guide-notes-add-clicked",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "guide-notes-add-clicked"
+      ]
+    },
+    {
+      "id": "guide-notes-add-note",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-board-add-note"
+      ]
+    },
+    {
+      "id": "guide-notes-codec",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-note-to-json",
+        "retro-note-from-register"
+      ]
+    },
+    {
+      "id": "guide-notes-note-entries",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-board-note-entries"
+      ]
+    },
+    {
+      "id": "guide-notes-note-record",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-note-type",
+        "retro-note-id"
+      ]
+    },
+    {
+      "id": "guide-notes-ordering",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-board-notes-in-column",
+        "retro-board-by-created-then-id"
+      ]
+    },
+    {
+      "id": "guide-notes-unfiled",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-board-unfiled"
+      ]
+    },
+    {
+      "id": "guide-presence-announce",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-announce-focus"
+      ]
+    },
+    {
+      "id": "guide-presence-effect",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-presence-effect",
+        "retro-app-current-presence"
+      ]
+    },
+    {
+      "id": "guide-presence-events",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "guide-presence-events"
+      ]
+    },
+    {
+      "id": "guide-presence-focus-clicked",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "guide-presence-focus-clicked"
+      ]
+    },
+    {
+      "id": "guide-presence-focus-names",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-focus-names"
+      ]
+    },
+    {
+      "id": "guide-presence-payload",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-presence-type",
+        "retro-app-encode-presence",
+        "retro-app-presence-decoder"
+      ]
+    },
+    {
+      "id": "guide-presence-remote-peers",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-remote-peers"
+      ]
+    },
+    {
+      "id": "guide-testing-add-race",
+      "sourcePath": "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-convergence-add-race"
+      ]
+    },
+    {
+      "id": "guide-testing-board-of",
+      "sourcePath": "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-convergence-board-of"
+      ]
+    },
+    {
+      "id": "guide-testing-room",
+      "sourcePath": "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-convergence-room",
+        "retro-convergence-channels-of"
+      ]
+    },
+    {
+      "id": "guide-testing-vote-race",
+      "sourcePath": "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-convergence-vote-race"
+      ]
+    },
+    {
+      "id": "guide-votes-card",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-board-card"
+      ]
+    },
+    {
+      "id": "guide-votes-orphan-test",
+      "sourcePath": "examples/retro_tutorial_lustre/test/board_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-board-test-orphan-tallies"
+      ]
+    },
+    {
+      "id": "guide-votes-vote-clicks",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "guide-votes-vote-clicks"
+      ]
+    },
+    {
+      "id": "guide-votes-vote-entries",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-board-vote-entries"
+      ]
+    },
+    {
+      "id": "guide-votes-vote-ops",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-board-upvote",
+        "retro-board-downvote",
+        "retro-board-change-votes"
+      ]
+    },
+    {
+      "id": "homepage-beam",
+      "sourcePath": "examples/dice_cli/src/dice_cli.gleam",
+      "language": "gleam",
+      "markers": [
+        "homepage-beam"
+      ]
+    },
+    {
+      "id": "optimistic-local",
+      "sourcePath": "tools/website-samples/src/website_samples/optimistic_sample.gleam",
+      "language": "gleam",
+      "markers": [
+        "optimistic-local"
+      ]
+    },
+    {
+      "id": "p2p-config",
+      "sourcePath": "tools/website-samples/src/website_samples/p2p_sample.gleam",
+      "language": "gleam",
+      "markers": [
+        "p2p-config"
+      ]
+    },
+    {
+      "id": "practice-anchors-not-offsets",
+      "sourcePath": "examples/text_lustre/src/text_lustre/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-anchors-refresh-anchor"
+      ]
+    },
+    {
+      "id": "practice-authoritative-channel",
+      "sourcePath": "examples/retro_board_lustre/src/retro_board_lustre/board.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-authoritative-render-column"
+      ]
+    },
+    {
+      "id": "practice-claims-seeding",
+      "sourcePath": "examples/sudoku_lustre/src/sudoku_lustre/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-claims-seed-givens"
+      ]
+    },
+    {
+      "id": "practice-deterministic-death",
+      "sourcePath": "examples/work_queue_lustre/test/queue_semantics_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-deterministic-death-test"
+      ]
+    },
+    {
+      "id": "practice-diagnostics-first",
+      "sourcePath": "examples/dice_lustre/src/dice_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-diagnostics-line"
+      ]
+    },
+    {
+      "id": "practice-fallible-edits",
+      "sourcePath": "examples/playlist_lustre/src/playlist_lustre/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-fallible-move",
+        "practice-fallible-mutate",
+        "practice-fallible-record"
+      ]
+    },
+    {
+      "id": "practice-ffi-surface",
+      "sourcePath": "examples/pixel_canvas_lustre/src/pixel_canvas_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-ffi-connected"
+      ]
+    },
+    {
+      "id": "practice-presence-idiom",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "retro-app-presence-effect",
+        "retro-app-remote-peers"
+      ]
+    },
+    {
+      "id": "practice-protocol-on-ripples",
+      "sourcePath": "examples/grocery_triptych_lustre/src/grocery_triptych_lustre/scenario_protocol.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-protocol-matches-run",
+        "practice-protocol-from-self",
+        "practice-protocol-should-acknowledge"
+      ]
+    },
+    {
+      "id": "practice-pure-modules",
+      "sourcePath": "examples/grocery_triptych_lustre/src/grocery_triptych_lustre/refresh_guard.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-pure-state",
+        "practice-pure-idle",
+        "practice-pure-request",
+        "practice-pure-flush"
+      ]
+    },
+    {
+      "id": "practice-quorum-pending-roster",
+      "sourcePath": "examples/drum_machine_lustre/src/drum_machine_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-quorum-pending"
+      ]
+    },
+    {
+      "id": "practice-realtime-out-of-band",
+      "sourcePath": "examples/drum_machine_lustre/src/drum_machine_lustre/audio_ffi.mjs",
+      "language": "js",
+      "markers": [
+        "practice-realtime-tick"
+      ]
+    },
+    {
+      "id": "practice-relay-decorator",
+      "sourcePath": "examples/clap_counter_lustre/src/clap_counter_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-relay-config",
+        "practice-relay-with-relay"
+      ]
+    },
+    {
+      "id": "practice-shared-core-two-runtimes",
+      "sourcePath": "examples/dice_cli/src/dice_cli.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-shared-core-event-loop"
+      ]
+    },
+    {
+      "id": "practice-stamp-schema",
+      "sourcePath": "examples/scoreboard_cli/src/scoreboard_cli.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-stamp-schema"
+      ]
+    },
+    {
+      "id": "practice-typedmap-panels",
+      "sourcePath": "examples/showcase_lustre/src/showcase_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-typedmap-bootstrap-effect"
+      ]
+    },
+    {
+      "id": "practice-unsettled-writes",
+      "sourcePath": "examples/tournament_bracket_lustre/src/tournament_bracket_lustre.gleam",
+      "language": "gleam",
+      "markers": [
+        "practice-unsettled-report",
+        "practice-unsettled-atomic"
+      ],
+      "separator": "\n\n// ... and in the register event handler:\n"
+    },
+    {
+      "id": "sharedtree-bootstrap",
+      "sourcePath": "tools/website-samples/src/website_samples/board_app.gleam",
+      "language": "gleam",
+      "markers": [
+        "sharedtree-bootstrap"
+      ]
+    },
+    {
+      "id": "sharedtree-declare",
+      "sourcePath": "tools/website-samples/src/website_samples/board_schema.gleam",
+      "language": "gleam",
+      "markers": [
+        "sharedtree-declare"
+      ]
+    },
+    {
+      "id": "sharedtree-events",
+      "sourcePath": "tools/website-samples/src/website_samples/board_app.gleam",
+      "language": "gleam",
+      "markers": [
+        "sharedtree-events"
+      ]
+    },
+    {
+      "id": "sharedtree-nest",
+      "sourcePath": "examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam",
+      "language": "gleam",
+      "markers": [
+        "sudoku-schema-head",
+        "sudoku-schema-cells",
+        "sudoku-schema-notes",
+        "sudoku-schema-givens",
+        "sudoku-schema-mistakes"
+      ]
+    },
+    {
+      "id": "sharedtree-per-kind",
+      "sourcePath": "examples/sudoku_lustre/src/sudoku_lustre/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "sharedtree-per-kind"
+      ]
+    },
+    {
+      "id": "sharedtree-read-write",
+      "sourcePath": "tools/website-samples/src/website_samples/board_app.gleam",
+      "language": "gleam",
+      "markers": [
+        "sharedtree-read-write"
+      ]
+    },
+    {
+      "id": "sharedtree-record",
+      "sourcePath": "tools/website-samples/src/website_samples/board_app.gleam",
+      "language": "gleam",
+      "markers": [
+        "sharedtree-record"
+      ]
+    }
+  ]
+}

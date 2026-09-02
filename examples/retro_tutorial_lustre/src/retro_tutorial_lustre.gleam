@@ -42,6 +42,7 @@ const tenant_secret = "levee-dev-secret-change-in-production"
 
 // docs:snippet-end guide-connect-dev-constants
 
+// docs:snippet-start retro-app-main
 pub fn main() -> Nil {
   let app = lustre.application(init, update, view)
   let document = browser.document_on_navigate("retro-tutorial")
@@ -49,10 +50,16 @@ pub fn main() -> Nil {
   Nil
 }
 
+// docs:snippet-end retro-app-main
+
+// docs:snippet-start retro-app-presence-type
 pub type BoardPresence {
   BoardPresence(color: String, name: String, focused_note: Option(String))
 }
 
+// docs:snippet-end retro-app-presence-type
+
+// docs:snippet-start retro-app-encode-presence
 fn encode_presence(presence: BoardPresence) -> json.Json {
   json.object([
     #("color", json.string(presence.color)),
@@ -64,6 +71,9 @@ fn encode_presence(presence: BoardPresence) -> json.Json {
   ])
 }
 
+// docs:snippet-end retro-app-encode-presence
+
+// docs:snippet-start retro-app-presence-decoder
 fn presence_decoder() -> decode.Decoder(BoardPresence) {
   use color <- decode.field("color", decode.string)
   use name <- decode.field("name", decode.string)
@@ -74,6 +84,8 @@ fn presence_decoder() -> decode.Decoder(BoardPresence) {
   )
   decode.success(BoardPresence(color:, name:, focused_note:))
 }
+
+// docs:snippet-end retro-app-presence-decoder
 
 type Status {
   Connecting
@@ -123,6 +135,7 @@ type Msg {
   ReconnectClicked
 }
 
+// docs:snippet-start retro-app-init
 fn init(document: String) -> #(Model, Effect(Msg)) {
   let user_id = "web-" <> int.to_string(1000 + int.random(9000))
   let model =
@@ -155,6 +168,9 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
   )
 }
 
+// docs:snippet-end retro-app-init
+
+// docs:snippet-start retro-app-bootstrap-effect
 fn bootstrap_effect(
   document: Document(document_schema.BoardDocument),
 ) -> Effect(Msg) {
@@ -181,6 +197,9 @@ fn bootstrap_effect(
   ])
 }
 
+// docs:snippet-end retro-app-bootstrap-effect
+
+// docs:snippet-start retro-app-presence-effect
 fn presence_effect(
   model: Model,
   document: Document(document_schema.BoardDocument),
@@ -194,6 +213,9 @@ fn presence_effect(
   )
 }
 
+// docs:snippet-end retro-app-presence-effect
+
+// docs:snippet-start retro-app-current-presence
 fn current_presence(model: Model) -> BoardPresence {
   BoardPresence(
     color: model.color,
@@ -202,6 +224,9 @@ fn current_presence(model: Model) -> BoardPresence {
   )
 }
 
+// docs:snippet-end retro-app-current-presence
+
+// docs:snippet-start retro-app-announce-focus
 fn announce_focus(model: Model) -> Effect(Msg) {
   case model.presence {
     Some(handle) ->
@@ -210,6 +235,9 @@ fn announce_focus(model: Model) -> Effect(Msg) {
   }
 }
 
+// docs:snippet-end retro-app-announce-focus
+
+// docs:snippet-start retro-app-assemble
 fn assemble(model: Model) -> #(Model, Effect(Msg)) {
   case model.shared, model.pending {
     None, PendingShared(Some(notes), Some(votes)) -> {
@@ -230,6 +258,8 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
     _, _ -> #(model, effect.none())
   }
 }
+
+// docs:snippet-end retro-app-assemble
 
 fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case msg {
@@ -396,6 +426,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   }
 }
 
+// docs:snippet-start retro-app-remote-peers
 fn remote_peers(
   model: Model,
   entries: List(presence.PresenceEntry(BoardPresence)),
@@ -409,6 +440,8 @@ fn remote_peers(
     None -> entries
   }
 }
+
+// docs:snippet-end retro-app-remote-peers
 
 fn snapshot(model: Model) -> Model {
   let #(title, error) = case model.document {
@@ -683,6 +716,7 @@ fn focus_button_label(model: Model, id: String) -> String {
   }
 }
 
+// docs:snippet-start retro-app-focus-names
 fn focus_names(model: Model, id: String) -> List(String) {
   let local = case model.focus {
     Some(current) if current == id -> [
@@ -700,6 +734,8 @@ fn focus_names(model: Model, id: String) -> List(String) {
     })
   list.append(local, peers)
 }
+
+// docs:snippet-end retro-app-focus-names
 
 fn unfiled_view(model: Model) -> Element(Msg) {
   case model.board.unfiled {

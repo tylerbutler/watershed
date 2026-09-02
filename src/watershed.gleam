@@ -364,6 +364,7 @@ pub fn root(document: Document(root)) -> SharedMap {
   SharedMap(runtime: document.runtime, address: "root")
 }
 
+// docs:snippet-start watershed-create-map
 @target(javascript)
 /// Create a new map channel. The map starts *detached*, which means that it is
 /// local only and its edits produce no operation. It stays detached until a
@@ -378,6 +379,9 @@ pub fn create_map(document: Document(root)) -> Result(SharedMap, String) {
   })
 }
 
+// docs:snippet-end watershed-create-map
+
+// docs:snippet-start watershed-handle-of
 @target(javascript)
 /// The Fluid handle marker that references `map`. Store it as a value in
 /// another map. Its shape is
@@ -386,6 +390,8 @@ pub fn handle_of(map: SharedMap) -> Json {
   handle.encode_handle(map.address)
 }
 
+// docs:snippet-end watershed-handle-of
+
 @target(javascript)
 /// Whether a value that you read from a map is a handle marker. See
 /// `resolve`.
@@ -393,6 +399,7 @@ pub fn is_handle(value: Json) -> Bool {
   handle.parse_handle(value) != Error(Nil)
 }
 
+// docs:snippet-start watershed-resolve
 @target(javascript)
 /// Resolve a handle value, from `get` or from `entries`, to the SharedMap that
 /// it references. A caller can retry after an error. A handle from a remote
@@ -411,6 +418,8 @@ pub fn resolve(
       })
   }
 }
+
+// docs:snippet-end watershed-resolve
 
 // ── Typed maps ───────────────────────────────────────────────────────────────
 //
@@ -440,6 +449,7 @@ pub fn untyped(typed_map: TypedMap(s)) -> SharedMap {
   typed_map.map
 }
 
+// docs:snippet-start watershed-root-typed
 @target(javascript)
 /// The root map of the document, viewed through the schema of that document.
 ///
@@ -467,6 +477,8 @@ pub fn root_typed(document: Document(root)) -> TypedMap(root) {
   typed(root(document))
 }
 
+// docs:snippet-end watershed-root-typed
+
 @target(javascript)
 /// Create a new detached map, viewed through a schema. The lifecycle is the
 /// same as for `create_map`.
@@ -488,6 +500,7 @@ pub fn delete_field(typed_map: TypedMap(s), field: Field(s, a)) -> Nil {
   delete(typed_map.map, schema.field_key(field))
 }
 
+// docs:snippet-start watershed-get-field
 @target(javascript)
 /// Read a typed field. The result is `Ok(None)` when the key is absent, and
 /// `Error(Invalid)` when the stored value does not decode to the type `a`.
@@ -500,6 +513,8 @@ pub fn get_field(
     Ok(stored) -> schema.decode_value(field, stored) |> result.map(Some)
   }
 }
+
+// docs:snippet-end watershed-get-field
 
 @target(javascript)
 /// Read a typed field that must exist. The result is `Error(Missing)` when the
@@ -532,6 +547,7 @@ pub fn set_child(
   set(typed_map.map, schema.child_key(field), handle_of(child.map))
 }
 
+// docs:snippet-start watershed-resolve-child
 @target(javascript)
 /// Resolve the nested typed map that a child field references. The result is
 /// `Ok(None)` when the key is absent. The function returns an error from
@@ -549,6 +565,8 @@ pub fn resolve_child(
       |> result.map(fn(resolved) { Some(typed(resolved)) })
   }
 }
+
+// docs:snippet-end watershed-resolve-child
 
 @target(javascript)
 /// Read the whole map as a typed record, through a schema. The function returns
@@ -579,6 +597,7 @@ pub fn write(
   })
 }
 
+// docs:snippet-start watershed-stamp
 @target(javascript)
 /// Write the version marker of a schema that has a version, one time. The usual
 /// position for this call is immediately after you create the map. The function
@@ -592,6 +611,8 @@ pub fn stamp(
     None -> Nil
   }
 }
+
+// docs:snippet-end watershed-stamp
 
 @target(javascript)
 /// Resolve every key whose value is a handle to a typed child map. This is the
@@ -1043,6 +1064,7 @@ fn resolve_with_retry(
   }
 }
 
+// docs:snippet-start watershed-ensure-channel
 @target(javascript)
 /// Adopt the channel under `key`. If the key already holds a value, the
 /// function resolves the handle currently there. If the key is empty, the
@@ -1069,6 +1091,8 @@ fn ensure_channel(
       }
   }
 }
+
+// docs:snippet-end watershed-ensure-channel
 
 @target(javascript)
 /// Make sure that a nested (untyped) map exists under `field`.

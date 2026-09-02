@@ -79,6 +79,22 @@ export function snippetFromLiteral(
 }
 
 /**
+ * The source text with snippet marker directives removed.
+ *
+ * A whole-file listing shows a module that other sheets quote by range, so
+ * without this it would display the generator's directives as if they were
+ * part of the code. Dropping a directive line leaves the blank line on each
+ * side of it, so runs of blank lines collapse back to one.
+ */
+export function sourceWithoutMarkers(source: string): string {
+  return source
+    .split("\n")
+    .filter((line) => !isMarkerDirective(line))
+    .join("\n")
+    .replace(/\n{3,}/g, "\n\n");
+}
+
+/**
  * Join two extractions from the same file into one snippet.
  *
  * The result's origin is a composite that keeps *both* parts, in order.
@@ -119,6 +135,10 @@ export function isSourceBacked(snippet: Snippet): boolean {
 
 // ── Definition extraction ──────────────────────────────────────────────────
 
+function isMarkerDirective(line: string): boolean {
+  return MARKER_START.test(line) || MARKER_END.test(line);
+}
+
 function extractDefinition(
   lines: string[],
   head: string,
@@ -132,9 +152,17 @@ function extractDefinition(
     );
   }
 
-  // Include the comment block directly above the definition.
+  // Include the comment block directly above the definition. A marker
+  // directive is punctuation for the generator, not part of the definition,
+  // so the walk stops at one instead of quoting it back to the reader.
   let from = start;
-  while (from > 0 && /^\s*\/\//.test(lines[from - 1])) from -= 1;
+  while (
+    from > 0 &&
+    /^\s*\/\//.test(lines[from - 1]) &&
+    !isMarkerDirective(lines[from - 1])
+  ) {
+    from -= 1;
+  }
 
   let depth = 0;
   let opened = false;

@@ -13,6 +13,8 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  combineSnippets,
+  originParts,
   snippetFromMarker,
   type Snippet,
 } from "../lib/snippet.ts";
@@ -67,9 +69,21 @@ function buildSnippets(): Record<string, Snippet> {
     "sharedtree-events": snippetFromMarker(
       src.boardApp, sourcePaths.boardApp, "gleam", "sharedtree-events",
     ),
-    "sharedtree-nest": snippetFromMarker(
-      src.sudokuSchema, sourcePaths.sudokuSchema, "gleam", "sharedtree-nest",
-    ),
+    "sharedtree-nest": [
+      "sudoku-schema-head",
+      "sudoku-schema-cells",
+      "sudoku-schema-notes",
+      "sudoku-schema-givens",
+      "sudoku-schema-mistakes",
+    ]
+      .map((marker) =>
+        snippetFromMarker(
+          src.sudokuSchema, sourcePaths.sudokuSchema, "gleam", marker,
+        ),
+      )
+      .reduce((joined, next) =>
+        combineSnippets(joined, next, sourcePaths.sudokuSchema),
+      ),
     "sharedtree-per-kind": snippetFromMarker(
       src.sudokuComponent, sourcePaths.sudokuComponent, "gleam", "sharedtree-per-kind",
     ),
@@ -112,11 +126,13 @@ describe("standalone snippet registry", () => {
   it("every snippet has a source-backed origin (marker)", () => {
     const snippets = buildSnippets();
     for (const [key, snippet] of Object.entries(snippets)) {
-      assert.equal(
-        snippet.origin.kind,
-        "marker",
-        `snippet ${key} should use marker extraction`,
-      );
+      for (const part of originParts(snippet.origin)) {
+        assert.equal(
+          part.kind,
+          "marker",
+          `snippet ${key} should use marker extraction`,
+        );
+      }
     }
   });
 

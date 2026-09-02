@@ -11,10 +11,13 @@ import watershed/schema.{type ChannelField, type Field, type OrMapChannel}
 /// Phantom tag for the root map.
 pub type BoardDocument
 
+// docs:snippet-start retro-schema-title
 /// The board title shown in the header.
 pub fn title() -> Field(BoardDocument, String) {
   schema.field("title", json.string, decode.string)
 }
+
+// docs:snippet-end retro-schema-title
 
 /// Note id → JSON note string in RegisterMode.
 pub fn notes() -> ChannelField(BoardDocument, OrMapChannel) {

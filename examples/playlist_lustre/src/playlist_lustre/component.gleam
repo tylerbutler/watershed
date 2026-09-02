@@ -219,6 +219,7 @@ pub fn channel(model: Model) -> Option(SharedSequence) {
   model.tracks_channel
 }
 
+// docs:snippet-start practice-fallible-mutate
 /// Run a sequence edit against the resolved channel, recording any index error.
 fn mutate(
   model: Model,
@@ -231,6 +232,9 @@ fn mutate(
   }
 }
 
+// docs:snippet-end practice-fallible-mutate
+
+// docs:snippet-start practice-fallible-record
 /// Fold an edit result into the model: clear the banner on success, surface the
 /// runtime's own message on failure.
 fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
@@ -240,6 +244,8 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
       Model(..model, last_error: Some(verb <> " failed: " <> reason))
   }
 }
+
+// docs:snippet-end practice-fallible-record
 
 /// Re-read the optimistic sequence state into the model for rendering.
 fn snapshot(model: Model) -> Model {

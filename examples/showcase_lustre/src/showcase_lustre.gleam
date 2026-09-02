@@ -482,6 +482,7 @@ fn open_current(model: Model) -> #(Model, Effect(Msg)) {
   }
 }
 
+// docs:snippet-start practice-typedmap-bootstrap-effect
 /// Bootstrap the document declaratively: one summarization policy and four
 /// child maps, as one batch.
 ///
@@ -527,6 +528,8 @@ fn bootstrap_effect(
     ),
   ])
 }
+
+// docs:snippet-end practice-typedmap-bootstrap-effect
 
 /// Whether a panel's child map has resolved yet.
 fn panel_ready(model: Model, panel: Panel) -> Bool {

@@ -76,6 +76,7 @@ pub fn empty(title: String) -> Snapshot {
   Snapshot(title:, went_well: [], to_improve: [], action_items: [], unfiled: [])
 }
 
+// docs:snippet-start retro-board-add-note
 /// Shared board writes for the tutorial example.
 ///
 /// The UI and the deterministic tests call these same map writes.
@@ -99,17 +100,28 @@ pub fn add_note(
   id
 }
 
+// docs:snippet-end retro-board-add-note
+
+// docs:snippet-start retro-board-upvote
 pub fn upvote(votes: OrMap, id: String) -> Nil {
   change_votes(votes, id, 1)
 }
 
+// docs:snippet-end retro-board-upvote
+
+// docs:snippet-start retro-board-downvote
 pub fn downvote(votes: OrMap, id: String) -> Nil {
   change_votes(votes, id, -1)
 }
 
+// docs:snippet-end retro-board-downvote
+
+// docs:snippet-start retro-board-change-votes
 fn change_votes(votes: OrMap, id: String, amount: Int) -> Nil {
   watershed.or_map_increment(votes, id, amount)
 }
+
+// docs:snippet-end retro-board-change-votes
 
 /// Read the board from the shared channels.
 ///
@@ -179,6 +191,7 @@ fn snapshot_from_entries(
   )
 }
 
+// docs:snippet-start retro-board-notes-in-column
 fn notes_in_column(
   notes: List(#(String, Note)),
   votes_by_id: Dict(String, Int),
@@ -191,6 +204,9 @@ fn notes_in_column(
   |> list.map(fn(entry) { card(entry.0, entry.1, votes_by_id) })
 }
 
+// docs:snippet-end retro-board-notes-in-column
+
+// docs:snippet-start retro-board-unfiled
 fn unfiled(
   notes: List(#(String, Note)),
   votes_by_id: Dict(String, Int),
@@ -201,6 +217,9 @@ fn unfiled(
   |> list.map(fn(entry) { card(entry.0, entry.1, votes_by_id) })
 }
 
+// docs:snippet-end retro-board-unfiled
+
+// docs:snippet-start retro-board-card
 fn card(id: String, note: Note, votes_by_id: Dict(String, Int)) -> NoteCard {
   NoteCard(
     id: id,
@@ -209,6 +228,9 @@ fn card(id: String, note: Note, votes_by_id: Dict(String, Int)) -> NoteCard {
   )
 }
 
+// docs:snippet-end retro-board-card
+
+// docs:snippet-start retro-board-note-entries
 fn note_entries(notes: OrMap) -> Result(List(#(String, Note)), String) {
   watershed.or_map_entries(notes)
   |> list.try_map(fn(entry) {
@@ -220,6 +242,9 @@ fn note_entries(notes: OrMap) -> Result(List(#(String, Note)), String) {
   })
 }
 
+// docs:snippet-end retro-board-note-entries
+
+// docs:snippet-start retro-board-vote-entries
 fn vote_entries(votes: OrMap) -> Result(List(#(String, Int)), String) {
   watershed.or_map_entries(votes)
   |> list.try_map(fn(entry) {
@@ -231,9 +256,13 @@ fn vote_entries(votes: OrMap) -> Result(List(#(String, Int)), String) {
   })
 }
 
+// docs:snippet-end retro-board-vote-entries
+
+// docs:snippet-start retro-board-by-created-then-id
 fn by_created_then_id(a: #(String, Note), b: #(String, Note)) -> Order {
   case int.compare(a.1.created, b.1.created) {
     order.Eq -> string.compare(a.0, b.0)
     other -> other
   }
 }
+// docs:snippet-end retro-board-by-created-then-id

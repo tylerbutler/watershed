@@ -48,16 +48,27 @@ A valid existing output file is never removed on failure.
 ## Marker placement
 
 Markers are inline comments placed directly around the code to extract.
-Place them outside Gleam doc comments so the extracted code compiles cleanly:
+Put the start marker above the item's doc comment when the doc comment
+belongs in the snippet:
 
 ```gleam
-/// Public API doc comment.
 // docs:snippet-start guide-connect-start
+/// Public API doc comment.
 pub fn connect(addr: String) -> Result(Socket, Error) {
   // ...
 }
 // docs:snippet-end guide-connect-start
 ```
+
+`gleam format` binds a comment to the item below it, so a start marker written
+between an attribute and its definition moves above the attribute, and the
+attribute becomes part of the range. A start marker written above a module
+doc comment (`////`) moves below it. Format the file and read the result
+before you trust a boundary.
+
+Marker ranges must not overlap or nest. When one sheet quotes a whole block
+and another quotes part of it, split the block into adjacent ranges and let
+the wider snippet list them in order.
 
 Both marker lines are stripped from the extracted code. Leading whitespace
 is dedented uniformly. Trailing blank lines before the end marker are removed.

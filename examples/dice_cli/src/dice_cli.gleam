@@ -122,6 +122,7 @@ fn run(document: watershed_beam.Document(DiceDocument)) -> Nil {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
+// docs:snippet-start practice-shared-core-event-loop
 fn event_loop(
   map: watershed_beam.SharedMap,
   selector: process.Selector(CliMsg),
@@ -140,6 +141,8 @@ fn event_loop(
     }
   }
 }
+
+// docs:snippet-end practice-shared-core-event-loop
 
 fn roll(map: watershed_beam.SharedMap) -> Nil {
   let roll = int.random(6) + 1

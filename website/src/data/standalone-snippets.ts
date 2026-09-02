@@ -5,6 +5,7 @@
 // TypeScript snippets are explicit literals with syntax checking.
 // ──────────────────────────────────────────────────────────────────────────
 import {
+  combineSnippets,
   snippetFromDefinition,
   snippetFromLiteral,
   snippetFromMarker,
@@ -78,10 +79,24 @@ export const standaloneSnippets: Record<string, Snippet> = {
     boardAppSource, paths.boardApp, "gleam", "sharedtree-events",
   ),
 
-  // SharedTree comparison — one root, four channel merge policies
-  "sharedtree-nest": snippetFromMarker(
-    sudokuSchemaSource, paths.sudokuSchema, "gleam", "sharedtree-nest",
-  ),
+  // SharedTree comparison — one root, four channel merge policies.
+  // The four channel fields carry their own markers so the schema sheet can
+  // quote them without the tag and the two plain fields above them. This
+  // sheet wants the whole block, so it joins the five ranges back together
+  // in source order.
+  "sharedtree-nest": [
+    "sudoku-schema-head",
+    "sudoku-schema-cells",
+    "sudoku-schema-notes",
+    "sudoku-schema-givens",
+    "sudoku-schema-mistakes",
+  ]
+    .map((marker) =>
+      snippetFromMarker(sudokuSchemaSource, paths.sudokuSchema, "gleam", marker),
+    )
+    .reduce((joined, next) =>
+      combineSnippets(joined, next, paths.sudokuSchema),
+    ),
 
   // SharedTree comparison — narrowed per-kind subscriptions
   "sharedtree-per-kind": snippetFromMarker(

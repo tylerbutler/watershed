@@ -38,6 +38,7 @@ pub fn notes_group_by_column_and_sort_by_created_then_id_test() -> Nil {
   |> should.equal(["note-b", "note-a", "note-z"])
 }
 
+// docs:snippet-start retro-board-test-orphan-tallies
 pub fn tallies_attach_to_matching_notes_and_orphans_are_ignored_test() -> Nil {
   let snapshot =
     board.snapshot(
@@ -56,6 +57,8 @@ pub fn tallies_attach_to_matching_notes_and_orphans_are_ignored_test() -> Nil {
   ])
   total_occurrences(snapshot, "gone") |> should.equal(0)
 }
+
+// docs:snippet-end retro-board-test-orphan-tallies
 
 pub fn unknown_columns_route_to_unfiled_test() -> Nil {
   let snapshot =

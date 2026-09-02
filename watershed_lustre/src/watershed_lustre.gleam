@@ -78,6 +78,7 @@ fn set_timeout(action: fn() -> Nil, milliseconds: Int) -> Nil
 
 // ── Connect ────────────────────────────────────────────────────────────────
 
+// docs:snippet-start watershed-lustre-connect
 /// Connect to a document. `got_document` runs with the handle immediately. You
 /// can start a root subscription and an optimistic edit at that point. To
 /// create a nested channel, wait for `connected`. That callback runs with
@@ -96,6 +97,8 @@ pub fn connect(
     })
   queue_microtask(fn() { dispatch(got_document(document)) })
 }
+
+// docs:snippet-end watershed-lustre-connect
 
 /// The development form of `connect`. It creates the HS256 development token
 /// from the tenant secret before it connects. That step is asynchronous,

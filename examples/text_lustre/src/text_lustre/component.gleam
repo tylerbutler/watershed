@@ -284,6 +284,7 @@ fn record(model: Model, result: Result(Nil, String), verb: String) -> Model {
   }
 }
 
+// docs:snippet-start practice-anchors-refresh-anchor
 /// Resolve the pinned anchor to its current grapheme position, or drop it to
 /// `None` if it has gone stale/unknown.
 fn refresh_anchor(model: Model) -> Model {
@@ -296,6 +297,8 @@ fn refresh_anchor(model: Model) -> Model {
     _, _ -> Model(..model, anchor_pos: None)
   }
 }
+
+// docs:snippet-end practice-anchors-refresh-anchor
 
 // ── View ─────────────────────────────────────────────────────────────────────
 

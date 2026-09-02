@@ -18,6 +18,7 @@ type Channels {
   Channels(notes: OrMap, votes: OrMap)
 }
 
+// docs:snippet-start retro-convergence-room
 fn room(
   name: String,
 ) -> #(
@@ -51,6 +52,9 @@ fn room(
   )
 }
 
+// docs:snippet-end retro-convergence-room
+
+// docs:snippet-start retro-convergence-channels-of
 fn channels_of(document: Document(document_schema.BoardDocument)) -> Channels {
   let root = watershed.root_typed(document)
   let assert Ok(Some(notes)) =
@@ -60,6 +64,9 @@ fn channels_of(document: Document(document_schema.BoardDocument)) -> Channels {
   Channels(notes:, votes:)
 }
 
+// docs:snippet-end retro-convergence-channels-of
+
+// docs:snippet-start retro-convergence-board-of
 fn board_of(
   document: Document(document_schema.BoardDocument),
   channels: Channels,
@@ -72,6 +79,9 @@ fn board_of(
   board
 }
 
+// docs:snippet-end retro-convergence-board-of
+
+// docs:snippet-start retro-convergence-add-race
 pub fn concurrent_adds_keep_both_notes_test() -> Nil {
   let #(sluice, document_a, document_b, a, b) = room("retro-tutorial-adds")
 
@@ -107,6 +117,9 @@ pub fn concurrent_adds_keep_both_notes_test() -> Nil {
   |> should.equal(2)
 }
 
+// docs:snippet-end retro-convergence-add-race
+
+// docs:snippet-start retro-convergence-vote-race
 pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {
   let #(sluice, document_a, document_b, a, b) = room("retro-tutorial-votes")
 
@@ -133,6 +146,8 @@ pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {
   let assert Ok(card) = board.find_card(board_a, id)
   card.votes |> should.equal(1)
 }
+
+// docs:snippet-end retro-convergence-vote-race
 
 pub fn snapshot_returns_error_for_wrong_mode_notes_test() -> Nil {
   // notes must be RegisterMode; a TallyMode map with entries yields Error.

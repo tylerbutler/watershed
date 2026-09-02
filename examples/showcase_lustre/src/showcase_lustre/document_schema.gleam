@@ -29,10 +29,13 @@ import text_lustre/document_schema as text_schema
 /// Phantom tag for the root map. Only the fields below may be read from it.
 pub type Showcase
 
+// docs:snippet-start showcase-schema-text
 /// The plain-text editor's sub-document.
 pub fn text() -> ChildField(Showcase, text_schema.TextDocument) {
   schema.child_field("text")
 }
+
+// docs:snippet-end showcase-schema-text
 
 /// The playlist's sub-document.
 pub fn playlist() -> ChildField(Showcase, playlist_schema.PlaylistDocument) {

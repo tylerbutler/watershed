@@ -430,6 +430,7 @@ fn snapshot(model: Model) -> Model {
 
 // ── Content seeding ──────────────────────────────────────────────────────────
 
+// docs:snippet-start practice-claims-seed-givens
 fn seed_givens(
   claims: Claims,
   active_puzzle: Puzzle,
@@ -455,6 +456,8 @@ fn seed_givens(
     }
   }
 }
+
+// docs:snippet-end practice-claims-seed-givens
 
 // ── View ─────────────────────────────────────────────────────────────────────
 

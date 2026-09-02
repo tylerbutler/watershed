@@ -254,6 +254,7 @@ fn option_json(value: Option(json.Json)) -> String {
   }
 }
 
+// docs:snippet-start practice-diagnostics-line
 fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {
   "phase="
   <> diagnostics.phase
@@ -272,6 +273,8 @@ fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {
   <> " synced="
   <> bool_to_string(diagnostics.synced)
 }
+
+// docs:snippet-end practice-diagnostics-line
 
 fn option_int(value: Option(Int)) -> String {
   value

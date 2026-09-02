@@ -68,6 +68,10 @@ const SNIPPET_DESCRIPTOR_FILES = [
   "src/pages/guide/testing.astro",
 ];
 
+/** The generator configuration, website-relative. It names every marker range
+ *  the Gleam manifest is built from. */
+const SNIPPET_CONFIG = "snippets.json";
+
 // ══════════════════════════════════════════════════════════════════════════
 // Helpers
 // ══════════════════════════════════════════════════════════════════════════
@@ -420,7 +424,12 @@ function scanAllMarkers(): {
   return { byId, diagnostics };
 }
 
-/** All marker IDs referenced by snippet descriptor files (registries + pages). */
+/** All marker IDs referenced by snippet descriptor files (registries + pages)
+ *  and by the generator configuration.
+ *
+ *  `website/snippets.json` is a descriptor too: it names the marker ranges the
+ *  Gleam generator composes into the manifest. A marker only that file names
+ *  is referenced, not an orphan. */
 function collectMarkerReferences(): Set<string> {
   const refs = new Set<string>();
 
@@ -433,7 +442,31 @@ function collectMarkerReferences(): Set<string> {
     }
   }
 
+  for (const id of configuredMarkers()) {
+    refs.add(id);
+  }
+
   return refs;
+}
+
+/** Every marker id named by the generator configuration. */
+function configuredMarkers(): string[] {
+  return [...configuredMarkerSources().keys()];
+}
+
+/** Marker id → the source file the configuration reads it from. */
+function configuredMarkerSources(): Map<string, string> {
+  const config = JSON.parse(
+    readFileSync(resolve(websiteRoot, SNIPPET_CONFIG), "utf-8"),
+  ) as { snippets: Array<{ sourcePath: string; markers: string[] }> };
+
+  const sources = new Map<string, string>();
+  for (const snippet of config.snippets) {
+    for (const marker of snippet.markers) {
+      sources.set(marker, snippet.sourcePath);
+    }
+  }
+  return sources;
 }
 
 // ══════════════════════════════════════════════════════════════════════════
@@ -532,7 +565,10 @@ describe("Gate: marker integrity", () => {
       const unscanned = findRepositoryGleamFiles()
         .filter((f) => !scanned.has(f))
         // The compile-fail fixture exists to not compile; it is never quoted.
-        .filter((f) => !f.startsWith("tools/compile-fail/"));
+        .filter((f) => !f.startsWith("tools/compile-fail/"))
+        // The snippet generator is build tooling, not documentation source.
+        // Its suite writes synthetic marker fixtures that nothing quotes.
+        .filter((f) => !f.startsWith("tools/source-snippets/"));
 
       assert.deepEqual(
         unscanned,
@@ -581,7 +617,30 @@ describe("Gate: marker integrity", () => {
   });
 
   describe("positive — every referenced marker exists in source", () => {
+    // The Gleam scan covers .gleam files only. One marker lives in a
+    // JavaScript FFI module, so it is checked against its own source.
+    const markerSources = configuredMarkerSources();
+
     for (const id of allRefs) {
+      const configured = markerSources.get(id);
+      if (configured !== undefined && !configured.endsWith(".gleam")) {
+        it(`referenced marker "${id}" exists in ${configured}`, () => {
+          const content = readFileSync(resolve(repoRoot, configured), "utf-8");
+          const { starts, ends } = parseMarkers(content);
+          assert.equal(
+            starts.get(id)?.length,
+            1,
+            `marker "${id}" needs exactly one start in ${configured}`,
+          );
+          assert.equal(
+            ends.get(id)?.length,
+            1,
+            `marker "${id}" needs exactly one end in ${configured}`,
+          );
+        });
+        continue;
+      }
+
       it(`referenced marker "${id}" exists in Gleam source`, () => {
         assert.ok(
           allMarkers.has(id),

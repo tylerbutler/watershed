@@ -157,6 +157,7 @@ function stepDuration(engine) {
   return 60 / engine.bpm / 4;
 }
 
+// docs:snippet-start practice-realtime-tick
 function tick(engine) {
   const ctx = engine.ctx;
   if (ctx === null || !engine.playing) return;
@@ -182,6 +183,7 @@ function tick(engine) {
     engine.nextStep = (engine.nextStep + 1) % STEP_COUNT;
   }
 }
+// docs:snippet-end practice-realtime-tick
 
 function scheduleStep(engine, step, time) {
   for (let track = 0; track < TRACK_COUNT; track++) {
