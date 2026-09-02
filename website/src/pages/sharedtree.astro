@@ -3,217 +3,31 @@ import { Code } from "astro:components";
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "../components/Ecosystem.astro";
 import { watershedCodeTheme } from "../styles/code-theme";
+import {
+  standaloneSnippets,
+  sharedtreeTypeScriptSnippets,
+} from "../data/standalone-snippets.ts";
 
 // Both columns model the same document: a sprint board with cards and a
-// counter. The Gleam side is adapted from code that compiles today
-// (examples/retro_board_lustre, examples/scoreboard_cli,
+// counter. The Gleam side is compiled from real sources (fixture +
 // examples/sudoku_lustre); the TypeScript side uses only APIs the Fluid
 // Framework docs publish.
 
-const tsDeclare = `import { SchemaFactory } from "fluid-framework";
+const gleamDeclare = standaloneSnippets["sharedtree-declare"];
+const gleamRoot = standaloneSnippets["sharedtree-bootstrap"];
+const gleamReadWrite = standaloneSnippets["sharedtree-read-write"];
+const gleamRecord = standaloneSnippets["sharedtree-record"];
+const gleamNest = standaloneSnippets["sharedtree-nest"];
+const gleamEvents = standaloneSnippets["sharedtree-events"];
+const gleamPerKind = standaloneSnippets["sharedtree-per-kind"];
 
-// This id is written into the document. It becomes the *stored* schema,
-// and from here on every client's SharedTree enforces it.
-const sf = new SchemaFactory("com.example.sprintboard");
-
-class Card extends sf.object("Card", {
-  title: sf.string,
-  column: sf.string,
-  owner: sf.optional(sf.string),
-}) {}
-
-class Cards extends sf.array("Cards", Card) {}
-
-class Board extends sf.object("Board", {
-  title: sf.string,
-  cards: Cards,
-  wipBreaches: sf.number,
-}) {}`;
-
-const gleamDeclare = `import gleam/dynamic/decode
-import gleam/json
-import watershed/schema.{
-  type ChannelField, type CounterChannel, type Field, type MapChannel,
-}
-
-// A phantom tag. It is erased at compile time — nothing about \`Board\`
-// reaches the document, and no peer has to agree it exists.
-pub type Board
-
-pub fn title() -> Field(Board, String) {
-  schema.field("title", json.string, decode.string)
-}
-
-pub fn cards() -> ChannelField(Board, MapChannel) {
-  schema.channel_field("cards")
-}
-
-pub fn wip_breaches() -> ChannelField(Board, CounterChannel) {
-  schema.channel_field("wip_breaches")
-}`;
-
-const tsRoot = `import { TreeViewConfiguration } from "fluid-framework";
-
-const config = new TreeViewConfiguration({ schema: Board });
-const view = tree.viewWith(config);
-
-// Once, against an empty document. After this the stored schema is
-// authoritative and every later client just reads it.
-view.initialize(
-  new Board({ title: "Sprint board", cards: [], wipBreaches: 0 }),
-);
-
-const board = view.root; // typed Board, guaranteed to exist`;
-
-const gleamRoot = `fn bootstrap(document: Document(document_schema.Board)) -> Effect(Msg) {
-  let root = watershed.root_typed(document)
-  effect.batch([
-    // Idempotent, and run by every client on every boot. Each one
-    // seeds a candidate and adopts the handle visible after its own
-    // sync — a later concurrent write can still replace the field,
-    // so the channel handed back here isn't promised to be final.
-    watershed_lustre.ensure_field(
-      root,
-      document_schema.title(),
-      "Sprint board",
-    ),
-    watershed_lustre.ensure_map(
-      document,
-      root,
-      document_schema.cards(),
-      EnsuredCards,
-    ),
-    watershed_lustre.ensure_counter(
-      document,
-      root,
-      document_schema.wip_breaches(),
-      EnsuredBreaches,
-    ),
-  ])
-}`;
-
-const tsReadWrite = `// Writing is checked by the compiler and again by SharedTree.
-board.title = "Q3 sprint board";
-
-// Reading is total. \`title\` is a string, and no client running this
-// schema can make it anything else.
-renderHeader(board.title);`;
-
-const gleamReadWrite = `// Writing is checked at the field — only a String is accepted here.
-watershed.set_field(root, document_schema.title(), "Q3 sprint board")
-
-// Reading decodes at the boundary. A peer running an older build — or
-// a stale summary — could have written anything here, so the result is
-// a \`Result\`, never a raw value.
-case watershed.get_field(root, document_schema.title()) {
-  Ok(Some(title)) -> render_header(title)
-  Ok(None) -> render_header("Untitled board")  // key absent
-  Error(_) -> render_header("Untitled board")  // a peer wrote a number
-}`;
-
-const tsRecord = `// The shape was declared once, on the class. There is no second
-// encoder to keep in sync, because the tree stores the node itself.
-card.title = "Ship the gauge rebuild";
-card.column = "doing";
-card.owner = undefined; // clears the optional property`;
-
-const gleamRecord = `/// \`record3\` derives the decoder AND the per-key encoder from one
-/// prop list, so the two can never drift. \`sealed_known\` seals the
-/// schema to exactly these keys without a hand-repeated list, and
-/// \`versioned\` stamps a version and rejects any stored version that differs.
-fn card_schema() -> Result(schema.Schema(Card, CardState), Nil) {
-  schema.record3(
-    CardState,
-    schema.prop(card_title(), fn(c: CardState) { c.title }),
-    schema.prop(card_column(), fn(c: CardState) { c.column }),
-    schema.optional_prop(card_owner(), fn(c: CardState) { c.owner }),
-  )
-  |> schema.versioned(1)
-  |> schema.sealed_known
-}
-
-// \`write\` emits one op per key, never a blob — so a peer editing
-// \`owner\` at the same time keeps their edit. An optional prop that is
-// \`None\` deletes its key rather than skipping it.
-use card_schema <- result.try(card_schema())
-watershed.write(
-  card,
-  card_schema,
-  CardState(title: "Ship it", column: "doing", owner: None),
-)`;
-
-const tsNest = `// Everything is in one tree under one changeset algebra, so inserts,
-// removals, and reorders are all edits to the same document — and all
-// merge by the same rules.
-board.cards.insertAtEnd(new Card({ title: "Ship it", column: "todo" }));
-board.cards.moveRangeToIndex(4, 0, 3);
-board.cards.removeAt(2);`;
-
-const gleamNest = `/// One root, four merge policies — named per slot, at declaration time.
-pub type SudokuDocument
-
-pub fn cells() -> ChannelField(SudokuDocument, MapChannel) {
-  schema.channel_field("cells") // last write wins, per key
-}
-
-pub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) {
-  schema.channel_field("notes") // add wins over a concurrent remove
-}
-
-pub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) {
-  schema.channel_field("givens") // the first writer owns the slot
-}
-
-pub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) {
-  schema.channel_field("mistakes") // commutative increments
-}`;
-
-const tsEvents = `// Per node, plus a subtree rollup for free: \`treeChanged\` fires for a
-// change anywhere below the node, because there is a tree to roll up.
-const stopCards = Tree.on(board.cards, "nodeChanged", renderCards);
-const stopAll = Tree.on(board, "treeChanged", renderEverything);
-
-// Editing the tree from inside a change callback throws a UsageError.`;
-
-const gleamEvents = `// Per field. The change carries the decoded previous value AND the
-// new one, plus whether this client made it — and a peer's
-// type-confused write surfaces here as \`Error(Invalid(_))\`.
-watershed.subscribe_field(root, document_schema.title(), fn(change) {
-  case change {
-    FieldChange(value: Ok(Some(title)), local: False, ..) ->
-    render_header(title)
-    FieldChange(value: Error(_), ..) -> keep_previous_header()
-    _ -> Nil
-  }
-})`;
-
-const gleamPerKind = `// Or subscribe per channel. Each handler sees only its own channel's
-// event type — a counter subscriber never pattern-matches a map event.
-effect.batch([
-  watershed_lustre.subscribe(shared.cells, fn(_event) { SharedChanged }),
-  watershed_lustre.subscribe_or_set(shared.notes, fn(_event) { SharedChanged }),
-  watershed_lustre.subscribe_claims(shared.givens, fn(_event) { SharedChanged }),
-  watershed_lustre.subscribe_counter(shared.mistakes, fn(_event) {
-    SharedChanged
-  }),
-])`;
-
-const tsGaps = `// Atomicity — every edit in the callback lands, or none of them does.
-Tree.runTransaction(board, () => {
-  card.column = "doing";
-  card.owner = "ada";
-  if (overWipLimit(board)) return Tree.runTransaction.rollback;
-});
-
-// Undo — each local commit offers a revertible.
-view.events.on("commitApplied", (data, getRevertible) => {
-  if (getRevertible !== undefined) undoStack.push(getRevertible());
-});
-
-// Schema upgrade — an old document can be moved onto the new stored schema.
-if (!view.compatibility.canView && view.compatibility.canUpgrade) {
-  view.upgradeSchema();
-}`;
+const tsDeclare = sharedtreeTypeScriptSnippets["ts-declare"];
+const tsRoot = sharedtreeTypeScriptSnippets["ts-root"];
+const tsReadWrite = sharedtreeTypeScriptSnippets["ts-read-write"];
+const tsRecord = sharedtreeTypeScriptSnippets["ts-record"];
+const tsNest = sharedtreeTypeScriptSnippets["ts-nest"];
+const tsEvents = sharedtreeTypeScriptSnippets["ts-events"];
+const tsGaps = sharedtreeTypeScriptSnippets["ts-gaps"];
 
 const rows = [
   {
@@ -332,9 +146,8 @@ const rows = [
       </p>
       <div class="g-note">
         <p>
-          <strong>Both columns below model the same board.</strong> The Gleam is
-          adapted from examples that compile today:
-          <code>retro_board_lustre</code>, <code>scoreboard_cli</code>,
+          <strong>Both columns below model the same board.</strong> The Gleam
+          is compiled from real source: a fixture package and
           <code>sudoku_lustre</code>. The TypeScript uses only APIs the Fluid
           Framework documentation publishes.
         </p>
@@ -357,11 +170,11 @@ const rows = [
       <div class="st-pair">
         <figure class="g-code">
           <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code code={tsDeclare} lang="typescript" theme={watershedCodeTheme} />
+          <Code code={tsDeclare.code} lang="typescript" theme={watershedCodeTheme} />
         </figure>
         <figure class="g-code">
           <figcaption class="annot">watershed · src/document_schema.gleam</figcaption>
-          <Code code={gleamDeclare} lang="gleam" theme={watershedCodeTheme} />
+          <Code code={gleamDeclare.code} lang="gleam" theme={watershedCodeTheme} />
         </figure>
       </div>
     </div>
@@ -385,11 +198,11 @@ const rows = [
       <div class="st-pair">
         <figure class="g-code">
           <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code code={tsRoot} lang="typescript" theme={watershedCodeTheme} />
+          <Code code={tsRoot.code} lang="typescript" theme={watershedCodeTheme} />
         </figure>
         <figure class="g-code">
           <figcaption class="annot">watershed · Lustre effects</figcaption>
-          <Code code={gleamRoot} lang="gleam" theme={watershedCodeTheme} />
+          <Code code={gleamRoot.code} lang="gleam" theme={watershedCodeTheme} />
         </figure>
       </div>
       <div class="g-note">
@@ -417,7 +230,7 @@ const rows = [
         <figure class="g-code">
           <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
           <Code
-            code={tsReadWrite}
+            code={tsReadWrite.code}
             lang="typescript"
             theme={watershedCodeTheme}
           />
@@ -425,7 +238,7 @@ const rows = [
         <figure class="g-code">
           <figcaption class="annot">watershed · Gleam</figcaption>
           <Code
-            code={gleamReadWrite}
+            code={gleamReadWrite.code}
             lang="gleam"
             theme={watershedCodeTheme}
           />
@@ -455,11 +268,11 @@ const rows = [
       <div class="st-pair">
         <figure class="g-code">
           <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code code={tsRecord} lang="typescript" theme={watershedCodeTheme} />
+          <Code code={tsRecord.code} lang="typescript" theme={watershedCodeTheme} />
         </figure>
         <figure class="g-code">
           <figcaption class="annot">watershed · Gleam</figcaption>
-          <Code code={gleamRecord} lang="gleam" theme={watershedCodeTheme} />
+          <Code code={gleamRecord.code} lang="gleam" theme={watershedCodeTheme} />
         </figure>
       </div>
       <div class="g-note">
@@ -497,13 +310,13 @@ const rows = [
       <div class="st-pair">
         <figure class="g-code">
           <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code code={tsNest} lang="typescript" theme={watershedCodeTheme} />
+          <Code code={tsNest.code} lang="typescript" theme={watershedCodeTheme} />
         </figure>
         <figure class="g-code">
           <figcaption class="annot"
             >watershed · sudoku_lustre/document_schema.gleam</figcaption
           >
-          <Code code={gleamNest} lang="gleam" theme={watershedCodeTheme} />
+          <Code code={gleamNest.code} lang="gleam" theme={watershedCodeTheme} />
         </figure>
       </div>
       <p>
@@ -550,18 +363,18 @@ const rows = [
       <div class="st-pair">
         <figure class="g-code">
           <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code code={tsEvents} lang="typescript" theme={watershedCodeTheme} />
+          <Code code={tsEvents.code} lang="typescript" theme={watershedCodeTheme} />
         </figure>
         <figure class="g-code">
           <figcaption class="annot">watershed · Gleam</figcaption>
-          <Code code={gleamEvents} lang="gleam" theme={watershedCodeTheme} />
+          <Code code={gleamEvents.code} lang="gleam" theme={watershedCodeTheme} />
         </figure>
       </div>
       <figure class="g-code">
         <figcaption class="annot"
           >watershed · sudoku_lustre, narrowed per-kind subscriptions</figcaption
         >
-        <Code code={gleamPerKind} lang="gleam" theme={watershedCodeTheme} />
+        <Code code={gleamPerKind.code} lang="gleam" theme={watershedCodeTheme} />
       </figure>
     </div>
 
@@ -576,7 +389,7 @@ const rows = [
       </p>
       <figure class="g-code">
         <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-        <Code code={tsGaps} lang="typescript" theme={watershedCodeTheme} />
+        <Code code={tsGaps.code} lang="typescript" theme={watershedCodeTheme} />
       </figure>
       <ul>
         <li>

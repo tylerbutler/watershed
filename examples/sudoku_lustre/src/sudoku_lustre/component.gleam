@@ -309,6 +309,7 @@ fn assemble(model: Model) -> #(Model, Effect(Msg)) {
 /// The narrowed per-kind subscriptions as one batch. Each handler sees only its
 /// channel's own event type; the whole-model `snapshot` stays the cheapest
 /// re-read for an 81-cell grid, so every handler just bumps it.
+// docs:snippet-start sharedtree-per-kind
 fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {
   effect.batch([
     watershed_lustre.subscribe(shared.cells, fn(_event) { SharedChanged }),
@@ -321,6 +322,7 @@ fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {
     }),
   ])
 }
+// docs:snippet-end sharedtree-per-kind
 
 /// Draw these peers on the board. A driver is document-scoped, so the owner
 /// starts one and hands each panel its share.

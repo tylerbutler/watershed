@@ -55,6 +55,7 @@ type DiceDocument
 
 // ── Entry point ───────────────────────────────────────────────────────────────
 
+// docs:snippet-start homepage-beam
 pub fn main() -> Nil {
   let token =
     watershed_beam.dev_token(
@@ -116,6 +117,7 @@ fn run(document: watershed_beam.Document(DiceDocument)) -> Nil {
   schedule_roll(roll_due, first_roll_delay_milliseconds)
   event_loop(map, selector, roll_due)
 }
+// docs:snippet-end homepage-beam
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 

@@ -1,0 +1,14 @@
+name = "website_samples"
+version = "0.1.0"
+description = "Compiled Gleam fixtures for the website — synthetic API samples that have no honest home in an application example"
+licences = ["MIT"]
+gleam = ">= 1.7.0"
+target = "javascript"
+
+[dependencies]
+gleam_stdlib = ">= 0.62.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+gleam_javascript = ">= 1.0.0 and < 2.0.0"
+watershed = { path = "../.." }
+watershed_lustre = { path = "../../watershed_lustre" }
+lustre = ">= 5.0.0 and < 6.0.0"

@@ -1,27 +1,9 @@
 ---
 import RuntimeLayout from "../../components/RuntimeLayout.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { snippetFromLiteral } from "../../lib/snippet.ts";
+import { standaloneSnippets } from "../../data/standalone-snippets.ts";
 
-const cfgSnippet = snippetFromLiteral(
-  `import watershed/crdt_js
-import watershed/p2p
-
-// Auto starts on WebRTC and attempts the relay in parallel — it never
-// waits for one, and prefers it while healthy.
-let config =
-  crdt_js.config(
-    room_id: "retro-board-9c2",
-    replica_label: "ada",
-    compatibility_tag: "retro-board/v1",
-    root: p2p.pn_counter_root(),
-    signaling: signaling,
-  )
-  |> crdt_js.with_transport_policy(crdt_js.Auto)
-  |> crdt_js.with_sequencer(crdt_js.sequencer("wss://relay.example/room"))`,
-  "gleam",
-  "(illustrative — CRDT document configuration)",
-);
+const cfgSnippet = standaloneSnippets["p2p-config"];
 ---
 
 <RuntimeLayout

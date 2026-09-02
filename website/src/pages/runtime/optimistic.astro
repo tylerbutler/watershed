@@ -1,21 +1,9 @@
 ---
 import RuntimeLayout from "../../components/RuntimeLayout.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { snippetFromLiteral } from "../../lib/snippet.ts";
+import { standaloneSnippets } from "../../data/standalone-snippets.ts";
 
-const localSnippet = snippetFromLiteral(
-  `import gleam/json
-import watershed
-
-// set applies to your replica *now* — get reads it back before the
-// server has seen it. The UI never waits on the network.
-watershed.set(survey, "depth-07", json.float(3.4))
-let assert Ok(value) = watershed.get(survey, "depth-07")
-// value == json.float(3.4), already visible. This value is *pending*: drawn in magenta,
-// a prediction of where the server's order will place it.`,
-  "gleam",
-  "(illustrative — optimistic edit lifecycle)",
-);
+const localSnippet = standaloneSnippets["optimistic-local"];
 ---
 
 <RuntimeLayout

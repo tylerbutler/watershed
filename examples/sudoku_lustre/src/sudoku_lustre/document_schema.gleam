@@ -18,7 +18,8 @@ import watershed/schema.{
   type MapChannel, type OrSetChannel,
 }
 
-/// Phantom tag scoping every field below to the Sudoku root map.
+// docs:snippet-start sharedtree-nest
+/// One root, four merge policies — named per slot, at declaration time.
 pub type SudokuDocument
 
 /// The active puzzle's id (see `puzzle.by_id`).
@@ -33,20 +34,21 @@ pub fn title() -> Field(SudokuDocument, String) {
 
 /// The player-entered digits, keyed `r{row}c{column}` → digit.
 pub fn cells() -> ChannelField(SudokuDocument, MapChannel) {
-  schema.channel_field("cells")
+  schema.channel_field("cells") // last write wins, per key
 }
 
 /// The pencil-mark notes, as `r{row}c{column}={digit}` set elements.
 pub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) {
-  schema.channel_field("notes")
+  schema.channel_field("notes") // add wins over a concurrent remove
 }
 
 /// The puzzle's immutable givens, first-writer-wins claims per cell.
 pub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) {
-  schema.channel_field("givens")
+  schema.channel_field("givens") // the first writer owns the slot
 }
 
 /// The shared mistake tally.
 pub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) {
-  schema.channel_field("mistakes")
+  schema.channel_field("mistakes") // commutative increments
 }
+// docs:snippet-end sharedtree-nest
