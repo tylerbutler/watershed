@@ -9,6 +9,7 @@
 // ──────────────────────────────────────────────────────────────────────────
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, dirname, relative, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -84,6 +85,17 @@ function findGleamFiles(dir: string): string[] {
     }
   }
   return results;
+}
+
+/** Collect tracked and untracked source files while respecting gitignore. */
+function findRepositoryGleamFiles(): string[] {
+  return execFileSync(
+    "git",
+    ["ls-files", "--cached", "--others", "--exclude-standard", "--", "*.gleam"],
+    { cwd: repoRoot, encoding: "utf8" },
+  )
+    .split("\n")
+    .filter(Boolean);
 }
 
 /** Parse docs:snippet-start/end markers from source text. */
@@ -517,8 +529,7 @@ describe("Gate: marker integrity", () => {
           findGleamFiles(resolve(repoRoot, d)).map((f) => relative(repoRoot, f)),
         ),
       );
-      const unscanned = findGleamFiles(repoRoot)
-        .map((f) => relative(repoRoot, f))
+      const unscanned = findRepositoryGleamFiles()
         .filter((f) => !scanned.has(f))
         // The compile-fail fixture exists to not compile; it is never quoted.
         .filter((f) => !f.startsWith("tools/compile-fail/"));
