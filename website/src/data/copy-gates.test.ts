@@ -79,7 +79,7 @@ function extractTsProseStrings(content: string): string {
     strings.push(match[1]);
   }
   // Also extract strings from array values
-  const arrayPattern = /(?:how|useCases)\s*:\s*\[([\s\S]*?)\]/g;
+  const arrayPattern = /(?:how|useCases|body)\s*:\s*\[([\s\S]*?)\]/g;
   while ((match = arrayPattern.exec(content)) !== null) {
     const inner = match[1];
     const strPattern = /"([^"]+)"/g;
