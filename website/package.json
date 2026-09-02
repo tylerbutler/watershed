@@ -14,6 +14,7 @@
     "test:demo-boot": "node --test src/scripts/demo/boot.test.mjs",
     "test:snippet": "node --strip-types --test src/lib/snippet.test.ts",
     "test:snippet-markers": "node --strip-types --test src/lib/snippet-markers.test.ts",
+    "test:practice-snippets": "node --strip-types --test src/data/practice-snippets.test.ts",
     "test:guide-race-styles": "node scripts/check-guide-race-styles.mjs"
   },
   "dependencies": {

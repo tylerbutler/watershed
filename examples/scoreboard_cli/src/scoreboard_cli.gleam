@@ -233,6 +233,7 @@ fn start(
   })
 
   use roster <- result.try(ensure_roster(document, root))
+  // docs:snippet-start practice-stamp-schema
   use me <- result.try(watershed_beam.create_typed_map(document))
   use schema <- result.try(
     player_schema() |> result.map_error(fn(_) { "Schema build failed" }),
@@ -255,6 +256,7 @@ fn start(
     |> process.select_map(watershed_beam.subscribe_typed(roster), RosterChanged)
     |> process.select_map(watershed_beam.subscribe_typed(me), ScoreChanged)
     |> process.select_map(roll_due, fn(_) { RollDue })
+  // docs:snippet-end practice-stamp-schema
 
   let state =
     State(

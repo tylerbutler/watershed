@@ -163,12 +163,14 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
+    // docs:snippet-start practice-fallible-move
     MoveDownClicked(index) -> #(
       mutate(model, "move", fn(sequence) {
         watershed.sequence_move(sequence, index, index + 1)
       }),
       effect.none(),
     )
+    // docs:snippet-end practice-fallible-move
 
     // Replace swaps the value at an index in place, keeping its position. It is
     // one watershed operation composed from a lattice delete + insert delta,

@@ -11,7 +11,6 @@ import {
   practiceSourceUrl,
   practicesByStep,
 } from "../data/practices";
-import { snippetFromLiteral } from "../lib/snippet.ts";
 import SnippetBlock from "./SnippetBlock.astro";
 
 interface Props {
@@ -34,12 +33,10 @@ const notes = practicesByStep[step];
       {notes.map((practice) => {
         const exampleName = practiceExampleName(practice);
         const example = exampleForPractice(practice);
-        const snippet = snippetFromLiteral(
-          practice.snippet,
-          practice.snippetLang === "js" ? "js" : "gleam",
-          practice.snippetFile,
-          practiceSourceUrl(practice),
-        );
+        const snippet = {
+          ...practice.snippet,
+          sourceUrl: practiceSourceUrl(practice),
+        };
         return (
           <details id={practice.id} class="fn-note">
             <summary>

@@ -55,7 +55,7 @@ const ledger = themes
                 <p class="p-rule">{practice.rule}</p>
                 <p class="annot p-rule-src">
                   {practiceExampleName(practice)} &middot;{" "}
-                  {practice.snippetFile} &middot; Step{" "}
+                  {practice.snippet.sourcePath.replace(/^examples\/[^/]+\//, "")} &middot; Step{" "}
                   {stepBySlug[practice.step].n}
                 </p>
               </li>

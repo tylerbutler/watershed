@@ -142,6 +142,7 @@ fn connect(room: String) -> Effect(Msg) {
       // renders — so the adapter needs no separate failure hook here.
       on_failure: fn(_detail) { Nil },
     )
+  // docs:snippet-start practice-relay-config
   let config =
     crdt_js.config(
       room_id: room,
@@ -152,6 +153,7 @@ fn connect(room: String) -> Effect(Msg) {
     )
     |> crdt_js.with_ice_servers(ice_servers())
     |> with_relay
+  // docs:snippet-end practice-relay-config
   crdt.connect(
     config,
     connection: fn(_connection) { Ignored },

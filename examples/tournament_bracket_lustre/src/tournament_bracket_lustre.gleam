@@ -261,6 +261,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
+    // docs:snippet-start practice-unsettled-report
     ReportClicked(match_key, winner) ->
       case model.matches {
         None -> #(model, effect.none())
@@ -280,6 +281,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           )
         }
       }
+    // docs:snippet-end practice-unsettled-report
 
     PresenceStarted(handle) -> #(
       Model(..model, presence: Some(handle)),
@@ -323,6 +325,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
 /// double-updates and `versions` never double-appends.
 fn apply_register_event(model: Model, event: RegisterEvent) -> Model {
   case event {
+    // docs:snippet-start practice-unsettled-atomic
     AtomicChanged(key, value, _local) -> {
       let result = bracket.from_json(value)
       Model(
@@ -332,6 +335,7 @@ fn apply_register_event(model: Model, event: RegisterEvent) -> Model {
       )
       |> log_line(key <> " official result: " <> result.winner)
     }
+    // docs:snippet-end practice-unsettled-atomic
     VersionChanged(key, value, _local) -> {
       let result = bracket.from_json(value)
       let existing = dict.get(model.versions, key) |> option.from_result

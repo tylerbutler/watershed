@@ -498,6 +498,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
 
+    // docs:snippet-start practice-quorum-pending
     // Propose on release, never per pointer move. A `pact_map_set` per frame
     // would flood the protocol with proposals that invalidate each other —
     // `apply_set` rejects a proposal made while one is pending — so a dragged
@@ -521,6 +522,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
         _, _, _ -> #(model, effect.none())
       }
+    // docs:snippet-end practice-quorum-pending
 
     // `WentPending` and `WentAccepted` are the only two transitions the kernel
     // reports, and both mean the same thing here: re-read the pact.
