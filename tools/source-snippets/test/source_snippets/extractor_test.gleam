@@ -158,3 +158,17 @@ pub fn extract_blank_only_range_is_empty_test() {
   |> should.be_error
   |> should.equal(Empty("src/i.gleam", "blank"))
 }
+
+pub fn extract_strips_single_trailing_blank_line_test() {
+  "// docs:snippet-start trail\nline one\n\n// docs:snippet-end trail"
+  |> extract("test.gleam", "trail")
+  |> should.be_ok
+  |> should.equal(MarkerRange(name: "trail", code: "line one"))
+}
+
+pub fn extract_strips_multiple_trailing_blank_lines_test() {
+  "// docs:snippet-start trail\nline one\n\n\n// docs:snippet-end trail"
+  |> extract("test.gleam", "trail")
+  |> should.be_ok
+  |> should.equal(MarkerRange(name: "trail", code: "line one"))
+}

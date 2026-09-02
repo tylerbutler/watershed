@@ -142,10 +142,16 @@ fn check_and_build(
     Error(e) -> Error(e)
     Ok(Nil) -> {
       let trimmed = list.map(lines, string.trim_end)
-      let non_blank = list.filter(trimmed, fn(l) { l != "" })
+      // Drop trailing blank lines while preserving internal blank lines.
+      let stripped =
+        trimmed
+        |> list.reverse
+        |> list.drop_while(fn(l) { l == "" })
+        |> list.reverse
+      let non_blank = list.filter(stripped, fn(l) { l != "" })
       case non_blank {
         [] -> Error(Empty(path, marker))
-        _ -> Ok(MarkerRange(name: marker, code: dedent(trimmed)))
+        _ -> Ok(MarkerRange(name: marker, code: dedent(stripped)))
       }
     }
   }
