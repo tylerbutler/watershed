@@ -105,6 +105,13 @@ pub fn format_error(e: CliError) -> String {
       <> "\" in "
       <> path
       <> " is not referenced by any snippet"
+    GenerationFailed(generator.StrayEndMarker(marker, pair_path, stray_path)) ->
+      "error: marker \""
+      <> marker
+      <> "\" has its pair in "
+      <> pair_path
+      <> " and an extra end directive in "
+      <> stray_path
     GenerationFailed(generator.InvalidSourcePath(snippet_id, path)) ->
       "error: snippet \"" <> snippet_id <> "\": invalid source path: " <> path
     OutputWriteError(path) -> "error: cannot write output: " <> path

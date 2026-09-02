@@ -123,6 +123,12 @@ The scan reads start directives and end directives, so an end directive with
 no start is found too. When a snippet quotes it, the generator reports the
 missing start; when nothing quotes it, the generator reports an orphan.
 
+The scan asks the question one file at a time. A file that holds both halves
+of a pair owns the marker. An end directive elsewhere with that same name is
+a tail with no head, and the generator names both files. When the two halves
+sit in different files and neither file holds a complete pair, the generator
+reports the missing end against the file that opened the range.
+
 ## Generated manifest
 
 `<output.json>` is not committed and is listed in `.gitignore`.

@@ -7,7 +7,7 @@ import source_snippets/extractor
 import source_snippets/generator.{
   ConfigDecodeError, ConfigReadError, DuplicateMarkerAcrossFiles,
   ExtractionError, InvalidSourcePath, MarkerNotFound, MissingRoot,
-  MissingSourceFile, OrphanMarker, generate,
+  MissingSourceFile, OrphanMarker, StrayEndMarker, generate,
 }
 import source_snippets/manifest.{
   type ManifestEntry, FileOrigin, Manifest, ManifestEntry, MarkerOrigin, encode,
@@ -693,6 +693,119 @@ pub fn generate_dangling_end_configured_test() {
   cleanup("dangling-end-configured")
 }
 
+// ---------------------------------------------------------------------------
+// Error — an end directive beside a pair that is complete in another file
+//
+// A file can hold a complete pair while a second file holds an end directive
+// with the same name. The second directive is a mistake: it is the tail of a
+// pair that has no head. A scan that asks only "does a start directive with
+// this name exist anywhere?" answers yes and lets the mistake through, so the
+// scan asks the question one file at a time.
+// ---------------------------------------------------------------------------
+
+pub fn generate_stray_end_beside_complete_pair_test() {
+  let paired = "// docs:snippet-start demo\ncode a\n// docs:snippet-end demo\n"
+  let stray = "code b\n// docs:snippet-end demo\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("s1", "src/a.gleam", "gleam", ["demo"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("stray-end", config, [
+      #("src/a.gleam", paired),
+      #("src/b.gleam", stray),
+    ])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      StrayEndMarker("demo", "src/a.gleam", "src/b.gleam") -> Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("stray-end")
+}
+
+pub fn generate_stray_end_before_complete_pair_test() {
+  // The scan must not depend on which file it reads first. Here the stray
+  // end directive sorts ahead of the file that holds the complete pair.
+  let stray = "code a\n// docs:snippet-end demo\n"
+  let paired = "// docs:snippet-start demo\ncode b\n// docs:snippet-end demo\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("s1", "src/b.gleam", "gleam", ["demo"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("stray-end-first", config, [
+      #("src/a.gleam", stray),
+      #("src/b.gleam", paired),
+    ])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      StrayEndMarker("demo", "src/b.gleam", "src/a.gleam") -> Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("stray-end-first")
+}
+
+pub fn generate_stray_end_beside_unreferenced_pair_test() {
+  // The pair is complete and no snippet names it. The stray end directive is
+  // still the first problem the scan reports: the inventory must be sound
+  // before the orphan check can mean anything.
+  let paired = "// docs:snippet-start demo\ncode a\n// docs:snippet-end demo\n"
+  let stray = "code b\n// docs:snippet-end demo\n"
+  let used = "// docs:snippet-start used\ncode c\n// docs:snippet-end used\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("s1", "src/c.gleam", "gleam", ["used"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("stray-end-unreferenced", config, [
+      #("src/a.gleam", paired),
+      #("src/b.gleam", stray),
+      #("src/c.gleam", used),
+    ])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      StrayEndMarker("demo", "src/a.gleam", "src/b.gleam") -> Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("stray-end-unreferenced")
+}
+
+pub fn generate_stray_end_in_excluded_directory_ignored_test() {
+  // A build copy of a paired file carries the same end directive. The scan
+  // does not descend into the excluded directory, so the copy is not a stray.
+  let paired = "// docs:snippet-start demo\ncode\n// docs:snippet-end demo\n"
+  let config =
+    make_config_with_exclusions(".", ["src"], [".gleam"], ["build"], [
+      make_snippet("s1", "src/a.gleam", "gleam", ["demo"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("stray-end-excluded", config, [
+      #("src/a.gleam", paired),
+      #("src/build/dev/copy.gleam", "code\n// docs:snippet-end demo\n"),
+    ])
+
+  let manifest = should.be_ok(generate(config_path))
+  let assert [entry] = manifest.snippets
+  entry.source_path |> should.equal("src/a.gleam")
+
+  cleanup("stray-end-excluded")
+}
+
 pub fn generate_dangling_start_unreferenced_test() {
   let source =
     "// docs:snippet-start used\ncode\n// docs:snippet-end used\n// docs:snippet-start stray\n"
@@ -713,6 +826,56 @@ pub fn generate_dangling_start_unreferenced_test() {
   }
 
   cleanup("dangling-start")
+}
+
+pub fn generate_second_end_in_same_file_test() {
+  // Two end directives in one file stay the extractor's report, not the
+  // scan's. The file owns the marker, so the scan hands it on unchanged.
+  let source =
+    "// docs:snippet-start demo\ncode\n// docs:snippet-end demo\n// docs:snippet-end demo\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("s1", "src/main.gleam", "gleam", ["demo"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("second-end-same-file", config, [#("src/main.gleam", source)])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      ExtractionError("s1", extractor.DuplicateEnd("src/main.gleam", "demo")) ->
+        Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("second-end-same-file")
+}
+
+pub fn generate_duplicate_dangling_ends_across_files_test() {
+  // No start directive names the marker anywhere, so the two end directives
+  // claim it in turn and collide.
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("s1", "src/a.gleam", "gleam", ["dup"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("dup-dangling-ends", config, [
+      #("src/a.gleam", "code a\n// docs:snippet-end dup\n"),
+      #("src/b.gleam", "code b\n// docs:snippet-end dup\n"),
+    ])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      DuplicateMarkerAcrossFiles("dup", _, _) -> Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("dup-dangling-ends")
 }
 
 // ---------------------------------------------------------------------------

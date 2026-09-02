@@ -5,8 +5,9 @@
 //
 // These tests exercise the seams the Gleam package tests must not know
 // about: watershed-specific area counts, the sourceRoot that ties the
-// configuration to this repository, and the proof that every tracked Gleam
-// source is inside a marker root or a named exclusion.
+// configuration to this repository, the generated directories the scan must
+// skip, and the proof that every tracked source of every configured
+// extension is inside a marker root or a named exclusion.
 //
 // The generate-and-validate suite deletes the output, regenerates it
 // through the real CLI, and verifies the JSON. The atomic-preservation
@@ -25,6 +26,7 @@ import {
   writeFileSync,
   mkdirSync,
   rmSync,
+  globSync,
 } from "node:fs";
 import { resolve, dirname, relative } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -88,18 +90,102 @@ describe("configuration resolves to the repository", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// Coverage — every tracked Gleam source is scanned or named as an exception
+// Scanner exclusions — the generated directories the scan must not descend
+//
+// A broad marker root reaches generated output: the Gleam compiler writes a
+// copy of every marked source under `build/`, and esbuild writes a bundle of
+// the same code under `dist/`. A copy carries the same marker ids as its
+// original, so a scan that reads it reports a duplicate — or worse, quotes
+// the copy. Naming the generated directories keeps the scan on the sources
+// a person edits.
+// ══════════════════════════════════════════════════════════════════════════
+
+/** Every directory name the scan must skip, with the reason it is there and
+ *  a probe that proves the directory is real. A probe that finds nothing
+ *  means the exclusion has outlived the directory it was written for. */
+const SCANNER_EXCLUSIONS = [
+  {
+    name: "build",
+    reason: "the Gleam compiler's copy of every source it compiles",
+    probe: "examples/*/build",
+  },
+  {
+    name: "dist",
+    reason: "the esbuild bundle of the example applications",
+    probe: "examples/*/dist",
+  },
+  {
+    name: "node_modules",
+    reason: "vendored packages nobody in this repository edits",
+    probe: "website/node_modules",
+  },
+  {
+    name: ".git",
+    reason: "object storage, not source",
+    probe: ".git",
+  },
+];
+
+describe("the scan skips every generated directory", () => {
+  for (const exclusion of SCANNER_EXCLUSIONS) {
+    it(`excludeDirs names "${exclusion.name}"`, () => {
+      assert.ok(
+        config.excludeDirs.includes(exclusion.name),
+        `excludeDirs must name "${exclusion.name}" — ${exclusion.reason}`,
+      );
+    });
+  }
+
+  it("every named exclusion still matches a real path", () => {
+    // A worktree keeps `.git` as a file, not a directory, so the probe asks
+    // only that the path exists. The scan compares directory names, and a
+    // name that matches nothing here has outlived its reason.
+    for (const exclusion of SCANNER_EXCLUSIONS) {
+      const matches = globSync(exclusion.probe, { cwd: repoRoot });
+      assert.ok(
+        matches.length > 0,
+        `exclusion "${exclusion.name}" (${exclusion.reason}) matches nothing under "${exclusion.probe}" — drop it`,
+      );
+    }
+  });
+
+  it("the excluded directories hold files the scan would otherwise read", () => {
+    // Without this, `dist` and `build` would be decoration. A bundle with a
+    // scanned extension inside an excluded directory under a marker root is
+    // exactly the file the exclusion exists to hide.
+    const scannable = globSync(
+      config.extensions.map((ext) => `examples/*/dist/**/*${ext}`),
+      { cwd: repoRoot },
+    );
+    assert.ok(
+      scannable.length > 0,
+      "no bundled output under examples/*/dist — regenerate the examples, or drop the dist exclusion",
+    );
+    for (const bundled of scannable) {
+      assert.equal(
+        coverageOf(bundled).kind,
+        "uncovered",
+        `${bundled} is generated output but the coverage model treats it as scanned`,
+      );
+    }
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Coverage — every tracked source is scanned or named as an exception
 //
 // A marker in an unscanned file is invisible: it is never checked for a
 // missing pair and never reported as unreferenced. Broad roots plus scanner
-// exclusions keep that surface at zero, and this suite is the proof. A new
-// package that lands outside every root fails here until it is added or
-// excluded on purpose.
+// exclusions keep that surface at zero, and this suite is the proof. The
+// check runs for every configured extension, because a marker in an FFI
+// module is as invisible as a marker in a Gleam module. A new package that
+// lands outside every root fails here until it is added or excluded on
+// purpose.
 // ══════════════════════════════════════════════════════════════════════════
 
-/** Directories whose Gleam sources are deliberately outside every marker
- *  root. Each entry needs a reason, and each must still match a tracked
- *  file, so a stale exception cannot sit here unnoticed. */
+/** Directories whose sources are deliberately outside every marker root.
+ *  Each entry needs a reason, and each must still match a tracked file, so
+ *  a stale exception cannot sit here unnoticed. */
 const COVERAGE_EXCLUSIONS = [
   {
     prefix: "tools/compile-fail/",
@@ -110,6 +196,33 @@ const COVERAGE_EXCLUSIONS = [
     prefix: "tools/source-snippets/",
     reason:
       "the generator and its own throwaway fixtures, whose marker names would collide with the repository's",
+  },
+  {
+    prefix: "tools/nostr/",
+    reason: "a relay probe run by hand, never quoted on the site",
+  },
+  {
+    prefix: "tools/relay/",
+    reason: "the local development relay, not library code the site teaches",
+  },
+  {
+    prefix: "tools/signaling/",
+    reason:
+      "the local development signaling server, not library code the site teaches",
+  },
+  {
+    prefix: "smoke/",
+    reason:
+      "the browser smoke harness — it drives the examples, it is not an example",
+  },
+  {
+    prefix: "website/",
+    reason:
+      "the site itself renders snippets; the sources it quotes live in tools/website-samples",
+  },
+  {
+    prefix: ".agents/",
+    reason: "skill assets vendored by apm install, overwritten on every sync",
   },
 ];
 
@@ -123,35 +236,65 @@ function trackedFiles(extension) {
   return output.split("\n").filter((line) => line.length > 0);
 }
 
-/** Classifies one repo-relative path against a set of marker roots. */
-function coverageOf(relPath, roots = config.markerRoots) {
+/** Every tracked file the generator would read, across all extensions. */
+function allTrackedSources() {
+  return config.extensions.flatMap(trackedFiles);
+}
+
+/**
+ * Classifies one repo-relative path against the scan the generator performs.
+ *
+ * The scan never descends into an excluded directory, so a file inside one
+ * is not covered by the marker root above it. That check comes first: a
+ * bundle under `examples/foo/dist/` sits below the `examples` root, and
+ * reading the root alone would call it scanned when it is not.
+ */
+function coverageOf(
+  relPath,
+  { roots = config.markerRoots, excludeDirs = config.excludeDirs } = {},
+) {
+  const exclusion = COVERAGE_EXCLUSIONS.find((e) => relPath.startsWith(e.prefix));
+  const blocked = relPath
+    .split("/")
+    .slice(0, -1)
+    .find((segment) => excludeDirs.includes(segment));
+  if (blocked) {
+    return exclusion
+      ? { kind: "exclusion", prefix: exclusion.prefix }
+      : { kind: "uncovered", blocked };
+  }
   const root = roots.find((r) => relPath === r || relPath.startsWith(`${r}/`));
   if (root) return { kind: "root", root };
-  const exclusion = COVERAGE_EXCLUSIONS.find((e) => relPath.startsWith(e.prefix));
   if (exclusion) return { kind: "exclusion", prefix: exclusion.prefix };
   return { kind: "uncovered" };
 }
 
-describe("every tracked Gleam source is scanned or excluded on purpose", () => {
-  const tracked = trackedFiles(".gleam");
+for (const extension of config.extensions) {
+  describe(`every tracked ${extension} source is scanned or excluded on purpose`, () => {
+    const tracked = trackedFiles(extension);
 
-  it("git reports the tracked Gleam sources", () => {
-    assert.ok(
-      tracked.length > 100,
-      `only ${tracked.length} tracked .gleam files — the scan is not finding the repository`,
-    );
-  });
+    it(`git reports the tracked ${extension} sources`, () => {
+      assert.ok(
+        tracked.length > 10,
+        `only ${tracked.length} tracked ${extension} files — the scan is not finding the repository`,
+      );
+    });
 
-  it("no tracked Gleam source falls outside every root and exclusion", () => {
-    const uncovered = tracked
-      .filter((p) => coverageOf(p).kind === "uncovered")
-      .sort();
-    assert.deepEqual(
-      uncovered,
-      [],
-      `these tracked Gleam sources are never scanned for markers — add a markerRoot or a documented exclusion:\n${uncovered.join("\n")}`,
-    );
+    it(`no tracked ${extension} source falls outside every root and exclusion`, () => {
+      const uncovered = tracked
+        .filter((p) => coverageOf(p).kind === "uncovered")
+        .sort();
+      assert.deepEqual(
+        uncovered,
+        [],
+        `these tracked ${extension} sources are never scanned for markers — add a markerRoot or a documented exclusion:\n${uncovered.join("\n")}`,
+      );
+    });
   });
+}
+
+describe("every tracked source is scanned or excluded on purpose", () => {
+  const tracked = allTrackedSources();
 
   it("every exclusion still matches a tracked source", () => {
     for (const exclusion of COVERAGE_EXCLUSIONS) {
@@ -170,9 +313,20 @@ describe("every tracked Gleam source is scanned or excluded on purpose", () => {
       );
       assert.ok(
         matches.length > 0,
-        `markerRoot "${root}" holds no tracked Gleam source — drop it`,
+        `markerRoot "${root}" holds no tracked source — drop it`,
       );
     }
+  });
+
+  it("FFI modules beside the marked Gleam sources are scanned", () => {
+    const ffi = trackedFiles(".mjs").filter((p) => p.endsWith("_ffi.mjs"));
+    assert.ok(ffi.length > 0, "no tracked FFI modules");
+    const outside = ffi.filter((p) => coverageOf(p).kind !== "root").sort();
+    assert.deepEqual(
+      outside,
+      [],
+      `these FFI modules sit beside marked Gleam sources but are not scanned:\n${outside.join("\n")}`,
+    );
   });
 
   it("example dev harnesses are scanned", () => {
@@ -192,12 +346,19 @@ describe("every tracked Gleam source is scanned or excluded on purpose", () => {
       assert.equal(coverageOf("tools/newly_added/src/thing.gleam").kind, "uncovered");
     });
 
+    it("a module outside every root and exclusion is uncovered", () => {
+      assert.equal(coverageOf("tools/newly_added/index.mjs").kind, "uncovered");
+    });
+
     it("dropping a root uncovers the sources it held", () => {
       const withoutExamples = config.markerRoots.filter((r) => r !== "examples");
       const anExample = tracked.find((p) => p.startsWith("examples/"));
       assert.ok(anExample, "expected at least one tracked example source");
-      assert.equal(coverageOf(anExample, config.markerRoots).kind, "root");
-      assert.equal(coverageOf(anExample, withoutExamples).kind, "uncovered");
+      assert.equal(coverageOf(anExample).kind, "root");
+      assert.equal(
+        coverageOf(anExample, { roots: withoutExamples }).kind,
+        "uncovered",
+      );
     });
 
     it("an excluded path is reported as an exclusion, not as a root", () => {
@@ -206,6 +367,30 @@ describe("every tracked Gleam source is scanned or excluded on purpose", () => {
       );
       assert.ok(excluded, "expected a tracked generator source");
       assert.equal(coverageOf(excluded).kind, "exclusion");
+    });
+
+    it("a source inside an excluded directory is not covered by the root above it", () => {
+      for (const excluded of config.excludeDirs) {
+        const inside = `examples/an_example/${excluded}/thing.gleam`;
+        assert.equal(
+          coverageOf(inside).kind,
+          "uncovered",
+          `"${inside}" is inside excluded directory "${excluded}" — the scan never reads it`,
+        );
+      }
+    });
+
+    it("dropping an exclusion from excludeDirs calls the generated copy covered", () => {
+      // Proves the excludeDirs term is what makes the check above fire, not
+      // the marker roots.
+      const bundled = "examples/an_example/dist/an_example.mjs";
+      assert.equal(coverageOf(bundled).kind, "uncovered");
+      assert.equal(
+        coverageOf(bundled, {
+          excludeDirs: config.excludeDirs.filter((d) => d !== "dist"),
+        }).kind,
+        "root",
+      );
     });
   });
 });

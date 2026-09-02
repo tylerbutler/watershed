@@ -2,8 +2,9 @@ import gleam/string
 import gleeunit/should
 import simplifile
 import source_snippets/cli.{
-  OutputWriteError, WrongArgumentCount, format_error, run,
+  GenerationFailed, OutputWriteError, WrongArgumentCount, format_error, run,
 }
+import source_snippets/generator
 
 // ---------------------------------------------------------------------------
 // Helpers — real filesystem fixtures (same pattern as generator_test)
@@ -356,4 +357,49 @@ pub fn format_error_wrong_count_test() {
 pub fn format_error_output_write_test() {
   let msg = format_error(OutputWriteError("/some/path.json"))
   should.be_true(string.contains(msg, "/some/path.json"))
+}
+
+pub fn format_error_stray_end_test() {
+  // The message must name all three facts the author needs: the marker, the
+  // file that holds the pair, and the file that holds the extra directive.
+  let msg =
+    format_error(
+      GenerationFailed(generator.StrayEndMarker(
+        "demo",
+        "src/a.gleam",
+        "src/b.gleam",
+      )),
+    )
+  should.be_true(string.contains(msg, "demo"))
+  should.be_true(string.contains(msg, "src/a.gleam"))
+  should.be_true(string.contains(msg, "src/b.gleam"))
+}
+
+pub fn run_black_box_stray_end_test() {
+  // A file holds a complete pair. A second file holds an end directive with
+  // the same name. The run must fail and name both files.
+  let paired = "// docs:snippet-start se\ncode a\n// docs:snippet-end se\n"
+  let stray = "code b\n// docs:snippet-end se\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("se", "src/a.gleam", "gleam", ["se"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("stray-end", config, [
+      #("src/a.gleam", paired),
+      #("src/b.gleam", stray),
+    ])
+  let output_path = fixture_base <> "/stray-end/out.json"
+
+  let msg =
+    run([config_path, output_path])
+    |> should.be_error
+    |> format_error
+
+  should.be_true(string.contains(msg, "se"))
+  should.be_true(string.contains(msg, "src/a.gleam"))
+  should.be_true(string.contains(msg, "src/b.gleam"))
+  should.equal(simplifile.is_file(output_path), Ok(False))
+
+  cleanup("stray-end")
 }

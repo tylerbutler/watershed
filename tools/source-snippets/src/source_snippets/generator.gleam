@@ -49,6 +49,8 @@ pub type GenerateError {
   ExtractionError(snippet_id: String, error: extractor.MarkerError)
   /// A discovered marker directive is not referenced by any snippet.
   OrphanMarker(marker: String, source_path: String)
+  /// An end directive names a marker whose pair is complete in another file.
+  StrayEndMarker(marker: String, pair_path: String, stray_path: String)
   /// A configured source path could not be normalized or escapes source root.
   InvalidSourcePath(snippet_id: String, source_path: String)
 }
@@ -155,9 +157,19 @@ fn validate_roots_exist(
 type MarkerInventory =
   dict.Dict(String, #(String, String))
 
-/// One scanned file: its path relative to the source root, and its content.
-type ScannedSource =
-  #(String, String)
+/// One scanned file: its path relative to the source root, its content, and
+/// the marker names its start and end directives carry.
+///
+/// The two name lists answer the question the scan asks one file at a time:
+/// does *this* file hold both halves of the pair?
+type ScannedSource {
+  ScannedSource(
+    path: String,
+    content: String,
+    starts: List(String),
+    ends: List(String),
+  )
+}
 
 fn scan_inventory(
   source_root: String,
@@ -178,7 +190,7 @@ fn scan_inventory(
   // only when no start directive claims it. A pair that is split across two
   // files therefore reports the missing end, not a duplicate.
   use with_starts <- result_try(add_start_markers(sources, dict.new()))
-  add_end_markers(sources, with_starts, with_starts)
+  add_end_markers(sources, with_starts, paired_markers(sources), with_starts)
 }
 
 fn collect_source_files(
@@ -235,11 +247,31 @@ fn read_sources(
         Error(_) -> Error(MissingSourceFile(file))
         Ok(content) ->
           read_sources(rest, source_root, [
-            #(make_relative(file, source_root), content),
+            ScannedSource(
+              path: make_relative(file, source_root),
+              content:,
+              starts: extractor.marker_names(content),
+              ends: extractor.end_marker_names(content),
+            ),
             ..acc
           ])
       }
   }
+}
+
+/// Names the markers that have both halves of the pair inside one file.
+///
+/// The scan reads every file before it judges any end directive, so the
+/// order in which the files arrive does not change the report.
+fn paired_markers(sources: List(ScannedSource)) -> set.Set(String) {
+  list.fold(sources, set.new(), fn(acc, source) {
+    list.fold(source.starts, acc, fn(names, marker) {
+      case list.contains(source.ends, marker) {
+        True -> set.insert(names, marker)
+        False -> names
+      }
+    })
+  })
 }
 
 fn add_start_markers(
@@ -248,11 +280,10 @@ fn add_start_markers(
 ) -> Result(MarkerInventory, GenerateError) {
   case sources {
     [] -> Ok(acc)
-    [#(rel_path, content), ..rest] -> {
+    [source, ..rest] -> {
       use new_acc <- result_try(add_markers_to_inventory(
-        extractor.marker_names(content),
-        rel_path,
-        content,
+        source.starts,
+        source,
         acc,
       ))
       add_start_markers(rest, new_acc)
@@ -263,57 +294,77 @@ fn add_start_markers(
 fn add_end_markers(
   sources: List(ScannedSource),
   starts: MarkerInventory,
+  paired: set.Set(String),
   acc: MarkerInventory,
 ) -> Result(MarkerInventory, GenerateError) {
   case sources {
     [] -> Ok(acc)
-    [#(rel_path, content), ..rest] -> {
+    [source, ..rest] -> {
       use new_acc <- result_try(add_ends_to_inventory(
-        extractor.end_marker_names(content),
-        rel_path,
-        content,
+        source.ends,
+        source,
         starts,
+        paired,
         acc,
       ))
-      add_end_markers(rest, starts, new_acc)
+      add_end_markers(rest, starts, paired, new_acc)
     }
   }
 }
 
+/// Files an end directive in the inventory, or reports the structure it broke.
+///
+/// The file that holds the matching start directive owns the marker. An end
+/// directive in a second file is a stray tail when that pair is complete. It
+/// is the far half of a split pair when the pair is not complete, and the
+/// owning file reports the missing end. An end directive that no start
+/// directive answers claims the marker itself, which makes it visible to the
+/// orphan check and to extraction.
 fn add_ends_to_inventory(
   markers: List(String),
-  rel_path: String,
-  content: String,
+  source: ScannedSource,
   starts: MarkerInventory,
+  paired: set.Set(String),
   acc: MarkerInventory,
 ) -> Result(MarkerInventory, GenerateError) {
   case markers {
     [] -> Ok(acc)
     [marker, ..rest] ->
-      case dict.has_key(starts, marker) {
-        // A start directive already owns this marker.
-        True -> add_ends_to_inventory(rest, rel_path, content, starts, acc)
+      case list.contains(source.starts, marker) {
+        // This file holds the matching start directive.
+        True -> add_ends_to_inventory(rest, source, starts, paired, acc)
         False ->
-          case dict.get(acc, marker) {
-            Ok(#(existing_path, _)) ->
-              case existing_path == rel_path {
-                True ->
-                  add_ends_to_inventory(rest, rel_path, content, starts, acc)
+          case dict.get(starts, marker) {
+            Ok(#(start_path, _)) ->
+              case set.contains(paired, marker) {
+                True -> Error(StrayEndMarker(marker, start_path, source.path))
+                // The pair is split across two files. The file with the start
+                // directive owns the marker and reports the missing end.
                 False ->
-                  Error(DuplicateMarkerAcrossFiles(
-                    marker,
-                    existing_path,
-                    rel_path,
-                  ))
+                  add_ends_to_inventory(rest, source, starts, paired, acc)
               }
             Error(Nil) ->
-              add_ends_to_inventory(
-                rest,
-                rel_path,
-                content,
-                starts,
-                dict.insert(acc, marker, #(rel_path, content)),
-              )
+              case dict.get(acc, marker) {
+                Ok(#(existing_path, _)) ->
+                  case existing_path == source.path {
+                    True ->
+                      add_ends_to_inventory(rest, source, starts, paired, acc)
+                    False ->
+                      Error(DuplicateMarkerAcrossFiles(
+                        marker,
+                        existing_path,
+                        source.path,
+                      ))
+                  }
+                Error(Nil) ->
+                  add_ends_to_inventory(
+                    rest,
+                    source,
+                    starts,
+                    paired,
+                    dict.insert(acc, marker, #(source.path, source.content)),
+                  )
+              }
           }
       }
   }
@@ -332,8 +383,7 @@ fn make_relative(full_path: String, base: String) -> String {
 
 fn add_markers_to_inventory(
   markers: List(String),
-  rel_path: String,
-  content: String,
+  source: ScannedSource,
   acc: MarkerInventory,
 ) -> Result(MarkerInventory, GenerateError) {
   case markers {
@@ -341,16 +391,20 @@ fn add_markers_to_inventory(
     [marker, ..rest] -> {
       case dict.get(acc, marker) {
         Ok(#(existing_path, _)) ->
-          case existing_path == rel_path {
+          case existing_path == source.path {
             True ->
               // Same file, extractor will catch duplicate starts.
-              add_markers_to_inventory(rest, rel_path, content, acc)
+              add_markers_to_inventory(rest, source, acc)
             False ->
-              Error(DuplicateMarkerAcrossFiles(marker, existing_path, rel_path))
+              Error(DuplicateMarkerAcrossFiles(
+                marker,
+                existing_path,
+                source.path,
+              ))
           }
         Error(Nil) -> {
-          let new_acc = dict.insert(acc, marker, #(rel_path, content))
-          add_markers_to_inventory(rest, rel_path, content, new_acc)
+          let new_acc = dict.insert(acc, marker, #(source.path, source.content))
+          add_markers_to_inventory(rest, source, new_acc)
         }
       }
     }
