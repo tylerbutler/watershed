@@ -9,10 +9,26 @@ just build     # Gleam + JS bundles
 just test      # Gleam, JS, and compile-fail suites
 just format
 just lint
+just snippets  # regenerate the website's snippet manifest
 ```
 
 The website is a separate Astro project under `website/` (`pnpm build`,
 `pnpm run og:image` to regenerate the social card).
+
+## Website code snippets
+
+Every code block on the site that quotes real source comes from
+`website/src/generated/snippets.json`. That file is generated and ignored, so
+do not edit it and do not commit it. The committed inputs are
+`website/snippets.json`, which declares one entry per snippet, and the
+`// docs:snippet-start <id>` / `// docs:snippet-end <id>` marker pairs in the
+sources themselves. `tools/source-snippets` reads both and writes the
+manifest; its README documents the schema and marker placement.
+
+`just snippets` regenerates it by hand. `pnpm build`, `pnpm dev`, and
+`just test` already do it first, so an edited marker shows up without asking.
+Every marker must be quoted by a snippet and every snippet must find its
+marker, or generation fails and names the file.
 
 ## Prose and copy
 

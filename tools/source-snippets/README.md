@@ -4,6 +4,25 @@ Internal Gleam tool that reads an explicit snippet configuration, validates
 named source markers, and writes an ignored JSON manifest for the
 documentation frontend.
 
+## What it knows, and what it does not
+
+The tool has four jobs: decode a versioned configuration, scan the configured
+roots for marker directives, extract and compose the configured ranges, and
+write a deterministic manifest atomically.
+
+Everything else belongs to whoever runs it. The package has no idea what a
+documentation site is. It does not know Astro, GitHub URLs, page names, syntax
+themes, or which snippet is allowed to be hand-written. It takes paths,
+extensions, ids, and markers, and it hands back JSON. Any Gleam project can
+point it at its own sources with its own configuration.
+
+Watershed's own configuration lives in `website/snippets.json`, and every
+watershed path in this README — `website/`, `examples/`, the `just` recipe —
+is an example of one project's choices, not a rule the package enforces. The
+same is true of the `excludeDirs` values: `build` is where the Gleam compiler
+happens to put its copies, and a project that generates elsewhere names its
+own directories.
+
 ## Command
 
 ```
@@ -15,6 +34,30 @@ gleam run -m source_snippets/cli -- <config.json> <output.json>
 is created if absent. Output is written atomically: the tool writes to a
 `.tmp` sibling first and renames only after generation and encoding succeed.
 A valid existing output file is never removed on failure.
+
+## Exit status and errors
+
+The command exits `0` after a manifest is written, and `1` after printing one
+line to stderr. Each line names the file, and where one applies, the snippet
+id and the marker id, so the failure can be found without rerunning anything:
+
+```
+error: expected 2 arguments (config output), got 1
+error: cannot read config: website/snippets.json
+error: invalid config JSON
+error: marker root not found: src
+error: source file not found: examples/demo/src/demo.gleam
+error: snippet "demo": invalid source path: ../../etc/passwd
+error: snippet "demo": marker "demo-start" not found in examples/demo/src/demo.gleam
+error: snippet "demo": extraction failed
+error: marker "demo-start" found in both src/a.gleam and build/a.gleam
+error: marker "demo-start" in src/a.gleam is not referenced by any snippet
+error: marker "demo-start" has its pair in src/a.gleam and an extra end directive in src/b.gleam
+error: cannot write output: website/src/generated/snippets.json
+```
+
+A failing run leaves the previous manifest in place, so a build that already
+had good output keeps it.
 
 ## Configuration schema
 
