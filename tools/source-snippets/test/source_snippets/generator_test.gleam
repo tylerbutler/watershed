@@ -4,8 +4,8 @@ import gleeunit/should
 import simplifile
 import source_snippets/generator.{
   ConfigDecodeError, ConfigReadError, DuplicateMarkerAcrossFiles,
-  ExtractionError, MarkerNotFound, MissingRoot, MissingSourceFile, OrphanMarker,
-  generate,
+  ExtractionError, InvalidSourcePath, MarkerNotFound, MissingRoot,
+  MissingSourceFile, OrphanMarker, generate,
 }
 import source_snippets/manifest.{
   type ManifestEntry, Manifest, ManifestEntry, encode,
@@ -462,6 +462,77 @@ pub fn generate_ignores_non_matching_extensions_test() {
   |> should.be_ok
 
   cleanup("ext-filter")
+}
+
+// ---------------------------------------------------------------------------
+// Path canonicalization — dot-slash prefix resolves correctly
+// ---------------------------------------------------------------------------
+
+pub fn generate_dot_slash_source_path_test() {
+  let source =
+    "// docs:snippet-start hello\npub fn hello() { Nil }\n// docs:snippet-end hello\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("hello", "./src/main.gleam", "gleam", ["hello"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("dot-slash", config, [#("src/main.gleam", source)])
+
+  let result = generate(config_path)
+  let manifest = should.be_ok(result)
+  let assert [entry] = manifest.snippets
+  entry.id |> should.equal("hello")
+  entry.code |> should.equal("pub fn hello() { Nil }")
+  // Output source_path should be the clean normalized form.
+  entry.source_path |> should.equal("src/main.gleam")
+
+  cleanup("dot-slash")
+}
+
+// ---------------------------------------------------------------------------
+// Path canonicalization — parent traversal within source root
+// ---------------------------------------------------------------------------
+
+pub fn generate_dotdot_source_path_test() {
+  let source = "// docs:snippet-start x\nlet x = 1\n// docs:snippet-end x\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("x", "src/../src/main.gleam", "gleam", ["x"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("dotdot", config, [#("src/main.gleam", source)])
+
+  let result = generate(config_path)
+  let manifest = should.be_ok(result)
+  let assert [entry] = manifest.snippets
+  entry.source_path |> should.equal("src/main.gleam")
+
+  cleanup("dotdot")
+}
+
+// ---------------------------------------------------------------------------
+// Path canonicalization — escape source root is rejected
+// ---------------------------------------------------------------------------
+
+pub fn generate_escaping_path_rejected_test() {
+  let source = "// docs:snippet-start x\ncode\n// docs:snippet-end x\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("x", "../escaped.gleam", "gleam", ["x"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("escape", config, [#("src/placeholder.gleam", source)])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      InvalidSourcePath(_, _) -> Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("escape")
 }
 
 // ---------------------------------------------------------------------------

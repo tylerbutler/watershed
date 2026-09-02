@@ -65,8 +65,70 @@ pub type ConfigError {
 /// Decodes a JSON string into a validated `Config`.
 pub fn decode_config(input: String) -> Result(Config, ConfigError) {
   case json.parse(input, raw_decoder()) {
-    Error(_) -> Error(JsonSyntax("invalid JSON"))
     Ok(raw) -> validate(raw)
+    Error(json.UnableToDecode(decode_errors)) ->
+      Error(map_decode_errors(decode_errors))
+    Error(_) -> Error(JsonSyntax("invalid JSON"))
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Decode error mapping
+// ---------------------------------------------------------------------------
+
+/// Converts raw decode errors into a descriptive FieldError.
+///
+/// The field path uses dot-separated segments with array indices in brackets.
+/// Examples: "version", "sourceRoot", "snippets[0].id".
+fn map_decode_errors(errors: List(decode.DecodeError)) -> ConfigError {
+  case errors {
+    [first, ..] -> {
+      let field = format_field_path(first.path)
+      let message = case first.found {
+        "Nothing" -> "missing required field"
+        found -> "expected " <> first.expected <> ", got " <> found
+      }
+      FieldError(field, message)
+    }
+    [] -> JsonSyntax("invalid JSON")
+  }
+}
+
+fn format_field_path(path: List(String)) -> String {
+  case path {
+    [] -> "<root>"
+    segments -> format_path_segments(segments, "")
+  }
+}
+
+fn format_path_segments(segments: List(String), acc: String) -> String {
+  case segments {
+    [] -> acc
+    [segment, ..rest] -> {
+      let part = case is_array_index(segment) {
+        True -> "[" <> segment <> "]"
+        False ->
+          case acc {
+            "" -> segment
+            _ -> "." <> segment
+          }
+      }
+      format_path_segments(rest, acc <> part)
+    }
+  }
+}
+
+fn is_array_index(s: String) -> Bool {
+  case string.to_graphemes(s) {
+    [] -> False
+    graphemes -> list.all(graphemes, fn(g) { is_digit(g) })
+  }
+}
+
+fn is_digit(g: String) -> Bool {
+  case g {
+    "0" | "1" | "2" | "3" | "4" | "5" | "6" | "7" | "8" | "9" -> True
+    _ -> False
   }
 }
 

@@ -49,6 +49,8 @@ pub type GenerateError {
   ExtractionError(snippet_id: String, error: extractor.MarkerError)
   /// A discovered marker pair is not referenced by any snippet.
   OrphanMarker(marker: String, source_path: String)
+  /// A configured source path could not be normalized or escapes source root.
+  InvalidSourcePath(snippet_id: String, source_path: String)
 }
 
 /// Generates a manifest from a configuration file path.
@@ -70,6 +72,10 @@ pub fn generate(config_path: String) -> Result(Manifest, GenerateError) {
   )
 
   let source_root = resolve_path(config_dir, cfg.source_root)
+
+  use normalized_snippets <- result_try(normalize_snippet_paths(cfg.snippets))
+
+  let cfg = config.Config(..cfg, snippets: normalized_snippets)
 
   use _ <- result_try(validate_roots_exist(source_root, cfg.marker_roots))
 
@@ -102,6 +108,25 @@ fn resolve_path(base: String, relative: String) -> String {
     True -> relative
     False -> filepath.join(base, relative)
   }
+}
+
+// ---------------------------------------------------------------------------
+// Path normalization
+// ---------------------------------------------------------------------------
+
+/// Normalizes source paths in snippet specs.
+///
+/// Resolves `.` and `..` segments via `filepath.expand`. Rejects paths
+/// that escape the source root (leading `..` after expansion).
+fn normalize_snippet_paths(
+  specs: List(config.SnippetSpec),
+) -> Result(List(config.SnippetSpec), GenerateError) {
+  list.try_map(specs, fn(spec) {
+    case filepath.expand(spec.source_path) {
+      Error(Nil) -> Error(InvalidSourcePath(spec.id, spec.source_path))
+      Ok(normalized) -> Ok(config.SnippetSpec(..spec, source_path: normalized))
+    }
+  })
 }
 
 // ---------------------------------------------------------------------------

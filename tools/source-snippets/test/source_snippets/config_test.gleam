@@ -1,8 +1,9 @@
+import gleam/string
 import gleeunit/should
 import source_snippets/config.{
   Config, DuplicateId, EmptyExtensions, EmptyId, EmptyLanguage, EmptyMarkers,
-  EmptyPath, EmptyRoot, EmptySourceRoot, JsonSyntax, RepeatedMarker, SnippetSpec,
-  UnsupportedExtension, UnsupportedVersion, decode_config,
+  EmptyPath, EmptyRoot, EmptySourceRoot, FieldError, JsonSyntax, RepeatedMarker,
+  SnippetSpec, UnsupportedExtension, UnsupportedVersion, decode_config,
 }
 
 // ---------------------------------------------------------------------------
@@ -369,7 +370,15 @@ pub fn decode_missing_version_field_test() {
   }"
   decode_config(json)
   |> should.be_error
-  |> should.equal(JsonSyntax("invalid JSON"))
+  |> fn(err) {
+    case err {
+      FieldError(field, _) -> field |> should.equal("version")
+      other -> {
+        let _ = other
+        should.fail()
+      }
+    }
+  }
 }
 
 pub fn decode_missing_snippets_field_test() {
@@ -382,5 +391,210 @@ pub fn decode_missing_snippets_field_test() {
   }"
   decode_config(json)
   |> should.be_error
-  |> should.equal(JsonSyntax("invalid JSON"))
+  |> fn(err) {
+    case err {
+      FieldError(field, _) -> field |> should.equal("snippets")
+      other -> {
+        let _ = other
+        should.fail()
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wrong-type top-level fields
+// ---------------------------------------------------------------------------
+
+pub fn decode_wrong_type_version_test() {
+  let json =
+    "{
+    \"version\": \"one\",
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": []
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      FieldError(field, _) -> field |> should.equal("version")
+      other -> {
+        let _ = other
+        should.fail()
+      }
+    }
+  }
+}
+
+pub fn decode_wrong_type_source_root_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": 42,
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": []
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      FieldError(field, _) -> field |> should.equal("sourceRoot")
+      other -> {
+        let _ = other
+        should.fail()
+      }
+    }
+  }
+}
+
+pub fn decode_wrong_type_marker_roots_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": \"src\",
+    \"extensions\": [\".gleam\"],
+    \"snippets\": []
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      FieldError(field, _) -> field |> should.equal("markerRoots")
+      other -> {
+        let _ = other
+        should.fail()
+      }
+    }
+  }
+}
+
+pub fn decode_wrong_type_extensions_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": \".gleam\",
+    \"snippets\": []
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      FieldError(field, _) -> field |> should.equal("extensions")
+      other -> {
+        let _ = other
+        should.fail()
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Wrong-type nested snippet fields
+// ---------------------------------------------------------------------------
+
+pub fn decode_wrong_type_snippet_id_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": [
+      {
+        \"id\": 123,
+        \"sourcePath\": \"src/main.gleam\",
+        \"language\": \"gleam\",
+        \"markers\": [\"x\"]
+      }
+    ]
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      FieldError(field, _) -> {
+        // Field path should include snippet context.
+        should.be_true(
+          string.contains(field, "snippets") && string.contains(field, "id"),
+        )
+      }
+      other -> {
+        let _ = other
+        should.fail()
+      }
+    }
+  }
+}
+
+pub fn decode_wrong_type_snippet_markers_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": [
+      {
+        \"id\": \"s1\",
+        \"sourcePath\": \"src/main.gleam\",
+        \"language\": \"gleam\",
+        \"markers\": \"not-an-array\"
+      }
+    ]
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      FieldError(field, _) -> {
+        should.be_true(
+          string.contains(field, "snippets")
+          && string.contains(field, "markers"),
+        )
+      }
+      other -> {
+        let _ = other
+        should.fail()
+      }
+    }
+  }
+}
+
+pub fn decode_missing_snippet_source_path_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": [
+      {
+        \"id\": \"s1\",
+        \"language\": \"gleam\",
+        \"markers\": [\"x\"]
+      }
+    ]
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      FieldError(field, _) -> {
+        should.be_true(
+          string.contains(field, "snippets")
+          && string.contains(field, "sourcePath"),
+        )
+      }
+      other -> {
+        let _ = other
+        should.fail()
+      }
+    }
+  }
 }
