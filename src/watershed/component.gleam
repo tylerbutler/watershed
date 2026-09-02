@@ -13,7 +13,9 @@
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode.{type Decoder}
+import gleam/int
 import gleam/json.{type Json}
+import gleam/list
 import gleam/result
 import watershed/port
 
@@ -33,8 +35,12 @@ pub type RegistrationError {
 
 /// An error from looking up a descriptor in a catalog.
 pub type LookupError {
-  /// No descriptor with this kind and version is in the catalog.
-  NotRegistered(kind: String, version: Int)
+  /// The catalog holds no descriptor for this kind, at any version.
+  NotRegistered(kind: String)
+  /// The catalog holds this kind, but not the requested version.
+  /// `available` lists the registered versions of the kind, from the lowest
+  /// version to the highest version.
+  UnsupportedVersion(kind: String, requested: Int, available: List(Int))
 }
 
 /// One component kind's start function, port list, and config decoder.
@@ -160,12 +166,38 @@ pub fn register(
 
 /// Find a descriptor in a catalog by kind and version.
 ///
-/// Returns `Error(NotRegistered(..))` when no descriptor matches.
+/// Returns `Error(NotRegistered(kind))` when the catalog holds no version of
+/// the kind. Returns `Error(UnsupportedVersion(..))` when the catalog holds
+/// the kind at other versions. The two errors let a caller show the correct
+/// cause to a user: this host does not know the kind, or this host does not
+/// register the requested version.
 pub fn find(
   catalog: Catalog(context, running),
   kind: String,
   version: Int,
 ) -> Result(Descriptor(context, running), LookupError) {
-  dict.get(catalog.entries, #(kind, version))
-  |> result.replace_error(NotRegistered(kind, version))
+  case dict.get(catalog.entries, #(kind, version)) {
+    Ok(descriptor) -> Ok(descriptor)
+    Error(Nil) ->
+      case registered_versions(catalog, kind) {
+        [] -> Error(NotRegistered(kind))
+        available -> Error(UnsupportedVersion(kind, version, available))
+      }
+  }
+}
+
+/// The versions a catalog holds for one kind, from the lowest version to the
+/// highest version. The sort keeps the list the same on every target.
+fn registered_versions(
+  catalog: Catalog(context, running),
+  kind: String,
+) -> List(Int) {
+  dict.keys(catalog.entries)
+  |> list.filter_map(fn(key) {
+    case key.0 == kind {
+      True -> Ok(key.1)
+      False -> Error(Nil)
+    }
+  })
+  |> list.sort(int.compare)
 }

@@ -10,6 +10,17 @@
 
 **Spec:** `docs/superpowers/specs/2026-09-01-data-component-sdk-design.md`
 
+> **Status note (final-review fix pass):** the branch's final review changed
+> four public shapes after this plan was written, so some code samples below
+> show the earlier form. The shipped API is the authority: `port.Direction`
+> carries the input class (`InputPort(InputClass)`) and `port.Descriptor` has
+> no `input_class` field; `component.LookupError` splits into
+> `NotRegistered(kind)` and `UnsupportedVersion(kind, requested, available)`;
+> and every `dispatch.DispatchError` variant carries the `Trace`, with a new
+> `SchemaChanged` variant. See
+> `.superpowers/sdd/2026-09-01-data-component-sdk-foundation/final-review.md`
+> findings I1 through I6.
+
 ## Global Constraints
 
 - Keep all modules in this plan target-independent and compilable on Erlang and JavaScript.
@@ -895,8 +906,11 @@ pub fn schema_mismatch_is_reported_test() -> Nil {
 }
 ```
 
-Add a duplicate-ID test. The first sorted occurrence wins and the other entry
-produces `DuplicateConnection(id)`.
+Add a duplicate-ID test. Every edge that shares a duplicate ID is rejected, and
+the graph emits one `DuplicateConnection(id)` for the ID. (Ruling from the
+progress ledger, which replaced the earlier "first sorted occurrence wins"
+text: a stable sort makes "first wins" depend on insertion order, so two
+clients with the same edge set could keep different edges.)
 
 - [ ] **Step 2: Write the concurrent-cycle normalization test**
 

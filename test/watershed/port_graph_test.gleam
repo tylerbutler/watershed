@@ -1,15 +1,15 @@
+import gleam/int
 import gleam/list
-import gleam/option.{None, Some}
 import startest/expect
 import watershed/port
 import watershed/port_graph
 
 fn output(id: String, schema_id: String) -> port.Descriptor {
-  port.Descriptor(id, port.OutputPort, schema_id, None)
+  port.Descriptor(id, port.OutputPort, schema_id)
 }
 
 fn local_input(id: String, schema_id: String) -> port.Descriptor {
-  port.Descriptor(id, port.InputPort, schema_id, Some(port.LocalInput))
+  port.Descriptor(id, port.InputPort(port.LocalInput), schema_id)
 }
 
 fn ports(instance_id: String) -> Result(List(port.Descriptor), Nil) {
@@ -95,7 +95,7 @@ pub fn wrong_direction_is_reported_test() -> Nil {
     port_graph.WrongDirection(
       "a",
       port_graph.PortRef("tasks", "open"),
-      port.OutputPort,
+      port.OutputDirection,
     ),
   ])
 }
@@ -241,4 +241,59 @@ pub fn permutation_rejects_duplicate_ids_test() -> Nil {
     port_graph.errors(graph)
     |> expect.to_equal([port_graph.DuplicateConnection("dup")])
   })
+}
+
+fn any_instance_ports(
+  _instance_id: String,
+) -> Result(List(port.Descriptor), Nil) {
+  Ok([output("out", "s@1"), local_input("in", "s@1")])
+}
+
+fn diamond_edges(count: Int) -> List(port_graph.Connection) {
+  list.repeat(Nil, count)
+  |> list.index_map(fn(_, index) { index })
+  |> list.flat_map(fn(index) {
+    let label = int.to_string(index)
+    let node = "n" <> label
+    let next = "n" <> int.to_string(index + 1)
+    let left = "x" <> label
+    let right = "y" <> label
+    [
+      edge("a-" <> label <> "-left", node, "out", left, "in"),
+      edge("a-" <> label <> "-right", node, "out", right, "in"),
+      edge("b-" <> label <> "-left", left, "out", next, "in"),
+      edge("b-" <> label <> "-right", right, "out", next, "in"),
+    ]
+  })
+}
+
+pub fn reconverging_paths_visit_each_instance_one_time_test() -> Nil {
+  let count = 24
+  let stored =
+    list.append(diamond_edges(count), [edge("z", "z", "out", "n0", "in")])
+
+  let graph = port_graph.effective(stored, any_instance_ports)
+
+  port_graph.errors(graph)
+  |> expect.to_equal([])
+
+  port_graph.connections(graph)
+  |> list.length
+  |> expect.to_equal(count * 4 + 1)
+}
+
+pub fn reconverging_paths_still_find_a_cycle_test() -> Nil {
+  let count = 24
+  let last = "n" <> int.to_string(count)
+  let stored =
+    list.append(diamond_edges(count), [edge("z", last, "out", "n0", "in")])
+
+  let graph = port_graph.effective(stored, any_instance_ports)
+
+  port_graph.errors(graph)
+  |> expect.to_equal([port_graph.Cycle("z")])
+
+  port_graph.connections(graph)
+  |> list.length
+  |> expect.to_equal(count * 4)
 }

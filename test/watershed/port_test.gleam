@@ -1,6 +1,5 @@
 import gleam/dynamic/decode
 import gleam/json
-import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 
@@ -29,7 +28,6 @@ pub fn output_descriptor_has_stable_metadata_test() -> Nil {
     id: "selected",
     direction: port.OutputPort,
     schema_id: "watershed/task-id@1",
-    input_class: None,
   ))
 }
 
@@ -37,9 +35,8 @@ pub fn local_input_descriptor_records_class_test() -> Nil {
   port.input_descriptor(focus_subject())
   |> expect.to_equal(port.Descriptor(
     id: "focus-subject",
-    direction: port.InputPort,
+    direction: port.InputPort(port.LocalInput),
     schema_id: "watershed/task-id@1",
-    input_class: Some(port.LocalInput),
   ))
 }
 
@@ -47,12 +44,24 @@ pub fn collaborative_input_records_capabilities_test() -> Nil {
   port.input_descriptor(append_activity())
   |> expect.to_equal(port.Descriptor(
     id: "append-entry",
-    direction: port.InputPort,
-    schema_id: "watershed/activity-text@1",
-    input_class: Some(
+    direction: port.InputPort(
       port.CollaborativeInput(capabilities: ["sequence:insert"]),
     ),
+    schema_id: "watershed/activity-text@1",
   ))
+}
+
+pub fn direction_kind_drops_the_input_class_test() -> Nil {
+  port.direction_kind(port.OutputPort)
+  |> expect.to_equal(port.OutputDirection)
+
+  port.direction_kind(port.InputPort(port.LocalInput))
+  |> expect.to_equal(port.InputDirection)
+
+  port.direction_kind(
+    port.InputPort(port.CollaborativeInput(capabilities: ["sequence:insert"])),
+  )
+  |> expect.to_equal(port.InputDirection)
 }
 
 pub fn payload_round_trip_test() -> Nil {

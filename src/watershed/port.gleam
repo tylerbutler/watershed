@@ -11,33 +11,39 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import gleam/option.{type Option, None, Some}
 
-/// The role of an input port.
+/// What an input port can change.
 ///
-/// A local input accepts a payload from inside the same client only. A
-/// collaborative input accepts a payload that other clients can also send,
-/// and it lists the capabilities the payload needs to merge.
+/// A local input changes only this client's presentation state or
+/// controller state. A collaborative input runs a target-owned mutation on
+/// the client that started the source event. Watershed then replicates the
+/// result. Both classes receive a payload only from a local intent. No other
+/// client sends a payload to an input port.
 pub type InputClass {
   LocalInput
   CollaborativeInput(capabilities: List(String))
 }
 
 /// The direction of data flow through a port.
+///
+/// An input port always carries its input class. A port therefore cannot be
+/// an input port without a class.
 pub type Direction {
   OutputPort
-  InputPort
+  InputPort(class: InputClass)
+}
+
+/// The direction a check requires. This type holds no input class, because
+/// a check cannot know the class of the input port it expects.
+pub type DirectionKind {
+  OutputDirection
+  InputDirection
 }
 
 /// The erased metadata of one port. Use this type to list, log, or render
 /// ports without the payload type.
 pub type Descriptor {
-  Descriptor(
-    id: String,
-    direction: Direction,
-    schema_id: String,
-    input_class: Option(InputClass),
-  )
+  Descriptor(id: String, direction: Direction, schema_id: String)
 }
 
 /// An output port. The payload type parameter keeps `connect` from linking
@@ -88,7 +94,11 @@ pub fn output(
   Output(id: id, schema_id: schema_id, encode: encode)
 }
 
-/// Declare an input port that only this client can send to.
+/// Declare an input port that changes local state only.
+///
+/// A local input changes this client's presentation state or controller
+/// state, for example a selection or a filter. It does not change a
+/// collaborative channel. It receives a payload only from a local intent.
 ///
 /// `id` names the port inside its component. `schema_id` names the payload
 /// schema. `decoder` turns JSON back into one payload.
@@ -100,11 +110,17 @@ pub fn local_input(
   Input(id: id, schema_id: schema_id, decode: decoder, input_class: LocalInput)
 }
 
-/// Declare an input port that other clients can also send to.
+/// Declare an input port that runs a target-owned mutation.
 ///
-/// `capabilities` lists what the merge needs, for example
-/// `["sequence:insert"]`. The catalog and graph tasks use this list to check
-/// that a connected output can produce a payload the merge accepts.
+/// The component that owns the port performs the mutation on the client
+/// that started the source event. Watershed then replicates the result. The
+/// port receives a payload only from a local intent, the same as a local
+/// input.
+///
+/// `capabilities` names the channel mutations this input can perform, for
+/// example `["sequence:insert"]`. A host reads this list to show the
+/// shared-state effect of a connection before it stores the connection. No
+/// function in this release rejects a connection because of capabilities.
 pub fn collaborative_input(
   id: String,
   schema_id: String,
@@ -119,23 +135,25 @@ pub fn collaborative_input(
   )
 }
 
+/// The kind of one direction, without the input class.
+pub fn direction_kind(direction: Direction) -> DirectionKind {
+  case direction {
+    OutputPort -> OutputDirection
+    InputPort(_) -> InputDirection
+  }
+}
+
 /// Erase an output port's payload type to its `Descriptor`.
 pub fn output_descriptor(output: Output(payload)) -> Descriptor {
-  Descriptor(
-    id: output.id,
-    direction: OutputPort,
-    schema_id: output.schema_id,
-    input_class: None,
-  )
+  Descriptor(id: output.id, direction: OutputPort, schema_id: output.schema_id)
 }
 
 /// Erase an input port's payload type to its `Descriptor`.
 pub fn input_descriptor(input: Input(payload)) -> Descriptor {
   Descriptor(
     id: input.id,
-    direction: InputPort,
+    direction: InputPort(input.input_class),
     schema_id: input.schema_id,
-    input_class: Some(input.input_class),
   )
 }
 

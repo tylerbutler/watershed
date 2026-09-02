@@ -12,10 +12,16 @@
 //// the payload and it does not call component code. The runtime execution
 //// plan reads each `Delivery`, decodes the payload with the target port's
 //// typed decoder, and calls the component immediately after.
+////
+//// One `plan` call is one step of a dispatch trace. This module keeps no
+//// state between calls. The rule that the shell runs each edge at most one
+//// time in one dispatch trace therefore belongs to the later stateful
+//// runtime layer. One target can receive a payload through two paths, emit
+//// an output, and start the same downstream edge two times in one trace.
+//// Only a layer that remembers the edges of a trace can stop that cascade.
 
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option
 import watershed/port
 import watershed/port_graph
 
@@ -52,14 +58,21 @@ pub type Delivery {
   )
 }
 
-/// A reason the plan could not build one delivery.
+/// A reason the plan could not build one delivery. Every reason carries the
+/// dispatch trace, so a caller that batches plans can associate one error
+/// with one trace.
 pub type DispatchError {
-  /// The source port no longer exists, or it is no longer an output port.
-  SourceUnavailable(source: port_graph.PortRef)
-  /// The target instance, the target port, or the target port's input class
-  /// is no longer present. The host catalog changed between the graph's
-  /// construction and this dispatch.
-  TargetUnavailable(edge_id: String, target: port_graph.PortRef)
+  /// The source port is no longer present, or it is no longer an output
+  /// port. The plan builds no delivery.
+  SourceUnavailable(trace: Trace, source: port_graph.PortRef)
+  /// The target instance is no longer present, the target port is no longer
+  /// present, or the target port is no longer an input port. The host
+  /// catalog changed between the graph's construction and this dispatch.
+  TargetUnavailable(trace: Trace, edge_id: String, target: port_graph.PortRef)
+  /// The source port and the target port now name different schema IDs. The
+  /// host catalog changed a schema ID after the graph accepted this edge,
+  /// so the target can no longer decode the payload.
+  SchemaChanged(trace: Trace, edge_id: String, source: String, target: String)
 }
 
 /// The result of planning one dispatch. Holds the deliveries to send and one
@@ -72,9 +85,11 @@ pub opaque type Plan {
 ///
 /// `graph` supplies the effective connections in graph order. `ports_for`
 /// re-reads the current port descriptors for one instance, so the plan
-/// catches a target that a host catalog change removed since the graph was
-/// built. Returns an empty plan without reading the graph when `origin` is
-/// `ReplicatedChange`.
+/// catches a port that a host catalog change removed or changed since the
+/// graph was built. The plan compares the current schema ID of the source
+/// port against the current schema ID of each target port, and it reports
+/// `SchemaChanged` for a target that no longer matches. Returns an empty
+/// plan without reading the graph when `origin` is `ReplicatedChange`.
 pub fn plan(
   trace_id trace_id: String,
   origin origin: Origin,
@@ -97,13 +112,19 @@ fn plan_local_intent(
   graph: port_graph.EffectiveGraph,
   ports_for: fn(String) -> Result(List(port.Descriptor), Nil),
 ) -> Plan {
-  case resolve_output(source, ports_for) {
+  case resolve_output(trace, source, ports_for) {
     Error(dispatch_error) -> Plan(deliveries: [], errors: [dispatch_error])
-    Ok(Nil) -> {
+    Ok(source_schema_id) -> {
       let outcomes =
         port_graph.outgoing(graph, source)
         |> list.map(fn(connection) {
-          resolve_delivery(trace, connection, payload, ports_for)
+          resolve_delivery(
+            trace,
+            connection,
+            source_schema_id,
+            payload,
+            ports_for,
+          )
         })
       let deliveries =
         list.filter_map(outcomes, fn(outcome) {
@@ -124,26 +145,37 @@ fn plan_local_intent(
   }
 }
 
+/// Read the current source descriptor and return its schema ID.
 fn resolve_output(
+  trace: Trace,
   source: port_graph.PortRef,
   ports_for: fn(String) -> Result(List(port.Descriptor), Nil),
-) -> Result(Nil, DispatchError) {
+) -> Result(String, DispatchError) {
   case find_descriptor(source, ports_for) {
-    Ok(descriptor) if descriptor.direction == port.OutputPort -> Ok(Nil)
-    _ -> Error(SourceUnavailable(source))
+    Ok(port.Descriptor(direction: port.OutputPort, schema_id: schema_id, ..)) ->
+      Ok(schema_id)
+    _ -> Error(SourceUnavailable(trace, source))
   }
 }
 
+/// Read the current target descriptor and check it against the source. The
+/// graph checked both ports when it accepted the edge, so a fault here means
+/// the host catalog changed after that point.
 fn resolve_delivery(
   trace: Trace,
   connection: port_graph.Connection,
+  source_schema_id: String,
   payload: Json,
   ports_for: fn(String) -> Result(List(port.Descriptor), Nil),
 ) -> Result(Delivery, DispatchError) {
   case find_descriptor(connection.target, ports_for) {
-    Ok(descriptor) ->
-      case descriptor.input_class {
-        option.Some(input_class) ->
+    Ok(port.Descriptor(
+      direction: port.InputPort(input_class),
+      schema_id: schema_id,
+      ..,
+    )) ->
+      case schema_id == source_schema_id {
+        True ->
           Ok(Delivery(
             trace: trace,
             edge_id: connection.id,
@@ -151,10 +183,10 @@ fn resolve_delivery(
             input_class: input_class,
             payload: payload,
           ))
-        option.None ->
-          Error(TargetUnavailable(connection.id, connection.target))
+        False ->
+          Error(SchemaChanged(trace, connection.id, source_schema_id, schema_id))
       }
-    Error(Nil) -> Error(TargetUnavailable(connection.id, connection.target))
+    _ -> Error(TargetUnavailable(trace, connection.id, connection.target))
   }
 }
 

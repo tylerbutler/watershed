@@ -15,7 +15,7 @@
 //// graph keeps one order on Erlang and on JavaScript, even for astral
 //// Unicode text.
 
-import gleam/dict
+import gleam/dict.{type Dict}
 import gleam/list
 import gleam/option
 import gleam/result
@@ -44,7 +44,11 @@ pub type GraphError {
   UnknownPort(connection_id: String, port: PortRef)
   /// The port has the wrong direction. The source must be an output port and
   /// the target must be an input port.
-  WrongDirection(connection_id: String, port: PortRef, expected: port.Direction)
+  WrongDirection(
+    connection_id: String,
+    port: PortRef,
+    expected: port.DirectionKind,
+  )
   /// The source port and the target port name different schema IDs.
   SchemaMismatch(connection_id: String, source: String, target: String)
   /// Adding the connection makes a cycle. The graph keeps the earlier edges
@@ -61,7 +65,7 @@ pub opaque type EffectiveGraph {
 type State {
   State(
     accepted: List(Connection),
-    arcs: Set(#(String, String)),
+    arcs: Dict(String, List(String)),
     errors: List(GraphError),
     emitted_duplicates: Set(String),
   )
@@ -115,7 +119,7 @@ pub fn outgoing(graph: EffectiveGraph, source: PortRef) -> List(Connection) {
 fn new_state() -> State {
   State(
     accepted: [],
-    arcs: set.new(),
+    arcs: dict.new(),
     errors: [],
     emitted_duplicates: set.new(),
   )
@@ -177,7 +181,7 @@ fn accept_or_cycle(state: State, connection: Connection) -> State {
       State(
         ..state,
         accepted: [connection, ..state.accepted],
-        arcs: set.insert(state.arcs, #(source, target)),
+        arcs: add_arc(state.arcs, source, target),
       )
   }
 }
@@ -192,13 +196,13 @@ fn validate(
     connection.id,
     connection.source,
     source,
-    port.OutputPort,
+    port.OutputDirection,
   ))
   use _ <- result.try(check_direction(
     connection.id,
     connection.target,
     target,
-    port.InputPort,
+    port.InputDirection,
   ))
   case source.schema_id == target.schema_id {
     True -> Ok(Nil)
@@ -226,40 +230,62 @@ fn check_direction(
   id: String,
   ref: PortRef,
   descriptor: port.Descriptor,
-  expected: port.Direction,
+  expected: port.DirectionKind,
 ) -> Result(Nil, GraphError) {
-  case descriptor.direction == expected {
+  case port.direction_kind(descriptor.direction) == expected {
     True -> Ok(Nil)
     False -> Error(WrongDirection(id, ref, expected))
   }
 }
 
+fn add_arc(
+  arcs: Dict(String, List(String)),
+  from: String,
+  to: String,
+) -> Dict(String, List(String)) {
+  dict.upsert(arcs, from, fn(existing) {
+    case existing {
+      option.Some(targets) -> [to, ..targets]
+      option.None -> [to]
+    }
+  })
+}
+
 fn creates_cycle(
   source: String,
   target: String,
-  arcs: Set(#(String, String)),
+  arcs: Dict(String, List(String)),
 ) -> Bool {
-  reachable(target, source, arcs, set.new())
+  reachable([target], source, arcs, set.new())
 }
 
+/// Walk the arcs from a frontier of instances and look for one goal. The
+/// visited set is shared by every branch, so the walk expands each instance
+/// one time. One query therefore costs O(V + E).
 fn reachable(
-  current: String,
+  frontier: List(String),
   goal: String,
-  arcs: Set(#(String, String)),
+  arcs: Dict(String, List(String)),
   visited: Set(String),
 ) -> Bool {
-  case current == goal {
-    True -> True
-    False ->
-      case set.contains(visited, current) {
-        True -> False
-        False -> {
-          let seen = set.insert(visited, current)
-          arcs
-          |> set.to_list
-          |> list.filter(fn(arc) { arc.0 == current })
-          |> list.any(fn(arc) { reachable(arc.1, goal, arcs, seen) })
-        }
+  case frontier {
+    [] -> False
+    [current, ..rest] ->
+      case current == goal {
+        True -> True
+        False ->
+          case set.contains(visited, current) {
+            True -> reachable(rest, goal, arcs, visited)
+            False -> {
+              let next = dict.get(arcs, current) |> result.unwrap([])
+              reachable(
+                list.append(next, rest),
+                goal,
+                arcs,
+                set.insert(visited, current),
+              )
+            }
+          }
       }
   }
 }
