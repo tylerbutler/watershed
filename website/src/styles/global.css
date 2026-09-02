@@ -274,6 +274,11 @@ samp {
   border-color: var(--overprint);
 }
 
+.doc-body a.g-file:focus-visible {
+  outline: 2px solid var(--overprint);
+  outline-offset: 2px;
+}
+
 .doc-body .g-file::before {
   content: "▸";
   color: var(--overprint);
