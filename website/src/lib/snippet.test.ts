@@ -2,7 +2,11 @@
 // Run: node --strip-types --test src/lib/snippet.test.ts
 import test from "node:test";
 import assert from "node:assert/strict";
-import { snippetFromDefinition, snippetFromMarker } from "./snippet.ts";
+import {
+  snippetFromDefinition,
+  snippetFromMarker,
+  snippetFromLiteral,
+} from "./snippet.ts";
 import { excerpt } from "./excerpt.ts";
 
 // ── snippetFromDefinition ─────────────────────────────────────────────────
@@ -218,4 +222,43 @@ test("excerpt() returns the same code as snippetFromDefinition()", () => {
   const viaExcerpt = excerpt(source, "pub fn foo(");
   const viaSnippet = snippetFromDefinition(source, "", "gleam", "pub fn foo(").code;
   assert.equal(viaExcerpt, viaSnippet);
+});
+
+// ── sourceUrl field ───────────────────────────────────────────────────────
+
+test("snippetFromDefinition: sourceUrl is undefined when not provided", () => {
+  const source = "pub fn foo() {\n  1\n}\n";
+  const s = snippetFromDefinition(source, "src/foo.gleam", "gleam", "pub fn foo(");
+  assert.equal(s.sourceUrl, undefined);
+});
+
+test("snippetFromMarker: sourceUrl is undefined when not provided", () => {
+  const source = [
+    "// docs:snippet-start r",
+    "let x = 1",
+    "// docs:snippet-end r",
+  ].join("\n");
+  const s = snippetFromMarker(source, "src/foo.gleam", "gleam", "r");
+  assert.equal(s.sourceUrl, undefined);
+});
+
+// ── snippetFromLiteral ────────────────────────────────────────────────────
+
+test("snippetFromLiteral populates all Snippet fields", () => {
+  const s = snippetFromLiteral(
+    "let x = 1",
+    "gleam",
+    "src/foo.gleam",
+    "https://example.com/foo.gleam",
+  );
+  assert.equal(s.code, "let x = 1");
+  assert.equal(s.language, "gleam");
+  assert.equal(s.sourcePath, "src/foo.gleam");
+  assert.equal(s.sourceUrl, "https://example.com/foo.gleam");
+  assert.deepEqual(s.origin, { kind: "literal" });
+});
+
+test("snippetFromLiteral: sourceUrl is undefined when omitted", () => {
+  const s = snippetFromLiteral("let x = 1", "gleam", "src/foo.gleam");
+  assert.equal(s.sourceUrl, undefined);
 });

@@ -14,13 +14,16 @@ export interface Snippet {
   language: string;
   /** Source file path. Used for citation and drift detection. */
   sourcePath: string;
+  /** URL to the canonical source of this snippet, e.g. a GitHub permalink. */
+  sourceUrl?: string;
   /** How the code was selected from the source. */
   origin: SnippetOrigin;
 }
 
 export type SnippetOrigin =
   | { kind: "definition"; heads: string[] }
-  | { kind: "marker"; name: string };
+  | { kind: "marker"; name: string }
+  | { kind: "literal" };
 
 const MARKER_START = /^\s*\/\/\s*docs:snippet-start\s+(\S+)\s*$/;
 const MARKER_END = /^\s*\/\/\s*docs:snippet-end\s+(\S+)\s*$/;
@@ -58,6 +61,20 @@ export function snippetFromMarker(
 ): Snippet {
   const code = extractMarkerRange(source, name, sourcePath);
   return { code, language, sourcePath, origin: { kind: "marker", name } };
+}
+
+/**
+ * Wrap an existing code string as a Snippet without extracting from source.
+ * Use for full-file imports or manually curated code strings that are not
+ * extracted with snippetFromDefinition or snippetFromMarker.
+ */
+export function snippetFromLiteral(
+  code: string,
+  language: string,
+  sourcePath: string,
+  sourceUrl?: string,
+): Snippet {
+  return { code, language, sourcePath, sourceUrl, origin: { kind: "literal" } };
 }
 
 // ── Definition extraction ──────────────────────────────────────────────────

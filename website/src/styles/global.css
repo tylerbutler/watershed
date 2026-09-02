@@ -262,6 +262,18 @@ samp {
   color: var(--ink);
 }
 
+.doc-body a.g-file {
+  text-decoration: none;
+  transition:
+    color var(--dur-feedback) var(--ease-out-quart),
+    border-color var(--dur-feedback) var(--ease-out-quart);
+}
+
+.doc-body a.g-file:hover {
+  color: var(--overprint-deep);
+  border-color: var(--overprint);
+}
+
 .doc-body .g-file::before {
   content: "▸";
   color: var(--overprint);

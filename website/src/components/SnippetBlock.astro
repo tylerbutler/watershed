@@ -1,0 +1,28 @@
+---
+// SnippetBlock renders a single Snippet as a labelled code figure.
+// sourcePath appears above the block as a .g-file label (linked to sourceUrl
+// when one is set). Use the caption slot for an optional figcaption annotation.
+import { Code } from "astro:components";
+import { watershedCodeTheme } from "../styles/code-theme";
+import type { Snippet } from "../lib/snippet.ts";
+
+interface Props {
+  snippet: Snippet;
+}
+
+const { snippet } = Astro.props;
+---
+
+{
+  snippet.sourcePath && (
+    snippet.sourceUrl ? (
+      <a class="g-file" href={snippet.sourceUrl}>{snippet.sourcePath}</a>
+    ) : (
+      <span class="g-file">{snippet.sourcePath}</span>
+    )
+  )
+}
+<figure class="g-code">
+  <Code code={snippet.code} lang={snippet.language} theme={watershedCodeTheme} />
+  <slot name="caption" />
+</figure>

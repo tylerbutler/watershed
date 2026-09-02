@@ -2,25 +2,45 @@
 import { Code } from "astro:components";
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
+import SnippetBlock from "../../components/SnippetBlock.astro";
 import { watershedCodeTheme } from "../../styles/code-theme";
 import { excerpt, section } from "../../lib/excerpt";
+import { snippetFromDefinition, snippetFromLiteral } from "../../lib/snippet.ts";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
 import schemaSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam?raw";
 import gleamToml from "../../../../examples/retro_tutorial_lustre/gleam.toml?raw";
 
-const devConstants = section(
+const devConstantsSnippet = snippetFromLiteral(
+  section(appSource, "/// These dev constants match", "pub fn main("),
+  "gleam",
+  "src/retro_tutorial_lustre.gleam",
+);
+const startSnippet = snippetFromDefinition(
   appSource,
-  "/// These dev constants match",
+  "src/retro_tutorial_lustre.gleam",
+  "gleam",
   "pub fn main(",
 );
-const start = excerpt(appSource, "pub fn main(");
 const connectEffect = excerpt(appSource, "fn init(");
 const readiness = section(
   appSource,
   "    GotDocument(document) -> {",
   "    EnsuredNotes(Ok(notes)) ->",
 );
-const bootstrap = excerpt(appSource, "fn bootstrap_effect(");
+
+const bootstrapSnippet = snippetFromDefinition(
+  appSource,
+  "src/retro_tutorial_lustre.gleam",
+  "gleam",
+  "fn bootstrap_effect(",
+);
+const schemaSnippet = snippetFromLiteral(
+  schemaSource,
+  "gleam",
+  "src/retro_tutorial_lustre/document_schema.gleam",
+);
+const gleamTomlSnippet = snippetFromLiteral(gleamToml, "toml", "gleam.toml");
+
 const assemble = excerpt(appSource, "fn assemble(");
 
 const beam = `import gleam/erlang/process.{type Subject}
@@ -89,18 +109,14 @@ const layout = `retro_tutorial_lustre/
       every later edit — yours and everyone else’s — in the single order the
       server assigns.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre.gleam</span>
-    <figure class="g-code">
-      <Code code={devConstants} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <figure class="g-code">
-      <Code code={start} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">
+    <SnippetBlock snippet={devConstantsSnippet} />
+    <SnippetBlock snippet={startSnippet}>
+      <figcaption slot="caption" class="annot">
         <code>document_on_navigate</code> reads <code>?document=</code> from the
         URL, or mints a name and puts it there — so two tabs share a board by
         sharing the link
       </figcaption>
-    </figure>
+    </SnippetBlock>
   </div>
 
   <div class="g-block">
@@ -174,10 +190,7 @@ const layout = `retro_tutorial_lustre/
       handle to another channel kind entirely — see{" "}
       <a href="/foundations/schema">Foundations · schemas and fields</a>.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre/document_schema.gleam</span>
-    <figure class="g-code">
-      <Code code={schemaSource} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={schemaSnippet} />
   </div>
 
   <div class="g-block">
@@ -191,10 +204,7 @@ const layout = `retro_tutorial_lustre/
       <a href="/foundations/lifecycle">Foundations · starting a document</a>{" "}
       for the concurrent-bootstrap details.
     </p>
-    <span class="g-file">src/retro_tutorial_lustre.gleam</span>
-    <figure class="g-code">
-      <Code code={bootstrap} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={bootstrapSnippet} />
     <p>
       <code>RegisterMode</code> stores one string per key for notes.{" "}
       <code>TallyMode</code> stores one signed number per key for votes. You
@@ -281,10 +291,7 @@ const layout = `retro_tutorial_lustre/
       <a href="https://github.com/tylerbutler/watershed#install">README</a> gives
       the exact lines.
     </p>
-    <span class="g-file">gleam.toml</span>
-    <figure class="g-code">
-      <Code code={gleamToml} lang="toml" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={gleamTomlSnippet} />
     <p>
       Start a floodgate development server on port <code>4000</code> with{" "}
       <code>just integration-up</code>, then:

@@ -4,7 +4,6 @@
 // they actually live. Each note is collapsed to its rule so the notes read as a
 // checklist the step ends on, not a second article. Prose styling comes from
 // .doc-body in global.css.
-import { Code } from "astro:components";
 import type { StepSlug } from "../data/guide";
 import {
   exampleForPractice,
@@ -12,7 +11,8 @@ import {
   practiceSourceUrl,
   practicesByStep,
 } from "../data/practices";
-import { watershedCodeTheme } from "../styles/code-theme";
+import { snippetFromLiteral } from "../lib/snippet.ts";
+import SnippetBlock from "./SnippetBlock.astro";
 
 interface Props {
   /** The guide step whose practices to render. */
@@ -34,6 +34,12 @@ const notes = practicesByStep[step];
       {notes.map((practice) => {
         const exampleName = practiceExampleName(practice);
         const example = exampleForPractice(practice);
+        const snippet = snippetFromLiteral(
+          practice.snippet,
+          practice.snippetLang === "js" ? "js" : "gleam",
+          practice.snippetFile,
+          practiceSourceUrl(practice),
+        );
         return (
           <details id={practice.id} class="fn-note">
             <summary>
@@ -44,15 +50,9 @@ const notes = practicesByStep[step];
               {practice.body.map((paragraph) => (
                 <p>{paragraph}</p>
               ))}
-              <span class="g-file">{practice.snippetFile}</span>
-              <figure class="g-code">
-                <Code
-                  code={practice.snippet}
-                  lang={practice.snippetLang === "js" ? "js" : "gleam"}
-                  theme={watershedCodeTheme}
-                />
-                <figcaption class="annot">{exampleName}</figcaption>
-              </figure>
+              <SnippetBlock snippet={snippet}>
+                <figcaption slot="caption" class="annot">{exampleName}</figcaption>
+              </SnippetBlock>
               {practice.testNote && (
                 <div class="g-note">
                   <p>
@@ -67,9 +67,6 @@ const notes = practicesByStep[step];
                 ) : (
                   <span>{exampleName}</span>
                 )}
-                <a class="fn-source" href={practiceSourceUrl(practice)}>
-                  Source &#8599;
-                </a>
               </p>
             </div>
           </details>
@@ -183,11 +180,5 @@ const notes = practicesByStep[step];
     border: 1px solid var(--hairline);
     background: var(--surface);
     font-size: var(--text-sm);
-  }
-
-  .fn-source {
-    margin-left: auto;
-    color: var(--waterline);
-    text-decoration: none;
   }
 </style>
