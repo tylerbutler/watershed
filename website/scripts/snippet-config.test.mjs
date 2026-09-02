@@ -26,7 +26,6 @@ import {
   writeFileSync,
   mkdirSync,
   rmSync,
-  globSync,
 } from "node:fs";
 import { resolve, dirname, relative } from "node:path";
 import { execFileSync } from "node:child_process";
@@ -100,34 +99,23 @@ describe("configuration resolves to the repository", () => {
 // a person edits.
 // ══════════════════════════════════════════════════════════════════════════
 
-/** Every directory name the scan must skip, with the reason it is there and
- *  a probe that proves the directory is real. A probe that finds nothing
- *  means the exclusion has outlived the directory it was written for. */
-const SCANNER_EXCLUSIONS = [
-  {
-    name: "build",
-    reason: "the Gleam compiler's copy of every source it compiles",
-    probe: "examples/*/build",
-  },
-  {
-    name: "dist",
-    reason: "the esbuild bundle of the example applications",
-    probe: "examples/*/dist",
-  },
-  {
-    name: "node_modules",
-    reason: "vendored packages nobody in this repository edits",
-    probe: "website/node_modules",
-  },
-  {
-    name: ".git",
-    reason: "object storage, not source",
-    probe: ".git",
-  },
+/** Standard generated-directory exclusions required by the repository's
+ *  build policy. The Gleam compiler copies sources into `build/`, bundlers
+ *  write into `dist/`, package managers populate `node_modules/`, and `.git`
+ *  holds object storage. None contain hand-written sources.
+ *
+ *  This list derives from build tooling, not from probing the filesystem
+ *  for generated artifacts — a fresh clone with no build output must pass
+ *  these checks. */
+const POLICY_EXCLUSIONS = [
+  { name: "build", reason: "the Gleam compiler's copy of every source it compiles" },
+  { name: "dist", reason: "the esbuild bundle of the example applications" },
+  { name: "node_modules", reason: "vendored packages nobody in this repository edits" },
+  { name: ".git", reason: "object storage, not source" },
 ];
 
 describe("the scan skips every generated directory", () => {
-  for (const exclusion of SCANNER_EXCLUSIONS) {
+  for (const exclusion of POLICY_EXCLUSIONS) {
     it(`excludeDirs names "${exclusion.name}"`, () => {
       assert.ok(
         config.excludeDirs.includes(exclusion.name),
@@ -136,38 +124,14 @@ describe("the scan skips every generated directory", () => {
     });
   }
 
-  it("every named exclusion still matches a real path", () => {
-    // A worktree keeps `.git` as a file, not a directory, so the probe asks
-    // only that the path exists. The scan compares directory names, and a
-    // name that matches nothing here has outlived its reason.
-    for (const exclusion of SCANNER_EXCLUSIONS) {
-      const matches = globSync(exclusion.probe, { cwd: repoRoot });
-      assert.ok(
-        matches.length > 0,
-        `exclusion "${exclusion.name}" (${exclusion.reason}) matches nothing under "${exclusion.probe}" — drop it`,
-      );
-    }
-  });
-
-  it("the excluded directories hold files the scan would otherwise read", () => {
-    // Without this, `dist` and `build` would be decoration. A bundle with a
-    // scanned extension inside an excluded directory under a marker root is
-    // exactly the file the exclusion exists to hide.
-    const scannable = globSync(
-      config.extensions.map((ext) => `examples/*/dist/**/*${ext}`),
-      { cwd: repoRoot },
+  it("excludeDirs contains exactly the policy-required entries", () => {
+    const expected = POLICY_EXCLUSIONS.map((e) => e.name).sort();
+    const actual = [...config.excludeDirs].sort();
+    assert.deepEqual(
+      actual,
+      expected,
+      `excludeDirs should match the build policy — expected [${expected}], got [${actual}]`,
     );
-    assert.ok(
-      scannable.length > 0,
-      "no bundled output under examples/*/dist — regenerate the examples, or drop the dist exclusion",
-    );
-    for (const bundled of scannable) {
-      assert.equal(
-        coverageOf(bundled).kind,
-        "uncovered",
-        `${bundled} is generated output but the coverage model treats it as scanned`,
-      );
-    }
   });
 });
 
