@@ -41,7 +41,7 @@ Output(String) -- encode --> Json
 Descriptor ---------> EffectiveGraph ---------> Delivery
                                                    |
                          target Input(String) <----+
-                                decode + execute: host runtime's job`;
+                                decode + execute: component runtime`;
 ---
 
 <FoundationsLayout
@@ -190,16 +190,17 @@ Descriptor ---------> EffectiveGraph ---------> Delivery
   </div>
 
   <div class="g-block">
-    <h3>Your runtime executes the plan</h3>
+    <h3>The browser runtime follows the whole trace</h3>
     <p>
-      The host receives a plan as data. Its runtime must decode target
-      payloads, call component code, execute local effects, submit
-      collaborative mutations, and enforce capability policy. The runtime must
-      also remember which edges one cascading trace crossed between plan calls.
-      Watershed ships the dispatch planner.{" "}
-      <a href="/foundations/workspaces">The workspace layer</a> gives that
-      planner a persisted manifest and graph. You supply the runtime that acts
-      on its deliveries.
+      Watershed's JavaScript component runtime takes the plan from data to
+      execution. It decodes target payloads, calls typed component handlers,
+      stores their next running values, queues cascading outputs, and remembers
+      which edges the trace already crossed. A local input changes only the
+      origin's controller state. A collaborative input submits once on the
+      origin; ordinary channel replication carries the mutation to peers
+      without sending it through the graph again.{" "}
+      <a href="/foundations/workspaces">The workspace layer</a> gives the
+      runtime the persisted manifest and graph it keeps reconciled.
     </p>
   </div>
 

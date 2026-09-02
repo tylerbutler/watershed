@@ -16,6 +16,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/port
 
@@ -25,6 +26,21 @@ pub type ComponentError {
   InvalidConfig(kind: String, version: Int, reason: json.DecodeError)
   /// The config JSON decoded, but the component's start function failed.
   StartFailed(kind: String, version: Int, reason: String)
+  /// The descriptor does not have a matching typed input handler.
+  InputUnavailable(kind: String, version: Int, input_id: String)
+  /// The input payload did not match the handler's decoder.
+  InvalidInputPayload(
+    kind: String,
+    version: Int,
+    input_id: String,
+    reason: port.PortError,
+  )
+  /// The typed input handler rejected the delivery.
+  InputFailed(kind: String, version: Int, input_id: String, reason: String)
+  /// The output is not declared by this descriptor.
+  OutputUnavailable(kind: String, version: Int, output_id: String)
+  /// The component could not release its local resources.
+  StopFailed(kind: String, version: Int, reason: String)
 }
 
 /// An error from registering a descriptor in a catalog.
@@ -43,6 +59,31 @@ pub type LookupError {
   UnsupportedVersion(kind: String, requested: Int, available: List(Int))
 }
 
+/// One encoded output event from a running component.
+///
+/// Build this value with `emit`. The constructor keeps the output's payload
+/// type until after its codec runs.
+pub opaque type OutputEvent {
+  OutputEvent(id: String, schema_id: String, payload: Json)
+}
+
+/// One typed input handler after its payload type has been hidden.
+///
+/// Build this value with `input_handler`. The handler keeps the typed decoder
+/// and function together after registration.
+pub opaque type InputHandler(running) {
+  InputHandler(
+    descriptor: port.Descriptor,
+    deliver: fn(running, Json) ->
+      Result(#(running, List(OutputEvent)), InputHandlerError),
+  )
+}
+
+type InputHandlerError {
+  HandlerInvalidPayload(reason: port.PortError)
+  HandlerFailed(reason: String)
+}
+
 /// One component kind's start function, port list, and config decoder.
 ///
 /// The `config` type parameter stays hidden: two descriptors with
@@ -54,7 +95,9 @@ pub opaque type Descriptor(context, running) {
     version: Int,
     ports: List(port.Descriptor),
     validate_config: fn(Json) -> Result(Nil, ComponentError),
-    start: fn(context, Json) -> Result(running, ComponentError),
+    start: fn(context, Json, fn(Result(running, ComponentError)) -> Nil) -> Nil,
+    inputs: List(InputHandler(running)),
+    stop: fn(running) -> Result(Nil, ComponentError),
   )
 }
 
@@ -81,6 +124,36 @@ pub fn descriptor(
   start start_component: fn(context, config) -> Result(running, String),
   ports ports: List(port.Descriptor),
 ) -> Descriptor(context, running) {
+  executable_descriptor(
+    kind: kind,
+    version: version,
+    config_decoder: config_decoder,
+    start: fn(context, config, done) { done(start_component(context, config)) },
+    inputs: [],
+    stop: fn(_) { Ok(Nil) },
+    ports: ports,
+  )
+}
+
+/// Build an executable descriptor for one component kind.
+///
+/// `start_component` calls `done` after the component has bootstrapped its
+/// channels and installed its required subscriptions. The runtime does not
+/// mark the instance ready before that callback.
+///
+/// `inputs` must contain the handlers for the input descriptors in `ports`.
+/// Delivery rejects a missing handler or metadata that does not match the
+/// handler's typed port.
+pub fn executable_descriptor(
+  kind kind: String,
+  version version: Int,
+  config_decoder config_decoder: Decoder(config),
+  start start_component: fn(context, config, fn(Result(running, String)) -> Nil) ->
+    Nil,
+  inputs inputs: List(InputHandler(running)),
+  stop stop_component: fn(running) -> Result(Nil, String),
+  ports ports: List(port.Descriptor),
+) -> Descriptor(context, running) {
   let decode_config = fn(encoded: Json) {
     case json.parse(json.to_string(encoded), config_decoder) {
       Ok(config) -> Ok(config)
@@ -96,12 +169,65 @@ pub fn descriptor(
       decode_config(encoded)
       |> result.map(fn(_) { Nil })
     },
-    start: fn(context, encoded) {
-      use config <- result.try(decode_config(encoded))
-      start_component(context, config)
-      |> result.map_error(fn(reason) { StartFailed(kind, version, reason) })
+    start: fn(context, encoded, done) {
+      case decode_config(encoded) {
+        Error(reason) -> done(Error(reason))
+        Ok(config) ->
+          start_component(context, config, fn(started) {
+            done(
+              started
+              |> result.map_error(fn(reason) {
+                StartFailed(kind, version, reason)
+              }),
+            )
+          })
+      }
+    },
+    inputs: inputs,
+    stop: fn(running) {
+      stop_component(running)
+      |> result.map_error(fn(reason) { StopFailed(kind, version, reason) })
     },
   )
+}
+
+/// Build a typed input handler for an executable descriptor.
+pub fn input_handler(
+  input input: port.Input(payload),
+  handle handle: fn(running, payload) ->
+    Result(#(running, List(OutputEvent)), String),
+) -> InputHandler(running) {
+  InputHandler(
+    descriptor: port.input_descriptor(input),
+    deliver: fn(running, encoded) {
+      use payload <- result.try(
+        port.decode(input, encoded)
+        |> result.map_error(HandlerInvalidPayload),
+      )
+      handle(running, payload)
+      |> result.map_error(HandlerFailed)
+    },
+  )
+}
+
+/// Encode one typed output event.
+pub fn emit(output: port.Output(payload), payload: payload) -> OutputEvent {
+  let port.Descriptor(id:, schema_id:, ..) = port.output_descriptor(output)
+  OutputEvent(
+    id: id,
+    schema_id: schema_id,
+    payload: port.encode(output, payload),
+  )
+}
+
+/// The port ID of an encoded output event.
+pub fn output_id(event: OutputEvent) -> String {
+  event.id
+}
+
+/// The payload of an encoded output event.
+pub fn output_payload(event: OutputEvent) -> Json {
+  event.payload
 }
 
 /// The component kind a descriptor names.
@@ -140,8 +266,66 @@ pub fn start(
   descriptor: Descriptor(context, running),
   context: context,
   config: Json,
-) -> Result(running, ComponentError) {
-  descriptor.start(context, config)
+  done: fn(Result(running, ComponentError)) -> Nil,
+) -> Nil {
+  descriptor.start(context, config, done)
+}
+
+/// Deliver an encoded payload to one typed input handler.
+pub fn deliver(
+  descriptor: Descriptor(context, running),
+  running: running,
+  input_id: String,
+  payload: Json,
+) -> Result(#(running, List(OutputEvent)), ComponentError) {
+  case matching_input(descriptor, input_id) {
+    None ->
+      Error(InputUnavailable(descriptor.kind, descriptor.version, input_id))
+    Some(handler) ->
+      handler.deliver(running, payload)
+      |> result.map_error(fn(reason) {
+        case reason {
+          HandlerInvalidPayload(reason) ->
+            InvalidInputPayload(
+              descriptor.kind,
+              descriptor.version,
+              input_id,
+              reason,
+            )
+          HandlerFailed(reason) ->
+            InputFailed(descriptor.kind, descriptor.version, input_id, reason)
+        }
+      })
+  }
+}
+
+/// Check that an output event belongs to this descriptor.
+pub fn validate_output(
+  descriptor: Descriptor(context, running),
+  event: OutputEvent,
+) -> Result(Nil, ComponentError) {
+  let declared =
+    list.any(descriptor.ports, fn(candidate) {
+      candidate
+      == port.Descriptor(
+        id: event.id,
+        direction: port.OutputPort,
+        schema_id: event.schema_id,
+      )
+    })
+  case declared {
+    True -> Ok(Nil)
+    False ->
+      Error(OutputUnavailable(descriptor.kind, descriptor.version, event.id))
+  }
+}
+
+/// Release one running component's local resources.
+pub fn stop(
+  descriptor: Descriptor(context, running),
+  running: running,
+) -> Result(Nil, ComponentError) {
+  descriptor.stop(running)
 }
 
 /// An empty catalog.
@@ -200,4 +384,16 @@ fn registered_versions(
     }
   })
   |> list.sort(int.compare)
+}
+
+fn matching_input(
+  descriptor: Descriptor(context, running),
+  input_id: String,
+) -> Option(InputHandler(running)) {
+  list.find(descriptor.inputs, fn(handler) {
+    let port.Descriptor(id:, ..) = handler.descriptor
+    id == input_id && list.contains(descriptor.ports, handler.descriptor)
+  })
+  |> result.map(Some)
+  |> result.unwrap(None)
 }

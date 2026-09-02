@@ -150,6 +150,13 @@ pub type Diagnostics =
   runtime.Diagnostics
 
 @target(javascript)
+/// A token for one channel subscription, which you can remove with
+/// `unsubscribe`.
+pub opaque type SubscriptionToken {
+  SubscriptionToken(runtime_token: runtime.SubscriptionToken)
+}
+
+@target(javascript)
 pub opaque type SharedMap {
   SharedMap(runtime: runtime.Runtime, address: String)
 }
@@ -1562,13 +1569,21 @@ fn subscribe_narrowed(
   address: String,
   handler: fn(a) -> Nil,
   narrow: fn(ChannelEvent) -> Option(a),
-) -> Nil {
-  runtime.subscribe(runtime, address, fn(event) {
-    case narrow(event) {
-      Some(inner) -> handler(inner)
-      None -> Nil
-    }
-  })
+) -> SubscriptionToken {
+  SubscriptionToken(
+    runtime_token: runtime.subscribe(runtime, address, fn(event) {
+      case narrow(event) {
+        Some(inner) -> handler(inner)
+        None -> Nil
+      }
+    }),
+  )
+}
+
+@target(javascript)
+/// Remove one channel subscription. A second call has no more effect.
+pub fn unsubscribe(token: SubscriptionToken) -> Nil {
+  runtime.unsubscribe(token.runtime_token)
 }
 
 @target(javascript)
@@ -1578,7 +1593,7 @@ fn subscribe_narrowed(
 pub fn subscribe_counter(
   counter: SharedCounter,
   handler: fn(counter_kernel.CounterEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(counter.runtime, counter.address, handler)
   case event {
     channel.CounterEvent(inner) -> Some(inner)
@@ -1673,7 +1688,7 @@ pub fn or_map_keys(or_map: OrMap) -> List(String) {
 pub fn subscribe_or_map(
   or_map: OrMap,
   handler: fn(or_map_kernel.OrMapEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(or_map.runtime, or_map.address, handler)
   case event {
     channel.OrMapEvent(inner) -> Some(inner)
@@ -1749,7 +1764,7 @@ pub fn or_set_values(or_set: OrSet) -> List(String) {
 pub fn subscribe_or_set(
   or_set: OrSet,
   handler: fn(or_set_kernel.OrSetEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(or_set.runtime, or_set.address, handler)
   case event {
     channel.OrSetEvent(inner) -> Some(inner)
@@ -1866,7 +1881,7 @@ pub fn sequence_length(sequence: SharedSequence) -> Int {
 pub fn subscribe_sequence(
   sequence: SharedSequence,
   handler: fn(sequence_kernel.SequenceEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(sequence.runtime, sequence.address, handler)
   case event {
     channel.SequenceEvent(inner) -> Some(inner)
@@ -2044,7 +2059,7 @@ pub fn text_anchor_from_json(
 pub fn subscribe_text(
   text: SharedText,
   handler: fn(text_kernel.TextEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(text.runtime, text.address, handler)
   case event {
     channel.TextEvent(inner) -> Some(inner)
@@ -2142,7 +2157,7 @@ pub fn register_keys(collection: RegisterCollection) -> List(String) {
 pub fn subscribe_register_collection(
   collection: RegisterCollection,
   handler: fn(register_collection_kernel.RegisterEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(
     collection.runtime,
     collection.address,
@@ -2231,7 +2246,7 @@ pub fn has_claim(claims: Claims, key: String) -> Bool {
 pub fn subscribe_claims(
   claims: Claims,
   handler: fn(claims_kernel.ClaimEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(claims.runtime, claims.address, handler)
   case event {
     channel.ClaimsEvent(inner) -> Some(inner)
@@ -2326,7 +2341,7 @@ pub fn task_queues(manager: TaskManager) -> List(#(String, List(Int))) {
 pub fn subscribe_task_manager(
   manager: TaskManager,
   handler: fn(task_manager_kernel.TaskManagerEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(manager.runtime, manager.address, handler)
   case event {
     channel.TaskManagerEvent(inner) -> Some(inner)
@@ -2402,7 +2417,7 @@ pub fn pn_counter_value(pn_counter: PnCounter) -> Result(Int, Nil) {
 pub fn subscribe_pn_counter(
   pn_counter: PnCounter,
   handler: fn(pn_counter_kernel.PnCounterEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(
     pn_counter.runtime,
     pn_counter.address,
@@ -2501,7 +2516,7 @@ pub fn pact_map_keys(pact_map: PactMap) -> List(String) {
 pub fn subscribe_pact_map(
   pact_map: PactMap,
   handler: fn(pact_map_kernel.PactMapEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(pact_map.runtime, pact_map.address, handler)
   case event {
     channel.PactMapEvent(inner) -> Some(inner)
@@ -2684,7 +2699,7 @@ pub fn ordered_jobs(
 pub fn subscribe_ordered_collection(
   collection: OrderedCollection,
   handler: fn(ordered_collection_kernel.OrderedEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(
     collection.runtime,
     collection.address,
@@ -2768,7 +2783,7 @@ pub fn json_ot_view(json_ot: JsonOt) -> Result(json_ot.JsonValue, Nil) {
 pub fn subscribe_json_ot(
   json_ot: JsonOt,
   handler: fn(json_ot_kernel.JsonOtEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(json_ot.runtime, json_ot.address, handler)
   case event {
     channel.JsonOtEvent(inner) -> Some(inner)
@@ -2855,7 +2870,7 @@ pub fn rich_text_view(
 pub fn subscribe_rich_text(
   rich_text: SharedRichText,
   handler: fn(rich_text_kernel.RichTextEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(rich_text.runtime, rich_text.address, handler)
   case event {
     channel.RichTextEvent(inner) -> Some(inner)
@@ -2936,7 +2951,7 @@ pub fn g_set_values(set: GSet) -> List(String) {
 pub fn subscribe_g_set(
   set: GSet,
   handler: fn(g_set_kernel.GSetEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(set.runtime, set.address, handler)
   case event {
     channel.GSetEvent(inner) -> Some(inner)
@@ -3029,7 +3044,7 @@ pub fn two_p_set_values(set: TwoPSet) -> List(String) {
 pub fn subscribe_two_p_set(
   set: TwoPSet,
   handler: fn(two_p_set_kernel.TwoPSetEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(set.runtime, set.address, handler)
   case event {
     channel.TwoPSetEvent(inner) -> Some(inner)
@@ -3203,7 +3218,7 @@ pub fn directory_has_subdirectory(
 pub fn subscribe_directory(
   directory: SharedDirectory,
   handler: fn(directory_kernel.DirectoryEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(directory.runtime, directory.address, handler)
   case event {
     channel.DirectoryEvent(inner) -> Some(inner)
@@ -3501,7 +3516,7 @@ pub fn size(map: SharedMap) -> Int {
 pub fn subscribe(
   map: SharedMap,
   handler: fn(map_kernel.MapEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   use event <- subscribe_narrowed(map.runtime, map.address, handler)
   case event {
     channel.MapEvent(inner) -> Some(inner)
@@ -3532,7 +3547,7 @@ pub fn subscribe(
 pub fn subscribe_typed(
   typed_map: TypedMap(s),
   handler: fn(map_kernel.MapEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   subscribe(typed_map.map, handler)
 }
 
@@ -3588,14 +3603,20 @@ pub fn subscribe_field(
   typed_map: TypedMap(s),
   field: Field(s, a),
   handler: fn(FieldChange(a)) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
   let key = schema.field_key(field)
-  runtime.subscribe(typed_map.map.runtime, typed_map.map.address, fn(event) {
-    case field_change(field, key, event) {
-      Some(change) -> handler(change)
-      None -> Nil
-    }
-  })
+  SubscriptionToken(
+    runtime_token: runtime.subscribe(
+      typed_map.map.runtime,
+      typed_map.map.address,
+      fn(event) {
+        case field_change(field, key, event) {
+          Some(change) -> handler(change)
+          None -> Nil
+        }
+      },
+    ),
+  )
 }
 
 // ── Demo helpers ─────────────────────────────────────────────────────────────

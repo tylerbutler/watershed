@@ -181,7 +181,9 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/event
 
-import watershed.{type Bias, type SharedText, type TextAnchor}
+import watershed.{
+  type Bias, type SharedText, type SubscriptionToken, type TextAnchor,
+}
 import watershed/crdt_js.{type Handle, type Subscription}
 import watershed/schema
 import watershed/text_kernel
@@ -279,6 +281,7 @@ pub opaque type Editor(channel) {
     /// different value.
     committed: Option(String),
     error: Option(String),
+    subscription: Option(SubscriptionToken),
     /// The peer cursors to draw, with their measured geometry.
     /// [`set_peers`](#set_peers) sets this list. The measuring effect fills in
     /// the rectangles one paint later.
@@ -381,6 +384,8 @@ pub opaque type Msg {
   /// the same, so the render always shows the committed optimistic state, and
   /// not the payload of an event.
   KernelEvent(text_kernel.TextEvent)
+  /// The cancellable subscription of a sequenced text binding.
+  ClassicSubscribed(instance: String, subscription: SubscriptionToken)
   /// The subscription handle of the p2p binding. The component has no teardown
   /// path, so it ignores this message on purpose.
   P2pSubscribed(Subscription)
@@ -410,7 +415,11 @@ pub opaque type Msg {
 pub fn mutates_document(msg: Msg) -> Bool {
   case msg {
     UserInput(..) | CompositionStarted(..) | CompositionEnded(..) -> True
-    KernelEvent(_) | P2pSubscribed(_) | UserSelect(..) | Measured(_) -> False
+    KernelEvent(_)
+    | ClassicSubscribed(_, _)
+    | P2pSubscribed(_)
+    | UserSelect(..)
+    | Measured(_) -> False
   }
 }
 
@@ -423,11 +432,13 @@ pub fn mutates_document(msg: Msg) -> Bool {
 /// channel, and the view never renders a disabled element. Render any
 /// placeholder that you want before that moment.
 pub fn init(channel: SharedText) -> #(Model, Effect(Msg)) {
-  init_with(
-    channel,
-    sequenced_backend(),
-    watershed_lustre.subscribe_text(channel, KernelEvent),
-  )
+  init_with(channel, sequenced_backend(), fn(instance) {
+    watershed_lustre.subscribe_text_cancellable(
+      channel,
+      KernelEvent,
+      fn(subscription) { ClassicSubscribed(instance, subscription) },
+    )
+  })
 }
 
 /// Bind a resolved peer-to-peer text handle. The component logic is the same as
@@ -436,35 +447,35 @@ pub fn init(channel: SharedText) -> #(Model, Effect(Msg)) {
 pub fn init_crdt(
   channel: Handle(schema.TextChannel),
 ) -> #(CrdtModel, Effect(Msg)) {
-  init_with(
-    channel,
-    crdt_backend(),
-    crdt.subscribe_text(channel, P2pSubscribed, KernelEvent),
-  )
+  init_with(channel, crdt_backend(), fn(_) {
+    crdt.subscribe_text(channel, P2pSubscribed, KernelEvent)
+  })
 }
 
 fn init_with(
   channel: channel,
   backend: Backend(channel),
-  subscription: Effect(Msg),
+  subscribe: fn(String) -> Effect(Msg),
 ) -> #(Editor(channel), Effect(Msg)) {
+  let instance = new_instance()
   let model =
     snapshot(
       Model(
         channel:,
         backend:,
-        instance: new_instance(),
+        instance:,
         value: "",
         length: 0,
         selection: None,
         composing: None,
         committed: None,
         error: None,
+        subscription: None,
         peers: [],
       ),
     )
 
-  #(model, subscription)
+  #(model, subscribe(instance))
 }
 
 pub fn update(
@@ -473,6 +484,17 @@ pub fn update(
 ) -> #(Editor(channel), Effect(Msg)) {
   case msg {
     P2pSubscribed(_) -> #(model, effect.none())
+    ClassicSubscribed(instance, subscription) ->
+      case instance == model.instance {
+        True -> #(
+          Model(..model, subscription: Some(subscription)),
+          effect.none(),
+        )
+        False -> {
+          watershed.unsubscribe(subscription)
+          #(model, effect.none())
+        }
+      }
 
     // Any edit, from anywhere: re-read rather than trust the payload.
     KernelEvent(_) -> {
@@ -1096,6 +1118,14 @@ fn locate(model: Editor(channel)) -> Editor(channel) {
 /// subscription makes the model take a new snapshot.
 pub fn channel(model: Editor(channel)) -> channel {
   model.channel
+}
+
+/// Release the subscription of a sequenced text binding.
+pub fn stop(model: Model) -> Nil {
+  case model.subscription {
+    Some(subscription) -> watershed.unsubscribe(subscription)
+    None -> Nil
+  }
 }
 
 // ── Event decoding ───────────────────────────────────────────────────────────

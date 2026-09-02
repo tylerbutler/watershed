@@ -29,7 +29,7 @@ const preservationTest = excerpt(
 
 <FoundationsLayout
   slug="workspaces"
-  description="A watershed workspace persists component instances, layout, and port connections beneath one child map, then derives a catalog-aware view while preserving data the local host cannot use."
+  description="A watershed workspace persists component instances, layout, and port connections beneath one child map, then the browser runtime reconciles that state without discarding data the local host cannot use."
 >
   <div class="g-block">
     <h2>One root slot opens the whole workspace</h2>
@@ -109,10 +109,11 @@ const preservationTest = excerpt(
     </figure>
     <div class="g-note">
       <p>
-        <strong>Prepared is not running.</strong> The next layer calls the
-        descriptor's start closure, installs subscriptions, and reaches{" "}
-        <code>Ready</code>. Keeping the names separate makes a startup failure
-        impossible to hide behind a resolved handle.
+        <strong>Prepared is not running.</strong> The JavaScript component
+        runtime calls the descriptor's start closure, waits while the instance
+        is <code>Starting</code>, and reaches <code>Ready</code> only after
+        bootstrap and subscriptions finish. Keeping the names separate makes a
+        startup failure impossible to hide behind a resolved handle.
       </p>
     </div>
   </div>
@@ -143,12 +144,15 @@ const preservationTest = excerpt(
   </div>
 
   <div class="g-block">
-    <h3>The runtime boundary is still real</h3>
+    <h3>The runtime watches the workspace, not the view tree</h3>
     <p>
-      These modules persist and prepare instances. They don't execute a
-      delivery, mutate a target component, mount a view, or keep a component
-      subscription alive. That shell comes next; the workspace gives it one
-      stable snapshot to reconcile.
+      Persistence still stops at <code>Prepared</code>. The JavaScript runtime
+      subscribes to the manifest, layout, and graph; starts, replaces, and stops
+      only the affected instances; and routes output events through one graph
+      snapshot per trace. Layout and connection edits don't restart healthy
+      components. The runtime exposes running values and lifecycle states, but
+      it doesn't mount a view—the browser host decides what those values look
+      like.
     </p>
   </div>
 

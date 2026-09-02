@@ -12,6 +12,10 @@ The first release supports code-defined workspaces with runtime-created
 instances. Its storage and catalog formats must leave room for a visual builder,
 but the release does not include that builder.
 
+The executable runtime in this release targets JavaScript. The descriptor,
+catalog, port, dispatch, and workspace contracts remain target-independent;
+a BEAM runtime shell is deferred.
+
 The project-room example proves two forms of component communication:
 
 - local connections coordinate presentation on one client;
@@ -135,7 +139,10 @@ The catalog adapter provides:
 - configuration encoding and decoding;
 - output and input port descriptors;
 - payload codecs;
-- erased startup, dispatch, and cleanup closures.
+- callback-completed startup;
+- typed input handlers erased with their decoders;
+- typed output-event encoding;
+- erased dispatch and cleanup closures.
 
 The adapter verifies the component kind, format version, port ID, payload schema
 ID, and decoded payload before it calls typed component code.
@@ -150,14 +157,16 @@ An optional Lustre adapter follows the existing nested MVU contract with
 The adapter does not connect to the document or create a second set of channel
 subscriptions.
 
-This split lets the same headless component run on the BEAM, in a non-Lustre
-JavaScript app, or behind several Lustre views.
+This split lets the same headless component run without Lustre or behind
+several Lustre views. The first runtime host is JavaScript; a BEAM host can use
+the same target-independent contracts later.
 
 ## Lifecycle
 
-The shell tracks four instance states:
+The JavaScript shell tracks five instance states:
 
 - `Loading`;
+- `Starting`;
 - `Ready`;
 - `Unavailable`;
 - `Failed`.
@@ -166,7 +175,9 @@ Workspace persistence has one earlier local state, `Prepared`. It means the
 stored kind and version exist in the local catalog, the config is valid, and
 the instance child map resolves. It does not mean the component has started.
 The runtime shell turns a prepared instance into `Ready` only after bootstrap
-and required subscriptions succeed.
+and required subscriptions succeed. Each pending start carries a generation;
+if an instance is removed or replaced first, a late callback is cleaned up and
+cannot install stale state.
 
 `Unavailable` means the local catalog lacks the component kind or version.
 `Failed` means the shell found a descriptor but could not decode the config,
@@ -275,15 +286,16 @@ Each local action uses the origin's current graph snapshot.
 
 ## Initial component catalog
 
-The first catalog contains five headless components.
+The first browser slice ships three of the five proposed headless components.
+Decision Poll and Ownership Slots remain deferred.
 
-| Component | Owned data | Output examples | Input examples |
-| --- | --- | --- | --- |
-| Task collection | Sequence order and OR-map task records | selected, created, completed, assignee changed | local select/filter; collaborative create/update/assign |
-| Collaborative notes | Shared text, optionally keyed by subject | selection changed, mention activated | local focus subject; collaborative append section |
-| Activity stream | Append-oriented sequence | entry selected | local filter; collaborative append entry |
-| Decision poll | OR-set choices plus voter set or counters | vote cast, threshold reached | local show result; collaborative open/close |
-| Ownership slots | Claims channel | claim attempted, claim resolved | local reveal owner; collaborative claim/release/handoff |
+| Component | Status | Owned data | Output examples | Input examples |
+| --- | --- | --- | --- | --- |
+| Task collection | Shipped | Sequence order and map task records | selected, completed | local select; collaborative completion |
+| Collaborative notes | Shipped | Shared text | — | local focus subject |
+| Activity stream | Shipped | Append-oriented sequence | — | collaborative append entry |
+| Decision poll | Deferred | OR-set choices plus voter set or counters | vote cast, threshold reached | local show result; collaborative open/close |
+| Ownership slots | Deferred | Claims channel | claim attempted, claim resolved | local reveal owner; collaborative claim/release/handoff |
 
 These components model different concurrency rules. They are not tied to one
 widget. A task collection can use a kanban, table, or compact-list adapter
@@ -291,17 +303,11 @@ without changing its channels or port contract.
 
 ## Project-room reference app
 
-The reference app creates the five component types through code and registers
-these connections:
+The reference app creates the three shipped component types through code and
+registers these connections:
 
 - `tasks.TaskSelected` to `notes.FocusSubject` as a local input;
 - `tasks.TaskCompleted` to `activity.AppendEntry` as a collaborative input;
-- `tasks.AssigneeChanged` to `ownership.ClaimRole` as a collaborative input;
-- `poll.ThresholdReached` to `activity.AppendEntry` as a collaborative input.
-
-The shell publishes presence context that identifies the component instance
-each peer uses. Components receive filtered presence data from the shell. They
-do not start independent document-wide presence drivers.
 
 The same catalog can support:
 
@@ -413,6 +419,9 @@ Open the same project room in two clients.
 
 This scenario proves local component coordination, collaborative component
 communication, origin-only dispatch, and normal watershed convergence.
+`examples/project_room_lustre/test/acceptance_test.gleam` runs it
+deterministically with two sluice clients. `smoke/project_room.mjs` drives the
+same selectors in two Chromium tabs against floodgate.
 
 ## Out of scope
 
@@ -430,12 +439,15 @@ The first release excludes:
 
 ## Implementation sequence
 
-The implementation plan should separate the work into these milestones:
+The browser-ready slice followed these milestones:
 
 1. workspace schemas and runtime instance lifecycle;
 2. typed headless component and catalog adapter contracts;
 3. local port graph and dispatch;
 4. collaborative inputs and dispatch reporting;
-5. initial reusable components;
-6. optional Lustre adapters;
+5. the initial Tasks, Notes, and Activity components;
+6. the narrow Lustre runtime bridge and fixed views;
 7. project-room reference app and two-client acceptance tests.
+
+Decision Poll, Ownership Slots, BEAM runtime parity, and a heterogeneous Lustre
+view catalog remain later milestones.

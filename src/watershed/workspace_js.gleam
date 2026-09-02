@@ -49,6 +49,16 @@ pub opaque type Workspace(root) {
 }
 
 @target(javascript)
+/// The three subscriptions that observe one workspace's persisted topology.
+pub opaque type Subscription {
+  Subscription(
+    manifest: watershed.SubscriptionToken,
+    layout: watershed.SubscriptionToken,
+    connections: watershed.SubscriptionToken,
+  )
+}
+
+@target(javascript)
 /// Adopt an existing workspace or create a complete workspace subtree.
 ///
 /// When the workspace child is absent, the function builds the whole
@@ -179,6 +189,29 @@ pub fn prepare(
 }
 
 @target(javascript)
+/// Observe manifest, layout, and connection changes.
+///
+/// The callback identifies no individual channel because a runtime must read
+/// one fresh effective snapshot after any of the three changes.
+pub fn subscribe(store: Workspace(root), changed: fn() -> Nil) -> Subscription {
+  Subscription(
+    manifest: watershed.subscribe(store.manifest, fn(_) { changed() }),
+    layout: watershed.subscribe_sequence(store.layout, fn(_) { changed() }),
+    connections: watershed.subscribe_sequence(store.connections, fn(_) {
+      changed()
+    }),
+  )
+}
+
+@target(javascript)
+/// Stop observing one workspace. Repeated calls are safe.
+pub fn unsubscribe(subscription: Subscription) -> Nil {
+  watershed.unsubscribe(subscription.manifest)
+  watershed.unsubscribe(subscription.layout)
+  watershed.unsubscribe(subscription.connections)
+}
+
+@target(javascript)
 /// Add one instance and append it to the layout.
 pub fn add_instance(
   store: Workspace(root),
@@ -187,6 +220,33 @@ pub fn add_instance(
   kind: String,
   version: Int,
   config: Json,
+) -> Result(watershed.SharedMap, WorkspaceError) {
+  add_instance_with(
+    store,
+    catalog,
+    instance_id,
+    kind,
+    version,
+    config,
+    fn(_, _) { Ok(Nil) },
+  )
+}
+
+@target(javascript)
+/// Add one initialized instance and append it to the layout.
+///
+/// `initialize` runs while the instance map is detached. Its channel handles
+/// are therefore part of the subtree before the manifest publishes the
+/// instance handle.
+pub fn add_instance_with(
+  store: Workspace(root),
+  catalog: component.Catalog(context, running),
+  instance_id: String,
+  kind: String,
+  version: Int,
+  config: Json,
+  initialize: fn(watershed.Document(root), watershed.SharedMap) ->
+    Result(Nil, String),
 ) -> Result(watershed.SharedMap, WorkspaceError) {
   case
     string.is_empty(instance_id),
@@ -205,6 +265,10 @@ pub fn add_instance(
       )
       use child <- result.try(
         watershed.create_map(store.document)
+        |> result.map_error(StorageError),
+      )
+      use _ <- result.try(
+        initialize(store.document, child)
         |> result.map_error(StorageError),
       )
       let entry =

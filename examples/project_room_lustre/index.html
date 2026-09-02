@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>watershed · project room</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        font-family: system-ui, sans-serif;
+        background: Canvas;
+        color: CanvasText;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-height: 100vh; }
+      button, textarea {
+        border: 1px solid color-mix(in srgb, currentColor 28%, transparent);
+        border-radius: 0.5rem;
+        background: transparent;
+        color: inherit;
+        font: inherit;
+      }
+      button { padding: 0.45rem 0.7rem; cursor: pointer; }
+      button:hover:not(:disabled) {
+        background: color-mix(in srgb, currentColor 8%, transparent);
+      }
+      button:disabled { cursor: default; opacity: 0.45; }
+      .room {
+        width: min(78rem, 100%);
+        margin: 0 auto;
+        padding: 2rem;
+      }
+      .room-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 1rem;
+        align-items: start;
+        margin-bottom: 1.5rem;
+      }
+      h1 { margin: 0 0 0.25rem; font-size: 1.7rem; }
+      h2 { margin: 0 0 1rem; font-size: 1.05rem; }
+      p { margin: 0; }
+      .status { opacity: 0.65; }
+      .runtime-error {
+        border: 1px solid #c0392b;
+        border-radius: 0.5rem;
+        padding: 0.75rem;
+        margin-bottom: 1rem;
+      }
+      .workspace {
+        display: grid;
+        grid-template-columns: minmax(15rem, 0.9fr) minmax(18rem, 1.4fr) minmax(15rem, 1fr);
+        gap: 1rem;
+        align-items: stretch;
+      }
+      .component {
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        border-radius: 0.75rem;
+        padding: 1rem;
+        min-height: 24rem;
+      }
+      .task-list, .activity-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+        display: grid;
+        gap: 0.55rem;
+      }
+      .task {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 0.5rem;
+        align-items: center;
+        padding: 0.65rem;
+        border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+        border-radius: 0.5rem;
+      }
+      .task-selected {
+        outline: 2px solid Highlight;
+        outline-offset: 1px;
+      }
+      .task-title { text-align: left; border: 0; padding: 0; }
+      .task-complete .task-title { text-decoration: line-through; opacity: 0.65; }
+      .notes-context { min-height: 1.4rem; margin-bottom: 0.75rem; opacity: 0.7; }
+      .notes-editor {
+        width: 100%;
+        min-height: 18rem;
+        padding: 0.75rem;
+        resize: vertical;
+      }
+      .activity-list li {
+        border-bottom: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+        padding: 0.55rem 0;
+      }
+      .empty, .placeholder { opacity: 0.6; }
+      @media (max-width: 58rem) {
+        .workspace { grid-template-columns: 1fr; }
+        .component { min-height: auto; }
+      }
+    </style>
+  </head>
+  <body>
+    <div id="app"></div>
+    <script type="module" src="./dist/project_room_lustre.mjs"></script>
+  </body>
+</html>

@@ -152,9 +152,11 @@ pub fn subscribe(
   to_msg to_msg: fn(map_kernel.MapEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe(map, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe(map, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to a directory channel. Every event carries the `path` of the
@@ -166,9 +168,11 @@ pub fn subscribe_directory(
   to_msg to_msg: fn(directory_kernel.DirectoryEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_directory(directory, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_directory(directory, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to a counter channel.
@@ -177,9 +181,11 @@ pub fn subscribe_counter(
   to_msg to_msg: fn(counter_kernel.CounterEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_counter(counter, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_counter(counter, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to an OR-map channel.
@@ -188,9 +194,11 @@ pub fn subscribe_or_map(
   to_msg to_msg: fn(or_map_kernel.OrMapEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_or_map(or_map, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_or_map(or_map, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to an OR-set channel.
@@ -199,9 +207,11 @@ pub fn subscribe_or_set(
   to_msg to_msg: fn(or_set_kernel.OrSetEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_or_set(or_set, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_or_set(or_set, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to a grow-only set. `ElementAdded` is the only event that this
@@ -211,9 +221,11 @@ pub fn subscribe_g_set(
   to_msg to_msg: fn(g_set_kernel.GSetEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_g_set(g_set, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_g_set(g_set, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to a two-phase set, which produces `ElementAdded` and
@@ -224,9 +236,11 @@ pub fn subscribe_two_p_set(
   to_msg to_msg: fn(two_p_set_kernel.TwoPSetEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_two_p_set(two_p_set, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_two_p_set(two_p_set, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to a PN-counter channel.
@@ -235,9 +249,11 @@ pub fn subscribe_pn_counter(
   to_msg to_msg: fn(pn_counter_kernel.PnCounterEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_pn_counter(pn_counter, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_pn_counter(pn_counter, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to the consensus transitions of a PactMap, which are `WentPending`
@@ -247,9 +263,11 @@ pub fn subscribe_pact_map(
   to_msg to_msg: fn(pact_map_kernel.PactMapEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_pact_map(pact_map, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_pact_map(pact_map, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to the queue events of an ordered collection.
@@ -258,9 +276,11 @@ pub fn subscribe_ordered_collection(
   to_msg to_msg: fn(ordered_collection_kernel.OrderedEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_ordered_collection(collection, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_ordered_collection(collection, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Acquire the head of an ordered collection, and deliver the consensus outcome
@@ -293,9 +313,11 @@ pub fn subscribe_register_collection(
   to_msg to_msg: fn(register_collection_kernel.RegisterEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_register_collection(collection, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_register_collection(collection, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to a claims channel.
@@ -304,9 +326,11 @@ pub fn subscribe_claims(
   to_msg to_msg: fn(claims_kernel.ClaimEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_claims(claims, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_claims(claims, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Attempt a first-writer-wins claim on `key`, and deliver the outcome as a
@@ -397,9 +421,11 @@ pub fn subscribe_task_manager(
   to_msg to_msg: fn(task_manager_kernel.TaskManagerEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_task_manager(manager, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_task_manager(manager, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to a sequence channel. `to_msg` receives every local and remote
@@ -411,9 +437,11 @@ pub fn subscribe_sequence(
   to_msg to_msg: fn(sequence_kernel.SequenceEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_sequence(sequence, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_sequence(sequence, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to a text channel. `to_msg` receives every local and remote
@@ -427,9 +455,29 @@ pub fn subscribe_text(
   to_msg to_msg: fn(text_kernel.TextEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_text(text, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_text(text, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
+}
+
+/// Subscribe to a text channel and return its cancellation token in a message.
+///
+/// Use this form when a nested component can bind to a different text channel
+/// during its lifetime. Call `watershed.unsubscribe` with the token before the
+/// component releases the old binding.
+pub fn subscribe_text_cancellable(
+  text: SharedText,
+  to_msg to_msg: fn(text_kernel.TextEvent) -> msg,
+  subscribed subscribed: fn(watershed.SubscriptionToken) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  let token =
+    watershed.subscribe_text(text, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  queue_microtask(fn() { dispatch(subscribed(token)) })
 }
 
 /// Subscribe to a rich text channel. `to_msg` receives every local and remote
@@ -441,9 +489,11 @@ pub fn subscribe_rich_text(
   to_msg to_msg: fn(rich_text_kernel.RichTextEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_rich_text(rich_text, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_rich_text(rich_text, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to a JSON-OT document. `DocumentChanged` carries the path that
@@ -453,9 +503,11 @@ pub fn subscribe_json_ot(
   to_msg to_msg: fn(json_ot_kernel.JsonOtEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_json_ot(json_ot, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_json_ot(json_ot, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 /// Subscribe to the inbound ephemeral ripples of the document. Those are the
@@ -483,9 +535,11 @@ pub fn subscribe_field(
   to_msg to_msg: fn(FieldChange(a)) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_field(typed_map, field, fn(change) {
-    queue_microtask(fn() { dispatch(to_msg(change)) })
-  })
+  let _ =
+    watershed.subscribe_field(typed_map, field, fn(change) {
+      queue_microtask(fn() { dispatch(to_msg(change)) })
+    })
+  Nil
 }
 
 /// Subscribe to the whole-map events of a typed map, and stay in the typed API.
@@ -495,9 +549,11 @@ pub fn subscribe_typed(
   to_msg to_msg: fn(map_kernel.MapEvent) -> msg,
 ) -> Effect(msg) {
   use dispatch <- effect.from
-  watershed.subscribe_typed(typed_map, fn(event) {
-    queue_microtask(fn() { dispatch(to_msg(event)) })
-  })
+  let _ =
+    watershed.subscribe_typed(typed_map, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
 }
 
 // ── Declarative bootstrap (ensure_*) ─────────────────────────────────────────

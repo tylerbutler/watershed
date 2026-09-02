@@ -189,6 +189,13 @@ p2p-clap:
     gleam test --target javascript
     node smoke/p2p_clap.mjs
 
+# Browser component-runtime gate: one live floodgate document in two tabs.
+# Selection must stay local; task completion and one activity entry must
+# converge. Not part of `just test`: it needs Chromium and a floodgate server.
+project-room-smoke:
+    pnpm --dir examples/project_room_lustre run build
+    node smoke/project_room.mjs
+
 # === INTEGRATION (live floodgate server) ===
 
 # Start a floodgate dev server in Docker, built from the levee repo's

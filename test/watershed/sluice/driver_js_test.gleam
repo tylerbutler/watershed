@@ -773,6 +773,106 @@ pub fn client_id_matches_the_id_kernels_report_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
+pub fn unsubscribe_stops_later_local_and_remote_events_test() -> Nil {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "unsubscribe-stops-js")
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+
+  let map_a = watershed.root(document_a)
+  let map_b = watershed.root(document_b)
+  let seen = transport_js.new_cell([])
+  let token =
+    watershed.subscribe(map_a, fn(_event) {
+      transport_js.set_cell(seen, ["event", ..transport_js.get_cell(seen)])
+    })
+
+  watershed.set(map_a, "local-1", json.int(1))
+  watershed.unsubscribe(token)
+  watershed.unsubscribe(token)
+  watershed.set(map_a, "local-2", json.int(2))
+  watershed.set(map_b, "remote", json.int(3))
+  sluice_js.settle(sluice)
+
+  transport_js.get_cell(seen) |> expect.to_equal(["event"])
+  watershed.get(map_a, "remote") |> expect.to_equal(Ok(json.int(3)))
+}
+
+@target(javascript)
+pub fn unsubscribe_self_cancellation_does_not_skip_unrelated_subscribers_test() -> Nil {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "unsubscribe-self-js")
+  let document = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+
+  let map = watershed.root(document)
+  let self_calls = transport_js.new_cell([])
+  let other_calls = transport_js.new_cell([])
+  let self_token = transport_js.new_cell(None)
+
+  let _other =
+    watershed.subscribe(map, fn(_event) {
+      transport_js.set_cell(other_calls, [
+        "other",
+        ..transport_js.get_cell(other_calls)
+      ])
+    })
+  let token =
+    watershed.subscribe(map, fn(_event) {
+      let assert Some(token) = transport_js.get_cell(self_token)
+      watershed.unsubscribe(token)
+      transport_js.set_cell(self_calls, [
+        "self",
+        ..transport_js.get_cell(self_calls)
+      ])
+    })
+  transport_js.set_cell(self_token, Some(token))
+
+  watershed.set(map, "a", json.int(1))
+  watershed.set(map, "b", json.int(2))
+
+  transport_js.get_cell(self_calls) |> expect.to_equal(["self"])
+  transport_js.get_cell(other_calls)
+  |> expect.to_equal(["other", "other"])
+}
+
+@target(javascript)
+pub fn unsubscribe_of_another_subscriber_keeps_the_current_snapshot_test() -> Nil {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "unsubscribe-snapshot-js")
+  let document = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+
+  let map = watershed.root(document)
+  let victim_calls = transport_js.new_cell([])
+  let remover_calls = transport_js.new_cell([])
+
+  let victim =
+    watershed.subscribe(map, fn(_event) {
+      transport_js.set_cell(victim_calls, [
+        "victim",
+        ..transport_js.get_cell(victim_calls)
+      ])
+    })
+  let _remover =
+    watershed.subscribe(map, fn(_event) {
+      watershed.unsubscribe(victim)
+      transport_js.set_cell(remover_calls, [
+        "remover",
+        ..transport_js.get_cell(remover_calls)
+      ])
+    })
+
+  watershed.set(map, "a", json.int(1))
+  watershed.set(map, "b", json.int(2))
+
+  transport_js.get_cell(victim_calls) |> expect.to_equal(["victim"])
+  transport_js.get_cell(remover_calls)
+  |> expect.to_equal(["remover", "remover"])
+}
+
+@target(javascript)
 /// A PN-counter subscriber learns about a *peer's* update. Before this existed
 /// the kind was write-and-poll: an app could increment and read but had no way
 /// to hear that anyone else had.

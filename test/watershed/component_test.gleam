@@ -59,6 +59,40 @@ fn failing_descriptor() -> component.Descriptor(String, String) {
   )
 }
 
+fn selected_output() -> port.Output(String) {
+  port.output("selected", "subject@1", json.string)
+}
+
+fn focus_input() -> port.Input(String) {
+  port.local_input("focus", "subject@1", decode.string)
+}
+
+fn executable_notes_descriptor() -> component.Descriptor(String, String) {
+  component.executable_descriptor(
+    kind: "watershed/executable-notes",
+    version: 1,
+    config_decoder: notes_decoder(),
+    start: fn(context, config, done) {
+      done(Ok(context <> ":" <> config.placeholder))
+    },
+    inputs: [
+      component.input_handler(focus_input(), fn(_running, subject) {
+        Ok(#(subject, [component.emit(selected_output(), subject)]))
+      }),
+    ],
+    stop: fn(running) {
+      case running == "reject-stop" {
+        True -> Error("subscription is still active")
+        False -> Ok(Nil)
+      }
+    },
+    ports: [
+      port.output_descriptor(selected_output()),
+      port.input_descriptor(focus_input()),
+    ],
+  )
+}
+
 pub fn catalog_holds_different_config_types_test() -> Nil {
   let assert Ok(with_notes) =
     component.register(component.new_catalog(), notes_descriptor())
@@ -74,18 +108,21 @@ pub fn start_decodes_config_inside_descriptor_test() -> Nil {
     notes_descriptor(),
     "room",
     json.object([#("placeholder", json.string("Write"))]),
+    fn(started) { started |> expect.to_equal(Ok("room:Write")) },
   )
-  |> expect.to_equal(Ok("room:Write"))
 }
 
 pub fn invalid_config_has_kind_and_version_test() -> Nil {
-  case component.start(notes_descriptor(), "room", json.object([])) {
-    Error(component.InvalidConfig(kind, version, _)) -> {
-      kind |> expect.to_equal("watershed/notes")
-      version |> expect.to_equal(1)
+  component.start(notes_descriptor(), "room", json.object([]), fn(started) {
+    case started {
+      Error(component.InvalidConfig(kind, version, _)) -> {
+        kind |> expect.to_equal("watershed/notes")
+        version |> expect.to_equal(1)
+      }
+      other ->
+        panic as { "expected InvalidConfig, got " <> string.inspect(other) }
     }
-    other -> panic as { "expected InvalidConfig, got " <> string.inspect(other) }
-  }
+  })
 }
 
 pub fn duplicate_kind_and_version_is_rejected_test() -> Nil {
@@ -197,8 +234,89 @@ pub fn failed_start_reports_kind_and_reason_test() -> Nil {
     json.object([
       #("placeholder", json.string("Write")),
     ]),
+    fn(started) {
+      started
+      |> expect.to_equal(
+        Error(component.StartFailed("watershed/failing", 1, "cannot subscribe")),
+      )
+    },
+  )
+}
+
+pub fn executable_descriptor_decodes_and_runs_a_typed_input_test() -> Nil {
+  component.deliver(
+    executable_notes_descriptor(),
+    "old",
+    "focus",
+    json.string("task-7"),
+  )
+  |> result.map(fn(delivered) {
+    let assert [event] = delivered.1
+    #(
+      delivered.0,
+      component.output_id(event),
+      component.output_payload(event) |> json.to_string,
+    )
+  })
+  |> expect.to_equal(Ok(#("task-7", "selected", "\"task-7\"")))
+}
+
+pub fn executable_descriptor_rejects_an_invalid_payload_test() -> Nil {
+  case
+    component.deliver(
+      executable_notes_descriptor(),
+      "old",
+      "focus",
+      json.int(7),
+    )
+  {
+    Error(component.InvalidInputPayload(kind, version, input_id, _)) -> {
+      kind |> expect.to_equal("watershed/executable-notes")
+      version |> expect.to_equal(1)
+      input_id |> expect.to_equal("focus")
+    }
+    other ->
+      panic as { "expected InvalidInputPayload, got " <> string.inspect(other) }
+  }
+}
+
+pub fn executable_descriptor_rejects_an_unknown_input_test() -> Nil {
+  component.deliver(
+    executable_notes_descriptor(),
+    "old",
+    "missing",
+    json.string("task-7"),
   )
   |> expect.to_equal(
-    Error(component.StartFailed("watershed/failing", 1, "cannot subscribe")),
+    Error(component.InputUnavailable("watershed/executable-notes", 1, "missing")),
+  )
+}
+
+pub fn output_validation_requires_the_declared_output_test() -> Nil {
+  let descriptor = executable_notes_descriptor()
+
+  component.validate_output(
+    descriptor,
+    component.emit(selected_output(), "task-7"),
+  )
+  |> expect.to_equal(Ok(Nil))
+
+  component.validate_output(
+    descriptor,
+    component.emit(port.output("other", "subject@1", json.string), "task-7"),
+  )
+  |> expect.to_equal(
+    Error(component.OutputUnavailable("watershed/executable-notes", 1, "other")),
+  )
+}
+
+pub fn cleanup_failure_keeps_component_identity_test() -> Nil {
+  component.stop(executable_notes_descriptor(), "reject-stop")
+  |> expect.to_equal(
+    Error(component.StopFailed(
+      "watershed/executable-notes",
+      1,
+      "subscription is still active",
+    )),
   )
 }

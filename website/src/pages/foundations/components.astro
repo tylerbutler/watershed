@@ -27,6 +27,8 @@ const registerFn = excerpt(componentModule, "pub fn register(");
 const findFn = excerpt(componentModule, "pub fn find(");
 const validateFn = excerpt(componentModule, "pub fn validate_config(");
 const startFn = excerpt(componentModule, "pub fn start(");
+const executableFn = excerpt(componentModule, "pub fn executable_descriptor(");
+const deliverFn = excerpt(componentModule, "pub fn deliver(");
 const portsFn = excerpt(componentModule, "pub fn ports(");
 ---
 
@@ -45,9 +47,10 @@ const portsFn = excerpt(componentModule, "pub fn ports(");
     </p>
     <p>
       <code>Descriptor(context, running)</code> keeps the config type out of
-      its public type. The descriptor holds the decoder and start closure that
-      know that type. The catalog sees the two types all components in one host
-      must share: what the host passes in, and what it gets back.
+      its public type. The descriptor holds the decoder, callback-completed
+      start closure, typed input handlers, and cleanup closure that know that
+      type. The catalog sees the two types all components in one host must
+      share: what the host passes in, and what it gets back.
     </p>
     <figure class="g-code">
       <Code code={descriptorType} lang="gleam" theme={watershedCodeTheme} />
@@ -122,7 +125,8 @@ const portsFn = excerpt(componentModule, "pub fn ports(");
       there. A builder or manifest reader can check stored JSON without
       opening subscriptions or creating a running component.{" "}
       <code>start</code> decodes the same JSON, then calls the typed start
-      closure.
+      closure. Readiness waits for that closure's callback, so channel
+      bootstrap and subscriptions can finish first.
     </p>
     <figure class="g-code">
       <Code code={validateFn} lang="gleam" theme={watershedCodeTheme} />
@@ -130,11 +134,16 @@ const portsFn = excerpt(componentModule, "pub fn ports(");
     <figure class="g-code">
       <Code code={startFn} lang="gleam" theme={watershedCodeTheme} />
     </figure>
+    <figure class="g-code">
+      <Code code={executableFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
     <p>
       The error tells you which side failed. <code>InvalidConfig</code> reports
       the kind, version, and JSON decode error. <code>StartFailed</code> reports
-      the same identity plus the reason returned by component code. The host
-      can report the decode or startup failure.
+      the same identity plus the reason returned by component code. Input
+      decoding, input handling, output validation, and cleanup keep their own
+      errors too—the runtime doesn't have to flatten every lifecycle failure
+      into “component failed.”
     </p>
   </div>
 
@@ -145,10 +154,16 @@ const portsFn = excerpt(componentModule, "pub fn ports(");
       <code>component.ports</code> exposes enough information for a host to
       list ports and validate stored connections without knowing each payload
       type. Component code keeps the typed input and output values that
-      perform encoding, decoding, and direct connection checks.
+      perform encoding, decoding, and direct connection checks.{" "}
+      <code>component.emit</code> crosses the output boundary only after its
+      typed codec runs; <code>component.deliver</code> finds the matching
+      handler and decodes before component code sees the payload.
     </p>
     <figure class="g-code">
       <Code code={portsFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={deliverFn} lang="gleam" theme={watershedCodeTheme} />
     </figure>
     <p>
       Types protect code written together. Descriptors let the host validate
@@ -162,11 +177,11 @@ const portsFn = excerpt(componentModule, "pub fn ports(");
     <h3>The workspace carries the definitions forward</h3>
     <p>
       Use this module to define descriptors, build catalogs, validate config,
-      look up versions, and call a start closure.{" "}
+      look up versions, start and stop instances, and execute typed handlers.{" "}
       <a href="/foundations/workspaces">The workspace layer</a> persists
-      instances and assigns their child maps. Your host still mounts views,
-      maintains component subscriptions, executes port deliveries, and owns
-      migration policy.
+      instances and assigns their child maps. The JavaScript component runtime
+      reconciles those definitions, owns their lifecycle, and executes port
+      deliveries. The host still mounts views and owns migration policy.
     </p>
   </div>
 
@@ -174,10 +189,11 @@ const portsFn = excerpt(componentModule, "pub fn ports(");
     <span class="annot">The contract</span>
     <p>
       A descriptor hides one component's config type behind its decoder and
-      start closure. A catalog keeps those unlike definitions together under
-      one host contract, looks them up by exact kind and version, and exposes
-      their erased port metadata. Next: <a href="/foundations/ports">how those
-      ports become a checked graph and an origin-aware delivery plan</a>.
+      start and cleanup closures. A catalog keeps those unlike definitions
+      together under one host contract, looks them up by exact kind and
+      version, and exposes their erased port metadata and typed handlers.
+      Next: <a href="/foundations/ports">how those ports become a checked graph
+      and an origin-aware dispatch trace</a>.
     </p>
   </div>
 </FoundationsLayout>

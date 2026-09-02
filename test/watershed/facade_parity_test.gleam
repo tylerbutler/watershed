@@ -353,7 +353,9 @@ const beam_only = ["runtime_subject"]
 /// by itself. Mirroring the pair there means suppressing that automatic rejoin,
 /// which is a change to reconnect scheduling rather than a binding. Worth doing
 /// if a BEAM client ever wants an offline mode; not worth doing speculatively.
-const js_only = ["runtime_of", "diagnostics", "go_offline", "go_online"]
+const js_only = [
+  "runtime_of", "diagnostics", "go_offline", "go_online", "unsubscribe",
+]
 
 /// `watershed_lustre` wraps the callback-shaped surface (`ensure_*`,
 /// `subscribe_*`) and nothing else; edits and reads stay on `watershed`.

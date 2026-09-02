@@ -173,6 +173,11 @@ pub type PresenceFrame {
 }
 
 @target(javascript)
+type Subscriber {
+  Subscriber(id: String, address: String, handler: fn(ChannelEvent) -> Nil)
+}
+
+@target(javascript)
 type Phase {
   Connecting
   /// The socket is closed and the runtime is doing the handshake again. This
@@ -196,7 +201,7 @@ type State {
     http_base_url: String,
     channel: Option(TransportHandle),
     phase: Phase,
-    subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
+    subscribers: List(Subscriber),
     /// The subscribers for the ephemeral ripples. A ripple belongs to one
     /// document and does not sequence, so the fan-out is separate from the
     /// operation event stream.
@@ -242,6 +247,12 @@ type State {
 /// An opaque handle to a running document runtime.
 pub opaque type Runtime {
   Runtime(cell: Cell(State))
+}
+
+@target(javascript)
+/// A token for one channel subscription, which a caller can remove.
+pub opaque type SubscriptionToken {
+  SubscriptionToken(runtime: Runtime, id: String)
 }
 
 @target(javascript)
@@ -1659,11 +1670,32 @@ pub fn subscribe(
   runtime: Runtime,
   address: String,
   handler: fn(ChannelEvent) -> Nil,
-) -> Nil {
+) -> SubscriptionToken {
+  let state = cell_get(runtime.cell)
+  let token_id = id.uuid_v4()
+  cell_set(
+    runtime.cell,
+    State(..state, subscribers: [
+      Subscriber(id: token_id, address: address, handler: handler),
+      ..state.subscribers
+    ]),
+  )
+  SubscriptionToken(runtime: runtime, id: token_id)
+}
+
+@target(javascript)
+/// Remove a channel subscription. A second call has no more effect.
+pub fn unsubscribe(token: SubscriptionToken) -> Nil {
+  let runtime = token.runtime
   let state = cell_get(runtime.cell)
   cell_set(
     runtime.cell,
-    State(..state, subscribers: [#(address, handler), ..state.subscribers]),
+    State(
+      ..state,
+      subscribers: list.filter(state.subscribers, fn(subscriber) {
+        subscriber.id != token.id
+      }),
+    ),
   )
 }
 
@@ -2921,15 +2953,19 @@ fn http_base_from_socket_url(url: String) -> String {
 /// fan-out. A handler that reads the map during the event thus sees the state
 /// that the runtime applied. That rule holds for a local edit, a remote
 /// operation, and a reconnect.
+///
+/// The `subscribers` argument is one snapshot. A callback can unsubscribe
+/// itself, or another callback, during the fan-out. That change affects the
+/// next fan-out only.
 fn fan_out(
-  subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
+  subscribers: List(Subscriber),
   events: List(#(String, ChannelEvent)),
 ) -> Nil {
   list.each(events, fn(event) {
     let #(address, event) = event
     list.each(subscribers, fn(subscriber) {
-      case subscriber.0 == address {
-        True -> subscriber.1(event)
+      case subscriber.address == address {
+        True -> subscriber.handler(event)
         False -> Nil
       }
     })
