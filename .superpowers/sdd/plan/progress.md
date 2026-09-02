@@ -58,4 +58,7 @@ Task 7: complete (commit a0cdc15, review pending)
 Task 7: 4 volatile counts replaced (Rigor, examples, testing); 1 banlist fix.
 Task 7: 3 copy gates, 663 tests; wired into prebuild and justfile.
 Task 7: `excerpt()` still has no production callers (deprecated since Task 3).
-Task 6: `excerpt()` still has no production callers (deprecated since Task 3).
+Task 8: format fix (commit 50c01d7): 8 example .gleam files formatted.
+Task 8: complete (commit 50c01d7, 1,072 website tests pass, 36 pages build,
+  just lint clean, no marker leakage, no stale patterns, no assertion failures).
+Task 8: Hex network failures affect 9 packages — pre-existing, not branch-related.
