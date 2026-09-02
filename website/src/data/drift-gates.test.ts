@@ -142,12 +142,133 @@ function extractPathsObjectValues(source: string): string[] {
   return values;
 }
 
-/** True when source has a snippetFromLiteral call with "gleam" language. */
+/**
+ * True when source has a snippetFromLiteral call whose *language argument*
+ * (the second positional arg) is "gleam".
+ *
+ * The previous regex `snippetFromLiteral\([\s\S]*?, "gleam"` was greedy
+ * across calls — a non-Gleam literal followed later by an unrelated
+ * `"gleam"` string would false-positive.  This scanner finds each
+ * `snippetFromLiteral(` occurrence, walks parentheses/template-literal
+ * depth to isolate the first argument, then inspects the second argument
+ * token directly.
+ */
 function hasLiteralGleamCall(source: string): boolean {
-  // snippetFromLiteral(code, language, sourcePath, ...) — language is the second arg.
-  // The code arg may span multiple lines as a template literal.
-  // Match: snippetFromLiteral( <anything> , "gleam" or 'gleam', ... )
-  return /snippetFromLiteral\s*\([\s\S]*?,\s*["']gleam["']\s*,/s.test(source);
+  const callRe = /snippetFromLiteral\s*\(/g;
+  let callMatch;
+  while ((callMatch = callRe.exec(source)) !== null) {
+    const argStart = callMatch.index + callMatch[0].length;
+    if (isGleamSecondArg(source, argStart)) return true;
+  }
+  return false;
+}
+
+/**
+ * Starting just after the opening `(` of a snippetFromLiteral call,
+ * skip the first argument (template literal, string, or identifier)
+ * and return true when the second argument is the string "gleam" or 'gleam'.
+ */
+function isGleamSecondArg(source: string, pos: number): boolean {
+  const len = source.length;
+  let i = skipWhitespace(source, pos, len);
+  // Skip the first argument — may be a template literal, quoted string, or identifier.
+  i = skipExpression(source, i, len);
+  if (i >= len) return false;
+  // Expect a comma between the first and second arguments.
+  i = skipWhitespace(source, i, len);
+  if (i >= len || source[i] !== ",") return false;
+  i = skipWhitespace(source, i + 1, len);
+  // The second argument should be a string literal.
+  if (i >= len) return false;
+  const q = source[i];
+  if (q !== '"' && q !== "'") return false;
+  // Read the string content up to the matching close quote.
+  let str = "";
+  for (let j = i + 1; j < len; j++) {
+    if (source[j] === "\\") { j++; continue; }
+    if (source[j] === q) break;
+    str += source[j];
+  }
+  return str === "gleam";
+}
+
+/** Skip whitespace and line breaks. */
+function skipWhitespace(s: string, i: number, len: number): number {
+  while (i < len && /\s/.test(s[i])) i++;
+  return i;
+}
+
+/**
+ * Skip one expression: template literal, quoted string, or a
+ * balanced parenthesized/bracketed sub-expression, or a plain
+ * identifier token. Returns the index after the expression.
+ */
+function skipExpression(source: string, start: number, len: number): number {
+  if (start >= len) return start;
+  const ch = source[start];
+  // Template literal
+  if (ch === "`") return skipTemplateLiteral(source, start + 1, len);
+  // Quoted string
+  if (ch === '"' || ch === "'") return skipString(source, start, len);
+  // Parenthesized or bracketed sub-expression
+  if (ch === "(") return skipBalanced(source, start, len, "(", ")");
+  if (ch === "[") return skipBalanced(source, start, len, "[", "]");
+  // Identifier, number, or dotted expression — stop at comma or closing paren
+  let i = start;
+  while (i < len) {
+    const c = source[i];
+    if (c === "," || c === ")") return i;
+    // Nested call inside argument (e.g., fn(x))
+    if (c === "(") { i = skipBalanced(source, i, len, "(", ")"); continue; }
+    if (c === "`") { i = skipTemplateLiteral(source, i + 1, len); continue; }
+    if (c === '"' || c === "'") { i = skipString(source, i, len); continue; }
+    i++;
+  }
+  return i;
+}
+
+function skipString(source: string, start: number, len: number): number {
+  const q = source[start];
+  let i = start + 1;
+  while (i < len) {
+    if (source[i] === "\\") { i += 2; continue; }
+    if (source[i] === q) return i + 1;
+    i++;
+  }
+  return i;
+}
+
+function skipTemplateLiteral(source: string, start: number, len: number): number {
+  let i = start;
+  while (i < len) {
+    if (source[i] === "\\") { i += 2; continue; }
+    if (source[i] === "`") return i + 1;
+    if (source[i] === "$" && i + 1 < len && source[i + 1] === "{") {
+      // Template expression — skip balanced braces
+      i = skipBalanced(source, i + 1, len, "{", "}");
+      continue;
+    }
+    i++;
+  }
+  return i;
+}
+
+function skipBalanced(
+  source: string, start: number, len: number,
+  open: string, close: string,
+): number {
+  let depth = 0;
+  let i = start;
+  while (i < len) {
+    const c = source[i];
+    if (c === open) depth++;
+    else if (c === close) { depth--; if (depth === 0) return i + 1; }
+    else if (c === "`") { i = skipTemplateLiteral(source, i + 1, len); continue; }
+    else if (c === '"' || c === "'") { i = skipString(source, i, len); continue; }
+    else if (c === "\\") { i += 2; continue; }
+    i++;
+  }
+  return i;
 }
 
 /** Collect all .astro pages under src/pages/. */
@@ -165,13 +286,67 @@ function findAstroPages(): string[] {
   return results;
 }
 
+/** Files that are explicitly exempt from the scope-wide raw-Gleam and
+ *  literal-Gleam gates — the snippet library itself, test files, and
+ *  the drift gates test. */
+const GATE_EXEMPT_PATTERNS = [
+  /\.test\.ts$/,          // test suites
+  /drift-gates\.test\./,  // this file
+  /\/lib\/snippet\.ts$/,  // the extractor implementation
+  /\/lib\/snippet-markers\.test\./,  // marker test suite
+];
+
+/** All authored website source modules: src/**\/*.astro and src/**\/*.ts,
+ *  minus test files and the extractor itself. */
+function findAllAuthoredModules(): string[] {
+  const srcDir = resolve(websiteRoot, "src");
+  const results: string[] = [];
+  function walk(dir: string) {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory() && entry.name !== "node_modules") {
+        walk(full);
+      } else if (entry.name.endsWith(".astro") || entry.name.endsWith(".ts")) {
+        const rel = relative(websiteRoot, full);
+        if (!GATE_EXEMPT_PATTERNS.some((p) => p.test(rel))) {
+          results.push(full);
+        }
+      }
+    }
+  }
+  walk(srcDir);
+  return results;
+}
+
+/**
+ * Files that are allowed to import from the snippet library or use
+ * ?raw Gleam imports. Anything not in this set or in
+ * LITERAL_GLEAM_ALLOWLIST that touches raw Gleam trips the gate.
+ */
+const ALLOWED_SNIPPET_USERS = new Set([
+  ...SNIPPET_DESCRIPTOR_FILES,
+  ...LITERAL_GLEAM_ALLOWLIST,
+]);
+
 // ══════════════════════════════════════════════════════════════════════════
 // Pre-computed data: markers from Gleam sources, refs from descriptor files
 // ══════════════════════════════════════════════════════════════════════════
 
-/** All markers found across all .gleam source files. */
-function scanAllMarkers(): Map<string, { file: string; startLines: number[]; endLines: number[] }> {
-  const all = new Map<string, { file: string; startLines: number[]; endLines: number[] }>();
+/** Marker occurrence in a single file. */
+interface MarkerOccurrence {
+  file: string;
+  startLines: number[];
+  endLines: number[];
+}
+
+/** All markers found across all .gleam source files, per (id, file) pair. */
+function scanAllMarkers(): {
+  byId: Map<string, MarkerOccurrence[]>;
+  diagnostics: string[];
+} {
+  // Collect per-file occurrences: Map<id, MarkerOccurrence[]>
+  const byId = new Map<string, MarkerOccurrence[]>();
+  const diagnostics: string[] = [];
 
   for (const dir of MARKER_SOURCE_DIRS) {
     const absDir = resolve(repoRoot, dir);
@@ -180,35 +355,50 @@ function scanAllMarkers(): Map<string, { file: string; startLines: number[]; end
       const { starts, ends } = parseMarkers(content);
       const repoFile = relative(repoRoot, file);
 
-      for (const [id, lines] of starts) {
-        if (all.has(id)) {
-          const existing = all.get(id)!;
-          existing.startLines.push(...lines);
-          // Track first file for error messages; duplicates are caught below
-          if (existing.file !== repoFile) {
-            existing.file += `, ${repoFile}`;
-          }
-        } else {
-          all.set(id, {
-            file: repoFile,
-            startLines: [...lines],
-            endLines: ends.get(id) ?? [],
-          });
-        }
+      // Collect all IDs seen in this file
+      const idsInFile = new Set([...starts.keys(), ...ends.keys()]);
+      for (const id of idsInFile) {
+        const startLines = starts.get(id) ?? [];
+        const endLines = ends.get(id) ?? [];
+        if (!byId.has(id)) byId.set(id, []);
+        byId.get(id)!.push({ file: repoFile, startLines, endLines });
       }
+    }
+  }
 
-      // Capture end-only markers (missing start)
-      for (const [id, lines] of ends) {
-        if (!all.has(id)) {
-          all.set(id, { file: repoFile, startLines: [], endLines: [...lines] });
-        } else if (!starts.has(id)) {
-          all.get(id)!.endLines.push(...lines);
+  // Validate per-id invariants
+  for (const [id, occurrences] of byId) {
+    const allStarts = occurrences.flatMap((o) => o.startLines);
+    const allEnds = occurrences.flatMap((o) => o.endLines);
+    const filesWithStarts = occurrences.filter((o) => o.startLines.length > 0).map((o) => o.file);
+    const filesWithEnds = occurrences.filter((o) => o.endLines.length > 0).map((o) => o.file);
+
+    // Reject start/end split across files
+    if (filesWithStarts.length > 0 && filesWithEnds.length > 0) {
+      const startFileSet = new Set(filesWithStarts);
+      const endFileSet = new Set(filesWithEnds);
+      const startOnly = filesWithStarts.filter((f) => !endFileSet.has(f));
+      const endOnly = filesWithEnds.filter((f) => !startFileSet.has(f));
+      if (startOnly.length > 0 || endOnly.length > 0) {
+        diagnostics.push(
+          `marker "${id}": start/end split across files — start in [${startOnly.join(", ")}], end in [${endOnly.join(", ")}]`,
+        );
+      }
+    }
+
+    // Reject end-before-start within a single file
+    for (const occ of occurrences) {
+      if (occ.startLines.length === 1 && occ.endLines.length === 1) {
+        if (occ.endLines[0] <= occ.startLines[0]) {
+          diagnostics.push(
+            `marker "${id}" in ${occ.file}: end (line ${occ.endLines[0]}) before start (line ${occ.startLines[0]})`,
+          );
         }
       }
     }
   }
 
-  return all;
+  return { byId, diagnostics };
 }
 
 /** All marker IDs referenced by snippet descriptor files (registries + pages). */
@@ -292,28 +482,42 @@ describe("Gate: source paths exist", () => {
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("Gate: marker integrity", () => {
-  const allMarkers = scanAllMarkers();
+  const { byId: allMarkers, diagnostics: markerDiagnostics } = scanAllMarkers();
   const allRefs = collectMarkerReferences();
+
+  describe("positive — no structural marker defects (split-file, reversed)", () => {
+    it("no cross-file or reversed marker diagnostics", () => {
+      assert.deepEqual(
+        markerDiagnostics,
+        [],
+        `marker structural defects:\n${markerDiagnostics.join("\n")}`,
+      );
+    });
+  });
 
   describe("positive — every marker ID has exactly one start and one end", () => {
     it("at least one marker exists", () => {
       assert.ok(allMarkers.size > 0, "no markers found in source");
     });
 
-    for (const [id, info] of allMarkers) {
+    for (const [id, occurrences] of allMarkers) {
+      const totalStarts = occurrences.reduce((s, o) => s + o.startLines.length, 0);
+      const totalEnds = occurrences.reduce((s, o) => s + o.endLines.length, 0);
+      const files = occurrences.map((o) => o.file).join(", ");
+
       it(`marker "${id}" has exactly one start`, () => {
         assert.equal(
-          info.startLines.length,
+          totalStarts,
           1,
-          `"${id}" has ${info.startLines.length} start marker(s) in ${info.file}`,
+          `"${id}" has ${totalStarts} start marker(s) in ${files}`,
         );
       });
 
       it(`marker "${id}" has exactly one end`, () => {
         assert.equal(
-          info.endLines.length,
+          totalEnds,
           1,
-          `"${id}" has ${info.endLines.length} end marker(s) in ${info.file}`,
+          `"${id}" has ${totalEnds} end marker(s) in ${files}`,
         );
       });
     }
@@ -384,6 +588,39 @@ describe("Gate: marker integrity", () => {
       assert.ok(!starts.has("orphan-end"), "should have no start marker");
       assert.equal(ends.get("orphan-end")?.length, 1);
     });
+
+    it("detects start/end split across files", () => {
+      // Simulate: file-a.gleam has start only, file-b.gleam has end only
+      const byId = new Map<string, MarkerOccurrence[]>();
+      byId.set("split-id", [
+        { file: "file-a.gleam", startLines: [5], endLines: [] },
+        { file: "file-b.gleam", startLines: [], endLines: [10] },
+      ]);
+      // Run the same validation logic manually
+      const occ = byId.get("split-id")!;
+      const filesWithStarts = occ.filter((o) => o.startLines.length > 0).map((o) => o.file);
+      const filesWithEnds = occ.filter((o) => o.endLines.length > 0).map((o) => o.file);
+      const startFileSet = new Set(filesWithStarts);
+      const endFileSet = new Set(filesWithEnds);
+      const startOnly = filesWithStarts.filter((f) => !endFileSet.has(f));
+      const endOnly = filesWithEnds.filter((f) => !startFileSet.has(f));
+      assert.ok(startOnly.length > 0, "should detect start in file without end");
+      assert.ok(endOnly.length > 0, "should detect end in file without start");
+    });
+
+    it("detects end-before-start (reversed pair)", () => {
+      const content = [
+        "// docs:snippet-end reversed-id",
+        "let a = 1",
+        "// docs:snippet-start reversed-id",
+      ].join("\n");
+      const { starts, ends } = parseMarkers(content);
+      const startLines = starts.get("reversed-id") ?? [];
+      const endLines = ends.get("reversed-id") ?? [];
+      assert.equal(startLines.length, 1);
+      assert.equal(endLines.length, 1);
+      assert.ok(endLines[0] < startLines[0], "end should be before start");
+    });
   });
 });
 
@@ -392,22 +629,22 @@ describe("Gate: marker integrity", () => {
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("Gate: literal Gleam policy", () => {
-  describe("positive — no unapproved literal Gleam in pages", () => {
-    const pages = findAstroPages();
+  describe("positive — no unapproved literal Gleam in any authored module", () => {
+    const modules = findAllAuthoredModules();
 
-    it("scans at least 20 pages", () => {
-      assert.ok(pages.length >= 20, `only found ${pages.length} pages`);
+    it("scans at least 40 authored modules", () => {
+      assert.ok(modules.length >= 40, `only found ${modules.length} modules`);
     });
 
-    for (const absPage of pages) {
-      const relPage = relative(websiteRoot, absPage);
+    for (const absModule of modules) {
+      const relModule = relative(websiteRoot, absModule);
 
-      it(`${relPage}: no unapproved snippetFromLiteral("gleam")`, () => {
-        const source = readFileSync(absPage, "utf-8");
+      it(`${relModule}: no unapproved snippetFromLiteral("gleam")`, () => {
+        const source = readFileSync(absModule, "utf-8");
         if (hasLiteralGleamCall(source)) {
           assert.ok(
-            LITERAL_GLEAM_ALLOWLIST.has(relPage),
-            `${relPage} uses snippetFromLiteral with "gleam" but is not in LITERAL_GLEAM_ALLOWLIST`,
+            LITERAL_GLEAM_ALLOWLIST.has(relModule),
+            `${relModule} uses snippetFromLiteral with "gleam" but is not in LITERAL_GLEAM_ALLOWLIST`,
           );
         }
       });
@@ -461,6 +698,35 @@ pub fn main() { io.println("hi") }\`,
   "(illustrative)",
 );`;
       assert.ok(hasLiteralGleamCall(fake), "should detect multiline literal Gleam");
+    });
+
+    it("does not false-positive on non-Gleam literal followed by unrelated gleam string", () => {
+      // A text literal followed by an unrelated "gleam" mention in a different call or context.
+      const fake = `const a = snippetFromLiteral(\`echo hello\`, "text", "fake");
+const b = "gleam is great";
+const c = snippetFromLiteral(\`console.log("hi")\`, "typescript", "other");`;
+      assert.ok(!hasLiteralGleamCall(fake), "should not false-positive across calls");
+    });
+
+    it("detects gleam in multiline template literal with embedded expressions", () => {
+      const fake = `const s = snippetFromLiteral(
+  \`import gleam/io
+pub fn main() {
+  io.println(\${"hello"})
+}\`,
+  "gleam",
+  "(illustrative)",
+);`;
+      assert.ok(hasLiteralGleamCall(fake), "should detect gleam with template expressions");
+    });
+
+    it("catches literal Gleam call in a hypothetical new data module", () => {
+      // A new src/data/extra-snippets.ts module with a literal Gleam call
+      // must be detected by hasLiteralGleamCall. The scope gate ensures
+      // that file would fail if not in the allowlist.
+      const fake = `import { snippetFromLiteral } from "../lib/snippet.ts";
+export const extra = snippetFromLiteral(\`import gleam/io\nfn main() { io.println("hi") }\`, "gleam", "(illustrative)");`;
+      assert.ok(hasLiteralGleamCall(fake), "should catch literal Gleam in new data module");
     });
   });
 });
@@ -539,26 +805,37 @@ describe("Gate: source-backed descriptors have sourcePath", () => {
 // Gate 6: No new ?raw Gleam imports outside known descriptor files
 // ══════════════════════════════════════════════════════════════════════════
 
-describe("Gate: no unregistered Gleam imports in pages", () => {
-  const pages = findAstroPages();
-  const knownFiles = new Set(SNIPPET_DESCRIPTOR_FILES.map((f) => resolve(websiteRoot, f)));
+describe("Gate: no unregistered Gleam imports in authored modules", () => {
+  const modules = findAllAuthoredModules();
+  const knownFiles = new Set(
+    [...SNIPPET_DESCRIPTOR_FILES, ...LITERAL_GLEAM_ALLOWLIST].map((f) => resolve(websiteRoot, f)),
+  );
 
-  for (const absPage of pages) {
-    const relPage = relative(websiteRoot, absPage);
+  for (const absModule of modules) {
+    const relModule = relative(websiteRoot, absModule);
 
-    it(`${relPage}: no ?raw Gleam imports outside known descriptor files`, () => {
-      if (knownFiles.has(absPage)) return; // known file, checked by Gate 1
-      const source = readFileSync(absPage, "utf-8");
-      const rawImports = extractRawImportPaths(source, dirname(absPage));
+    it(`${relModule}: no ?raw Gleam imports outside known descriptor files`, () => {
+      if (knownFiles.has(absModule)) return; // known file, checked by other gates
+      const source = readFileSync(absModule, "utf-8");
+      const rawImports = extractRawImportPaths(source, dirname(absModule));
       const gleamImports = rawImports.filter((p) => p.endsWith(".gleam"));
 
       assert.equal(
         gleamImports.length,
         0,
-        `${relPage} has Gleam ?raw imports [${gleamImports.join(", ")}] but is not in SNIPPET_DESCRIPTOR_FILES — add it or use a registry`,
+        `${relModule} has Gleam ?raw imports [${gleamImports.join(", ")}] but is not in SNIPPET_DESCRIPTOR_FILES — add it or use a registry`,
       );
     });
   }
+
+  describe("negative — catches a new data module with raw Gleam import", () => {
+    it("detects ?raw .gleam import in unknown module", () => {
+      const fake = `import counterSource from "../../../examples/clap_counter/src/main.gleam?raw";\n`;
+      const rawImports = extractRawImportPaths(fake, websiteRoot);
+      const gleamImports = rawImports.filter((p) => p.endsWith(".gleam"));
+      assert.ok(gleamImports.length > 0, "should detect raw Gleam import");
+    });
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════════════
