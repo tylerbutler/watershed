@@ -35,6 +35,16 @@ is created if absent. Output is written atomically: the tool writes to a
 `.tmp` sibling first and renames only after generation and encoding succeed.
 A valid existing output file is never removed on failure.
 
+## Target
+
+The package defaults to the JavaScript target and runs on Node. That is a
+deliberate choice for a tool that documentation builds invoke: a docs
+pipeline already has Node, and demanding a second language runtime is a lot
+to ask of one for a program that reads files and writes a JSON blob. Nothing
+in the tool is target-specific; the process exit has an implementation on
+both. A project that would rather run it on the BEAM can add
+`--target erlang` to the same command.
+
 ## Exit status and errors
 
 The command exits `0` after a manifest is written, and `1` after printing one
@@ -215,5 +225,9 @@ snippets:
         ../../website/snippets.json \
         ../../website/src/generated/snippets.json
 ```
+
+No `--target` flag: the package's own `gleam.toml` already names JavaScript,
+and a flag repeated at every call site is one more place for the two to
+disagree.
 
 The generated file path should be added to `.gitignore`.

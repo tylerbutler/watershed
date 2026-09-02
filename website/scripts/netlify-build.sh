@@ -1,13 +1,13 @@
 #!/usr/bin/env bash
-# Netlify build script: installs the Gleam compiler (not in Netlify's build
-# image), verifies the Erlang toolchain the image is expected to supply, then
-# runs the normal site build.
+# Netlify build script: installs the Gleam compiler, which is the one thing
+# the build image does not already have, then runs the normal site build.
 #
 # `pnpm build` triggers the `prebuild` hook, which:
 #   1. Compiles the Gleam kernel to JavaScript for the live demo.
-#   2. Generates the source-snippet manifest (`pnpm generate:snippets`) by running
-#      tools/source-snippets — an Erlang-target Gleam CLI that needs
-#      escript and erlc.
+#   2. Generates the source-snippet manifest (`pnpm generate:snippets`) by
+#      running tools/source-snippets, a JavaScript-target Gleam CLI. It
+#      compiles to plain ES modules and runs on the Node the image supplies,
+#      so this deploy needs no second language runtime.
 set -euo pipefail
 
 GLEAM_VERSION="${GLEAM_VERSION:-1.16.0}"
@@ -21,27 +21,12 @@ if ! command -v gleam >/dev/null 2>&1; then
   export PATH="${install_dir}:${PATH}"
 fi
 
-# ── Toolchain check ──────────────────────────────────────────────────────
-# The source-snippet generator targets Erlang: Gleam compiles to .erl, erlc
-# compiles to .beam, and escript runs the result. Both must be present
-# before the prebuild hook. Netlify's Ubuntu build image ships esl-erlang,
-# which provides them, so this check should never fire — it exists to turn a
-# change of build image into a one-line diagnosis instead of a confusing
-# Gleam compile failure deep in the prebuild.
-missing=()
-for cmd in escript erlc; do
-  if ! command -v "$cmd" >/dev/null 2>&1; then
-    missing+=("$cmd")
-  fi
-done
-if (( ${#missing[@]} )); then
-  echo "ERROR: missing Erlang toolchain commands: ${missing[*]}" >&2
-  echo "The source-snippet prebuild needs escript and erlc." >&2
-  echo "The Netlify build image is expected to supply them (it installs esl-erlang)." >&2
-  echo "If the image no longer does, install Erlang here before running the build." >&2
+if ! command -v gleam >/dev/null 2>&1; then
+  echo "ERROR: gleam is still not on PATH after the install step." >&2
+  echo "The site build compiles Gleam to JavaScript and cannot continue." >&2
+  echo "Check the download URL for v${GLEAM_VERSION} and the ${HOME}/.gleam-bin directory." >&2
   exit 1
 fi
-# ─────────────────────────────────────────────────────────────────────────
 
 gleam --version
 pnpm build

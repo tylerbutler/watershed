@@ -70,14 +70,15 @@ test = [
 ]
 
 # Two target families live here, and only `watershed` belongs to both: it and
-# the CLI examples run on the BEAM, while `watershed_lustre` and the browser
-# examples compile to JavaScript. A package built for the wrong target is a hard
-# error (missing externals one way, `lustre` the other), so each family gets its
-# own task and its own exclusions rather than one `build` that cannot express it.
+# the CLI examples run on the BEAM, while `watershed_lustre`, the browser
+# examples, and `tools/source-snippets` compile to JavaScript. A package built
+# for the wrong target is a hard error (missing externals one way, `lustre` the
+# other), so each family gets its own task and its own exclusions rather than
+# one `build` that cannot express it.
 # `tools/compile-fail/*` is excluded from both: those packages exist to NOT
 # compile, and only `just _test-compile-fail` may build them (expecting failure).
-build-erlang = ["watershed_lustre", "examples/*_lustre", "tools/compile-fail/*", "tools/website-samples"]
-build-javascript = ["examples/dice_cli", "examples/scoreboard_cli", "tools/compile-fail/*", "tools/source-snippets"]
+build-erlang = ["watershed_lustre", "examples/*_lustre", "tools/compile-fail/*", "tools/website-samples", "tools/source-snippets"]
+build-javascript = ["examples/dice_cli", "examples/scoreboard_cli", "tools/compile-fail/*"]
 bundle = [
     ".",
     "watershed_lustre",

@@ -3,7 +3,10 @@ version = "0.1.0"
 description = "Internal Gleam source-snippet marker extractor"
 licences = ["MIT"]
 gleam = ">= 1.7.0"
-target = "erlang"
+# JavaScript is the default target: the tool is a short-lived file-in,
+# file-out CLI, and Node is the runtime a documentation build already has.
+# A BEAM project can still run it with `--target erlang`.
+target = "javascript"
 
 [dependencies]
 gleam_stdlib = ">= 0.62.0 and < 2.0.0"

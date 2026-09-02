@@ -2,9 +2,9 @@
 # The site lives in website/; its build compiles the Gleam kernel to
 # JavaScript first (see website/scripts/netlify-build.sh).
 #
-# No build plugins. The prebuild's source-snippet generator needs escript and
-# erlc; Netlify's Ubuntu build image installs esl-erlang, which supplies both.
-# netlify-build.sh checks for them and fails fast if that ever stops holding.
+# No build plugins, and no second language runtime. Everything the build runs
+# is Gleam compiled to JavaScript, so the image's Node is enough once
+# netlify-build.sh has installed the Gleam compiler.
 
 [build]
   base = "website"

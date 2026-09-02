@@ -21,7 +21,7 @@
     "test:copy-gates": "node --strip-types --test src/data/copy-gates.test.ts",
     "test:global-styles": "node --test src/styles/global.test.mjs",
     "test:guide-race-styles": "node scripts/check-guide-race-styles.mjs",
-    "test:netlify-contract": "node scripts/netlify-erlang-contract.test.mjs",
+    "test:netlify-contract": "node scripts/netlify-deploy-contract.test.mjs",
     "test:snippet-config": "node scripts/snippet-config.test.mjs"
   },
   "dependencies": {

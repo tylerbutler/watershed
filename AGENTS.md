@@ -30,6 +30,14 @@ manifest; its README documents the schema and marker placement.
 Every marker must be quoted by a snippet and every snippet must find its
 marker, or generation fails and names the file.
 
+The generator is a Gleam package that targets JavaScript and runs on Node —
+`gleam run -m source_snippets/cli` with no `--target` flag, because its own
+`gleam.toml` names the target. Trellis builds and tests it with the
+JavaScript family and leaves it out of the Erlang build entirely. That is
+what lets Netlify deploy the site with nothing but Node and the Gleam
+compiler; the build image's Erlang is too old for `gleam_json` and we do not
+want it in the loop.
+
 ## Prose and copy
 
 The repo carries a vendored instruction from `tylerbutler/apm-base` that reads
