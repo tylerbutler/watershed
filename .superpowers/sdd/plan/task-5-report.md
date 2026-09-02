@@ -1,29 +1,56 @@
 # Task 5 Report — Migrate standalone Gleam samples to source-backed descriptors
 
-## Status: COMPLETE
+## Status: COMPLETE (review fixes applied)
 
 **Commit:** `8d8aea7` — `feat(website): migrate standalone snippets to source-backed descriptors (Task 5)`
 
-## Tests
+## Review fix round
 
-- 86 pass, 0 fail (all snippet tests: snippet, snippet-markers, practice-snippets, standalone-snippets)
-- 27 new tests in `standalone-snippets.test.ts`
-- Website build: 36 pages, 0 errors
+Three findings addressed on top of the original commit:
 
-### RED/GREEN evidence
+### Fix 1 — TS syntax check reads actual registry
 
-- **RED:** 10 failures before registry existed — `ERR_MODULE_NOT_FOUND` on
-  missing `standalone-snippets.ts`, inline Gleam detected in all 4 surfaces,
-  TS snippet import syntax not parseable in function scope.
-- **GREEN:** All 27 tests pass after creating registry, fixture, markers,
-  and migrating pages.
+Replaced the manually duplicated `TS_SNIPPETS` dict with an extractor that
+reads `standalone-snippets.ts` as text, parses each `ts-*` template literal
+from the actual `sharedtreeTypeScriptSnippets` record, strips import
+declarations, and runs `new Function()`. No manual duplication can drift.
 
-### Build evidence
+- **RED:** Injected `{{{{` into `ts-declare` in the registry → test fails
+  with "invalid syntax".
+- **GREEN:** Restored registry → all 8 ts-* tests pass from actual literals.
 
-- `pnpm build` — 36 pages, 0 errors, 4.77s
-- `gleam build --target javascript` (fixture) — compiled, warnings only (unused functions expected)
-- `gleam check` (dice_cli) — compiled
-- `gleam check` (sudoku_lustre) — compiled
+### Fix 2 — sharedtree.astro in literal-Gleam policy surface
+
+Added `src/pages/sharedtree.astro` to the `migratedPages` array so the
+`snippetFromLiteral(..., "gleam", ...)` guard covers it.
+
+- **RED:** Injected `snippetFromLiteral(\`import gleam/io\`, "gleam", ...)`
+  into `sharedtree.astro` → test fails.
+- **GREEN:** Removed injection → test passes.
+
+### Fix 3 — Restored SudokuDocument doc comment
+
+Restored the original `/// Phantom tag scoping every field below to the Sudoku
+root map.` and moved `// docs:snippet-start sharedtree-nest` below it. The
+editorial `/// One root, four merge policies` line was removed; production doc
+comments are not editorial copy.
+
+### Homepage marker — not narrowed (explained)
+
+The `homepage-beam` marker captures `main() + run()` (61 lines). The full
+connect → root → subscribe → entries → selector → event_loop flow spans both
+functions; no single contiguous sub-range preserves all five API steps. The
+`set` call is in a separate `roll()` helper outside the marker. Narrowing to
+just `run()` loses `connect`; narrowing to just `main()` loses `root`/
+`subscribe`. The actual API flow cannot be narrowed to a single honest
+contiguous excerpt without inventing non-compiled code. Left as-is.
+
+### Verification
+
+- 88 tests pass (snippet, snippet-markers, practice-snippets, standalone-snippets)
+- 30 tests in standalone-snippets.test.ts (was 27; +3 from policy surface and registry extraction)
+- `gleam check` — compiled
+- `pnpm build` — 36 pages, 0 errors
 
 ## Source mapping
 

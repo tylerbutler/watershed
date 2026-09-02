@@ -152,43 +152,65 @@ describe("standalone snippet registry", () => {
 });
 
 // ── 2. SharedTree TypeScript literals are syntactically valid ───────────────
+// Read the actual registry source file and extract each ts-* snippet literal,
+// so the syntax check stays in sync with the registry (no manual duplication).
+
+/**
+ * Extract template literal strings from the sharedtreeTypeScriptSnippets
+ * record in standalone-snippets.ts. Returns a map of snippet id → code string.
+ */
+function extractTsSnippetsFromRegistry(): Record<string, string> {
+  const registrySource = readFileSync(
+    resolve(__dirname, "standalone-snippets.ts"),
+    "utf-8",
+  );
+
+  // Find each "ts-*": snippetFromLiteral(`...`, block. Template literals in
+  // the registry have no interpolation, so we scan for matching backticks.
+  const result: Record<string, string> = {};
+  const keyPattern = /"(ts-[^"]+)":\s*snippetFromLiteral\(\s*`/g;
+  let match: RegExpExecArray | null;
+
+  while ((match = keyPattern.exec(registrySource)) !== null) {
+    const key = match[1];
+    const codeStart = match.index + match[0].length;
+    // Find the closing backtick that isn't escaped.
+    let i = codeStart;
+    while (i < registrySource.length) {
+      if (registrySource[i] === "`" && registrySource[i - 1] !== "\\") break;
+      i++;
+    }
+    result[key] = registrySource.slice(codeStart, i);
+  }
+
+  return result;
+}
+
+/** Strip import declarations from code — `new Function` cannot parse them. */
+function stripImports(code: string): string {
+  return code
+    .split("\n")
+    .filter((line) => !line.trimStart().startsWith("import "))
+    .join("\n")
+    .trim();
+}
 
 describe("sharedtree TypeScript syntax", () => {
-  const TS_SNIPPETS: Record<string, string> = {
-    // Strip import statement — it's not parseable in function scope but is
-    // valid module-level syntax. We check the rest of the code.
-    "ts-declare": `const sf = new SchemaFactory("com.example.sprintboard");
-class Card extends sf.object("Card", { title: sf.string }) {}`,
+  const tsSnippets = extractTsSnippetsFromRegistry();
 
-    "ts-root": `const config = new TreeViewConfiguration({ schema: Board });
-const view = tree.viewWith(config);
-view.initialize(new Board({ title: "Sprint board", cards: [], wipBreaches: 0 }));`,
+  it("extracts at least 7 ts-* snippets from the registry", () => {
+    const keys = Object.keys(tsSnippets);
+    assert.ok(
+      keys.length >= 7,
+      `expected ≥7 ts-* snippets, found ${keys.length}: ${keys}`,
+    );
+  });
 
-    "ts-read-write": `board.title = "Q3 sprint board";
-renderHeader(board.title);`,
-
-    "ts-record": `card.title = "Ship the gauge rebuild";
-card.column = "doing";
-card.owner = undefined;`,
-
-    "ts-nest": `board.cards.insertAtEnd(new Card({ title: "Ship it", column: "todo" }));
-board.cards.moveRangeToIndex(4, 0, 3);
-board.cards.removeAt(2);`,
-
-    "ts-events": `const stopCards = Tree.on(board.cards, "nodeChanged", renderCards);
-const stopAll = Tree.on(board, "treeChanged", renderEverything);`,
-
-    "ts-gaps": `Tree.runTransaction(board, () => {
-  card.column = "doing";
-  card.owner = "ada";
-  if (overWipLimit(board)) return Tree.runTransaction.rollback;
-});`,
-  };
-
-  for (const [key, code] of Object.entries(TS_SNIPPETS)) {
-    it(`${key} is parseable JavaScript`, () => {
+  for (const [key, code] of Object.entries(tsSnippets)) {
+    it(`${key} (actual registry literal) is parseable JavaScript`, () => {
+      const stripped = stripImports(code);
       assert.doesNotThrow(
-        () => new Function(code),
+        () => new Function(stripped),
         `TS snippet "${key}" has invalid syntax`,
       );
     });
@@ -202,6 +224,7 @@ describe("no handwritten Gleam literals in migrated pages", () => {
     "src/components/CodeSample.astro",
     "src/pages/runtime/optimistic.astro",
     "src/pages/runtime/p2p.astro",
+    "src/pages/sharedtree.astro",
   ];
 
   for (const page of migratedPages) {
