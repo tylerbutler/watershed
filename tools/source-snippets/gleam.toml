@@ -1,0 +1,13 @@
+name = "source_snippets"
+version = "0.1.0"
+description = "Internal Gleam source-snippet marker extractor"
+licences = ["MIT"]
+gleam = ">= 1.7.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 0.62.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"
