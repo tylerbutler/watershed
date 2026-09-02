@@ -9,6 +9,7 @@
 // ──────────────────────────────────────────────────────────────────────────
 import test from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import {
   decodeManifest,
   isSourceBacked,
@@ -219,6 +220,31 @@ test("sourceSnippet throws on an unknown id, and names it", () => {
 test("sourceSnippet hands out a frozen snippet — no caller may edit the manifest", () => {
   const snippet = sourceSnippet("homepage-beam");
   assert.ok(Object.isFrozen(snippet));
+});
+
+test("the marker list is frozen too — one page cannot edit it for every page", () => {
+  const snippet = sourceSnippet("homepage-beam");
+  assert.equal(snippet.origin.kind, "source");
+  if (snippet.origin.kind !== "source") return;
+  assert.ok(Object.isFrozen(snippet.origin.markers));
+  assert.throws(() => (snippet.origin as { markers: string[] }).markers.push("x"));
+});
+
+test("the marker list is typed readonly, so the freeze is not a surprise", () => {
+  // The freeze above is a runtime fact. Nothing type-checks this package —
+  // `node --strip-types` erases types without reading them — so the declared
+  // type is what an editor shows the next caller. A mutable `string[]` there
+  // invites a `push` that throws at build time, and it needs a cast in the
+  // decoder to hide the mismatch.
+  const source = readFileSync(new URL("./snippet.ts", import.meta.url), "utf8");
+  assert.ok(
+    /kind: "source"; markers: readonly string\[\]/.test(source),
+    "SnippetOrigin should declare markers as readonly string[]",
+  );
+  assert.ok(
+    !/as string\[\]/.test(source),
+    "a readonly declaration needs no cast to hide a frozen array",
+  );
 });
 
 test("sourceSnippetIds lists every generated id", () => {

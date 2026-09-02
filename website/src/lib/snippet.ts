@@ -33,9 +33,13 @@ export interface Snippet {
  * `source` and `file` are both generated: one names the marker ranges it
  * composed, the other is a complete module with its directive lines removed.
  * `literal` is hand-written illustrative code that has no compiled source.
+ *
+ * The marker list is `readonly` because the decoder freezes it: every page
+ * that asks for an id gets the same array, so an edit would be an edit for
+ * all of them.
  */
 export type SnippetOrigin =
-  | { kind: "source"; markers: string[] }
+  | { kind: "source"; markers: readonly string[] }
   | { kind: "file" }
   | { kind: "literal" };
 
@@ -183,7 +187,7 @@ function decodeOrigin(id: string, value: unknown): SnippetOrigin {
   }
   return Object.freeze({
     kind: "source" as const,
-    markers: Object.freeze([...markers]) as string[],
+    markers: Object.freeze([...markers]),
   });
 }
 
