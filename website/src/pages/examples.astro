@@ -4,18 +4,20 @@ import Ecosystem from "../components/Ecosystem.astro";
 import { exampleGroups, exampleSource, examples } from "../data/examples";
 import { practiceHref, practicesByExample } from "../data/practices";
 import { structureLinks } from "../data/structures";
+
+const exampleCount = examples.length;
 ---
 
 <Sheet
   title="watershed — browser examples"
-  description="Fourteen complete Lustre applications showing watershed connection, typed document modeling, conflict semantics, presence, composition, and reconnect behavior."
+  description={`${exampleCount} complete Lustre applications showing watershed connection, typed document modeling, conflict semantics, presence, composition, and reconnect behavior.`}
 >
   <header class="e-hero">
     <div class="e-hero-inner">
       <p class="e-crumbs annot"><a href="/">&#8592; watershed</a> / Examples</p>
       <h1>Run the examples.</h1>
       <p class="e-lede">
-        Fourteen complete Lustre applications, all compiled from Gleam. Start
+        {exampleCount} complete Lustre applications, all compiled from Gleam. Start
         with a small lifecycle trace, compare conflict rules under the same
         action, or open the apps that push composition and browser interaction
         hardest.

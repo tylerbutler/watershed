@@ -74,7 +74,7 @@ _test-compile-fail:
 # allowlisted, and registries are source-backed. Runs the drift gate suite
 # plus every targeted snippet test from the website package.
 _test-website-snippets:
-    cd website && pnpm test:snippet && pnpm test:snippet-markers && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates
+    cd website && pnpm test:snippet && pnpm test:snippet-markers && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
