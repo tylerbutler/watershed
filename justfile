@@ -68,6 +68,17 @@ _test-compile-fail:
       exit 1
     fi
     echo "ok  two_root_tags is rejected, as it must be"
+    out=$(cd tools/compile-fail/incompatible_port_connection && gleam build --target javascript 2>&1)
+    if [ $? -eq 0 ]; then
+      echo "FAIL: incompatible_port_connection compiled. Different payload types now connect."
+      exit 1
+    fi
+    if ! grep -q 'Input(Int)' <<<"$out"; then
+      echo "FAIL: incompatible_port_connection failed, but not with the expected type error:"
+      echo "$out"
+      exit 1
+    fi
+    echo "ok  incompatible port payload types are rejected"
 
 # Source-backed snippet drift gates — the website test suite that enforces
 # every rendered snippet id is declared and generated, marker IDs are unique

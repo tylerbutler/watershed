@@ -1,0 +1,8 @@
+name = "incompatible_port_connection"
+version = "0.0.0"
+target = "javascript"
+
+[dependencies]
+gleam_stdlib = ">= 0.62.0 and < 2.0.0"
+gleam_json = ">= 3.0.0 and < 4.0.0"
+watershed = { path = "../../.." }
