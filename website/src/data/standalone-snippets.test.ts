@@ -8,7 +8,7 @@
 // 3. No hand-written Gleam on the pages those snippets serve
 // 4. The website fixture package is in the root build configuration
 //
-// Generate the manifest first: `just website-snippets`.
+// Generate the manifest first: `just snippets`.
 // Run: node --strip-types --test src/data/standalone-snippets.test.ts
 // ──────────────────────────────────────────────────────────────────────────
 import { describe, it } from "node:test";

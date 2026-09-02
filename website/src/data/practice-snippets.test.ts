@@ -6,7 +6,7 @@
 // tests check the snippets the site actually renders rather than a
 // replication of them.
 //
-// Generate the manifest first: `just website-snippets`.
+// Generate the manifest first: `just snippets`.
 // Run: node --strip-types --test src/data/practice-snippets.test.ts
 // ──────────────────────────────────────────────────────────────────────────
 import test from "node:test";

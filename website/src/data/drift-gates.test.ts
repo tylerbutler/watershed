@@ -3,19 +3,19 @@
 // snippets drift from the compiled source they claim to show.
 //
 // The code itself is selected by `tools/source-snippets`, which reads
-// `website/snippets.json` and writes an ignored manifest. These gates police
-// the seams around that: markers stay unique and quoted, ids stay declared,
-// no page reaches around the loader, and literal Gleam stays allowlisted.
+// `website/snippets.json` and writes an ignored manifest. Marker integrity
+// (uniqueness, pairing, orphans) is enforced by the Gleam generator. These
+// gates police the frontend seams: ids stay declared, no page reaches
+// around the loader, and literal Gleam stays allowlisted.
 //
 // Each gate catches one category of drift. Negative tests prove the gate
 // fires for fabricated drift; positive tests prove the codebase is clean.
 //
-// Generate the manifest first: `just website-snippets`.
+// Generate the manifest first: `just snippets`.
 // Run: node --strip-types --test src/data/drift-gates.test.ts
 // ──────────────────────────────────────────────────────────────────────────
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, dirname, relative, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -42,21 +42,6 @@ const LITERAL_GLEAM_ALLOWLIST = new Set([
   "src/pages/runtime/presence.astro", // presence config illustration
 ]);
 
-/** Directories (repo-relative) whose .gleam files may contain doc markers.
- *  Every directory a marker could be written in belongs here, not only the
- *  ones a marker is written in today: a directory left out is a place an
- *  orphan marker can rot unseen. The suites are included because a snippet
- *  already quotes one (`examples/work_queue_lustre/test/`), so a marker in
- *  `test/` is a normal thing to write, not a mistake. */
-const MARKER_SOURCE_DIRS = [
-  "examples",
-  "tools/website-samples",
-  "src",
-  "test",
-  "watershed_lustre/src",
-  "watershed_lustre/test",
-];
-
 /** The generator configuration, website-relative. It names every marker range
  *  the Gleam manifest is built from. */
 const SNIPPET_CONFIG = "snippets.json";
@@ -73,57 +58,6 @@ const MANIFEST_READER = "src/lib/snippet.ts";
 // ══════════════════════════════════════════════════════════════════════════
 // Helpers
 // ══════════════════════════════════════════════════════════════════════════
-
-/** Recursively collect all .gleam files under a directory, skipping build/. */
-function findGleamFiles(dir: string): string[] {
-  const results: string[] = [];
-  if (!existsSync(dir)) return results;
-  for (const entry of readdirSync(dir, { withFileTypes: true })) {
-    const full = join(dir, entry.name);
-    if (entry.isDirectory() && entry.name !== "build" && entry.name !== "node_modules") {
-      results.push(...findGleamFiles(full));
-    } else if (entry.name.endsWith(".gleam")) {
-      results.push(full);
-    }
-  }
-  return results;
-}
-
-/** Collect tracked and untracked source files while respecting gitignore. */
-function findRepositoryGleamFiles(): string[] {
-  return execFileSync(
-    "git",
-    ["ls-files", "--cached", "--others", "--exclude-standard", "--", "*.gleam"],
-    { cwd: repoRoot, encoding: "utf8" },
-  )
-    .split("\n")
-    .filter(Boolean);
-}
-
-/** Parse docs:snippet-start/end markers from source text. */
-function parseMarkers(content: string): {
-  starts: Map<string, number[]>;
-  ends: Map<string, number[]>;
-} {
-  const starts = new Map<string, number[]>();
-  const ends = new Map<string, number[]>();
-  const lines = content.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const sm = /^\s*\/\/\s*docs:snippet-start\s+(\S+)\s*$/.exec(lines[i]);
-    const em = /^\s*\/\/\s*docs:snippet-end\s+(\S+)\s*$/.exec(lines[i]);
-    if (sm) {
-      const id = sm[1];
-      if (!starts.has(id)) starts.set(id, []);
-      starts.get(id)!.push(i + 1);
-    }
-    if (em) {
-      const id = em[1];
-      if (!ends.has(id)) ends.set(id, []);
-      ends.get(id)!.push(i + 1);
-    }
-  }
-  return { starts, ends };
-}
 
 /** Extract ?raw import paths from source, resolved to repo-relative paths. */
 function extractRawImportPaths(source: string, fileAbsDir: string): string[] {
@@ -277,21 +211,6 @@ function skipBalanced(
   return i;
 }
 
-/** Collect all .astro pages under src/pages/. */
-function findAstroPages(): string[] {
-  const pagesDir = resolve(websiteRoot, "src/pages");
-  const results: string[] = [];
-  function walk(dir: string) {
-    for (const entry of readdirSync(dir, { withFileTypes: true })) {
-      const full = join(dir, entry.name);
-      if (entry.isDirectory()) walk(full);
-      else if (entry.name.endsWith(".astro")) results.push(full);
-    }
-  }
-  walk(pagesDir);
-  return results;
-}
-
 /**
  * Files that are explicitly exempt from the scope-wide raw-Gleam and
  * literal-Gleam gates — the snippet library itself, test files, and
@@ -326,121 +245,6 @@ function findAllAuthoredModules(): string[] {
 }
 
 // ══════════════════════════════════════════════════════════════════════════
-// Pre-computed data: markers from Gleam sources, references from the
-// generator configuration
-// ══════════════════════════════════════════════════════════════════════════
-
-/** Marker occurrence in a single file. */
-interface MarkerOccurrence {
-  file: string;
-  startLines: number[];
-  endLines: number[];
-}
-
-/** All markers found across all .gleam source files, per (id, file) pair. */
-function scanAllMarkers(): {
-  byId: Map<string, MarkerOccurrence[]>;
-  diagnostics: string[];
-} {
-  // Collect per-file occurrences: Map<id, MarkerOccurrence[]>
-  const byId = new Map<string, MarkerOccurrence[]>();
-  const diagnostics: string[] = [];
-
-  for (const dir of MARKER_SOURCE_DIRS) {
-    const absDir = resolve(repoRoot, dir);
-    for (const file of findGleamFiles(absDir)) {
-      const content = readFileSync(file, "utf-8");
-      const { starts, ends } = parseMarkers(content);
-      const repoFile = relative(repoRoot, file);
-
-      // Collect all IDs seen in this file
-      const idsInFile = new Set([...starts.keys(), ...ends.keys()]);
-      for (const id of idsInFile) {
-        const startLines = starts.get(id) ?? [];
-        const endLines = ends.get(id) ?? [];
-        if (!byId.has(id)) byId.set(id, []);
-        byId.get(id)!.push({ file: repoFile, startLines, endLines });
-      }
-    }
-  }
-
-  // Validate per-id invariants
-  for (const [id, occurrences] of byId) {
-    const allStarts = occurrences.flatMap((o) => o.startLines);
-    const allEnds = occurrences.flatMap((o) => o.endLines);
-    const filesWithStarts = occurrences.filter((o) => o.startLines.length > 0).map((o) => o.file);
-    const filesWithEnds = occurrences.filter((o) => o.endLines.length > 0).map((o) => o.file);
-
-    // Reject start/end split across files
-    if (filesWithStarts.length > 0 && filesWithEnds.length > 0) {
-      const startFileSet = new Set(filesWithStarts);
-      const endFileSet = new Set(filesWithEnds);
-      const startOnly = filesWithStarts.filter((f) => !endFileSet.has(f));
-      const endOnly = filesWithEnds.filter((f) => !startFileSet.has(f));
-      if (startOnly.length > 0 || endOnly.length > 0) {
-        diagnostics.push(
-          `marker "${id}": start/end split across files — start in [${startOnly.join(", ")}], end in [${endOnly.join(", ")}]`,
-        );
-      }
-    }
-
-    // Reject end-before-start within a single file
-    for (const occ of occurrences) {
-      if (occ.startLines.length === 1 && occ.endLines.length === 1) {
-        if (occ.endLines[0] <= occ.startLines[0]) {
-          diagnostics.push(
-            `marker "${id}" in ${occ.file}: end (line ${occ.endLines[0]}) before start (line ${occ.startLines[0]})`,
-          );
-        }
-      }
-    }
-  }
-
-  return { byId, diagnostics };
-}
-
-/**
- * Every marker id the generator configuration names.
- *
- * `website/snippets.json` is the only descriptor left: the frontend asks for
- * output ids, and the configuration is what turns an output id into marker
- * ranges. A marker only that file names is referenced, not an orphan.
- */
-function collectMarkerReferences(): Set<string> {
-  return new Set(configuredMarkers());
-}
-
-/** Every marker id named by the generator configuration. */
-function configuredMarkers(): string[] {
-  return [...configuredMarkerSources().keys()];
-}
-
-/** Marker id → the source file the configuration reads it from.
- *
- *  A whole-file entry names no marker, so it contributes nothing here. It
- *  reads its whole source and drops the directive lines, which means it can
- *  never keep a marker alive that no sheet quotes. */
-function configuredMarkerSources(): Map<string, string> {
-  const config = JSON.parse(
-    readFileSync(resolve(websiteRoot, SNIPPET_CONFIG), "utf-8"),
-  ) as {
-    snippets: Array<{
-      sourcePath: string;
-      markers?: string[];
-      wholeFile?: boolean;
-    }>;
-  };
-
-  const sources = new Map<string, string>();
-  for (const snippet of config.snippets) {
-    for (const marker of snippet.markers ?? []) {
-      sources.set(marker, snippet.sourcePath);
-    }
-  }
-  return sources;
-}
-
-// ══════════════════════════════════════════════════════════════════════════
 // Gate 1: Every rendered id is declared, generated, and cites a real file
 //
 // The frontend no longer names source files; it names snippet ids. An id the
@@ -467,7 +271,7 @@ function generatedEntries(): Map<string, { sourcePath: string; code: string }> {
   const manifestPath = resolve(websiteRoot, SNIPPET_MANIFEST);
   if (!existsSync(manifestPath)) {
     throw new Error(
-      `${SNIPPET_MANIFEST} is missing — generate it with \`just website-snippets\` before running the gates`,
+      `${SNIPPET_MANIFEST} is missing — generate it with \`just snippets\` before running the gates`,
     );
   }
   const manifest = JSON.parse(readFileSync(manifestPath, "utf-8")) as {
@@ -537,217 +341,6 @@ describe("Gate: every rendered snippet id is declared and generated", () => {
         existsSync(resolve(repoRoot, "gleam.toml")),
         "repo root should contain gleam.toml",
       );
-    });
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════════
-// Gate 2: Marker integrity — unique, well-formed, no orphans
-// ══════════════════════════════════════════════════════════════════════════
-
-describe("Gate: marker integrity", () => {
-  const { byId: allMarkers, diagnostics: markerDiagnostics } = scanAllMarkers();
-  const allRefs = collectMarkerReferences();
-
-  describe("positive — the scan covers every place a marker could be written", () => {
-    it("every scanned directory exists", () => {
-      for (const dir of MARKER_SOURCE_DIRS) {
-        assert.ok(
-          existsSync(resolve(repoRoot, dir)),
-          `MARKER_SOURCE_DIRS names "${dir}", which does not exist — remove it or fix the path`,
-        );
-      }
-    });
-
-    it("the suites are scanned, not just the sources", () => {
-      for (const dir of ["test", "watershed_lustre/test", "examples"]) {
-        assert.ok(
-          MARKER_SOURCE_DIRS.includes(dir),
-          `"${dir}" holds .gleam files a snippet can quote, so it must be scanned for orphan markers`,
-        );
-      }
-    });
-
-    it("no .gleam file in the repo escapes the scan", () => {
-      const scanned = new Set(
-        MARKER_SOURCE_DIRS.flatMap((d) =>
-          findGleamFiles(resolve(repoRoot, d)).map((f) => relative(repoRoot, f)),
-        ),
-      );
-      const unscanned = findRepositoryGleamFiles()
-        .filter((f) => !scanned.has(f))
-        // The compile-fail fixture exists to not compile; it is never quoted.
-        .filter((f) => !f.startsWith("tools/compile-fail/"))
-        // The snippet generator is build tooling, not documentation source.
-        // Its suite writes synthetic marker fixtures that nothing quotes.
-        .filter((f) => !f.startsWith("tools/source-snippets/"));
-
-      assert.deepEqual(
-        unscanned,
-        [],
-        `these .gleam files are outside MARKER_SOURCE_DIRS, so a marker in them would never be seen:\n${unscanned.join("\n")}`,
-      );
-    });
-  });
-
-  describe("positive — no structural marker defects (split-file, reversed)", () => {
-    it("no cross-file or reversed marker diagnostics", () => {
-      assert.deepEqual(
-        markerDiagnostics,
-        [],
-        `marker structural defects:\n${markerDiagnostics.join("\n")}`,
-      );
-    });
-  });
-
-  describe("positive — every marker ID has exactly one start and one end", () => {
-    it("at least one marker exists", () => {
-      assert.ok(allMarkers.size > 0, "no markers found in source");
-    });
-
-    for (const [id, occurrences] of allMarkers) {
-      const totalStarts = occurrences.reduce((s, o) => s + o.startLines.length, 0);
-      const totalEnds = occurrences.reduce((s, o) => s + o.endLines.length, 0);
-      const files = occurrences.map((o) => o.file).join(", ");
-
-      it(`marker "${id}" has exactly one start`, () => {
-        assert.equal(
-          totalStarts,
-          1,
-          `"${id}" has ${totalStarts} start marker(s) in ${files}`,
-        );
-      });
-
-      it(`marker "${id}" has exactly one end`, () => {
-        assert.equal(
-          totalEnds,
-          1,
-          `"${id}" has ${totalEnds} end marker(s) in ${files}`,
-        );
-      });
-    }
-  });
-
-  describe("positive — every referenced marker exists in source", () => {
-    // The Gleam scan covers .gleam files only. One marker lives in a
-    // JavaScript FFI module, so it is checked against its own source.
-    const markerSources = configuredMarkerSources();
-
-    for (const id of allRefs) {
-      const configured = markerSources.get(id);
-      if (configured !== undefined && !configured.endsWith(".gleam")) {
-        it(`referenced marker "${id}" exists in ${configured}`, () => {
-          const content = readFileSync(resolve(repoRoot, configured), "utf-8");
-          const { starts, ends } = parseMarkers(content);
-          assert.equal(
-            starts.get(id)?.length,
-            1,
-            `marker "${id}" needs exactly one start in ${configured}`,
-          );
-          assert.equal(
-            ends.get(id)?.length,
-            1,
-            `marker "${id}" needs exactly one end in ${configured}`,
-          );
-        });
-        continue;
-      }
-
-      it(`referenced marker "${id}" exists in Gleam source`, () => {
-        assert.ok(
-          allMarkers.has(id),
-          `marker "${id}" is referenced by a descriptor but not found in any .gleam source`,
-        );
-      });
-    }
-  });
-
-  describe("positive — no orphan markers in source", () => {
-    for (const [id] of allMarkers) {
-      it(`marker "${id}" is referenced by a descriptor file`, () => {
-        assert.ok(
-          allRefs.has(id),
-          `marker "${id}" exists in source but is not referenced by any descriptor file — remove it or add a reference`,
-        );
-      });
-    }
-  });
-
-  describe("negative — detects malformed markers", () => {
-    it("catches duplicate start markers", () => {
-      const content = [
-        "// docs:snippet-start test-dup",
-        "let a = 1",
-        "// docs:snippet-start test-dup",
-        "let b = 2",
-        "// docs:snippet-end test-dup",
-      ].join("\n");
-      const { starts } = parseMarkers(content);
-      assert.equal(starts.get("test-dup")?.length, 2, "should detect 2 starts");
-    });
-
-    it("catches duplicate end markers", () => {
-      const content = [
-        "// docs:snippet-start test-dup-end",
-        "let a = 1",
-        "// docs:snippet-end test-dup-end",
-        "// docs:snippet-end test-dup-end",
-      ].join("\n");
-      const { ends } = parseMarkers(content);
-      assert.equal(ends.get("test-dup-end")?.length, 2, "should detect 2 ends");
-    });
-
-    it("catches missing end marker", () => {
-      const content = [
-        "// docs:snippet-start orphan-start",
-        "let a = 1",
-      ].join("\n");
-      const { starts, ends } = parseMarkers(content);
-      assert.equal(starts.get("orphan-start")?.length, 1);
-      assert.ok(!ends.has("orphan-start"), "should have no end marker");
-    });
-
-    it("catches missing start marker", () => {
-      const content = [
-        "let a = 1",
-        "// docs:snippet-end orphan-end",
-      ].join("\n");
-      const { starts, ends } = parseMarkers(content);
-      assert.ok(!starts.has("orphan-end"), "should have no start marker");
-      assert.equal(ends.get("orphan-end")?.length, 1);
-    });
-
-    it("detects start/end split across files", () => {
-      // Simulate: file-a.gleam has start only, file-b.gleam has end only
-      const byId = new Map<string, MarkerOccurrence[]>();
-      byId.set("split-id", [
-        { file: "file-a.gleam", startLines: [5], endLines: [] },
-        { file: "file-b.gleam", startLines: [], endLines: [10] },
-      ]);
-      // Run the same validation logic manually
-      const occ = byId.get("split-id")!;
-      const filesWithStarts = occ.filter((o) => o.startLines.length > 0).map((o) => o.file);
-      const filesWithEnds = occ.filter((o) => o.endLines.length > 0).map((o) => o.file);
-      const startFileSet = new Set(filesWithStarts);
-      const endFileSet = new Set(filesWithEnds);
-      const startOnly = filesWithStarts.filter((f) => !endFileSet.has(f));
-      const endOnly = filesWithEnds.filter((f) => !startFileSet.has(f));
-      assert.ok(startOnly.length > 0, "should detect start in file without end");
-      assert.ok(endOnly.length > 0, "should detect end in file without start");
-    });
-
-    it("detects end-before-start (reversed pair)", () => {
-      const content = [
-        "// docs:snippet-end reversed-id",
-        "let a = 1",
-        "// docs:snippet-start reversed-id",
-      ].join("\n");
-      const { starts, ends } = parseMarkers(content);
-      const startLines = starts.get("reversed-id") ?? [];
-      const endLines = ends.get("reversed-id") ?? [];
-      assert.equal(startLines.length, 1);
-      assert.equal(endLines.length, 1);
-      assert.ok(endLines[0] < startLines[0], "end should be before start");
     });
   });
 });

@@ -4,7 +4,7 @@
 // needs.
 //
 // The website prebuild runs `tools/source-snippets`, an Erlang-target Gleam
-// CLI, via `pnpm snippets`. Netlify's build image ships neither `escript`
+// CLI, via `pnpm generate:snippets`. Netlify's build image ships neither `escript`
 // nor `erlc`, so the deploy must install them explicitly. This test verifies
 // the three-file contract that makes that work:
 //

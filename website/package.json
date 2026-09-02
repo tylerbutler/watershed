@@ -4,10 +4,10 @@
   "type": "module",
   "packageManager": "pnpm@11.13.1",
   "scripts": {
-    "snippets": "cd ../tools/source-snippets && gleam run -m source_snippets/cli -- ../../website/snippets.json ../../website/src/generated/snippets.json",
-    "predev": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript && cd ../website && pnpm snippets",
+    "generate:snippets": "cd ../tools/source-snippets && gleam run -m source_snippets/cli -- ../../website/snippets.json ../../website/src/generated/snippets.json",
+    "predev": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript && cd ../website && pnpm generate:snippets",
     "dev": "astro dev",
-    "prebuild": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript && cd ../website && pnpm snippets && node --strip-types --test src/data/drift-gates.test.ts && node --strip-types --test src/data/copy-gates.test.ts",
+    "prebuild": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript && cd ../website && pnpm generate:snippets && node --strip-types --test src/data/drift-gates.test.ts && node --strip-types --test src/data/copy-gates.test.ts",
     "build": "astro build",
     "preview": "astro preview",
     "og:image": "node scripts/og-image.mjs",
@@ -21,7 +21,8 @@
     "test:copy-gates": "node --strip-types --test src/data/copy-gates.test.ts",
     "test:global-styles": "node --test src/styles/global.test.mjs",
     "test:guide-race-styles": "node scripts/check-guide-race-styles.mjs",
-    "test:netlify-contract": "node scripts/netlify-erlang-contract.test.mjs"
+    "test:netlify-contract": "node scripts/netlify-erlang-contract.test.mjs",
+    "test:snippet-config": "node scripts/snippet-config.test.mjs"
   },
   "dependencies": {
     "@fontsource-variable/archivo": "^5.2.8",

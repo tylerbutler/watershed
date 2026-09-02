@@ -7,7 +7,7 @@
 // prove the two agree, and that the ranges the sheets quote still hold the
 // code the prose talks about.
 //
-// Generate the manifest first: `just website-snippets`.
+// Generate the manifest first: `just snippets`.
 // Run: node --strip-types --test src/lib/snippet-manifest.test.ts
 // ──────────────────────────────────────────────────────────────────────────
 import { describe, it } from "node:test";

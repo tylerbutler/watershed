@@ -77,16 +77,18 @@ _test-compile-fail:
 # the website package, and the global-stylesheet test that keeps the
 # source-path chip keyboard-focusable — a snippet's citation is a link, so
 # losing its focus ring is a drift of the same system.
-_test-website-snippets: website-snippets
-    cd website && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles && pnpm test:netlify-contract
+_test-website-snippets: snippets
+    cd website && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles && pnpm test:netlify-contract && pnpm test:snippet-config
 
 # Generate the website's snippet manifest from `website/snippets.json`.
 # The output, `website/src/generated/snippets.json`, is ignored rather than
 # committed: it is derived from the marked sources and the configuration, so
 # a checked-in copy could only ever disagree with them. `pnpm build` and
 # `pnpm dev` run this too, so the website never reads a stale manifest.
-website-snippets:
+snippets:
     cd tools/source-snippets && gleam run -m source_snippets/cli -- ../../website/snippets.json ../../website/src/generated/snippets.json
+
+alias website-snippets := snippets
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by

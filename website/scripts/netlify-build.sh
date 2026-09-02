@@ -5,7 +5,7 @@
 #
 # `pnpm build` triggers the `prebuild` hook, which:
 #   1. Compiles the Gleam kernel to JavaScript for the live demo.
-#   2. Generates the source-snippet manifest (`pnpm snippets`) by running
+#   2. Generates the source-snippet manifest (`pnpm generate:snippets`) by running
 #      tools/source-snippets — an Erlang-target Gleam CLI that needs
 #      escript and erlc.
 set -euo pipefail
