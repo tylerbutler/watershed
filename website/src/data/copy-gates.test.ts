@@ -38,11 +38,11 @@ function collectFiles(dir: string, ext: string): string[] {
 }
 
 /**
- * Strip non-prose regions from an Astro file so banlist/volatile checks
- * only match authored HTML prose, not frontmatter code, CSS comments,
- * script internals, or HTML code comments.
+ * Everything that is not authored body copy: frontmatter (which holds the
+ * code samples and every import), style and script blocks, and comments of
+ * all three kinds. What is left is what the page renders.
  */
-function extractProse(content: string): string {
+function stripNonProse(content: string): string {
   // Remove frontmatter (--- ... ---)
   const fmMatch = content.match(/^---\n[\s\S]*?\n---\n/);
   let prose = fmMatch ? content.slice(fmMatch[0].length) : content;
@@ -57,10 +57,35 @@ function extractProse(content: string): string {
   prose = prose.replace(/\/\*[\s\S]*?\*\//g, "");
   // Remove JS single-line comments (lines starting with //)
   prose = prose.replace(/^\s*\/\/.*$/gm, "");
-  // Remove content inside <code> tags (inline code references are not prose)
-  prose = prose.replace(/<code>[\s\S]*?<\/code>/gi, "");
 
   return prose;
+}
+
+/**
+ * Prose for the banlist gate: inline <code> is dropped as well.
+ *
+ * A banlisted word inside <code> is an API name, not a stylistic choice —
+ * `seam` in `fn seam(` is the function's name, and renaming Gleam to suit a
+ * prose banlist is not a copy fix. Mechanics stay out of scope here.
+ */
+function extractProse(content: string): string {
+  // Remove content inside <code> tags (inline code references are not prose)
+  return stripNonProse(content).replace(/<code>[\s\S]*?<\/code>/gi, "");
+}
+
+/**
+ * Prose for the volatile-count gate: inline <code> keeps its text.
+ *
+ * A number inside <code> is on the page like any other word. The regression
+ * this gate exists to stop was written `<code>10 passed, no failures</code>`,
+ * so a gate that strips <code> could never have caught it — the rule read
+ * green while matching nothing. Counts are copy wherever they are typeset.
+ */
+function extractVisibleProse(content: string): string {
+  return stripNonProse(content).replace(
+    /<code>([\s\S]*?)<\/code>/gi,
+    (_, inner) => inner,
+  );
 }
 
 /**
@@ -130,7 +155,7 @@ describe("Gate: no stale volatile counts", () => {
   for (const file of allAstroFiles) {
     const rel = relative(websiteRoot, file);
     const content = readFileSync(file, "utf-8");
-    const prose = extractProse(content);
+    const prose = extractVisibleProse(content);
 
     for (const { pattern, label } of stalePatterns) {
       it(`${rel}: no ${label}`, () => {
@@ -143,6 +168,57 @@ describe("Gate: no stale volatile counts", () => {
       });
     }
   }
+
+  // ── The rule that was dead ───────────────────────────────────────────────
+  // guide/testing.astro read "get <code>10 passed, no failures</code> in about
+  // a second" until a0cdc15. Reinstate that exact sentence and the gate must
+  // fire; strip <code> first and it cannot.
+  describe("negative — the historical phrasing is caught", () => {
+    const HISTORICAL = [
+      "---",
+      "const x = 1;",
+      "---",
+      "<div class=\"g-out\">",
+      "  <p>",
+      "    Run <code>gleam test</code> and get <code>10 passed, no failures</code> in",
+      "    about a second.",
+      "  </p>",
+      "</div>",
+    ].join("\n");
+
+    const rule = stalePatterns.find((p) =>
+      p.label.includes("10 passed, no failures"),
+    )!;
+
+    it("fires on the exact sentence that regressed", () => {
+      assert.match(extractVisibleProse(HISTORICAL), rule.pattern);
+    });
+
+    it("would not have fired with <code> stripped — why the gate reads visible prose", () => {
+      assert.doesNotMatch(extractProse(HISTORICAL), rule.pattern);
+    });
+
+    it("still fires when the count is plain prose, outside <code>", () => {
+      const plain = "<p>You get 10 passed, no failures in about a second.</p>";
+      assert.match(extractVisibleProse(plain), rule.pattern);
+    });
+
+    it("keeps ignoring frontmatter, scripts, styles, and comments", () => {
+      const hidden = [
+        "---",
+        "const banner = `10 passed, no failures`;",
+        "---",
+        "<!-- 105 test files -->",
+        "<script>const s = '1,392 test functions';</script>",
+        "<style>/* 105 test files */</style>",
+        "<p>A clean pass.</p>",
+      ].join("\n");
+      const visible = extractVisibleProse(hidden);
+      for (const { pattern } of stalePatterns) {
+        assert.doesNotMatch(visible, pattern);
+      }
+    });
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════════════

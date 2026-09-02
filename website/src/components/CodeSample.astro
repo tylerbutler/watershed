@@ -1,6 +1,5 @@
 ---
-import { Code } from "astro:components";
-import { watershedCodeTheme } from "../styles/code-theme";
+import SnippetBlock from "./SnippetBlock.astro";
 import { standaloneSnippets } from "../data/standalone-snippets.ts";
 
 const sample = standaloneSnippets["homepage-beam"];
@@ -11,16 +10,20 @@ const sample = standaloneSnippets["homepage-beam"];
     <div class="code-prose">
       <h2 id="code-title">A map over one sequenced stream</h2>
       <p>
-        <code>SharedMap</code> exposes familiar operations: <code>set</code>,
-        <code>get</code>, <code>subscribe</code>. There is no merge callback to
-        install: local writes apply optimistically, the server assigns their
-        sequence numbers, and the highest-sequenced write wins per key.
+        <code>connect</code> hands back a document, <code>root</code> hands back
+        its <code>SharedMap</code>, and <code>subscribe</code> hands back a
+        stream of changes to select on. Below is that whole opening move from
+        the dice CLI — connect, take the root, subscribe, print the entries
+        already there, then loop. No merge callback appears anywhere in it,
+        because there is none to install: the server sequences every write, and
+        the highest-sequenced write wins per key.
       </p>
       <p>
         The same core runs on the Erlang target as an OTP actor and on the
         JavaScript target inside a Lustre single-page app. The facades differ
         at the edge: <code>watershed_beam</code> blocks and returns a{" "}
-        <code>Subject</code>, while <code>watershed</code> uses callbacks. See{" "}
+        <code>Subject</code>, as it does here, while <code>watershed</code> uses
+        callbacks. See{" "}
         <a href="https://github.com/tylerbutler/watershed/tree/main/examples"
           >the examples</a
         > for both, verified converging against a live floodgate sequencer.
@@ -31,10 +34,11 @@ const sample = standaloneSnippets["homepage-beam"];
         >
       </p>
     </div>
-    <figure class="code-figure" data-reveal="rise">
-      <Code code={sample.code} lang={sample.language} theme={watershedCodeTheme} />
-      <figcaption class="annot">examples/dice_cli · erlang target</figcaption>
-    </figure>
+    <div class="code-figure" data-reveal="rise">
+      <SnippetBlock snippet={sample}>
+        <figcaption slot="caption" class="annot">erlang target</figcaption>
+      </SnippetBlock>
+    </div>
   </div>
 </section>
 
@@ -89,8 +93,37 @@ const sample = standaloneSnippets["homepage-beam"];
     border-bottom-color: var(--overprint-deep);
   }
 
+  /* The figure and its file chip come from SnippetBlock, so they carry that
+     component's scope, not this one's: `:global()` is how a parent reaches
+     them. The homepage is not a `.doc-body`, so the shared `.g-*` grammar in
+     global.css does not apply here either — these rules are the survey-sheet
+     look, restated for the landing page. */
   .code-figure {
     margin: var(--space-xl) 0 0;
+    min-width: 0;
+  }
+
+  .code-figure :global(.g-file) {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.5rem;
+    margin-bottom: var(--space-sm);
+    padding: 0.28rem 0.6rem;
+    border: 1px solid var(--hairline);
+    background: var(--surface);
+    font-family: var(--font-mono);
+    font-size: var(--text-annot);
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  .code-figure :global(.g-file::before) {
+    content: "▸";
+    color: var(--overprint);
+  }
+
+  .code-figure :global(.g-code) {
+    margin: 0;
     min-width: 0;
   }
 
@@ -103,9 +136,8 @@ const sample = standaloneSnippets["homepage-beam"];
     line-height: 1.7;
   }
 
-  figcaption {
+  .code-figure :global(figcaption) {
     margin-top: var(--space-sm);
     text-align: right;
   }
-
 </style>

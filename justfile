@@ -71,10 +71,13 @@ _test-compile-fail:
 
 # Source-backed snippet drift gates — the website test suite that enforces
 # source paths exist, marker IDs are unique and referenced, literal Gleam is
-# allowlisted, and registries are source-backed. Runs the drift gate suite
-# plus every targeted snippet test from the website package.
+# allowlisted, only SnippetBlock renders code, and registries are
+# source-backed. Runs the drift gate suite plus every targeted snippet test
+# from the website package, and the global-stylesheet test that keeps the
+# source-path chip keyboard-focusable — a snippet's citation is a link, so
+# losing its focus ring is a drift of the same system.
 _test-website-snippets:
-    cd website && pnpm test:snippet && pnpm test:snippet-markers && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates
+    cd website && pnpm test:snippet && pnpm test:snippet-markers && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
@@ -233,13 +236,17 @@ p2p-up-relay:
 p2p-down:
     docker compose -f docker-compose.p2p.yml --profile relay down
 
-# Format code
+# Format code. `trellis run` fans `gleam format` across every member, so the
+# examples and the website fixture under tools/ are formatted by the same
+# command as the root package rather than only when someone remembers to cd.
 format:
-    gleam format
+    trellis run format
 
-# Run linter
+# Run linter — the same fan-out, in check mode. A member left unformatted
+# fails here, which is how `tools/website-samples` is kept honest: the website
+# quotes its source verbatim, so its formatting is published prose.
 lint:
-    gleam format --check
+    trellis run format --check
 
 # Remove build artifacts, in every member rather than just the root package
 clean:

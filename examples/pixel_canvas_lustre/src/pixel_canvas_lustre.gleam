@@ -132,6 +132,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
 
     // docs:snippet-start practice-ffi-connected
+    // `root_typed` is the line that makes this the standalone app rather than a
+    // panel: it is the only place the document's root is named.
     Connected(Ok(_)) ->
       case model.document {
         None -> #(Model(..model, status: Ready), effect.none())

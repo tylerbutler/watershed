@@ -18,6 +18,7 @@
     "test:standalone-snippets": "node --strip-types --test src/data/standalone-snippets.test.ts",
     "test:drift-gates": "node --strip-types --test src/data/drift-gates.test.ts",
     "test:copy-gates": "node --strip-types --test src/data/copy-gates.test.ts",
+    "test:global-styles": "node --test src/styles/global.test.mjs",
     "test:guide-race-styles": "node scripts/check-guide-race-styles.mjs"
   },
   "dependencies": {

@@ -5,6 +5,7 @@
 // definition or marker it names is missing or stale.
 // ──────────────────────────────────────────────────────────────────────────
 import {
+  combineSnippets,
   snippetFromDefinition,
   snippetFromMarker,
   type Snippet,
@@ -55,7 +56,7 @@ const paths = {
 /** Every practice snippet, keyed by practice id. */
 export const practiceSnippets: Record<string, Snippet> = {
   // ── relay-decorator: config block (marker) + fn with_relay (definition) ──
-  "relay-decorator": combine(
+  "relay-decorator": combineSnippets(
     snippetFromMarker(clapCounterSource, paths.clapCounter, "gleam", "practice-relay-config"),
     snippetFromDefinition(clapCounterSource, paths.clapCounter, "gleam", "fn with_relay("),
     paths.clapCounter,
@@ -105,7 +106,7 @@ export const practiceSnippets: Record<string, Snippet> = {
   ),
 
   // ── fallible-edits: MoveDownClicked arm (marker) + fn mutate + fn record ─
-  "fallible-edits": combine(
+  "fallible-edits": combineSnippets(
     snippetFromMarker(playlistComponentSource, paths.playlistComponent, "gleam", "practice-fallible-move"),
     snippetFromDefinition(playlistComponentSource, paths.playlistComponent, "gleam", "fn mutate(", "fn record("),
     paths.playlistComponent,
@@ -137,7 +138,7 @@ export const practiceSnippets: Record<string, Snippet> = {
   ),
 
   // ── unsettled-writes: two markers joined with editorial glue ─────────────
-  "unsettled-writes": combine(
+  "unsettled-writes": combineSnippets(
     snippetFromMarker(tournamentSource, paths.tournament, "gleam", "practice-unsettled-report"),
     snippetFromMarker(tournamentSource, paths.tournament, "gleam", "practice-unsettled-atomic"),
     paths.tournament,
@@ -150,23 +151,3 @@ export const practiceSnippets: Record<string, Snippet> = {
     "pub fn held_job_returns_to_queue_when_holder_disconnects_test(",
   ),
 };
-
-// ── Helpers ────────────────────────────────────────────────────────────────
-
-/**
- * Join two snippet extractions into one descriptor. The first snippet's
- * origin is preserved; the second is appended with a separator.
- */
-function combine(
-  first: Snippet,
-  second: Snippet,
-  sourcePath: string,
-  separator = "\n\n",
-): Snippet {
-  return {
-    code: first.code + separator + second.code,
-    language: first.language,
-    sourcePath,
-    origin: first.origin,
-  };
-}

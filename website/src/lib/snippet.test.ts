@@ -7,7 +7,6 @@ import {
   snippetFromMarker,
   snippetFromLiteral,
 } from "./snippet.ts";
-import { excerpt } from "./excerpt.ts";
 
 // ── snippetFromDefinition ─────────────────────────────────────────────────
 
@@ -213,15 +212,6 @@ test("rejects an empty marker range", () => {
     () => snippetFromMarker(source, "src/main.gleam", "gleam", "empty"),
     /empty range/,
   );
-});
-
-// ── excerpt() compatibility wrapper ──────────────────────────────────────
-
-test("excerpt() returns the same code as snippetFromDefinition()", () => {
-  const source = "pub fn foo() {\n  1\n}\n";
-  const viaExcerpt = excerpt(source, "pub fn foo(");
-  const viaSnippet = snippetFromDefinition(source, "", "gleam", "pub fn foo(").code;
-  assert.equal(viaExcerpt, viaSnippet);
 });
 
 // ── sourceUrl field ───────────────────────────────────────────────────────

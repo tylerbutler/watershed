@@ -1,8 +1,7 @@
 ---
-import { Code } from "astro:components";
 import Sheet from "../layouts/Sheet.astro";
+import SnippetBlock from "../components/SnippetBlock.astro";
 import Ecosystem from "../components/Ecosystem.astro";
-import { watershedCodeTheme } from "../styles/code-theme";
 import {
   standaloneSnippets,
   sharedtreeTypeScriptSnippets,
@@ -168,14 +167,20 @@ const rows = [
         > covers that phantom tag, and the three kinds of field, in full.
       </p>
       <div class="st-pair">
-        <figure class="g-code">
-          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code code={tsDeclare.code} lang="typescript" theme={watershedCodeTheme} />
-        </figure>
-        <figure class="g-code">
-          <figcaption class="annot">watershed · src/document_schema.gleam</figcaption>
-          <Code code={gleamDeclare.code} lang="gleam" theme={watershedCodeTheme} />
-        </figure>
+        <div class="st-col">
+          <SnippetBlock snippet={tsDeclare}>
+            <figcaption slot="caption" class="annot"
+              >Fluid SharedTree · TypeScript</figcaption
+            >
+          </SnippetBlock>
+        </div>
+        <div class="st-col">
+          <SnippetBlock snippet={gleamDeclare}>
+            <figcaption slot="caption" class="annot"
+              >watershed · Gleam</figcaption
+            >
+          </SnippetBlock>
+        </div>
       </div>
     </div>
 
@@ -196,14 +201,20 @@ const rows = [
         > walks through that whole bootstrap in order.
       </p>
       <div class="st-pair">
-        <figure class="g-code">
-          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code code={tsRoot.code} lang="typescript" theme={watershedCodeTheme} />
-        </figure>
-        <figure class="g-code">
-          <figcaption class="annot">watershed · Lustre effects</figcaption>
-          <Code code={gleamRoot.code} lang="gleam" theme={watershedCodeTheme} />
-        </figure>
+        <div class="st-col">
+          <SnippetBlock snippet={tsRoot}>
+            <figcaption slot="caption" class="annot"
+              >Fluid SharedTree · TypeScript</figcaption
+            >
+          </SnippetBlock>
+        </div>
+        <div class="st-col">
+          <SnippetBlock snippet={gleamRoot}>
+            <figcaption slot="caption" class="annot"
+              >watershed · Gleam, in a Lustre effect</figcaption
+            >
+          </SnippetBlock>
+        </div>
       </div>
       <div class="g-note">
         <p>
@@ -218,7 +229,8 @@ const rows = [
     <div class="g-block">
       <h2>3 · Reading and writing a field</h2>
       <p>
-        This is the whole argument in eight lines. <code>board.title</code> is a
+        This pair is the whole argument, and it is short.
+        <code>board.title</code> is a
         <code>string</code>, and under a stored schema it cannot be anything
         else, so the read needs no error arm. watershed cannot promise that, so
         it does not pretend to: <code>get_field</code> returns
@@ -227,22 +239,20 @@ const rows = [
         discovering it later as corrupted state.
       </p>
       <div class="st-pair">
-        <figure class="g-code">
-          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code
-            code={tsReadWrite.code}
-            lang="typescript"
-            theme={watershedCodeTheme}
-          />
-        </figure>
-        <figure class="g-code">
-          <figcaption class="annot">watershed · Gleam</figcaption>
-          <Code
-            code={gleamReadWrite.code}
-            lang="gleam"
-            theme={watershedCodeTheme}
-          />
-        </figure>
+        <div class="st-col">
+          <SnippetBlock snippet={tsReadWrite}>
+            <figcaption slot="caption" class="annot"
+              >Fluid SharedTree · TypeScript</figcaption
+            >
+          </SnippetBlock>
+        </div>
+        <div class="st-col">
+          <SnippetBlock snippet={gleamReadWrite}>
+            <figcaption slot="caption" class="annot"
+              >watershed · Gleam</figcaption
+            >
+          </SnippetBlock>
+        </div>
       </div>
       <p>
         Whether that <code>Error</code> arm is a tax or a feature depends on
@@ -266,14 +276,20 @@ const rows = [
         without you repeating the key names a third time.
       </p>
       <div class="st-pair">
-        <figure class="g-code">
-          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code code={tsRecord.code} lang="typescript" theme={watershedCodeTheme} />
-        </figure>
-        <figure class="g-code">
-          <figcaption class="annot">watershed · Gleam</figcaption>
-          <Code code={gleamRecord.code} lang="gleam" theme={watershedCodeTheme} />
-        </figure>
+        <div class="st-col">
+          <SnippetBlock snippet={tsRecord}>
+            <figcaption slot="caption" class="annot"
+              >Fluid SharedTree · TypeScript</figcaption
+            >
+          </SnippetBlock>
+        </div>
+        <div class="st-col">
+          <SnippetBlock snippet={gleamRecord}>
+            <figcaption slot="caption" class="annot"
+              >watershed · Gleam</figcaption
+            >
+          </SnippetBlock>
+        </div>
       </div>
       <div class="g-note">
         <p>
@@ -308,16 +324,20 @@ const rows = [
         comparison.
       </p>
       <div class="st-pair">
-        <figure class="g-code">
-          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code code={tsNest.code} lang="typescript" theme={watershedCodeTheme} />
-        </figure>
-        <figure class="g-code">
-          <figcaption class="annot"
-            >watershed · sudoku_lustre/document_schema.gleam</figcaption
-          >
-          <Code code={gleamNest.code} lang="gleam" theme={watershedCodeTheme} />
-        </figure>
+        <div class="st-col">
+          <SnippetBlock snippet={tsNest}>
+            <figcaption slot="caption" class="annot"
+              >Fluid SharedTree · TypeScript</figcaption
+            >
+          </SnippetBlock>
+        </div>
+        <div class="st-col">
+          <SnippetBlock snippet={gleamNest}>
+            <figcaption slot="caption" class="annot"
+              >watershed · Gleam</figcaption
+            >
+          </SnippetBlock>
+        </div>
       </div>
       <p>
         So watershed makes you choose, and in exchange lets you choose right:
@@ -361,21 +381,28 @@ const rows = [
         until it does not.
       </p>
       <div class="st-pair">
-        <figure class="g-code">
-          <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-          <Code code={tsEvents.code} lang="typescript" theme={watershedCodeTheme} />
-        </figure>
-        <figure class="g-code">
-          <figcaption class="annot">watershed · Gleam</figcaption>
-          <Code code={gleamEvents.code} lang="gleam" theme={watershedCodeTheme} />
-        </figure>
+        <div class="st-col">
+          <SnippetBlock snippet={tsEvents}>
+            <figcaption slot="caption" class="annot"
+              >Fluid SharedTree · TypeScript</figcaption
+            >
+          </SnippetBlock>
+        </div>
+        <div class="st-col">
+          <SnippetBlock snippet={gleamEvents}>
+            <figcaption slot="caption" class="annot"
+              >watershed · Gleam</figcaption
+            >
+          </SnippetBlock>
+        </div>
       </div>
-      <figure class="g-code">
-        <figcaption class="annot"
-          >watershed · sudoku_lustre, narrowed per-kind subscriptions</figcaption
-        >
-        <Code code={gleamPerKind.code} lang="gleam" theme={watershedCodeTheme} />
-      </figure>
+      <div class="st-solo">
+        <SnippetBlock snippet={gleamPerKind}>
+          <figcaption slot="caption" class="annot"
+            >watershed · Gleam, narrowed per-kind subscriptions</figcaption
+          >
+        </SnippetBlock>
+      </div>
     </div>
 
     <div class="g-block" id="gaps">
@@ -387,10 +414,13 @@ const rows = [
         has ops over independent channels and a client-side decoder, so it has
         none of them.
       </p>
-      <figure class="g-code">
-        <figcaption class="annot">Fluid SharedTree · TypeScript</figcaption>
-        <Code code={tsGaps.code} lang="typescript" theme={watershedCodeTheme} />
-      </figure>
+      <div class="st-solo">
+        <SnippetBlock snippet={tsGaps}>
+          <figcaption slot="caption" class="annot"
+            >Fluid SharedTree · TypeScript</figcaption
+          >
+        </SnippetBlock>
+      </div>
       <ul>
         <li>
           <strong>Transactions.</strong> watershed writes per-key ops, so peers
@@ -564,6 +594,13 @@ const rows = [
     align-items: start;
   }
 
+  /* One column is one SnippetBlock, which renders two siblings — the source
+     chip and the figure. They are wrapped so the grid sees one item per side
+     rather than four items in two rows. */
+  .st-col {
+    min-width: 0;
+  }
+
   /* Two columns of code do not fit the 68rem reading measure — at that width
      every pair scrolls sideways to be read, which defeats the comparison. So
      the pairs alone break out of the column, symmetrically, once the viewport
@@ -577,31 +614,44 @@ const rows = [
   }
 
   /* Set against the widened column this lands ~75 characters per line, which
-     is what the snippets are hand-wrapped to. */
-  .doc-body .st-pair .g-code :global(pre) {
+     is what the snippets are hand-wrapped to. The figure comes from
+     SnippetBlock and carries that component's scope, so a parent reaches it
+     with `:global()`. */
+  .st-pair :global(.g-code pre) {
     font-size: 0.765rem;
+  }
+
+  /* The source chip leads each block. In a pair it sits directly above the
+     column label, so it loses the reading-column spacing it gets elsewhere. */
+  .st-pair :global(.g-file),
+  .st-solo :global(.g-file) {
+    margin: 0 0 var(--space-sm);
   }
 
   /* The shared .g-code caption sits below its block; in a pair it has to lead,
      because you need to know which side you are reading before you read it. */
-  .st-pair .g-code,
-  .doc-body .st-pair .g-code {
+  .st-pair :global(.g-code) {
     margin-top: 0;
     min-width: 0;
     display: flex;
     flex-direction: column;
   }
 
-  .doc-body .st-pair .g-code figcaption,
-  .doc-body > .g-block > .g-code figcaption {
+  .st-pair :global(.g-code figcaption),
+  .st-solo :global(.g-code figcaption) {
     order: -1;
     margin: 0 0 var(--space-sm);
     text-align: left;
   }
 
-  .doc-body > .g-block > .g-code {
+  .st-solo :global(.g-code) {
+    margin-top: 0;
     display: flex;
     flex-direction: column;
+  }
+
+  .st-solo {
+    margin-top: var(--space-lg);
   }
 
   @media (max-width: 860px) {

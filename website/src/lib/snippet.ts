@@ -23,7 +23,8 @@ export interface Snippet {
 export type SnippetOrigin =
   | { kind: "definition"; heads: string[] }
   | { kind: "marker"; name: string }
-  | { kind: "literal" };
+  | { kind: "literal" }
+  | { kind: "composite"; parts: SnippetOrigin[] };
 
 const MARKER_START = /^\s*\/\/\s*docs:snippet-start\s+(\S+)\s*$/;
 const MARKER_END = /^\s*\/\/\s*docs:snippet-end\s+(\S+)\s*$/;
@@ -75,6 +76,45 @@ export function snippetFromLiteral(
   sourceUrl?: string,
 ): Snippet {
   return { code, language, sourcePath, sourceUrl, origin: { kind: "literal" } };
+}
+
+/**
+ * Join two extractions from the same file into one snippet.
+ *
+ * The result's origin is a composite that keeps *both* parts, in order.
+ * An earlier version kept only the first part's origin, which made a
+ * two-marker snippet claim single-marker provenance — a gate reading
+ * `origin` then vouched for half the code it was shown. Nothing may
+ * describe a joined snippet by one of its halves.
+ */
+export function combineSnippets(
+  first: Snippet,
+  second: Snippet,
+  sourcePath: string,
+  separator = "\n\n",
+): Snippet {
+  return {
+    code: first.code + separator + second.code,
+    language: first.language,
+    sourcePath,
+    origin: { kind: "composite", parts: [first.origin, second.origin] },
+  };
+}
+
+/**
+ * Every non-composite origin reachable from `origin`, in order.
+ * A composite contributes its parts, recursively; every other kind
+ * contributes itself. Use this rather than `origin.kind` when asking
+ * whether a snippet is source-backed.
+ */
+export function originParts(origin: SnippetOrigin): SnippetOrigin[] {
+  if (origin.kind !== "composite") return [origin];
+  return origin.parts.flatMap(originParts);
+}
+
+/** True when no part of this snippet's origin is a hand-written literal. */
+export function isSourceBacked(snippet: Snippet): boolean {
+  return originParts(snippet.origin).every((o) => o.kind !== "literal");
 }
 
 // ── Definition extraction ──────────────────────────────────────────────────

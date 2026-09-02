@@ -36,11 +36,7 @@ fn bootstrap(
     // seeds a candidate and adopts the handle visible after its own
     // sync — a later concurrent write can still replace the field,
     // so the channel handed back here is not promised to be final.
-    watershed_lustre.ensure_field(
-      root,
-      document_schema.title(),
-      "Sprint board",
-    ),
+    watershed_lustre.ensure_field(root, document_schema.title(), "Sprint board"),
     watershed_lustre.ensure_map(
       document,
       root,
@@ -55,14 +51,13 @@ fn bootstrap(
     ),
   ])
 }
+
 // docs:snippet-end sharedtree-bootstrap
 
 // ── Read / write ──────────────────────────────────────────────────────────────
 
 // docs:snippet-start sharedtree-read-write
-fn read_write_example(
-  root: watershed.TypedMap(document_schema.Board),
-) -> Nil {
+fn read_write_example(root: watershed.TypedMap(document_schema.Board)) -> Nil {
   // Writing is checked at the field — only a String is accepted here.
   watershed.set_field(root, document_schema.title(), "Q3 sprint board")
 
@@ -75,6 +70,7 @@ fn read_write_example(
     Error(_) -> render_header("Untitled board")
   }
 }
+
 // docs:snippet-end sharedtree-read-write
 
 fn render_header(_title: String) -> Nil {
@@ -129,14 +125,13 @@ fn write_card(card: watershed.TypedMap(Card)) -> Result(Nil, Nil) {
   )
   Ok(Nil)
 }
+
 // docs:snippet-end sharedtree-record
 
 // ── Field events ──────────────────────────────────────────────────────────────
 
 // docs:snippet-start sharedtree-events
-fn subscribe_title(
-  root: watershed.TypedMap(document_schema.Board),
-) -> Nil {
+fn subscribe_title(root: watershed.TypedMap(document_schema.Board)) -> Nil {
   // Per field. The change carries the decoded previous value AND the
   // new one, plus whether this client made it — and a peer's
   // type-confused write surfaces here as `Error(Invalid(_))`.
@@ -149,6 +144,7 @@ fn subscribe_title(
     }
   })
 }
+
 // docs:snippet-end sharedtree-events
 
 fn keep_previous_header() -> Nil {

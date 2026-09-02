@@ -7,6 +7,9 @@ import { readFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
+  combineSnippets,
+  isSourceBacked,
+  originParts,
   snippetFromDefinition,
   snippetFromMarker,
   type Snippet,
@@ -69,22 +72,8 @@ function buildSnippets(): Record<string, Snippet> {
     Object.entries(sourcePaths).map(([k, v]) => [k, readSource(v)])
   ) as Record<string, string>;
 
-  function combine(
-    first: Snippet,
-    second: Snippet,
-    path: string,
-    separator = "\n\n",
-  ): Snippet {
-    return {
-      code: first.code + separator + second.code,
-      language: first.language,
-      sourcePath: path,
-      origin: first.origin,
-    };
-  }
-
   return {
-    "relay-decorator": combine(
+    "relay-decorator": combineSnippets(
       snippetFromMarker(src.clapCounter, sourcePaths.clapCounter, "gleam", "practice-relay-config"),
       snippetFromDefinition(src.clapCounter, sourcePaths.clapCounter, "gleam", "fn with_relay("),
       sourcePaths.clapCounter,
@@ -116,7 +105,7 @@ function buildSnippets(): Record<string, Snippet> {
     "ffi-surface": snippetFromMarker(
       src.pixelCanvas, sourcePaths.pixelCanvas, "gleam", "practice-ffi-connected",
     ),
-    "fallible-edits": combine(
+    "fallible-edits": combineSnippets(
       snippetFromMarker(src.playlistComponent, sourcePaths.playlistComponent, "gleam", "practice-fallible-move"),
       snippetFromDefinition(src.playlistComponent, sourcePaths.playlistComponent, "gleam", "fn mutate(", "fn record("),
       sourcePaths.playlistComponent,
@@ -136,7 +125,7 @@ function buildSnippets(): Record<string, Snippet> {
     "anchors-not-offsets": snippetFromDefinition(
       src.textComponent, sourcePaths.textComponent, "gleam", "fn refresh_anchor(",
     ),
-    "unsettled-writes": combine(
+    "unsettled-writes": combineSnippets(
       snippetFromMarker(src.tournament, sourcePaths.tournament, "gleam", "practice-unsettled-report"),
       snippetFromMarker(src.tournament, sourcePaths.tournament, "gleam", "practice-unsettled-atomic"),
       sourcePaths.tournament,
@@ -198,12 +187,66 @@ test("every descriptor has a sourcePath starting with examples/", () => {
 
 test("no descriptor uses literal origin (all must be source-backed)", () => {
   for (const [id, snippet] of Object.entries(snippets)) {
-    assert.notEqual(
-      snippet.origin.kind,
-      "literal",
-      `Practice "${id}" uses literal origin — must be definition or marker`,
+    // originParts flattens a composite, so a joined snippet cannot hide a
+    // literal half behind a non-literal `origin.kind`.
+    assert.ok(
+      isSourceBacked(snippet),
+      `Practice "${id}" has a literal origin part — every part must be a definition or a marker`,
     );
   }
+});
+
+// ── Composite origins name every part they were built from ─────────────────
+
+test("a joined descriptor reports both of its parts, not just the first", () => {
+  for (const id of ["relay-decorator", "fallible-edits", "unsettled-writes"]) {
+    const origin = snippets[id].origin;
+    assert.equal(
+      origin.kind,
+      "composite",
+      `Practice "${id}" joins two extractions, so its origin must be composite`,
+    );
+    assert.equal(
+      originParts(origin).length,
+      2,
+      `Practice "${id}" must report both parts it was built from`,
+    );
+  }
+});
+
+test("combineSnippets keeps both origins, and the code of both", () => {
+  const first = snippetFromMarker(
+    ["// docs:snippet-start a", "let a = 1", "// docs:snippet-end a"].join("\n"),
+    "src/x.gleam", "gleam", "a",
+  );
+  const second = snippetFromDefinition(
+    "pub fn b() {\n  2\n}\n", "src/x.gleam", "gleam", "pub fn b(",
+  );
+  const joined = combineSnippets(first, second, "src/x.gleam");
+
+  assert.deepEqual(originParts(joined.origin), [first.origin, second.origin]);
+  assert.ok(joined.code.includes("let a = 1"));
+  assert.ok(joined.code.includes("pub fn b()"));
+});
+
+test("a composite carrying a literal part is not source-backed", () => {
+  const marker = snippetFromMarker(
+    ["// docs:snippet-start a", "let a = 1", "// docs:snippet-end a"].join("\n"),
+    "src/x.gleam", "gleam", "a",
+  );
+  const literal = {
+    code: "let b = 2",
+    language: "gleam",
+    sourcePath: "src/x.gleam",
+    origin: { kind: "literal" as const },
+  };
+  const joined = combineSnippets(marker, literal, "src/x.gleam");
+
+  assert.equal(joined.origin.kind, "composite");
+  assert.ok(
+    !isSourceBacked(joined),
+    "a composite must not vouch for a literal part by reporting its first origin",
+  );
 });
 
 // ── Language matches the source file extension ─────────────────────────────

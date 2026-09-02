@@ -35,12 +35,19 @@ const LITERAL_GLEAM_ALLOWLIST = new Set([
   "src/pages/runtime/presence.astro", // presence config illustration
 ]);
 
-/** Directories (repo-relative) whose .gleam files may contain doc markers. */
+/** Directories (repo-relative) whose .gleam files may contain doc markers.
+ *  Every directory a marker could be written in belongs here, not only the
+ *  ones a marker is written in today: a directory left out is a place an
+ *  orphan marker can rot unseen. The suites are included because a snippet
+ *  already quotes one (`examples/work_queue_lustre/test/`), so a marker in
+ *  `test/` is a normal thing to write, not a mistake. */
 const MARKER_SOURCE_DIRS = [
   "examples",
   "tools/website-samples",
   "src",
+  "test",
   "watershed_lustre/src",
+  "watershed_lustre/test",
 ];
 
 /** Files that contain snippet descriptors via ?raw imports + extractor calls.
@@ -485,6 +492,45 @@ describe("Gate: marker integrity", () => {
   const { byId: allMarkers, diagnostics: markerDiagnostics } = scanAllMarkers();
   const allRefs = collectMarkerReferences();
 
+  describe("positive — the scan covers every place a marker could be written", () => {
+    it("every scanned directory exists", () => {
+      for (const dir of MARKER_SOURCE_DIRS) {
+        assert.ok(
+          existsSync(resolve(repoRoot, dir)),
+          `MARKER_SOURCE_DIRS names "${dir}", which does not exist — remove it or fix the path`,
+        );
+      }
+    });
+
+    it("the suites are scanned, not just the sources", () => {
+      for (const dir of ["test", "watershed_lustre/test", "examples"]) {
+        assert.ok(
+          MARKER_SOURCE_DIRS.includes(dir),
+          `"${dir}" holds .gleam files a snippet can quote, so it must be scanned for orphan markers`,
+        );
+      }
+    });
+
+    it("no .gleam file in the repo escapes the scan", () => {
+      const scanned = new Set(
+        MARKER_SOURCE_DIRS.flatMap((d) =>
+          findGleamFiles(resolve(repoRoot, d)).map((f) => relative(repoRoot, f)),
+        ),
+      );
+      const unscanned = findGleamFiles(repoRoot)
+        .map((f) => relative(repoRoot, f))
+        .filter((f) => !scanned.has(f))
+        // The compile-fail fixture exists to not compile; it is never quoted.
+        .filter((f) => !f.startsWith("tools/compile-fail/"));
+
+      assert.deepEqual(
+        unscanned,
+        [],
+        `these .gleam files are outside MARKER_SOURCE_DIRS, so a marker in them would never be seen:\n${unscanned.join("\n")}`,
+      );
+    });
+  });
+
   describe("positive — no structural marker defects (split-file, reversed)", () => {
     it("no cross-file or reversed marker diagnostics", () => {
       assert.deepEqual(
@@ -858,4 +904,327 @@ describe("Gate: registry imports match paths objects", () => {
       }
     });
   }
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Gate 8: Only SnippetBlock renders Astro's <Code>
+//
+// The extractor, the registries, and the allowlists above all police the
+// *descriptor*. None of them sees a page that imports Astro's `Code`
+// component and hands it a string. That is the whole policy bypassed in
+// two lines, so it is closed here: one component renders code, and every
+// page reaches it through a Snippet.
+// ══════════════════════════════════════════════════════════════════════════
+
+/** The one module allowed to import and render Astro's `Code`. */
+const CODE_RENDERER = "src/components/SnippetBlock.astro";
+
+/** True when the module imports `Code` from astro:components. */
+function importsAstroCode(source: string): boolean {
+  const re = /import\s*\{([^}]*)\}\s*from\s*["']astro:components["']/g;
+  let m;
+  while ((m = re.exec(source)) !== null) {
+    const named = m[1].split(",").map((s) => s.trim().split(/\s+as\s+/)[0].trim());
+    if (named.includes("Code")) return true;
+  }
+  return false;
+}
+
+/**
+ * True when the module renders `<Code ...>`.
+ *
+ * Case-sensitive and anchored on the tag boundary, so HTML `<code>` and
+ * sibling components like `<CodeSample />` do not trip it.
+ */
+function rendersAstroCode(source: string): boolean {
+  return /<Code(?=[\s/>])/.test(source);
+}
+
+describe("Gate: only SnippetBlock renders Astro <Code>", () => {
+  const modules = findAllAuthoredModules();
+
+  describe("positive — no authored module renders code directly", () => {
+    for (const absModule of modules) {
+      const relModule = relative(websiteRoot, absModule);
+      if (relModule === CODE_RENDERER) continue;
+
+      it(`${relModule}: no direct astro:components Code`, () => {
+        const source = readFileSync(absModule, "utf-8");
+        assert.ok(
+          !importsAstroCode(source),
+          `${relModule} imports Code from astro:components — render through SnippetBlock so the snippet carries its source path`,
+        );
+        assert.ok(
+          !rendersAstroCode(source),
+          `${relModule} renders <Code> directly — render through SnippetBlock so the snippet carries its source path`,
+        );
+      });
+    }
+  });
+
+  describe("positive — SnippetBlock is the renderer, and it takes a Snippet", () => {
+    const source = readFileSync(resolve(websiteRoot, CODE_RENDERER), "utf-8");
+
+    it("SnippetBlock imports and renders Code", () => {
+      assert.ok(importsAstroCode(source), "SnippetBlock must import Code");
+      assert.ok(rendersAstroCode(source), "SnippetBlock must render Code");
+    });
+
+    it("SnippetBlock renders only snippet fields, never a bare string", () => {
+      assert.match(
+        source,
+        /<Code\s+code=\{snippet\.code\}\s+lang=\{snippet\.language\}/,
+        "SnippetBlock must pass snippet.code and snippet.language, so no caller can substitute a literal",
+      );
+    });
+
+    it("SnippetBlock displays the snippet's own sourcePath", () => {
+      assert.ok(
+        source.includes("{snippet.sourcePath}"),
+        "SnippetBlock must render snippet.sourcePath — the label is the citation",
+      );
+    });
+  });
+
+  describe("negative — catches the direct-Code bypass", () => {
+    it("detects a page that renders <Code> with a Gleam literal", () => {
+      const fake = `---
+import { Code } from "astro:components";
+const code = \`pub fn main() { io.println("hi") }\`;
+---
+<Code lang="gleam" code={code} />`;
+      assert.ok(importsAstroCode(fake), "should detect the Code import");
+      assert.ok(rendersAstroCode(fake), "should detect the <Code> element");
+    });
+
+    it("detects <Code> even when the import is aliased", () => {
+      const fake = `import { Code as Highlight } from "astro:components";`;
+      assert.ok(importsAstroCode(fake), "an alias still imports Code");
+    });
+
+    it("detects a self-closed <Code/> with no attributes", () => {
+      assert.ok(rendersAstroCode(`<Code/>`), "should detect bare <Code/>");
+      assert.ok(rendersAstroCode(`<Code>`), "should detect open <Code>");
+    });
+
+    it("does not flag HTML <code> inline elements", () => {
+      const fake = `<p>Call <code>set_field</code> to write.</p>`;
+      assert.ok(!rendersAstroCode(fake), "inline <code> is prose, not a code block");
+    });
+
+    it("does not flag sibling components whose name starts with Code", () => {
+      const fake = `import CodeSample from "../components/CodeSample.astro";\n<CodeSample />`;
+      assert.ok(!rendersAstroCode(fake), "<CodeSample /> is not <Code>");
+      assert.ok(!importsAstroCode(fake), "CodeSample is not an astro:components import");
+    });
+
+    it("does not flag other astro:components imports", () => {
+      const fake = `import { Image } from "astro:components";`;
+      assert.ok(!importsAstroCode(fake), "only Code is restricted");
+    });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Gate 9: Snippets are built by the extractor, never by hand
+//
+// A page can also bypass the policy without touching `Code`: hand-build an
+// object with the Snippet shape, hand it to SnippetBlock, and the code is
+// on the site with a source path that nothing checked. Only the snippet
+// library may construct a Snippet.
+// ══════════════════════════════════════════════════════════════════════════
+
+/** Modules allowed to construct a Snippet-shaped object literal. */
+const SNIPPET_CONSTRUCTORS = ["src/lib/snippet.ts"];
+
+/**
+ * Remove block and line comments.
+ *
+ * Comments are stripped before any brace scan because they are full of
+ * apostrophes and backticks — "the step's sheet", "`:global()`" — and a
+ * scanner that treats those as string delimiters swallows the code after
+ * them. That is not hypothetical: it is how the first version of this gate
+ * missed a rewritten `code:` sitting in plain sight.
+ */
+function stripComments(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "");
+}
+
+/**
+ * Every object literal in the source, as `{ ... }` text.
+ *
+ * Braces are counted, and only template literals are skipped: after comments
+ * are gone, a backtick is a template literal, while an apostrophe is usually
+ * just prose. Quotes are therefore *not* treated as delimiters.
+ */
+function objectLiterals(source: string): string[] {
+  const text = stripComments(source);
+  const len = text.length;
+  const bodies: string[] = [];
+  for (let i = 0; i < len; i += 1) {
+    const ch = text[i];
+    if (ch === "`") { i = skipTemplateLiteral(text, i + 1, len) - 1; continue; }
+    if (ch !== "{") continue;
+
+    let depth = 0;
+    let j = i;
+    for (; j < len; j += 1) {
+      const c = text[j];
+      if (c === "`") { j = skipTemplateLiteral(text, j + 1, len) - 1; continue; }
+      if (c === "{") depth += 1;
+      else if (c === "}") {
+        depth -= 1;
+        if (depth === 0) break;
+      }
+    }
+    bodies.push(text.slice(i, Math.min(j + 1, len)));
+  }
+  return bodies;
+}
+
+/** True when `key` is a property name in this object literal's text. */
+function hasKey(body: string, key: string): boolean {
+  return new RegExp(`(^|[\\s,{])${key}\\s*:`).test(body);
+}
+
+/**
+ * True when the source contains an object literal shaped like a Snippet:
+ * a `code:` and a `language:` key in the same braces, or an inline
+ * `origin: { kind: ... }`. Brace-balanced rather than line-based, so a
+ * multi-line literal is caught too.
+ */
+function hasHandBuiltSnippet(source: string): boolean {
+  for (const body of objectLiterals(source)) {
+    if (hasKey(body, "code") && hasKey(body, "language")) return true;
+    if (/(^|[\s,{])origin\s*:\s*\{\s*kind\s*:/.test(body)) return true;
+  }
+  return false;
+}
+
+/**
+ * Provenance fields: what a Snippet claims about where its code came from.
+ * `sourceUrl` is not one — it is a link to the same file the sourcePath
+ * already names, which is why FieldNotes may add one to a real snippet.
+ */
+const PROVENANCE_KEYS = ["code", "language", "sourcePath", "origin"];
+
+/**
+ * Provenance fields overridden on a cloned snippet, e.g.
+ * `{ ...practice.snippet, code: somethingElse }`. Cloning to *add* a
+ * sourceUrl is the one legitimate override; rewriting the code or the path
+ * it is attributed to is the hand-built descriptor by another route.
+ */
+function findProvenanceOverrides(source: string): string[] {
+  const found: string[] = [];
+  for (const body of objectLiterals(source)) {
+    // Only the clone-and-override shape: `{ ...x, ... }`.
+    if (!/^\{\s*\.\.\./.test(body)) continue;
+    for (const key of PROVENANCE_KEYS) {
+      if (hasKey(body, key)) found.push(key);
+    }
+  }
+  return found;
+}
+
+describe("Gate: snippets are built by the extractor, never by hand", () => {
+  const modules = findAllAuthoredModules();
+
+  describe("positive — no authored module hand-builds a Snippet", () => {
+    for (const absModule of modules) {
+      const relModule = relative(websiteRoot, absModule);
+      if (SNIPPET_CONSTRUCTORS.includes(relModule)) continue;
+
+      it(`${relModule}: no hand-built Snippet object`, () => {
+        const source = readFileSync(absModule, "utf-8");
+        assert.ok(
+          !hasHandBuiltSnippet(source),
+          `${relModule} builds a Snippet-shaped object by hand — use snippetFromDefinition, snippetFromMarker, snippetFromLiteral, or combineSnippets`,
+        );
+      });
+    }
+  });
+
+  describe("positive — no authored module rewrites a snippet's provenance", () => {
+    for (const absModule of modules) {
+      const relModule = relative(websiteRoot, absModule);
+      if (SNIPPET_CONSTRUCTORS.includes(relModule)) continue;
+
+      it(`${relModule}: clones a snippet without rewriting its provenance`, () => {
+        const source = readFileSync(absModule, "utf-8");
+        assert.deepEqual(
+          findProvenanceOverrides(source),
+          [],
+          `${relModule} overrides a provenance field on a cloned snippet — only sourceUrl may be added`,
+        );
+      });
+    }
+  });
+
+  describe("negative — catches a hand-built descriptor", () => {
+    it("detects code rewritten on a cloned snippet", () => {
+      const fake = `const s = { ...practice.snippet, code: "whatever I like" };`;
+      assert.deepEqual(findProvenanceOverrides(fake), ["code"]);
+    });
+
+    it("detects a sourcePath rewritten on a cloned snippet", () => {
+      const fake = `const s = { ...snippet, sourcePath: "examples/not_really.gleam" };`;
+      assert.deepEqual(findProvenanceOverrides(fake), ["sourcePath"]);
+    });
+
+    it("detects an origin rewritten on a cloned snippet", () => {
+      const fake = `const s = { ...snippet, origin: realSnippet.origin };`;
+      assert.deepEqual(findProvenanceOverrides(fake), ["origin"]);
+    });
+
+    it("allows adding a sourceUrl to a real snippet", () => {
+      const fake = `const s = { ...practice.snippet, sourceUrl: practiceSourceUrl(practice) };`;
+      assert.deepEqual(findProvenanceOverrides(fake), []);
+    });
+
+    it("does not flag an unrelated spread that happens to set code", () => {
+      const fake = `const props = { ...rest };\nconst other = { code: 200, status: "ok" };`;
+      assert.deepEqual(findProvenanceOverrides(fake), []);
+    });
+
+
+    it("detects an inline Snippet object passed to SnippetBlock", () => {
+      const fake = `---
+const snippet = {
+  code: \`pub fn main() { io.println("hi") }\`,
+  language: "gleam",
+  sourcePath: "examples/not_really/src/main.gleam",
+  origin: { kind: "marker", name: "invented" },
+};
+---
+<SnippetBlock snippet={snippet} />`;
+      assert.ok(hasHandBuiltSnippet(fake), "should detect the hand-built descriptor");
+    });
+
+    it("detects a hand-built descriptor with only code and language", () => {
+      const fake = `const s = { code: gleamText, language: "gleam" };`;
+      assert.ok(hasHandBuiltSnippet(fake), "code + language is the Snippet shape");
+    });
+
+    it("detects a hand-built origin even without a code key", () => {
+      const fake = `const o = { ...base, origin: { kind: "definition", heads: ["fn x("] } };`;
+      assert.ok(hasHandBuiltSnippet(fake), "an invented origin is a forged citation");
+    });
+
+    it("does not flag an unrelated object with a language key", () => {
+      const fake = `const meta = { language: "gleam", title: "Dice CLI" };`;
+      assert.ok(!hasHandBuiltSnippet(fake), "language alone is not the Snippet shape");
+    });
+
+    it("does not flag prose or a template literal that mentions the keys", () => {
+      const fake = "const doc = `a Snippet has { code: string, language: string }`;";
+      assert.ok(!hasHandBuiltSnippet(fake), "a template literal is text, not a literal object");
+    });
+
+    it("does not flag reading fields off a real snippet", () => {
+      const fake = `const { code, language } = snippet;\nconst c = snippet.code;`;
+      assert.ok(!hasHandBuiltSnippet(fake), "destructuring is not construction");
+    });
+  });
 });
