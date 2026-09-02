@@ -15,6 +15,7 @@
     "test:snippet": "node --strip-types --test src/lib/snippet.test.ts",
     "test:snippet-markers": "node --strip-types --test src/lib/snippet-markers.test.ts",
     "test:practice-snippets": "node --strip-types --test src/data/practice-snippets.test.ts",
+    "test:guide-snippets": "node --strip-types --test src/data/guide-snippets.test.ts",
     "test:standalone-snippets": "node --strip-types --test src/data/standalone-snippets.test.ts",
     "test:drift-gates": "node --strip-types --test src/data/drift-gates.test.ts",
     "test:copy-gates": "node --strip-types --test src/data/copy-gates.test.ts",

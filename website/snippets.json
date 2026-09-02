@@ -263,6 +263,12 @@
       ]
     },
     {
+      "id": "guide-connect-schema",
+      "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam",
+      "language": "gleam",
+      "wholeFile": true
+    },
+    {
       "id": "guide-notes-add-clicked",
       "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
       "language": "gleam",

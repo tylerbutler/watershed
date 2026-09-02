@@ -2,9 +2,9 @@
 import GuideLayout from "../../components/GuideLayout.astro";
 import FieldNoteRef from "../../components/FieldNoteRef.astro";
 import SnippetBlock from "../../components/SnippetBlock.astro";
-import { snippetFromDefinition, snippetFromMarker, snippetFromLiteral, sourceWithoutMarkers } from "../../lib/snippet.ts";
+import { snippetFromDefinition, snippetFromMarker, snippetFromLiteral } from "../../lib/snippet.ts";
+import { guideSnippets } from "../../data/guide-snippets.ts";
 import appSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam?raw";
-import schemaSource from "../../../../examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam?raw";
 import gleamToml from "../../../../examples/retro_tutorial_lustre/gleam.toml?raw";
 
 const appPath = "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam";
@@ -14,13 +14,10 @@ const startSnippet = snippetFromDefinition(appSource, appPath, "gleam", "pub fn 
 const connectEffectSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn init(");
 const readinessSnippet = snippetFromMarker(appSource, appPath, "gleam", "update-readiness");
 const bootstrapSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn bootstrap_effect(");
-// The whole schema module. The foundations schema sheet quotes `title` from
-// it by marker, so the directives are dropped from this full listing.
-const schemaSnippet = snippetFromLiteral(
-  sourceWithoutMarkers(schemaSource),
-  "gleam",
-  "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam",
-);
+// The whole schema module, read through the guide registry. The foundations
+// schema sheet quotes `title` from it by marker, so the directives are
+// dropped from this full listing.
+const schemaSnippet = guideSnippets["guide-connect-schema"];
 const gleamTomlSnippet = snippetFromLiteral(gleamToml, "toml", "examples/retro_tutorial_lustre/gleam.toml");
 const assembleSnippet = snippetFromDefinition(appSource, appPath, "gleam", "fn assemble(");
 

@@ -8,7 +8,7 @@ import source_snippets/generator.{
   MissingSourceFile, OrphanMarker, generate,
 }
 import source_snippets/manifest.{
-  type ManifestEntry, Manifest, ManifestEntry, encode,
+  type ManifestEntry, FileOrigin, Manifest, ManifestEntry, MarkerOrigin, encode,
 }
 
 // ---------------------------------------------------------------------------
@@ -93,9 +93,151 @@ pub fn generate_single_range_test() {
   entry.code |> should.equal("pub fn hello() {\n  io.println(\"hello\")\n}")
   entry.language |> should.equal("gleam")
   entry.source_path |> should.equal("src/main.gleam")
-  entry.markers |> should.equal(["hello"])
+  entry.origin |> should.equal(MarkerOrigin(["hello"]))
 
   cleanup("single")
+}
+
+// ---------------------------------------------------------------------------
+// Valid generation — whole file
+// ---------------------------------------------------------------------------
+
+/// A module whose head comment sits above a marked range.
+///
+/// The formatter puts a blank line on each side of a directive line that
+/// stands between two items. The fixture has the same shape as a formatted
+/// module, so the test proves the seam collapses to one blank line.
+const whole_file_source = "//// Module documentation.
+////
+//// A second line of module documentation.
+
+import gleam/io
+
+// docs:snippet-start greet
+/// Prints a greeting.
+pub fn greet() {
+  io.println(\"hello\")
+}
+
+// docs:snippet-end greet
+
+pub fn other() {
+  Nil
+}
+"
+
+const whole_file_expected = "//// Module documentation.
+////
+//// A second line of module documentation.
+
+import gleam/io
+
+/// Prints a greeting.
+pub fn greet() {
+  io.println(\"hello\")
+}
+
+pub fn other() {
+  Nil
+}
+"
+
+pub fn generate_whole_file_test() {
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_whole_file_snippet("listing", "src/main.gleam", "gleam"),
+      make_snippet("greet", "src/main.gleam", "gleam", ["greet"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("wholefile", config, [#("src/main.gleam", whole_file_source)])
+
+  let manifest = should.be_ok(generate(config_path))
+
+  let assert Ok(listing) = find_entry(manifest.snippets, "listing")
+  listing.code |> should.equal(whole_file_expected)
+  listing.language |> should.equal("gleam")
+  listing.source_path |> should.equal("src/main.gleam")
+  listing.origin |> should.equal(FileOrigin)
+
+  // The marked range in the same file still generates from its markers.
+  let assert Ok(greet) = find_entry(manifest.snippets, "greet")
+  greet.code
+  |> should.equal(
+    "/// Prints a greeting.\npub fn greet() {\n  io.println(\"hello\")\n}",
+  )
+  greet.origin |> should.equal(MarkerOrigin(["greet"]))
+
+  cleanup("wholefile")
+}
+
+pub fn generate_whole_file_keeps_module_documentation_test() {
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_whole_file_snippet("listing", "src/main.gleam", "gleam"),
+      make_snippet("greet", "src/main.gleam", "gleam", ["greet"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("wholedocs", config, [#("src/main.gleam", whole_file_source)])
+
+  let manifest = should.be_ok(generate(config_path))
+  let assert Ok(listing) = find_entry(manifest.snippets, "listing")
+
+  string.starts_with(listing.code, "//// Module documentation.")
+  |> should.be_true
+  string.contains(listing.code, "docs:snippet-") |> should.be_false
+
+  cleanup("wholedocs")
+}
+
+/// A whole-file snippet is not a marker reference.
+///
+/// The whole file holds the marker pair, but no snippet names it. The
+/// generator must report the orphan instead of counting the file listing
+/// as a reference.
+pub fn generate_whole_file_does_not_reference_markers_test() {
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_whole_file_snippet("listing", "src/main.gleam", "gleam"),
+    ])
+  let config_path =
+    setup_fixture("wholeorphan", config, [
+      #("src/main.gleam", whole_file_source),
+    ])
+
+  generate(config_path)
+  |> should.be_error
+  |> should.equal(OrphanMarker("greet", "src/main.gleam"))
+
+  cleanup("wholeorphan")
+}
+
+pub fn generate_whole_file_missing_source_test() {
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_whole_file_snippet("listing", "src/gone.gleam", "gleam"),
+    ])
+  let config_path =
+    setup_fixture("wholemissing", config, [#("src/main.gleam", "let a = 1\n")])
+
+  generate(config_path)
+  |> should.be_error
+  |> should.equal(MissingSourceFile("src/gone.gleam"))
+
+  cleanup("wholemissing")
+}
+
+fn find_entry(
+  entries: List(ManifestEntry),
+  id: String,
+) -> Result(ManifestEntry, Nil) {
+  case entries {
+    [] -> Error(Nil)
+    [entry, ..rest] ->
+      case entry.id == id {
+        True -> Ok(entry)
+        False -> find_entry(rest, id)
+      }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -547,14 +689,14 @@ pub fn encode_manifest_deterministic_test() {
         code: "let b = 2",
         language: "gleam",
         source_path: "src/b.gleam",
-        markers: ["beta"],
+        origin: MarkerOrigin(["beta"]),
       ),
       ManifestEntry(
         id: "alpha",
         code: "let a = 1",
         language: "gleam",
         source_path: "src/a.gleam",
-        markers: ["alpha"],
+        origin: MarkerOrigin(["alpha"]),
       ),
     ])
   let encoded = encode(m)
@@ -578,11 +720,29 @@ pub fn encode_manifest_markers_array_test() {
         code: "combined",
         language: "gleam",
         source_path: "src/m.gleam",
-        markers: ["a", "b"],
+        origin: MarkerOrigin(["a", "b"]),
       ),
     ])
   let encoded = encode(m)
   should.be_true(string.contains(encoded, "\"markers\":[\"a\",\"b\"]"))
+}
+
+/// The manifest must not describe a file listing as a marker range.
+pub fn encode_manifest_whole_file_origin_test() {
+  let m =
+    Manifest(version: 1, snippets: [
+      ManifestEntry(
+        id: "listing",
+        code: "//// docs\n",
+        language: "gleam",
+        source_path: "src/m.gleam",
+        origin: FileOrigin,
+      ),
+    ])
+  let encoded = encode(m)
+  should.be_true(string.contains(encoded, "\"kind\":\"file\""))
+  should.be_false(string.contains(encoded, "\"markers\""))
+  should.be_false(string.contains(encoded, "\"kind\":\"source\""))
 }
 
 // ---------------------------------------------------------------------------
@@ -659,6 +819,19 @@ fn make_snippet(
     \"language\": \"" <> language <> "\",
     \"markers\": [" <> markers_json <> "],
     \"separator\": \"" <> escape_json_string(separator) <> "\"
+  }"
+}
+
+fn make_whole_file_snippet(
+  id: String,
+  source_path: String,
+  language: String,
+) -> String {
+  "{
+    \"id\": \"" <> id <> "\",
+    \"sourcePath\": \"" <> source_path <> "\",
+    \"language\": \"" <> language <> "\",
+    \"wholeFile\": true
   }"
 }
 

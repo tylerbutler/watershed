@@ -55,6 +55,7 @@ const MARKER_SOURCE_DIRS = [
  *  Registries are the centralized source; pages use direct extraction. */
 const SNIPPET_DESCRIPTOR_FILES = [
   // Centralized registries
+  "src/data/guide-snippets.ts",
   "src/data/practice-snippets.ts",
   "src/data/standalone-snippets.ts",
   // Pages with direct extraction
@@ -454,15 +455,25 @@ function configuredMarkers(): string[] {
   return [...configuredMarkerSources().keys()];
 }
 
-/** Marker id → the source file the configuration reads it from. */
+/** Marker id → the source file the configuration reads it from.
+ *
+ *  A whole-file entry names no marker, so it contributes nothing here. It
+ *  reads its whole source and drops the directive lines, which means it can
+ *  never keep a marker alive that no sheet quotes. */
 function configuredMarkerSources(): Map<string, string> {
   const config = JSON.parse(
     readFileSync(resolve(websiteRoot, SNIPPET_CONFIG), "utf-8"),
-  ) as { snippets: Array<{ sourcePath: string; markers: string[] }> };
+  ) as {
+    snippets: Array<{
+      sourcePath: string;
+      markers?: string[];
+      wholeFile?: boolean;
+    }>;
+  };
 
   const sources = new Map<string, string>();
   for (const snippet of config.snippets) {
-    for (const marker of snippet.markers) {
+    for (const marker of snippet.markers ?? []) {
       sources.set(marker, snippet.sourcePath);
     }
   }
@@ -1295,6 +1306,105 @@ const snippet = {
     it("does not flag reading fields off a real snippet", () => {
       const fake = `const { code, language } = snippet;\nconst c = snippet.code;`;
       assert.ok(!hasHandBuiltSnippet(fake), "destructuring is not construction");
+    });
+  });
+});
+
+// ══════════════════════════════════════════════════════════════════════════
+// Gate 10: The generator configuration selects one way per snippet
+//
+// A snippet reads marker ranges or the whole file. Both selectors on one
+// entry, or neither, is an ambiguous descriptor, and an ambiguous descriptor
+// is a snippet nobody can predict from reading the configuration. The Gleam
+// decoder rejects those shapes; this gate keeps the checked-in configuration
+// honest without waiting for a Gleam run.
+// ══════════════════════════════════════════════════════════════════════════
+
+interface ConfiguredSnippet {
+  id: string;
+  sourcePath: string;
+  language: string;
+  markers?: string[];
+  wholeFile?: boolean;
+  separator?: string;
+}
+
+function configuredSnippets(): ConfiguredSnippet[] {
+  const config = JSON.parse(
+    readFileSync(resolve(websiteRoot, SNIPPET_CONFIG), "utf-8"),
+  ) as { snippets: ConfiguredSnippet[] };
+  return config.snippets;
+}
+
+describe("Gate: configured snippets select markers or a whole file", () => {
+  const snippets = configuredSnippets();
+
+  it("the configuration declares snippets", () => {
+    assert.ok(snippets.length > 0, `${SNIPPET_CONFIG} declares no snippets`);
+  });
+
+  for (const snippet of snippets) {
+    it(`${snippet.id}: exactly one selector`, () => {
+      const hasMarkers = snippet.markers !== undefined;
+      const hasWholeFile = snippet.wholeFile !== undefined;
+
+      assert.ok(
+        hasMarkers !== hasWholeFile,
+        `${snippet.id} declares ${hasMarkers && hasWholeFile ? "both markers and wholeFile" : "neither markers nor wholeFile"} — a snippet selects one way or the other`,
+      );
+
+      if (hasWholeFile) {
+        assert.equal(
+          snippet.wholeFile,
+          true,
+          `${snippet.id}: wholeFile takes only true — drop the field instead`,
+        );
+        assert.equal(
+          snippet.separator,
+          undefined,
+          `${snippet.id}: a whole-file listing joins nothing, so it has no separator`,
+        );
+      } else {
+        assert.ok(
+          (snippet.markers ?? []).length > 0,
+          `${snippet.id}: an empty marker list selects nothing`,
+        );
+      }
+    });
+
+    it(`${snippet.id}: source file exists`, () => {
+      assert.ok(
+        existsSync(resolve(repoRoot, snippet.sourcePath)),
+        `${snippet.id}: sourcePath "${snippet.sourcePath}" does not exist at repo root`,
+      );
+    });
+  }
+
+  describe("negative — catches an ambiguous entry", () => {
+    it("both selectors on one entry is ambiguous", () => {
+      const fake: ConfiguredSnippet = {
+        id: "fake",
+        sourcePath: "src/a.gleam",
+        language: "gleam",
+        markers: ["a"],
+        wholeFile: true,
+      };
+      assert.ok(
+        (fake.markers !== undefined) === (fake.wholeFile !== undefined),
+        "both selectors must be rejected",
+      );
+    });
+
+    it("neither selector on one entry is ambiguous", () => {
+      const fake: ConfiguredSnippet = {
+        id: "fake",
+        sourcePath: "src/a.gleam",
+        language: "gleam",
+      };
+      assert.ok(
+        (fake.markers !== undefined) === (fake.wholeFile !== undefined),
+        "an entry with no selector must be rejected",
+      );
     });
   });
 });

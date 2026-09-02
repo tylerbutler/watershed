@@ -3,7 +3,7 @@ import gleeunit/should
 import source_snippets/extractor.{
   type MarkerRange, DuplicateEnd, DuplicateStart, Empty, MarkerRange,
   MismatchedEnd, MissingEnd, MissingStart, Nested, Reversed, extract,
-  marker_names,
+  marker_names, without_directives,
 }
 
 // ---------------------------------------------------------------------------
@@ -171,4 +171,48 @@ pub fn extract_strips_multiple_trailing_blank_lines_test() {
   |> extract("test.gleam", "trail")
   |> should.be_ok
   |> should.equal(MarkerRange(name: "trail", code: "line one"))
+}
+
+// ---------------------------------------------------------------------------
+// without_directives
+// ---------------------------------------------------------------------------
+
+pub fn without_directives_removes_directive_lines_test() {
+  "let a = 1\n// docs:snippet-start range\nlet b = 2\n// docs:snippet-end range\nlet c = 3\n"
+  |> without_directives
+  |> should.equal("let a = 1\nlet b = 2\nlet c = 3\n")
+}
+
+pub fn without_directives_collapses_the_seam_to_one_blank_line_test() {
+  "let a = 1\n\n// docs:snippet-end range\n\nlet b = 2\n"
+  |> without_directives
+  |> should.equal("let a = 1\n\nlet b = 2\n")
+}
+
+pub fn without_directives_keeps_a_single_adjacent_blank_line_test() {
+  "let a = 1\n\n// docs:snippet-start range\nlet b = 2\n"
+  |> without_directives
+  |> should.equal("let a = 1\n\nlet b = 2\n")
+}
+
+pub fn without_directives_keeps_module_documentation_test() {
+  "//// Module docs.\n\n// docs:snippet-start range\npub fn a() {\n  Nil\n}\n"
+  |> without_directives
+  |> should.equal("//// Module docs.\n\npub fn a() {\n  Nil\n}\n")
+}
+
+pub fn without_directives_leaves_other_bytes_alone_test() {
+  let source = "let a = 1\n\n\n\nlet b = 2\n"
+  source |> without_directives |> should.equal(source)
+}
+
+pub fn without_directives_keeps_indented_code_test() {
+  "pub fn a() {\n  // docs:snippet-start inner\n  let b = 2\n  // docs:snippet-end inner\n}\n"
+  |> without_directives
+  |> should.equal("pub fn a() {\n  let b = 2\n}\n")
+}
+
+pub fn without_directives_source_without_markers_is_unchanged_test() {
+  let source = "pub fn a() {\n  1\n}\n\npub fn b() {\n  2\n}\n"
+  source |> without_directives |> should.equal(source)
 }

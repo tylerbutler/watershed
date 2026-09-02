@@ -1,9 +1,11 @@
 import gleam/string
 import gleeunit/should
 import source_snippets/config.{
-  Config, DuplicateId, EmptyExtensions, EmptyId, EmptyLanguage, EmptyMarkers,
-  EmptyPath, EmptyRoot, EmptySourceRoot, FieldError, JsonSyntax, RepeatedMarker,
-  SnippetSpec, UnsupportedExtension, UnsupportedVersion, decode_config,
+  Config, ConflictingSelection, DuplicateId, EmptyExtensions, EmptyId,
+  EmptyLanguage, EmptyMarkers, EmptyPath, EmptyRoot, EmptySourceRoot, FieldError,
+  JsonSyntax, MarkerSelection, MissingSelection, RepeatedMarker,
+  SeparatorWithWholeFile, SnippetSpec, UnsupportedExtension, UnsupportedVersion,
+  WholeFileNotTrue, WholeFileSelection, decode_config,
 }
 
 // ---------------------------------------------------------------------------
@@ -40,8 +42,7 @@ pub fn decode_minimal_valid_config_test() {
           id: "my-snippet",
           source_path: "src/main.gleam",
           language: "gleam",
-          markers: ["my-snippet"],
-          separator: "\n\n",
+          selection: MarkerSelection(markers: ["my-snippet"], separator: "\n\n"),
         ),
       ],
     ),
@@ -68,8 +69,174 @@ pub fn decode_config_with_custom_separator_test() {
   let result = decode_config(json)
   let config = should.be_ok(result)
   let assert [spec] = config.snippets
-  spec.separator
-  |> should.equal("\n// ...\n")
+  spec.selection
+  |> should.equal(MarkerSelection(markers: ["a", "b"], separator: "\n// ...\n"))
+}
+
+// ---------------------------------------------------------------------------
+// Selection: markers or whole file, never both and never neither
+// ---------------------------------------------------------------------------
+
+pub fn decode_whole_file_snippet_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": [
+      {
+        \"id\": \"listing\",
+        \"sourcePath\": \"src/main.gleam\",
+        \"language\": \"gleam\",
+        \"wholeFile\": true
+      }
+    ]
+  }"
+  let config = should.be_ok(decode_config(json))
+  let assert [spec] = config.snippets
+  spec.selection |> should.equal(WholeFileSelection)
+}
+
+pub fn decode_whole_file_false_rejected_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": [
+      {
+        \"id\": \"listing\",
+        \"sourcePath\": \"src/main.gleam\",
+        \"language\": \"gleam\",
+        \"wholeFile\": false
+      }
+    ]
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> should.equal(WholeFileNotTrue("listing"))
+}
+
+pub fn decode_both_selectors_rejected_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": [
+      {
+        \"id\": \"listing\",
+        \"sourcePath\": \"src/main.gleam\",
+        \"language\": \"gleam\",
+        \"markers\": [\"a\"],
+        \"wholeFile\": true
+      }
+    ]
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> should.equal(ConflictingSelection("listing"))
+}
+
+pub fn decode_both_selectors_rejected_when_whole_file_is_false_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": [
+      {
+        \"id\": \"listing\",
+        \"sourcePath\": \"src/main.gleam\",
+        \"language\": \"gleam\",
+        \"markers\": [\"a\"],
+        \"wholeFile\": false
+      }
+    ]
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> should.equal(ConflictingSelection("listing"))
+}
+
+pub fn decode_no_selector_rejected_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": [
+      {
+        \"id\": \"listing\",
+        \"sourcePath\": \"src/main.gleam\",
+        \"language\": \"gleam\"
+      }
+    ]
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> should.equal(MissingSelection("listing"))
+}
+
+pub fn decode_separator_with_whole_file_rejected_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": [
+      {
+        \"id\": \"listing\",
+        \"sourcePath\": \"src/main.gleam\",
+        \"language\": \"gleam\",
+        \"wholeFile\": true,
+        \"separator\": \"\\n\\n\"
+      }
+    ]
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> should.equal(SeparatorWithWholeFile("listing"))
+}
+
+pub fn decode_wrong_type_whole_file_rejected_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": [
+      {
+        \"id\": \"listing\",
+        \"sourcePath\": \"src/main.gleam\",
+        \"language\": \"gleam\",
+        \"wholeFile\": \"yes\"
+      }
+    ]
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      FieldError(field, _) -> {
+        should.be_true(
+          string.contains(field, "snippets")
+          && string.contains(field, "wholeFile"),
+        )
+      }
+      other -> {
+        let _ = other
+        should.fail()
+      }
+    }
+  }
 }
 
 pub fn decode_config_with_multiple_extensions_test() {

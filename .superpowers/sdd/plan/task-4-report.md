@@ -281,3 +281,164 @@ still pays a 63 second resolution cost on a cold cache.
 4. **The repository configuration test lives in the generic package.** As the
    plan specified, but it couples `source_snippets` to watershed's own layout:
    the suite now fails if `website/snippets.json` moves.
+
+---
+
+## Fix round 1 — the whole-file selector (forward blocker)
+
+Review finding: concern 3 above is a forward blocker, not a note. Task 6
+forbids `.gleam?raw` imports in authored modules and Task 5 moves the frontend
+onto the generated manifest, but the guide's schema listing could not be
+expressed in the configuration at all. It rendered through a frontend-only
+helper, `sourceWithoutMarkers`, over a page-level raw import. Ruling: add one
+explicit whole-file selector to the generic configuration and generator.
+
+### The selector
+
+`config.SnippetSpec` no longer carries `markers` and `separator` as fields. It
+carries a `Selection`, and the type makes the ambiguous cases unrepresentable:
+
+```gleam
+pub type Selection {
+  MarkerSelection(markers: List(String), separator: String)
+  WholeFileSelection
+}
+```
+
+JSON declares `"markers": [...]` with an optional `"separator"`, or
+`"wholeFile": true`. The decoder rejects, with one error each:
+
+| Shape | Error |
+| --- | --- |
+| `markers` and `wholeFile` together (either boolean) | `ConflictingSelection(id)` |
+| neither field | `MissingSelection(id)` |
+| `"wholeFile": false` | `WholeFileNotTrue(id)` |
+| `"wholeFile": true` with `"separator"` | `SeparatorWithWholeFile(id)` |
+| `"wholeFile"` not a boolean | `FieldError("snippets[0].wholeFile", …)` |
+| `"markers": []` | `EmptyMarkers(id)` (unchanged) |
+
+### Whole-file output and provenance
+
+`extractor.without_directives` reads the exact source and removes the marker
+directive lines, so a range that another sheet quotes cannot leak its
+punctuation into the listing. The Gleam formatter puts a blank line on each
+side of a directive line that stands between two items, so one of those two
+blank lines goes with the directive and the seam keeps a single blank line.
+Every other byte stays, including the file's last newline — the same terminal
+newline the guide already rendered.
+
+Provenance is honest rather than convenient. `manifest.Origin` is now
+`MarkerOrigin(markers)` or `FileOrigin`, encoded as
+`{"kind":"source","markers":[…]}` and `{"kind":"file"}`. A file listing
+carries no `markers` key, because it selected none.
+
+A whole-file snippet is not a marker reference: `check_no_orphans` folds only
+over `MarkerSelection` markers. The schema module's `retro-schema-title` pair
+still has to be quoted by name — it is, by `foundations-schema-title-field` —
+and `generate_whole_file_does_not_reference_markers_test` proves a listing
+alone leaves the pair an orphan.
+
+### Configuration and frontend
+
+`website/snippets.json` gains `guide-connect-schema`, the seventy-eighth
+output id:
+
+```json
+{
+  "id": "guide-connect-schema",
+  "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam",
+  "language": "gleam",
+  "wholeFile": true
+}
+```
+
+The frontend helper and the page-level raw import are gone:
+
+1. `website/src/lib/snippet.ts` — `sourceWithoutMarkers` is replaced by
+   `snippetFromWholeFile(source, sourcePath, language)`, which mirrors the
+   generator line for line and returns origin `{ kind: "file" }`. The new
+   origin kind joins `SnippetOrigin`; `isSourceBacked` already treats
+   everything but `literal` as source-backed.
+2. `website/src/data/guide-snippets.ts` — a new transitional registry, the
+   third alongside practice and standalone. It holds the one whole-file
+   listing. Task 5 replaces its body with a manifest lookup and the page it
+   serves does not change.
+3. `website/src/pages/guide/connect.astro` — drops
+   `import schemaSource … document_schema.gleam?raw` and the literal
+   construction, and reads `guideSnippets["guide-connect-schema"]`. The page
+   keeps its other two raw imports, which Task 5 owns.
+4. `website/src/data/drift-gates.test.ts` — the new registry joins
+   `SNIPPET_DESCRIPTOR_FILES`; `configuredMarkerSources` tolerates an entry
+   with no `markers`; and Gate 10 checks every configured entry declares
+   exactly one selector, so an ambiguous entry fails without a Gleam run.
+
+Marker placement did not change, and no `.gleam` or `.mjs` source was touched.
+A source fix was tried first and rejected by the tool: moving the end
+directive up against the closing brace, so removal needs no seam rule, does
+not survive `gleam format`, which puts the blank line back.
+
+### RED → GREEN
+
+RED, before any implementation, from the new cases in `config_test`,
+`extractor_test`, `generator_test`, and `watershed_config_test`:
+
+```
+The module `source_snippets/extractor` does not have a `without_directives` value.
+error: Unknown record field … case spec.selection {  This field does not exist
+  It has these accessible fields: .id .language .markers .separator .source_path
+error: Unknown module value … config.WholeFileSelection
+```
+
+RED on the website side, before the helper and registry existed:
+
+```
+node --strip-types --test src/lib/snippet.test.ts    → pass 0, fail 1
+node --strip-types --test src/data/guide-snippets.test.ts → pass 0, fail 1
+```
+
+GREEN:
+
+| Command | Result |
+| --- | --- |
+| `cd tools/source-snippets && gleam test` | 109 passed, no failures (was 87) |
+| `cd tools/source-snippets && gleam format --check src test` | clean |
+| `just _test-website-snippets` | 27 + 11 + 29 + 15 + 30 + 1050 + 667 + 1 passed, 0 failed |
+| `cd website && pnpm build` | 36 pages, complete |
+| `just lint` | 23 packages ok |
+
+New tests: 8 config selector cases, 7 `without_directives` cases, 5 generator
+whole-file cases (content, module docs, orphan, missing source, encoding), 3
+repository-inventory cases (78 ids, whole-file selection, generated listing
+equals the source without directives), 6 `snippetFromWholeFile` cases, 15
+guide-registry cases, and Gate 10 over all 78 configured entries.
+
+### Parity
+
+Three independent comparisons, all byte-exact:
+
+1. The generated `guide-connect-schema` code equals
+   `git show 39f3e39:…/document_schema.gleam` — the module as it stood before
+   any marker was written.
+2. It equals what the old `sourceWithoutMarkers` produced from today's marked
+   source, so the rendered string did not move.
+3. Manifests generated before and after this fix: 77 ids in common, zero
+   differences in `code`, `origin`, `language`, or `sourcePath`; one id added.
+
+And end to end: the website was built at `d8fd101` and again with this fix,
+and all 40 emitted HTML pages are md5-identical, `guide/connect` included.
+
+### Concerns
+
+1. **Concern 3 above is closed; concerns 1, 2, and 4 stand.** The
+   `@target(javascript)` rendering change still lands with Task 5, marker
+   roots are still per package, and the repository configuration test still
+   lives in the generic package.
+2. **A third registry.** `guide-snippets.ts` exists to hold one entry and to
+   give Task 5 a seam that does not touch the page. If Task 5 gives every
+   guide sheet a manifest lookup, the file should be folded into whatever
+   that lookup is rather than left as a fourth way to reach a snippet.
+3. **The seam rule is a rule, not a copy.** A whole-file listing is not a
+   literal `cat` of the file: one blank line goes with each directive that
+   stands between two blank lines. It is what keeps the listing identical to
+   an unmarked file, and both implementations state it, but a reader who
+   expects raw bytes should know before comparing.

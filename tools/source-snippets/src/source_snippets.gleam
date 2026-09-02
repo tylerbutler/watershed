@@ -32,6 +32,11 @@ pub fn extract(
   extractor.extract(source, source_path, marker)
 }
 
+/// Returns the source without its marker directive lines.
+pub fn without_directives(source: String) -> String {
+  extractor.without_directives(source)
+}
+
 // ---------------------------------------------------------------------------
 // Config
 // ---------------------------------------------------------------------------
@@ -41,6 +46,9 @@ pub type Config =
 
 pub type SnippetSpec =
   config.SnippetSpec
+
+pub type Selection =
+  config.Selection
 
 pub type ConfigError =
   config.ConfigError
@@ -74,6 +82,9 @@ pub type Manifest =
 
 pub type ManifestEntry =
   manifest.ManifestEntry
+
+pub type Origin =
+  manifest.Origin
 
 /// Encodes a manifest to a deterministic JSON string.
 pub fn encode(m: Manifest) -> String {

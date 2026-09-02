@@ -23,6 +23,7 @@ export interface Snippet {
 export type SnippetOrigin =
   | { kind: "definition"; heads: string[] }
   | { kind: "marker"; name: string }
+  | { kind: "file" }
   | { kind: "literal" }
   | { kind: "composite"; parts: SnippetOrigin[] };
 
@@ -79,19 +80,51 @@ export function snippetFromLiteral(
 }
 
 /**
+ * A whole source file as one snippet, without its marker directive lines.
+ *
+ * A sheet that shows a complete module cannot use a marker range: the Gleam
+ * formatter moves a directive written above a `////` module doc comment
+ * below it, which would drop the header from the listing. Other sheets still
+ * quote parts of the same module by marker, so the directives are dropped
+ * here rather than shown to the reader.
+ *
+ * The Gleam generator's `wholeFile` selector produces the same string for the
+ * same file, byte for byte: directive lines removed, one blank line kept at
+ * each seam, every other byte and the final newline untouched.
+ */
+export function snippetFromWholeFile(
+  source: string,
+  sourcePath: string,
+  language: string,
+): Snippet {
+  return {
+    code: withoutMarkerDirectives(source),
+    language,
+    sourcePath,
+    origin: { kind: "file" },
+  };
+}
+
+/**
  * The source text with snippet marker directives removed.
  *
- * A whole-file listing shows a module that other sheets quote by range, so
- * without this it would display the generator's directives as if they were
- * part of the code. Dropping a directive line leaves the blank line on each
- * side of it, so runs of blank lines collapse back to one.
+ * The formatter puts a blank line on each side of a directive line that
+ * stands between two items. Dropping the directive line alone would leave
+ * two blank lines, so one of the two goes with it.
  */
-export function sourceWithoutMarkers(source: string): string {
-  return source
-    .split("\n")
-    .filter((line) => !isMarkerDirective(line))
-    .join("\n")
-    .replace(/\n{3,}/g, "\n\n");
+function withoutMarkerDirectives(source: string): string {
+  const lines = source.split("\n");
+  const kept: string[] = [];
+  let previousIsBlank = false;
+  for (let i = 0; i < lines.length; i += 1) {
+    if (isMarkerDirective(lines[i])) {
+      if (previousIsBlank && lines[i + 1]?.trim() === "") i += 1;
+      continue;
+    }
+    kept.push(lines[i]);
+    previousIsBlank = lines[i].trim() === "";
+  }
+  return kept.join("\n");
 }
 
 /**

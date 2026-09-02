@@ -18,8 +18,19 @@ pub type ManifestEntry {
     code: String,
     language: String,
     source_path: String,
-    markers: List(String),
+    origin: Origin,
   )
+}
+
+/// Where the code of an entry comes from.
+///
+/// The manifest must describe a file listing as a file listing. A reader of
+/// the manifest can then tell a composed range from a complete module.
+pub type Origin {
+  /// The named marker ranges, in composition order.
+  MarkerOrigin(markers: List(String))
+  /// The complete source file, without its marker directive lines.
+  FileOrigin
 }
 
 /// Encodes a manifest to a deterministic JSON string.
@@ -42,13 +53,7 @@ pub fn encode(manifest: Manifest) -> String {
               #("code", json.string(entry.code)),
               #("language", json.string(entry.language)),
               #("sourcePath", json.string(entry.source_path)),
-              #(
-                "origin",
-                json.object([
-                  #("kind", json.string("source")),
-                  #("markers", json.array(entry.markers, json.string)),
-                ]),
-              ),
+              #("origin", encode_origin(entry.origin)),
             ]),
           )
         }),
@@ -56,4 +61,15 @@ pub fn encode(manifest: Manifest) -> String {
     ),
   ])
   |> json.to_string
+}
+
+fn encode_origin(origin: Origin) -> json.Json {
+  case origin {
+    MarkerOrigin(markers) ->
+      json.object([
+        #("kind", json.string("source")),
+        #("markers", json.array(markers, json.string)),
+      ])
+    FileOrigin -> json.object([#("kind", json.string("file"))])
+  }
 }

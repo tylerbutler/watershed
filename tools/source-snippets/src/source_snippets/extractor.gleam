@@ -79,6 +79,57 @@ pub fn marker_names(source: String) -> List(String) {
   })
 }
 
+/// Returns the source without its marker directive lines.
+///
+/// A directive line is punctuation for this tool, not code. A whole-file
+/// snippet must not show one to the reader. The Gleam formatter puts a blank
+/// line on each side of a directive line that stands between two items.
+/// Removal of that directive line alone leaves two blank lines, so this
+/// function also removes one of the two. All other bytes stay the same,
+/// including the last newline of the file.
+pub fn without_directives(source: String) -> String {
+  source
+  |> string.split("\n")
+  |> drop_directives(False, [])
+  |> string.join("\n")
+}
+
+fn drop_directives(
+  lines: List(String),
+  previous_is_blank: Bool,
+  acc: List(String),
+) -> List(String) {
+  case lines {
+    [] -> list.reverse(acc)
+    [line, ..rest] ->
+      case parse_directive(line) {
+        Some(_) -> {
+          let rest = case previous_is_blank {
+            True -> drop_one_blank(rest)
+            False -> rest
+          }
+          drop_directives(rest, previous_is_blank, acc)
+        }
+        None -> drop_directives(rest, is_blank(line), [line, ..acc])
+      }
+  }
+}
+
+fn drop_one_blank(lines: List(String)) -> List(String) {
+  case lines {
+    [line, ..rest] ->
+      case is_blank(line) {
+        True -> rest
+        False -> lines
+      }
+    [] -> lines
+  }
+}
+
+fn is_blank(line: String) -> Bool {
+  string.trim(line) == ""
+}
+
 /// Extracts the named marker range from source.
 ///
 /// Returns `Ok(MarkerRange)` when the marker pair is found and valid.

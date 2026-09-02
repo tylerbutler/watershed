@@ -77,7 +77,7 @@ _test-compile-fail:
 # source-path chip keyboard-focusable — a snippet's citation is a link, so
 # losing its focus ring is a drift of the same system.
 _test-website-snippets:
-    cd website && pnpm test:snippet && pnpm test:snippet-markers && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles
+    cd website && pnpm test:snippet && pnpm test:snippet-markers && pnpm test:practice-snippets && pnpm test:guide-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by

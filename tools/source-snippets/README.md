@@ -31,6 +31,12 @@ A valid existing output file is never removed on failure.
       "language": "gleam",
       "markers": ["guide-connect-start"],
       "separator": "\n\n"
+    },
+    {
+      "id": "guide-connect-schema",
+      "sourcePath": "examples/retro_tutorial/src/retro_tutorial/schema.gleam",
+      "language": "gleam",
+      "wholeFile": true
     }
   ]
 }
@@ -44,6 +50,29 @@ A valid existing output file is never removed on failure.
 - `snippets[].language` — language tag for the frontend.
 - `snippets[].markers` — ordered list of marker ids to join.
 - `snippets[].separator` — string placed between joined ranges (default `"\n\n"`).
+- `snippets[].wholeFile` — `true` selects the complete file instead of ranges.
+
+### Selecting the code
+
+A snippet selects marker ranges or a whole file. It cannot do both, and it
+cannot do neither. The decoder rejects an entry that names `markers` and
+`wholeFile` together, an entry that names neither, a `wholeFile` set to
+anything other than `true`, and a `separator` on a whole-file entry — a
+listing joins nothing, so a separator there has no meaning.
+
+Use `wholeFile` when the sheet shows a complete module. A marker range cannot
+hold one: `gleam format` moves a start marker written above a `////` module
+doc comment below it, which drops the header out of the range.
+
+A whole-file snippet reads the file and removes the marker directive lines.
+The formatter puts a blank line on each side of a directive line that stands
+between two items, so one of those two blank lines goes with the directive
+and the seam keeps a single blank line. Every other byte stays, including the
+last newline of the file.
+
+A whole-file snippet is not a marker reference. It names no marker, so a
+marker pair inside the file still needs a snippet that quotes it by name, or
+the generator reports an orphan.
 
 ## Marker placement
 
@@ -93,10 +122,20 @@ error). A marker may be referenced by more than one snippet.
         "kind": "source",
         "markers": ["guide-connect-start"]
       }
+    },
+    "guide-connect-schema": {
+      "code": "//// Typed schema.\n\npub fn title() { ... }\n",
+      "language": "gleam",
+      "sourcePath": "examples/retro_tutorial/src/retro_tutorial/schema.gleam",
+      "origin": { "kind": "file" }
     }
   }
 }
 ```
+
+`origin.kind` is `"source"` for composed marker ranges and `"file"` for a
+whole-file listing. A file listing carries no `markers`, because it selected
+none.
 
 Entries are sorted by id for deterministic output.
 

@@ -7,6 +7,7 @@ import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
+import gleam/option
 import gleam/set
 import gleam/string
 
@@ -27,9 +28,19 @@ pub type SnippetSpec {
     id: String,
     source_path: String,
     language: String,
-    markers: List(String),
-    separator: String,
+    selection: Selection,
   )
+}
+
+/// How a snippet selects code from its source file.
+///
+/// A snippet selects marker ranges or the whole file. It cannot do both,
+/// and it cannot do neither.
+pub type Selection {
+  /// The named marker ranges, in order, joined by the separator.
+  MarkerSelection(markers: List(String), separator: String)
+  /// The complete file, without its marker directive lines.
+  WholeFileSelection
 }
 
 /// Configuration decode and validation errors.
@@ -50,6 +61,14 @@ pub type ConfigError {
   EmptyLanguage(id: String)
   /// Empty marker list in a snippet.
   EmptyMarkers(id: String)
+  /// A snippet names neither `markers` nor `wholeFile`.
+  MissingSelection(id: String)
+  /// A snippet names both `markers` and `wholeFile`.
+  ConflictingSelection(id: String)
+  /// A snippet sets `wholeFile` to a value other than `true`.
+  WholeFileNotTrue(id: String)
+  /// A whole-file snippet declares a separator, which it cannot use.
+  SeparatorWithWholeFile(id: String)
   /// Repeated marker within a single snippet.
   RepeatedMarker(id: String, marker: String)
   /// Empty marker root entry.
@@ -151,8 +170,9 @@ type RawSnippet {
     id: String,
     source_path: String,
     language: String,
-    markers: List(String),
-    separator: String,
+    markers: option.Option(List(String)),
+    whole_file: option.Option(Bool),
+    separator: option.Option(String),
   )
 }
 
@@ -175,9 +195,29 @@ fn raw_snippet_decoder() -> decode.Decoder(RawSnippet) {
   use id <- decode.field("id", decode.string)
   use source_path <- decode.field("sourcePath", decode.string)
   use language <- decode.field("language", decode.string)
-  use markers <- decode.field("markers", decode.list(decode.string))
-  use separator <- decode.optional_field("separator", "\n\n", decode.string)
-  decode.success(RawSnippet(id:, source_path:, language:, markers:, separator:))
+  use markers <- decode.optional_field(
+    "markers",
+    option.None,
+    decode.optional(decode.list(decode.string)),
+  )
+  use whole_file <- decode.optional_field(
+    "wholeFile",
+    option.None,
+    decode.optional(decode.bool),
+  )
+  use separator <- decode.optional_field(
+    "separator",
+    option.None,
+    decode.optional(decode.string),
+  )
+  decode.success(RawSnippet(
+    id:,
+    source_path:,
+    language:,
+    markers:,
+    whole_file:,
+    separator:,
+  ))
 }
 
 // ---------------------------------------------------------------------------
@@ -283,18 +323,42 @@ fn validate_one_snippet(
     "" -> Error(EmptyLanguage(raw.id))
     _ -> Ok(Nil)
   })
-  use _ <- result_try(case raw.markers {
-    [] -> Error(EmptyMarkers(raw.id))
-    _ -> Ok(Nil)
-  })
-  use _ <- result_try(check_repeated_markers(raw.id, raw.markers))
+  use selection <- result_try(validate_selection(raw))
   Ok(SnippetSpec(
     id: raw.id,
     source_path: raw.source_path,
     language: raw.language,
-    markers: raw.markers,
-    separator: raw.separator,
+    selection:,
   ))
+}
+
+/// Reads the selector of one snippet.
+///
+/// The snippet declares `markers` or `wholeFile`. Two selectors are a
+/// conflict, and no selector is an omission. `wholeFile` accepts only
+/// `true`, and a whole-file snippet has no use for a separator.
+fn validate_selection(raw: RawSnippet) -> Result(Selection, ConfigError) {
+  case raw.markers, raw.whole_file {
+    option.Some(_), option.Some(_) -> Error(ConflictingSelection(raw.id))
+    option.None, option.None -> Error(MissingSelection(raw.id))
+    option.None, option.Some(False) -> Error(WholeFileNotTrue(raw.id))
+    option.None, option.Some(True) ->
+      case raw.separator {
+        option.Some(_) -> Error(SeparatorWithWholeFile(raw.id))
+        option.None -> Ok(WholeFileSelection)
+      }
+    option.Some(markers), option.None -> {
+      use _ <- result_try(case markers {
+        [] -> Error(EmptyMarkers(raw.id))
+        _ -> Ok(Nil)
+      })
+      use _ <- result_try(check_repeated_markers(raw.id, markers))
+      Ok(MarkerSelection(
+        markers:,
+        separator: option.unwrap(raw.separator, "\n\n"),
+      ))
+    }
+  }
 }
 
 fn check_repeated_markers(

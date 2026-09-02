@@ -279,7 +279,12 @@ fn check_no_orphans(
 ) -> Result(Nil, GenerateError) {
   let referenced =
     list.fold(snippets, set.new(), fn(acc, spec) {
-      list.fold(spec.markers, acc, fn(s, m) { set.insert(s, m) })
+      // A whole-file snippet names no marker, so it cannot make one used.
+      case spec.selection {
+        config.WholeFileSelection -> acc
+        config.MarkerSelection(markers, _) ->
+          list.fold(markers, acc, fn(s, m) { set.insert(s, m) })
+      }
     })
 
   let orphans =
@@ -320,8 +325,29 @@ fn compose_one(
     |> result.map_error(fn(_) { MissingSourceFile(spec.source_path) }),
   )
 
+  case spec.selection {
+    config.WholeFileSelection ->
+      Ok(ManifestEntry(
+        id: spec.id,
+        code: extractor.without_directives(content),
+        language: spec.language,
+        source_path: spec.source_path,
+        origin: manifest.FileOrigin,
+      ))
+    config.MarkerSelection(markers, separator) ->
+      compose_ranges(spec, content, inventory, markers, separator)
+  }
+}
+
+fn compose_ranges(
+  spec: SnippetSpec,
+  content: String,
+  inventory: MarkerInventory,
+  markers: List(String),
+  separator: String,
+) -> Result(ManifestEntry, GenerateError) {
   use ranges <- result_try(
-    list.try_map(spec.markers, fn(marker) {
+    list.try_map(markers, fn(marker) {
       // Validate that the marker exists in the inventory for this source path.
       case dict.get(inventory, marker) {
         Error(Nil) -> Error(MarkerNotFound(spec.id, marker, spec.source_path))
@@ -340,14 +366,14 @@ fn compose_one(
   let code =
     ranges
     |> list.map(fn(r: extractor.MarkerRange) { r.code })
-    |> string.join(spec.separator)
+    |> string.join(separator)
 
   Ok(ManifestEntry(
     id: spec.id,
     code:,
     language: spec.language,
     source_path: spec.source_path,
-    markers: spec.markers,
+    origin: manifest.MarkerOrigin(markers),
   ))
 }
 

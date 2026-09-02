@@ -6,7 +6,9 @@ import {
   snippetFromDefinition,
   snippetFromMarker,
   snippetFromLiteral,
-  sourceWithoutMarkers,
+  snippetFromWholeFile,
+  isSourceBacked,
+  originParts,
 } from "./snippet.ts";
 
 // ── snippetFromDefinition ─────────────────────────────────────────────────
@@ -272,9 +274,9 @@ test("snippetFromLiteral: sourceUrl is undefined when omitted", () => {
   assert.equal(s.sourceUrl, undefined);
 });
 
-// ── sourceWithoutMarkers ──────────────────────────────────────────────────
+// ── snippetFromWholeFile ──────────────────────────────────────────────────
 
-test("removes marker directives and the blank lines they leave behind", () => {
+test("whole file: removes marker directives and collapses the seam", () => {
   const source = [
     "pub type Board",
     "",
@@ -290,8 +292,9 @@ test("removes marker directives and the blank lines they leave behind", () => {
     "}",
     "",
   ].join("\n");
+  const s = snippetFromWholeFile(source, "src/schema.gleam", "gleam");
   assert.equal(
-    sourceWithoutMarkers(source),
+    s.code,
     [
       "pub type Board",
       "",
@@ -305,9 +308,47 @@ test("removes marker directives and the blank lines they leave behind", () => {
       "",
     ].join("\n"),
   );
+  assert.equal(s.language, "gleam");
+  assert.equal(s.sourcePath, "src/schema.gleam");
+  assert.deepEqual(s.origin, { kind: "file" });
 });
 
-test("leaves a source without markers untouched", () => {
+test("whole file: keeps the module documentation header", () => {
+  const source = [
+    "//// Typed schema.",
+    "",
+    "// docs:snippet-start title",
+    "pub fn title() {",
+    "  1",
+    "}",
+    "// docs:snippet-end title",
+    "",
+  ].join("\n");
+  const s = snippetFromWholeFile(source, "src/schema.gleam", "gleam");
+  assert.ok(s.code.startsWith("//// Typed schema."));
+  assert.ok(!s.code.includes("docs:snippet-"));
+});
+
+test("whole file: leaves every other byte alone", () => {
+  const source = "pub fn a() {\n  1\n}\n\n\npub fn b() {\n  2\n}\n";
+  assert.equal(snippetFromWholeFile(source, "src/a.gleam", "gleam").code, source);
+});
+
+test("whole file: leaves a source without markers untouched", () => {
   const source = "pub fn a() {\n  1\n}\n\npub fn b() {\n  2\n}\n";
-  assert.equal(sourceWithoutMarkers(source), source);
+  assert.equal(snippetFromWholeFile(source, "src/a.gleam", "gleam").code, source);
+});
+
+test("whole file: keeps an indented directive's code and drops the directive", () => {
+  const source = "pub fn a() {\n  // docs:snippet-start inner\n  let b = 2\n  // docs:snippet-end inner\n}\n";
+  assert.equal(
+    snippetFromWholeFile(source, "src/a.gleam", "gleam").code,
+    "pub fn a() {\n  let b = 2\n}\n",
+  );
+});
+
+test("whole file: is source-backed", () => {
+  const s = snippetFromWholeFile("pub fn a() {\n  1\n}\n", "src/a.gleam", "gleam");
+  assert.ok(isSourceBacked(s));
+  assert.deepEqual(originParts(s.origin), [{ kind: "file" }]);
 });

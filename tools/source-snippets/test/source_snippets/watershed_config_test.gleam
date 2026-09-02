@@ -9,6 +9,7 @@ import gleam/string
 import gleeunit/should
 import simplifile
 import source_snippets/config
+import source_snippets/extractor
 import source_snippets/generator
 import source_snippets/manifest
 
@@ -17,7 +18,7 @@ const config_path = "../../website/snippets.json"
 
 /// Every output id the website renders from marked source.
 ///
-/// Fifty come from guide and foundations sheets, seventeen from field
+/// Fifty-one come from guide and foundations sheets, seventeen from field
 /// note practices, and ten from the standalone registry.
 const expected_ids = [
   "foundations-lifecycle-assemble", "foundations-lifecycle-bootstrap",
@@ -32,20 +33,20 @@ const expected_ids = [
   "foundations-topology-resolve", "foundations-topology-resolve-child",
   "foundations-topology-root-typed", "guide-connect-assemble",
   "guide-connect-bootstrap", "guide-connect-dev-constants", "guide-connect-init",
-  "guide-connect-main", "guide-connect-readiness", "guide-notes-add-clicked",
-  "guide-notes-add-note", "guide-notes-codec", "guide-notes-note-entries",
-  "guide-notes-note-record", "guide-notes-ordering", "guide-notes-unfiled",
-  "guide-presence-announce", "guide-presence-effect", "guide-presence-events",
-  "guide-presence-focus-clicked", "guide-presence-focus-names",
-  "guide-presence-payload", "guide-presence-remote-peers",
-  "guide-testing-add-race", "guide-testing-board-of", "guide-testing-room",
-  "guide-testing-vote-race", "guide-votes-card", "guide-votes-orphan-test",
-  "guide-votes-vote-clicks", "guide-votes-vote-entries", "guide-votes-vote-ops",
-  "homepage-beam", "optimistic-local", "p2p-config",
-  "practice-anchors-not-offsets", "practice-authoritative-channel",
-  "practice-claims-seeding", "practice-deterministic-death",
-  "practice-diagnostics-first", "practice-fallible-edits",
-  "practice-ffi-surface", "practice-presence-idiom",
+  "guide-connect-main", "guide-connect-readiness", "guide-connect-schema",
+  "guide-notes-add-clicked", "guide-notes-add-note", "guide-notes-codec",
+  "guide-notes-note-entries", "guide-notes-note-record", "guide-notes-ordering",
+  "guide-notes-unfiled", "guide-presence-announce", "guide-presence-effect",
+  "guide-presence-events", "guide-presence-focus-clicked",
+  "guide-presence-focus-names", "guide-presence-payload",
+  "guide-presence-remote-peers", "guide-testing-add-race",
+  "guide-testing-board-of", "guide-testing-room", "guide-testing-vote-race",
+  "guide-votes-card", "guide-votes-orphan-test", "guide-votes-vote-clicks",
+  "guide-votes-vote-entries", "guide-votes-vote-ops", "homepage-beam",
+  "optimistic-local", "p2p-config", "practice-anchors-not-offsets",
+  "practice-authoritative-channel", "practice-claims-seeding",
+  "practice-deterministic-death", "practice-diagnostics-first",
+  "practice-fallible-edits", "practice-ffi-surface", "practice-presence-idiom",
   "practice-protocol-on-ripples", "practice-pure-modules",
   "practice-quorum-pending-roster", "practice-realtime-out-of-band",
   "practice-relay-decorator", "practice-shared-core-two-runtimes",
@@ -110,14 +111,76 @@ pub fn inventory_counts_by_area_test() {
   }
 
   // Guide and foundations sheets extract directly.
-  { count("guide-") + count("foundations-") } |> should.equal(50)
+  { count("guide-") + count("foundations-") } |> should.equal(51)
   // One snippet per field note practice.
   count("practice-") |> should.equal(17)
   // The homepage, runtime sheets, and the SharedTree comparison.
   { count("homepage-") + count("optimistic-") + count("p2p-") }
   |> should.equal(3)
   count("sharedtree-") |> should.equal(7)
-  list.length(ids) |> should.equal(77)
+  list.length(ids) |> should.equal(78)
+}
+
+/// The guide's schema sheet shows a complete module.
+///
+/// The formatter puts a marker directive below the `////` module
+/// documentation, so a marker range cannot hold the head of the file. The
+/// whole-file selector reads the file and removes the directive lines.
+pub fn guide_connect_schema_selects_the_whole_file_test() {
+  let cfg = load_config()
+  let assert Ok(spec) =
+    list.find(cfg.snippets, fn(spec: config.SnippetSpec) {
+      spec.id == "guide-connect-schema"
+    })
+
+  spec.selection |> should.equal(config.WholeFileSelection)
+  spec.source_path
+  |> should.equal(
+    "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam",
+  )
+}
+
+pub fn guide_connect_schema_generates_the_exact_module_test() {
+  let cfg = load_config()
+  let assert Ok(generated) = generator.generate(config_path)
+  let assert Ok(entry) =
+    list.find(generated.snippets, fn(entry: manifest.ManifestEntry) {
+      entry.id == "guide-connect-schema"
+    })
+
+  entry.origin |> should.equal(manifest.FileOrigin)
+
+  let assert Ok(source) =
+    simplifile.read(
+      "../../website/" <> cfg.source_root <> "/" <> entry.source_path,
+    )
+
+  // The generated listing is the source file without its directive lines.
+  entry.code |> should.equal(extractor.without_directives(source))
+  string.starts_with(
+    entry.code,
+    "//// Typed schema for the tutorial retro board.",
+  )
+  |> should.be_true
+  string.contains(entry.code, "pub fn votes()") |> should.be_true
+}
+
+/// A whole-file snippet is not a marker reference.
+///
+/// The schema module holds the `retro-schema-title` pair, and the schema
+/// sheet quotes it. The file listing must not stand in for that reference.
+pub fn whole_file_snippets_declare_no_markers_test() {
+  let cfg = load_config()
+  list.each(cfg.snippets, fn(spec: config.SnippetSpec) {
+    case spec.selection {
+      config.WholeFileSelection -> Nil
+      config.MarkerSelection(markers, _) ->
+        case markers {
+          [] -> panic as { spec.id <> " declares no markers" }
+          _ -> Nil
+        }
+    }
+  })
 }
 
 pub fn every_snippet_names_an_existing_source_test() {
