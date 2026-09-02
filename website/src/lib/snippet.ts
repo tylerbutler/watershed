@@ -22,8 +22,8 @@ export type SnippetOrigin =
   | { kind: "definition"; heads: string[] }
   | { kind: "marker"; name: string };
 
-const MARKER_START = /^\s*\/\/\s*snippet:start\s+(\S+)\s*$/;
-const MARKER_END = /^\s*\/\/\s*snippet:end\s+(\S+)\s*$/;
+const MARKER_START = /^\s*\/\/\s*docs:snippet-start\s+(\S+)\s*$/;
+const MARKER_END = /^\s*\/\/\s*docs:snippet-end\s+(\S+)\s*$/;
 
 /**
  * Extract one or more top-level definitions from source, in the order given.
@@ -101,6 +101,7 @@ function extractDefinition(
 }
 
 // ── Marker extraction ──────────────────────────────────────────────────────
+// Markers use the form: // docs:snippet-start <name> / // docs:snippet-end <name>
 
 function extractMarkerRange(
   source: string,
