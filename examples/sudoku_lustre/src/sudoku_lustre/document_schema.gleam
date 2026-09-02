@@ -18,8 +18,8 @@ import watershed/schema.{
   type MapChannel, type OrSetChannel,
 }
 
-/// Phantom tag scoping every field below to the Sudoku root map.
 // docs:snippet-start sharedtree-nest
+/// Phantom tag scoping every field below to the Sudoku root map.
 pub type SudokuDocument
 
 /// The active puzzle's id (see `puzzle.by_id`).
