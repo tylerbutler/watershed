@@ -1,11 +1,12 @@
 import gleam/string
 import gleeunit/should
 import source_snippets/config.{
-  Config, ConflictingSelection, DuplicateId, EmptyExtensions, EmptyId,
-  EmptyLanguage, EmptyMarkers, EmptyPath, EmptyRoot, EmptySourceRoot, FieldError,
-  JsonSyntax, MarkerSelection, MissingSelection, RepeatedMarker,
-  SeparatorWithWholeFile, SnippetSpec, UnsupportedExtension, UnsupportedVersion,
-  WholeFileNotTrue, WholeFileSelection, decode_config,
+  type Config, Config, ConflictingSelection, DuplicateId, EmptyExclusion,
+  EmptyExtensions, EmptyId, EmptyLanguage, EmptyMarkers, EmptyPath, EmptyRoot,
+  EmptySourceRoot, ExclusionNotADirectoryName, FieldError, JsonSyntax,
+  MarkerSelection, MissingSelection, RepeatedMarker, SeparatorWithWholeFile,
+  SnippetSpec, UnsupportedExtension, UnsupportedVersion, WholeFileNotTrue,
+  WholeFileSelection, decode_config,
 }
 
 // ---------------------------------------------------------------------------
@@ -37,6 +38,7 @@ pub fn decode_minimal_valid_config_test() {
       source_root: "..",
       marker_roots: ["src"],
       extensions: [".gleam"],
+      exclude_dirs: [],
       snippets: [
         SnippetSpec(
           id: "my-snippet",
@@ -381,6 +383,71 @@ pub fn decode_unsupported_extension_test() {
   decode_config(json)
   |> should.be_error
   |> should.equal(UnsupportedExtension(".py"))
+}
+
+// ---------------------------------------------------------------------------
+// Scanner exclusions
+// ---------------------------------------------------------------------------
+
+pub fn decode_default_exclude_dirs_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"snippets\": []
+  }"
+  decode_config(json)
+  |> should.be_ok
+  |> fn(cfg: Config) { cfg.exclude_dirs }
+  |> should.equal([])
+}
+
+pub fn decode_exclude_dirs_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"excludeDirs\": [\"build\", \".git\", \"node_modules\"],
+    \"snippets\": []
+  }"
+  decode_config(json)
+  |> should.be_ok
+  |> fn(cfg: Config) { cfg.exclude_dirs }
+  |> should.equal(["build", ".git", "node_modules"])
+}
+
+pub fn decode_empty_exclude_dir_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"excludeDirs\": [\"build\", \"  \"],
+    \"snippets\": []
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> should.equal(EmptyExclusion)
+}
+
+pub fn decode_exclude_dir_with_separator_test() {
+  let json =
+    "{
+    \"version\": 1,
+    \"sourceRoot\": \"..\",
+    \"markerRoots\": [\"src\"],
+    \"extensions\": [\".gleam\"],
+    \"excludeDirs\": [\"examples/build\"],
+    \"snippets\": []
+  }"
+  decode_config(json)
+  |> should.be_error
+  |> should.equal(ExclusionNotADirectoryName("examples/build"))
 }
 
 // ---------------------------------------------------------------------------

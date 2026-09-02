@@ -18,6 +18,7 @@ pub type Config {
     source_root: String,
     marker_roots: List(String),
     extensions: List(String),
+    exclude_dirs: List(String),
     snippets: List(SnippetSpec),
   )
 }
@@ -73,6 +74,10 @@ pub type ConfigError {
   RepeatedMarker(id: String, marker: String)
   /// Empty marker root entry.
   EmptyRoot
+  /// Empty scanner exclusion entry.
+  EmptyExclusion
+  /// A scanner exclusion is a path, not a plain directory name.
+  ExclusionNotADirectoryName(exclusion: String)
   /// Unsupported file extension.
   UnsupportedExtension(extension: String)
   /// Empty source root.
@@ -161,6 +166,7 @@ type RawConfig {
     source_root: String,
     marker_roots: List(String),
     extensions: List(String),
+    exclude_dirs: option.Option(List(String)),
     snippets: List(RawSnippet),
   )
 }
@@ -181,12 +187,18 @@ fn raw_decoder() -> decode.Decoder(RawConfig) {
   use source_root <- decode.field("sourceRoot", decode.string)
   use marker_roots <- decode.field("markerRoots", decode.list(decode.string))
   use extensions <- decode.field("extensions", decode.list(decode.string))
+  use exclude_dirs <- decode.optional_field(
+    "excludeDirs",
+    option.None,
+    decode.optional(decode.list(decode.string)),
+  )
   use snippets <- decode.field("snippets", decode.list(raw_snippet_decoder()))
   decode.success(RawConfig(
     version:,
     source_root:,
     marker_roots:,
     extensions:,
+    exclude_dirs:,
     snippets:,
   ))
 }
@@ -225,16 +237,19 @@ fn raw_snippet_decoder() -> decode.Decoder(RawSnippet) {
 // ---------------------------------------------------------------------------
 
 fn validate(raw: RawConfig) -> Result(Config, ConfigError) {
+  let exclude_dirs = option.unwrap(raw.exclude_dirs, [])
   use _ <- result_try(validate_version(raw.version))
   use _ <- result_try(validate_source_root(raw.source_root))
   use _ <- result_try(validate_roots(raw.marker_roots))
   use _ <- result_try(validate_extensions(raw.extensions))
+  use _ <- result_try(validate_exclude_dirs(exclude_dirs))
   use snippets <- result_try(validate_snippets(raw.snippets))
   Ok(Config(
     version: raw.version,
     source_root: raw.source_root,
     marker_roots: raw.marker_roots,
     extensions: raw.extensions,
+    exclude_dirs:,
     snippets:,
   ))
 }
@@ -268,6 +283,24 @@ fn validate_roots(roots: List(String)) -> Result(Nil, ConfigError) {
     case string.trim(r) {
       "" -> Error(EmptyRoot)
       _ -> Ok(Nil)
+    }
+  })
+}
+
+/// Reads the scanner exclusions.
+///
+/// An exclusion is the name of one directory, such as `build`. The scanner
+/// compares it against each directory entry, so a path with a separator can
+/// never match and is a mistake the author must see.
+fn validate_exclude_dirs(exclusions: List(String)) -> Result(Nil, ConfigError) {
+  list.try_each(exclusions, fn(entry) {
+    case string.trim(entry) {
+      "" -> Error(EmptyExclusion)
+      trimmed ->
+        case string.contains(trimmed, "/") {
+          True -> Error(ExclusionNotADirectoryName(entry))
+          False -> Ok(Nil)
+        }
     }
   })
 }

@@ -1,7 +1,9 @@
+import gleam/option
 import gleam/order
 import gleam/string
 import gleeunit/should
 import simplifile
+import source_snippets/extractor
 import source_snippets/generator.{
   ConfigDecodeError, ConfigReadError, DuplicateMarkerAcrossFiles,
   ExtractionError, InvalidSourcePath, MarkerNotFound, MissingRoot,
@@ -474,6 +476,89 @@ pub fn generate_missing_source_file_test() {
 }
 
 // ---------------------------------------------------------------------------
+// Scanner exclusions
+//
+// A broad marker root reaches the generated build directory, where the
+// compiler keeps copies of the same source. The copies carry the same marker
+// names, so the scan must skip the excluded directories by name.
+// ---------------------------------------------------------------------------
+
+const excluded_dir_files = [
+  #(
+    "src/main.gleam",
+    "// docs:snippet-start hello\ncode\n// docs:snippet-end hello\n",
+  ),
+  #(
+    "src/build/dev/copy.gleam",
+    "// docs:snippet-start hello\ncode\n// docs:snippet-end hello\n",
+  ),
+]
+
+pub fn generate_without_exclusions_sees_build_copy_test() {
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("s1", "src/main.gleam", "gleam", ["hello"], "\n\n"),
+    ])
+  let config_path = setup_fixture("no-exclusions", config, excluded_dir_files)
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      DuplicateMarkerAcrossFiles("hello", _, _) -> Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("no-exclusions")
+}
+
+pub fn generate_skips_excluded_directories_test() {
+  let config =
+    make_config_with_exclusions(".", ["src"], [".gleam"], ["build"], [
+      make_snippet("s1", "src/main.gleam", "gleam", ["hello"], "\n\n"),
+    ])
+  let config_path = setup_fixture("exclusions", config, excluded_dir_files)
+
+  let manifest = should.be_ok(generate(config_path))
+  let assert [entry] = manifest.snippets
+  entry.source_path |> should.equal("src/main.gleam")
+
+  cleanup("exclusions")
+}
+
+pub fn generate_exclusion_matches_directory_name_only_test() {
+  // A file named `build.gleam` is not a `build` directory, so the scan keeps
+  // it and reports its unreferenced marker.
+  let config =
+    make_config_with_exclusions(".", ["src"], [".gleam"], ["build"], [
+      make_snippet("s1", "src/main.gleam", "gleam", ["hello"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("exclusion-name", config, [
+      #(
+        "src/main.gleam",
+        "// docs:snippet-start hello\ncode\n// docs:snippet-end hello\n",
+      ),
+      #(
+        "src/build.gleam",
+        "// docs:snippet-start stray\ncode\n// docs:snippet-end stray\n",
+      ),
+    ])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      OrphanMarker("stray", "src/build.gleam") -> Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("exclusion-name")
+}
+
+// ---------------------------------------------------------------------------
 // Error — duplicate marker across files
 // ---------------------------------------------------------------------------
 
@@ -503,6 +588,31 @@ pub fn generate_duplicate_marker_across_files_test() {
   cleanup("dup-marker")
 }
 
+pub fn generate_split_marker_across_files_test() {
+  let source_a = "// docs:snippet-start split\ncode a\n"
+  let source_b = "code b\n// docs:snippet-end split\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("s1", "src/a.gleam", "gleam", ["split"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("split-marker", config, [
+      #("src/a.gleam", source_a),
+      #("src/b.gleam", source_b),
+    ])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      ExtractionError("s1", extractor.MissingEnd("src/a.gleam", "split")) -> Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("split-marker")
+}
+
 // ---------------------------------------------------------------------------
 // Error — orphan marker (not referenced by any snippet)
 // ---------------------------------------------------------------------------
@@ -527,6 +637,82 @@ pub fn generate_orphan_marker_test() {
   }
 
   cleanup("orphan")
+}
+
+// ---------------------------------------------------------------------------
+// Error — an end directive with no start
+//
+// The scan reads start directives and end directives. An end directive with
+// no start directive is a broken pair. A scan that reads start directives
+// alone cannot see the broken pair, so the scan reads both.
+// ---------------------------------------------------------------------------
+
+pub fn generate_dangling_end_unreferenced_test() {
+  let source =
+    "// docs:snippet-start used\ncode\n// docs:snippet-end used\n// docs:snippet-end stray\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("s1", "src/main.gleam", "gleam", ["used"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("dangling-end", config, [#("src/main.gleam", source)])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      OrphanMarker("stray", "src/main.gleam") -> Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("dangling-end")
+}
+
+pub fn generate_dangling_end_configured_test() {
+  let source = "code\n// docs:snippet-end stray\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("s1", "src/main.gleam", "gleam", ["stray"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("dangling-end-configured", config, [
+      #("src/main.gleam", source),
+    ])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      ExtractionError("s1", extractor.MissingStart("src/main.gleam", "stray")) ->
+        Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("dangling-end-configured")
+}
+
+pub fn generate_dangling_start_unreferenced_test() {
+  let source =
+    "// docs:snippet-start used\ncode\n// docs:snippet-end used\n// docs:snippet-start stray\n"
+  let config =
+    make_config(".", ["src"], [".gleam"], [
+      make_snippet("s1", "src/main.gleam", "gleam", ["used"], "\n\n"),
+    ])
+  let config_path =
+    setup_fixture("dangling-start", config, [#("src/main.gleam", source)])
+
+  generate(config_path)
+  |> should.be_error
+  |> fn(err) {
+    case err {
+      OrphanMarker("stray", "src/main.gleam") -> Nil
+      _ -> should.fail()
+    }
+  }
+
+  cleanup("dangling-start")
 }
 
 // ---------------------------------------------------------------------------
@@ -784,6 +970,32 @@ fn make_config(
   extensions: List(String),
   snippets: List(String),
 ) -> String {
+  make_config_json(source_root, marker_roots, extensions, option.None, snippets)
+}
+
+fn make_config_with_exclusions(
+  source_root: String,
+  marker_roots: List(String),
+  extensions: List(String),
+  exclude_dirs: List(String),
+  snippets: List(String),
+) -> String {
+  make_config_json(
+    source_root,
+    marker_roots,
+    extensions,
+    option.Some(exclude_dirs),
+    snippets,
+  )
+}
+
+fn make_config_json(
+  source_root: String,
+  marker_roots: List(String),
+  extensions: List(String),
+  exclude_dirs: option.Option(List(String)),
+  snippets: List(String),
+) -> String {
   let roots_json =
     marker_roots
     |> list_map(fn(r) { "\"" <> r <> "\"" })
@@ -792,12 +1004,23 @@ fn make_config(
     extensions
     |> list_map(fn(e) { "\"" <> e <> "\"" })
     |> string.join(", ")
+  let exclusions_json = case exclude_dirs {
+    option.None -> ""
+    option.Some(dirs) ->
+      "\n  \"excludeDirs\": ["
+      <> {
+        dirs
+        |> list_map(fn(d) { "\"" <> d <> "\"" })
+        |> string.join(", ")
+      }
+      <> "],"
+  }
   let snippets_json = string.join(snippets, ", ")
   "{
   \"version\": 1,
   \"sourceRoot\": \"" <> source_root <> "\",
   \"markerRoots\": [" <> roots_json <> "],
-  \"extensions\": [" <> exts_json <> "],
+  \"extensions\": [" <> exts_json <> "]," <> exclusions_json <> "
   \"snippets\": [" <> snippets_json <> "]
 }"
 }

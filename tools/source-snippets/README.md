@@ -24,6 +24,7 @@ A valid existing output file is never removed on failure.
   "sourceRoot": "..",
   "markerRoots": ["src", "test", "examples"],
   "extensions": [".gleam", ".mjs"],
+  "excludeDirs": ["build", ".git", "node_modules"],
   "snippets": [
     {
       "id": "guide-connect-start",
@@ -45,12 +46,24 @@ A valid existing output file is never removed on failure.
 - `sourceRoot` — path relative to the configuration file.
 - `markerRoots` — directories relative to `sourceRoot` to scan for markers.
 - `extensions` — file extensions to scan (e.g. `".gleam"`, `".mjs"`).
+- `excludeDirs` — directory *names* the scan skips at any depth. Optional;
+  defaults to none. An entry with a path separator is rejected, because the
+  scan compares each entry against a single directory name.
 - `snippets[].id` — unique output identifier.
 - `snippets[].sourcePath` — path relative to `sourceRoot`.
 - `snippets[].language` — language tag for the frontend.
 - `snippets[].markers` — ordered list of marker ids to join.
 - `snippets[].separator` — string placed between joined ranges (default `"\n\n"`).
 - `snippets[].wholeFile` — `true` selects the complete file instead of ranges.
+
+### Choosing roots and exclusions
+
+Prefer a few broad `markerRoots` over a long list of narrow ones: a narrow list
+goes stale, and a source directory nobody listed is a source directory nobody
+checks for broken markers. Broad roots reach generated output too, where the
+compiler keeps copies of the same marked source under `build/`. Those copies
+carry the same marker ids and read as duplicates, so name the generated and
+vendored directories in `excludeDirs`.
 
 ### Selecting the code
 
@@ -103,8 +116,12 @@ Both marker lines are stripped from the extracted code. Leading whitespace
 is dedented uniformly. Trailing blank lines before the end marker are removed.
 
 Each marker id must be unique across all scanned files. Every discovered
-marker pair must be referenced by exactly one snippet (orphan markers are an
-error). A marker may be referenced by more than one snippet.
+marker must be referenced by a snippet (orphan markers are an error). A marker
+may be referenced by more than one snippet.
+
+The scan reads start directives and end directives, so an end directive with
+no start is found too. When a snippet quotes it, the generator reports the
+missing start; when nothing quotes it, the generator reports an orphan.
 
 ## Generated manifest
 

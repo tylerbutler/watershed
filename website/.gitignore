@@ -3,3 +3,4 @@ node_modules/
 .astro/
 .playwright-mcp/
 .impeccable/
+.tmp/

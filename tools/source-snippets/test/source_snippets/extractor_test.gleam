@@ -2,8 +2,8 @@ import gleam/string
 import gleeunit/should
 import source_snippets/extractor.{
   type MarkerRange, DuplicateEnd, DuplicateStart, Empty, MarkerRange,
-  MismatchedEnd, MissingEnd, MissingStart, Nested, Reversed, extract,
-  marker_names, without_directives,
+  MismatchedEnd, MissingEnd, MissingStart, Nested, Reversed, end_marker_names,
+  extract, marker_names, without_directives,
 }
 
 // ---------------------------------------------------------------------------
@@ -25,6 +25,28 @@ pub fn marker_names_empty_when_no_markers_test() {
 pub fn marker_names_ignores_end_directives_test() {
   "// docs:snippet-end orphan\n"
   |> marker_names
+  |> should.equal([])
+}
+
+// ---------------------------------------------------------------------------
+// end_marker_names
+// ---------------------------------------------------------------------------
+
+pub fn end_marker_names_returns_all_end_names_test() {
+  "// docs:snippet-start foo\ncode\n// docs:snippet-end foo\n// docs:snippet-start bar\nmore\n// docs:snippet-end bar"
+  |> end_marker_names
+  |> should.equal(["foo", "bar"])
+}
+
+pub fn end_marker_names_finds_an_end_without_a_start_test() {
+  "// docs:snippet-end orphan\n"
+  |> end_marker_names
+  |> should.equal(["orphan"])
+}
+
+pub fn end_marker_names_empty_when_no_markers_test() {
+  "just code\nno markers"
+  |> end_marker_names
   |> should.equal([])
 }
 

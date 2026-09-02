@@ -4,43 +4,18 @@
   "markerRoots": [
     "src",
     "test",
-    "watershed_lustre/src",
-    "watershed_lustre/test",
-    "tools/website-samples/src",
-    "examples/clap_counter_lustre/src",
-    "examples/dice_cli/src",
-    "examples/dice_lustre/src",
-    "examples/drum_machine_lustre/src",
-    "examples/drum_machine_lustre/test",
-    "examples/grocery_triptych_lustre/src",
-    "examples/grocery_triptych_lustre/test",
-    "examples/json_workspace_lustre/src",
-    "examples/json_workspace_lustre/test",
-    "examples/markdown_notes_lustre/src",
-    "examples/markdown_notes_lustre/test",
-    "examples/pixel_canvas_lustre/src",
-    "examples/pixel_canvas_lustre/test",
-    "examples/playlist_lustre/src",
-    "examples/release_checklist_lustre/src",
-    "examples/release_checklist_lustre/test",
-    "examples/retro_board_lustre/src",
-    "examples/retro_board_lustre/test",
-    "examples/retro_tutorial_lustre/src",
-    "examples/retro_tutorial_lustre/test",
-    "examples/scoreboard_cli/src",
-    "examples/showcase_lustre/src",
-    "examples/showcase_lustre/test",
-    "examples/sudoku_lustre/src",
-    "examples/sudoku_lustre/test",
-    "examples/text_lustre/src",
-    "examples/tournament_bracket_lustre/src",
-    "examples/tournament_bracket_lustre/test",
-    "examples/work_queue_lustre/src",
-    "examples/work_queue_lustre/test"
+    "examples",
+    "watershed_lustre",
+    "tools/website-samples/src"
   ],
   "extensions": [
     ".gleam",
     ".mjs"
+  ],
+  "excludeDirs": [
+    "build",
+    ".git",
+    "node_modules"
   ],
   "snippets": [
     {

@@ -47,7 +47,7 @@ pub type GenerateError {
   MarkerNotFound(snippet_id: String, marker: String, source_path: String)
   /// A marker extraction error from the extractor.
   ExtractionError(snippet_id: String, error: extractor.MarkerError)
-  /// A discovered marker pair is not referenced by any snippet.
+  /// A discovered marker directive is not referenced by any snippet.
   OrphanMarker(marker: String, source_path: String)
   /// A configured source path could not be normalized or escapes source root.
   InvalidSourcePath(snippet_id: String, source_path: String)
@@ -83,6 +83,7 @@ pub fn generate(config_path: String) -> Result(Manifest, GenerateError) {
     source_root,
     cfg.marker_roots,
     cfg.extensions,
+    cfg.exclude_dirs,
   ))
 
   use _ <- result_try(check_no_orphans(inventory, cfg.snippets))
@@ -154,25 +155,40 @@ fn validate_roots_exist(
 type MarkerInventory =
   dict.Dict(String, #(String, String))
 
+/// One scanned file: its path relative to the source root, and its content.
+type ScannedSource =
+  #(String, String)
+
 fn scan_inventory(
   source_root: String,
   marker_roots: List(String),
   extensions: List(String),
+  exclude_dirs: List(String),
 ) -> Result(MarkerInventory, GenerateError) {
   let root_paths =
     list.map(marker_roots, fn(r) { filepath.join(source_root, r) })
-  use files <- result_try(collect_source_files(root_paths, extensions))
+  use files <- result_try(collect_source_files(
+    root_paths,
+    extensions,
+    exclude_dirs,
+  ))
+  use sources <- result_try(read_sources(files, source_root, []))
 
-  build_inventory(files, source_root, dict.new())
+  // A start directive claims the marker. An end directive claims the marker
+  // only when no start directive claims it. A pair that is split across two
+  // files therefore reports the missing end, not a duplicate.
+  use with_starts <- result_try(add_start_markers(sources, dict.new()))
+  add_end_markers(sources, with_starts, with_starts)
 }
 
 fn collect_source_files(
   dirs: List(String),
   extensions: List(String),
+  exclude_dirs: List(String),
 ) -> Result(List(String), GenerateError) {
   list.try_fold(dirs, [], fn(acc, dir) {
     use entries <- result_try(
-      list_files_recursive(dir)
+      list_files_recursive(dir, exclude_dirs)
       |> result.map_error(fn(_) { MissingRoot(dir) }),
     )
     let matching =
@@ -185,15 +201,17 @@ fn collect_source_files(
 
 fn list_files_recursive(
   dir: String,
+  exclude_dirs: List(String),
 ) -> Result(List(String), simplifile.FileError) {
   case simplifile.read_directory(dir) {
     Error(e) -> Error(e)
     Ok(entries) -> {
-      let full_entries = list.map(entries, fn(e) { filepath.join(dir, e) })
+      let kept = list.filter(entries, fn(e) { !list.contains(exclude_dirs, e) })
+      let full_entries = list.map(kept, fn(e) { filepath.join(dir, e) })
       list.try_fold(full_entries, [], fn(acc, entry) {
         case simplifile.is_directory(entry) {
           Ok(True) -> {
-            case list_files_recursive(entry) {
+            case list_files_recursive(entry, exclude_dirs) {
               Ok(sub_files) -> Ok(list.append(acc, sub_files))
               Error(e) -> Error(e)
             }
@@ -205,29 +223,99 @@ fn list_files_recursive(
   }
 }
 
-fn build_inventory(
+fn read_sources(
   files: List(String),
   source_root: String,
-  acc: MarkerInventory,
-) -> Result(MarkerInventory, GenerateError) {
+  acc: List(ScannedSource),
+) -> Result(List(ScannedSource), GenerateError) {
   case files {
-    [] -> Ok(acc)
-    [file, ..rest] -> {
+    [] -> Ok(list.reverse(acc))
+    [file, ..rest] ->
       case simplifile.read(file) {
         Error(_) -> Error(MissingSourceFile(file))
-        Ok(content) -> {
-          let rel_path = make_relative(file, source_root)
-          let markers = extractor.marker_names(content)
-          use new_acc <- result_try(add_markers_to_inventory(
-            markers,
-            rel_path,
-            content,
-            acc,
-          ))
-          build_inventory(rest, source_root, new_acc)
-        }
+        Ok(content) ->
+          read_sources(rest, source_root, [
+            #(make_relative(file, source_root), content),
+            ..acc
+          ])
       }
+  }
+}
+
+fn add_start_markers(
+  sources: List(ScannedSource),
+  acc: MarkerInventory,
+) -> Result(MarkerInventory, GenerateError) {
+  case sources {
+    [] -> Ok(acc)
+    [#(rel_path, content), ..rest] -> {
+      use new_acc <- result_try(add_markers_to_inventory(
+        extractor.marker_names(content),
+        rel_path,
+        content,
+        acc,
+      ))
+      add_start_markers(rest, new_acc)
     }
+  }
+}
+
+fn add_end_markers(
+  sources: List(ScannedSource),
+  starts: MarkerInventory,
+  acc: MarkerInventory,
+) -> Result(MarkerInventory, GenerateError) {
+  case sources {
+    [] -> Ok(acc)
+    [#(rel_path, content), ..rest] -> {
+      use new_acc <- result_try(add_ends_to_inventory(
+        extractor.end_marker_names(content),
+        rel_path,
+        content,
+        starts,
+        acc,
+      ))
+      add_end_markers(rest, starts, new_acc)
+    }
+  }
+}
+
+fn add_ends_to_inventory(
+  markers: List(String),
+  rel_path: String,
+  content: String,
+  starts: MarkerInventory,
+  acc: MarkerInventory,
+) -> Result(MarkerInventory, GenerateError) {
+  case markers {
+    [] -> Ok(acc)
+    [marker, ..rest] ->
+      case dict.has_key(starts, marker) {
+        // A start directive already owns this marker.
+        True -> add_ends_to_inventory(rest, rel_path, content, starts, acc)
+        False ->
+          case dict.get(acc, marker) {
+            Ok(#(existing_path, _)) ->
+              case existing_path == rel_path {
+                True ->
+                  add_ends_to_inventory(rest, rel_path, content, starts, acc)
+                False ->
+                  Error(DuplicateMarkerAcrossFiles(
+                    marker,
+                    existing_path,
+                    rel_path,
+                  ))
+              }
+            Error(Nil) ->
+              add_ends_to_inventory(
+                rest,
+                rel_path,
+                content,
+                starts,
+                dict.insert(acc, marker, #(rel_path, content)),
+              )
+          }
+      }
   }
 }
 

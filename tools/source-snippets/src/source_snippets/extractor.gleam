@@ -79,6 +79,21 @@ pub fn marker_names(source: String) -> List(String) {
   })
 }
 
+/// Returns the names of all end markers found in the source.
+///
+/// An end directive with no start is a broken pair. A scan that reads start
+/// directives alone cannot see it, so the caller reads both lists.
+pub fn end_marker_names(source: String) -> List(String) {
+  source
+  |> string.split("\n")
+  |> list.filter_map(fn(line) {
+    case parse_directive(line) {
+      Some(End(name)) -> Ok(name)
+      _ -> Error(Nil)
+    }
+  })
+}
+
 /// Returns the source without its marker directive lines.
 ///
 /// A directive line is punctuation for this tool, not code. A whole-file

@@ -9,6 +9,7 @@ erl_crash.dump
 /relay-data
 
 # Local tool state
+/.superpowers/
 /.claude/
 .impeccable/
 /.playwright-mcp/

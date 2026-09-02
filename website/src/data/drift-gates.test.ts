@@ -4,9 +4,11 @@
 //
 // The code itself is selected by `tools/source-snippets`, which reads
 // `website/snippets.json` and writes an ignored manifest. Marker integrity
-// (uniqueness, pairing, orphans) is enforced by the Gleam generator. These
-// gates police the frontend seams: ids stay declared, no page reaches
-// around the loader, and literal Gleam stays allowlisted.
+// (uniqueness, pairing, orphans) and configuration shape (selectors,
+// separators, source paths) are enforced by the Gleam generator, which runs
+// before these gates do. These gates police the frontend seams: ids stay
+// declared, no page reaches around the loader, and literal Gleam stays
+// allowlisted.
 //
 // Each gate catches one category of drift. Negative tests prove the gate
 // fires for fabricated drift; positive tests prove the codebase is clean.
@@ -18,6 +20,7 @@ import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, existsSync, readdirSync } from "node:fs";
 import { resolve, dirname, relative, join } from "node:path";
+import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -217,13 +220,18 @@ function skipBalanced(
  * the drift gates test.
  */
 const GATE_EXEMPT_PATTERNS = [
-  /\.test\.ts$/,          // test suites
-  /drift-gates\.test\./,  // this file
-  /\/lib\/snippet\.ts$/,  // the snippet library
+  /\.test\.(?:ts|js|mjs)$/, // test suites, which fabricate violations
+  /drift-gates\.test\./,    // this file
+  /\/lib\/snippet\.ts$/,    // the snippet library
 ];
 
-/** All authored website source modules: src/**\/*.astro and src/**\/*.ts,
- *  minus test files and the extractor itself. */
+/** Extensions the gates read. Astro pages and TypeScript modules render the
+ *  site; `.js` and `.mjs` modules ship to the browser and can reach around
+ *  the loader in exactly the same ways, so the walk reads them too. */
+const AUTHORED_EXTENSIONS = [".astro", ".ts", ".js", ".mjs"];
+
+/** All authored website source modules under src, minus test files and the
+ *  snippet library itself. */
 function findAllAuthoredModules(): string[] {
   const srcDir = resolve(websiteRoot, "src");
   const results: string[] = [];
@@ -232,7 +240,7 @@ function findAllAuthoredModules(): string[] {
       const full = join(dir, entry.name);
       if (entry.isDirectory() && entry.name !== "node_modules") {
         walk(full);
-      } else if (entry.name.endsWith(".astro") || entry.name.endsWith(".ts")) {
+      } else if (AUTHORED_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) {
         const rel = relative(websiteRoot, full);
         if (!GATE_EXEMPT_PATTERNS.some((p) => p.test(rel))) {
           results.push(full);
@@ -305,9 +313,13 @@ describe("Gate: every rendered snippet id is declared and generated", () => {
         const entry = generated.get(id);
         assert.ok(entry, `"${id}" is not in ${SNIPPET_MANIFEST}`);
         assert.ok(entry.code.trim().length > 0, `"${id}" generated empty code`);
+        // The generator checks the configured path when it runs. This checks
+        // the manifest on disk, which may be older than the tree: a source
+        // deleted after the last generation leaves an entry citing a file
+        // that is gone, and the site renders that path as its citation.
         assert.ok(
           existsSync(resolve(repoRoot, entry.sourcePath)),
-          `"${id}" cites "${entry.sourcePath}", which does not exist at repo root`,
+          `"${id}" cites "${entry.sourcePath}", which does not exist at repo root — regenerate with \`just snippets\``,
         );
       });
     }
@@ -949,13 +961,12 @@ const snippet = {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// Gate 10: The generator configuration selects one way per snippet
+// The checked-in configuration, read for the id inventory above.
 //
-// A snippet reads marker ranges or the whole file. Both selectors on one
-// entry, or neither, is an ambiguous descriptor, and an ambiguous descriptor
-// is a snippet nobody can predict from reading the configuration. The Gleam
-// decoder rejects those shapes; this gate keeps the checked-in configuration
-// honest without waiting for a Gleam run.
+// Its shape is not policed here. The Gleam decoder owns every rule about
+// selectors, separators, and source paths, and it runs before these gates
+// do. A second copy of those rules in TypeScript would drift from the
+// decoder and enforce yesterday's schema.
 // ══════════════════════════════════════════════════════════════════════════
 
 interface ConfiguredSnippet {
@@ -974,75 +985,146 @@ function configuredSnippets(): ConfiguredSnippet[] {
   return config.snippets;
 }
 
-describe("Gate: configured snippets select markers or a whole file", () => {
-  const snippets = configuredSnippets();
+// ══════════════════════════════════════════════════════════════════════════
+// Gate 10: Browser script modules are inside the gates
+//
+// The gates above walked `.astro` and `.ts` only. A `.js` or `.mjs` module
+// under src/scripts is authored code that ships to the browser, and it can
+// import source with `?raw`, hand-build a descriptor, or read the manifest
+// exactly like a page can. Left unscanned it is an open door, so the walk
+// reads it too. Test modules stay outside on purpose: they fabricate
+// violations to prove the gates fire.
+// ══════════════════════════════════════════════════════════════════════════
 
-  it("the configuration declares snippets", () => {
-    assert.ok(snippets.length > 0, `${SNIPPET_CONFIG} declares no snippets`);
-  });
+/** Every content policy the gates apply, run over one module's source. */
+function policyViolations(source: string): string[] {
+  const found: string[] = [];
+  if (hasLiteralGleamCall(source)) found.push("literal-gleam");
+  if (
+    extractRawImportPaths(source, websiteRoot).some(
+      (p) => p.endsWith(".gleam") || p.endsWith(".mjs"),
+    )
+  ) {
+    found.push("raw-source-import");
+  }
+  if (hasHandBuiltSnippet(source)) found.push("hand-built-snippet");
+  if (importsGeneratedManifest(source)) found.push("manifest-import");
+  if (importsAstroCode(source) || rendersAstroCode(source)) found.push("astro-code");
+  return found.sort();
+}
 
-  for (const snippet of snippets) {
-    it(`${snippet.id}: exactly one selector`, () => {
-      const hasMarkers = snippet.markers !== undefined;
-      const hasWholeFile = snippet.wholeFile !== undefined;
+/** Files git tracks under the website's src tree, website-relative. */
+function trackedWebsiteSources(): string[] {
+  return execFileSync("git", ["ls-files", "src"], {
+    cwd: websiteRoot,
+    encoding: "utf-8",
+  })
+    .split("\n")
+    .filter((line) => line.length > 0);
+}
 
+describe("Gate: browser script modules are inside the gates", () => {
+  const scanned = findAllAuthoredModules().map((p) => relative(websiteRoot, p));
+
+  describe("positive — the walk reads every authored script module", () => {
+    it("the walk reaches .js modules", () => {
       assert.ok(
-        hasMarkers !== hasWholeFile,
-        `${snippet.id} declares ${hasMarkers && hasWholeFile ? "both markers and wholeFile" : "neither markers nor wholeFile"} — a snippet selects one way or the other`,
+        scanned.some((p) => p.endsWith(".js")),
+        "no .js module is scanned — a browser script can bypass every gate",
       );
+    });
 
-      if (hasWholeFile) {
-        assert.equal(
-          snippet.wholeFile,
-          true,
-          `${snippet.id}: wholeFile takes only true — drop the field instead`,
-        );
-        assert.equal(
-          snippet.separator,
-          undefined,
-          `${snippet.id}: a whole-file listing joins nothing, so it has no separator`,
-        );
-      } else {
-        assert.ok(
-          (snippet.markers ?? []).length > 0,
-          `${snippet.id}: an empty marker list selects nothing`,
+    it("the walk reaches .mjs modules", () => {
+      assert.ok(
+        scanned.some((p) => p.endsWith(".mjs")),
+        "no .mjs module is scanned — a browser script can bypass every gate",
+      );
+    });
+
+    it("the walk misses no tracked script module", () => {
+      const tracked = trackedWebsiteSources().filter(
+        (p) =>
+          (p.endsWith(".js") || p.endsWith(".mjs")) &&
+          !/\.test\.(?:ts|js|mjs)$/.test(p),
+      );
+      assert.ok(tracked.length > 0, "git tracks no script module under src");
+      const missed = tracked.filter((p) => !scanned.includes(p)).sort();
+      assert.deepEqual(
+        missed,
+        [],
+        `these tracked script modules are never scanned:\n${missed.join("\n")}`,
+      );
+    });
+
+    it("test modules stay outside the gates", () => {
+      const tests = scanned.filter((p) => /\.test\.(?:ts|js|mjs)$/.test(p));
+      assert.deepEqual(
+        tests,
+        [],
+        `test modules fabricate violations to prove the gates fire, so they cannot be scanned:\n${tests.join("\n")}`,
+      );
+    });
+
+    it("no authored script module violates a policy", () => {
+      for (const relModule of scanned.filter(
+        (p) => p.endsWith(".js") || p.endsWith(".mjs"),
+      )) {
+        assert.deepEqual(
+          policyViolations(readFileSync(resolve(websiteRoot, relModule), "utf-8")),
+          [],
+          `${relModule} violates a snippet policy`,
         );
       }
     });
+  });
 
-    it(`${snippet.id}: source file exists`, () => {
-      assert.ok(
-        existsSync(resolve(repoRoot, snippet.sourcePath)),
-        `${snippet.id}: sourcePath "${snippet.sourcePath}" does not exist at repo root`,
-      );
-    });
-  }
-
-  describe("negative — catches an ambiguous entry", () => {
-    it("both selectors on one entry is ambiguous", () => {
-      const fake: ConfiguredSnippet = {
-        id: "fake",
-        sourcePath: "src/a.gleam",
-        language: "gleam",
-        markers: ["a"],
-        wholeFile: true,
-      };
-      assert.ok(
-        (fake.markers !== undefined) === (fake.wholeFile !== undefined),
-        "both selectors must be rejected",
-      );
+  describe("negative — a script module cannot bypass the policies", () => {
+    it("catches a raw Gleam import in a script module", () => {
+      const fake = `import src from "../../../examples/dice_cli/src/dice_cli.gleam?raw";\n`;
+      assert.ok(policyViolations(fake).includes("raw-source-import"));
     });
 
-    it("neither selector on one entry is ambiguous", () => {
-      const fake: ConfiguredSnippet = {
-        id: "fake",
-        sourcePath: "src/a.gleam",
-        language: "gleam",
-      };
-      assert.ok(
-        (fake.markers !== undefined) === (fake.wholeFile !== undefined),
-        "an entry with no selector must be rejected",
-      );
+    it("catches literal Gleam in a script module", () => {
+      const fake = `export const s = snippetFromLiteral(\`import gleam/io\`, "gleam", "(illustrative)");`;
+      assert.ok(policyViolations(fake).includes("literal-gleam"));
+    });
+
+    it("catches a hand-built descriptor in a script module", () => {
+      const fake = `export const snippet = {
+  code: "pub fn main() { Nil }",
+  language: "gleam",
+  sourcePath: "examples/dice_cli/src/dice_cli.gleam",
+};`;
+      assert.ok(policyViolations(fake).includes("hand-built-snippet"));
+    });
+
+    it("catches a manifest read in a script module", () => {
+      const fake = `import manifest from "../generated/snippets.json" with { type: "json" };`;
+      assert.ok(policyViolations(fake).includes("manifest-import"));
+    });
+
+    it("catches every bypass at once", () => {
+      const fake = `import manifest from "../generated/snippets.json" with { type: "json" };
+import src from "../../../examples/dice_cli/src/dice_cli.gleam?raw";
+import { Code } from "astro:components";
+export const a = snippetFromLiteral(\`import gleam/io\`, "gleam", "(illustrative)");
+export const snippet = {
+  code: src,
+  language: "gleam",
+  sourcePath: "examples/dice_cli/src/dice_cli.gleam",
+};`;
+      assert.deepEqual(policyViolations(fake), [
+        "astro-code",
+        "hand-built-snippet",
+        "literal-gleam",
+        "manifest-import",
+        "raw-source-import",
+      ]);
+    });
+
+    it("leaves a clean script module alone", () => {
+      const fake = `export function boot() {\n  document.querySelector("#demo")?.classList.add("ready");\n}\n`;
+      assert.deepEqual(policyViolations(fake), []);
     });
   });
 });

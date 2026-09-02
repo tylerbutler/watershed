@@ -23,6 +23,11 @@ pub fn marker_names(source: String) -> List(String) {
   extractor.marker_names(source)
 }
 
+/// Returns the names of all end markers found in the source.
+pub fn end_marker_names(source: String) -> List(String) {
+  extractor.end_marker_names(source)
+}
+
 /// Extracts the named marker range from source.
 pub fn extract(
   source: String,
