@@ -12,6 +12,7 @@
     "og:image": "node scripts/og-image.mjs",
     "test:rich-text-adapter": "node --test src/scripts/demo/rich-text-adapter.test.mjs",
     "test:demo-boot": "node --test src/scripts/demo/boot.test.mjs",
+    "test:snippet": "node --strip-types --test src/lib/snippet.test.ts",
     "test:guide-race-styles": "node scripts/check-guide-race-styles.mjs"
   },
   "dependencies": {
