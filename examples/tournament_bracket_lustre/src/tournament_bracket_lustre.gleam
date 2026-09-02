@@ -281,8 +281,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           )
         }
       }
-    // docs:snippet-end practice-unsettled-report
 
+    // docs:snippet-end practice-unsettled-report
     PresenceStarted(handle) -> #(
       Model(..model, presence: Some(handle)),
       effect.none(),

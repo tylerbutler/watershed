@@ -39,6 +39,7 @@ const socket_url = "ws://localhost:4000/socket/websocket?vsn=2.0.0"
 const tenant = "dev-tenant"
 
 const tenant_secret = "levee-dev-secret-change-in-production"
+
 // docs:snippet-end guide-connect-dev-constants
 
 pub fn main() -> Nil {
@@ -257,8 +258,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, status: Failed(reason), last_error: Some(reason)),
       effect.none(),
     )
-    // docs:snippet-end update-readiness
 
+    // docs:snippet-end update-readiness
     // docs:snippet-start lifecycle-ensured-arms
     EnsuredNotes(Ok(notes)) ->
       Model(
@@ -281,8 +282,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, last_error: Some("votes channel failed: " <> reason)),
       effect.none(),
     )
-    // docs:snippet-end lifecycle-ensured-arms
 
+    // docs:snippet-end lifecycle-ensured-arms
     SharedChanged -> #(snapshot(model), effect.none())
 
     DraftChanged(column, text) -> #(
@@ -322,8 +323,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
       }
     }
-    // docs:snippet-end guide-notes-add-clicked
 
+    // docs:snippet-end guide-notes-add-clicked
     // docs:snippet-start guide-votes-vote-clicks
     UpvoteClicked(id) ->
       case model.shared {
@@ -342,8 +343,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
         }
         None -> #(model, effect.none())
       }
-    // docs:snippet-end guide-votes-vote-clicks
 
+    // docs:snippet-end guide-votes-vote-clicks
     // docs:snippet-start guide-presence-focus-clicked
     FocusClicked(id) -> {
       let focus = case model.focus {
@@ -358,8 +359,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       let model = Model(..model, focus: None)
       #(model, announce_focus(model))
     }
-    // docs:snippet-end guide-presence-focus-clicked
 
+    // docs:snippet-end guide-presence-focus-clicked
     PresenceStarted(handle) -> {
       let model = Model(..model, presence: Some(handle))
       #(model, announce_focus(model))
@@ -385,8 +386,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           effect.none(),
         )
       }
-    // docs:snippet-end guide-presence-events
 
+    // docs:snippet-end guide-presence-events
     ReconnectClicked ->
       case model.document {
         Some(document) -> #(model, watershed_lustre.force_reconnect(document))

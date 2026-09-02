@@ -170,8 +170,8 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       }),
       effect.none(),
     )
-    // docs:snippet-end practice-fallible-move
 
+    // docs:snippet-end practice-fallible-move
     // Replace swaps the value at an index in place, keeping its position. It is
     // one watershed operation composed from a lattice delete + insert delta,
     // not a native lattice primitive.

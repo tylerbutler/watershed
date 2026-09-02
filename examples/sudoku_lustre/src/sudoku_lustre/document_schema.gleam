@@ -34,21 +34,25 @@ pub fn title() -> Field(SudokuDocument, String) {
 
 /// The player-entered digits, keyed `r{row}c{column}` → digit.
 pub fn cells() -> ChannelField(SudokuDocument, MapChannel) {
-  schema.channel_field("cells") // last write wins, per key
+  schema.channel_field("cells")
+  // last write wins, per key
 }
 
 /// The pencil-mark notes, as `r{row}c{column}={digit}` set elements.
 pub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) {
-  schema.channel_field("notes") // add wins over a concurrent remove
+  schema.channel_field("notes")
+  // add wins over a concurrent remove
 }
 
 /// The puzzle's immutable givens, first-writer-wins claims per cell.
 pub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) {
-  schema.channel_field("givens") // the first writer owns the slot
+  schema.channel_field("givens")
+  // the first writer owns the slot
 }
 
 /// The shared mistake tally.
 pub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) {
-  schema.channel_field("mistakes") // commutative increments
+  schema.channel_field("mistakes")
+  // commutative increments
 }
 // docs:snippet-end sharedtree-nest

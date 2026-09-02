@@ -148,8 +148,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, status: Failed(reason), last_error: Some(reason)),
       effect.none(),
     )
-    // docs:snippet-end practice-ffi-connected
 
+    // docs:snippet-end practice-ffi-connected
     Canvas(inner) ->
       case model.canvas {
         None -> #(model, effect.none())

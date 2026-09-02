@@ -322,6 +322,7 @@ fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {
     }),
   ])
 }
+
 // docs:snippet-end sharedtree-per-kind
 
 /// Draw these peers on the board. A driver is document-scoped, so the owner
