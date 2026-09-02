@@ -1,0 +1,182 @@
+---
+import { Code } from "astro:components";
+import FoundationsLayout from "../../components/FoundationsLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt } from "../../lib/excerpt";
+import componentModule from "../../../../src/watershed/component.gleam?raw";
+import componentTests from "../../../../test/watershed/component_test.gleam?raw";
+
+const descriptorType = excerpt(
+  componentModule,
+  "pub opaque type Descriptor(context, running) {",
+);
+const notesDefinition = excerpt(
+  componentTests,
+  "fn notes_decoder() -> decode.Decoder(NotesConfig) {",
+  "fn notes_descriptor() -> component.Descriptor(String, String) {",
+);
+const catalogType = excerpt(
+  componentModule,
+  "pub opaque type Catalog(context, running) {",
+);
+const catalogExample = excerpt(
+  componentTests,
+  "pub fn catalog_holds_different_config_types_test() -> Nil {",
+);
+const registerFn = excerpt(componentModule, "pub fn register(");
+const findFn = excerpt(componentModule, "pub fn find(");
+const validateFn = excerpt(componentModule, "pub fn validate_config(");
+const startFn = excerpt(componentModule, "pub fn start(");
+const portsFn = excerpt(componentModule, "pub fn ports(");
+---
+
+<FoundationsLayout
+  slug="components"
+  description="Watershed describes reusable component kinds with versioned descriptors that hide config types behind decoders and start closures, while one catalog gives the host a common context, running value, port list, and precise lookup errors."
+>
+  <div class="g-block">
+    <h2>A descriptor is the catalog boundary</h2>
+    <p>
+      A host wants one catalog of component kinds. Gleam requires one type for
+      all values in that catalog. Configuration breaks that uniformity: notes
+      might need a placeholder string, while a counter needs an integer step.
+      A broad config union would expose each component's private choices to the
+      host.
+    </p>
+    <p>
+      <code>Descriptor(context, running)</code> keeps the config type out of
+      its public type. The descriptor holds the decoder and start closure that
+      know that type. The catalog sees the two types all components in one host
+      must share: what the host passes in, and what it gets back.
+    </p>
+    <figure class="g-code">
+      <Code code={descriptorType} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Each component keeps its config type</h2>
+    <p>
+      You still write ordinary typed Gleam inside a component. This notes
+      definition decodes JSON into <code>NotesConfig</code>, then starts with
+      that exact type. <code>component.descriptor</code> closes over both
+      functions and removes the config type from the host-facing API.
+    </p>
+    <figure class="g-code">
+      <Code code={notesDefinition} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        source: test/watershed/component_test.gleam
+      </figcaption>
+    </figure>
+    <p>
+      The two <code>String</code> parameters in the return type are the host
+      contract in this test: a string context goes in and a string running
+      value comes back. Another descriptor in the same catalog can hide a
+      different config type, but it must honor that same host contract.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>One catalog, exact versions</h2>
+    <p>
+      A catalog keys each descriptor by its stable kind and integer format
+      version. Several versions of one kind can coexist. Registering the same
+      pair twice returns <code>DuplicateRegistration</code>. Lookup requires
+      the requested version.
+    </p>
+    <figure class="g-code">
+      <Code code={catalogType} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={registerFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={catalogExample} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        notes and counter configs differ; the host contract matches
+      </figcaption>
+    </figure>
+    <p>
+      With exact lookup, a host gets two useful failure states.{" "}
+      <code>NotRegistered(kind)</code> means it knows no version of the kind.
+      <code>UnsupportedVersion(kind, requested, available)</code> means it can
+      name the versions it does know. A host can report the missing kind or the
+      unsupported version without guessing.
+    </p>
+    <figure class="g-code">
+      <Code code={findFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <div class="g-note">
+      <p>
+        <strong>The catalog requires an exact version.</strong> Register an
+        older descriptor when a host still supports it. The host owns
+        migration and any fallback or code-loading policy.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Validation and startup stay separate</h2>
+    <p>
+      <code>validate_config</code> runs the descriptor's decoder and stops
+      there. A builder or manifest reader can check stored JSON without
+      opening subscriptions or creating a running component.{" "}
+      <code>start</code> decodes the same JSON, then calls the typed start
+      closure.
+    </p>
+    <figure class="g-code">
+      <Code code={validateFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={startFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      The error tells you which side failed. <code>InvalidConfig</code> reports
+      the kind, version, and JSON decode error. <code>StartFailed</code> reports
+      the same identity plus the reason returned by component code. The host
+      can report the decode or startup failure.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>The port list is the component's public wiring surface</h2>
+    <p>
+      A descriptor also includes erased port metadata.{" "}
+      <code>component.ports</code> exposes enough information for a host to
+      list ports and validate stored connections without knowing each payload
+      type. Component code keeps the typed input and output values that
+      perform encoding, decoding, and direct connection checks.
+    </p>
+    <figure class="g-code">
+      <Code code={portsFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Types protect code written together. Descriptors let the host validate
+      data read later from a catalog or graph.{" "}
+      <a href="/foundations/ports">The next sheet</a> follows both forms through
+      a connection and a dispatch plan.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h3>You supply the component runtime</h3>
+    <p>
+      Use this module to define descriptors, build catalogs, validate config,
+      look up versions, and call a start closure. Your host must persist its
+      instance manifest, assign child maps, mount views, maintain
+      subscriptions, stop instances, and migrate data. Watershed ships the
+      catalog foundation. You supply that host runtime.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">The contract</span>
+    <p>
+      A descriptor hides one component's config type behind its decoder and
+      start closure. A catalog keeps those unlike definitions together under
+      one host contract, looks them up by exact kind and version, and exposes
+      their erased port metadata. Next: <a href="/foundations/ports">how those
+      ports become a checked graph and an origin-aware delivery plan</a>.
+    </p>
+  </div>
+</FoundationsLayout>

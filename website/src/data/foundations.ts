@@ -2,9 +2,9 @@
 // watershed — foundations concept catalog
 // Single source of truth for the /foundations section: the hub index, the
 // per-doc prev/next pager, and the "adjoining sheets" footer column. These are
-// the core mental model a programmer needs before the /guide steps make
-// sense: what a schema declares, how a document is actually laid out, and
-// what happens between opening a document and having something to build on.
+// the core document model plus the component-composition foundation: what a
+// schema declares, how a document is laid out and started, and how a host
+// describes components and routes events between them.
 // Keep this list in reading order — the pager derives prev/next from it.
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -40,6 +40,20 @@ export const foundationsDocs: FoundationDoc[] = [
     gloss:
       "Every client runs the same bootstrap: get a handle, wait for the catch-up, ensure the channels it needs exist, and only render once they've all reported in.",
     concept: "got_document · connected · ensure_* · subscribe",
+  },
+  {
+    slug: "components",
+    title: "Components and catalogs",
+    gloss:
+      "Package one component kind behind a versioned descriptor: typed config goes in, one host-shaped running value comes out, and a catalog keeps unlike definitions together.",
+    concept: "Descriptor · Catalog · register · find · start",
+  },
+  {
+    slug: "ports",
+    title: "Ports and dispatch",
+    gloss:
+      "Connect typed outputs to local or collaborative inputs, reject bad edges deterministically, and plan each local event without replaying it on every client.",
+    concept: "Output · Input · EffectiveGraph · LocalIntent · Delivery",
   },
 ];
 

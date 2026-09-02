@@ -6,7 +6,7 @@ import { foundationsDocs } from "../../data/foundations";
 
 <Sheet
   title="watershed — foundations"
-  description="The core mental model behind every watershed document: what a schema declares at compile time, how a document is actually laid out as a graph of channels, and what happens between opening a document and having something to build on."
+  description="The model behind watershed documents and component composition: typed schemas, channel topology, startup, versioned component catalogs, typed ports, graph validation, and dispatch planning."
 >
   <header class="fh-hero">
     <div class="fh-hero-inner">
@@ -16,10 +16,9 @@ import { foundationsDocs } from "../../data/foundations";
       <h1>Before you<br /><em>build anything.</em></h1>
       <p class="lede">
         The <a href="/guide">build guide</a> walks a working board through
-        every step. These three sheets are what makes each of those steps make
-        sense: how you declare a document's shape, how that shape is actually
-        laid out underneath, and what a client does between opening a document
-        and having something worth rendering.
+        every step. These sheets cover the model underneath it: how you
+        declare and lay out a document, bring its channels online, package
+        reusable component definitions, and route typed events between them.
       </p>
     </div>
   </header>
@@ -27,7 +26,7 @@ import { foundationsDocs } from "../../data/foundations";
   <main class="fh-ledger" aria-labelledby="fh-ledger-title">
     <div class="fh-ledger-head">
       <h2 id="fh-ledger-title">Foundations</h2>
-      <p>Three sheets. Read in order — each one leans on the last.</p>
+      <p>{foundationsDocs.length} sheets. Read in order — each one leans on the last.</p>
     </div>
     <ol class="fh-list">
       {

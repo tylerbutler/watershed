@@ -1,0 +1,214 @@
+---
+import { Code } from "astro:components";
+import FoundationsLayout from "../../components/FoundationsLayout.astro";
+import { watershedCodeTheme } from "../../styles/code-theme";
+import { excerpt } from "../../lib/excerpt";
+import portModule from "../../../../src/watershed/port.gleam?raw";
+import graphModule from "../../../../src/watershed/port_graph.gleam?raw";
+import dispatchModule from "../../../../src/watershed/dispatch.gleam?raw";
+import portTests from "../../../../test/watershed/port_test.gleam?raw";
+import dispatchTests from "../../../../test/watershed/dispatch_test.gleam?raw";
+
+const portDeclarations = excerpt(
+  portTests,
+  "fn selected() -> port.Output(String) {",
+  "fn focus_subject() -> port.Input(String) {",
+  "fn append_activity() -> port.Input(String) {",
+);
+const connectFn = excerpt(portModule, "pub fn connect(");
+const graphFn = excerpt(
+  dispatchTests,
+  "fn ports(instance_id: String) -> Result(List(port.Descriptor), Nil) {",
+  "fn graph() -> port_graph.EffectiveGraph {",
+);
+const effectiveFn = excerpt(graphModule, "pub fn effective(");
+const localPlan = excerpt(
+  dispatchTests,
+  "pub fn local_intent_fans_out_in_edge_order_test() -> Nil {",
+);
+const replicatedPlan = excerpt(
+  dispatchTests,
+  "pub fn replicated_change_produces_no_deliveries_test() -> Nil {",
+);
+const planFn = excerpt(dispatchModule, "pub fn plan(");
+
+const flowDiagram = `typed component code             erased host boundary
+
+Output(String) -- encode --> Json
+      |                         |
+      | output_descriptor       | PortRef + connection ID
+      v                         v
+Descriptor ---------> EffectiveGraph ---------> Delivery
+                                                   |
+                         target Input(String) <----+
+                                decode + execute: host runtime's job`;
+---
+
+<FoundationsLayout
+  slug="ports"
+  description="Watershed's port foundation uses payload types for direct connections, schema IDs for erased graph data, deterministic validation for an acyclic effective graph, and origin-aware dispatch planning."
+>
+  <div class="g-block">
+    <h2>Declare one direction of data flow</h2>
+    <p>
+      You send a typed payload out of a component through an output. Another
+      component receives it through an input. Each declaration includes a
+      stable port ID, a stable payload schema ID, and one side of the JSON
+      codec. Gleam keeps the payload type attached while you work with the
+      port.
+    </p>
+    <figure class="g-code">
+      <Code code={portDeclarations} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        source: test/watershed/port_test.gleam
+      </figcaption>
+    </figure>
+    <p>
+      Both <code>selected</code> and <code>focus_subject</code> use{" "}
+      <code>String</code>, and both name the same{" "}
+      <code>watershed/task-id@1</code> schema. The compiler rejects a direct
+      connection to <code>Input(Int)</code>. <code>port.connect</code> then
+      checks the schema IDs, catching two string-shaped payloads that mean
+      different things.
+    </p>
+    <figure class="g-code">
+      <Code code={connectFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Local and collaborative describe the target effect</h2>
+    <p>
+      <code>LocalInput</code> changes presentation or controller state on the
+      client where the event began: focus a subject, select a row, apply a
+      filter. <code>CollaborativeInput</code> asks the target component on that
+      same client to perform one of its own mutations. Watershed can then
+      replicate the resulting channel operation in the normal way.
+    </p>
+    <p>
+      The collaborative declaration lists capabilities such as{" "}
+      <code>sequence:insert</code>. A host can show that shared-state effect
+      before storing a connection. The current foundation records the list. A
+      separate authorization layer must enforce policy.
+    </p>
+    <div class="g-note">
+      <p>
+        <strong>The origin client runs a collaborative input.</strong> It must
+        submit the target mutation before it disconnects. The server cannot
+        finish a job that no client submitted. Server-run retries would need a
+        separate input class with execution records, idempotency, and
+        authorization.
+      </p>
+    </div>
+  </div>
+
+  <div class="g-block">
+    <h2>Erase payload types before storage</h2>
+    <p>
+      <code>output_descriptor</code> and <code>input_descriptor</code> remove
+      the payload type but retain the port ID, direction, schema ID, and input
+      class. A mixed component catalog lists this metadata, and a stored graph
+      validates it. The typed input keeps the decoder a host uses when it
+      executes a delivery.
+    </p>
+    <figure class="g-code">
+      <Code code={flowDiagram} lang="text" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        authors keep payload types; hosts store metadata
+      </figcaption>
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Validate the stored graph before dispatch</h2>
+    <p>
+      A stored connection consists of two <code>PortRef</code> values and an
+      edge ID. It can name a missing instance, a retired port, two outputs, or
+      schemas that no longer match. Two clients can also add edges that look
+      safe alone but form a cycle after their connection sets merge.
+    </p>
+    <p>
+      <code>port_graph.effective</code> derives the graph a client may use. It
+      sorts edges by ID, rejects every duplicate ID, validates both endpoints,
+      and accepts edges in that stable order until the next edge would create
+      a cycle. Clients that read the same stored set derive the same acyclic
+      result.
+    </p>
+    <figure class="g-code">
+      <Code code={effectiveFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      Rejected edges remain in storage. The effective graph returns diagnostics
+      for duplicates, missing instances or ports, wrong directions, schema
+      mismatches, and cycles. A UI can explain the dropped connection without
+      destroying data another client may still understand.
+    </p>
+    <figure class="g-code">
+      <Code code={graphFn} lang="gleam" theme={watershedCodeTheme} />
+      <figcaption class="annot">
+        stored instance and port IDs describe two typed relationships
+      </figcaption>
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h2>Dispatch local intent once</h2>
+    <p>
+      A user action can emit a component output. Suppress that output while
+      applying the replicated channel change, or each observer repeats the
+      target mutation. <code>dispatch.plan</code> makes the origin explicit
+      and returns no deliveries for{" "}
+      <code>ReplicatedChange</code>.
+    </p>
+    <figure class="g-code">
+      <Code code={localPlan} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <figure class="g-code">
+      <Code code={replicatedPlan} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+    <p>
+      A local plan follows the effective graph's stable edge order. Each
+      <code>Delivery</code> records the trace, edge ID, target port, target
+      input class, and encoded JSON payload. The trace lets a host join later
+      diagnostics to the event that started them.
+    </p>
+  </div>
+
+  <div class="g-block">
+    <h2>Planning checks the catalog again</h2>
+    <p>
+      A graph can outlive the descriptor snapshot that validated it. Before it
+      creates deliveries, <code>dispatch.plan</code> re-reads the source and
+      each target. A missing or redirected port becomes{" "}
+      <code>SourceUnavailable</code> or <code>TargetUnavailable</code>; a
+      changed schema becomes <code>SchemaChanged</code>. Valid sibling edges
+      still produce deliveries.
+    </p>
+    <figure class="g-code">
+      <Code code={planFn} lang="gleam" theme={watershedCodeTheme} />
+    </figure>
+  </div>
+
+  <div class="g-block">
+    <h3>Your runtime executes the plan</h3>
+    <p>
+      The host receives a plan as data. Its runtime must decode target
+      payloads, call component code, execute local effects, submit
+      collaborative mutations, and enforce capability policy. The runtime must
+      also remember which edges one cascading trace crossed between plan calls.
+      Watershed ships the dispatch planner. You supply the runtime.
+    </p>
+  </div>
+
+  <div class="g-out">
+    <span class="annot">The route</span>
+    <p>
+      Gleam checks payload types for direct connections. After type erasure,
+      the host checks schema IDs and descriptors. The effective graph turns an
+      invalid stored edge set into one deterministic acyclic view. Dispatch
+      plans ordered deliveries for local intent and suppresses a replicated
+      echo. From here, <a href="/guide">the build guide</a> returns to the
+      document runtime watershed ships end to end today.
+    </p>
+  </div>
+</FoundationsLayout>
