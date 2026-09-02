@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Netlify build script: installs the Gleam compiler (not in Netlify's build
-# image), verifies the Erlang toolchain (installed via Aptfile by
-# netlify-plugin-apt), then runs the normal site build.
+# image), verifies the Erlang toolchain the image is expected to supply, then
+# runs the normal site build.
 #
 # `pnpm build` triggers the `prebuild` hook, which:
 #   1. Compiles the Gleam kernel to JavaScript for the live demo.
@@ -23,10 +23,11 @@ fi
 
 # ── Toolchain check ──────────────────────────────────────────────────────
 # The source-snippet generator targets Erlang: Gleam compiles to .erl, erlc
-# compiles to .beam, and escript runs the result. All three must be present
-# before the prebuild hook. If they are missing the Aptfile was not
-# honoured — check that netlify-plugin-apt is configured in netlify.toml and
-# that website/Aptfile lists erlang-base (or an equivalent).
+# compiles to .beam, and escript runs the result. Both must be present
+# before the prebuild hook. Netlify's Ubuntu build image ships esl-erlang,
+# which provides them, so this check should never fire — it exists to turn a
+# change of build image into a one-line diagnosis instead of a confusing
+# Gleam compile failure deep in the prebuild.
 missing=()
 for cmd in escript erlc; do
   if ! command -v "$cmd" >/dev/null 2>&1; then
@@ -36,7 +37,8 @@ done
 if (( ${#missing[@]} )); then
   echo "ERROR: missing Erlang toolchain commands: ${missing[*]}" >&2
   echo "The source-snippet prebuild needs escript and erlc." >&2
-  echo "Ensure netlify-plugin-apt is enabled and website/Aptfile lists erlang-base." >&2
+  echo "The Netlify build image is expected to supply them (it installs esl-erlang)." >&2
+  echo "If the image no longer does, install Erlang here before running the build." >&2
   exit 1
 fi
 # ─────────────────────────────────────────────────────────────────────────

@@ -1,6 +1,10 @@
 # Netlify configuration for the watershed landing site.
 # The site lives in website/; its build compiles the Gleam kernel to
 # JavaScript first (see website/scripts/netlify-build.sh).
+#
+# No build plugins. The prebuild's source-snippet generator needs escript and
+# erlc; Netlify's Ubuntu build image installs esl-erlang, which supplies both.
+# netlify-build.sh checks for them and fails fast if that ever stops holding.
 
 [build]
   base = "website"
@@ -11,7 +15,3 @@
 [build.environment]
   NODE_VERSION = "22"
   GLEAM_VERSION = "1.16.0"
-
-# Install packages from website/Aptfile (erlang-base for escript/erlc).
-[[plugins]]
-  package = "netlify-plugin-apt"
