@@ -54,3 +54,8 @@ Task 6: 7 drift gates, 206 tests, 12 negative/mutation cases.
 Task 6: Wired into website prebuild and justfile test recipe.
 Task 6: Explicit allowlists: 4 literal Gleam pages, 10 descriptor files, 4 marker dirs.
 Task 6: `excerpt()` still has no production callers (deprecated since Task 3).
+Task 7: complete (commit a0cdc15, review pending)
+Task 7: 4 volatile counts replaced (Rigor, examples, testing); 1 banlist fix.
+Task 7: 3 copy gates, 663 tests; wired into prebuild and justfile.
+Task 7: `excerpt()` still has no production callers (deprecated since Task 3).
+Task 6: `excerpt()` still has no production callers (deprecated since Task 3).
