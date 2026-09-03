@@ -116,6 +116,7 @@ pub fn start_is_idempotent_test() -> Nil {
       invalidations(),
       rich_document.Config(title: "Project brief"),
     )
+  let first_handle = watershed.rich_text_handle_of(rich_document.channel(first))
   let second =
     start(
       document,
@@ -124,9 +125,13 @@ pub fn start_is_idempotent_test() -> Nil {
       invalidations(),
       rich_document.Config(title: "Project brief"),
     )
+  let assert Ok(subtree_handle) = watershed.get(subtree, "document")
 
   watershed.rich_text_handle_of(rich_document.channel(first))
-  |> should.equal(watershed.rich_text_handle_of(rich_document.channel(second)))
+  |> should.equal(first_handle)
+  watershed.rich_text_handle_of(rich_document.channel(second))
+  |> should.equal(first_handle)
+  subtree_handle |> should.equal(first_handle)
   rich_document.stop(first) |> should.equal(Ok(Nil))
   rich_document.stop(second) |> should.equal(Ok(Nil))
 }

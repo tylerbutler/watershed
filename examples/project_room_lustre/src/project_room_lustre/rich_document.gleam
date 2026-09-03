@@ -1,6 +1,6 @@
 //// Headless rich document component for the project room runtime.
 
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleam/result
 
 import watershed
@@ -128,7 +128,8 @@ fn rebind(
         }
       }
     }
-    _ -> Nil
+    Ok(None) -> Nil
+    Error(_) -> Nil
   }
 }
 
