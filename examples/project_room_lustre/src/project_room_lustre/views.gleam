@@ -1,4 +1,4 @@
-//// Lustre views for the four fixed project room component types.
+//// Lustre views for the project room components.
 
 import gleam/int
 import gleam/list
@@ -12,11 +12,93 @@ import lustre/event
 import watershed_lustre/textarea
 
 import project_room_lustre/activity
+import project_room_lustre/catalog
+import project_room_lustre/checklist
 import project_room_lustre/decision_poll
 import project_room_lustre/governance_payload
 import project_room_lustre/inspector
 import project_room_lustre/ownership_slots
+import project_room_lustre/tally
 import project_room_lustre/task_collection
+
+/// Draw the title-only component palette.
+pub fn palette(
+  title: String,
+  presets: List(catalog.CreationPreset(root)),
+  disabled: Bool,
+  title_changed: fn(String) -> msg,
+  add: fn(String) -> msg,
+) -> Element(msg) {
+  html.section([attribute.class("component-palette")], [
+    html.h2([], [html.text("Add a component")]),
+    html.input([
+      attribute.data("palette-title", ""),
+      attribute.aria_label("Component title"),
+      attribute.value(title),
+      attribute.placeholder("Component title"),
+      attribute.disabled(disabled),
+      event.on_input(title_changed),
+    ]),
+    html.div(
+      [attribute.class("component-actions")],
+      list.map(presets, fn(preset) {
+        let catalog.CreationPreset(label:, kind:, ..) = preset
+        html.button(
+          [
+            attribute.data("action", "add-component"),
+            attribute.data("component-kind", kind),
+            attribute.disabled(disabled),
+            event.on_click(add(kind)),
+          ],
+          [html.text("Add " <> label)],
+        )
+      }),
+    ),
+  ])
+}
+
+/// Draw controls for one runtime-created instance.
+pub fn instance_controls(
+  instance_id: String,
+  index: Int,
+  count: Int,
+  disabled: Bool,
+  move: fn(Int) -> msg,
+  remove: msg,
+) -> Element(msg) {
+  html.div(
+    [
+      attribute.class("instance-controls"),
+      attribute.data("controls-for", instance_id),
+    ],
+    [
+      html.button(
+        [
+          attribute.data("action", "move-component-up"),
+          attribute.disabled(disabled || index == 0),
+          event.on_click(move(-1)),
+        ],
+        [html.text("Move up")],
+      ),
+      html.button(
+        [
+          attribute.data("action", "move-component-down"),
+          attribute.disabled(disabled || index == count - 1),
+          event.on_click(move(1)),
+        ],
+        [html.text("Move down")],
+      ),
+      html.button(
+        [
+          attribute.data("action", "remove-component"),
+          attribute.disabled(disabled),
+          event.on_click(remove),
+        ],
+        [html.text("Remove")],
+      ),
+    ],
+  )
+}
 
 /// Draw the task collection.
 pub fn tasks(
@@ -634,6 +716,137 @@ fn activity_entry(entry: activity.Entry) -> Element(msg) {
         ],
       )
   }
+}
+
+/// Draw one checklist instance.
+pub fn checklist(
+  instance_id: String,
+  running: checklist.Running,
+  draft_changed: fn(String) -> msg,
+  add: msg,
+  rename: fn(String, String) -> msg,
+  remove: fn(String) -> msg,
+  complete: fn(String) -> msg,
+  reopen: fn(String) -> msg,
+) -> Element(msg) {
+  let config = checklist.config(running)
+  html.section(
+    [
+      attribute.class("component checklist"),
+      attribute.data("component", instance_id),
+      attribute.data("component-kind", "checklist"),
+      attribute.data("instance-id", instance_id),
+    ],
+    [
+      html.h2([], [html.text(config.title)]),
+      html.p([attribute.class("component-description")], [
+        html.text(
+          "Items keep their order. Completion merges across every client.",
+        ),
+      ]),
+      html.div([attribute.class("component-actions")], [
+        html.input([
+          attribute.data("checklist-draft", ""),
+          attribute.aria_label("New checklist item"),
+          attribute.value(checklist.draft(running)),
+          attribute.placeholder("New item"),
+          event.on_input(draft_changed),
+        ]),
+        html.button(
+          [attribute.data("action", "add-checklist-item"), event.on_click(add)],
+          [html.text("Add item")],
+        ),
+      ]),
+      html.ul(
+        [attribute.class("checklist-items")],
+        checklist.items(running)
+          |> list.map(fn(item) {
+            let completed = checklist.completed(running, item.id)
+            html.li([attribute.data("item-id", item.id)], [
+              html.input([
+                attribute.data("item-id", item.id),
+                attribute.aria_label("Rename " <> item.label),
+                attribute.value(item.label),
+                event.on_input(fn(label) { rename(item.id, label) }),
+              ]),
+              html.button(
+                [
+                  attribute.data("action", case completed {
+                    True -> "reopen-checklist-item"
+                    False -> "complete-checklist-item"
+                  }),
+                  attribute.data("item-id", item.id),
+                  event.on_click(case completed {
+                    True -> reopen(item.id)
+                    False -> complete(item.id)
+                  }),
+                ],
+                [
+                  html.text(case completed {
+                    True -> "Reopen"
+                    False -> "Complete"
+                  }),
+                ],
+              ),
+              html.button(
+                [
+                  attribute.data("action", "remove-checklist-item"),
+                  attribute.data("item-id", item.id),
+                  event.on_click(remove(item.id)),
+                ],
+                [html.text("Remove")],
+              ),
+            ])
+          }),
+      ),
+    ],
+  )
+}
+
+/// Draw one tally instance.
+pub fn tally(
+  instance_id: String,
+  running: tally.Running,
+  add: fn(Int) -> msg,
+) -> Element(msg) {
+  let config = tally.config(running)
+  html.section(
+    [
+      attribute.class("component tally"),
+      attribute.data("component", instance_id),
+      attribute.data("component-kind", "tally"),
+      attribute.data("instance-id", instance_id),
+    ],
+    [
+      html.h2([], [html.text(config.title)]),
+      html.p([attribute.class("component-description")], [
+        html.text(
+          "The value merges increments and decrements from all clients.",
+        ),
+      ]),
+      html.p(
+        [
+          attribute.class("tally-value"),
+          attribute.data("tally-value", int.to_string(tally.value(running))),
+          attribute.data("tally-target", int.to_string(config.target)),
+        ],
+        [
+          html.strong([], [html.text(int.to_string(tally.value(running)))]),
+          html.text(" / " <> int.to_string(config.target)),
+        ],
+      ),
+      html.div([attribute.class("component-actions")], [
+        html.button(
+          [attribute.data("action", "decrement-tally"), event.on_click(add(-1))],
+          [html.text("−1")],
+        ),
+        html.button(
+          [attribute.data("action", "increment-tally"), event.on_click(add(1))],
+          [html.text("+1")],
+        ),
+      ]),
+    ],
+  )
 }
 
 /// Draw a component that has not reached the ready state.

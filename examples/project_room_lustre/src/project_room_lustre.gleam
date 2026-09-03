@@ -16,6 +16,7 @@ import watershed
 import watershed/browser
 import watershed/component
 import watershed/component_runtime_js
+import watershed/id
 import watershed/presence
 import watershed/presence_js.{type Handle}
 import watershed/workspace_js
@@ -24,6 +25,7 @@ import watershed_lustre/component_runtime as runtime_effect
 import watershed_lustre/textarea
 
 import project_room_lustre/catalog
+import project_room_lustre/checklist
 import project_room_lustre/decision_poll
 import project_room_lustre/document_schema
 import project_room_lustre/governance_payload
@@ -31,6 +33,7 @@ import project_room_lustre/inspector
 import project_room_lustre/notes
 import project_room_lustre/ownership_slots
 import project_room_lustre/room_presence.{type RoomPresence}
+import project_room_lustre/tally
 import project_room_lustre/task_collection
 import project_room_lustre/views
 import project_room_lustre/workspace_setup
@@ -63,6 +66,8 @@ type Model {
     store: Option(workspace_js.Workspace(document_schema.ProjectRoom)),
     runtime: Option(RoomRuntime),
     editor: Option(textarea.Model),
+    palette_title: String,
+    workspace_operation: Option(String),
     user_id: String,
     color: String,
     presence: Option(Handle(RoomPresence)),
@@ -96,6 +101,18 @@ type Msg {
   OwnershipHandoff(String, governance_payload.Identity)
   OwnershipToggleDetails
   RuntimeCommandFinished(Result(Nil, component_runtime_js.RuntimeError))
+  PaletteTitleChanged(String)
+  AddComponent(String)
+  WorkspaceOperationFinished(String, Result(Nil, workspace_setup.CreateError))
+  MoveComponent(String, Int)
+  RemoveComponent(String)
+  ChecklistDraftChanged(String, String)
+  ChecklistAdd(String)
+  ChecklistRename(String, String, String)
+  ChecklistRemove(String, String)
+  ChecklistComplete(String, String)
+  ChecklistReopen(String, String)
+  TallyAdd(String, Int)
   NotesEditor(textarea.Msg)
   PresenceStarted(Handle(RoomPresence))
   PresenceEvent(presence.Event(RoomPresence))
@@ -118,6 +135,8 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       store: None,
       runtime: None,
       editor: None,
+      palette_title: "",
+      workspace_operation: None,
       user_id: user_id,
       color: presence.color_for(user_id),
       presence: None,
@@ -301,6 +320,121 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, error: Some("action failed: " <> string.inspect(reason))),
       effect.none(),
     )
+    PaletteTitleChanged(title) -> #(
+      Model(..model, palette_title: title, error: None),
+      effect.none(),
+    )
+    AddComponent(kind) ->
+      case string.trim(model.palette_title) {
+        "" -> #(
+          Model(..model, error: Some("component title must not be empty")),
+          effect.none(),
+        )
+        _ ->
+          case catalog.find_creation_preset(kind) {
+            Error(Nil) -> #(
+              Model(
+                ..model,
+                error: Some("component preset is not available: " <> kind),
+              ),
+              effect.none(),
+            )
+            Ok(preset) -> {
+              let instance_id =
+                kind
+                |> string.replace("project-room/", "")
+                |> fn(slug) { slug <> "-" <> id.uuid_v4() }
+              perform_workspace_operation(model, instance_id, fn(store) {
+                workspace_setup.create_from_preset(
+                  store,
+                  catalog.catalog(),
+                  preset,
+                  instance_id,
+                  model.palette_title,
+                )
+              })
+            }
+          }
+      }
+    WorkspaceOperationFinished(instance_id, outcome) -> {
+      let model = case model.workspace_operation == Some(instance_id) {
+        True -> Model(..model, workspace_operation: None)
+        False -> model
+      }
+      case outcome {
+        Ok(Nil) -> #(
+          Model(..model, palette_title: "", error: None),
+          effect.none(),
+        )
+        Error(reason) -> #(
+          Model(
+            ..model,
+            error: Some(
+              "workspace operation failed: " <> string.inspect(reason),
+            ),
+          ),
+          effect.none(),
+        )
+      }
+    }
+    MoveComponent(instance_id, offset) ->
+      case model.runtime {
+        None -> #(
+          Model(..model, error: Some("component runtime is not ready")),
+          effect.none(),
+        )
+        Some(runtime) ->
+          case layout_index(component_runtime_js.layout(runtime), instance_id) {
+            Error(Nil) -> #(
+              Model(
+                ..model,
+                error: Some(
+                  "component instance does not exist: " <> instance_id,
+                ),
+              ),
+              effect.none(),
+            )
+            Ok(index) ->
+              perform_workspace_operation(model, instance_id, fn(store) {
+                workspace_js.move_instance(
+                  store,
+                  catalog.catalog(),
+                  instance_id,
+                  index + offset,
+                )
+                |> result.map_error(workspace_setup.WorkspaceMutation)
+              })
+          }
+      }
+    RemoveComponent(instance_id) ->
+      perform_workspace_operation(model, instance_id, fn(store) {
+        workspace_js.delete_instance(store, catalog.catalog(), instance_id)
+        |> result.map_error(workspace_setup.WorkspaceMutation)
+      })
+    ChecklistDraftChanged(instance_id, draft) ->
+      run_checklist_action(model, instance_id, fn(running) {
+        Ok(checklist.set_draft(running, draft))
+      })
+    ChecklistAdd(instance_id) ->
+      run_checklist_action(model, instance_id, checklist.add)
+    ChecklistRename(instance_id, item_id, label) ->
+      run_checklist_action(model, instance_id, fn(running) {
+        checklist.rename(running, item_id, label)
+      })
+    ChecklistRemove(instance_id, item_id) ->
+      run_checklist_action(model, instance_id, fn(running) {
+        checklist.remove(running, item_id)
+      })
+    ChecklistComplete(instance_id, item_id) ->
+      run_checklist_action(model, instance_id, fn(running) {
+        checklist.complete(running, item_id)
+      })
+    ChecklistReopen(instance_id, item_id) ->
+      run_checklist_action(model, instance_id, fn(running) {
+        checklist.reopen(running, item_id)
+      })
+    TallyAdd(instance_id, amount) ->
+      run_tally_action(model, instance_id, amount)
 
     NotesEditor(inner) ->
       case model.editor {
@@ -519,32 +653,52 @@ fn ready_notes(runtime: RoomRuntime) -> Option(notes.Running) {
   }
 }
 
+fn perform_workspace_operation(
+  model: Model,
+  instance_id: String,
+  operation: fn(workspace_js.Workspace(document_schema.ProjectRoom)) ->
+    Result(Nil, workspace_setup.CreateError),
+) -> #(Model, Effect(Msg)) {
+  case model.store {
+    None -> #(
+      Model(..model, error: Some("component workspace is not ready")),
+      effect.none(),
+    )
+    Some(store) -> #(
+      Model(..model, workspace_operation: Some(instance_id), error: None),
+      runtime_effect.perform(
+        operation: fn() { operation(store) },
+        outcome: fn(outcome) {
+          WorkspaceOperationFinished(instance_id, outcome)
+        },
+      ),
+    )
+  }
+}
+
+fn layout_index(layout: List(String), instance_id: String) -> Result(Int, Nil) {
+  list.index_fold(layout, Error(Nil), fn(found, candidate, index) {
+    case found, candidate == instance_id {
+      Ok(_), _ -> found
+      Error(Nil), True -> Ok(index)
+      Error(Nil), False -> Error(Nil)
+    }
+  })
+}
+
 fn run_task_action(
   model: Model,
   action: fn(task_collection.Running) ->
     #(task_collection.Running, List(component.OutputEvent)),
 ) -> #(Model, Effect(Msg)) {
-  case model.runtime {
-    None -> #(fail(model, "component runtime is not ready"), effect.none())
-    Some(runtime) -> #(
-      model,
-      runtime_effect.command(
-        runtime,
-        catalog.task_collection_instance_id,
-        fn(running) {
-          use tasks <- result.try(
-            catalog.as_task_collection(running)
-            |> result.map_error(fn(_) {
-              "task action reached the wrong component"
-            }),
-          )
-          let #(tasks, outputs) = action(tasks)
-          Ok(#(catalog.TaskCollection(tasks), outputs))
-        },
-        RuntimeCommandFinished,
-      ),
+  run_component_action(model, catalog.task_collection_instance_id, fn(running) {
+    use tasks <- result.try(
+      catalog.as_task_collection(running)
+      |> result.map_error(fn(_) { "task action reached the wrong component" }),
     )
-  }
+    let #(tasks, outputs) = action(tasks)
+    Ok(#(catalog.TaskCollection(tasks), outputs))
+  })
 }
 
 fn run_poll_action(
@@ -552,27 +706,14 @@ fn run_poll_action(
   action: fn(decision_poll.Running) ->
     Result(#(decision_poll.Running, List(component.OutputEvent)), String),
 ) -> #(Model, Effect(Msg)) {
-  case model.runtime {
-    None -> #(fail(model, "component runtime is not ready"), effect.none())
-    Some(runtime) -> #(
-      model,
-      runtime_effect.command(
-        runtime,
-        catalog.decision_poll_instance_id,
-        fn(running) {
-          use poll <- result.try(
-            catalog.as_decision_poll(running)
-            |> result.map_error(fn(_) {
-              "poll action reached the wrong component"
-            }),
-          )
-          use next <- result.try(action(poll))
-          Ok(#(catalog.DecisionPoll(next.0), next.1))
-        },
-        RuntimeCommandFinished,
-      ),
+  run_component_action(model, catalog.decision_poll_instance_id, fn(running) {
+    use poll <- result.try(
+      catalog.as_decision_poll(running)
+      |> result.map_error(fn(_) { "poll action reached the wrong component" }),
     )
-  }
+    use next <- result.try(action(poll))
+    Ok(#(catalog.DecisionPoll(next.0), next.1))
+  })
 }
 
 fn run_ownership_action(
@@ -589,23 +730,65 @@ fn run_ownership_local_action(
   action: fn(ownership_slots.Running) ->
     Result(#(ownership_slots.Running, List(component.OutputEvent)), String),
 ) -> #(Model, Effect(Msg)) {
+  run_component_action(model, catalog.ownership_slots_instance_id, fn(running) {
+    use ownership <- result.try(
+      catalog.as_ownership_slots(running)
+      |> result.map_error(fn(_) {
+        "ownership action reached the wrong component"
+      }),
+    )
+    use next <- result.try(action(ownership))
+    Ok(#(catalog.OwnershipSlots(next.0), next.1))
+  })
+}
+
+fn run_checklist_action(
+  model: Model,
+  instance_id: String,
+  action: fn(checklist.Running) ->
+    Result(#(checklist.Running, List(component.OutputEvent)), String),
+) -> #(Model, Effect(Msg)) {
+  run_component_action(model, instance_id, fn(running) {
+    use checklist <- result.try(
+      catalog.as_checklist(running)
+      |> result.map_error(fn(_) {
+        "checklist action reached the wrong component"
+      }),
+    )
+    action(checklist)
+    |> result.map(fn(next) { #(catalog.Checklist(next.0), next.1) })
+  })
+}
+
+fn run_tally_action(
+  model: Model,
+  instance_id: String,
+  amount: Int,
+) -> #(Model, Effect(Msg)) {
+  run_component_action(model, instance_id, fn(running) {
+    use tally <- result.try(
+      catalog.as_tally(running)
+      |> result.map_error(fn(_) { "tally action reached the wrong component" }),
+    )
+    tally.add(tally, amount)
+    |> result.map(fn(next) { #(catalog.Tally(next.0), next.1) })
+  })
+}
+
+fn run_component_action(
+  model: Model,
+  instance_id: String,
+  action: fn(catalog.Running) ->
+    Result(#(catalog.Running, List(component.OutputEvent)), String),
+) -> #(Model, Effect(Msg)) {
   case model.runtime {
     None -> #(fail(model, "component runtime is not ready"), effect.none())
     Some(runtime) -> #(
       model,
       runtime_effect.command(
         runtime,
-        catalog.ownership_slots_instance_id,
-        fn(running) {
-          use ownership <- result.try(
-            catalog.as_ownership_slots(running)
-            |> result.map_error(fn(_) {
-              "ownership action reached the wrong component"
-            }),
-          )
-          use next <- result.try(action(ownership))
-          Ok(#(catalog.OwnershipSlots(next.0), next.1))
-        },
+        instance_id,
+        action,
         RuntimeCommandFinished,
       ),
     )
@@ -647,8 +830,22 @@ fn view(model: Model) -> Element(Msg) {
       None -> html.text("")
     },
     demo_guide(),
+    views.palette(
+      model.palette_title,
+      catalog.creation_presets(),
+      palette_disabled(model),
+      PaletteTitleChanged,
+      AddComponent,
+    ),
     workspace_view(model),
   ])
+}
+
+fn palette_disabled(model: Model) -> Bool {
+  case model.store, model.workspace_operation {
+    Some(_), None -> False
+    _, _ -> True
+  }
 }
 
 fn demo_guide() -> Element(msg) {
@@ -756,14 +953,17 @@ fn workspace_view(model: Model) -> Element(Msg) {
         views.placeholder("notes", "Preparing"),
         views.placeholder("activity", "Preparing"),
       ])
-    Some(runtime) ->
+    Some(runtime) -> {
+      let layout = component_runtime_js.layout(runtime)
+      let count = list.length(layout)
       html.div(
         [attribute.class("workspace")],
-        component_runtime_js.layout(runtime)
-          |> list.map(fn(instance_id) {
-            instance_view(model, runtime, instance_id)
+        layout
+          |> list.index_map(fn(instance_id, index) {
+            instance_view(model, runtime, instance_id, index, count)
           }),
       )
+    }
   }
 }
 
@@ -771,11 +971,15 @@ fn instance_view(
   model: Model,
   runtime: RoomRuntime,
   instance_id: String,
+  index: Int,
+  count: Int,
 ) -> Element(Msg) {
-  case instance_id, component_runtime_js.running(runtime, instance_id) {
-    "tasks", Ok(running) ->
-      case catalog.as_task_collection(running) {
-        Ok(tasks) ->
+  let component_view = case component_runtime_js.running(runtime, instance_id) {
+    Error(Nil) ->
+      views.placeholder(instance_id, lifecycle_label(runtime, instance_id))
+    Ok(running) ->
+      case instance_id, running {
+        "tasks", catalog.TaskCollection(tasks) ->
           views.tasks(
             tasks,
             selected_task_id(model),
@@ -788,16 +992,8 @@ fn instance_view(
             TaskSelected,
             TaskCompleted,
           )
-        Error(Nil) -> views.placeholder(instance_id, "Failed")
-      }
-    "inspector", Ok(running) ->
-      case catalog.as_inspector(running) {
-        Ok(inspector) -> views.inspector(inspector)
-        Error(Nil) -> views.placeholder(instance_id, "Failed")
-      }
-    "poll", Ok(running) ->
-      case catalog.as_decision_poll(running) {
-        Ok(poll) ->
+        "inspector", catalog.Inspector(inspector) -> views.inspector(inspector)
+        "poll", catalog.DecisionPoll(poll) ->
           views.decision_poll(
             poll,
             PollVote,
@@ -805,11 +1001,7 @@ fn instance_view(
             PollOpened,
             PollClosed,
           )
-        Error(Nil) -> views.placeholder(instance_id, "Failed")
-      }
-    "ownership", Ok(running) ->
-      case catalog.as_ownership_slots(running) {
-        Ok(ownership) ->
+        "ownership", catalog.OwnershipSlots(ownership) ->
           views.ownership_slots(
             ownership,
             model.user_id,
@@ -821,11 +1013,7 @@ fn instance_view(
             OwnershipHandoff,
             OwnershipToggleDetails,
           )
-        Error(Nil) -> views.placeholder(instance_id, "Failed")
-      }
-    "notes", Ok(running) ->
-      case catalog.as_notes(running) {
-        Ok(_) ->
+        "notes", catalog.Notes(_) ->
           views.notes(
             model.editor,
             NotesEditor,
@@ -836,16 +1024,56 @@ fn instance_view(
               #(peer.meta.name, peer.meta.color, peer.meta.selected_task_id)
             }),
           )
-        Error(Nil) -> views.placeholder(instance_id, "Failed")
+        "activity", catalog.Activity(activity) -> views.activity(activity)
+        _, catalog.Checklist(checklist) ->
+          views.checklist(
+            instance_id,
+            checklist,
+            fn(draft) { ChecklistDraftChanged(instance_id, draft) },
+            ChecklistAdd(instance_id),
+            fn(item_id, label) { ChecklistRename(instance_id, item_id, label) },
+            fn(item_id) { ChecklistRemove(instance_id, item_id) },
+            fn(item_id) { ChecklistComplete(instance_id, item_id) },
+            fn(item_id) { ChecklistReopen(instance_id, item_id) },
+          )
+        _, catalog.Tally(tally) ->
+          views.tally(instance_id, tally, fn(amount) {
+            TallyAdd(instance_id, amount)
+          })
+        _, _ -> views.placeholder(instance_id, "Failed")
       }
-    "activity", Ok(running) ->
-      case catalog.as_activity(running) {
-        Ok(activity) -> views.activity(activity)
-        Error(Nil) -> views.placeholder(instance_id, "Failed")
-      }
-    _, _ ->
-      views.placeholder(instance_id, lifecycle_label(runtime, instance_id))
   }
+  case fixed_host_instance(instance_id) {
+    True -> component_view
+    False ->
+      html.div([attribute.class("workspace-instance")], [
+        component_view,
+        views.instance_controls(
+          instance_id,
+          index,
+          count,
+          model.workspace_operation == Some(instance_id),
+          fn(offset) { MoveComponent(instance_id, offset) },
+          RemoveComponent(instance_id),
+        ),
+      ])
+  }
+}
+
+fn fixed_host_instance(instance_id: String) -> Bool {
+  list.contains(
+    [
+      "tasks",
+      "inspector",
+      "poll",
+      "ownership",
+      "notes",
+      "activity",
+      "checklist",
+      "tally",
+    ],
+    instance_id,
+  )
 }
 
 fn lifecycle_label(runtime: RoomRuntime, instance_id: String) -> String {
