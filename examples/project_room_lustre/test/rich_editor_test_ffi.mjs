@@ -10,3 +10,7 @@ export function fakeEditor(onUpdate) {
     textChange: null,
   };
 }
+
+export function editorDestroyed(editor) {
+  return editor.destroyed;
+}

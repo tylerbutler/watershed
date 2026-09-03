@@ -61,7 +61,13 @@ pub fn init(
 
 pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
   case transport_js.get_cell(model.stopped) {
-    True -> #(model, effect.none())
+    True -> {
+      case msg {
+        Mounted(editor) -> destroy_ffi(editor)
+        ChannelChanged(_) | MountFailed(_) -> Nil
+      }
+      #(model, effect.none())
+    }
     False ->
       case msg {
         Mounted(editor) -> {

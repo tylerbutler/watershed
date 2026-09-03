@@ -14,6 +14,9 @@ import project_room_lustre/rich_editor
 @external(javascript, "./rich_editor_test_ffi.mjs", "fakeEditor")
 fn fake_editor(on_update: fn() -> Nil) -> rich_editor.Editor
 
+@external(javascript, "./rich_editor_test_ffi.mjs", "editorDestroyed")
+fn editor_destroyed(editor: rich_editor.Editor) -> Bool
+
 fn channel(name: String) -> watershed.SharedRichText {
   let sluice = sluice_js.start(tenant: "default", document: name)
   let document = sluice_js.connect(sluice, "user-a")
@@ -67,4 +70,15 @@ pub fn remote_editor_work_runs_in_an_effect_test() -> Nil {
   run(remote, fn(_) { Nil })
   transport_js.get_cell(calls) |> should.equal(1)
   rich_editor.stop(model)
+}
+
+pub fn stopped_editor_destroys_late_mount_completion_test() -> Nil {
+  let #(model, _mount) = rich_editor.init("editor", channel("editor-stopped"))
+  let editor = fake_editor(fn() { Nil })
+
+  rich_editor.stop(model)
+  let #(_model, effect) = rich_editor.update(model, rich_editor.Mounted(editor))
+  run(effect, fn(_) { Nil })
+
+  editor_destroyed(editor) |> should.be_true
 }

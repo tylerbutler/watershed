@@ -1,5 +1,6 @@
 import gleam/json
 import gleam/option.{None, Some}
+import gleam/result
 import gleeunit/should
 
 import watershed
@@ -71,6 +72,27 @@ pub fn config_round_trips_through_running_test() -> Nil {
 
   rich_document.config(running) |> should.equal(config)
   rich_document.stop(running) |> should.equal(Ok(Nil))
+}
+
+pub fn config_round_trips_test() -> Nil {
+  let config = rich_document.Config(title: "Project brief")
+  json.parse(
+    json.to_string(rich_document.encode_config(config)),
+    rich_document.config_decoder(),
+  )
+  |> should.equal(Ok(config))
+}
+
+pub fn config_rejects_a_missing_title_test() -> Nil {
+  json.parse("{}", rich_document.config_decoder())
+  |> result.is_error
+  |> should.be_true
+}
+
+pub fn config_rejects_a_non_string_title_test() -> Nil {
+  json.parse("{\"title\":17}", rich_document.config_decoder())
+  |> result.is_error
+  |> should.be_true
 }
 
 pub fn initialize_attaches_rich_text_to_detached_subtree_test() -> Nil {

@@ -69,6 +69,22 @@ function mountEditor(mount, initialDocument, onUserDelta, onError) {
   });
 }
 
+test("mount reports completion after Quill is initialized", async () => {
+  const { mount } = await bridge();
+  const mounted = [];
+  const editor = mount(
+    "editor",
+    "[]",
+    () => {},
+    (value) => mounted.push(value),
+    () => {},
+  );
+
+  assert.equal(editor, undefined);
+  await Promise.resolve();
+  assert.equal(mounted.length, 1);
+});
+
 test("mount configures user-only history and loads the initial document silently", async () => {
   const { mount } = await bridge();
   const errors = [];
@@ -168,6 +184,34 @@ test("mount reports success explicitly and cleans a partial editor on failure", 
   assert.equal(instances[0].calls.off.length, 1);
 });
 
+test("destroying before queued mount completion suppresses onMounted", async () => {
+  const { mount } = await bridge();
+  const mounted = [];
+  const errors = [];
+  const callbacks = [];
+  const queueMicrotask = globalThis.queueMicrotask;
+  initialLoadError = new Error("initial load failed");
+  globalThis.queueMicrotask = (callback) => callbacks.push(callback);
+
+  try {
+    mount(
+      "editor",
+      "[]",
+      () => {},
+      (editor) => mounted.push(editor),
+      (error) => errors.push(error),
+    );
+
+    assert.equal(callbacks.length, 2);
+    callbacks.shift()();
+    assert.deepEqual(mounted, []);
+    callbacks.shift()();
+    assert.deepEqual(errors, ["initial load failed"]);
+  } finally {
+    globalThis.queueMicrotask = queueMicrotask;
+  }
+});
+
 test("callback and editor failures are reported", async () => {
   const { applyRemote, mount } = await bridge();
   const errors = [];
@@ -180,7 +224,7 @@ test("callback and editor failures are reported", async () => {
   const cyclic = {};
   cyclic.self = cyclic;
 
-  instances[0].emit({ ops: [cyclic] }, "user");
+  instances[0].emit({ ops: [{ insert: cyclic }] }, "user");
   instances[0].updateContents = () => {
     throw new Error("remote failed");
   };
@@ -191,7 +235,27 @@ test("callback and editor failures are reported", async () => {
   assert.equal(errors[1], "remote failed");
 });
 
-test("destroy removes the listener once and blocks late work", async () => {
+test("malformed user and remote deltas report errors without partial work", async () => {
+  const { applyRemote, mount } = await bridge();
+  const changes = [];
+  const errors = [];
+  const editor = await mountEditor(
+    mount,
+    "[]",
+    (change) => changes.push(change),
+    (error) => errors.push(error),
+  );
+
+  instances[0].emit({ ops: [{ insert: null }] }, "user");
+  applyRemote(editor, JSON.stringify([{ retain: "two" }]));
+  await Promise.resolve();
+
+  assert.deepEqual(changes, []);
+  assert.deepEqual(instances[0].calls.updateContents, []);
+  assert.equal(errors.length, 2);
+});
+
+test("destroy removes the listener once and blocks queued work", async () => {
   const { applyRemote, destroy, loadDocument, mount } = await bridge();
   const changes = [];
   const editor = await mountEditor(
@@ -203,11 +267,12 @@ test("destroy removes the listener once and blocks late work", async () => {
   const handler = instances[0].handlers.get("text-change");
   instances[0].calls.setContents.length = 0;
 
-  destroy(editor);
-  destroy(editor);
   handler({ ops: [{ insert: "late" }] }, {}, "user");
+  destroy(editor);
+  destroy(editor);
   applyRemote(editor, "[]");
   loadDocument(editor, "[]");
+  await Promise.resolve();
 
   assert.equal(instances[0].calls.off.length, 1);
   assert.equal(instances[0].calls.off[0][0], "text-change");

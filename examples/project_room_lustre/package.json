@@ -5,7 +5,7 @@
   "type": "module",
   "description": "A component-runtime project room built with Lustre and watershed",
   "scripts": {
-    "build": "gleam build --target javascript && esbuild build/dev/javascript/project_room_lustre/project_room_lustre.mjs --bundle --format=esm --outfile=dist/project_room_lustre.mjs",
+    "build": "gleam build --target javascript && node -e \"require('esbuild').buildSync({entryPoints:['build/dev/javascript/project_room_lustre/project_room_lustre.mjs'],bundle:true,format:'esm',outfile:'dist/project_room_lustre.mjs'})\"",
     "serve": "python3 -m http.server 8080",
     "test:rich-editor-browser": "gleam build --target javascript && node -e \"require('esbuild').buildSync({entryPoints:['test/rich_editor_browser.mjs'],bundle:true,format:'esm',outfile:'build/rich-editor-browser-test.mjs'})\" && node ../../smoke/rich_editor.mjs",
     "test:rich-editor": "node --test test/rich_editor.test.mjs"

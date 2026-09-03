@@ -1,5 +1,7 @@
 //// Headless rich document component for the project room runtime.
 
+import gleam/dynamic/decode.{type Decoder}
+import gleam/json.{type Json}
 import gleam/option.{None, Some}
 import gleam/result
 
@@ -16,6 +18,15 @@ type RichDocumentSchema
 /// The static rich document configuration.
 pub type Config {
   Config(title: String)
+}
+
+pub fn encode_config(config: Config) -> Json {
+  json.object([#("title", json.string(config.title))])
+}
+
+pub fn config_decoder() -> Decoder(Config) {
+  use title <- decode.field("title", decode.string)
+  decode.success(Config(title: title))
 }
 
 /// The running rich document state.

@@ -10,11 +10,60 @@ function message(error) {
   return error instanceof Error ? error.message : String(error);
 }
 
+function validateOperation(operation) {
+  if (
+    operation === null ||
+    typeof operation !== "object" ||
+    Array.isArray(operation)
+  ) {
+    throw new TypeError("rich editor operations must be objects");
+  }
+
+  const actionKeys = ["insert", "delete", "retain"].filter((key) =>
+    Object.hasOwn(operation, key)
+  );
+  const validKeys = new Set([...actionKeys, "attributes"]);
+  if (
+    actionKeys.length !== 1 ||
+    Object.keys(operation).some((key) => !validKeys.has(key))
+  ) {
+    throw new TypeError(
+      "rich editor operations must contain exactly one action",
+    );
+  }
+
+  const action = actionKeys[0];
+  if (action === "insert" && operation.insert === null) {
+    throw new TypeError("rich editor inserts must not be null");
+  }
+  if (
+    action !== "insert" &&
+    (!Number.isInteger(operation[action]) || operation[action] <= 0)
+  ) {
+    throw new TypeError(`rich editor ${action} values must be positive integers`);
+  }
+  if (
+    Object.hasOwn(operation, "attributes") &&
+    (operation.attributes === null ||
+      typeof operation.attributes !== "object" ||
+      Array.isArray(operation.attributes))
+  ) {
+    throw new TypeError("rich editor attributes must be an object");
+  }
+}
+
 function operations(value) {
   const decoded = typeof value === "string" ? JSON.parse(value) : value;
-  if (Array.isArray(decoded)) return decoded;
-  if (Array.isArray(decoded?.ops)) return decoded.ops;
-  throw new TypeError("rich editor delta must contain an operation array");
+  const result = Array.isArray(decoded)
+    ? decoded
+    : Array.isArray(decoded?.ops)
+      ? decoded.ops
+      : null;
+  if (result === null) {
+    throw new TypeError("rich editor delta must contain an operation array");
+  }
+  result.forEach(validateOperation);
+  return result;
 }
 
 function report(bridge, error) {
@@ -69,10 +118,10 @@ export function mount(
     bridge.editor = editor;
     bridge.textChange = textChange;
     editor.on("text-change", textChange);
-    editor.setContents(operations(initialDocument), SILENT_SOURCE);
     queueMicrotask(() => {
       if (!bridge.destroyed) onMounted(bridge);
     });
+    editor.setContents(operations(initialDocument), SILENT_SOURCE);
   } catch (error) {
     destroy(bridge);
     report(bridge, error);
