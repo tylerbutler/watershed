@@ -813,7 +813,7 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
   )
   |> should.equal(Ok(catalog.ownership_slots_config()))
 
-  catalog.descriptors() |> list.length |> should.equal(6)
+  catalog.descriptors() |> list.length |> should.equal(8)
   let assert Ok(tasks_descriptor) =
     component.find(
       room_catalog,
@@ -872,7 +872,7 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
   |> should.equal(Ok(Nil))
 
   let connections = catalog.persisted_connections()
-  connections |> list.length |> should.equal(4)
+  connections |> list.length |> should.equal(5)
   connections
   |> should.equal([
     port_graph.connection(
@@ -919,5 +919,6 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
         governance_payload.append_ownership_change_port_id,
       ),
     ),
+    catalog.checklist_tally_connection(),
   ])
 }

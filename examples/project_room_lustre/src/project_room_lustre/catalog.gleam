@@ -1,6 +1,7 @@
 //// Runtime catalog for the headless project room components.
 
 import gleam/json.{type Json}
+import gleam/list
 import gleam/result
 
 import watershed
@@ -9,12 +10,15 @@ import watershed/port
 import watershed/port_graph
 
 import project_room_lustre/activity
+import project_room_lustre/checklist
 import project_room_lustre/decision_poll
 import project_room_lustre/governance_payload
 import project_room_lustre/inspector
 import project_room_lustre/notes
 import project_room_lustre/ownership_slots
 import project_room_lustre/payload
+import project_room_lustre/tally
+import project_room_lustre/tally_payload
 import project_room_lustre/task_collection
 
 /// The shared runtime context for one component instance.
@@ -30,7 +34,7 @@ pub opaque type Context(root) {
   )
 }
 
-/// The shared running sum for the project room components.
+/// The running state for a project room component.
 pub type Running {
   TaskCollection(task_collection.Running)
   Inspector(inspector.Running)
@@ -38,6 +42,20 @@ pub type Running {
   OwnershipSlots(ownership_slots.Running)
   Notes(notes.Running)
   Activity(activity.Running)
+  Checklist(checklist.Running)
+  Tally(tally.Running)
+}
+
+/// A component that the room can create at runtime.
+pub type CreationPreset(root) {
+  CreationPreset(
+    label: String,
+    kind: String,
+    version: Int,
+    config: fn(String) -> Json,
+    initialize: fn(watershed.Document(root), watershed.SharedMap) ->
+      Result(Nil, String),
+  )
 }
 
 pub const task_collection_kind = "project-room/task-collection"
@@ -52,6 +70,10 @@ pub const decision_poll_kind = "project-room/decision-poll"
 
 pub const ownership_slots_kind = "project-room/ownership-slots"
 
+pub const checklist_kind = "project-room/checklist"
+
+pub const tally_kind = "project-room/tally"
+
 pub const task_collection_version = 1
 
 pub const notes_version = 1
@@ -63,6 +85,10 @@ pub const inspector_version = 1
 pub const decision_poll_version = 1
 
 pub const ownership_slots_version = 1
+
+pub const checklist_version = 1
+
+pub const tally_version = 1
 
 pub const task_collection_instance_id = "tasks"
 
@@ -76,6 +102,10 @@ pub const decision_poll_instance_id = "poll"
 
 pub const ownership_slots_instance_id = "ownership"
 
+pub const checklist_instance_id = "checklist"
+
+pub const tally_instance_id = "tally"
+
 pub const selected_inspect_connection_id = "tasks-selected-to-inspector"
 
 pub const completed_append_connection_id = "tasks-completed-to-activity-append"
@@ -83,6 +113,8 @@ pub const completed_append_connection_id = "tasks-completed-to-activity-append"
 pub const threshold_append_connection_id = "poll-threshold-to-activity-append"
 
 pub const ownership_append_connection_id = "ownership-changed-to-activity-append"
+
+pub const checklist_tally_connection_id = "checklist-completed-to-tally-add"
 
 pub fn context(
   document: watershed.Document(root),
@@ -193,6 +225,33 @@ pub fn ownership_slots_config_json() -> Json {
   ownership_slots.encode_config(ownership_slots_config())
 }
 
+pub fn creation_presets() -> List(CreationPreset(root)) {
+  [
+    CreationPreset(
+      label: "Checklist",
+      kind: checklist_kind,
+      version: checklist_version,
+      config: fn(title) {
+        checklist.encode_config(checklist.Config(title: title))
+      },
+      initialize: checklist.initialize,
+    ),
+    CreationPreset(
+      label: "Tally",
+      kind: tally_kind,
+      version: tally_version,
+      config: fn(title) {
+        tally.encode_config(tally.Config(title: title, target: 10))
+      },
+      initialize: tally.initialize,
+    ),
+  ]
+}
+
+pub fn find_creation_preset(kind: String) -> Result(CreationPreset(root), Nil) {
+  list.find(creation_presets(), fn(preset) { preset.kind == kind })
+}
+
 pub fn catalog() -> component.Catalog(Context(root), Running) {
   let assert Ok(with_tasks) =
     component.register(component.new_catalog(), task_collection_descriptor())
@@ -204,7 +263,11 @@ pub fn catalog() -> component.Catalog(Context(root), Running) {
     component.register(with_poll, ownership_slots_descriptor())
   let assert Ok(with_notes) =
     component.register(with_ownership, notes_descriptor())
-  let assert Ok(full) = component.register(with_notes, activity_descriptor())
+  let assert Ok(with_activity) =
+    component.register(with_notes, activity_descriptor())
+  let assert Ok(with_checklist) =
+    component.register(with_activity, checklist_descriptor())
+  let assert Ok(full) = component.register(with_checklist, tally_descriptor())
   full
 }
 
@@ -216,6 +279,8 @@ pub fn descriptors() -> List(component.Descriptor(Context(root), Running)) {
     ownership_slots_descriptor(),
     notes_descriptor(),
     activity_descriptor(),
+    checklist_descriptor(),
+    tally_descriptor(),
   ]
 }
 
@@ -225,7 +290,18 @@ pub fn persisted_connections() -> List(port_graph.Connection) {
     completed_append_connection(),
     threshold_append_connection(),
     ownership_append_connection(),
+    checklist_tally_connection(),
   ]
+}
+
+pub fn checklist_tally_connection() -> port_graph.Connection {
+  let assert Ok(template) =
+    port.connect(tally_payload.item_completed(), tally_payload.add())
+  port_graph.connection(
+    checklist_tally_connection_id,
+    port_graph.PortRef(checklist_instance_id, template.source_port),
+    port_graph.PortRef(tally_instance_id, template.target_port),
+  )
 }
 
 pub fn threshold_append_connection() -> port_graph.Connection {
@@ -283,7 +359,9 @@ pub fn as_task_collection(
     | DecisionPoll(_)
     | OwnershipSlots(_)
     | Notes(_)
-    | Activity(_) -> Error(Nil)
+    | Activity(_)
+    | Checklist(_)
+    | Tally(_) -> Error(Nil)
   }
 }
 
@@ -294,7 +372,9 @@ pub fn as_inspector(running: Running) -> Result(inspector.Running, Nil) {
     | DecisionPoll(_)
     | OwnershipSlots(_)
     | Notes(_)
-    | Activity(_) -> Error(Nil)
+    | Activity(_)
+    | Checklist(_)
+    | Tally(_) -> Error(Nil)
   }
 }
 
@@ -307,7 +387,9 @@ pub fn as_decision_poll(
     | Inspector(_)
     | OwnershipSlots(_)
     | Notes(_)
-    | Activity(_) -> Error(Nil)
+    | Activity(_)
+    | Checklist(_)
+    | Tally(_) -> Error(Nil)
   }
 }
 
@@ -320,7 +402,9 @@ pub fn as_ownership_slots(
     | Inspector(_)
     | DecisionPoll(_)
     | Notes(_)
-    | Activity(_) -> Error(Nil)
+    | Activity(_)
+    | Checklist(_)
+    | Tally(_) -> Error(Nil)
   }
 }
 
@@ -331,7 +415,9 @@ pub fn as_notes(running: Running) -> Result(notes.Running, Nil) {
     | Inspector(_)
     | DecisionPoll(_)
     | OwnershipSlots(_)
-    | Activity(_) -> Error(Nil)
+    | Activity(_)
+    | Checklist(_)
+    | Tally(_) -> Error(Nil)
   }
 }
 
@@ -342,7 +428,35 @@ pub fn as_activity(running: Running) -> Result(activity.Running, Nil) {
     | Inspector(_)
     | DecisionPoll(_)
     | OwnershipSlots(_)
-    | Notes(_) -> Error(Nil)
+    | Notes(_)
+    | Checklist(_)
+    | Tally(_) -> Error(Nil)
+  }
+}
+
+pub fn as_checklist(running: Running) -> Result(checklist.Running, Nil) {
+  case running {
+    Checklist(inner) -> Ok(inner)
+    TaskCollection(_)
+    | Inspector(_)
+    | DecisionPoll(_)
+    | OwnershipSlots(_)
+    | Notes(_)
+    | Activity(_)
+    | Tally(_) -> Error(Nil)
+  }
+}
+
+pub fn as_tally(running: Running) -> Result(tally.Running, Nil) {
+  case running {
+    Tally(inner) -> Ok(inner)
+    TaskCollection(_)
+    | Inspector(_)
+    | DecisionPoll(_)
+    | OwnershipSlots(_)
+    | Notes(_)
+    | Activity(_)
+    | Checklist(_) -> Error(Nil)
   }
 }
 
@@ -373,8 +487,9 @@ fn task_collection_descriptor() -> component.Descriptor(Context(root), Running) 
         | DecisionPoll(_)
         | OwnershipSlots(_)
         | Notes(_)
-        | Activity(_) ->
-          Error("task collection stop reached the wrong component")
+        | Activity(_)
+        | Checklist(_)
+        | Tally(_) -> Error("task collection stop reached the wrong component")
       }
     },
     ports: [
@@ -414,7 +529,9 @@ fn inspector_descriptor() -> component.Descriptor(Context(root), Running) {
           | DecisionPoll(_)
           | OwnershipSlots(_)
           | Notes(_)
-          | Activity(_) -> Error("inspector input reached the wrong component")
+          | Activity(_)
+          | Checklist(_)
+          | Tally(_) -> Error("inspector input reached the wrong component")
         }
       }),
     ],
@@ -425,7 +542,9 @@ fn inspector_descriptor() -> component.Descriptor(Context(root), Running) {
         | DecisionPoll(_)
         | OwnershipSlots(_)
         | Notes(_)
-        | Activity(_) -> Error("inspector stop reached the wrong component")
+        | Activity(_)
+        | Checklist(_)
+        | Tally(_) -> Error("inspector stop reached the wrong component")
       }
     },
     ports: [port.input_descriptor(payload.inspect_task())],
@@ -468,7 +587,9 @@ fn decision_poll_descriptor() -> component.Descriptor(Context(root), Running) {
             | Inspector(_)
             | OwnershipSlots(_)
             | Notes(_)
-            | Activity(_) -> Error("poll input reached the wrong component")
+            | Activity(_)
+            | Checklist(_)
+            | Tally(_) -> Error("poll input reached the wrong component")
           }
         },
       ),
@@ -481,7 +602,9 @@ fn decision_poll_descriptor() -> component.Descriptor(Context(root), Running) {
           | Inspector(_)
           | OwnershipSlots(_)
           | Notes(_)
-          | Activity(_) -> Error("poll input reached the wrong component")
+          | Activity(_)
+          | Checklist(_)
+          | Tally(_) -> Error("poll input reached the wrong component")
         }
       }),
       component.input_handler(governance_payload.close_poll(), fn(running, _) {
@@ -493,7 +616,9 @@ fn decision_poll_descriptor() -> component.Descriptor(Context(root), Running) {
           | Inspector(_)
           | OwnershipSlots(_)
           | Notes(_)
-          | Activity(_) -> Error("poll input reached the wrong component")
+          | Activity(_)
+          | Checklist(_)
+          | Tally(_) -> Error("poll input reached the wrong component")
         }
       }),
     ],
@@ -504,7 +629,9 @@ fn decision_poll_descriptor() -> component.Descriptor(Context(root), Running) {
         | Inspector(_)
         | OwnershipSlots(_)
         | Notes(_)
-        | Activity(_) -> Error("poll stop reached the wrong component")
+        | Activity(_)
+        | Checklist(_)
+        | Tally(_) -> Error("poll stop reached the wrong component")
       }
     },
     ports: [
@@ -584,7 +711,9 @@ fn ownership_slots_descriptor() -> component.Descriptor(Context(root), Running) 
           | Inspector(_)
           | DecisionPoll(_)
           | Notes(_)
-          | Activity(_) -> Error("ownership input reached the wrong component")
+          | Activity(_)
+          | Checklist(_)
+          | Tally(_) -> Error("ownership input reached the wrong component")
         }
       }),
     ],
@@ -595,7 +724,9 @@ fn ownership_slots_descriptor() -> component.Descriptor(Context(root), Running) 
         | Inspector(_)
         | DecisionPoll(_)
         | Notes(_)
-        | Activity(_) -> Error("ownership stop reached the wrong component")
+        | Activity(_)
+        | Checklist(_)
+        | Tally(_) -> Error("ownership stop reached the wrong component")
       }
     },
     ports: [
@@ -622,7 +753,9 @@ fn ownership_input(
     | Inspector(_)
     | DecisionPoll(_)
     | Notes(_)
-    | Activity(_) -> Error("ownership input reached the wrong component")
+    | Activity(_)
+    | Checklist(_)
+    | Tally(_) -> Error("ownership input reached the wrong component")
   }
 }
 
@@ -653,7 +786,9 @@ fn notes_descriptor() -> component.Descriptor(Context(root), Running) {
         | Inspector(_)
         | DecisionPoll(_)
         | OwnershipSlots(_)
-        | Activity(_) -> Error("notes stop reached the wrong component")
+        | Activity(_)
+        | Checklist(_)
+        | Tally(_) -> Error("notes stop reached the wrong component")
       }
     },
     ports: [],
@@ -689,7 +824,9 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
           | Inspector(_)
           | DecisionPoll(_)
           | OwnershipSlots(_)
-          | Notes(_) -> Error("activity input reached the wrong component")
+          | Notes(_)
+          | Checklist(_)
+          | Tally(_) -> Error("activity input reached the wrong component")
         }
       }),
       component.input_handler(
@@ -703,7 +840,9 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
             | Inspector(_)
             | DecisionPoll(_)
             | OwnershipSlots(_)
-            | Notes(_) -> Error("activity input reached the wrong component")
+            | Notes(_)
+            | Checklist(_)
+            | Tally(_) -> Error("activity input reached the wrong component")
           }
         },
       ),
@@ -718,7 +857,9 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
             | Inspector(_)
             | DecisionPoll(_)
             | OwnershipSlots(_)
-            | Notes(_) -> Error("activity input reached the wrong component")
+            | Notes(_)
+            | Checklist(_)
+            | Tally(_) -> Error("activity input reached the wrong component")
           }
         },
       ),
@@ -730,13 +871,106 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
         | Inspector(_)
         | DecisionPoll(_)
         | OwnershipSlots(_)
-        | Notes(_) -> Error("activity stop reached the wrong component")
+        | Notes(_)
+        | Checklist(_)
+        | Tally(_) -> Error("activity stop reached the wrong component")
       }
     },
     ports: [
       port.input_descriptor(payload.append_entry()),
       port.input_descriptor(governance_payload.append_poll_threshold()),
       port.input_descriptor(governance_payload.append_ownership_change()),
+    ],
+  )
+}
+
+fn checklist_descriptor() -> component.Descriptor(Context(root), Running) {
+  component.executable_descriptor(
+    kind: checklist_kind,
+    version: checklist_version,
+    config_decoder: checklist.config_decoder(),
+    start: fn(context, config, done) {
+      checklist.start(
+        document(context),
+        subtree(context),
+        invalidate(context),
+        config,
+        fn(started) {
+          case started {
+            Ok(running) -> done(Ok(Checklist(running)))
+            Error(reason) -> done(Error(reason))
+          }
+        },
+      )
+    },
+    inputs: [],
+    stop: fn(running) {
+      case running {
+        Checklist(inner) -> checklist.stop(inner)
+        TaskCollection(_)
+        | Inspector(_)
+        | DecisionPoll(_)
+        | OwnershipSlots(_)
+        | Notes(_)
+        | Activity(_)
+        | Tally(_) -> Error("checklist stop reached the wrong component")
+      }
+    },
+    ports: [port.output_descriptor(tally_payload.item_completed())],
+  )
+}
+
+fn tally_descriptor() -> component.Descriptor(Context(root), Running) {
+  component.executable_descriptor(
+    kind: tally_kind,
+    version: tally_version,
+    config_decoder: tally.config_decoder(),
+    start: fn(context, config, done) {
+      tally.start(
+        document(context),
+        subtree(context),
+        invalidate(context),
+        emitter(context),
+        config,
+        fn(started) {
+          case started {
+            Ok(running) -> done(Ok(Tally(running)))
+            Error(reason) -> done(Error(reason))
+          }
+        },
+      )
+    },
+    inputs: [
+      component.input_handler(tally_payload.add(), fn(running, amount) {
+        case running {
+          Tally(inner) ->
+            tally.add(inner, amount)
+            |> result.map(fn(next) { #(Tally(next.0), next.1) })
+          TaskCollection(_)
+          | Inspector(_)
+          | DecisionPoll(_)
+          | OwnershipSlots(_)
+          | Notes(_)
+          | Activity(_)
+          | Checklist(_) -> Error("tally input reached the wrong component")
+        }
+      }),
+    ],
+    stop: fn(running) {
+      case running {
+        Tally(inner) -> tally.stop(inner)
+        TaskCollection(_)
+        | Inspector(_)
+        | DecisionPoll(_)
+        | OwnershipSlots(_)
+        | Notes(_)
+        | Activity(_)
+        | Checklist(_) -> Error("tally stop reached the wrong component")
+      }
+    },
+    ports: [
+      port.output_descriptor(tally_payload.target_reached()),
+      port.input_descriptor(tally_payload.add()),
     ],
   )
 }

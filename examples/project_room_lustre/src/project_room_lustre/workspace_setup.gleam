@@ -3,6 +3,7 @@
 import gleam/json.{type Json}
 import gleam/list
 import gleam/result
+import gleam/string
 
 import watershed
 import watershed/component
@@ -12,14 +13,49 @@ import watershed/workspace_js
 
 import project_room_lustre/activity
 import project_room_lustre/catalog
+import project_room_lustre/checklist
 import project_room_lustre/decision_poll
 import project_room_lustre/document_schema
 import project_room_lustre/inspector
 import project_room_lustre/notes
 import project_room_lustre/ownership_slots
+import project_room_lustre/tally
 import project_room_lustre/task_collection
 
-/// Add the six fixed instances and four connections that are not present.
+pub type CreateError {
+  InvalidTitle
+  WorkspaceMutation(workspace_js.WorkspaceError)
+}
+
+pub fn create_from_preset(
+  store: workspace_js.Workspace(root),
+  room_catalog: component.Catalog(catalog.Context(root), catalog.Running),
+  preset: catalog.CreationPreset(root),
+  instance_id: String,
+  title: String,
+) -> Result(Nil, CreateError) {
+  let title = string.trim(title)
+  case title {
+    "" -> Error(InvalidTitle)
+    _ -> {
+      let catalog.CreationPreset(kind:, version:, config:, initialize:, ..) =
+        preset
+      workspace_js.add_instance_with(
+        store,
+        room_catalog,
+        instance_id,
+        kind,
+        version,
+        config(title),
+        initialize,
+      )
+      |> result.map(fn(_) { Nil })
+      |> result.map_error(WorkspaceMutation)
+    }
+  }
+}
+
+/// Add the eight fixed instances and five connections that are not present.
 ///
 /// The function reads before each write, so it is safe to call after a partial
 /// attempt. Concurrent cold clients can still create competing child maps;
@@ -82,6 +118,24 @@ pub fn seed(
     catalog.activity_version,
     catalog.activity_config_json(),
     activity.initialize,
+  ))
+  use _ <- result.try(ensure_instance(
+    store,
+    room_catalog,
+    catalog.checklist_instance_id,
+    catalog.checklist_kind,
+    catalog.checklist_version,
+    checklist.encode_config(checklist.Config(title: "Checklist")),
+    checklist.initialize,
+  ))
+  use _ <- result.try(ensure_instance(
+    store,
+    room_catalog,
+    catalog.tally_instance_id,
+    catalog.tally_kind,
+    catalog.tally_version,
+    tally.encode_config(tally.Config(title: "Completion events", target: 10)),
+    tally.initialize,
   ))
   list.try_fold(catalog.persisted_connections(), Nil, fn(_, connection) {
     ensure_connection(store, room_catalog, connection)

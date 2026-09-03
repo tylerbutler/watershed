@@ -2,6 +2,7 @@
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 import gleeunit/should
 
 import watershed
@@ -13,12 +14,14 @@ import watershed/workspace_js
 
 import project_room_lustre/activity
 import project_room_lustre/catalog
+import project_room_lustre/checklist
 import project_room_lustre/decision_poll
 import project_room_lustre/document_schema
 import project_room_lustre/governance_payload
 import project_room_lustre/inspector
 import project_room_lustre/notes
 import project_room_lustre/ownership_slots
+import project_room_lustre/tally
 import project_room_lustre/task_collection
 import project_room_lustre/workspace_setup
 
@@ -61,9 +64,24 @@ pub fn two_clients_inspect_independently_and_complete_collaboratively_test() -> 
     catalog.ownership_slots_instance_id,
     catalog.notes_instance_id,
     catalog.activity_instance_id,
+    catalog.checklist_instance_id,
+    catalog.tally_instance_id,
   ])
   component_runtime_js.layout(runtime_b)
   |> should.equal(component_runtime_js.layout(runtime_a))
+
+  run_checklist(runtime_a, fn(items) {
+    let #(items, _) = checklist.set_draft(items, "Ship the palette")
+    checklist.add(items)
+  })
+  let assert Ok(checklist_a) =
+    component_runtime_js.running(runtime_a, catalog.checklist_instance_id)
+    |> result_then(catalog.as_checklist)
+  let assert [item] = checklist.items(checklist_a)
+  run_checklist(runtime_a, fn(items) { checklist.complete(items, item.id) })
+  settle_runtime(sluice)
+  assert_tally_value(runtime_a, 1)
+  assert_tally_value(runtime_b, 1)
 
   run_task(runtime_a, fn(tasks) { task_collection.select(tasks, "task-1") })
   assert_inspected(runtime_a, Some("task-1"))
@@ -245,6 +263,26 @@ fn run_task(
   |> should.equal(Ok(Nil))
 }
 
+fn run_checklist(
+  runtime: RoomRuntime,
+  action: fn(checklist.Running) ->
+    Result(#(checklist.Running, List(component.OutputEvent)), String),
+) -> Nil {
+  component_runtime_js.command(
+    runtime,
+    catalog.checklist_instance_id,
+    fn(running) {
+      case catalog.as_checklist(running) {
+        Error(Nil) -> Error("checklist action reached the wrong component")
+        Ok(items) ->
+          action(items)
+          |> result.map(fn(next) { #(catalog.Checklist(next.0), next.1) })
+      }
+    },
+  )
+  |> should.equal(Ok(Nil))
+}
+
 fn run_poll(
   runtime: RoomRuntime,
   action: fn(decision_poll.Running) ->
@@ -303,6 +341,13 @@ fn assert_results_visible(runtime: RoomRuntime, expected: Bool) -> Nil {
     component_runtime_js.running(runtime, catalog.decision_poll_instance_id)
     |> result_then(catalog.as_decision_poll)
   decision_poll.results_visible(poll) |> should.equal(expected)
+}
+
+fn assert_tally_value(runtime: RoomRuntime, expected: Int) -> Nil {
+  let assert Ok(counter) =
+    component_runtime_js.running(runtime, catalog.tally_instance_id)
+    |> result_then(catalog.as_tally)
+  tally.value(counter) |> should.equal(expected)
 }
 
 fn assert_poll_threshold(runtime: RoomRuntime) -> Nil {
