@@ -11,6 +11,7 @@ import watershed/port_graph
 
 import project_room_lustre/activity
 import project_room_lustre/checklist
+import project_room_lustre/component_event
 import project_room_lustre/decision_poll
 import project_room_lustre/governance_payload
 import project_room_lustre/inspector
@@ -863,6 +864,20 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
           }
         },
       ),
+      component.input_handler(component_event.append(), fn(running, entry) {
+        case running {
+          Activity(inner) ->
+            activity.append_component_event(inner, entry)
+            |> result.map(fn(next) { #(Activity(next.0), next.1) })
+          TaskCollection(_)
+          | Inspector(_)
+          | DecisionPoll(_)
+          | OwnershipSlots(_)
+          | Notes(_)
+          | Checklist(_)
+          | Tally(_) -> Error("activity input reached the wrong component")
+        }
+      }),
     ],
     stop: fn(running) {
       case running {
@@ -880,6 +895,7 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
       port.input_descriptor(payload.append_entry()),
       port.input_descriptor(governance_payload.append_poll_threshold()),
       port.input_descriptor(governance_payload.append_ownership_change()),
+      port.input_descriptor(component_event.append()),
     ],
   )
 }

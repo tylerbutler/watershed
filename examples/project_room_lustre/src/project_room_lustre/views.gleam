@@ -14,6 +14,7 @@ import watershed_lustre/textarea
 import project_room_lustre/activity
 import project_room_lustre/catalog
 import project_room_lustre/checklist
+import project_room_lustre/component_event
 import project_room_lustre/decision_poll
 import project_room_lustre/governance_payload
 import project_room_lustre/inspector
@@ -714,6 +715,22 @@ fn activity_entry(entry: activity.Entry) -> Element(msg) {
             None -> change.slot_label <> " released"
           }),
         ],
+      )
+    activity.ComponentEvent(event) ->
+      html.li(
+        [
+          attribute.data("entry-kind", "component-event"),
+          attribute.data("source-instance-id", event.source_instance_id),
+          attribute.data("source-kind", event.source_kind),
+          attribute.data("source-title", event.source_title),
+          attribute.data("action", case event.action {
+            component_event.Published -> "published"
+            component_event.EntryChanged -> "entry-changed"
+            component_event.FolderChanged -> "folder-changed"
+            component_event.AgreementAccepted -> "agreement-accepted"
+          }),
+        ],
+        [html.text(event.source_title <> ": " <> event.detail)],
       )
   }
 }

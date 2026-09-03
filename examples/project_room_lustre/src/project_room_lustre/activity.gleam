@@ -11,6 +11,7 @@ import watershed/component
 import watershed/schema
 import watershed/transport_js
 
+import project_room_lustre/component_event
 import project_room_lustre/governance_payload
 import project_room_lustre/payload
 
@@ -26,6 +27,7 @@ pub type Entry {
   TaskCompleted(payload.TaskPayload)
   PollThresholdReached(governance_payload.ThresholdReached)
   OwnershipAccepted(governance_payload.OwnershipChanged)
+  ComponentEvent(component_event.Event)
 }
 
 /// The running activity state.
@@ -181,6 +183,13 @@ pub fn append_ownership_change(
   append(running, OwnershipAccepted(entry))
 }
 
+pub fn append_component_event(
+  running: Running,
+  entry: component_event.Event,
+) -> Result(#(Running, List(component.OutputEvent)), String) {
+  append(running, ComponentEvent(entry))
+}
+
 fn append(
   running: Running,
   entry: Entry,
@@ -209,6 +218,11 @@ fn encode_entry(entry: Entry) -> Json {
       json.object([
         #("kind", json.string("ownership_accepted")),
         #("payload", governance_payload.encode_ownership_changed(change)),
+      ])
+    ComponentEvent(event) ->
+      json.object([
+        #("kind", json.string("component_event")),
+        #("payload", component_event.encode(event)),
       ])
   }
 }
@@ -240,6 +254,10 @@ fn wrapped_entry_decoder() -> Decoder(Entry) {
         governance_payload.ownership_changed_decoder(),
       )
       decode.success(OwnershipAccepted(entry))
+    }
+    "component_event" -> {
+      use entry <- decode.field("payload", component_event.decoder())
+      decode.success(ComponentEvent(entry))
     }
     _ ->
       decode.failure(TaskCompleted(payload.TaskPayload("", "", False)), "Entry")

@@ -12,6 +12,7 @@ import watershed/transport_js
 
 import project_room_lustre/activity
 import project_room_lustre/catalog
+import project_room_lustre/component_event
 import project_room_lustre/decision_poll
 import project_room_lustre/governance_payload
 import project_room_lustre/inspector
@@ -452,6 +453,92 @@ pub fn activity_reads_legacy_task_records_test() -> Nil {
 
   activity.entries(running)
   |> should.equal([activity.TaskCompleted(entry)])
+}
+
+pub fn component_event_codec_round_trips_all_actions_test() -> Nil {
+  let events = [
+    component_event.Event(
+      source_instance_id: "checklist-1",
+      source_kind: "project-room/checklist",
+      source_title: "Checklist",
+      action: component_event.Published,
+      detail: "Published",
+    ),
+    component_event.Event(
+      source_instance_id: "checklist-1",
+      source_kind: "project-room/checklist",
+      source_title: "Checklist",
+      action: component_event.EntryChanged,
+      detail: "Entry changed",
+    ),
+    component_event.Event(
+      source_instance_id: "checklist-1",
+      source_kind: "project-room/checklist",
+      source_title: "Checklist",
+      action: component_event.FolderChanged,
+      detail: "Folder changed",
+    ),
+    component_event.Event(
+      source_instance_id: "checklist-1",
+      source_kind: "project-room/checklist",
+      source_title: "Checklist",
+      action: component_event.AgreementAccepted,
+      detail: "Agreement accepted",
+    ),
+  ]
+
+  events
+  |> list.map(component_event.encode)
+  |> list.map(json.to_string)
+  |> should.equal([
+    "{\"sourceInstanceId\":\"checklist-1\",\"sourceKind\":\"project-room/checklist\",\"sourceTitle\":\"Checklist\",\"action\":\"published\",\"detail\":\"Published\"}",
+    "{\"sourceInstanceId\":\"checklist-1\",\"sourceKind\":\"project-room/checklist\",\"sourceTitle\":\"Checklist\",\"action\":\"entry_changed\",\"detail\":\"Entry changed\"}",
+    "{\"sourceInstanceId\":\"checklist-1\",\"sourceKind\":\"project-room/checklist\",\"sourceTitle\":\"Checklist\",\"action\":\"folder_changed\",\"detail\":\"Folder changed\"}",
+    "{\"sourceInstanceId\":\"checklist-1\",\"sourceKind\":\"project-room/checklist\",\"sourceTitle\":\"Checklist\",\"action\":\"agreement_accepted\",\"detail\":\"Agreement accepted\"}",
+  ])
+  events
+  |> list.map(fn(event) {
+    json.parse(
+      json.to_string(component_event.encode(event)),
+      component_event.decoder(),
+    )
+  })
+  |> should.equal(list.map(events, fn(event) { Ok(event) }))
+}
+
+pub fn component_event_decoder_rejects_unknown_action_test() -> Nil {
+  let encoded =
+    json.object([
+      #("sourceInstanceId", json.string("checklist-1")),
+      #("sourceKind", json.string("project-room/checklist")),
+      #("sourceTitle", json.string("Checklist")),
+      #("action", json.string("renamed")),
+      #("detail", json.string("Renamed")),
+    ])
+
+  case json.parse(json.to_string(encoded), component_event.decoder()) {
+    Ok(_) -> panic as "unknown action decoded successfully"
+    Error(_) -> Nil
+  }
+}
+
+pub fn activity_appends_component_event_test() -> Nil {
+  let #(_sluice, room) = document("project-room-component-event")
+  let running = start_activity(room, new_subtree(room), invalidations())
+  let event =
+    component_event.Event(
+      source_instance_id: "checklist-1",
+      source_kind: "project-room/checklist",
+      source_title: "Checklist",
+      action: component_event.EntryChanged,
+      detail: "Entry changed",
+    )
+
+  let assert Ok(#(next_running, [])) =
+    activity.append_component_event(running, event)
+
+  activity.entries(next_running)
+  |> should.equal([activity.ComponentEvent(event)])
 }
 
 pub fn poll_approvals_lifecycle_and_local_results_test() -> Nil {

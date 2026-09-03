@@ -526,7 +526,9 @@ fn assert_completed_once(runtime: RoomRuntime) -> Nil {
   |> list.filter(fn(entry) {
     case entry {
       activity.TaskCompleted(task) -> task.task_id == "task-1"
-      activity.PollThresholdReached(_) | activity.OwnershipAccepted(_) -> False
+      activity.PollThresholdReached(_)
+      | activity.OwnershipAccepted(_)
+      | activity.ComponentEvent(_) -> False
     }
   })
   |> list.length
