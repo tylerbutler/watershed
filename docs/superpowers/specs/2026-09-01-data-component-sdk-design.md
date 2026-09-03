@@ -289,11 +289,16 @@ Each local action uses the origin's current graph snapshot.
 The first browser slice ships three of the five proposed headless components.
 Decision Poll and Ownership Slots remain deferred.
 
+The project-room host also registers a local-only Task Inspector. It owns no
+collaborative channels. Its purpose is to show that a typed local input can
+change one client's controller state without changing another client's view.
+
 | Component | Status | Owned data | Output examples | Input examples |
 | --- | --- | --- | --- | --- |
 | Task collection | Shipped | Sequence order and map task records | selected, completed | local select; collaborative completion |
-| Collaborative notes | Shipped | Shared text | — | local focus subject |
+| Collaborative notes | Shipped | Shared text | — | — |
 | Activity stream | Shipped | Append-oriented sequence | — | collaborative append entry |
+| Task inspector | Demo controller | None | — | local inspect task |
 | Decision poll | Deferred | OR-set choices plus voter set or counters | vote cast, threshold reached | local show result; collaborative open/close |
 | Ownership slots | Deferred | Claims channel | claim attempted, claim resolved | local reveal owner; collaborative claim/release/handoff |
 
@@ -304,10 +309,13 @@ without changing its channels or port contract.
 ## Project-room reference app
 
 The reference app creates the three shipped component types through code and
-registers these connections:
+adds the local-only Task Inspector. It registers these connections:
 
-- `tasks.TaskSelected` to `notes.FocusSubject` as a local input;
+- `tasks.TaskSelected` to `inspector.InspectTask` as a local input;
 - `tasks.TaskCompleted` to `activity.AppendEntry` as a collaborative input;
+
+Presence publishes each client's selected task and Notes cursor. Peers can show
+that awareness without applying it to their own Inspector.
 
 The same catalog can support:
 

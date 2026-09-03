@@ -2,15 +2,12 @@
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
-import gleam/option.{type Option, None, Some}
+import gleam/option.{Some}
 import gleam/result
 
 import watershed
-import watershed/component
 import watershed/schema
 import watershed/transport_js
-
-import project_room_lustre/payload
 
 type NotesSchema
 
@@ -23,7 +20,6 @@ pub type Config {
 pub opaque type Running {
   Running(
     text: transport_js.Cell(watershed.SharedText),
-    focused_task_id: Option(String),
     text_subscription: transport_js.Cell(watershed.SubscriptionToken),
     subtree_subscription: watershed.SubscriptionToken,
   )
@@ -89,7 +85,6 @@ pub fn start(
         done(
           Ok(Running(
             text: text_cell,
-            focused_task_id: None,
             text_subscription: text_subscription_cell,
             subtree_subscription: subtree_subscription,
           )),
@@ -130,17 +125,6 @@ fn rebind(
 
 pub fn text(running: Running) -> watershed.SharedText {
   transport_js.get_cell(running.text)
-}
-
-pub fn focused_task_id(running: Running) -> Option(String) {
-  running.focused_task_id
-}
-
-pub fn focus_subject(
-  running: Running,
-  subject: payload.TaskPayload,
-) -> #(Running, List(component.OutputEvent)) {
-  #(Running(..running, focused_task_id: Some(subject.task_id)), [])
 }
 
 pub fn stop(running: Running) -> Result(Nil, String) {

@@ -113,6 +113,58 @@ async function main() {
       "the second tab to become ready",
     );
 
+    for (const [name, pageEndpoint] of [
+      ["first", first],
+      ["second", second],
+    ]) {
+      await waitFor(
+        pageEndpoint,
+        `document.querySelectorAll("[data-presence-peer]").length === 1`,
+        name + " tab to see the other tab's presence",
+      );
+    }
+
+    const firstName = await evaluate(
+      first,
+      `document.querySelector("[data-presence-self]")
+        ?.dataset.presenceSelf ?? null`,
+    );
+    const secondName = await evaluate(
+      second,
+      `document.querySelector("[data-presence-self]")
+        ?.dataset.presenceSelf ?? null`,
+    );
+    if (!firstName) throw new Error("the first tab has no local presence name");
+    if (!secondName) {
+      throw new Error("the second tab has no local presence name");
+    }
+    await evaluate(
+      first,
+      `(() => {
+        const editor = document.querySelector("[data-notes-editor]");
+        editor.focus();
+        editor.value = "Shared project note";
+        editor.setSelectionRange(7, 7);
+        editor.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`,
+    );
+    await waitFor(
+      second,
+      `document.querySelector("[data-notes-editor]")?.value
+        === "Shared project note"`,
+      "the shared note to converge in the second tab",
+    );
+    await waitFor(
+      second,
+      `Array.from(document.querySelectorAll(
+        '[data-component="notes"] [aria-hidden="true"] span'
+      )).some((label) =>
+        label.textContent === ${JSON.stringify(firstName)}
+        && Number.parseFloat(label.parentElement.style.left) > 0
+      )`,
+      "the second tab to draw the first tab's cursor",
+    );
+
     await evaluate(
       first,
       `document.querySelector(
@@ -121,16 +173,50 @@ async function main() {
     );
     await waitFor(
       first,
-      `document.querySelector('[data-component="notes"]')
-        ?.dataset.focusedTask === "task-1"`,
-      "the first tab to focus task-1",
+      `document.querySelector('[data-component="inspector"]')
+        ?.dataset.selectedTask === "task-1"`,
+      "the first tab to inspect task-1",
     );
     await assertValue(
       second,
-      `document.querySelector('[data-component="notes"]')
-        ?.dataset.focusedTask ?? null`,
+      `document.querySelector('[data-component="inspector"]')
+        ?.dataset.selectedTask ?? null`,
       "",
-      "selection leaked into the second tab",
+      "the first selection changed the second tab's Inspector",
+    );
+    await waitFor(
+      second,
+      `document.querySelector(
+        '[data-presence-task="task-1"]'
+      )?.dataset.taskPeer === ${JSON.stringify(firstName)}`,
+      "the second tab to show the first tab on task-1",
+    );
+
+    await evaluate(
+      second,
+      `document.querySelector(
+        '[data-action="select-task"][data-task-id="task-2"]'
+      ).click()`,
+    );
+    await waitFor(
+      second,
+      `document.querySelector('[data-component="inspector"]')
+        ?.dataset.selectedTask === "task-2"`,
+      "the second tab to inspect task-2",
+    );
+    await assertValue(
+      first,
+      `document.querySelector('[data-component="inspector"]')
+        ?.dataset.selectedTask ?? null`,
+      "task-1",
+      "the second selection changed the first tab's Inspector",
+    );
+    await waitFor(
+      first,
+      `document.querySelector(
+        '[data-presence-task="task-2"]'
+      )?.dataset.taskPeer === ${JSON.stringify(secondName)}`,
+      "the first tab to show the second tab on task-2",
     );
 
     await evaluate(
@@ -169,15 +255,15 @@ async function main() {
     }
     await assertValue(
       second,
-      `document.querySelector('[data-component="notes"]')
-        ?.dataset.focusedTask ?? null`,
-      "",
-      "selection reached the second tab after collaborative convergence",
+      `document.querySelector('[data-component="inspector"]')
+        ?.dataset.selectedTask ?? null`,
+      "task-2",
+      "collaborative convergence changed the second tab's Inspector",
     );
 
     console.log(
-      "PASS: selection stayed local while completion and one activity entry " +
-        "converged across two browser tabs.",
+      "PASS: inspectors stayed independent, presence showed both selections, " +
+        "and completion plus one activity entry converged across two tabs.",
     );
     exitCode = 0;
   } finally {

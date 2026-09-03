@@ -11,6 +11,7 @@ import watershed/transport_js
 
 import project_room_lustre/activity
 import project_room_lustre/catalog
+import project_room_lustre/inspector
 import project_room_lustre/notes
 import project_room_lustre/payload
 import project_room_lustre/task_collection
@@ -99,6 +100,23 @@ fn start_notes(
   running
 }
 
+fn start_inspector(
+  document: watershed.Document(Root),
+  subtree: watershed.SharedMap,
+  counter: transport_js.Cell(Int),
+) -> inspector.Running {
+  let outcome = transport_js.new_cell(None)
+  inspector.start(
+    document,
+    subtree,
+    count_invalidation(counter),
+    catalog.inspector_config(),
+    fn(result) { transport_js.set_cell(outcome, Some(result)) },
+  )
+  let assert Some(Ok(running)) = transport_js.get_cell(outcome)
+  running
+}
+
 fn start_activity(
   document: watershed.Document(Root),
   subtree: watershed.SharedMap,
@@ -120,6 +138,7 @@ pub fn bootstrap_twice_adopts_same_handles_and_data_test() -> Nil {
   let #(_sluice, room) = document("project-room-bootstrap")
 
   let tasks_tree = new_subtree(room)
+  let inspector_tree = new_subtree(room)
   let notes_tree = new_subtree(room)
   let activity_tree = new_subtree(room)
 
@@ -130,6 +149,11 @@ pub fn bootstrap_twice_adopts_same_handles_and_data_test() -> Nil {
   watershed.handle_of(task_collection.records(tasks_a))
   |> should.equal(watershed.handle_of(task_collection.records(tasks_b)))
   task_collection.tasks(tasks_a) |> should.equal(task_collection.tasks(tasks_b))
+
+  let inspector_a = start_inspector(room, inspector_tree, invalidations())
+  let inspector_b = start_inspector(room, inspector_tree, invalidations())
+  inspector.selected(inspector_a) |> should.equal(None)
+  inspector.selected(inspector_b) |> should.equal(None)
 
   let notes_a = start_notes(room, notes_tree, invalidations())
   let notes_b = start_notes(room, notes_tree, invalidations())
@@ -148,6 +172,8 @@ pub fn bootstrap_twice_adopts_same_handles_and_data_test() -> Nil {
 
   let assert Ok(Nil) = task_collection.stop(tasks_a)
   let assert Ok(Nil) = task_collection.stop(tasks_b)
+  let assert Ok(Nil) = inspector.stop(inspector_a)
+  let assert Ok(Nil) = inspector.stop(inspector_b)
   let assert Ok(Nil) = notes.stop(notes_a)
   let assert Ok(Nil) = notes.stop(notes_b)
   let assert Ok(Nil) = activity.stop(activity_a)
@@ -278,26 +304,30 @@ pub fn completion_emits_once_per_transition_test() -> Nil {
   |> should.equal(Some(payload.TaskPayload(..first_task, completed: True)))
 }
 
-pub fn note_focus_is_local_and_does_not_mutate_text_test() -> Nil {
-  let #(_sluice, room) = document("project-room-notes-focus")
+pub fn inspector_selection_is_local_test() -> Nil {
+  let #(_sluice, room) = document("project-room-inspector")
   let subtree = new_subtree(room)
   let counter = invalidations()
   let context =
-    catalog.context(room, subtree, catalog.notes_instance_id, fn() {
+    catalog.context(room, subtree, catalog.inspector_instance_id, fn() {
       transport_js.set_cell(counter, transport_js.get_cell(counter) + 1)
     })
   let room_catalog: component.Catalog(catalog.Context(Root), catalog.Running) =
     catalog.catalog()
   let assert Ok(descriptor) =
-    component.find(room_catalog, catalog.notes_kind, catalog.notes_version)
+    component.find(
+      room_catalog,
+      catalog.inspector_kind,
+      catalog.inspector_version,
+    )
   let outcome = transport_js.new_cell(None)
-  component.start(descriptor, context, catalog.notes_config_json(), fn(result) {
-    transport_js.set_cell(outcome, Some(result))
-  })
+  component.start(
+    descriptor,
+    context,
+    catalog.inspector_config_json(),
+    fn(result) { transport_js.set_cell(outcome, Some(result)) },
+  )
   let assert Some(Ok(running)) = transport_js.get_cell(outcome)
-  let assert Ok(inner) = catalog.as_notes(running)
-
-  let assert Ok(Nil) = watershed.text_append(notes.text(inner), "hello")
   let before_focus = transport_js.get_cell(counter)
   let subject =
     payload.TaskPayload(
@@ -309,13 +339,12 @@ pub fn note_focus_is_local_and_does_not_mutate_text_test() -> Nil {
     component.deliver(
       descriptor,
       running,
-      payload.focus_subject_port_id,
+      payload.inspect_task_port_id,
       payload.encode(subject),
     )
-  let assert Ok(next_notes) = catalog.as_notes(next_running)
+  let assert Ok(next_inspector) = catalog.as_inspector(next_running)
 
-  notes.focused_task_id(next_notes) |> should.equal(Some("task-2"))
-  watershed.text_value(notes.text(next_notes)) |> should.equal("hello")
+  inspector.selected(next_inspector) |> should.equal(Some(subject))
   transport_js.get_cell(counter) |> should.equal(before_focus)
 }
 
@@ -389,6 +418,12 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
   |> should.equal(Ok(catalog.task_collection_config()))
 
   json.parse(
+    json.to_string(inspector.encode_config(catalog.inspector_config())),
+    inspector.config_decoder(),
+  )
+  |> should.equal(Ok(catalog.inspector_config()))
+
+  json.parse(
     json.to_string(notes.encode_config(catalog.notes_config())),
     notes.config_decoder(),
   )
@@ -408,6 +443,12 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
     )
   let assert Ok(notes_descriptor) =
     component.find(room_catalog, catalog.notes_kind, catalog.notes_version)
+  let assert Ok(inspector_descriptor) =
+    component.find(
+      room_catalog,
+      catalog.inspector_kind,
+      catalog.inspector_version,
+    )
   let assert Ok(activity_descriptor) =
     component.find(
       room_catalog,
@@ -421,6 +462,11 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
   |> should.equal(Ok(Nil))
   component.validate_config(notes_descriptor, catalog.notes_config_json())
   |> should.equal(Ok(Nil))
+  component.validate_config(
+    inspector_descriptor,
+    catalog.inspector_config_json(),
+  )
+  |> should.equal(Ok(Nil))
   component.validate_config(activity_descriptor, catalog.activity_config_json())
   |> should.equal(Ok(Nil))
 
@@ -429,14 +475,14 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
   connections
   |> should.equal([
     port_graph.connection(
-      catalog.selected_focus_connection_id,
+      catalog.selected_inspect_connection_id,
       port_graph.PortRef(
         catalog.task_collection_instance_id,
         payload.task_selected_port_id,
       ),
       port_graph.PortRef(
-        catalog.notes_instance_id,
-        payload.focus_subject_port_id,
+        catalog.inspector_instance_id,
+        payload.inspect_task_port_id,
       ),
     ),
     port_graph.connection(

@@ -25,7 +25,6 @@ pub opaque type Running {
   Running(
     order: transport_js.Cell(watershed.SharedSequence),
     records: transport_js.Cell(watershed.SharedMap),
-    selected_task_id: Option(String),
     order_subscription: transport_js.Cell(watershed.SubscriptionToken),
     records_subscription: transport_js.Cell(watershed.SubscriptionToken),
     subtree_subscription: watershed.SubscriptionToken,
@@ -129,7 +128,6 @@ pub fn start(
                       Ok(Running(
                         order: order_cell,
                         records: records_cell,
-                        selected_task_id: None,
                         order_subscription: order_subscription_cell,
                         records_subscription: records_subscription_cell,
                         subtree_subscription: subtree_subscription,
@@ -270,10 +268,6 @@ pub fn records(running: Running) -> watershed.SharedMap {
   transport_js.get_cell(running.records)
 }
 
-pub fn selected_task_id(running: Running) -> Option(String) {
-  running.selected_task_id
-}
-
 pub fn tasks(running: Running) -> List(payload.TaskPayload) {
   effective_ordered_task_ids(order(running))
   |> list.filter_map(fn(task_id) {
@@ -301,7 +295,7 @@ pub fn select(
 ) -> #(Running, List(component.OutputEvent)) {
   case task(running, task_id) {
     None -> #(running, [])
-    Some(found) -> #(Running(..running, selected_task_id: Some(task_id)), [
+    Some(found) -> #(running, [
       component.emit(payload.task_selected(), found),
     ])
   }

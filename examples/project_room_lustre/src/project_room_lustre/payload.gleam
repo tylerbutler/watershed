@@ -14,7 +14,7 @@ pub const task_payload_schema_id = "project-room/task-payload@1"
 
 pub const task_selected_port_id = "selected"
 
-pub const focus_subject_port_id = "focus_subject"
+pub const inspect_task_port_id = "inspect_task"
 
 pub const task_completed_port_id = "completed"
 
@@ -43,8 +43,8 @@ pub fn task_selected() -> port.Output(TaskPayload) {
   port.output(task_selected_port_id, task_payload_schema_id, encode)
 }
 
-pub fn focus_subject() -> port.Input(TaskPayload) {
-  port.local_input(focus_subject_port_id, task_payload_schema_id, decoder())
+pub fn inspect_task() -> port.Input(TaskPayload) {
+  port.local_input(inspect_task_port_id, task_payload_schema_id, decoder())
 }
 
 pub fn task_completed() -> port.Output(TaskPayload) {

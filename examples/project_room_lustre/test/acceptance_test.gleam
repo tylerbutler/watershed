@@ -1,7 +1,7 @@
 //// Two-client acceptance test for the project room component runtime.
 
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleeunit/should
 
 import watershed
@@ -14,7 +14,7 @@ import watershed/workspace_js
 import project_room_lustre/activity
 import project_room_lustre/catalog
 import project_room_lustre/document_schema
-import project_room_lustre/notes
+import project_room_lustre/inspector
 import project_room_lustre/task_collection
 import project_room_lustre/workspace_setup
 
@@ -25,7 +25,7 @@ type RoomRuntime =
     catalog.Running,
   )
 
-pub fn two_clients_keep_selection_local_and_completion_shared_test() -> Nil {
+pub fn two_clients_inspect_independently_and_complete_collaboratively_test() -> Nil {
   let sluice =
     sluice_js.start(tenant: "default", document: "project-room-acceptance")
   let document_a = sluice_js.connect(sluice, "user-a")
@@ -47,16 +47,23 @@ pub fn two_clients_keep_selection_local_and_completion_shared_test() -> Nil {
   let runtime_a = start_runtime(sluice, document_a, store_a, reports_a)
   let runtime_b = start_runtime(sluice, document_b, store_b, reports_b)
   settle_runtime(sluice)
+  component_runtime_js.layout(runtime_a)
+  |> should.equal([
+    catalog.task_collection_instance_id,
+    catalog.inspector_instance_id,
+    catalog.notes_instance_id,
+    catalog.activity_instance_id,
+  ])
+  component_runtime_js.layout(runtime_b)
+  |> should.equal(component_runtime_js.layout(runtime_a))
 
   run_task(runtime_a, fn(tasks) { task_collection.select(tasks, "task-1") })
-  let assert Ok(notes_a) =
-    component_runtime_js.running(runtime_a, catalog.notes_instance_id)
-    |> result_then(catalog.as_notes)
-  let assert Ok(notes_b) =
-    component_runtime_js.running(runtime_b, catalog.notes_instance_id)
-    |> result_then(catalog.as_notes)
-  notes.focused_task_id(notes_a) |> should.equal(Some("task-1"))
-  notes.focused_task_id(notes_b) |> should.equal(None)
+  assert_inspected(runtime_a, Some("task-1"))
+  assert_inspected(runtime_b, None)
+
+  run_task(runtime_b, fn(tasks) { task_collection.select(tasks, "task-2") })
+  assert_inspected(runtime_a, Some("task-1"))
+  assert_inspected(runtime_b, Some("task-2"))
 
   run_task(runtime_a, fn(tasks) { task_collection.complete(tasks, "task-1") })
   sluice_js.settle(sluice)
@@ -64,10 +71,8 @@ pub fn two_clients_keep_selection_local_and_completion_shared_test() -> Nil {
 
   assert_completed_once(runtime_a)
   assert_completed_once(runtime_b)
-  let assert Ok(notes_b_after_completion) =
-    component_runtime_js.running(runtime_b, catalog.notes_instance_id)
-    |> result_then(catalog.as_notes)
-  notes.focused_task_id(notes_b_after_completion) |> should.equal(None)
+  assert_inspected(runtime_a, Some("task-1"))
+  assert_inspected(runtime_b, Some("task-2"))
   reports_with_mutation(transport_js.get_cell(reports_a))
   |> should.equal(1)
   reports_with_mutation(transport_js.get_cell(reports_b))
@@ -78,6 +83,16 @@ pub fn two_clients_keep_selection_local_and_completion_shared_test() -> Nil {
   let reopened = start_runtime(sluice, document_b, store_b, reports_reopened)
   settle_runtime(sluice)
   assert_completed_once(reopened)
+  assert_inspected(reopened, None)
+}
+
+fn assert_inspected(runtime: RoomRuntime, task_id: Option(String)) -> Nil {
+  let assert Ok(running) =
+    component_runtime_js.running(runtime, catalog.inspector_instance_id)
+    |> result_then(catalog.as_inspector)
+  inspector.selected(running)
+  |> option.map(fn(task) { task.task_id })
+  |> should.equal(task_id)
 }
 
 fn ensure_workspace(

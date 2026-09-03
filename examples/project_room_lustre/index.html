@@ -35,7 +35,7 @@
         justify-content: space-between;
         gap: 1rem;
         align-items: start;
-        margin-bottom: 1.5rem;
+        margin-bottom: 1rem;
       }
       h1 { margin: 0 0 0.25rem; font-size: 1.7rem; }
       h2 { margin: 0 0 1rem; font-size: 1.05rem; }
@@ -47,9 +47,56 @@
         padding: 0.75rem;
         margin-bottom: 1rem;
       }
+      .demo-guide {
+        border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
+        border-radius: 0.75rem;
+        padding: 1rem;
+        margin-bottom: 1rem;
+        background: color-mix(in srgb, CanvasText 3%, Canvas);
+      }
+      .demo-guide h2 { margin-bottom: 0.35rem; }
+      .demo-guide ol {
+        margin: 0.85rem 0 0;
+        padding-left: 1.4rem;
+        display: grid;
+        gap: 0.45rem;
+      }
+      .routes {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 0.65rem;
+        margin-top: 1rem;
+      }
+      .route {
+        display: grid;
+        grid-template-columns: auto 1fr;
+        gap: 0.25rem 0.6rem;
+        align-items: center;
+        border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+        border-radius: 0.5rem;
+        padding: 0.7rem;
+      }
+      .route-kind {
+        grid-row: 1 / span 2;
+        border-radius: 999px;
+        padding: 0.2rem 0.45rem;
+        font-size: 0.72rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+      }
+      .route-local .route-kind {
+        background: color-mix(in srgb, #5577cc 24%, transparent);
+      }
+      .route-shared .route-kind {
+        background: color-mix(in srgb, #3a9b65 24%, transparent);
+      }
+      .route-presence .route-kind {
+        background: color-mix(in srgb, #a45cc7 24%, transparent);
+      }
+      .route-detail { opacity: 0.65; font-size: 0.86rem; }
       .workspace {
         display: grid;
-        grid-template-columns: minmax(15rem, 0.9fr) minmax(18rem, 1.4fr) minmax(15rem, 1fr);
+        grid-template-columns: repeat(2, minmax(18rem, 1fr));
         gap: 1rem;
         align-items: stretch;
       }
@@ -58,6 +105,14 @@
         border-radius: 0.75rem;
         padding: 1rem;
         min-height: 24rem;
+      }
+      .component h2 { margin-bottom: 0.35rem; }
+      .component-description {
+        min-height: 3.4rem;
+        margin-bottom: 1rem;
+        opacity: 0.65;
+        font-size: 0.9rem;
+        line-height: 1.4;
       }
       .task-list, .activity-list {
         list-style: none;
@@ -68,7 +123,7 @@
       }
       .task {
         display: grid;
-        grid-template-columns: 1fr auto;
+        grid-template-columns: minmax(0, 1fr) auto auto;
         gap: 0.5rem;
         align-items: center;
         padding: 0.65rem;
@@ -81,7 +136,55 @@
       }
       .task-title { text-align: left; border: 0; padding: 0; }
       .task-complete .task-title { text-decoration: line-through; opacity: 0.65; }
-      .notes-context { min-height: 1.4rem; margin-bottom: 0.75rem; opacity: 0.7; }
+      .task-presence {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.3rem;
+      }
+      .task-peer {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.3rem;
+        border: 1px solid;
+        border-radius: 999px;
+        padding: 0.12rem 0.4rem;
+        font-size: 0.72rem;
+        white-space: nowrap;
+      }
+      .inspector-card {
+        border-left: 3px solid Highlight;
+        padding: 0.8rem 1rem;
+        background: color-mix(in srgb, Highlight 7%, transparent);
+      }
+      .inspector-card h3 { margin: 0.35rem 0 0.75rem; }
+      .inspector-card p + p { margin-top: 0.35rem; }
+      .inspector-local {
+        color: Highlight;
+        font-size: 0.75rem;
+        font-weight: 700;
+        letter-spacing: 0.04em;
+        text-transform: uppercase;
+      }
+      .presence-roster {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.4rem;
+        margin-bottom: 0.75rem;
+      }
+      .presence-chip {
+        display: inline-flex;
+        align-items: center;
+        gap: 0.35rem;
+        border: 1px solid;
+        border-radius: 999px;
+        padding: 0.15rem 0.45rem;
+        font-size: 0.78rem;
+      }
+      .presence-dot {
+        width: 0.5rem;
+        height: 0.5rem;
+        border-radius: 50%;
+      }
       .notes-editor {
         width: 100%;
         min-height: 18rem;
@@ -94,13 +197,18 @@
       }
       .empty, .placeholder { opacity: 0.6; }
       @media (max-width: 58rem) {
+        .routes { grid-template-columns: 1fr; }
         .workspace { grid-template-columns: 1fr; }
         .component { min-height: auto; }
+        .component-description { min-height: auto; }
       }
     </style>
   </head>
   <body>
     <div id="app"></div>
-    <script type="module" src="./dist/project_room_lustre.mjs"></script>
+    <script type="module">
+      import { main } from "./dist/project_room_lustre.mjs";
+      main();
+    </script>
   </body>
 </html>
