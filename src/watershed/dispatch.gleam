@@ -81,6 +81,7 @@ pub opaque type Plan {
   Plan(deliveries: List(Delivery), errors: List(DispatchError))
 }
 
+// docs:snippet-start foundations-ports-plan
 /// Plan the deliveries for one payload at one output port.
 ///
 /// `graph` supplies the effective connections in graph order. `ports_for`
@@ -104,6 +105,8 @@ pub fn plan(
       plan_local_intent(Trace(trace_id), source, payload, graph, ports_for)
   }
 }
+
+// docs:snippet-end foundations-ports-plan
 
 fn plan_local_intent(
   trace: Trace,

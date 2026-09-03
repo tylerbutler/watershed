@@ -92,6 +92,7 @@ type InputHandlerError {
   HandlerFailed(reason: String)
 }
 
+// docs:snippet-start foundations-components-descriptor-type
 /// One component kind's start function, port list, and config decoder.
 ///
 /// The `config` type parameter stays hidden: two descriptors with
@@ -109,6 +110,9 @@ pub opaque type Descriptor(context, running) {
   )
 }
 
+// docs:snippet-end foundations-components-descriptor-type
+
+// docs:snippet-start foundations-components-catalog-type
 /// A set of registered descriptors, keyed by kind and version.
 ///
 /// Every descriptor in one catalog shares the same `context` and `running`
@@ -116,6 +120,8 @@ pub opaque type Descriptor(context, running) {
 pub opaque type Catalog(context, running) {
   Catalog(entries: Dict(#(String, Int), Descriptor(context, running)))
 }
+
+// docs:snippet-end foundations-components-catalog-type
 
 /// Build a descriptor for one component kind.
 ///
@@ -143,6 +149,7 @@ pub fn descriptor(
   )
 }
 
+// docs:snippet-start foundations-components-executable-descriptor
 /// Build an executable descriptor for one component kind.
 ///
 /// `start_component` calls `done` after the component has bootstrapped its
@@ -198,6 +205,8 @@ pub fn executable_descriptor(
     },
   )
 }
+
+// docs:snippet-end foundations-components-executable-descriptor
 
 /// Build a typed input handler for an executable descriptor.
 pub fn input_handler(
@@ -260,6 +269,7 @@ pub fn version(descriptor: Descriptor(context, running)) -> Int {
   descriptor.version
 }
 
+// docs:snippet-start foundations-components-ports
 /// The port metadata a descriptor lists.
 pub fn ports(
   descriptor: Descriptor(context, running),
@@ -267,6 +277,9 @@ pub fn ports(
   descriptor.ports
 }
 
+// docs:snippet-end foundations-components-ports
+
+// docs:snippet-start foundations-components-validate-config
 /// Check config JSON against a descriptor's decoder, without starting the
 /// component.
 pub fn validate_config(
@@ -276,6 +289,9 @@ pub fn validate_config(
   descriptor.validate_config(config)
 }
 
+// docs:snippet-end foundations-components-validate-config
+
+// docs:snippet-start foundations-components-start
 /// Decode config JSON and start one running instance of a descriptor's
 /// component.
 ///
@@ -291,6 +307,9 @@ pub fn start(
   descriptor.start(context, config, done)
 }
 
+// docs:snippet-end foundations-components-start
+
+// docs:snippet-start foundations-components-deliver
 /// Deliver an encoded payload to one typed input handler.
 pub fn deliver(
   descriptor: Descriptor(context, running),
@@ -318,6 +337,8 @@ pub fn deliver(
       })
   }
 }
+
+// docs:snippet-end foundations-components-deliver
 
 /// Check that an output event belongs to this descriptor.
 pub fn validate_output(
@@ -353,6 +374,7 @@ pub fn new_catalog() -> Catalog(context, running) {
   Catalog(entries: dict.new())
 }
 
+// docs:snippet-start foundations-components-register
 /// Add a descriptor to a catalog.
 ///
 /// Returns `Error(DuplicateRegistration(..))` when the catalog already
@@ -368,6 +390,9 @@ pub fn register(
   }
 }
 
+// docs:snippet-end foundations-components-register
+
+// docs:snippet-start foundations-components-find
 /// Find a descriptor in a catalog by kind and version.
 ///
 /// Returns `Error(NotRegistered(kind))` when the catalog holds no version of
@@ -389,6 +414,8 @@ pub fn find(
       }
   }
 }
+
+// docs:snippet-end foundations-components-find
 
 /// The versions a catalog holds for one kind, from the lowest version to the
 /// highest version. The sort keeps the list the same on every target.

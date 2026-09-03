@@ -5,14 +5,21 @@ import startest/expect
 
 import watershed/port
 
+// docs:snippet-start foundations-ports-selected
 fn selected() -> port.Output(String) {
   port.output("selected", "watershed/task-id@1", json.string)
 }
 
+// docs:snippet-end foundations-ports-selected
+
+// docs:snippet-start foundations-ports-focus-subject
 fn focus_subject() -> port.Input(String) {
   port.local_input("focus-subject", "watershed/task-id@1", decode.string)
 }
 
+// docs:snippet-end foundations-ports-focus-subject
+
+// docs:snippet-start foundations-ports-append-activity
 fn append_activity() -> port.Input(String) {
   port.collaborative_input(
     "append-entry",
@@ -21,6 +28,8 @@ fn append_activity() -> port.Input(String) {
     ["sequence:insert"],
   )
 }
+
+// docs:snippet-end foundations-ports-append-activity
 
 pub fn output_descriptor_has_stable_metadata_test() -> Nil {
   port.output_descriptor(selected())

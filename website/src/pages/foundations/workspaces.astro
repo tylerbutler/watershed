@@ -1,30 +1,15 @@
 ---
-import { Code } from "astro:components";
 import FoundationsLayout from "../../components/FoundationsLayout.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt } from "../../lib/excerpt";
-import workspaceModule from "../../../../src/watershed/workspace.gleam?raw";
-import workspaceBeam from "../../../../src/watershed/workspace_beam.gleam?raw";
-import workspaceTests from "../../../../test/watershed/workspace_beam_test.gleam?raw";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { sourceSnippet } from "../../lib/snippet.ts";
 
-const channelFields = excerpt(
-  workspaceModule,
-  "pub fn manifest_field(",
-  "pub fn layout_field(",
-  "pub fn connections_field(",
-);
-const manifestEntry = excerpt(workspaceModule, "pub type ManifestEntry {");
-const snapshotFn = excerpt(workspaceModule, "pub fn snapshot(");
-const preparationState = excerpt(
-  workspaceModule,
-  "pub type PreparationState(subtree) {",
-);
-const prepareFn = excerpt(workspaceModule, "pub fn prepare(");
-const deleteFn = excerpt(workspaceBeam, "pub fn delete_instance(");
-const preservationTest = excerpt(
-  workspaceTests,
-  "pub fn workspace_lifecycle_converges_and_preserves_deleted_data_test() -> Nil {",
-);
+const channelFields = sourceSnippet("foundations-workspaces-channel-fields");
+const manifestEntry = sourceSnippet("foundations-workspaces-manifest-entry");
+const snapshotFn = sourceSnippet("foundations-workspaces-snapshot");
+const preparationState = sourceSnippet("foundations-workspaces-preparation-state");
+const prepareFn = sourceSnippet("foundations-workspaces-prepare");
+const deleteFn = sourceSnippet("foundations-workspaces-delete-instance");
+const preservationTest = sourceSnippet("foundations-workspaces-preservation-test");
 ---
 
 <FoundationsLayout
@@ -39,9 +24,7 @@ const preservationTest = excerpt(
       of component instances, a sequence for presentation order, and a
       sequence of port connections.
     </p>
-    <figure class="g-code">
-      <Code code={channelFields} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={channelFields} />
     <p>
       The JavaScript and BEAM adapters create those channels while they are
       detached, wire their handles into the workspace map, then attach the
@@ -59,9 +42,7 @@ const preservationTest = excerpt(
       child map. The config can vary by component kind. The child map remains
       a separate collaborative structure with one owner.
     </p>
-    <figure class="g-code">
-      <Code code={manifestEntry} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={manifestEntry} />
     <p>
       Handle discovery walks nested JSON. Writing this record therefore
       attaches the child map before the manifest operation reaches another
@@ -85,9 +66,7 @@ const preservationTest = excerpt(
       graph. Every rejected value comes back as a diagnostic. Nothing gets
       rewritten.
     </p>
-    <figure class="g-code">
-      <Code code={snapshotFn} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={snapshotFn} />
   </div>
 
   <div class="g-block">
@@ -101,12 +80,8 @@ const preservationTest = excerpt(
       <code>Failed</code>. A handle still in flight stays{" "}
       <code>Loading</code>.
     </p>
-    <figure class="g-code">
-      <Code code={preparationState} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <figure class="g-code">
-      <Code code={prepareFn} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={preparationState} />
+    <SnippetBlock snippet={prepareFn} />
     <div class="g-note">
       <p>
         <strong>Prepared is not running.</strong> The JavaScript component
@@ -126,21 +101,14 @@ const preservationTest = excerpt(
       instance, and deletes the manifest key last. Repeating the operation
       finishes a partial attempt instead of failing on already-missing data.
     </p>
-    <figure class="g-code">
-      <Code code={deleteFn} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={deleteFn} />
     <p>
       Watershed doesn't have channel garbage collection. The instance map
       stays attached and disappears only from workspace reachability. A caller
       that retained its handle can still read it—the test pins that behavior
       instead of calling the orphan “deleted.”
     </p>
-    <figure class="g-code">
-      <Code code={preservationTest} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">
-        source: test/watershed/workspace_beam_test.gleam
-      </figcaption>
-    </figure>
+    <SnippetBlock snippet={preservationTest} />
   </div>
 
   <div class="g-block">

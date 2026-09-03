@@ -15,16 +15,20 @@ type CounterConfig {
   CounterConfig(step: Int)
 }
 
+// docs:snippet-start foundations-components-notes-decoder
 fn notes_decoder() -> decode.Decoder(NotesConfig) {
   use placeholder <- decode.field("placeholder", decode.string)
   decode.success(NotesConfig(placeholder: placeholder))
 }
+
+// docs:snippet-end foundations-components-notes-decoder
 
 fn counter_decoder() -> decode.Decoder(CounterConfig) {
   use step <- decode.field("step", decode.int)
   decode.success(CounterConfig(step: step))
 }
 
+// docs:snippet-start foundations-components-notes-descriptor
 fn notes_descriptor() -> component.Descriptor(String, String) {
   component.descriptor(
     kind: "watershed/notes",
@@ -36,6 +40,8 @@ fn notes_descriptor() -> component.Descriptor(String, String) {
     ],
   )
 }
+
+// docs:snippet-end foundations-components-notes-descriptor
 
 fn counter_descriptor() -> component.Descriptor(String, String) {
   component.descriptor(
@@ -93,6 +99,7 @@ fn executable_notes_descriptor() -> component.Descriptor(String, String) {
   )
 }
 
+// docs:snippet-start foundations-components-catalog-example
 pub fn catalog_holds_different_config_types_test() -> Nil {
   let assert Ok(with_notes) =
     component.register(component.new_catalog(), notes_descriptor())
@@ -102,6 +109,8 @@ pub fn catalog_holds_different_config_types_test() -> Nil {
   |> result.map(component.kind)
   |> expect.to_equal(Ok("watershed/notes"))
 }
+
+// docs:snippet-end foundations-components-catalog-example
 
 pub fn start_decodes_config_inside_descriptor_test() -> Nil {
   component.start(

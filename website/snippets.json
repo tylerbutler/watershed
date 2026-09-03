@@ -20,6 +20,95 @@
   ],
   "snippets": [
     {
+      "id": "foundations-components-catalog-example",
+      "sourcePath": "test/watershed/component_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-catalog-example"
+      ]
+    },
+    {
+      "id": "foundations-components-catalog-type",
+      "sourcePath": "src/watershed/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-catalog-type"
+      ]
+    },
+    {
+      "id": "foundations-components-deliver",
+      "sourcePath": "src/watershed/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-deliver"
+      ]
+    },
+    {
+      "id": "foundations-components-descriptor-type",
+      "sourcePath": "src/watershed/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-descriptor-type"
+      ]
+    },
+    {
+      "id": "foundations-components-executable-descriptor",
+      "sourcePath": "src/watershed/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-executable-descriptor"
+      ]
+    },
+    {
+      "id": "foundations-components-find",
+      "sourcePath": "src/watershed/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-find"
+      ]
+    },
+    {
+      "id": "foundations-components-notes-definition",
+      "sourcePath": "test/watershed/component_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-notes-decoder",
+        "foundations-components-notes-descriptor"
+      ]
+    },
+    {
+      "id": "foundations-components-ports",
+      "sourcePath": "src/watershed/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-ports"
+      ]
+    },
+    {
+      "id": "foundations-components-register",
+      "sourcePath": "src/watershed/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-register"
+      ]
+    },
+    {
+      "id": "foundations-components-start",
+      "sourcePath": "src/watershed/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-start"
+      ]
+    },
+    {
+      "id": "foundations-components-validate-config",
+      "sourcePath": "src/watershed/component.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-components-validate-config"
+      ]
+    },
+    {
       "id": "foundations-lifecycle-assemble",
       "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
       "language": "gleam",
@@ -65,6 +154,65 @@
       "language": "gleam",
       "markers": [
         "update-readiness"
+      ]
+    },
+    {
+      "id": "foundations-ports-connect",
+      "sourcePath": "src/watershed/port.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-ports-connect"
+      ]
+    },
+    {
+      "id": "foundations-ports-declarations",
+      "sourcePath": "test/watershed/port_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-ports-selected",
+        "foundations-ports-focus-subject",
+        "foundations-ports-append-activity"
+      ]
+    },
+    {
+      "id": "foundations-ports-effective",
+      "sourcePath": "src/watershed/port_graph.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-ports-effective"
+      ]
+    },
+    {
+      "id": "foundations-ports-graph-helpers",
+      "sourcePath": "test/watershed/dispatch_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-ports-graph-ports",
+        "foundations-ports-graph"
+      ]
+    },
+    {
+      "id": "foundations-ports-local-plan",
+      "sourcePath": "test/watershed/dispatch_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-ports-local-plan"
+      ]
+    },
+    {
+      "id": "foundations-ports-plan",
+      "sourcePath": "src/watershed/dispatch.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-ports-plan"
+      ]
+    },
+    {
+      "id": "foundations-ports-replicated-plan",
+      "sourcePath": "test/watershed/dispatch_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-ports-replicated-plan"
       ]
     },
     {
@@ -188,6 +336,64 @@
       "language": "gleam",
       "markers": [
         "watershed-root-typed"
+      ]
+    },
+    {
+      "id": "foundations-workspaces-channel-fields",
+      "sourcePath": "src/watershed/workspace.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-workspaces-manifest-field",
+        "foundations-workspaces-layout-field",
+        "foundations-workspaces-connections-field"
+      ]
+    },
+    {
+      "id": "foundations-workspaces-delete-instance",
+      "sourcePath": "src/watershed/workspace_beam.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-workspaces-delete-instance"
+      ]
+    },
+    {
+      "id": "foundations-workspaces-manifest-entry",
+      "sourcePath": "src/watershed/workspace.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-workspaces-manifest-entry"
+      ]
+    },
+    {
+      "id": "foundations-workspaces-preparation-state",
+      "sourcePath": "src/watershed/workspace.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-workspaces-preparation-state"
+      ]
+    },
+    {
+      "id": "foundations-workspaces-prepare",
+      "sourcePath": "src/watershed/workspace.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-workspaces-prepare"
+      ]
+    },
+    {
+      "id": "foundations-workspaces-preservation-test",
+      "sourcePath": "test/watershed/workspace_beam_test.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-workspaces-preservation-test"
+      ]
+    },
+    {
+      "id": "foundations-workspaces-snapshot",
+      "sourcePath": "src/watershed/workspace.gleam",
+      "language": "gleam",
+      "markers": [
+        "foundations-workspaces-snapshot"
       ]
     },
     {

@@ -8,6 +8,7 @@ import watershed/dispatch
 import watershed/port
 import watershed/port_graph
 
+// docs:snippet-start foundations-ports-graph-ports
 fn ports(instance_id: String) -> Result(List(port.Descriptor), Nil) {
   case instance_id {
     "tasks" -> Ok([port.Descriptor("completed", port.OutputPort, "task@1")])
@@ -27,6 +28,9 @@ fn ports(instance_id: String) -> Result(List(port.Descriptor), Nil) {
   }
 }
 
+// docs:snippet-end foundations-ports-graph-ports
+
+// docs:snippet-start foundations-ports-graph
 fn graph() -> port_graph.EffectiveGraph {
   port_graph.effective(
     [
@@ -45,6 +49,9 @@ fn graph() -> port_graph.EffectiveGraph {
   )
 }
 
+// docs:snippet-end foundations-ports-graph
+
+// docs:snippet-start foundations-ports-local-plan
 pub fn local_intent_fans_out_in_edge_order_test() -> Nil {
   let planned =
     dispatch.plan(
@@ -61,6 +68,9 @@ pub fn local_intent_fans_out_in_edge_order_test() -> Nil {
   |> expect.to_equal(["activity", "notes"])
 }
 
+// docs:snippet-end foundations-ports-local-plan
+
+// docs:snippet-start foundations-ports-replicated-plan
 pub fn replicated_change_produces_no_deliveries_test() -> Nil {
   dispatch.plan(
     trace_id: "trace-2",
@@ -73,6 +83,8 @@ pub fn replicated_change_produces_no_deliveries_test() -> Nil {
   |> dispatch.deliveries
   |> expect.to_equal([])
 }
+
+// docs:snippet-end foundations-ports-replicated-plan
 
 pub fn delivery_keeps_target_class_and_capabilities_test() -> Nil {
   let assert [delivery, ..] =

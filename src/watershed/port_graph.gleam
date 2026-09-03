@@ -76,6 +76,7 @@ pub fn connection(id: String, source: PortRef, target: PortRef) -> Connection {
   Connection(id: id, source: source, target: target)
 }
 
+// docs:snippet-start foundations-ports-effective
 /// Read a stored connection list and build the effective graph.
 ///
 /// `ports_for` returns the ports of one instance, or `Error(Nil)` when the
@@ -100,6 +101,8 @@ pub fn effective(
     errors: list.reverse(final.errors),
   )
 }
+
+// docs:snippet-end foundations-ports-effective
 
 /// The connections the graph kept, in sorted ID order.
 pub fn connections(graph: EffectiveGraph) -> List(Connection) {

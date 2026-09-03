@@ -243,6 +243,7 @@ pub fn remove_connection(
   )
 }
 
+// docs:snippet-start foundations-workspaces-delete-instance
 @target(erlang)
 /// Remove one instance from workspace reachability.
 ///
@@ -265,6 +266,8 @@ pub fn delete_instance(
   watershed_beam.delete(store.manifest, instance_id)
   Ok(Nil)
 }
+
+// docs:snippet-end foundations-workspaces-delete-instance
 
 @target(erlang)
 fn create(

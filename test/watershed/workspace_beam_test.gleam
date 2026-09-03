@@ -130,6 +130,7 @@ pub fn cold_bootstrap_race_reopens_one_winning_workspace_test() -> Nil {
   |> expect.to_equal(["tasks-1"])
 }
 
+// docs:snippet-start foundations-workspaces-preservation-test
 @target(erlang)
 pub fn workspace_lifecycle_converges_and_preserves_deleted_data_test() -> Nil {
   let sluice = start("workspace-beam-lifecycle")
@@ -204,6 +205,8 @@ pub fn workspace_lifecycle_converges_and_preserves_deleted_data_test() -> Nil {
   watershed_beam.get(preserved, "kept")
   |> expect.to_equal(Ok(json.string("yes")))
 }
+
+// docs:snippet-end foundations-workspaces-preservation-test
 
 @target(erlang)
 pub fn concurrent_cycle_keeps_raw_edges_and_one_effective_edge_test() -> Nil {

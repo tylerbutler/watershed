@@ -1,36 +1,15 @@
 ---
-import { Code } from "astro:components";
 import FoundationsLayout from "../../components/FoundationsLayout.astro";
-import { watershedCodeTheme } from "../../styles/code-theme";
-import { excerpt } from "../../lib/excerpt";
-import portModule from "../../../../src/watershed/port.gleam?raw";
-import graphModule from "../../../../src/watershed/port_graph.gleam?raw";
-import dispatchModule from "../../../../src/watershed/dispatch.gleam?raw";
-import portTests from "../../../../test/watershed/port_test.gleam?raw";
-import dispatchTests from "../../../../test/watershed/dispatch_test.gleam?raw";
+import SnippetBlock from "../../components/SnippetBlock.astro";
+import { snippetFromLiteral, sourceSnippet } from "../../lib/snippet.ts";
 
-const portDeclarations = excerpt(
-  portTests,
-  "fn selected() -> port.Output(String) {",
-  "fn focus_subject() -> port.Input(String) {",
-  "fn append_activity() -> port.Input(String) {",
-);
-const connectFn = excerpt(portModule, "pub fn connect(");
-const graphFn = excerpt(
-  dispatchTests,
-  "fn ports(instance_id: String) -> Result(List(port.Descriptor), Nil) {",
-  "fn graph() -> port_graph.EffectiveGraph {",
-);
-const effectiveFn = excerpt(graphModule, "pub fn effective(");
-const localPlan = excerpt(
-  dispatchTests,
-  "pub fn local_intent_fans_out_in_edge_order_test() -> Nil {",
-);
-const replicatedPlan = excerpt(
-  dispatchTests,
-  "pub fn replicated_change_produces_no_deliveries_test() -> Nil {",
-);
-const planFn = excerpt(dispatchModule, "pub fn plan(");
+const portDeclarations = sourceSnippet("foundations-ports-declarations");
+const connectFn = sourceSnippet("foundations-ports-connect");
+const graphFn = sourceSnippet("foundations-ports-graph-helpers");
+const effectiveFn = sourceSnippet("foundations-ports-effective");
+const localPlan = sourceSnippet("foundations-ports-local-plan");
+const replicatedPlan = sourceSnippet("foundations-ports-replicated-plan");
+const planFn = sourceSnippet("foundations-ports-plan");
 
 const flowDiagram = `typed component code             erased host boundary
 
@@ -42,6 +21,11 @@ Descriptor ---------> EffectiveGraph ---------> Delivery
                                                    |
                          target Input(String) <----+
                                 decode + execute: component runtime`;
+const flowDiagramSnippet = snippetFromLiteral(
+  flowDiagram,
+  "text",
+  "component port flow",
+);
 ---
 
 <FoundationsLayout
@@ -57,12 +41,7 @@ Descriptor ---------> EffectiveGraph ---------> Delivery
       codec. Gleam keeps the payload type attached while you work with the
       port.
     </p>
-    <figure class="g-code">
-      <Code code={portDeclarations} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">
-        source: test/watershed/port_test.gleam
-      </figcaption>
-    </figure>
+    <SnippetBlock snippet={portDeclarations} />
     <p>
       Both <code>selected</code> and <code>focus_subject</code> use{" "}
       <code>String</code>, and both name the same{" "}
@@ -71,9 +50,7 @@ Descriptor ---------> EffectiveGraph ---------> Delivery
       checks the schema IDs, catching two string-shaped payloads that mean
       different things.
     </p>
-    <figure class="g-code">
-      <Code code={connectFn} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={connectFn} />
   </div>
 
   <div class="g-block">
@@ -111,12 +88,11 @@ Descriptor ---------> EffectiveGraph ---------> Delivery
       validates it. The typed input keeps the decoder a host uses when it
       executes a delivery.
     </p>
-    <figure class="g-code">
-      <Code code={flowDiagram} lang="text" theme={watershedCodeTheme} />
-      <figcaption class="annot">
+    <SnippetBlock snippet={flowDiagramSnippet}>
+      <figcaption slot="caption" class="annot">
         authors keep payload types; hosts store metadata
       </figcaption>
-    </figure>
+    </SnippetBlock>
   </div>
 
   <div class="g-block">
@@ -134,21 +110,18 @@ Descriptor ---------> EffectiveGraph ---------> Delivery
       a cycle. Clients that read the same stored set derive the same acyclic
       result.
     </p>
-    <figure class="g-code">
-      <Code code={effectiveFn} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={effectiveFn} />
     <p>
       Rejected edges remain in storage. The effective graph returns diagnostics
       for duplicates, missing instances or ports, wrong directions, schema
       mismatches, and cycles. A UI can explain the dropped connection without
       destroying data another client may still understand.
     </p>
-    <figure class="g-code">
-      <Code code={graphFn} lang="gleam" theme={watershedCodeTheme} />
-      <figcaption class="annot">
+    <SnippetBlock snippet={graphFn}>
+      <figcaption slot="caption" class="annot">
         stored instance and port IDs describe two typed relationships
       </figcaption>
-    </figure>
+    </SnippetBlock>
   </div>
 
   <div class="g-block">
@@ -160,12 +133,8 @@ Descriptor ---------> EffectiveGraph ---------> Delivery
       and returns no deliveries for{" "}
       <code>ReplicatedChange</code>.
     </p>
-    <figure class="g-code">
-      <Code code={localPlan} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
-    <figure class="g-code">
-      <Code code={replicatedPlan} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={localPlan} />
+    <SnippetBlock snippet={replicatedPlan} />
     <p>
       A local plan follows the effective graph's stable edge order. Each
       <code>Delivery</code> records the trace, edge ID, target port, target
@@ -184,9 +153,7 @@ Descriptor ---------> EffectiveGraph ---------> Delivery
       changed schema becomes <code>SchemaChanged</code>. Valid sibling edges
       still produce deliveries.
     </p>
-    <figure class="g-code">
-      <Code code={planFn} lang="gleam" theme={watershedCodeTheme} />
-    </figure>
+    <SnippetBlock snippet={planFn} />
   </div>
 
   <div class="g-block">

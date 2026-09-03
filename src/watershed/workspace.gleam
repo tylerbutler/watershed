@@ -23,6 +23,7 @@ import watershed/wire
 /// The schema tag for the workspace child map.
 pub type WorkspaceSchema
 
+// docs:snippet-start foundations-workspaces-manifest-field
 /// The workspace manifest.
 pub fn manifest_field() -> schema.ChannelField(
   WorkspaceSchema,
@@ -31,6 +32,9 @@ pub fn manifest_field() -> schema.ChannelField(
   schema.channel_field("manifest")
 }
 
+// docs:snippet-end foundations-workspaces-manifest-field
+
+// docs:snippet-start foundations-workspaces-layout-field
 /// The ordered component instance IDs.
 pub fn layout_field() -> schema.ChannelField(
   WorkspaceSchema,
@@ -39,6 +43,9 @@ pub fn layout_field() -> schema.ChannelField(
   schema.channel_field("layout")
 }
 
+// docs:snippet-end foundations-workspaces-layout-field
+
+// docs:snippet-start foundations-workspaces-connections-field
 /// The stored component port connections.
 pub fn connections_field() -> schema.ChannelField(
   WorkspaceSchema,
@@ -47,6 +54,9 @@ pub fn connections_field() -> schema.ChannelField(
   schema.channel_field("connections")
 }
 
+// docs:snippet-end foundations-workspaces-connections-field
+
+// docs:snippet-start foundations-workspaces-manifest-entry
 /// One component instance in the manifest.
 pub type ManifestEntry {
   ManifestEntry(
@@ -57,6 +67,8 @@ pub type ManifestEntry {
     child_handle: Json,
   )
 }
+
+// docs:snippet-end foundations-workspaces-manifest-entry
 
 /// A raw manifest value and its decode result.
 pub type StoredManifestEntry {
@@ -78,6 +90,7 @@ pub type Diagnostic {
   InvalidGraph(error: port_graph.GraphError)
 }
 
+// docs:snippet-start foundations-workspaces-preparation-state
 /// Local preparation state before component runtime startup.
 pub type PreparationState(subtree) {
   /// The entry is valid, but its child map is not available yet.
@@ -89,6 +102,8 @@ pub type PreparationState(subtree) {
   /// The stored entry or component config is invalid.
   Failed(instance_id: String, reason: PreparationError)
 }
+
+// docs:snippet-end foundations-workspaces-preparation-state
 
 /// A reason an instance could not be prepared.
 pub type PreparationError {
@@ -199,6 +214,7 @@ pub fn decode_connection(
   json.parse(json.to_string(value), connection_decoder())
 }
 
+// docs:snippet-start foundations-workspaces-snapshot
 /// Derive one effective workspace view without changing stored values.
 pub fn snapshot(
   manifest raw_manifest: List(#(String, Json)),
@@ -237,6 +253,8 @@ pub fn snapshot(
   )
 }
 
+// docs:snippet-end foundations-workspaces-snapshot
+
 /// The valid, key-matched manifest entries.
 pub fn manifest_entries(snapshot: Snapshot) -> List(ManifestEntry) {
   snapshot.entries
@@ -272,6 +290,7 @@ pub fn diagnostics(snapshot: Snapshot) -> List(Diagnostic) {
   snapshot.diagnostics
 }
 
+// docs:snippet-start foundations-workspaces-prepare
 /// Prepare every stored manifest entry against a local catalog.
 pub fn prepare(
   snapshot: Snapshot,
@@ -300,6 +319,8 @@ pub fn prepare(
     }
   })
 }
+
+// docs:snippet-end foundations-workspaces-prepare
 
 /// Plan a move by effective layout index.
 pub fn plan_move(

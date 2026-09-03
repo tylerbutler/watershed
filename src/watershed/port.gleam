@@ -176,6 +176,7 @@ pub fn decode(
   }
 }
 
+// docs:snippet-start foundations-ports-connect
 /// Link an output port to an input port with the same payload type.
 ///
 /// Returns `Error(SchemaMismatch(..))` when the two ports name different
@@ -195,3 +196,4 @@ pub fn connect(
       Error(SchemaMismatch(source: output.schema_id, target: input.schema_id))
   }
 }
+// docs:snippet-end foundations-ports-connect
