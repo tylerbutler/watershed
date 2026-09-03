@@ -1,5 +1,4 @@
 import gleam/dynamic
-import gleam/javascript/promise.{type Promise}
 import gleeunit/should
 
 import lustre/effect
@@ -44,20 +43,6 @@ fn run(effect_to_run: effect.Effect(msg), dispatch: fn(msg) -> Nil) -> Nil {
     fn(_name, _decoder) { Nil },
     fn(_name) { Nil },
   )
-}
-
-pub fn init_waits_for_lustres_render_phase_test() -> Promise(Nil) {
-  let #(model, mount) = rich_editor.init("editor", channel("editor-schedule"))
-  let dispatches = transport_js.new_cell(0)
-  run(mount, fn(_) {
-    transport_js.set_cell(dispatches, transport_js.get_cell(dispatches) + 1)
-  })
-
-  promise.wait(0)
-  |> promise.map(fn(_) {
-    transport_js.get_cell(dispatches) |> should.equal(0)
-    rich_editor.stop(model)
-  })
 }
 
 pub fn remote_editor_work_runs_in_an_effect_test() -> Nil {

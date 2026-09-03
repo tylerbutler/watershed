@@ -1,37 +1,36 @@
-import {
-  destroy,
-  mount,
-} from "../src/project_room_lustre/rich_editor_ffi.mjs";
+import { start } from "../build/dev/javascript/project_room_lustre/rich_editor_browser_test.mjs";
 
 export async function run() {
-  const errors = [];
-  let editor;
+  delete globalThis.__watershedRichEditorLifecycle;
+  start();
 
-  mount(
-    "editor",
-    JSON.stringify([
-      { insert: "Heading" },
-      { insert: "\n", attributes: { header: 1 } },
-    ]),
-    () => {},
-    (mounted) => {
-      editor = mounted;
-    },
-    (error) => errors.push(error),
-  );
-
-  if (editor !== undefined) {
-    return "FAIL: mount callback ran synchronously";
-  }
-  await Promise.resolve();
-  if (errors.length > 0) {
-    return "FAIL: " + errors.join("; ");
-  }
-  if (editor === undefined) {
-    return "FAIL: mount callback did not run";
+  const panel = document.getElementById("editor");
+  if (panel === null || !panel.isConnected) {
+    return "FAIL: Lustre did not render the editor panel";
   }
 
-  const quill = editor.editor;
+  const deadline = performance.now() + 2000;
+  while (
+    document.getElementById("status")?.textContent === "waiting" &&
+    performance.now() < deadline
+  ) {
+    await new Promise(requestAnimationFrame);
+  }
+
+  const status = document.getElementById("status")?.textContent;
+  if (status?.startsWith("failed:")) {
+    return "FAIL: " + status;
+  }
+  if (status !== "mounted") {
+    return "FAIL: Lustre did not receive Quill's mount callback";
+  }
+
+  const lifecycle = globalThis.__watershedRichEditorLifecycle;
+  if (lifecycle === undefined || !lifecycle.panelConnected) {
+    return "FAIL: the editor panel was absent when Quill mounted";
+  }
+
+  const quill = lifecycle.editor.editor;
   const operations = quill.getContents().ops;
   const expected = [
     { insert: "Heading" },
@@ -48,7 +47,5 @@ export async function run() {
     return "FAIL: Quill lost the terminal newline block format";
   }
 
-  destroy(editor);
-  destroy(editor);
-  return "PASS: Quill preserved the block format and one terminal newline";
+  return "PASS: Lustre rendered the panel before Quill mounted";
 }

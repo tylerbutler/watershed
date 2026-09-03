@@ -90,7 +90,7 @@ async function main() {
 
 const page = `<!doctype html>
 <html><head><meta charset="utf-8"><title>rich editor smoke</title></head>
-<body><div id="editor"></div>
+<body><div id="app"></div>
 <script type="module">
   import { run } from "/build/rich-editor-browser-test.mjs";
   window.__watershedRichEditorSmoke = run;
