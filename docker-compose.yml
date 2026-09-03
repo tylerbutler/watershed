@@ -32,6 +32,7 @@ services:
     build:
       context: "https://github.com/tylerbutler/floodgate.git#main"
       dockerfile: Dockerfile
+      target: local
     ports:
       # Floodgate listens on 3000, where levee listened on 4000. Remap rather
       # than move the port, so the integration suite and every example README

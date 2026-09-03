@@ -14,3 +14,4 @@ services:
     build:
       context: ../floodgate
       dockerfile: Dockerfile
+      target: local
