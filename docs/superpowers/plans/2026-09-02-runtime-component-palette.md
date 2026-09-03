@@ -271,7 +271,7 @@ pub fn commands_change_items_and_completion_test() -> Nil {
     checklist.complete(running, item.id)
   component.output_id(event) |> should.equal("item_completed")
   component.output_payload(event)
-  |> port.decode(tally_payload.item_completed())
+  |> port.decode(tally_payload.add())
   |> should.equal(Ok(1))
   checklist.completed(running, item.id) |> should.be_true
 
