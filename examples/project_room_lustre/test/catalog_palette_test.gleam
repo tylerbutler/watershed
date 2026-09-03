@@ -17,7 +17,16 @@ import project_room_lustre/document_schema
 import project_room_lustre/workspace_setup
 
 pub fn creation_presets_build_valid_configs_test() -> Nil {
-  catalog.creation_presets()
+  let presets = catalog.creation_presets()
+
+  presets
+  |> list.map(fn(preset) {
+    let catalog.CreationPreset(kind:, ..) = preset
+    kind
+  })
+  |> should.equal([catalog.checklist_kind, catalog.tally_kind])
+
+  presets
   |> list.each(fn(preset) {
     let catalog.CreationPreset(kind:, version:, config:, ..) = preset
     let assert Ok(descriptor) = component.find(catalog.catalog(), kind, version)
