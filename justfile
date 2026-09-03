@@ -193,7 +193,7 @@ p2p-clap:
 # Selection must stay local; task completion and one activity entry must
 # converge. Not part of `just test`: it needs Chromium and a floodgate server.
 project-room-smoke:
-    pnpm --dir examples/project_room_lustre run build
+    cd examples/project_room_lustre && pnpm run build
     node smoke/project_room.mjs
 
 # === INTEGRATION (live floodgate server) ===

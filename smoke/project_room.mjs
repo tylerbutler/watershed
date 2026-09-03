@@ -258,14 +258,13 @@ async function main() {
         )?.dataset.thresholdReached === "true"`,
         name + " tab to see the poll threshold",
       );
-      await assertValue(
+      await waitFor(
         pageEndpoint,
         `document.querySelectorAll(
           '[data-entry-kind="poll-threshold"]' +
           '[data-choice-id="customer-research"]'
-        ).length`,
-        1,
-        name + " tab did not show one poll activity entry",
+        ).length === 1`,
+        name + " tab to show one poll activity entry",
       );
     }
 
@@ -286,14 +285,13 @@ async function main() {
         )?.dataset.ownerLabel === ${JSON.stringify(firstName)}`,
         name + " tab to see the first Facilitator owner",
       );
-      await assertValue(
+      await waitFor(
         pageEndpoint,
         `document.querySelectorAll(
           '[data-entry-kind="ownership-change"]' +
           '[data-slot-id="facilitator"]'
-        ).length`,
-        1,
-        name + " tab did not show the accepted claim activity entry",
+        ).length === 1`,
+        name + " tab to show the accepted claim activity entry",
       );
     }
 
@@ -350,14 +348,13 @@ async function main() {
         )?.dataset.ownerLabel === ${JSON.stringify(secondName)}`,
         name + " tab to see the Facilitator handoff",
       );
-      await assertValue(
+      await waitFor(
         pageEndpoint,
         `document.querySelectorAll(
           '[data-entry-kind="ownership-change"]' +
           '[data-slot-id="facilitator"]'
-        ).length`,
-        2,
-        name + " tab did not show both accepted ownership changes",
+        ).length === 2`,
+        name + " tab to show both accepted ownership changes",
       );
     }
 
@@ -655,12 +652,15 @@ async function pageTarget(browserEndpoint, url) {
   throw new Error("no page target for " + url + " appeared");
 }
 
+// Headless Chromium can pause background-tab animation frames. Foreground each
+// target before a DOM probe so pending Lustre renders can finish.
 function evaluate(pageEndpoint, expression) {
   return withPage(
     pageEndpoint,
     GATE_MS,
     "browser evaluation timed out",
     async (send) => {
+      await send("Page.bringToFront");
       await send("Runtime.enable");
       return evaluatedValue(await send("Runtime.evaluate", {
         expression,
@@ -676,6 +676,7 @@ function waitFor(pageEndpoint, expression, description) {
     GATE_MS,
     "timed out waiting for " + description,
     async (send) => {
+      await send("Page.bringToFront");
       await send("Runtime.enable");
       const deadline = Date.now() + GATE_MS;
       while (Date.now() < deadline) {

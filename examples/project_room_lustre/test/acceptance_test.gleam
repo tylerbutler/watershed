@@ -226,6 +226,8 @@ pub fn runtime_created_checklist_converges_and_stops_test() -> Nil {
     component_runtime_js.running(runtime_b, instance_id)
     |> result_then(catalog.as_checklist)
   checklist.completed(checklist_b, item.id) |> should.be_true
+  assert_tally_value(runtime_a, 0)
+  assert_tally_value(runtime_b, 0)
 
   workspace_js.move_instance(store_a, catalog.catalog(), instance_id, 0)
   |> should.equal(Ok(Nil))
