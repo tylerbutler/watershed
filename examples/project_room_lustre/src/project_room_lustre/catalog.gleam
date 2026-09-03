@@ -903,7 +903,36 @@ fn checklist_descriptor() -> component.Descriptor(Context(root), Running) {
         },
       )
     },
-    inputs: [],
+    inputs: [
+      component.input_handler(checklist.add_item(), fn(running, label) {
+        case running {
+          Checklist(inner) ->
+            checklist.add_label(inner, label)
+            |> result.map(fn(next) { #(Checklist(next.0), next.1) })
+          TaskCollection(_)
+          | Inspector(_)
+          | DecisionPoll(_)
+          | OwnershipSlots(_)
+          | Notes(_)
+          | Activity(_)
+          | Tally(_) -> Error("checklist input reached the wrong component")
+        }
+      }),
+      component.input_handler(checklist.complete_item(), fn(running, item_id) {
+        case running {
+          Checklist(inner) ->
+            checklist.complete(inner, item_id)
+            |> result.map(fn(next) { #(Checklist(next.0), next.1) })
+          TaskCollection(_)
+          | Inspector(_)
+          | DecisionPoll(_)
+          | OwnershipSlots(_)
+          | Notes(_)
+          | Activity(_)
+          | Tally(_) -> Error("checklist input reached the wrong component")
+        }
+      }),
+    ],
     stop: fn(running) {
       case running {
         Checklist(inner) -> checklist.stop(inner)
@@ -916,7 +945,11 @@ fn checklist_descriptor() -> component.Descriptor(Context(root), Running) {
         | Tally(_) -> Error("checklist stop reached the wrong component")
       }
     },
-    ports: [port.output_descriptor(tally_payload.item_completed())],
+    ports: [
+      port.output_descriptor(tally_payload.item_completed()),
+      port.input_descriptor(checklist.add_item()),
+      port.input_descriptor(checklist.complete_item()),
+    ],
   )
 }
 

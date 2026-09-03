@@ -9,6 +9,7 @@ import watershed/port
 import watershed/sluice_js
 import watershed/transport_js
 
+import project_room_lustre/catalog
 import project_room_lustre/checklist
 import project_room_lustre/tally_payload
 
@@ -83,6 +84,71 @@ pub fn commands_change_items_and_completion_test() -> Nil {
   checklist.items(running) |> should.equal([])
 }
 
+pub fn add_item_input_delivers_its_label_without_using_the_draft_test() -> Nil {
+  let #(document, subtree) = new_subtree("checklist-add-input")
+  let running = start(document, subtree)
+  let #(running, _) = checklist.set_draft(running, "Local draft")
+  let descriptor = checklist_descriptor()
+
+  component.ports(descriptor)
+  |> should.equal([
+    port.Descriptor(
+      id: "item_completed",
+      direction: port.OutputPort,
+      schema_id: "project-room/tally-delta@1",
+    ),
+    port.Descriptor(
+      id: "add_item",
+      direction: port.InputPort(
+        port.CollaborativeInput(capabilities: ["sequence:insert"]),
+      ),
+      schema_id: "project-room/checklist-item-label@1",
+    ),
+    port.Descriptor(
+      id: "complete_item",
+      direction: port.InputPort(
+        port.CollaborativeInput(capabilities: ["or-set:add"]),
+      ),
+      schema_id: "project-room/checklist-item-id@1",
+    ),
+  ])
+
+  let assert Ok(#(next, [])) =
+    component.deliver(
+      descriptor,
+      catalog.Checklist(running),
+      checklist.add_item_port_id,
+      json.string("Delivered item"),
+    )
+  let assert Ok(running) = catalog.as_checklist(next)
+
+  let assert [item] = checklist.items(running)
+  item.label |> should.equal("Delivered item")
+  checklist.draft(running) |> should.equal("Local draft")
+}
+
+pub fn complete_item_input_delivers_the_item_id_and_emits_once_test() -> Nil {
+  let #(document, subtree) = new_subtree("checklist-complete-input")
+  let running = start(document, subtree)
+  let assert Ok(#(running, [])) = checklist.add_label(running, "Delivered item")
+  let assert [item] = checklist.items(running)
+  let descriptor = checklist_descriptor()
+
+  let assert Ok(#(next, [event])) =
+    component.deliver(
+      descriptor,
+      catalog.Checklist(running),
+      checklist.complete_item_port_id,
+      json.string(item.id),
+    )
+  let assert Ok(running) = catalog.as_checklist(next)
+
+  checklist.completed(running, item.id) |> should.be_true
+  component.output_id(event) |> should.equal("item_completed")
+  port.decode(tally_payload.add(), component.output_payload(event))
+  |> should.equal(Ok(1))
+}
+
 pub fn complete_rejects_missing_and_duplicate_items_test() -> Nil {
   let #(document, subtree) = new_subtree("checklist-invalid")
   let running = start(document, subtree)
@@ -126,6 +192,19 @@ pub fn complete_rejects_missing_and_duplicate_items_test() -> Nil {
       #("label", json.string("Ignored")),
     ]),
   ])
+}
+
+fn checklist_descriptor() -> component.Descriptor(
+  catalog.Context(Root),
+  catalog.Running,
+) {
+  let assert Ok(descriptor) =
+    component.find(
+      catalog.catalog(),
+      catalog.checklist_kind,
+      catalog.checklist_version,
+    )
+  descriptor
 }
 
 pub fn concurrent_complete_and_remove_converge_test() -> Nil {

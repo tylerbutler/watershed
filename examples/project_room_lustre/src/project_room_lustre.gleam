@@ -1,5 +1,6 @@
 //// A fixed browser project room powered by persisted component definitions.
 
+import gleam/dict.{type Dict}
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -58,6 +59,10 @@ type Status {
   Failed(reason: String)
 }
 
+pub opaque type InstanceErrors {
+  InstanceErrors(values: Dict(String, String))
+}
+
 type Model {
   Model(
     status: Status,
@@ -68,6 +73,7 @@ type Model {
     editor: Option(textarea.Model),
     palette_title: String,
     workspace_operation: Option(String),
+    instance_errors: InstanceErrors,
     user_id: String,
     color: String,
     presence: Option(Handle(RoomPresence)),
@@ -100,10 +106,14 @@ type Msg {
   OwnershipRelease(String)
   OwnershipHandoff(String, governance_payload.Identity)
   OwnershipToggleDetails
-  RuntimeCommandFinished(Result(Nil, component_runtime_js.RuntimeError))
+  RuntimeCommandFinished(String, Result(Nil, component_runtime_js.RuntimeError))
   PaletteTitleChanged(String)
   AddComponent(String)
-  WorkspaceOperationFinished(String, Result(Nil, workspace_setup.CreateError))
+  WorkspaceOperationFinished(
+    String,
+    Bool,
+    Result(Nil, workspace_setup.CreateError),
+  )
   MoveComponent(String, Int)
   RemoveComponent(String)
   ChecklistDraftChanged(String, String)
@@ -137,6 +147,7 @@ fn init(document: String) -> #(Model, Effect(Msg)) {
       editor: None,
       palette_title: "",
       workspace_operation: None,
+      instance_errors: new_instance_errors(),
       user_id: user_id,
       color: presence.color_for(user_id),
       presence: None,
@@ -315,11 +326,21 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       )
     OwnershipToggleDetails ->
       run_ownership_local_action(model, ownership_slots.toggle_details)
-    RuntimeCommandFinished(Ok(Nil)) -> announce_presence(model)
-    RuntimeCommandFinished(Error(reason)) -> #(
-      Model(..model, error: Some("action failed: " <> string.inspect(reason))),
-      effect.none(),
-    )
+    RuntimeCommandFinished(instance_id, outcome) -> {
+      let model =
+        Model(
+          ..model,
+          instance_errors: record_instance_command(
+            model.instance_errors,
+            instance_id,
+            outcome,
+          ),
+        )
+      case outcome {
+        Ok(Nil) -> announce_presence(model)
+        Error(_) -> #(model, effect.none())
+      }
+    }
     PaletteTitleChanged(title) -> #(
       Model(..model, palette_title: title, error: None),
       effect.none(),
@@ -344,7 +365,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
                 kind
                 |> string.replace("project-room/", "")
                 |> fn(slug) { slug <> "-" <> id.uuid_v4() }
-              perform_workspace_operation(model, instance_id, fn(store) {
+              perform_workspace_operation(model, instance_id, True, fn(store) {
                 workspace_setup.create_from_preset(
                   store,
                   catalog.catalog(),
@@ -356,14 +377,22 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             }
           }
       }
-    WorkspaceOperationFinished(instance_id, outcome) -> {
+    WorkspaceOperationFinished(instance_id, clear_palette_title, outcome) -> {
       let model = case model.workspace_operation == Some(instance_id) {
         True -> Model(..model, workspace_operation: None)
         False -> model
       }
       case outcome {
         Ok(Nil) -> #(
-          Model(..model, palette_title: "", error: None),
+          Model(
+            ..model,
+            palette_title: palette_title_after_workspace_operation(
+              model.palette_title,
+              clear_palette_title,
+              outcome,
+            ),
+            error: None,
+          ),
           effect.none(),
         )
         Error(reason) -> #(
@@ -395,7 +424,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               effect.none(),
             )
             Ok(index) ->
-              perform_workspace_operation(model, instance_id, fn(store) {
+              perform_workspace_operation(model, instance_id, False, fn(store) {
                 workspace_js.move_instance(
                   store,
                   catalog.catalog(),
@@ -407,7 +436,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           }
       }
     RemoveComponent(instance_id) ->
-      perform_workspace_operation(model, instance_id, fn(store) {
+      perform_workspace_operation(model, instance_id, False, fn(store) {
         workspace_js.delete_instance(store, catalog.catalog(), instance_id)
         |> result.map_error(workspace_setup.WorkspaceMutation)
       })
@@ -656,6 +685,7 @@ fn ready_notes(runtime: RoomRuntime) -> Option(notes.Running) {
 fn perform_workspace_operation(
   model: Model,
   instance_id: String,
+  clear_palette_title: Bool,
   operation: fn(workspace_js.Workspace(document_schema.ProjectRoom)) ->
     Result(Nil, workspace_setup.CreateError),
 ) -> #(Model, Effect(Msg)) {
@@ -669,10 +699,21 @@ fn perform_workspace_operation(
       runtime_effect.perform(
         operation: fn() { operation(store) },
         outcome: fn(outcome) {
-          WorkspaceOperationFinished(instance_id, outcome)
+          WorkspaceOperationFinished(instance_id, clear_palette_title, outcome)
         },
       ),
     )
+  }
+}
+
+pub fn palette_title_after_workspace_operation(
+  title: String,
+  clear_title: Bool,
+  outcome: Result(Nil, workspace_setup.CreateError),
+) -> String {
+  case clear_title, outcome {
+    True, Ok(Nil) -> ""
+    _, _ -> title
   }
 }
 
@@ -785,13 +826,42 @@ fn run_component_action(
     None -> #(fail(model, "component runtime is not ready"), effect.none())
     Some(runtime) -> #(
       model,
-      runtime_effect.command(
-        runtime,
-        instance_id,
-        action,
-        RuntimeCommandFinished,
-      ),
+      runtime_effect.command(runtime, instance_id, action, fn(outcome) {
+        RuntimeCommandFinished(instance_id, outcome)
+      }),
     )
+  }
+}
+
+pub fn new_instance_errors() -> InstanceErrors {
+  InstanceErrors(dict.new())
+}
+
+pub fn record_instance_command(
+  errors: InstanceErrors,
+  instance_id: String,
+  outcome: Result(Nil, component_runtime_js.RuntimeError),
+) -> InstanceErrors {
+  let InstanceErrors(values) = errors
+  case outcome {
+    Ok(Nil) -> InstanceErrors(dict.delete(values, instance_id))
+    Error(reason) ->
+      InstanceErrors(dict.insert(
+        values,
+        instance_id,
+        "action failed: " <> string.inspect(reason),
+      ))
+  }
+}
+
+pub fn instance_error(
+  errors: InstanceErrors,
+  instance_id: String,
+) -> Option(String) {
+  let InstanceErrors(values) = errors
+  case dict.get(values, instance_id) {
+    Ok(reason) -> Some(reason)
+    Error(Nil) -> None
   }
 }
 
@@ -806,7 +876,7 @@ fn view(model: Model) -> Element(Msg) {
         html.h1([], [html.text("Project room")]),
         html.p([attribute.class("status")], [
           html.text(
-            "Tasks, poll, ownership, notes, and activity. One workspace.",
+            "Eight components: Tasks, Task inspector, Decision poll, Ownership slots, Notes, Activity, Checklist, and Tally. One workspace.",
           ),
         ]),
       ]),
@@ -853,7 +923,7 @@ fn demo_guide() -> Element(msg) {
     html.h2([], [html.text("What this demo shows")]),
     html.p([], [
       html.text(
-        "One runtime starts six typed components from a catalog. Local inputs control one tab, presence shares awareness, and collaborative inputs change durable data.",
+        "One runtime starts eight typed components from a catalog. Local inputs control one tab, presence shares awareness, and collaborative inputs change durable data.",
       ),
     ]),
     html.ol([], [
@@ -901,6 +971,12 @@ fn demo_guide() -> Element(msg) {
           "The other tab draws your name and caret at the same anchored position.",
         ),
       ]),
+      html.li([], [
+        html.strong([], [html.text("Complete a Checklist item. ")]),
+        html.text(
+          "Checklist sends one locally originated completion event to Tally. The shared event count converges in both tabs.",
+        ),
+      ]),
     ]),
     html.div([attribute.class("routes")], [
       html.p([attribute.class("route route-local")], [
@@ -931,6 +1007,13 @@ fn demo_guide() -> Element(msg) {
           html.text("Only accepted ownership changes enter the stream"),
         ]),
       ]),
+      html.p([attribute.class("route route-shared")], [
+        html.span([attribute.class("route-kind")], [html.text("SHARED")]),
+        html.strong([], [html.text("Checklist completed -> Tally add")]),
+        html.span([attribute.class("route-detail")], [
+          html.text("Each origin event increments the shared event tally"),
+        ]),
+      ]),
       html.p([attribute.class("route route-presence")], [
         html.span([attribute.class("route-kind")], [html.text("PRESENCE")]),
         html.strong([], [html.text("Selection and cursor -> peer UI")]),
@@ -952,6 +1035,8 @@ fn workspace_view(model: Model) -> Element(Msg) {
         views.placeholder("ownership", "Preparing"),
         views.placeholder("notes", "Preparing"),
         views.placeholder("activity", "Preparing"),
+        views.placeholder("checklist", "Preparing"),
+        views.placeholder("tally", "Preparing"),
       ])
     Some(runtime) -> {
       let layout = component_runtime_js.layout(runtime)
@@ -1043,9 +1128,15 @@ fn instance_view(
         _, _ -> views.placeholder(instance_id, "Failed")
       }
   }
-  case fixed_host_instance(instance_id) {
-    True -> component_view
-    False ->
+  let instance_error = instance_error(model.instance_errors, instance_id)
+  case fixed_host_instance(instance_id), instance_error {
+    True, None -> component_view
+    True, Some(reason) ->
+      html.div([attribute.class("workspace-instance")], [
+        component_view,
+        views.instance_error(instance_id, reason),
+      ])
+    False, error ->
       html.div([attribute.class("workspace-instance")], [
         component_view,
         views.instance_controls(
@@ -1056,6 +1147,10 @@ fn instance_view(
           fn(offset) { MoveComponent(instance_id, offset) },
           RemoveComponent(instance_id),
         ),
+        case error {
+          Some(reason) -> views.instance_error(instance_id, reason)
+          None -> html.text("")
+        },
       ])
   }
 }
@@ -1083,14 +1178,21 @@ fn lifecycle_label(runtime: RoomRuntime, instance_id: String) -> String {
     })
   {
     Error(Nil) -> "Loading"
-    Ok(#(_, state)) ->
-      case state {
-        component_runtime_js.Loading(_, _) -> "Loading"
-        component_runtime_js.Starting(_) -> "Starting"
-        component_runtime_js.Ready(_) -> "Ready"
-        component_runtime_js.Unavailable(_, _) -> "Unavailable"
-        component_runtime_js.Failed(_, _) -> "Failed"
-      }
+    Ok(#(_, state)) -> lifecycle_state_label(state)
+  }
+}
+
+pub fn lifecycle_state_label(
+  state: component_runtime_js.LifecycleState,
+) -> String {
+  case state {
+    component_runtime_js.Loading(_, reason) -> "Preparing: " <> reason
+    component_runtime_js.Starting(_) -> "Starting"
+    component_runtime_js.Ready(_) -> "Ready"
+    component_runtime_js.Unavailable(_, reason) ->
+      "Unavailable: " <> string.inspect(reason)
+    component_runtime_js.Failed(_, reason) ->
+      "Failed: " <> string.inspect(reason)
   }
 }
 

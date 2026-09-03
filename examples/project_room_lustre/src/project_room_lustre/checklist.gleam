@@ -10,12 +10,21 @@ import gleam/string
 import watershed
 import watershed/component
 import watershed/id
+import watershed/port
 import watershed/schema
 import watershed/transport_js
 
 import project_room_lustre/tally_payload
 
 type ChecklistSchema
+
+pub const item_label_schema_id = "project-room/checklist-item-label@1"
+
+pub const item_id_schema_id = "project-room/checklist-item-id@1"
+
+pub const add_item_port_id = "add_item"
+
+pub const complete_item_port_id = "complete_item"
 
 /// The static checklist configuration.
 pub type Config {
@@ -59,6 +68,24 @@ pub fn config_decoder() -> Decoder(Config) {
 
 pub fn encode_config(config: Config) -> Json {
   json.object([#("title", json.string(config.title))])
+}
+
+pub fn add_item() -> port.Input(String) {
+  port.collaborative_input(
+    add_item_port_id,
+    item_label_schema_id,
+    decode.string,
+    ["sequence:insert"],
+  )
+}
+
+pub fn complete_item() -> port.Input(String) {
+  port.collaborative_input(
+    complete_item_port_id,
+    item_id_schema_id,
+    decode.string,
+    ["or-set:add"],
+  )
 }
 
 /// Attach the owned channels while a new instance subtree is detached.
@@ -219,7 +246,17 @@ pub fn set_draft(
 pub fn add(
   running: Running,
 ) -> Result(#(Running, List(component.OutputEvent)), String) {
-  let label = string.trim(draft(running))
+  use next <- result.try(add_label(running, draft(running)))
+  transport_js.set_cell(next.0.draft, "")
+  next.0.invalidate()
+  Ok(next)
+}
+
+pub fn add_label(
+  running: Running,
+  label: String,
+) -> Result(#(Running, List(component.OutputEvent)), String) {
+  let label = string.trim(label)
   case label {
     "" -> Error("checklist item label must not be empty")
     _ -> {
@@ -229,7 +266,6 @@ pub fn add(
         watershed.sequence_length(items_sequence(running)),
         encode_item(item),
       ))
-      transport_js.set_cell(running.draft, "")
       running.invalidate()
       Ok(#(running, []))
     }

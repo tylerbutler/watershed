@@ -864,6 +864,16 @@ pub fn placeholder(instance_id: String, state: String) -> Element(msg) {
   )
 }
 
+pub fn instance_error(instance_id: String, reason: String) -> Element(msg) {
+  html.p(
+    [
+      attribute.class("runtime-error"),
+      attribute.data("instance-error", instance_id),
+    ],
+    [html.text(reason)],
+  )
+}
+
 fn title(instance_id: String) -> String {
   case instance_id {
     "tasks" -> "Tasks"
