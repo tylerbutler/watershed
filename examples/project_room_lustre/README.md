@@ -1,23 +1,36 @@
 # project_room_lustre
 
-A fixed project room that runs six components from one persisted watershed
+A project room that starts eight seeded components from one persisted watershed
 workspace:
 
-- Tasks sends selection to Task Inspector as a local input.
-- Tasks sends completion to Activity as a collaborative input.
+- Tasks sends selection to Task Inspector as a local input and completion to
+  Activity as a collaborative input.
+- Task Inspector keeps each client's selected task local.
 - Decision Poll stores approval ballots in an OR-set. Its first threshold
   crossing flows to Activity through a Claims latch.
 - Ownership Slots resolves first-writer-wins claims. Accepted claims, releases,
   and handoffs flow to Activity.
 - Notes shares text and publishes anchored cursors through presence.
-- The component runtime starts, observes, dispatches, and stops each instance.
+- Activity records the collaborative events routed to it.
+- Checklist keeps ordered items and shared completion state.
+- Tally merges increments and decrements from every client.
 
-The persisted graph has four edges:
+The persisted graph has five edges:
 
 - `tasks.selected -> inspector.inspect_task`
 - `tasks.completed -> activity.append_entry`
 - `poll.threshold_reached -> activity.append_poll_threshold`
 - `ownership.ownership_changed -> activity.append_ownership_change`
+- `checklist.item_completed -> tally.add`
+
+The component palette asks only for a title, then creates a Checklist or Tally
+from its catalog preset. New instances join the shared layout and start on all
+connected clients. They begin without graph connections, so the seeded
+Checklist-to-Tally route does not include runtime-created components.
+
+Move controls update the shared layout for every client. Remove takes an
+instance out of the layout, graph, and manifest without destroying its detached
+child map.
 
 ## Run it
 

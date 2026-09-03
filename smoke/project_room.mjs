@@ -403,9 +403,179 @@ async function main() {
       "collaborative convergence changed the second tab's Inspector",
     );
 
+    await evaluate(
+      first,
+      `(() => {
+        const input = document.querySelector("[data-palette-title]");
+        input.focus();
+        input.value = "Sprint checklist";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`,
+    );
+    await evaluate(
+      first,
+      `document.querySelector(
+        '[data-action="add-component"]' +
+        '[data-component-kind="project-room/checklist"]'
+      ).click()`,
+    );
+    await waitFor(
+      first,
+      `Array.from(document.querySelectorAll(
+        '[data-component-kind="checklist"][data-instance-id]'
+      )).some((panel) =>
+        panel.querySelector("h2")?.textContent === "Sprint checklist"
+      )`,
+      "the first tab to start the runtime-created Checklist",
+    );
+    const checklistId = await evaluate(
+      first,
+      `Array.from(document.querySelectorAll(
+        '[data-component-kind="checklist"][data-instance-id]'
+      )).find((panel) =>
+        panel.querySelector("h2")?.textContent === "Sprint checklist"
+      )?.dataset.instanceId ?? null`,
+    );
+    if (!checklistId) {
+      throw new Error("the runtime-created Checklist has no instance ID");
+    }
+    await waitFor(
+      second,
+      `document.querySelector(
+        '[data-instance-id=${JSON.stringify(checklistId)}]'
+      )?.querySelector("h2")?.textContent === "Sprint checklist"`,
+      "the second tab to start the same runtime-created Checklist",
+    );
+
+    await evaluate(
+      first,
+      `(() => {
+        const input = document.querySelector(
+          '[data-instance-id=${JSON.stringify(checklistId)}] ' +
+          '[data-checklist-draft]'
+        );
+        input.focus();
+        input.value = "Verify both clients";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      })()`,
+    );
+    await evaluate(
+      first,
+      `document.querySelector(
+        '[data-instance-id=${JSON.stringify(checklistId)}] ' +
+        '[data-action="add-checklist-item"]'
+      ).click()`,
+    );
+    await waitFor(
+      first,
+      `document.querySelector(
+        '[data-instance-id=${JSON.stringify(checklistId)}] ' +
+        'li[data-item-id] input'
+      )?.value === "Verify both clients"`,
+      "the first tab to add the runtime Checklist item",
+    );
+    const itemId = await evaluate(
+      first,
+      `document.querySelector(
+        '[data-instance-id=${JSON.stringify(checklistId)}] ' +
+        'li[data-item-id]'
+      )?.dataset.itemId ?? null`,
+    );
+    if (!itemId) {
+      throw new Error("the runtime Checklist item has no item ID");
+    }
+    await waitFor(
+      second,
+      `document.querySelector(
+        '[data-instance-id=${JSON.stringify(checklistId)}] ' +
+        'li[data-item-id=${JSON.stringify(itemId)}] input'
+      )?.value === "Verify both clients"`,
+      "the second tab to show the runtime Checklist item",
+    );
+    await evaluate(
+      second,
+      `document.querySelector(
+        '[data-instance-id=${JSON.stringify(checklistId)}] ' +
+        '[data-action="complete-checklist-item"]' +
+        '[data-item-id=${JSON.stringify(itemId)}]'
+      ).click()`,
+    );
+    for (const [name, pageEndpoint] of [
+      ["first", first],
+      ["second", second],
+    ]) {
+      await waitFor(
+        pageEndpoint,
+        `document.querySelector(
+          '[data-instance-id=${JSON.stringify(checklistId)}] ' +
+          '[data-action="reopen-checklist-item"]' +
+          '[data-item-id=${JSON.stringify(itemId)}]'
+        ) !== null`,
+        name + " tab to show the runtime Checklist item as complete",
+      );
+    }
+
+    await evaluate(
+      first,
+      `document.querySelector(
+        '[data-controls-for=${JSON.stringify(checklistId)}] ' +
+        '[data-action="move-component-up"]'
+      ).click()`,
+    );
+    const movedOrder = [
+      "tasks",
+      "inspector",
+      "poll",
+      "ownership",
+      "notes",
+      "activity",
+      "checklist",
+      checklistId,
+      "tally",
+    ].join(",");
+    for (const [name, pageEndpoint] of [
+      ["first", first],
+      ["second", second],
+    ]) {
+      await waitFor(
+        pageEndpoint,
+        `Array.from(document.querySelector(".workspace").children)
+          .map((panel) =>
+            panel.dataset.instanceId
+            ?? panel.dataset.component
+            ?? panel.querySelector("[data-instance-id]")?.dataset.instanceId
+            ?? ""
+          )
+          .join(",") === ${JSON.stringify(movedOrder)}`,
+        name + " tab to show the moved runtime Checklist order",
+      );
+    }
+
+    await evaluate(
+      first,
+      `document.querySelector(
+        '[data-controls-for=${JSON.stringify(checklistId)}] ' +
+        '[data-action="remove-component"]'
+      ).click()`,
+    );
+    for (const [name, pageEndpoint] of [
+      ["first", first],
+      ["second", second],
+    ]) {
+      await waitFor(
+        pageEndpoint,
+        `document.querySelector(
+          '[data-instance-id=${JSON.stringify(checklistId)}]'
+        ) === null`,
+        name + " tab to remove the runtime-created Checklist",
+      );
+      await assertNoRuntimeError(pageEndpoint, name);
+    }
+
     console.log(
       "PASS: local views stayed independent while tasks, poll threshold, " +
-        "ownership handoff, notes, and activity converged across two tabs.",
+        "ownership handoff, notes, activity, and a runtime-created Checklist " +
+        "converged across two tabs.",
     );
     exitCode = 0;
   } finally {

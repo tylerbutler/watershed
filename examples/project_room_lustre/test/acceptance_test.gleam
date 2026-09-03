@@ -170,6 +170,121 @@ pub fn two_clients_inspect_independently_and_complete_collaboratively_test() -> 
   |> should.equal("Decision")
 }
 
+pub fn runtime_created_checklist_converges_and_stops_test() -> Nil {
+  let #(sluice, document_a, document_b, store_a, store_b) =
+    two_client_workspace("project-room-runtime-create")
+  let runtime_a = start_test_runtime(sluice, document_a, store_a, "user-a")
+  let runtime_b = start_test_runtime(sluice, document_b, store_b, "user-b")
+  settle_runtime(sluice)
+
+  let assert Ok(preset) = catalog.find_creation_preset(catalog.checklist_kind)
+  let instance_id = "checklist-runtime-test"
+  workspace_setup.create_from_preset(
+    store_a,
+    catalog.catalog(),
+    preset,
+    instance_id,
+    "Sprint checklist",
+  )
+  |> should.equal(Ok(Nil))
+  settle_runtime(sluice)
+
+  component_runtime_js.running(runtime_a, instance_id)
+  |> result_then(catalog.as_checklist)
+  |> result.is_ok
+  |> should.be_true
+  component_runtime_js.running(runtime_b, instance_id)
+  |> result_then(catalog.as_checklist)
+  |> result.is_ok
+  |> should.be_true
+
+  run_checklist_instance(runtime_a, instance_id, fn(items) {
+    let #(items, _) = checklist.set_draft(items, "Verify both clients")
+    checklist.add(items)
+  })
+  settle_runtime(sluice)
+
+  let assert Ok(checklist_a) =
+    component_runtime_js.running(runtime_a, instance_id)
+    |> result_then(catalog.as_checklist)
+  let assert [item] = checklist.items(checklist_a)
+  let assert Ok(checklist_b) =
+    component_runtime_js.running(runtime_b, instance_id)
+    |> result_then(catalog.as_checklist)
+  checklist.items(checklist_b) |> should.equal([item])
+
+  run_checklist_instance(runtime_b, instance_id, fn(items) {
+    checklist.complete(items, item.id)
+  })
+  settle_runtime(sluice)
+
+  let assert Ok(checklist_a) =
+    component_runtime_js.running(runtime_a, instance_id)
+    |> result_then(catalog.as_checklist)
+  checklist.completed(checklist_a, item.id) |> should.be_true
+  let assert Ok(checklist_b) =
+    component_runtime_js.running(runtime_b, instance_id)
+    |> result_then(catalog.as_checklist)
+  checklist.completed(checklist_b, item.id) |> should.be_true
+
+  workspace_js.move_instance(store_a, catalog.catalog(), instance_id, 0)
+  |> should.equal(Ok(Nil))
+  settle_runtime(sluice)
+  let assert [first_a, ..] = component_runtime_js.layout(runtime_a)
+  first_a |> should.equal(instance_id)
+  let assert [first_b, ..] = component_runtime_js.layout(runtime_b)
+  first_b |> should.equal(instance_id)
+
+  workspace_js.delete_instance(store_a, catalog.catalog(), instance_id)
+  |> should.equal(Ok(Nil))
+  settle_runtime(sluice)
+  component_runtime_js.running(runtime_a, instance_id)
+  |> should.equal(Error(Nil))
+  component_runtime_js.running(runtime_b, instance_id)
+  |> should.equal(Error(Nil))
+}
+
+fn two_client_workspace(
+  name: String,
+) -> #(
+  sluice_js.Sluice,
+  watershed.Document(document_schema.ProjectRoom),
+  watershed.Document(document_schema.ProjectRoom),
+  workspace_js.Workspace(document_schema.ProjectRoom),
+  workspace_js.Workspace(document_schema.ProjectRoom),
+) {
+  let sluice = sluice_js.start(tenant: "default", document: name)
+  let document_a = sluice_js.connect(sluice, "user-a")
+  let document_b = sluice_js.connect(sluice, "user-b")
+  sluice_js.settle(sluice)
+  let store_a = ensure_workspace(document_a)
+  let assert Ok(Nil) = workspace_setup.seed(store_a)
+  sluice_js.settle(sluice)
+  let assert Ok(store_b) =
+    workspace_js.resolve(
+      document_b,
+      watershed.root_typed(document_b),
+      document_schema.workspace(),
+    )
+  #(sluice, document_a, document_b, store_a, store_b)
+}
+
+fn start_test_runtime(
+  sluice: sluice_js.Sluice,
+  document: watershed.Document(document_schema.ProjectRoom),
+  store: workspace_js.Workspace(document_schema.ProjectRoom),
+  participant_id: String,
+) -> RoomRuntime {
+  start_runtime(
+    sluice,
+    document,
+    store,
+    participant_id,
+    participant_id,
+    transport_js.new_cell([]),
+  )
+}
+
 fn assert_inspected(runtime: RoomRuntime, task_id: Option(String)) -> Nil {
   let assert Ok(running) =
     component_runtime_js.running(runtime, catalog.inspector_instance_id)
@@ -268,18 +383,23 @@ fn run_checklist(
   action: fn(checklist.Running) ->
     Result(#(checklist.Running, List(component.OutputEvent)), String),
 ) -> Nil {
-  component_runtime_js.command(
-    runtime,
-    catalog.checklist_instance_id,
-    fn(running) {
-      case catalog.as_checklist(running) {
-        Error(Nil) -> Error("checklist action reached the wrong component")
-        Ok(items) ->
-          action(items)
-          |> result.map(fn(next) { #(catalog.Checklist(next.0), next.1) })
-      }
-    },
-  )
+  run_checklist_instance(runtime, catalog.checklist_instance_id, action)
+}
+
+fn run_checklist_instance(
+  runtime: RoomRuntime,
+  instance_id: String,
+  action: fn(checklist.Running) ->
+    Result(#(checklist.Running, List(component.OutputEvent)), String),
+) -> Nil {
+  component_runtime_js.command(runtime, instance_id, fn(running) {
+    case catalog.as_checklist(running) {
+      Error(Nil) -> Error("checklist action reached the wrong component")
+      Ok(items) ->
+        action(items)
+        |> result.map(fn(next) { #(catalog.Checklist(next.0), next.1) })
+    }
+  })
   |> should.equal(Ok(Nil))
 }
 
