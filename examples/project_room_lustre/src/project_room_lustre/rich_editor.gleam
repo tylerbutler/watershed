@@ -31,14 +31,18 @@ fn mount_ffi(
   element_id: String,
   initial_document: String,
   on_user_delta: fn(String) -> Nil,
+  on_mounted: fn(Editor) -> Nil,
   on_error: fn(String) -> Nil,
-) -> Editor
+) -> Nil
 
 @external(javascript, "./rich_editor_ffi.mjs", "applyRemote")
 fn apply_remote_ffi(editor: Editor, delta: String) -> Nil
 
 @external(javascript, "./rich_editor_ffi.mjs", "destroy")
 fn destroy_ffi(editor: Editor) -> Nil
+
+@external(javascript, "./rich_editor_ffi.mjs", "queue")
+fn queue(action: fn() -> Nil) -> Nil
 
 pub fn init(
   element_id: String,
@@ -68,16 +72,13 @@ pub fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           model,
           effect.none(),
         )
-        ChannelChanged(rich_text_kernel.RichTextChanged(delta, False)) -> {
-          case transport_js.get_cell(model.editor) {
-            Some(editor) -> apply_remote_ffi(editor, delta_json(delta))
-            None -> Nil
-          }
-          #(model, effect.none())
-        }
+        ChannelChanged(rich_text_kernel.RichTextChanged(delta, False)) -> #(
+          model,
+          apply_remote_effect(model, delta_json(delta)),
+        )
         MountFailed(reason) -> #(
           Model(..model, last_error: Some(reason)),
-          effect.none(),
+          cleanup_effect(model),
         )
       }
   }
@@ -115,7 +116,7 @@ pub fn stop(model: Model) -> Nil {
 }
 
 fn mount_effect(model: Model, element_id: String) -> Effect(Msg) {
-  use dispatch <- effect.from
+  use dispatch, _root <- effect.before_paint
   case transport_js.get_cell(model.stopped) {
     True -> Nil
     False ->
@@ -127,16 +128,22 @@ fn mount_effect(model: Model, element_id: String) -> Effect(Msg) {
               case event, transport_js.get_cell(model.stopped) {
                 rich_text_kernel.RichTextChanged(_, True), _ -> Nil
                 _, True -> Nil
-                _, False -> dispatch(ChannelChanged(event))
+                _, False ->
+                  queue(fn() {
+                    case transport_js.get_cell(model.stopped) {
+                      True -> Nil
+                      False -> dispatch(ChannelChanged(event))
+                    }
+                  })
               }
             })
           transport_js.set_cell(model.subscription, Some(subscription))
 
-          let editor =
-            mount_ffi(
-              element_id,
-              document_json(document),
-              fn(raw_delta) {
+          mount_ffi(
+            element_id,
+            document_json(document),
+            fn(raw_delta) {
+              queue(fn() {
                 case transport_js.get_cell(model.stopped) {
                   True -> Nil
                   False ->
@@ -149,28 +156,62 @@ fn mount_effect(model: Model, element_id: String) -> Effect(Msg) {
                         ))
                     }
                 }
-              },
-              fn(reason) {
+              })
+            },
+            fn(editor) {
+              case transport_js.get_cell(model.stopped) {
+                True -> destroy_ffi(editor)
+                False -> {
+                  transport_js.set_cell(model.editor, Some(editor))
+                  queue(fn() {
+                    case transport_js.get_cell(model.stopped) {
+                      True -> Nil
+                      False -> dispatch(Mounted(editor))
+                    }
+                  })
+                }
+              }
+            },
+            fn(reason) {
+              queue(fn() {
                 case transport_js.get_cell(model.stopped) {
                   True -> Nil
                   False -> dispatch(MountFailed(reason))
                 }
-              },
-            )
-
-          case transport_js.get_cell(model.stopped) {
-            True -> {
-              watershed.unsubscribe(subscription)
-              transport_js.set_cell(model.subscription, None)
-              destroy_ffi(editor)
-            }
-            False -> {
-              transport_js.set_cell(model.editor, Some(editor))
-              dispatch(Mounted(editor))
-            }
-          }
+              })
+            },
+          )
         }
       }
+  }
+}
+
+fn apply_remote_effect(model: Model, delta: String) -> Effect(Msg) {
+  use _dispatch <- effect.from
+  case
+    transport_js.get_cell(model.stopped),
+    transport_js.get_cell(model.editor)
+  {
+    False, Some(editor) -> apply_remote_ffi(editor, delta)
+    _, _ -> Nil
+  }
+}
+
+fn cleanup_effect(model: Model) -> Effect(Msg) {
+  use _dispatch <- effect.from
+  case transport_js.get_cell(model.subscription) {
+    Some(subscription) -> {
+      watershed.unsubscribe(subscription)
+      transport_js.set_cell(model.subscription, None)
+    }
+    None -> Nil
+  }
+  case transport_js.get_cell(model.editor) {
+    Some(editor) -> {
+      destroy_ffi(editor)
+      transport_js.set_cell(model.editor, None)
+    }
+    None -> Nil
   }
 }
 

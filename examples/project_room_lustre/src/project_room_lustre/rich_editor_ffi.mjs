@@ -1,5 +1,6 @@
 const QuillConstructor =
-  globalThis.__projectRoomQuillConstructor ?? (await import("quill")).default;
+  globalThis.__projectRoomQuillConstructor ??
+  (typeof document === "undefined" ? null : (await import("quill")).default);
 
 const USER_SOURCE = "user";
 const API_SOURCE = "api";
@@ -17,10 +18,21 @@ function operations(value) {
 }
 
 function report(bridge, error) {
-  bridge.onError(message(error));
+  const reason = message(error);
+  queueMicrotask(() => bridge.onError(reason));
 }
 
-export function mount(elementId, initialDocument, onUserDelta, onError) {
+export function queue(action) {
+  queueMicrotask(action);
+}
+
+export function mount(
+  elementId,
+  initialDocument,
+  onUserDelta,
+  onMounted,
+  onError,
+) {
   const bridge = {
     destroyed: false,
     editor: null,
@@ -33,9 +45,11 @@ export function mount(elementId, initialDocument, onUserDelta, onError) {
     if (element == null) {
       throw new Error(`rich editor element "${elementId}" was not found`);
     }
+    if (QuillConstructor == null) {
+      throw new Error("rich editor is unavailable outside a browser");
+    }
 
     const editor = new QuillConstructor(element, {
-      theme: "snow",
       modules: {
         history: { userOnly: true },
       },
@@ -43,7 +57,10 @@ export function mount(elementId, initialDocument, onUserDelta, onError) {
     const textChange = (delta, _oldDelta, source) => {
       if (bridge.destroyed || source !== USER_SOURCE) return;
       try {
-        onUserDelta(JSON.stringify(operations(delta)));
+        const change = JSON.stringify(operations(delta));
+        queueMicrotask(() => {
+          if (!bridge.destroyed) onUserDelta(change);
+        });
       } catch (error) {
         report(bridge, error);
       }
@@ -53,11 +70,13 @@ export function mount(elementId, initialDocument, onUserDelta, onError) {
     bridge.textChange = textChange;
     editor.on("text-change", textChange);
     editor.setContents(operations(initialDocument), SILENT_SOURCE);
+    queueMicrotask(() => {
+      if (!bridge.destroyed) onMounted(bridge);
+    });
   } catch (error) {
+    destroy(bridge);
     report(bridge, error);
   }
-
-  return bridge;
 }
 
 export function applyRemote(bridge, delta) {
@@ -84,4 +103,6 @@ export function destroy(bridge) {
   if (bridge.editor != null && bridge.textChange != null) {
     bridge.editor.off("text-change", bridge.textChange);
   }
+  bridge.editor = null;
+  bridge.textChange = null;
 }

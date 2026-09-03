@@ -5,6 +5,7 @@ import gleam/result
 
 import watershed
 import watershed/component
+import watershed/rich_text
 import watershed/schema
 import watershed/transport_js
 
@@ -43,6 +44,15 @@ pub fn initialize(
   let typed_subtree: watershed.TypedMap(RichDocumentSchema) =
     watershed.typed(subtree)
   use channel <- result.try(watershed.create_rich_text(document))
+  use newline <- result.try(
+    rich_text.delta_insert_text(
+      rich_text.empty_delta(),
+      "\n",
+      rich_text.attributes([]),
+    )
+    |> result.map_error(fn(_) { "rich document newline seed failed" }),
+  )
+  watershed.submit_rich_text(channel, newline)
   watershed.set_rich_text_field(typed_subtree, document_field(), channel)
   Ok(Nil)
 }

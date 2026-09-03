@@ -82,6 +82,10 @@ pub fn initialize_attaches_rich_text_to_detached_subtree_test() -> Nil {
   let assert Ok(handle) = watershed.get(subtree, "document")
   let assert Ok(channel) = watershed.resolve_rich_text(document, handle)
   watershed.rich_text_handle_of(channel) |> should.equal(handle)
+  let assert Ok(contents) = watershed.rich_text_view(channel)
+  rich_text.document_to_json(contents)
+  |> json.to_string
+  |> should.equal("[{\"insert\":\"\\n\"}]")
 }
 
 pub fn start_adopts_existing_document_handle_test() -> Nil {
@@ -107,6 +111,7 @@ pub fn start_adopts_existing_document_handle_test() -> Nil {
 pub fn start_is_idempotent_test() -> Nil {
   let #(_sluice, document) = document("rich-document-idempotent")
   let subtree = new_subtree(document)
+  rich_document.initialize(document, subtree) |> should.equal(Ok(Nil))
 
   let first =
     start(
@@ -132,6 +137,11 @@ pub fn start_is_idempotent_test() -> Nil {
   watershed.rich_text_handle_of(rich_document.channel(second))
   |> should.equal(first_handle)
   subtree_handle |> should.equal(first_handle)
+  let assert Ok(contents) =
+    watershed.rich_text_view(rich_document.channel(second))
+  rich_text.document_to_json(contents)
+  |> json.to_string
+  |> should.equal("[{\"insert\":\"\\n\"}]")
   rich_document.stop(first) |> should.equal(Ok(Nil))
   rich_document.stop(second) |> should.equal(Ok(Nil))
 }
