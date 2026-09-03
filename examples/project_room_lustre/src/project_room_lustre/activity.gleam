@@ -11,6 +11,7 @@ import watershed/component
 import watershed/schema
 import watershed/transport_js
 
+import project_room_lustre/governance_payload
 import project_room_lustre/payload
 
 type ActivitySchema
@@ -18,6 +19,13 @@ type ActivitySchema
 /// The static config for the activity component.
 pub type Config {
   Config(title: String)
+}
+
+/// One durable activity entry.
+pub type Entry {
+  TaskCompleted(payload.TaskPayload)
+  PollThresholdReached(governance_payload.ThresholdReached)
+  OwnershipAccepted(governance_payload.OwnershipChanged)
 }
 
 /// The running activity state.
@@ -142,10 +150,10 @@ pub fn entries_sequence(running: Running) -> watershed.SharedSequence {
   transport_js.get_cell(running.entries)
 }
 
-pub fn entries(running: Running) -> List(payload.TaskPayload) {
+pub fn entries(running: Running) -> List(Entry) {
   watershed.sequence_values(entries_sequence(running))
   |> list.filter_map(fn(value) {
-    case payload.decode(value) {
+    case decode_entry(value) {
       Ok(entry) -> Ok(entry)
       Error(_) -> Error(Nil)
     }
@@ -156,12 +164,90 @@ pub fn append_entry(
   running: Running,
   entry: payload.TaskPayload,
 ) -> Result(#(Running, List(component.OutputEvent)), String) {
+  append(running, TaskCompleted(entry))
+}
+
+pub fn append_poll_threshold(
+  running: Running,
+  entry: governance_payload.ThresholdReached,
+) -> Result(#(Running, List(component.OutputEvent)), String) {
+  append(running, PollThresholdReached(entry))
+}
+
+pub fn append_ownership_change(
+  running: Running,
+  entry: governance_payload.OwnershipChanged,
+) -> Result(#(Running, List(component.OutputEvent)), String) {
+  append(running, OwnershipAccepted(entry))
+}
+
+fn append(
+  running: Running,
+  entry: Entry,
+) -> Result(#(Running, List(component.OutputEvent)), String) {
   watershed.sequence_insert(
     entries_sequence(running),
     watershed.sequence_length(entries_sequence(running)),
-    payload.encode(entry),
+    encode_entry(entry),
   )
   |> result.map(fn(_) { #(running, []) })
+}
+
+fn encode_entry(entry: Entry) -> Json {
+  case entry {
+    TaskCompleted(task) ->
+      json.object([
+        #("kind", json.string("task_completed")),
+        #("payload", payload.encode(task)),
+      ])
+    PollThresholdReached(threshold) ->
+      json.object([
+        #("kind", json.string("poll_threshold_reached")),
+        #("payload", governance_payload.encode_threshold_reached(threshold)),
+      ])
+    OwnershipAccepted(change) ->
+      json.object([
+        #("kind", json.string("ownership_accepted")),
+        #("payload", governance_payload.encode_ownership_changed(change)),
+      ])
+  }
+}
+
+fn entry_decoder() -> Decoder(Entry) {
+  decode.one_of(wrapped_entry_decoder(), or: [
+    payload.decoder()
+    |> decode.map(fn(entry) { TaskCompleted(entry) }),
+  ])
+}
+
+fn wrapped_entry_decoder() -> Decoder(Entry) {
+  use kind <- decode.field("kind", decode.string)
+  case kind {
+    "task_completed" -> {
+      use entry <- decode.field("payload", payload.decoder())
+      decode.success(TaskCompleted(entry))
+    }
+    "poll_threshold_reached" -> {
+      use entry <- decode.field(
+        "payload",
+        governance_payload.threshold_reached_decoder(),
+      )
+      decode.success(PollThresholdReached(entry))
+    }
+    "ownership_accepted" -> {
+      use entry <- decode.field(
+        "payload",
+        governance_payload.ownership_changed_decoder(),
+      )
+      decode.success(OwnershipAccepted(entry))
+    }
+    _ ->
+      decode.failure(TaskCompleted(payload.TaskPayload("", "", False)), "Entry")
+  }
+}
+
+fn decode_entry(value: Json) -> Result(Entry, json.DecodeError) {
+  json.parse(json.to_string(value), entry_decoder())
 }
 
 pub fn stop(running: Running) -> Result(Nil, String) {

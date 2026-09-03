@@ -222,6 +222,148 @@ async function main() {
     await evaluate(
       first,
       `document.querySelector(
+        '[data-action="toggle-results"]'
+      ).click()`,
+    );
+    await waitFor(
+      first,
+      `document.querySelector('[data-component="poll"]')
+        ?.dataset.resultsVisible === "true"`,
+      "the first tab to show poll results",
+    );
+    await assertValue(
+      second,
+      `document.querySelector('[data-component="poll"]')
+        ?.dataset.resultsVisible ?? null`,
+      "false",
+      "showing poll results changed the second tab",
+    );
+
+    for (const pageEndpoint of [first, second]) {
+      await evaluate(
+        pageEndpoint,
+        `document.querySelector(
+          '[data-action="toggle-approval"][data-choice-id="customer-research"]'
+        ).click()`,
+      );
+    }
+    for (const [name, pageEndpoint] of [
+      ["first", first],
+      ["second", second],
+    ]) {
+      await waitFor(
+        pageEndpoint,
+        `document.querySelector(
+          '[data-choice-id="customer-research"]'
+        )?.dataset.thresholdReached === "true"`,
+        name + " tab to see the poll threshold",
+      );
+      await assertValue(
+        pageEndpoint,
+        `document.querySelectorAll(
+          '[data-entry-kind="poll-threshold"]' +
+          '[data-choice-id="customer-research"]'
+        ).length`,
+        1,
+        name + " tab did not show one poll activity entry",
+      );
+    }
+
+    await evaluate(
+      first,
+      `document.querySelector(
+        '[data-action="claim-slot"][data-slot-id="facilitator"]'
+      ).click()`,
+    );
+    for (const [name, pageEndpoint] of [
+      ["first", first],
+      ["second", second],
+    ]) {
+      await waitFor(
+        pageEndpoint,
+        `document.querySelector(
+          '[data-slot-id="facilitator"]'
+        )?.dataset.ownerLabel === ${JSON.stringify(firstName)}`,
+        name + " tab to see the first Facilitator owner",
+      );
+      await assertValue(
+        pageEndpoint,
+        `document.querySelectorAll(
+          '[data-entry-kind="ownership-change"]' +
+          '[data-slot-id="facilitator"]'
+        ).length`,
+        1,
+        name + " tab did not show the accepted claim activity entry",
+      );
+    }
+
+    await evaluate(
+      first,
+      `document.querySelector(
+        '[data-action="toggle-owner-details"]'
+      ).click()`,
+    );
+    await waitFor(
+      first,
+      `document.querySelector('[data-component="ownership"]')
+        ?.dataset.ownerDetailsVisible === "true"`,
+      "the first tab to reveal owner details",
+    );
+    await assertValue(
+      second,
+      `document.querySelector('[data-component="ownership"]')
+        ?.dataset.ownerDetailsVisible ?? null`,
+      "false",
+      "revealing owner details changed the second tab",
+    );
+    const firstOwnerId = await evaluate(
+      first,
+      `document.querySelector(
+        '[data-slot-id="facilitator"]'
+      )?.dataset.ownerId ?? ""`,
+    );
+    if (!firstOwnerId) {
+      throw new Error("the first tab did not reveal the durable owner ID");
+    }
+
+    await waitFor(
+      first,
+      `document.querySelector(
+        '[data-action="handoff-slot"][data-slot-id="facilitator"]'
+      ) !== null`,
+      "the Facilitator handoff control",
+    );
+    await evaluate(
+      first,
+      `document.querySelector(
+        '[data-action="handoff-slot"][data-slot-id="facilitator"]'
+      ).click()`,
+    );
+    for (const [name, pageEndpoint] of [
+      ["first", first],
+      ["second", second],
+    ]) {
+      await waitFor(
+        pageEndpoint,
+        `document.querySelector(
+          '[data-slot-id="facilitator"]'
+        )?.dataset.ownerLabel === ${JSON.stringify(secondName)}`,
+        name + " tab to see the Facilitator handoff",
+      );
+      await assertValue(
+        pageEndpoint,
+        `document.querySelectorAll(
+          '[data-entry-kind="ownership-change"]' +
+          '[data-slot-id="facilitator"]'
+        ).length`,
+        2,
+        name + " tab did not show both accepted ownership changes",
+      );
+    }
+
+    await evaluate(
+      first,
+      `document.querySelector(
         '[data-action="complete-task"][data-task-id="task-1"]'
       ).click()`,
     );
@@ -240,8 +382,8 @@ async function main() {
       await waitFor(
         pageEndpoint,
         `document.querySelector('[data-component="activity"]')
-          ?.dataset.entryCount === "1"`,
-        name + " tab to show one activity entry",
+          ?.dataset.entryCount === "4"`,
+        name + " tab to show all four activity entries",
       );
       await assertValue(
         pageEndpoint,
@@ -262,8 +404,8 @@ async function main() {
     );
 
     console.log(
-      "PASS: inspectors stayed independent, presence showed both selections, " +
-        "and completion plus one activity entry converged across two tabs.",
+      "PASS: local views stayed independent while tasks, poll threshold, " +
+        "ownership handoff, notes, and activity converged across two tabs.",
     );
     exitCode = 0;
   } finally {

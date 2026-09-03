@@ -24,9 +24,12 @@ import watershed_lustre/component_runtime as runtime_effect
 import watershed_lustre/textarea
 
 import project_room_lustre/catalog
+import project_room_lustre/decision_poll
 import project_room_lustre/document_schema
-import project_room_lustre/notes
+import project_room_lustre/governance_payload
 import project_room_lustre/inspector
+import project_room_lustre/notes
+import project_room_lustre/ownership_slots
 import project_room_lustre/room_presence.{type RoomPresence}
 import project_room_lustre/task_collection
 import project_room_lustre/views
@@ -84,6 +87,14 @@ type Msg {
   RuntimeReport(component_runtime_js.DispatchReport)
   TaskSelected(String)
   TaskCompleted(String)
+  PollVote(String)
+  PollToggleResults
+  PollOpened
+  PollClosed
+  OwnershipClaim(String)
+  OwnershipRelease(String)
+  OwnershipHandoff(String, governance_payload.Identity)
+  OwnershipToggleDetails
   RuntimeCommandFinished(Result(Nil, component_runtime_js.RuntimeError))
   NotesEditor(textarea.Msg)
   PresenceStarted(Handle(RoomPresence))
@@ -139,7 +150,10 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
           workspace_effect,
           watershed_lustre.presence(
             document: document,
-            config: presence.config(room_presence.encode, room_presence.decoder()),
+            config: presence.config(
+              room_presence.encode,
+              room_presence.decoder(),
+            ),
             initial: metadata,
             started: PresenceStarted,
             on_event: PresenceEvent,
@@ -179,8 +193,16 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             field: document_schema.workspace(),
             store: store,
             catalog: catalog.catalog(),
-            context_for: fn(entry, subtree, invalidate) {
-              catalog.context(document, subtree, entry.instance_id, invalidate)
+            context_for: fn(entry, subtree, invalidate, emitter) {
+              catalog.context(
+                document,
+                subtree,
+                entry.instance_id,
+                invalidate,
+                model.user_id,
+                presence.short_name(model.user_id),
+                emitter,
+              )
             },
             started: RuntimeStarted,
             changed: RuntimeChanged,
@@ -232,6 +254,48 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
       run_task_action(model, fn(running) {
         task_collection.complete(running, task_id)
       })
+    PollVote(choice_id) ->
+      run_poll_action(model, fn(running) {
+        decision_poll.vote(running, choice_id)
+      })
+    PollToggleResults ->
+      run_poll_action(model, fn(running) {
+        decision_poll.set_results_visibility(
+          running,
+          case decision_poll.results_visible(running) {
+            True -> governance_payload.HideResults
+            False -> governance_payload.ShowResults
+          },
+        )
+      })
+    PollOpened ->
+      run_poll_action(model, fn(running) {
+        decision_poll.set_lifecycle(running, governance_payload.OpenPoll)
+      })
+    PollClosed ->
+      run_poll_action(model, fn(running) {
+        decision_poll.set_lifecycle(running, governance_payload.ClosePoll)
+      })
+    OwnershipClaim(slot_id) ->
+      run_ownership_action(
+        model,
+        governance_payload.SlotCommand(slot_id, governance_payload.ClaimSlot),
+      )
+    OwnershipRelease(slot_id) ->
+      run_ownership_action(
+        model,
+        governance_payload.SlotCommand(slot_id, governance_payload.ReleaseSlot),
+      )
+    OwnershipHandoff(slot_id, target) ->
+      run_ownership_action(
+        model,
+        governance_payload.SlotCommand(
+          slot_id,
+          governance_payload.HandoffSlot(target),
+        ),
+      )
+    OwnershipToggleDetails ->
+      run_ownership_local_action(model, ownership_slots.toggle_details)
     RuntimeCommandFinished(Ok(Nil)) -> announce_presence(model)
     RuntimeCommandFinished(Error(reason)) -> #(
       Model(..model, error: Some("action failed: " <> string.inspect(reason))),
@@ -299,6 +363,8 @@ fn refresh(model: Model) -> #(Model, Effect(Msg)) {
           [
             catalog.task_collection_instance_id,
             catalog.inspector_instance_id,
+            catalog.decision_poll_instance_id,
+            catalog.ownership_slots_instance_id,
             catalog.notes_instance_id,
             catalog.activity_instance_id,
           ],
@@ -481,6 +547,71 @@ fn run_task_action(
   }
 }
 
+fn run_poll_action(
+  model: Model,
+  action: fn(decision_poll.Running) ->
+    Result(#(decision_poll.Running, List(component.OutputEvent)), String),
+) -> #(Model, Effect(Msg)) {
+  case model.runtime {
+    None -> #(fail(model, "component runtime is not ready"), effect.none())
+    Some(runtime) -> #(
+      model,
+      runtime_effect.command(
+        runtime,
+        catalog.decision_poll_instance_id,
+        fn(running) {
+          use poll <- result.try(
+            catalog.as_decision_poll(running)
+            |> result.map_error(fn(_) {
+              "poll action reached the wrong component"
+            }),
+          )
+          use next <- result.try(action(poll))
+          Ok(#(catalog.DecisionPoll(next.0), next.1))
+        },
+        RuntimeCommandFinished,
+      ),
+    )
+  }
+}
+
+fn run_ownership_action(
+  model: Model,
+  command: governance_payload.SlotCommand,
+) -> #(Model, Effect(Msg)) {
+  run_ownership_local_action(model, fn(running) {
+    ownership_slots.submit(running, command)
+  })
+}
+
+fn run_ownership_local_action(
+  model: Model,
+  action: fn(ownership_slots.Running) ->
+    Result(#(ownership_slots.Running, List(component.OutputEvent)), String),
+) -> #(Model, Effect(Msg)) {
+  case model.runtime {
+    None -> #(fail(model, "component runtime is not ready"), effect.none())
+    Some(runtime) -> #(
+      model,
+      runtime_effect.command(
+        runtime,
+        catalog.ownership_slots_instance_id,
+        fn(running) {
+          use ownership <- result.try(
+            catalog.as_ownership_slots(running)
+            |> result.map_error(fn(_) {
+              "ownership action reached the wrong component"
+            }),
+          )
+          use next <- result.try(action(ownership))
+          Ok(#(catalog.OwnershipSlots(next.0), next.1))
+        },
+        RuntimeCommandFinished,
+      ),
+    )
+  }
+}
+
 fn fail(model: Model, reason: String) -> Model {
   Model(..model, status: Failed(reason), error: Some(reason))
 }
@@ -491,7 +622,9 @@ fn view(model: Model) -> Element(Msg) {
       html.div([], [
         html.h1([], [html.text("Project room")]),
         html.p([attribute.class("status")], [
-          html.text("Tasks, inspector, notes, and activity. One workspace."),
+          html.text(
+            "Tasks, poll, ownership, notes, and activity. One workspace.",
+          ),
         ]),
       ]),
       html.p(
@@ -523,7 +656,7 @@ fn demo_guide() -> Element(msg) {
     html.h2([], [html.text("What this demo shows")]),
     html.p([], [
       html.text(
-        "One runtime starts four typed components from a catalog. Local inputs control one tab, presence shares awareness, and collaborative inputs change durable data.",
+        "One runtime starts six typed components from a catalog. Local inputs control one tab, presence shares awareness, and collaborative inputs change durable data.",
       ),
     ]),
     html.ol([], [
@@ -547,6 +680,18 @@ fn demo_guide() -> Element(msg) {
         html.strong([], [html.text("Complete a task. ")]),
         html.text(
           "Tasks sends a collaborative event to Activity. Both tabs show the completed task and one new activity row.",
+        ),
+      ]),
+      html.li([], [
+        html.strong([], [html.text("Approve a choice in both tabs. ")]),
+        html.text(
+          "OR-set ballots converge, and a Claims latch sends one threshold entry to Activity. Results visibility stays local.",
+        ),
+      ]),
+      html.li([], [
+        html.strong([], [html.text("Claim and hand off a role. ")]),
+        html.text(
+          "Claims resolves ownership after sequencing. Compare-and-set protects release and handoff from stale owners.",
         ),
       ]),
       html.li([], [
@@ -575,6 +720,20 @@ fn demo_guide() -> Element(msg) {
           html.text("Collaborative state replicated to both tabs"),
         ]),
       ]),
+      html.p([attribute.class("route route-shared")], [
+        html.span([attribute.class("route-kind")], [html.text("SHARED")]),
+        html.strong([], [html.text("Poll threshold -> Activity append")]),
+        html.span([attribute.class("route-detail")], [
+          html.text("Claims turns concurrent observation into one output"),
+        ]),
+      ]),
+      html.p([attribute.class("route route-shared")], [
+        html.span([attribute.class("route-kind")], [html.text("SHARED")]),
+        html.strong([], [html.text("Ownership changed -> Activity append")]),
+        html.span([attribute.class("route-detail")], [
+          html.text("Only accepted ownership changes enter the stream"),
+        ]),
+      ]),
       html.p([attribute.class("route route-presence")], [
         html.span([attribute.class("route-kind")], [html.text("PRESENCE")]),
         html.strong([], [html.text("Selection and cursor -> peer UI")]),
@@ -592,6 +751,8 @@ fn workspace_view(model: Model) -> Element(Msg) {
       html.div([attribute.class("workspace")], [
         views.placeholder("tasks", "Preparing"),
         views.placeholder("inspector", "Preparing"),
+        views.placeholder("poll", "Preparing"),
+        views.placeholder("ownership", "Preparing"),
         views.placeholder("notes", "Preparing"),
         views.placeholder("activity", "Preparing"),
       ])
@@ -632,6 +793,34 @@ fn instance_view(
     "inspector", Ok(running) ->
       case catalog.as_inspector(running) {
         Ok(inspector) -> views.inspector(inspector)
+        Error(Nil) -> views.placeholder(instance_id, "Failed")
+      }
+    "poll", Ok(running) ->
+      case catalog.as_decision_poll(running) {
+        Ok(poll) ->
+          views.decision_poll(
+            poll,
+            PollVote,
+            PollToggleResults,
+            PollOpened,
+            PollClosed,
+          )
+        Error(Nil) -> views.placeholder(instance_id, "Failed")
+      }
+    "ownership", Ok(running) ->
+      case catalog.as_ownership_slots(running) {
+        Ok(ownership) ->
+          views.ownership_slots(
+            ownership,
+            model.user_id,
+            list.map(model.peers, fn(peer) {
+              governance_payload.Identity(peer.key, peer.meta.name)
+            }),
+            OwnershipClaim,
+            OwnershipRelease,
+            OwnershipHandoff,
+            OwnershipToggleDetails,
+          )
         Error(Nil) -> views.placeholder(instance_id, "Failed")
       }
     "notes", Ok(running) ->

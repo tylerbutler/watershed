@@ -1,6 +1,7 @@
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleeunit/should
 
 import watershed
@@ -11,8 +12,11 @@ import watershed/transport_js
 
 import project_room_lustre/activity
 import project_room_lustre/catalog
+import project_room_lustre/decision_poll
+import project_room_lustre/governance_payload
 import project_room_lustre/inspector
 import project_room_lustre/notes
+import project_room_lustre/ownership_slots
 import project_room_lustre/payload
 import project_room_lustre/task_collection
 
@@ -134,6 +138,58 @@ fn start_activity(
   running
 }
 
+fn start_poll(
+  document: watershed.Document(Root),
+  subtree: watershed.SharedMap,
+  participant: governance_payload.Identity,
+) -> decision_poll.Running {
+  start_poll_with_config(
+    document,
+    subtree,
+    participant,
+    catalog.decision_poll_config(),
+  )
+}
+
+fn start_poll_with_config(
+  document: watershed.Document(Root),
+  subtree: watershed.SharedMap,
+  participant: governance_payload.Identity,
+  config: decision_poll.Config,
+) -> decision_poll.Running {
+  let outcome = transport_js.new_cell(None)
+  decision_poll.start(
+    document,
+    subtree,
+    fn() { Nil },
+    component.output_emitter(fn(_) { Nil }),
+    participant,
+    config,
+    fn(result) { transport_js.set_cell(outcome, Some(result)) },
+  )
+  let assert Some(Ok(running)) = transport_js.get_cell(outcome)
+  running
+}
+
+fn start_ownership(
+  document: watershed.Document(Root),
+  subtree: watershed.SharedMap,
+  participant: governance_payload.Identity,
+) -> ownership_slots.Running {
+  let outcome = transport_js.new_cell(None)
+  ownership_slots.start(
+    document,
+    subtree,
+    fn() { Nil },
+    component.output_emitter(fn(_) { Nil }),
+    participant,
+    catalog.ownership_slots_config(),
+    fn(result) { transport_js.set_cell(outcome, Some(result)) },
+  )
+  let assert Some(Ok(running)) = transport_js.get_cell(outcome)
+  running
+}
+
 pub fn bootstrap_twice_adopts_same_handles_and_data_test() -> Nil {
   let #(_sluice, room) = document("project-room-bootstrap")
 
@@ -216,11 +272,11 @@ pub fn stop_and_restart_preserves_data_test() -> Nil {
     )
   activity.entries(next_activity)
   |> should.equal([
-    payload.TaskPayload(
+    activity.TaskCompleted(payload.TaskPayload(
       task_id: "task-9",
       title: "Archived decision",
       completed: True,
-    ),
+    )),
   ])
 
   let assert Ok(Nil) = task_collection.stop(tasks_running)
@@ -241,15 +297,14 @@ pub fn stop_and_restart_preserves_data_test() -> Nil {
     )),
   )
   let assert Ok(Nil) = watershed.text_append(notes.text(notes_running), " Beta")
-  let assert Ok(Nil) =
-    watershed.sequence_insert(
-      activity.entries_sequence(activity_running),
-      watershed.sequence_length(activity.entries_sequence(activity_running)),
-      payload.encode(payload.TaskPayload(
+  let assert Ok(#(_, [])) =
+    activity.append_entry(
+      activity_running,
+      payload.TaskPayload(
         task_id: "task-10",
         title: "Shared summary",
         completed: True,
-      )),
+      ),
     )
 
   transport_js.get_cell(task_counter) |> should.equal(task_total)
@@ -272,16 +327,16 @@ pub fn stop_and_restart_preserves_data_test() -> Nil {
   |> should.equal("Alpha Beta")
   activity.entries(restarted_activity)
   |> should.equal([
-    payload.TaskPayload(
+    activity.TaskCompleted(payload.TaskPayload(
       task_id: "task-9",
       title: "Archived decision",
       completed: True,
-    ),
-    payload.TaskPayload(
+    )),
+    activity.TaskCompleted(payload.TaskPayload(
       task_id: "task-10",
       title: "Shared summary",
       completed: True,
-    ),
+    )),
   ])
 }
 
@@ -309,9 +364,17 @@ pub fn inspector_selection_is_local_test() -> Nil {
   let subtree = new_subtree(room)
   let counter = invalidations()
   let context =
-    catalog.context(room, subtree, catalog.inspector_instance_id, fn() {
-      transport_js.set_cell(counter, transport_js.get_cell(counter) + 1)
-    })
+    catalog.context(
+      room,
+      subtree,
+      catalog.inspector_instance_id,
+      fn() {
+        transport_js.set_cell(counter, transport_js.get_cell(counter) + 1)
+      },
+      "user-a",
+      "User A",
+      component.output_emitter(fn(_) { Nil }),
+    )
   let room_catalog: component.Catalog(catalog.Context(Root), catalog.Running) =
     catalog.catalog()
   let assert Ok(descriptor) =
@@ -366,7 +429,237 @@ pub fn activity_append_writes_one_record_test() -> Nil {
   watershed.sequence_values(activity.entries_sequence(next_running))
   |> list.length
   |> should.equal(1)
-  activity.entries(next_running) |> should.equal([entry])
+  activity.entries(next_running)
+  |> should.equal([activity.TaskCompleted(entry)])
+}
+
+pub fn activity_reads_legacy_task_records_test() -> Nil {
+  let #(_sluice, room) = document("project-room-activity-legacy")
+  let running = start_activity(room, new_subtree(room), invalidations())
+  let entry =
+    payload.TaskPayload(
+      task_id: "task-7",
+      title: "Close sprint",
+      completed: True,
+    )
+
+  let assert Ok(Nil) =
+    watershed.sequence_insert(
+      activity.entries_sequence(running),
+      0,
+      payload.encode(entry),
+    )
+
+  activity.entries(running)
+  |> should.equal([activity.TaskCompleted(entry)])
+}
+
+pub fn poll_approvals_lifecycle_and_local_results_test() -> Nil {
+  let #(sluice, room) = document("project-room-poll")
+  let subtree = new_subtree(room)
+  let user_a = governance_payload.Identity("user-a", "User A")
+  let user_b = governance_payload.Identity("user-b", "User B")
+  let poll_a = start_poll(room, subtree, user_a)
+  let poll_b = start_poll(room, subtree, user_b)
+
+  let assert Ok(#(_, [vote_event])) =
+    decision_poll.vote(poll_a, "customer-research")
+  component.output_id(vote_event)
+  |> should.equal(governance_payload.vote_changed_port_id)
+  decision_poll.approval_count(poll_a, "customer-research")
+  |> should.equal(1)
+
+  let assert Ok(#(_, [])) =
+    decision_poll.set_results_visibility(poll_a, governance_payload.ShowResults)
+  decision_poll.results_visible(poll_a) |> should.be_true
+  decision_poll.results_visible(poll_b) |> should.be_false
+
+  let assert Ok(#(_, [_])) = decision_poll.vote(poll_b, "customer-research")
+  sluice_js.settle(sluice)
+  decision_poll.approval_count(poll_a, "customer-research")
+  |> should.equal(2)
+  decision_poll.approval_count(poll_b, "customer-research")
+  |> should.equal(2)
+  decision_poll.threshold_reached(poll_a, "customer-research")
+  |> should.be_true
+
+  let assert Ok(#(_, [])) =
+    decision_poll.set_lifecycle(poll_a, governance_payload.ClosePoll)
+  sluice_js.settle(sluice)
+  decision_poll.is_open(poll_b) |> should.be_false
+  decision_poll.vote(poll_b, "customer-research")
+  |> result.is_error
+  |> should.be_true
+
+  let assert Ok(#(_, [])) =
+    decision_poll.set_lifecycle(poll_b, governance_payload.OpenPoll)
+  sluice_js.settle(sluice)
+  let assert Ok(#(_, [_])) = decision_poll.vote(poll_a, "customer-research")
+  decision_poll.approval_count(poll_a, "customer-research")
+  |> should.equal(1)
+}
+
+pub fn ownership_claim_handoff_release_and_policy_test() -> Nil {
+  let #(sluice, room) = document("project-room-ownership")
+  let subtree = new_subtree(room)
+  let user_a = governance_payload.Identity("user-a", "User A")
+  let user_b = governance_payload.Identity("user-b", "User B")
+  let owner_a = start_ownership(room, subtree, user_a)
+
+  let assert Ok(#(_, [attempted])) =
+    ownership_slots.submit(
+      owner_a,
+      governance_payload.SlotCommand(
+        "facilitator",
+        governance_payload.ClaimSlot,
+      ),
+    )
+  component.output_id(attempted)
+  |> should.equal(governance_payload.claim_attempted_port_id)
+  sluice_js.settle(sluice)
+  ownership_slots.owner(owner_a, "facilitator")
+  |> should.equal(Some(user_a))
+
+  let assert Ok(Nil) = ownership_slots.stop(owner_a)
+  let owner_a = start_ownership(room, subtree, user_a)
+  let owner_b = start_ownership(room, subtree, user_b)
+  ownership_slots.submit(
+    owner_b,
+    governance_payload.SlotCommand(
+      "facilitator",
+      governance_payload.ReleaseSlot,
+    ),
+  )
+  |> result.is_error
+  |> should.be_true
+
+  let assert Ok(#(_, [_])) =
+    ownership_slots.submit(
+      owner_a,
+      governance_payload.SlotCommand(
+        "facilitator",
+        governance_payload.HandoffSlot(user_b),
+      ),
+    )
+  sluice_js.settle(sluice)
+  ownership_slots.owner(owner_b, "facilitator")
+  |> should.equal(Some(user_b))
+
+  let assert Ok(Nil) = ownership_slots.stop(owner_b)
+  let owner_b = start_ownership(room, subtree, user_b)
+  let assert Ok(#(_, [_])) =
+    ownership_slots.submit(
+      owner_b,
+      governance_payload.SlotCommand(
+        "facilitator",
+        governance_payload.ReleaseSlot,
+      ),
+    )
+  sluice_js.settle(sluice)
+  ownership_slots.owner(owner_b, "facilitator")
+  |> should.equal(None)
+
+  let assert Ok(Nil) = ownership_slots.stop(owner_b)
+  let owner_a = start_ownership(room, subtree, user_a)
+  let assert Ok(#(_, [_])) =
+    ownership_slots.submit(
+      owner_a,
+      governance_payload.SlotCommand(
+        "facilitator",
+        governance_payload.ClaimSlot,
+      ),
+    )
+  sluice_js.settle(sluice)
+  ownership_slots.owner(owner_a, "facilitator")
+  |> should.equal(Some(user_a))
+}
+
+pub fn governance_configs_reject_invalid_shapes_test() -> Nil {
+  json.parse(
+    json.to_string(
+      decision_poll.encode_config(decision_poll.Config(
+        title: "Poll",
+        question: "Question?",
+        choices: [decision_poll.Choice("choice", "Choice")],
+        threshold: 0,
+      )),
+    ),
+    decision_poll.config_decoder(),
+  )
+  |> result.is_error
+  |> should.be_true
+
+  json.parse(
+    json.to_string(
+      ownership_slots.encode_config(
+        ownership_slots.Config(title: "Ownership", slots: [
+          ownership_slots.Slot("role", "One"),
+          ownership_slots.Slot("role", "Two"),
+        ]),
+      ),
+    ),
+    ownership_slots.config_decoder(),
+  )
+  |> result.is_error
+  |> should.be_true
+}
+
+pub fn replacing_claim_channels_aborts_pending_operations_test() -> Nil {
+  let #(sluice, room) = document("project-room-claim-rebind")
+  let participant = governance_payload.Identity("user-a", "User A")
+
+  let poll_tree = new_subtree(room)
+  let poll =
+    start_poll_with_config(
+      room,
+      poll_tree,
+      participant,
+      decision_poll.Config(
+        title: "Poll",
+        question: "Question?",
+        choices: [decision_poll.Choice("choice", "Choice")],
+        threshold: 1,
+      ),
+    )
+  sluice_js.pause(sluice, room)
+  let assert Ok(#(_, [_])) = decision_poll.vote(poll, "choice")
+  decision_poll.pending_threshold(poll, "choice") |> should.be_true
+  let assert Ok(replacement_thresholds) = watershed.create_claims(room)
+  watershed.set(
+    poll_tree,
+    "thresholds",
+    watershed.claims_handle_of(replacement_thresholds),
+  )
+  sluice_js.advance(sluice, 0)
+  decision_poll.pending_threshold(poll, "choice") |> should.be_true
+  decision_poll.local_error(poll)
+  |> should.equal(Some("threshold channel changed while a claim was pending"))
+
+  let ownership_tree = new_subtree(room)
+  let ownership = start_ownership(room, ownership_tree, participant)
+  let assert Ok(#(_, [_])) =
+    ownership_slots.submit(
+      ownership,
+      governance_payload.SlotCommand(
+        "facilitator",
+        governance_payload.ClaimSlot,
+      ),
+    )
+  ownership_slots.pending(ownership, "facilitator") |> should.be_true
+  let assert Ok(replacement_owners) = watershed.create_claims(room)
+  watershed.set(
+    ownership_tree,
+    "owners",
+    watershed.claims_handle_of(replacement_owners),
+  )
+  sluice_js.advance(sluice, 0)
+  ownership_slots.pending(ownership, "facilitator") |> should.be_false
+  let assert Some(resolved) =
+    ownership_slots.last_resolution(ownership, "facilitator")
+  resolved.resolution |> should.equal(governance_payload.Aborted)
+
+  sluice_js.resume(sluice, room)
+  sluice_js.settle(sluice)
 }
 
 pub fn concurrent_bootstrap_keeps_three_unique_task_ids_test() -> Nil {
@@ -409,6 +702,77 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
   |> payload.decode
   |> should.equal(Ok(payload_value))
 
+  let identity = governance_payload.Identity("user:/a", "User A")
+  json.parse(
+    json.to_string(governance_payload.encode_identity(identity)),
+    governance_payload.identity_decoder(),
+  )
+  |> should.equal(Ok(identity))
+  let vote =
+    governance_payload.VoteChanged(
+      choice_id: "choice:/one",
+      choice_label: "Choice one",
+      participant_id: "user:/a",
+      approved: True,
+    )
+  json.parse(
+    json.to_string(governance_payload.encode_vote_changed(vote)),
+    governance_payload.vote_changed_decoder(),
+  )
+  |> should.equal(Ok(vote))
+  let threshold =
+    governance_payload.ThresholdReached(
+      choice_id: "choice:/one",
+      choice_label: "Choice one",
+      approvals: 2,
+      threshold: 2,
+    )
+  governance_payload.encode_threshold_reached(threshold)
+  |> governance_payload.decode_threshold_reached
+  |> should.equal(Ok(threshold))
+  let command =
+    governance_payload.SlotCommand(
+      "facilitator",
+      governance_payload.HandoffSlot(identity),
+    )
+  json.parse(
+    json.to_string(governance_payload.encode_slot_command(command)),
+    governance_payload.slot_command_decoder(),
+  )
+  |> should.equal(Ok(command))
+  let attempted =
+    governance_payload.ClaimAttempted(
+      "facilitator",
+      governance_payload.ClaimSlot,
+    )
+  json.parse(
+    json.to_string(governance_payload.encode_claim_attempted(attempted)),
+    governance_payload.claim_attempted_decoder(),
+  )
+  |> should.equal(Ok(attempted))
+  let resolved =
+    governance_payload.ClaimResolved(
+      slot_id: "facilitator",
+      operation: governance_payload.HandoffSlot(identity),
+      resolution: governance_payload.Accepted,
+      owner: Some(identity),
+    )
+  json.parse(
+    json.to_string(governance_payload.encode_claim_resolved(resolved)),
+    governance_payload.claim_resolved_decoder(),
+  )
+  |> should.equal(Ok(resolved))
+  let ownership =
+    governance_payload.OwnershipChanged(
+      slot_id: "facilitator",
+      slot_label: "Facilitator",
+      previous_owner: None,
+      owner: Some(identity),
+    )
+  governance_payload.encode_ownership_changed(ownership)
+  |> governance_payload.decode_ownership_changed
+  |> should.equal(Ok(ownership))
+
   json.parse(
     json.to_string(
       task_collection.encode_config(catalog.task_collection_config()),
@@ -435,6 +799,21 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
   )
   |> should.equal(Ok(catalog.activity_config()))
 
+  json.parse(
+    json.to_string(decision_poll.encode_config(catalog.decision_poll_config())),
+    decision_poll.config_decoder(),
+  )
+  |> should.equal(Ok(catalog.decision_poll_config()))
+
+  json.parse(
+    json.to_string(
+      ownership_slots.encode_config(catalog.ownership_slots_config()),
+    ),
+    ownership_slots.config_decoder(),
+  )
+  |> should.equal(Ok(catalog.ownership_slots_config()))
+
+  catalog.descriptors() |> list.length |> should.equal(6)
   let assert Ok(tasks_descriptor) =
     component.find(
       room_catalog,
@@ -455,6 +834,18 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
       catalog.activity_kind,
       catalog.activity_version,
     )
+  let assert Ok(poll_descriptor) =
+    component.find(
+      room_catalog,
+      catalog.decision_poll_kind,
+      catalog.decision_poll_version,
+    )
+  let assert Ok(ownership_descriptor) =
+    component.find(
+      room_catalog,
+      catalog.ownership_slots_kind,
+      catalog.ownership_slots_version,
+    )
   component.validate_config(
     tasks_descriptor,
     catalog.task_collection_config_json(),
@@ -469,9 +860,19 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
   |> should.equal(Ok(Nil))
   component.validate_config(activity_descriptor, catalog.activity_config_json())
   |> should.equal(Ok(Nil))
+  component.validate_config(
+    poll_descriptor,
+    catalog.decision_poll_config_json(),
+  )
+  |> should.equal(Ok(Nil))
+  component.validate_config(
+    ownership_descriptor,
+    catalog.ownership_slots_config_json(),
+  )
+  |> should.equal(Ok(Nil))
 
   let connections = catalog.persisted_connections()
-  connections |> list.length |> should.equal(2)
+  connections |> list.length |> should.equal(4)
   connections
   |> should.equal([
     port_graph.connection(
@@ -494,6 +895,28 @@ pub fn configs_payloads_and_catalog_connections_round_trip_test() -> Nil {
       port_graph.PortRef(
         catalog.activity_instance_id,
         payload.append_entry_port_id,
+      ),
+    ),
+    port_graph.connection(
+      catalog.threshold_append_connection_id,
+      port_graph.PortRef(
+        catalog.decision_poll_instance_id,
+        governance_payload.threshold_reached_port_id,
+      ),
+      port_graph.PortRef(
+        catalog.activity_instance_id,
+        governance_payload.append_poll_threshold_port_id,
+      ),
+    ),
+    port_graph.connection(
+      catalog.ownership_append_connection_id,
+      port_graph.PortRef(
+        catalog.ownership_slots_instance_id,
+        governance_payload.ownership_changed_port_id,
+      ),
+      port_graph.PortRef(
+        catalog.activity_instance_id,
+        governance_payload.append_ownership_change_port_id,
       ),
     ),
   ])

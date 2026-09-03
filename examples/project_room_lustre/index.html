@@ -63,7 +63,7 @@
       }
       .routes {
         display: grid;
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(2, 1fr);
         gap: 0.65rem;
         margin-top: 1rem;
       }
@@ -96,15 +96,15 @@
       .route-detail { opacity: 0.65; font-size: 0.86rem; }
       .workspace {
         display: grid;
-        grid-template-columns: repeat(2, minmax(18rem, 1fr));
+        grid-template-columns: repeat(3, minmax(16rem, 1fr));
         gap: 1rem;
-        align-items: stretch;
+        align-items: start;
       }
       .component {
         border: 1px solid color-mix(in srgb, currentColor 22%, transparent);
         border-radius: 0.75rem;
         padding: 1rem;
-        min-height: 24rem;
+        min-height: 20rem;
       }
       .component h2 { margin-bottom: 0.35rem; }
       .component-description {
@@ -114,13 +114,29 @@
         font-size: 0.9rem;
         line-height: 1.4;
       }
-      .task-list, .activity-list {
+      .task-list, .activity-list, .poll-choices, .ownership-slots {
         list-style: none;
         padding: 0;
         margin: 0;
         display: grid;
         gap: 0.55rem;
       }
+      .poll h3 { margin: 0 0 0.35rem; font-size: 0.95rem; }
+      .poll-state { margin-bottom: 0.75rem; font-weight: 700; }
+      .poll-choices li, .ownership-slots li {
+        display: grid;
+        gap: 0.45rem;
+        padding: 0.65rem;
+        border: 1px solid color-mix(in srgb, currentColor 16%, transparent);
+        border-radius: 0.5rem;
+      }
+      .component-actions, .ownership-actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.45rem;
+        margin-top: 0.75rem;
+      }
+      .ownership-actions { margin-top: 0; }
       .task {
         display: grid;
         grid-template-columns: minmax(0, 1fr) auto auto;
@@ -196,7 +212,10 @@
         padding: 0.55rem 0;
       }
       .empty, .placeholder { opacity: 0.6; }
-      @media (max-width: 58rem) {
+      @media (max-width: 72rem) {
+        .workspace { grid-template-columns: repeat(2, minmax(16rem, 1fr)); }
+      }
+      @media (max-width: 48rem) {
         .routes { grid-template-columns: 1fr; }
         .workspace { grid-template-columns: 1fr; }
         .component { min-height: auto; }

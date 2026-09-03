@@ -48,8 +48,12 @@ pub fn start(
   field field: ChildField(root, workspace.WorkspaceSchema),
   store store: workspace_js.Workspace(root),
   catalog catalog: component.Catalog(context, running),
-  context_for context_for: fn(workspace.ManifestEntry, SharedMap, fn() -> Nil) ->
-    context,
+  context_for context_for: fn(
+    workspace.ManifestEntry,
+    SharedMap,
+    fn() -> Nil,
+    component.OutputEmitter,
+  ) -> context,
   started started: fn(component_runtime_js.Runtime(root, context, running)) ->
     msg,
   changed changed: msg,

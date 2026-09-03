@@ -64,6 +64,7 @@ pub type LifecycleState {
 /// A reason one output or delivery could not run.
 pub type DispatchFailure {
   PlanningFailed(reason: dispatch.DispatchError)
+  SourceNotReady(instance_id: String)
   SourceOutputRejected(instance_id: String, reason: component.ComponentError)
   TargetNotReady(instance_id: String)
   TargetInputRejected(instance_id: String, reason: component.ComponentError)
@@ -92,8 +93,10 @@ type RunningInstance(context, running) {
   RunningInstance(
     entry: workspace.ManifestEntry,
     identity: component_runtime.InstanceIdentity,
+    generation: Int,
     descriptor: component.Descriptor(context, running),
     running: running,
+    disable_output: fn() -> Nil,
   )
 }
 
@@ -103,6 +106,7 @@ type PendingStart {
     entry: workspace.ManifestEntry,
     identity: component_runtime.InstanceIdentity,
     generation: Int,
+    disable_output: fn() -> Nil,
   )
 }
 
@@ -133,8 +137,12 @@ pub opaque type Runtime(root, context, running) {
     root: watershed.TypedMap(root),
     field: ChildField(root, workspace.WorkspaceSchema),
     catalog: component.Catalog(context, running),
-    context_for: fn(workspace.ManifestEntry, watershed.SharedMap, fn() -> Nil) ->
-      context,
+    context_for: fn(
+      workspace.ManifestEntry,
+      watershed.SharedMap,
+      fn() -> Nil,
+      component.OutputEmitter,
+    ) -> context,
     scheduler: Scheduler,
     on_change: fn() -> Nil,
     on_report: fn(DispatchReport) -> Nil,
@@ -155,6 +163,7 @@ pub fn start(
     workspace.ManifestEntry,
     watershed.SharedMap,
     fn() -> Nil,
+    component.OutputEmitter,
   ) -> context,
   scheduler scheduler: Scheduler,
   on_change on_change: fn() -> Nil,
@@ -315,11 +324,14 @@ pub fn stop(
       let errors =
         dict.values(state.instances)
         |> list.filter_map(fn(instance) {
+          instance.disable_output()
           case component.stop(instance.descriptor, instance.running) {
             Ok(Nil) -> Error(Nil)
             Error(reason) -> Ok(reason)
           }
         })
+      dict.values(state.pending)
+      |> list.each(fn(pending) { pending.disable_output() })
       set_state(
         runtime,
         State(
@@ -461,7 +473,9 @@ fn start_instance(
     Ok(descriptor) -> {
       let state = get_state(runtime)
       let generation = state.next_generation + 1
-      let pending = PendingStart(entry, identity, generation)
+      let #(emitter, disable_output) =
+        output_emitter(runtime, entry.instance_id, generation)
+      let pending = PendingStart(entry, identity, generation, disable_output)
       set_state(
         runtime,
         State(
@@ -471,7 +485,7 @@ fn start_instance(
         ),
       )
       let context =
-        runtime.context_for(entry, subtree, fn() { notify(runtime) })
+        runtime.context_for(entry, subtree, fn() { notify(runtime) }, emitter)
       component.start(descriptor, context, entry.config, fn(started) {
         finish_start(runtime, descriptor, pending, started)
       })
@@ -493,6 +507,7 @@ fn finish_start(
   }
   case active, started {
     False, Ok(running) -> {
+      pending.disable_output()
       case component.stop(descriptor, running) {
         Ok(Nil) -> Nil
         Error(reason) ->
@@ -501,8 +516,9 @@ fn finish_start(
           )
       }
     }
-    False, Error(_) -> Nil
+    False, Error(_) -> pending.disable_output()
     True, Error(reason) -> {
+      pending.disable_output()
       set_state(
         runtime,
         State(
@@ -530,8 +546,10 @@ fn finish_start(
         RunningInstance(
           entry: pending.entry,
           identity: pending.identity,
+          generation: pending.generation,
           descriptor: descriptor,
           running: running,
+          disable_output: pending.disable_output,
         )
       set_state(
         runtime,
@@ -562,14 +580,20 @@ fn stop_instance(
   instance_id: String,
 ) -> Nil {
   let state = get_state(runtime)
+  case dict.get(state.pending, instance_id) {
+    Ok(pending) -> pending.disable_output()
+    Error(Nil) -> Nil
+  }
   case dict.get(state.instances, instance_id) {
     Error(Nil) -> Nil
-    Ok(instance) ->
+    Ok(instance) -> {
+      instance.disable_output()
       case component.stop(instance.descriptor, instance.running) {
         Ok(Nil) -> Nil
         Error(reason) ->
           runtime.on_report(RuntimeFailed(ComponentFailed(instance_id, reason)))
       }
+    }
   }
   let state = get_state(runtime)
   set_state(
@@ -617,6 +641,8 @@ fn finish_reopen(
       }
       dict.keys(state.instances)
       |> list.each(fn(instance_id) { stop_instance(runtime, instance_id) })
+      dict.values(state.pending)
+      |> list.each(fn(pending) { pending.disable_output() })
       let state = get_state(runtime)
       set_state(
         runtime,
@@ -652,6 +678,96 @@ fn finish_reopen(
       arm_reconcile(runtime)
     }
   }
+}
+
+@target(javascript)
+fn output_emitter(
+  runtime: Runtime(root, context, running),
+  instance_id: String,
+  generation: Int,
+) -> #(component.OutputEmitter, fn() -> Nil) {
+  let enabled = transport_js.new_cell(True)
+  let emitter =
+    component.output_emitter(fn(outputs) {
+      case transport_js.get_cell(enabled), outputs {
+        True, [_, ..] -> {
+          let transport_js.Scheduler(schedule: schedule, ..) = runtime.scheduler
+          let _cancel =
+            schedule(
+              fn() {
+                dispatch_async_outputs(
+                  runtime,
+                  instance_id,
+                  generation,
+                  outputs,
+                )
+              },
+              0,
+            )
+          Nil
+        }
+        _, _ -> Nil
+      }
+    })
+  #(emitter, fn() { transport_js.set_cell(enabled, False) })
+}
+
+@target(javascript)
+fn dispatch_async_outputs(
+  runtime: Runtime(root, context, running),
+  instance_id: String,
+  generation: Int,
+  outputs: List(component.OutputEvent),
+) -> Nil {
+  let state = get_state(runtime)
+  case state.stopped, dict.get(state.instances, instance_id) {
+    True, _ | _, Error(Nil) ->
+      report_async_failure(runtime, SourceNotReady(instance_id))
+    False, Ok(instance) if instance.generation != generation ->
+      report_async_failure(runtime, SourceNotReady(instance_id))
+    False, Ok(instance) ->
+      case validate_outputs(instance, outputs) {
+        Error(reason) ->
+          report_async_failure(
+            runtime,
+            SourceOutputRejected(instance_id, reason),
+          )
+        Ok(Nil) ->
+          case state.snapshot {
+            None -> report_async_failure(runtime, SourceNotReady(instance_id))
+            Some(snapshot) -> {
+              let output_count = list.length(outputs)
+              let first_trace = state.next_trace + 1
+              set_state(
+                runtime,
+                State(..state, next_trace: state.next_trace + output_count),
+              )
+              dispatch_outputs(
+                runtime,
+                workspace.graph(snapshot),
+                instance_id,
+                outputs,
+                first_trace,
+              )
+            }
+          }
+      }
+  }
+}
+
+@target(javascript)
+fn report_async_failure(
+  runtime: Runtime(root, context, running),
+  reason: DispatchFailure,
+) -> Nil {
+  let state = get_state(runtime)
+  let trace_number = state.next_trace + 1
+  set_state(runtime, State(..state, next_trace: trace_number))
+  runtime.on_report(DispatchFailed(
+    "trace-" <> int.to_string(trace_number),
+    None,
+    reason,
+  ))
 }
 
 @target(javascript)

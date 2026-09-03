@@ -36,7 +36,7 @@ pub type Root
 
 @target(javascript)
 type Running {
-  Tasks(stops: Cell(List(String)))
+  Tasks(stops: Cell(List(String)), output: component.OutputEmitter)
   Notes(focus: Option(String), stops: Cell(List(String)))
   Activity(entries: List(String), stops: Cell(List(String)))
   Delayed(stops: Cell(List(String)))
@@ -48,6 +48,7 @@ type Context {
     instance_id: String,
     starts: Cell(List(String)),
     stops: Cell(List(String)),
+    output: component.OutputEmitter,
   )
 }
 
@@ -64,6 +65,11 @@ fn selected_output() -> port.Output(String) {
 @target(javascript)
 fn completed_output() -> port.Output(String) {
   port.output("completed", "task-id@1", json.string)
+}
+
+@target(javascript)
+fn undeclared_output() -> port.Output(String) {
+  port.output("undeclared", "task-id@1", json.string)
 }
 
 @target(javascript)
@@ -95,7 +101,7 @@ fn tasks_descriptor() -> component.Descriptor(Context, Running) {
     config_decoder: decode.string,
     start: fn(context: Context, _, done) {
       record(context.starts, context.instance_id)
-      done(Ok(Tasks(context.stops)))
+      done(Ok(Tasks(context.stops, context.output)))
     },
     inputs: [],
     stop: stop_running,
@@ -156,7 +162,7 @@ fn activity_descriptor() -> component.Descriptor(Context, Running) {
 @target(javascript)
 fn stop_running(running: Running) -> Result(Nil, String) {
   let #(name, stops) = case running {
-    Tasks(stops) -> #("tasks", stops)
+    Tasks(stops, _) -> #("tasks", stops)
     Notes(_, stops) -> #("notes", stops)
     Activity(_, stops) -> #("activity", stops)
     Delayed(stops) -> #("delayed", stops)
@@ -243,7 +249,9 @@ fn started_runtime(
       field: workspace_field(),
       store: store,
       catalog: catalog,
-      context_for: fn(entry, _, _) { Context(entry.instance_id, starts, stops) },
+      context_for: fn(entry, _, _, output) {
+        Context(entry.instance_id, starts, stops, output)
+      },
       scheduler: sluice_js.scheduler(sluice),
       on_change: fn() { Nil },
       on_report: fn(report) { record(reports, report) },
@@ -274,7 +282,8 @@ pub fn local_and_collaborative_deliveries_update_the_targets_test() -> Nil {
 
   component_runtime_js.command(runtime, "tasks", fn(running) {
     case running {
-      Tasks(_) -> Ok(#(running, [component.emit(selected_output(), "task-1")]))
+      Tasks(_, _) ->
+        Ok(#(running, [component.emit(selected_output(), "task-1")]))
       _ -> Error("wrong source")
     }
   })
@@ -286,7 +295,8 @@ pub fn local_and_collaborative_deliveries_update_the_targets_test() -> Nil {
 
   component_runtime_js.command(runtime, "tasks", fn(running) {
     case running {
-      Tasks(_) -> Ok(#(running, [component.emit(completed_output(), "task-1")]))
+      Tasks(_, _) ->
+        Ok(#(running, [component.emit(completed_output(), "task-1")]))
       _ -> Error("wrong source")
     }
   })
@@ -323,7 +333,7 @@ pub fn separate_source_events_on_one_port_are_not_collapsed_test() -> Nil {
 
   component_runtime_js.command(runtime, "tasks", fn(running) {
     case running {
-      Tasks(_) ->
+      Tasks(_, _) ->
         Ok(
           #(running, [
             component.emit(selected_output(), "task-1"),
@@ -347,6 +357,154 @@ pub fn separate_source_events_on_one_port_are_not_collapsed_test() -> Nil {
   })
   |> list.length
   |> expect.to_equal(2)
+}
+
+@target(javascript)
+pub fn asynchronous_outputs_use_the_graph_and_distinct_traces_test() -> Nil {
+  let #(sluice, _store, runtime, _starts, _stops, reports) =
+    started_runtime("component-runtime-async-output")
+
+  component_runtime_js.command(runtime, "tasks", fn(running) {
+    case running {
+      Tasks(_, _) ->
+        Ok(#(running, [component.emit(selected_output(), "command")]))
+      _ -> Error("wrong source")
+    }
+  })
+  |> expect.to_equal(Ok(Nil))
+
+  let assert Ok(Tasks(_, output)) =
+    component_runtime_js.running(runtime, "tasks")
+  component.publish(output, [component.emit(selected_output(), "async")])
+
+  let assert Ok(Notes(Some("command"), _)) =
+    component_runtime_js.running(runtime, "notes")
+
+  sluice_js.advance(sluice, 0)
+
+  let assert Ok(Notes(Some("async"), _)) =
+    component_runtime_js.running(runtime, "notes")
+  transport_js.get_cell(reports)
+  |> list.filter_map(fn(report) {
+    case report {
+      component_runtime_js.Triggered(trace_id, _) -> Ok(trace_id)
+      _ -> Error(Nil)
+    }
+  })
+  |> list.reverse
+  |> expect.to_equal(["trace-1", "trace-2"])
+}
+
+@target(javascript)
+pub fn asynchronous_output_batches_are_validated_before_dispatch_test() -> Nil {
+  let #(sluice, _store, runtime, _starts, _stops, reports) =
+    started_runtime("component-runtime-async-validation")
+  let assert Ok(Tasks(_, output)) =
+    component_runtime_js.running(runtime, "tasks")
+
+  component.publish(output, [
+    component.emit(selected_output(), "must-not-deliver"),
+    component.emit(undeclared_output(), "invalid"),
+  ])
+  sluice_js.advance(sluice, 0)
+
+  let assert Ok(Notes(None, _)) = component_runtime_js.running(runtime, "notes")
+  transport_js.get_cell(reports)
+  |> list.any(fn(report) {
+    case report {
+      component_runtime_js.DispatchFailed(
+        _,
+        None,
+        component_runtime_js.SourceOutputRejected("tasks", _),
+      ) -> True
+      _ -> False
+    }
+  })
+  |> expect.to_equal(True)
+}
+
+@target(javascript)
+pub fn a_replaced_generation_disables_its_old_output_emitter_test() -> Nil {
+  let #(sluice, store, runtime, _starts, _stops, reports) =
+    started_runtime("component-runtime-stale-output")
+  let assert Ok(Tasks(_, old_output)) =
+    component_runtime_js.running(runtime, "tasks")
+  let room_catalog = catalog()
+
+  let assert Ok(Nil) =
+    workspace_js.delete_instance(store, room_catalog, "tasks")
+  sluice_js.advance(sluice, 0)
+  component_runtime_js.running(runtime, "tasks") |> expect.to_be_error()
+
+  let assert Ok(_) =
+    workspace_js.add_instance(
+      store,
+      room_catalog,
+      "tasks",
+      "tasks",
+      1,
+      json.string("replacement"),
+    )
+  let assert Ok(_) =
+    workspace_js.add_connection(
+      store,
+      room_catalog,
+      port_graph.connection(
+        "selected-focus",
+        port_graph.PortRef("tasks", "selected"),
+        port_graph.PortRef("notes", "focus"),
+      ),
+    )
+  sluice_js.advance(sluice, 0)
+
+  let assert Ok(Tasks(_, new_output)) =
+    component_runtime_js.running(runtime, "tasks")
+  let report_count = list.length(transport_js.get_cell(reports))
+  component.publish(old_output, [
+    component.emit(selected_output(), "stale-late"),
+  ])
+  sluice_js.advance(sluice, 0)
+  list.length(transport_js.get_cell(reports))
+  |> expect.to_equal(report_count)
+
+  component.publish(new_output, [
+    component.emit(selected_output(), "replacement"),
+  ])
+  sluice_js.advance(sluice, 0)
+  let assert Ok(Notes(Some("replacement"), _)) =
+    component_runtime_js.running(runtime, "notes")
+  Nil
+}
+
+@target(javascript)
+pub fn a_queued_output_from_a_stopped_runtime_is_rejected_test() -> Nil {
+  let #(sluice, _store, runtime, _starts, _stops, reports) =
+    started_runtime("component-runtime-stopped-output")
+  let assert Ok(Tasks(_, output)) =
+    component_runtime_js.running(runtime, "tasks")
+
+  component.publish(output, [component.emit(selected_output(), "stale")])
+  let _errors = component_runtime_js.stop(runtime)
+  sluice_js.advance(sluice, 0)
+
+  transport_js.get_cell(reports)
+  |> list.any(fn(report) {
+    case report {
+      component_runtime_js.DispatchFailed(
+        _,
+        None,
+        component_runtime_js.SourceNotReady("tasks"),
+      ) -> True
+      _ -> False
+    }
+  })
+  |> expect.to_equal(True)
+
+  let report_count = list.length(transport_js.get_cell(reports))
+  component.publish(output, [component.emit(selected_output(), "late")])
+  sluice_js.advance(sluice, 0)
+  list.length(transport_js.get_cell(reports))
+  |> expect.to_equal(report_count)
 }
 
 @target(javascript)
@@ -414,7 +572,9 @@ pub fn a_late_start_is_stopped_after_its_instance_is_deleted_test() -> Nil {
       field: workspace_field(),
       store: store,
       catalog: catalog,
-      context_for: fn(entry, _, _) { Context(entry.instance_id, starts, stops) },
+      context_for: fn(entry, _, _, output) {
+        Context(entry.instance_id, starts, stops, output)
+      },
       scheduler: sluice_js.scheduler(sluice),
       on_change: fn() { Nil },
       on_report: fn(_) { Nil },
@@ -473,7 +633,9 @@ pub fn a_failed_identity_is_not_retried_by_unrelated_topology_changes_test() -> 
       field: workspace_field(),
       store: store,
       catalog: catalog,
-      context_for: fn(entry, _, _) { Context(entry.instance_id, starts, stops) },
+      context_for: fn(entry, _, _, output) {
+        Context(entry.instance_id, starts, stops, output)
+      },
       scheduler: sluice_js.scheduler(sluice),
       on_change: fn() { Nil },
       on_report: fn(_) { Nil },
@@ -631,7 +793,9 @@ fn runtime_for(
     field: workspace_field(),
     store: store,
     catalog: catalog,
-    context_for: fn(entry, _, _) { Context(entry.instance_id, starts, stops) },
+    context_for: fn(entry, _, _, output) {
+      Context(entry.instance_id, starts, stops, output)
+    },
     scheduler: sluice_js.scheduler(sluice),
     on_change: fn() { Nil },
     on_report: fn(_) { Nil },

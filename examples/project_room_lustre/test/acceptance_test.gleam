@@ -13,8 +13,12 @@ import watershed/workspace_js
 
 import project_room_lustre/activity
 import project_room_lustre/catalog
+import project_room_lustre/decision_poll
 import project_room_lustre/document_schema
+import project_room_lustre/governance_payload
 import project_room_lustre/inspector
+import project_room_lustre/notes
+import project_room_lustre/ownership_slots
 import project_room_lustre/task_collection
 import project_room_lustre/workspace_setup
 
@@ -44,13 +48,17 @@ pub fn two_clients_inspect_independently_and_complete_collaboratively_test() -> 
 
   let reports_a = transport_js.new_cell([])
   let reports_b = transport_js.new_cell([])
-  let runtime_a = start_runtime(sluice, document_a, store_a, reports_a)
-  let runtime_b = start_runtime(sluice, document_b, store_b, reports_b)
+  let runtime_a =
+    start_runtime(sluice, document_a, store_a, "user-a", "User A", reports_a)
+  let runtime_b =
+    start_runtime(sluice, document_b, store_b, "user-b", "User B", reports_b)
   settle_runtime(sluice)
   component_runtime_js.layout(runtime_a)
   |> should.equal([
     catalog.task_collection_instance_id,
     catalog.inspector_instance_id,
+    catalog.decision_poll_instance_id,
+    catalog.ownership_slots_instance_id,
     catalog.notes_instance_id,
     catalog.activity_instance_id,
   ])
@@ -78,12 +86,70 @@ pub fn two_clients_inspect_independently_and_complete_collaboratively_test() -> 
   reports_with_mutation(transport_js.get_cell(reports_b))
   |> should.equal(0)
 
+  run_poll(runtime_a, fn(poll) {
+    decision_poll.set_results_visibility(poll, governance_payload.ShowResults)
+  })
+  assert_results_visible(runtime_a, True)
+  assert_results_visible(runtime_b, False)
+
+  sluice_js.pause(sluice, document_a)
+  sluice_js.pause(sluice, document_b)
+  run_poll(runtime_a, fn(poll) { decision_poll.vote(poll, "customer-research") })
+  run_poll(runtime_b, fn(poll) { decision_poll.vote(poll, "customer-research") })
+  sluice_js.resume(sluice, document_a)
+  sluice_js.resume(sluice, document_b)
+  settle_runtime(sluice)
+
+  assert_poll_threshold(runtime_a)
+  assert_poll_threshold(runtime_b)
+
+  sluice_js.pause(sluice, document_a)
+  sluice_js.pause(sluice, document_b)
+  run_ownership(
+    runtime_a,
+    governance_payload.SlotCommand("facilitator", governance_payload.ClaimSlot),
+  )
+  run_ownership(
+    runtime_b,
+    governance_payload.SlotCommand("facilitator", governance_payload.ClaimSlot),
+  )
+  sluice_js.resume(sluice, document_a)
+  sluice_js.resume(sluice, document_b)
+  settle_runtime(sluice)
+
+  let owner = assert_same_owner(runtime_a, runtime_b)
+  run_ownership_local(runtime_a, ownership_slots.toggle_details)
+  assert_owner_details(runtime_a, True)
+  assert_owner_details(runtime_b, False)
+
+  let assert Ok(notes_a) =
+    component_runtime_js.running(runtime_a, catalog.notes_instance_id)
+    |> result_then(catalog.as_notes)
+  let assert Ok(Nil) = watershed.text_append(notes.text(notes_a), "Decision")
+  settle_runtime(sluice)
+
   component_runtime_js.stop(runtime_b) |> should.equal([])
   let reports_reopened = transport_js.new_cell([])
-  let reopened = start_runtime(sluice, document_b, store_b, reports_reopened)
+  let reopened =
+    start_runtime(
+      sluice,
+      document_b,
+      store_b,
+      "user-b",
+      "User B",
+      reports_reopened,
+    )
   settle_runtime(sluice)
   assert_completed_once(reopened)
   assert_inspected(reopened, None)
+  assert_results_visible(reopened, False)
+  assert_poll_threshold(reopened)
+  assert_owner(reopened, owner)
+  let assert Ok(reopened_notes) =
+    component_runtime_js.running(reopened, catalog.notes_instance_id)
+    |> result_then(catalog.as_notes)
+  watershed.text_value(notes.text(reopened_notes))
+  |> should.equal("Decision")
 }
 
 fn assert_inspected(runtime: RoomRuntime, task_id: Option(String)) -> Nil {
@@ -113,6 +179,8 @@ fn start_runtime(
   sluice: sluice_js.Sluice,
   document: watershed.Document(document_schema.ProjectRoom),
   store: workspace_js.Workspace(document_schema.ProjectRoom),
+  participant_id: String,
+  participant_label: String,
   reports: transport_js.Cell(List(component_runtime_js.DispatchReport)),
 ) -> RoomRuntime {
   component_runtime_js.start(
@@ -121,8 +189,16 @@ fn start_runtime(
     field: document_schema.workspace(),
     store: store,
     catalog: catalog.catalog(),
-    context_for: fn(entry, subtree, invalidate) {
-      catalog.context(document, subtree, entry.instance_id, invalidate)
+    context_for: fn(entry, subtree, invalidate, emitter) {
+      catalog.context(
+        document,
+        subtree,
+        entry.instance_id,
+        invalidate,
+        participant_id,
+        participant_label,
+        emitter,
+      )
     },
     scheduler: sluice_js.scheduler(sluice),
     on_change: fn() { Nil },
@@ -169,6 +245,106 @@ fn run_task(
   |> should.equal(Ok(Nil))
 }
 
+fn run_poll(
+  runtime: RoomRuntime,
+  action: fn(decision_poll.Running) ->
+    Result(#(decision_poll.Running, List(component.OutputEvent)), String),
+) -> Nil {
+  component_runtime_js.command(
+    runtime,
+    catalog.decision_poll_instance_id,
+    fn(running) {
+      case catalog.as_decision_poll(running) {
+        Error(Nil) -> Error("poll action reached the wrong component")
+        Ok(poll) ->
+          case action(poll) {
+            Error(reason) -> Error(reason)
+            Ok(next) -> Ok(#(catalog.DecisionPoll(next.0), next.1))
+          }
+      }
+    },
+  )
+  |> should.equal(Ok(Nil))
+}
+
+fn run_ownership(
+  runtime: RoomRuntime,
+  command: governance_payload.SlotCommand,
+) -> Nil {
+  run_ownership_local(runtime, fn(running) {
+    ownership_slots.submit(running, command)
+  })
+}
+
+fn run_ownership_local(
+  runtime: RoomRuntime,
+  action: fn(ownership_slots.Running) ->
+    Result(#(ownership_slots.Running, List(component.OutputEvent)), String),
+) -> Nil {
+  component_runtime_js.command(
+    runtime,
+    catalog.ownership_slots_instance_id,
+    fn(running) {
+      case catalog.as_ownership_slots(running) {
+        Error(Nil) -> Error("ownership action reached the wrong component")
+        Ok(ownership) ->
+          case action(ownership) {
+            Error(reason) -> Error(reason)
+            Ok(next) -> Ok(#(catalog.OwnershipSlots(next.0), next.1))
+          }
+      }
+    },
+  )
+  |> should.equal(Ok(Nil))
+}
+
+fn assert_results_visible(runtime: RoomRuntime, expected: Bool) -> Nil {
+  let assert Ok(poll) =
+    component_runtime_js.running(runtime, catalog.decision_poll_instance_id)
+    |> result_then(catalog.as_decision_poll)
+  decision_poll.results_visible(poll) |> should.equal(expected)
+}
+
+fn assert_poll_threshold(runtime: RoomRuntime) -> Nil {
+  let assert Ok(poll) =
+    component_runtime_js.running(runtime, catalog.decision_poll_instance_id)
+    |> result_then(catalog.as_decision_poll)
+  decision_poll.approval_count(poll, "customer-research")
+  |> should.equal(2)
+  decision_poll.threshold_reached(poll, "customer-research")
+  |> should.be_true
+}
+
+fn assert_same_owner(
+  first: RoomRuntime,
+  second: RoomRuntime,
+) -> governance_payload.Identity {
+  let assert Ok(first_running) =
+    component_runtime_js.running(first, catalog.ownership_slots_instance_id)
+    |> result_then(catalog.as_ownership_slots)
+  let assert Some(owner) = ownership_slots.owner(first_running, "facilitator")
+  assert_owner(second, owner)
+  owner
+}
+
+fn assert_owner(
+  runtime: RoomRuntime,
+  expected: governance_payload.Identity,
+) -> Nil {
+  let assert Ok(running) =
+    component_runtime_js.running(runtime, catalog.ownership_slots_instance_id)
+    |> result_then(catalog.as_ownership_slots)
+  ownership_slots.owner(running, "facilitator")
+  |> should.equal(Some(expected))
+}
+
+fn assert_owner_details(runtime: RoomRuntime, expected: Bool) -> Nil {
+  let assert Ok(running) =
+    component_runtime_js.running(runtime, catalog.ownership_slots_instance_id)
+    |> result_then(catalog.as_ownership_slots)
+  ownership_slots.details_revealed(running) |> should.equal(expected)
+}
+
 fn assert_completed_once(runtime: RoomRuntime) -> Nil {
   let assert Ok(tasks) =
     component_runtime_js.running(runtime, catalog.task_collection_instance_id)
@@ -180,7 +356,12 @@ fn assert_completed_once(runtime: RoomRuntime) -> Nil {
     component_runtime_js.running(runtime, catalog.activity_instance_id)
     |> result_then(catalog.as_activity)
   activity.entries(stream)
-  |> list.filter(fn(entry) { entry.task_id == "task-1" })
+  |> list.filter(fn(entry) {
+    case entry {
+      activity.TaskCompleted(task) -> task.task_id == "task-1"
+      activity.PollThresholdReached(_) | activity.OwnershipAccepted(_) -> False
+    }
+  })
   |> list.length
   |> should.equal(1)
 }

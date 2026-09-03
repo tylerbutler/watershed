@@ -33,7 +33,6 @@
 
 import gleam/javascript/promise
 import gleam/json.{type Json}
-import gleam/option.{Some}
 
 import lustre/effect.{type Effect}
 
@@ -48,6 +47,7 @@ import watershed.{
   type SharedRichText, type SharedSequence, type SharedText, type TaskManager,
   type TwoPSet, type TypedMap, type WatershedConfig, WatershedConfig,
 }
+import watershed/claim_outcome_js
 import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/directory_kernel
@@ -398,21 +398,9 @@ fn deliver_claim_outcome(
   reply: runtime.ClaimSubmitReply,
   resolve: fn(claims_kernel.ClaimOutcome) -> Nil,
 ) -> Nil {
-  case reply {
-    runtime.Pending(outcome) -> {
-      let _ =
-        promise.map(outcome, fn(outcome) {
-          queue_microtask(fn() { resolve(outcome) })
-        })
-      Nil
-    }
-    runtime.AlreadyClaimed(current_value) ->
-      queue_microtask(fn() { resolve(claims_kernel.Lost(Some(current_value))) })
-    runtime.AlreadyPendingLocally ->
-      queue_microtask(fn() { resolve(claims_kernel.Aborted) })
-    runtime.WrongChannelType ->
-      queue_microtask(fn() { resolve(claims_kernel.Aborted) })
-  }
+  claim_outcome_js.observe(reply, fn(outcome) {
+    queue_microtask(fn() { resolve(outcome) })
+  })
 }
 
 /// Subscribe to a task manager channel.

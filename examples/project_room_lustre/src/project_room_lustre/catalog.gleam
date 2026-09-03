@@ -9,8 +9,11 @@ import watershed/port
 import watershed/port_graph
 
 import project_room_lustre/activity
+import project_room_lustre/decision_poll
+import project_room_lustre/governance_payload
 import project_room_lustre/inspector
 import project_room_lustre/notes
+import project_room_lustre/ownership_slots
 import project_room_lustre/payload
 import project_room_lustre/task_collection
 
@@ -21,6 +24,9 @@ pub opaque type Context(root) {
     subtree: watershed.SharedMap,
     instance_id: String,
     invalidate: fn() -> Nil,
+    participant_id: String,
+    participant_label: String,
+    emitter: component.OutputEmitter,
   )
 }
 
@@ -28,6 +34,8 @@ pub opaque type Context(root) {
 pub type Running {
   TaskCollection(task_collection.Running)
   Inspector(inspector.Running)
+  DecisionPoll(decision_poll.Running)
+  OwnershipSlots(ownership_slots.Running)
   Notes(notes.Running)
   Activity(activity.Running)
 }
@@ -40,6 +48,10 @@ pub const activity_kind = "project-room/activity"
 
 pub const inspector_kind = "project-room/inspector"
 
+pub const decision_poll_kind = "project-room/decision-poll"
+
+pub const ownership_slots_kind = "project-room/ownership-slots"
+
 pub const task_collection_version = 1
 
 pub const notes_version = 1
@@ -47,6 +59,10 @@ pub const notes_version = 1
 pub const activity_version = 1
 
 pub const inspector_version = 1
+
+pub const decision_poll_version = 1
+
+pub const ownership_slots_version = 1
 
 pub const task_collection_instance_id = "tasks"
 
@@ -56,17 +72,36 @@ pub const activity_instance_id = "activity"
 
 pub const inspector_instance_id = "inspector"
 
+pub const decision_poll_instance_id = "poll"
+
+pub const ownership_slots_instance_id = "ownership"
+
 pub const selected_inspect_connection_id = "tasks-selected-to-inspector"
 
 pub const completed_append_connection_id = "tasks-completed-to-activity-append"
+
+pub const threshold_append_connection_id = "poll-threshold-to-activity-append"
+
+pub const ownership_append_connection_id = "ownership-changed-to-activity-append"
 
 pub fn context(
   document: watershed.Document(root),
   subtree: watershed.SharedMap,
   instance_id: String,
   invalidate: fn() -> Nil,
+  participant_id: String,
+  participant_label: String,
+  emitter: component.OutputEmitter,
 ) -> Context(root) {
-  Context(document:, subtree:, instance_id:, invalidate:)
+  Context(
+    document:,
+    subtree:,
+    instance_id:,
+    invalidate:,
+    participant_id:,
+    participant_label:,
+    emitter:,
+  )
 }
 
 pub fn document(context: Context(root)) -> watershed.Document(root) {
@@ -85,6 +120,18 @@ pub fn invalidate(context: Context(root)) -> fn() -> Nil {
   context.invalidate
 }
 
+pub fn participant_id(context: Context(root)) -> String {
+  context.participant_id
+}
+
+pub fn participant_label(context: Context(root)) -> String {
+  context.participant_label
+}
+
+pub fn emitter(context: Context(root)) -> component.OutputEmitter {
+  context.emitter
+}
+
 pub fn task_collection_config() -> task_collection.Config {
   task_collection.Config(title: "Tasks")
 }
@@ -99,6 +146,27 @@ pub fn activity_config() -> activity.Config {
 
 pub fn inspector_config() -> inspector.Config {
   inspector.Config(title: "Task inspector")
+}
+
+pub fn decision_poll_config() -> decision_poll.Config {
+  decision_poll.Config(
+    title: "Decision poll",
+    question: "What should the room prioritize next?",
+    choices: [
+      decision_poll.Choice("customer-research", "Customer research"),
+      decision_poll.Choice("delivery-plan", "Delivery plan"),
+      decision_poll.Choice("technical-risk", "Technical risk"),
+    ],
+    threshold: 2,
+  )
+}
+
+pub fn ownership_slots_config() -> ownership_slots.Config {
+  ownership_slots.Config(title: "Ownership slots", slots: [
+    ownership_slots.Slot("facilitator", "Facilitator"),
+    ownership_slots.Slot("note-taker", "Note taker"),
+    ownership_slots.Slot("reviewer", "Reviewer"),
+  ])
 }
 
 pub fn task_collection_config_json() -> Json {
@@ -117,13 +185,25 @@ pub fn inspector_config_json() -> Json {
   inspector.encode_config(inspector_config())
 }
 
+pub fn decision_poll_config_json() -> Json {
+  decision_poll.encode_config(decision_poll_config())
+}
+
+pub fn ownership_slots_config_json() -> Json {
+  ownership_slots.encode_config(ownership_slots_config())
+}
+
 pub fn catalog() -> component.Catalog(Context(root), Running) {
   let assert Ok(with_tasks) =
     component.register(component.new_catalog(), task_collection_descriptor())
   let assert Ok(with_inspector) =
     component.register(with_tasks, inspector_descriptor())
+  let assert Ok(with_poll) =
+    component.register(with_inspector, decision_poll_descriptor())
+  let assert Ok(with_ownership) =
+    component.register(with_poll, ownership_slots_descriptor())
   let assert Ok(with_notes) =
-    component.register(with_inspector, notes_descriptor())
+    component.register(with_ownership, notes_descriptor())
   let assert Ok(full) = component.register(with_notes, activity_descriptor())
   full
 }
@@ -132,6 +212,8 @@ pub fn descriptors() -> List(component.Descriptor(Context(root), Running)) {
   [
     task_collection_descriptor(),
     inspector_descriptor(),
+    decision_poll_descriptor(),
+    ownership_slots_descriptor(),
     notes_descriptor(),
     activity_descriptor(),
   ]
@@ -141,7 +223,35 @@ pub fn persisted_connections() -> List(port_graph.Connection) {
   [
     selected_inspect_connection(),
     completed_append_connection(),
+    threshold_append_connection(),
+    ownership_append_connection(),
   ]
+}
+
+pub fn threshold_append_connection() -> port_graph.Connection {
+  let assert Ok(template) =
+    port.connect(
+      governance_payload.threshold_reached(),
+      governance_payload.append_poll_threshold(),
+    )
+  port_graph.connection(
+    threshold_append_connection_id,
+    port_graph.PortRef(decision_poll_instance_id, template.source_port),
+    port_graph.PortRef(activity_instance_id, template.target_port),
+  )
+}
+
+pub fn ownership_append_connection() -> port_graph.Connection {
+  let assert Ok(template) =
+    port.connect(
+      governance_payload.ownership_changed(),
+      governance_payload.append_ownership_change(),
+    )
+  port_graph.connection(
+    ownership_append_connection_id,
+    port_graph.PortRef(ownership_slots_instance_id, template.source_port),
+    port_graph.PortRef(activity_instance_id, template.target_port),
+  )
 }
 
 pub fn selected_inspect_connection() -> port_graph.Connection {
@@ -169,28 +279,70 @@ pub fn as_task_collection(
 ) -> Result(task_collection.Running, Nil) {
   case running {
     TaskCollection(inner) -> Ok(inner)
-    Inspector(_) | Notes(_) | Activity(_) -> Error(Nil)
+    Inspector(_)
+    | DecisionPoll(_)
+    | OwnershipSlots(_)
+    | Notes(_)
+    | Activity(_) -> Error(Nil)
   }
 }
 
 pub fn as_inspector(running: Running) -> Result(inspector.Running, Nil) {
   case running {
     Inspector(inner) -> Ok(inner)
-    TaskCollection(_) | Notes(_) | Activity(_) -> Error(Nil)
+    TaskCollection(_)
+    | DecisionPoll(_)
+    | OwnershipSlots(_)
+    | Notes(_)
+    | Activity(_) -> Error(Nil)
+  }
+}
+
+pub fn as_decision_poll(
+  running: Running,
+) -> Result(decision_poll.Running, Nil) {
+  case running {
+    DecisionPoll(inner) -> Ok(inner)
+    TaskCollection(_)
+    | Inspector(_)
+    | OwnershipSlots(_)
+    | Notes(_)
+    | Activity(_) -> Error(Nil)
+  }
+}
+
+pub fn as_ownership_slots(
+  running: Running,
+) -> Result(ownership_slots.Running, Nil) {
+  case running {
+    OwnershipSlots(inner) -> Ok(inner)
+    TaskCollection(_)
+    | Inspector(_)
+    | DecisionPoll(_)
+    | Notes(_)
+    | Activity(_) -> Error(Nil)
   }
 }
 
 pub fn as_notes(running: Running) -> Result(notes.Running, Nil) {
   case running {
     Notes(inner) -> Ok(inner)
-    TaskCollection(_) | Inspector(_) | Activity(_) -> Error(Nil)
+    TaskCollection(_)
+    | Inspector(_)
+    | DecisionPoll(_)
+    | OwnershipSlots(_)
+    | Activity(_) -> Error(Nil)
   }
 }
 
 pub fn as_activity(running: Running) -> Result(activity.Running, Nil) {
   case running {
     Activity(inner) -> Ok(inner)
-    TaskCollection(_) | Inspector(_) | Notes(_) -> Error(Nil)
+    TaskCollection(_)
+    | Inspector(_)
+    | DecisionPoll(_)
+    | OwnershipSlots(_)
+    | Notes(_) -> Error(Nil)
   }
 }
 
@@ -217,7 +369,11 @@ fn task_collection_descriptor() -> component.Descriptor(Context(root), Running) 
     stop: fn(running) {
       case running {
         TaskCollection(inner) -> task_collection.stop(inner)
-        Inspector(_) | Notes(_) | Activity(_) ->
+        Inspector(_)
+        | DecisionPoll(_)
+        | OwnershipSlots(_)
+        | Notes(_)
+        | Activity(_) ->
           Error("task collection stop reached the wrong component")
       }
     },
@@ -254,20 +410,220 @@ fn inspector_descriptor() -> component.Descriptor(Context(root), Running) {
             let #(next, events) = inspector.inspect(inner, task)
             Ok(#(Inspector(next), events))
           }
-          TaskCollection(_) | Notes(_) | Activity(_) ->
-            Error("inspector input reached the wrong component")
+          TaskCollection(_)
+          | DecisionPoll(_)
+          | OwnershipSlots(_)
+          | Notes(_)
+          | Activity(_) -> Error("inspector input reached the wrong component")
         }
       }),
     ],
     stop: fn(running) {
       case running {
         Inspector(inner) -> inspector.stop(inner)
-        TaskCollection(_) | Notes(_) | Activity(_) ->
-          Error("inspector stop reached the wrong component")
+        TaskCollection(_)
+        | DecisionPoll(_)
+        | OwnershipSlots(_)
+        | Notes(_)
+        | Activity(_) -> Error("inspector stop reached the wrong component")
       }
     },
     ports: [port.input_descriptor(payload.inspect_task())],
   )
+}
+
+fn decision_poll_descriptor() -> component.Descriptor(Context(root), Running) {
+  component.executable_descriptor(
+    kind: decision_poll_kind,
+    version: decision_poll_version,
+    config_decoder: decision_poll.config_decoder(),
+    start: fn(context, config, done) {
+      decision_poll.start(
+        document(context),
+        subtree(context),
+        invalidate(context),
+        emitter(context),
+        governance_payload.Identity(
+          participant_id(context),
+          participant_label(context),
+        ),
+        config,
+        fn(started) {
+          case started {
+            Ok(running) -> done(Ok(DecisionPoll(running)))
+            Error(reason) -> done(Error(reason))
+          }
+        },
+      )
+    },
+    inputs: [
+      component.input_handler(
+        governance_payload.show_results(),
+        fn(running, command) {
+          case running {
+            DecisionPoll(inner) ->
+              decision_poll.set_results_visibility(inner, command)
+              |> result.map(fn(next) { #(DecisionPoll(next.0), next.1) })
+            TaskCollection(_)
+            | Inspector(_)
+            | OwnershipSlots(_)
+            | Notes(_)
+            | Activity(_) -> Error("poll input reached the wrong component")
+          }
+        },
+      ),
+      component.input_handler(governance_payload.open_poll(), fn(running, _) {
+        case running {
+          DecisionPoll(inner) ->
+            decision_poll.set_lifecycle(inner, governance_payload.OpenPoll)
+            |> result.map(fn(next) { #(DecisionPoll(next.0), next.1) })
+          TaskCollection(_)
+          | Inspector(_)
+          | OwnershipSlots(_)
+          | Notes(_)
+          | Activity(_) -> Error("poll input reached the wrong component")
+        }
+      }),
+      component.input_handler(governance_payload.close_poll(), fn(running, _) {
+        case running {
+          DecisionPoll(inner) ->
+            decision_poll.set_lifecycle(inner, governance_payload.ClosePoll)
+            |> result.map(fn(next) { #(DecisionPoll(next.0), next.1) })
+          TaskCollection(_)
+          | Inspector(_)
+          | OwnershipSlots(_)
+          | Notes(_)
+          | Activity(_) -> Error("poll input reached the wrong component")
+        }
+      }),
+    ],
+    stop: fn(running) {
+      case running {
+        DecisionPoll(inner) -> decision_poll.stop(inner)
+        TaskCollection(_)
+        | Inspector(_)
+        | OwnershipSlots(_)
+        | Notes(_)
+        | Activity(_) -> Error("poll stop reached the wrong component")
+      }
+    },
+    ports: [
+      port.output_descriptor(governance_payload.vote_changed()),
+      port.output_descriptor(governance_payload.threshold_reached()),
+      port.input_descriptor(governance_payload.show_results()),
+      port.input_descriptor(governance_payload.open_poll()),
+      port.input_descriptor(governance_payload.close_poll()),
+    ],
+  )
+}
+
+fn ownership_slots_descriptor() -> component.Descriptor(Context(root), Running) {
+  component.executable_descriptor(
+    kind: ownership_slots_kind,
+    version: ownership_slots_version,
+    config_decoder: ownership_slots.config_decoder(),
+    start: fn(context, config, done) {
+      ownership_slots.start(
+        document(context),
+        subtree(context),
+        invalidate(context),
+        emitter(context),
+        governance_payload.Identity(
+          participant_id(context),
+          participant_label(context),
+        ),
+        config,
+        fn(started) {
+          case started {
+            Ok(running) -> done(Ok(OwnershipSlots(running)))
+            Error(reason) -> done(Error(reason))
+          }
+        },
+      )
+    },
+    inputs: [
+      component.input_handler(
+        governance_payload.claim_slot(),
+        fn(running, command) {
+          let command =
+            governance_payload.SlotCommand(
+              command.slot_id,
+              governance_payload.ClaimSlot,
+            )
+          ownership_input(running, command)
+        },
+      ),
+      component.input_handler(
+        governance_payload.release_slot(),
+        fn(running, command) {
+          let command =
+            governance_payload.SlotCommand(
+              command.slot_id,
+              governance_payload.ReleaseSlot,
+            )
+          ownership_input(running, command)
+        },
+      ),
+      component.input_handler(
+        governance_payload.handoff_slot(),
+        fn(running, command) {
+          case command.operation {
+            governance_payload.HandoffSlot(_) ->
+              ownership_input(running, command)
+            governance_payload.ClaimSlot | governance_payload.ReleaseSlot ->
+              Error("handoff input requires a target")
+          }
+        },
+      ),
+      component.input_handler(governance_payload.reveal_owner(), fn(running, _) {
+        case running {
+          OwnershipSlots(inner) ->
+            ownership_slots.toggle_details(inner)
+            |> result.map(fn(next) { #(OwnershipSlots(next.0), next.1) })
+          TaskCollection(_)
+          | Inspector(_)
+          | DecisionPoll(_)
+          | Notes(_)
+          | Activity(_) -> Error("ownership input reached the wrong component")
+        }
+      }),
+    ],
+    stop: fn(running) {
+      case running {
+        OwnershipSlots(inner) -> ownership_slots.stop(inner)
+        TaskCollection(_)
+        | Inspector(_)
+        | DecisionPoll(_)
+        | Notes(_)
+        | Activity(_) -> Error("ownership stop reached the wrong component")
+      }
+    },
+    ports: [
+      port.output_descriptor(governance_payload.claim_attempted()),
+      port.output_descriptor(governance_payload.claim_resolved()),
+      port.output_descriptor(governance_payload.ownership_changed()),
+      port.input_descriptor(governance_payload.claim_slot()),
+      port.input_descriptor(governance_payload.release_slot()),
+      port.input_descriptor(governance_payload.handoff_slot()),
+      port.input_descriptor(governance_payload.reveal_owner()),
+    ],
+  )
+}
+
+fn ownership_input(
+  running: Running,
+  command: governance_payload.SlotCommand,
+) -> Result(#(Running, List(component.OutputEvent)), String) {
+  case running {
+    OwnershipSlots(inner) ->
+      ownership_slots.submit(inner, command)
+      |> result.map(fn(next) { #(OwnershipSlots(next.0), next.1) })
+    TaskCollection(_)
+    | Inspector(_)
+    | DecisionPoll(_)
+    | Notes(_)
+    | Activity(_) -> Error("ownership input reached the wrong component")
+  }
 }
 
 fn notes_descriptor() -> component.Descriptor(Context(root), Running) {
@@ -293,8 +649,11 @@ fn notes_descriptor() -> component.Descriptor(Context(root), Running) {
     stop: fn(running) {
       case running {
         Notes(inner) -> notes.stop(inner)
-        TaskCollection(_) | Inspector(_) | Activity(_) ->
-          Error("notes stop reached the wrong component")
+        TaskCollection(_)
+        | Inspector(_)
+        | DecisionPoll(_)
+        | OwnershipSlots(_)
+        | Activity(_) -> Error("notes stop reached the wrong component")
       }
     },
     ports: [],
@@ -326,18 +685,58 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
           Activity(inner) ->
             activity.append_entry(inner, entry)
             |> result.map(fn(next) { #(Activity(next.0), next.1) })
-          TaskCollection(_) | Inspector(_) | Notes(_) ->
-            Error("activity input reached the wrong component")
+          TaskCollection(_)
+          | Inspector(_)
+          | DecisionPoll(_)
+          | OwnershipSlots(_)
+          | Notes(_) -> Error("activity input reached the wrong component")
         }
       }),
+      component.input_handler(
+        governance_payload.append_poll_threshold(),
+        fn(running, entry) {
+          case running {
+            Activity(inner) ->
+              activity.append_poll_threshold(inner, entry)
+              |> result.map(fn(next) { #(Activity(next.0), next.1) })
+            TaskCollection(_)
+            | Inspector(_)
+            | DecisionPoll(_)
+            | OwnershipSlots(_)
+            | Notes(_) -> Error("activity input reached the wrong component")
+          }
+        },
+      ),
+      component.input_handler(
+        governance_payload.append_ownership_change(),
+        fn(running, entry) {
+          case running {
+            Activity(inner) ->
+              activity.append_ownership_change(inner, entry)
+              |> result.map(fn(next) { #(Activity(next.0), next.1) })
+            TaskCollection(_)
+            | Inspector(_)
+            | DecisionPoll(_)
+            | OwnershipSlots(_)
+            | Notes(_) -> Error("activity input reached the wrong component")
+          }
+        },
+      ),
     ],
     stop: fn(running) {
       case running {
         Activity(inner) -> activity.stop(inner)
-        TaskCollection(_) | Inspector(_) | Notes(_) ->
-          Error("activity stop reached the wrong component")
+        TaskCollection(_)
+        | Inspector(_)
+        | DecisionPoll(_)
+        | OwnershipSlots(_)
+        | Notes(_) -> Error("activity stop reached the wrong component")
       }
     },
-    ports: [port.input_descriptor(payload.append_entry())],
+    ports: [
+      port.input_descriptor(payload.append_entry()),
+      port.input_descriptor(governance_payload.append_poll_threshold()),
+      port.input_descriptor(governance_payload.append_ownership_change()),
+    ],
   )
 }

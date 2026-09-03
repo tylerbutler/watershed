@@ -12,7 +12,10 @@ import lustre/event
 import watershed_lustre/textarea
 
 import project_room_lustre/activity
+import project_room_lustre/decision_poll
+import project_room_lustre/governance_payload
 import project_room_lustre/inspector
+import project_room_lustre/ownership_slots
 import project_room_lustre/task_collection
 
 /// Draw the task collection.
@@ -162,6 +165,306 @@ pub fn inspector(running: inspector.Running) -> Element(msg) {
   )
 }
 
+/// Draw the shared approval poll and this tab's local result controls.
+pub fn decision_poll(
+  running: decision_poll.Running,
+  vote: fn(String) -> msg,
+  toggle_results: msg,
+  open_poll: msg,
+  close_poll: msg,
+) -> Element(msg) {
+  let config = decision_poll.config(running)
+  let open = decision_poll.is_open(running)
+  let visible = decision_poll.results_visible(running)
+  html.section(
+    [
+      attribute.class("component poll"),
+      attribute.data("component", "poll"),
+      attribute.data("poll-open", bool_string(open)),
+      attribute.data("results-visible", bool_string(visible)),
+    ],
+    [
+      html.h2([], [html.text(config.title)]),
+      html.p([attribute.class("component-description")], [
+        html.text(
+          "Approvals merge through an OR-set. A Claims latch emits each threshold once.",
+        ),
+      ]),
+      html.h3([], [html.text(config.question)]),
+      html.p([attribute.class("poll-state")], [
+        html.text(case open {
+          True -> "Open"
+          False -> "Closed"
+        }),
+      ]),
+      html.ul(
+        [attribute.class("poll-choices")],
+        list.map(config.choices, fn(choice) {
+          let approved = decision_poll.approved_by_local(running, choice.id)
+          let count = decision_poll.approval_count(running, choice.id)
+          let reached = decision_poll.threshold_reached(running, choice.id)
+          let pending = decision_poll.pending_threshold(running, choice.id)
+          html.li(
+            [
+              attribute.data("choice-id", choice.id),
+              attribute.data("approved", bool_string(approved)),
+              attribute.data("threshold-reached", bool_string(reached)),
+              attribute.data("threshold-pending", bool_string(pending)),
+              attribute.data("approval-count", case visible {
+                True -> int.to_string(count)
+                False -> ""
+              }),
+            ],
+            [
+              html.button(
+                [
+                  attribute.data("action", "toggle-approval"),
+                  attribute.data("choice-id", choice.id),
+                  attribute.disabled(!open),
+                  event.on_click(vote(choice.id)),
+                ],
+                [
+                  html.text(case approved {
+                    True -> "Retract " <> choice.label
+                    False -> "Approve " <> choice.label
+                  }),
+                ],
+              ),
+              case visible {
+                True ->
+                  html.span([attribute.data("poll-result", choice.id)], [
+                    html.text(
+                      int.to_string(count)
+                      <> " approval"
+                      <> case count == 1 {
+                        True -> ""
+                        False -> "s"
+                      },
+                    ),
+                  ])
+                False -> html.text("")
+              },
+              case pending, reached {
+                True, _ ->
+                  html.span(
+                    [attribute.data("poll-threshold-state", "pending")],
+                    [
+                      html.text("Threshold pending"),
+                    ],
+                  )
+                False, True ->
+                  html.span(
+                    [attribute.data("poll-threshold-state", "reached")],
+                    [
+                      html.text("Threshold reached"),
+                    ],
+                  )
+                False, False -> html.text("")
+              },
+            ],
+          )
+        }),
+      ),
+      html.div([attribute.class("component-actions")], [
+        html.button(
+          [
+            attribute.data("action", "toggle-results"),
+            event.on_click(toggle_results),
+          ],
+          [
+            html.text(case visible {
+              True -> "Hide results"
+              False -> "Show results"
+            }),
+          ],
+        ),
+        html.button(
+          [
+            attribute.data("action", "open-poll"),
+            attribute.disabled(open),
+            event.on_click(open_poll),
+          ],
+          [html.text("Open poll")],
+        ),
+        html.button(
+          [
+            attribute.data("action", "close-poll"),
+            attribute.disabled(!open),
+            event.on_click(close_poll),
+          ],
+          [html.text("Close poll")],
+        ),
+      ]),
+      case decision_poll.local_error(running) {
+        Some(reason) ->
+          html.p([attribute.data("poll-error", "true")], [html.text(reason)])
+        None -> html.text("")
+      },
+    ],
+  )
+}
+
+/// Draw shared ownership and local owner details.
+pub fn ownership_slots(
+  running: ownership_slots.Running,
+  local_id: String,
+  peers: List(governance_payload.Identity),
+  claim: fn(String) -> msg,
+  release: fn(String) -> msg,
+  handoff: fn(String, governance_payload.Identity) -> msg,
+  toggle_details: msg,
+) -> Element(msg) {
+  let config = ownership_slots.config(running)
+  let revealed = ownership_slots.details_revealed(running)
+  html.section(
+    [
+      attribute.class("component ownership"),
+      attribute.data("component", "ownership"),
+      attribute.data("owner-details-visible", bool_string(revealed)),
+    ],
+    [
+      html.h2([], [html.text(config.title)]),
+      html.p([attribute.class("component-description")], [
+        html.text(
+          "Claims resolve first-writer-wins. Release and handoff use compare-and-set.",
+        ),
+      ]),
+      html.ul(
+        [attribute.class("ownership-slots")],
+        list.map(config.slots, fn(slot) {
+          let current = ownership_slots.owner(running, slot.id)
+          let pending = ownership_slots.pending(running, slot.id)
+          let local_owner = case current {
+            Some(owner) -> owner.id == local_id
+            None -> False
+          }
+          html.li(
+            [
+              attribute.data("slot-id", slot.id),
+              attribute.data("slot-state", case current {
+                Some(_) -> "occupied"
+                None -> "vacant"
+              }),
+              attribute.data("slot-pending", bool_string(pending)),
+              attribute.data("owner-label", case current {
+                Some(owner) -> owner.label
+                None -> ""
+              }),
+              attribute.data("owner-id", case current, revealed {
+                Some(owner), True -> owner.id
+                _, _ -> ""
+              }),
+            ],
+            [
+              html.strong([], [html.text(slot.label)]),
+              html.span([attribute.data("slot-owner", slot.id)], [
+                html.text(case current {
+                  Some(owner) -> owner.label
+                  None -> "Vacant"
+                }),
+              ]),
+              case pending, current, local_owner {
+                True, _, _ ->
+                  html.span([attribute.data("ownership-pending", slot.id)], [
+                    html.text("Resolving…"),
+                  ])
+                False, None, _ ->
+                  html.button(
+                    [
+                      attribute.data("action", "claim-slot"),
+                      attribute.data("slot-id", slot.id),
+                      event.on_click(claim(slot.id)),
+                    ],
+                    [html.text("Claim")],
+                  )
+                False, Some(_), True ->
+                  html.div([attribute.class("ownership-actions")], [
+                    html.button(
+                      [
+                        attribute.data("action", "release-slot"),
+                        attribute.data("slot-id", slot.id),
+                        event.on_click(release(slot.id)),
+                      ],
+                      [html.text("Release")],
+                    ),
+                    ..list.map(peers, fn(peer) {
+                      html.button(
+                        [
+                          attribute.data("action", "handoff-slot"),
+                          attribute.data("slot-id", slot.id),
+                          attribute.data("target-id", peer.id),
+                          event.on_click(handoff(slot.id, peer)),
+                        ],
+                        [html.text("Hand to " <> peer.label)],
+                      )
+                    })
+                  ])
+                False, Some(_), False -> html.text("")
+              },
+              case revealed {
+                True ->
+                  html.div([attribute.data("owner-details", slot.id)], [
+                    html.p([], [
+                      html.text(case current {
+                        Some(owner) -> "Durable ID: " <> owner.id
+                        None -> "No current owner ID"
+                      }),
+                    ]),
+                    resolution_view(ownership_slots.last_resolution(
+                      running,
+                      slot.id,
+                    )),
+                  ])
+                False -> html.text("")
+              },
+            ],
+          )
+        }),
+      ),
+      html.button(
+        [
+          attribute.data("action", "toggle-owner-details"),
+          event.on_click(toggle_details),
+        ],
+        [
+          html.text(case revealed {
+            True -> "Hide owner details"
+            False -> "Reveal owner details"
+          }),
+        ],
+      ),
+    ],
+  )
+}
+
+fn resolution_view(
+  resolved: Option(governance_payload.ClaimResolved),
+) -> Element(msg) {
+  case resolved {
+    None ->
+      html.p([attribute.data("last-claim-outcome", "")], [
+        html.text("No local attempt"),
+      ])
+    Some(value) -> {
+      let label = case value.resolution {
+        governance_payload.Accepted -> "accepted"
+        governance_payload.Lost -> "lost"
+        governance_payload.Aborted -> "aborted"
+      }
+      html.p([attribute.data("last-claim-outcome", label)], [
+        html.text("Last local attempt: " <> label),
+      ])
+    }
+  }
+}
+
+fn bool_string(value: Bool) -> String {
+  case value {
+    True -> "true"
+    False -> "false"
+  }
+}
+
 /// Draw the notes component and its shared-text editor.
 pub fn notes(
   editor: Option(textarea.Model),
@@ -285,16 +588,52 @@ pub fn activity(running: activity.Running) -> Element(msg) {
         _ ->
           html.ul(
             [attribute.class("activity-list")],
-            entries
-              |> list.map(fn(entry) {
-                html.li([attribute.data("task-id", entry.task_id)], [
-                  html.text(entry.title <> " completed"),
-                ])
-              }),
+            entries |> list.map(activity_entry),
           )
       },
     ],
   )
+}
+
+fn activity_entry(entry: activity.Entry) -> Element(msg) {
+  case entry {
+    activity.TaskCompleted(task) ->
+      html.li(
+        [
+          attribute.data("entry-kind", "task-completed"),
+          attribute.data("task-id", task.task_id),
+        ],
+        [html.text(task.title <> " completed")],
+      )
+    activity.PollThresholdReached(threshold) ->
+      html.li(
+        [
+          attribute.data("entry-kind", "poll-threshold"),
+          attribute.data("choice-id", threshold.choice_id),
+        ],
+        [
+          html.text(
+            threshold.choice_label
+            <> " reached "
+            <> int.to_string(threshold.approvals)
+            <> " approvals",
+          ),
+        ],
+      )
+    activity.OwnershipAccepted(change) ->
+      html.li(
+        [
+          attribute.data("entry-kind", "ownership-change"),
+          attribute.data("slot-id", change.slot_id),
+        ],
+        [
+          html.text(case change.owner {
+            Some(owner) -> change.slot_label <> " assigned to " <> owner.label
+            None -> change.slot_label <> " released"
+          }),
+        ],
+      )
+  }
 }
 
 /// Draw a component that has not reached the ready state.
@@ -316,6 +655,8 @@ fn title(instance_id: String) -> String {
   case instance_id {
     "tasks" -> "Tasks"
     "inspector" -> "Task inspector"
+    "poll" -> "Decision poll"
+    "ownership" -> "Ownership slots"
     "notes" -> "Notes"
     "activity" -> "Activity"
     other -> other

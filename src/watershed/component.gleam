@@ -67,6 +67,14 @@ pub opaque type OutputEvent {
   OutputEvent(id: String, schema_id: String, payload: Json)
 }
 
+/// A capability that publishes asynchronous component outputs.
+///
+/// The runtime binds this capability to one component instance and lifecycle
+/// generation. The runtime validates and dispatches each published batch.
+pub opaque type OutputEmitter {
+  OutputEmitter(publish: fn(List(OutputEvent)) -> Nil)
+}
+
 /// One typed input handler after its payload type has been hidden.
 ///
 /// Build this value with `input_handler`. The handler keeps the typed decoder
@@ -218,6 +226,18 @@ pub fn emit(output: port.Output(payload), payload: payload) -> OutputEvent {
     schema_id: schema_id,
     payload: port.encode(output, payload),
   )
+}
+
+/// Build an asynchronous output capability.
+///
+/// Runtime adapters use this function to bind the capability to an instance.
+pub fn output_emitter(publish: fn(List(OutputEvent)) -> Nil) -> OutputEmitter {
+  OutputEmitter(publish)
+}
+
+/// Publish one batch of asynchronous outputs.
+pub fn publish(emitter: OutputEmitter, events: List(OutputEvent)) -> Nil {
+  emitter.publish(events)
 }
 
 /// The port ID of an encoded output event.

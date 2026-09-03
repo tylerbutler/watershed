@@ -16,11 +16,13 @@ The executable runtime in this release targets JavaScript. The descriptor,
 catalog, port, dispatch, and workspace contracts remain target-independent;
 a BEAM runtime shell is deferred.
 
-The project-room example proves two forms of component communication:
+The project-room example proves three forms of component communication:
 
 - local connections coordinate presentation on one client;
 - collaborative connections let the originating client mutate a target
   component, then watershed replicates the result.
+- asynchronous component outputs can enter the same typed graph after a
+  sequenced operation resolves.
 
 ## Design principles
 
@@ -187,6 +189,12 @@ subscription.
 Stopping an instance releases subscriptions and view resources. It does not
 delete the component's collaborative data.
 
+The JavaScript runtime gives each instance an output emitter bound to its
+instance ID and lifecycle generation. Emitters queue work through the runtime
+scheduler, validate the complete output batch, then use the same graph planner,
+cycle checks, trace IDs, reports, and delivery path as a command. An emitter
+from a stopped or replaced generation cannot publish as the new instance.
+
 Deleting data requires a separate workspace operation. The first release
 removes the manifest entry, its layout references, and its graph edges. It
 unlinks the instance child map but does not clear it. Watershed has no
@@ -265,7 +273,7 @@ Only local intent emits an output event. A channel subscription that applies a
 remote operation does not emit the corresponding port event. This rule prevents
 each observer from repeating one target mutation.
 
-The shell processes output events after the source update completes:
+The shell processes command output events after the source update completes:
 
 1. Assign a dispatch trace ID.
 2. Encode the typed output through its registered codec.
@@ -280,14 +288,18 @@ The shell runs each edge at most once in one dispatch trace. The first release
 rejects graph edits that would create a cycle. Fan-out follows the graph's
 stable edge order.
 
+Components can also emit after an asynchronous operation resolves. The
+instance-bound emitter queues that publication so it cannot re-enter graph
+dispatch. Each asynchronous output gets its own trace ID, and an invalid output
+rejects the complete batch before dispatch.
+
 Collaborative graph edits still follow watershed's convergence rules. Two
 clients can briefly hold different graph snapshots during concurrent edits.
 Each local action uses the origin's current graph snapshot.
 
 ## Initial component catalog
 
-The first browser slice ships three of the five proposed headless components.
-Decision Poll and Ownership Slots remain deferred.
+The browser slice ships all five proposed headless components.
 
 The project-room host also registers a local-only Task Inspector. It owns no
 collaborative channels. Its purpose is to show that a typed local input can
@@ -299,8 +311,8 @@ change one client's controller state without changing another client's view.
 | Collaborative notes | Shipped | Shared text | — | — |
 | Activity stream | Shipped | Append-oriented sequence | — | collaborative append entry |
 | Task inspector | Demo controller | None | — | local inspect task |
-| Decision poll | Deferred | OR-set choices plus voter set or counters | vote cast, threshold reached | local show result; collaborative open/close |
-| Ownership slots | Deferred | Claims channel | claim attempted, claim resolved | local reveal owner; collaborative claim/release/handoff |
+| Decision poll | Shipped | OR-set ballots, lifecycle map, and threshold Claims latch | vote changed, threshold reached | local show results; collaborative open/close |
+| Ownership slots | Shipped | Claims entries with a null release sentinel | claim attempted, claim resolved, ownership changed | local reveal owner; collaborative claim/release/handoff |
 
 These components model different concurrency rules. They are not tied to one
 widget. A task collection can use a kanban, table, or compact-list adapter
@@ -308,14 +320,28 @@ without changing its channels or port contract.
 
 ## Project-room reference app
 
-The reference app creates the three shipped component types through code and
+The reference app creates the five shipped component types through code and
 adds the local-only Task Inspector. It registers these connections:
 
 - `tasks.TaskSelected` to `inspector.InspectTask` as a local input;
 - `tasks.TaskCompleted` to `activity.AppendEntry` as a collaborative input;
+- `poll.ThresholdReached` to `activity.AppendPollThreshold` as a collaborative
+  input;
+- `ownership.OwnershipChanged` to `activity.AppendOwnershipChange` as a
+  collaborative input.
 
 Presence publishes each client's selected task and Notes cursor. Peers can show
 that awareness without applying it to their own Inspector.
+
+Decision Poll stores each `(choice ID, participant ID)` ballot as a tagged JSON
+object in an OR-set. Its lifecycle is a shared map entry. A Claims key latches
+the first threshold crossing for each fixed choice so concurrent observers
+produce one graph output.
+
+Ownership Slots stores an owner identity in one Claims key per fixed slot.
+JSON null records a release. First claims use `claim_once`; reclaim, release,
+and direct handoff use `compare_and_set_claim` so a stale owner cannot overwrite
+a newer accepted change.
 
 The same catalog can support:
 
@@ -418,11 +444,17 @@ decoding errors.
 Open the same project room in two clients.
 
 1. Client A selects a task.
-2. Only client A's notes component focuses that task.
+2. Only client A's Task Inspector shows that task.
 3. Client A completes the task.
 4. Both clients show the completed task.
 5. Both clients show exactly one new shared activity entry.
-6. Neither client emits another completion event while applying the remote
+6. Both clients approve the same poll choice.
+7. Both clients converge on two approvals, one threshold latch, and one
+   threshold Activity entry while results visibility stays local.
+8. Both clients race to claim one ownership slot and converge on one owner.
+9. The accepted ownership change adds one Activity entry; a release or handoff
+   uses compare-and-set and converges again.
+10. Neither client emits another semantic event while applying the remote
    channel update.
 
 This scenario proves local component coordination, collaborative component
@@ -455,7 +487,9 @@ The browser-ready slice followed these milestones:
 4. collaborative inputs and dispatch reporting;
 5. the initial Tasks, Notes, and Activity components;
 6. the narrow Lustre runtime bridge and fixed views;
-7. project-room reference app and two-client acceptance tests.
+7. project-room reference app and two-client acceptance tests;
+8. generation-safe asynchronous component outputs;
+9. Decision Poll and Ownership Slots with six-component acceptance coverage.
 
-Decision Poll, Ownership Slots, BEAM runtime parity, and a heterogeneous Lustre
-view catalog remain later milestones.
+BEAM runtime parity and a heterogeneous Lustre view catalog remain later
+milestones.

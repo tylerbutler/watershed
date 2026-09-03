@@ -12,12 +12,14 @@ import watershed/workspace_js
 
 import project_room_lustre/activity
 import project_room_lustre/catalog
+import project_room_lustre/decision_poll
 import project_room_lustre/document_schema
 import project_room_lustre/inspector
 import project_room_lustre/notes
+import project_room_lustre/ownership_slots
 import project_room_lustre/task_collection
 
-/// Add the four fixed instances and two connections that are not present.
+/// Add the six fixed instances and four connections that are not present.
 ///
 /// The function reads before each write, so it is safe to call after a partial
 /// attempt. Concurrent cold clients can still create competing child maps;
@@ -44,6 +46,24 @@ pub fn seed(
     catalog.inspector_version,
     catalog.inspector_config_json(),
     inspector.initialize,
+  ))
+  use _ <- result.try(ensure_instance(
+    store,
+    room_catalog,
+    catalog.decision_poll_instance_id,
+    catalog.decision_poll_kind,
+    catalog.decision_poll_version,
+    catalog.decision_poll_config_json(),
+    decision_poll.initialize,
+  ))
+  use _ <- result.try(ensure_instance(
+    store,
+    room_catalog,
+    catalog.ownership_slots_instance_id,
+    catalog.ownership_slots_kind,
+    catalog.ownership_slots_version,
+    catalog.ownership_slots_config_json(),
+    ownership_slots.initialize,
   ))
   use _ <- result.try(ensure_instance(
     store,
