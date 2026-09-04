@@ -194,7 +194,7 @@ A Gleam decoder enforces the current manifest version and entry model:
 - language;
 - source path;
 - optional source URL added by site policy;
-- source, whole-file, or literal origin.
+- source-marker or whole-file origin.
 
 Djot names a generated snippet by ID instead of containing its source text.
 The renderer looks up the ID and emits the source label, link, code block, and
