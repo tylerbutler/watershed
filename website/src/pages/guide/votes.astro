@@ -30,7 +30,7 @@ watershed.set(board, id, json.int(current + 1))`,
     <p>
       You already created the <code>votes</code> channel back in step 01, when{" "}
       <code>ensure_or_map</code> set it up with <code>TallyMode</code>. That
-      mode turns every key in the map into what’s sometimes called a PN
+      mode turns every key in the map into what's sometimes called a PN
       counter, short for “positive-negative counter”: a value that only
       accepts changes — plus one, minus one — and combines them by adding them
       up, never by picking one write as the winner.
@@ -60,12 +60,12 @@ watershed.set(board, id, json.int(current + 1))`,
     <p>
       It reads, adds one, writes the result back. <em>Read</em> is the
       problem: by the time your write reaches the server, the number it was
-      based on is already out of date, because someone else’s write got there
-      first. The newer write silently overwrites the older one’s work. Two
+      based on is already out of date, because someone else's write got there
+      first. The newer write silently overwrites the older one's work. Two
       votes go in, one total comes out, and no error appears anywhere — the
       lost vote just vanishes without a trace. The <code>+1</code> tally above
       avoids this because it sends the change, not the number you think the
-      total should become — however the changes arrive, they add up to the
+      total should become. However the changes arrive, they add up to the
       same total.
     </p>
     <p>
@@ -109,12 +109,12 @@ watershed.set(board, id, json.int(current + 1))`,
   </div>
 
   <div class="g-block">
-    <h3>Deepening: what a tally deliberately can’t do</h3>
+    <h3>Deepening: what a tally deliberately can't do</h3>
     <p>
       A tally settles on the same total everywhere, no matter what order the
       votes arrive in — and it manages that by refusing to answer questions
-      about <em>who</em>. It has no per-voter record, so it can’t enforce one
-      vote per person, can’t give you a vote budget, and can’t tell you whether
+      about <em>who</em>. It has no per-voter record, so it can't enforce one
+      vote per person, can't give you a vote budget, and can't tell you whether
       a total of <code>2</code> means two people voted or one person clicked
       twice.
     </p>
@@ -124,7 +124,7 @@ watershed.set(board, id, json.int(current + 1))`,
       <a href="/structures/coordination">coordination family</a> when the
       question is “who holds this” rather than “how many”. Add them only when
       the question actually demands it — a tally that fits is worth more than
-      a fancier structure that doesn’t.
+      a fancier structure that doesn't.
     </p>
     <FieldNoteRef id="unsettled-writes" />
   </div>

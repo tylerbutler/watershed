@@ -17,7 +17,7 @@ const stampFnSnippet = sourceSnippet("foundations-schema-stamp");
 
 <FoundationsLayout
   slug="schema"
-  description="How a watershed schema works: Field, ChildField, and ChannelField are three kinds of typed key, each scoped to a document by a phantom tag the compiler checks and the runtime never sees. Reads are a decode boundary, not an enforced contract — and a separate, optional Schema layer covers whole records, versions, and stamps."
+  description="How a watershed schema works: Field, ChildField, and ChannelField are three kinds of typed key, each scoped to a document by a phantom tag the compiler checks and the runtime never sees. Reads are a decode boundary, not an enforced contract, and a separate, optional Schema layer covers whole records, versions, and stamps."
 >
   <div class="g-block">
     <h2>Three kinds of key, one tag</h2>
@@ -27,7 +27,7 @@ const stampFnSnippet = sourceSnippet("foundations-schema-stamp");
       a bool, whatever you tell it to decode as. A{" "}
       <code>ChildField(tag, child)</code> is a handle to another typed map
       nested underneath. A <code>ChannelField(tag, kind)</code> is a handle to
-      a channel of some other kind entirely — a counter, an OR-set, a claims
+      a channel of some other kind entirely: a counter, an OR-set, a claims
       channel. One schema module declares all three for a document, and{" "}
       <code>tag</code> is the thread that ties every field in it to the one
       map it belongs to.
@@ -73,8 +73,8 @@ const stampFnSnippet = sourceSnippet("foundations-schema-stamp");
     <p>
       Nest a whole document inside another one by declaring a{" "}
       <code>ChildField</code> instead of a <code>Field</code>. The stored
-      value isn't the child map's contents — it's a handle, the same handle
-      you'd get back from <code>handle_of</code> — but the type on the field
+      value is a handle, the same handle you'd get back from{" "}
+      <code>handle_of</code>, not the child map's contents. The type on the field
       still tells you which schema the child map uses, so reading through it
       is just as typed as reading a plain field.
     </p>
@@ -91,7 +91,7 @@ const stampFnSnippet = sourceSnippet("foundations-schema-stamp");
     <h2>A channel field is a handle to something that isn't a map at all</h2>
     <p>
       A document is rarely all maps. <code>ChannelField(tag, kind)</code> is a
-      handle to any other collaborative structure — a counter that moves by
+      handle to any other collaborative structure: a counter that moves by
       signed amounts, up or down, an OR-set where a concurrent add beats a
       remove, a claims channel where the first writer keeps the slot. The{" "}
       <code>kind</code>{" "}
@@ -113,7 +113,7 @@ const stampFnSnippet = sourceSnippet("foundations-schema-stamp");
     <p>
       None of this is enforced anywhere but your own build. A peer running an
       older version of your app, a stale summary, or a bug can write any JSON
-      to any key, and the server won't stop it —{" "}
+      to any key, and the server won't stop it:{" "}
       <a href="https://floodgate.tylerbutler.com">floodgate</a>, the relay
       watershed talks to, never looks inside the values it relays. So a typed
       read always has to consider that the value on the wire might not match

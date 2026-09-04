@@ -31,19 +31,19 @@ const addClickedSnippet = sourceSnippet("guide-notes-add-clicked");
     <h2>The whole note is one register</h2>
     <p>
       Every key in a <code>RegisterMode</code> map holds exactly one string —
-      that’s the whole constraint this mode gives you, and the tutorial takes
+      that's the whole constraint this mode gives you, and the tutorial takes
       it literally: a note gets turned into JSON on the way in, and parsed back
       on the way out. The text, the column, the author, and a creation
       timestamp all travel together as one value.
     </p>
     <p>
-      Which means the column is stored inside the note itself. That’s the
+      Which means the column is stored inside the note itself. That's the
       tradeoff: moving a note between columns means rewriting the whole note,
       so if two people move the same note at the same moment, the register keeps
       the write with the later clock value and the other disappears. The
-      tutorial doesn’t offer moves at all. The{" "}
+      tutorial doesn't offer moves at all. The{" "}
       <a href="/examples#retro_board_lustre">advanced retro board</a> keeps the
-      column on the note and adds a sequence per column, then treats the note’s
+      column on the note and adds a sequence per column, then treats the note's
       column register as authoritative when it reconciles the two.
     </p>
     <FieldNoteRef id="authoritative-channel" />
@@ -54,7 +54,7 @@ const addClickedSnippet = sourceSnippet("guide-notes-add-clicked");
         <strong>Anyone can write anything.</strong> The typed <code>Note</code>{" "}
         record is a place where you decode incoming data, not a schema the
         server enforces — an older version of the app, or a stale copy, could
-        put any string into that field. So <code>from_register</code> doesn’t
+        put any string into that field. So <code>from_register</code> doesn't
         have an error case to forget about: a value that fails to decode
         becomes a visible placeholder card instead. A card you can see and
         recognize as broken beats a crash that takes the whole board down.
@@ -106,8 +106,8 @@ const addClickedSnippet = sourceSnippet("guide-notes-add-clicked");
       <p>
         <strong>Sort by content, never by arrival.</strong> Two tabs receive
         the same edits in the same server-assigned order, but the order things
-        happened to arrive in isn’t something you should render directly.
-        Deriving the display order from the note’s own fields, instead of from
+        happened to arrive in isn't something you should render directly.
+        Deriving the display order from the note's own fields, instead of from
         arrival order, is what makes “both clients show the same board” a
         thing you can actually guarantee.
       </p>
@@ -115,7 +115,7 @@ const addClickedSnippet = sourceSnippet("guide-notes-add-clicked");
   </div>
 
   <div class="g-block">
-    <h3>Deepening: the column you don’t recognise</h3>
+    <h3>Deepening: the column you don't recognise</h3>
     <p>
       Three columns are hardcoded, so what happens when a note arrives filed
       under <code>parking_lot</code> — a column a newer build added, or a
@@ -136,7 +136,7 @@ const addClickedSnippet = sourceSnippet("guide-notes-add-clicked");
     <p>
       Open the board in two tabs, add a note in one, and watch it appear in
       the other, with <code>votes 0</code> under it. The buttons are already
-      wired; step 04 explains why their tally updates don’t lose concurrent
+      wired; step 04 explains why their tally updates don't lose concurrent
       votes.
     </p>
   </div>

@@ -89,14 +89,14 @@ pnpm serve      # http://localhost:8080`,
       A <code>tenant</code> id and a <code>document</code> id address the
       document. The tenant id groups documents; the document id picks one board
       in that group. Any client that opens the same pair of names joins the same
-      live board — open the same link in two tabs and you’re looking at the same
+      live board — open the same link in two tabs and you're looking at the same
       board in both.
     </p>
     <p>
       Connecting does two things. First it catches you up: the server replays
-      the document’s whole history of edits, so this board opens at its current
+      the document's whole history of edits, so this board opens at its current
       state instead of an empty one. Then it keeps the line open, streaming
-      every later edit — yours and everyone else’s — in the single order the
+      every later edit — yours and everyone else's — in the single order the
       server assigns.
     </p>
     <SnippetBlock snippet={devConstantsSnippet} />
@@ -114,9 +114,9 @@ pnpm serve      # http://localhost:8080`,
     <p>
       The browser side of watershed talks in callbacks: <code>on_ready</code>,
       subscription handlers, presence events. If you wired those into Lustre by
-      hand, each one would need to fire off a message on its own — and firing a
+      hand, each one would need to fire off a message on its own, and firing a
       message from inside <code>update</code>, while <code>update</code> is
-      still assembling the model you’re about to return, quietly overwrites
+      still assembling the model you're about to return, quietly overwrites
       that half-built model with a stale one.{" "}
       <a href="https://github.com/tylerbutler/watershed/tree/main/watershed_lustre">
       <code>watershed_lustre</code></a> does that wiring once, correctly, so
@@ -145,11 +145,11 @@ pnpm serve      # http://localhost:8080`,
     <p>
       Notice that <code>connect_dev</code> fires two separate messages.
       <code>got_document</code> arrives the moment you have something to hold
-      onto — a reference to the document, before it’s caught up. <code>connected</code>{" "}
-      arrives later, once the server has finished replaying history and you’re
+      onto — a reference to the document, before it's caught up. <code>connected</code>{" "}
+      arrives later, once the server has finished replaying history and you're
       actually in sync. Treat those as the same moment and you get a subtle
       bug on first load: you start building on a document that looks ready but
-      hasn’t caught up yet, and wonder why the board flickers or shows nothing.
+      hasn't caught up yet, and wonder why the board flickers or shows nothing.
     </p>
     <p>
       So the tutorial app keeps both messages separate, and only starts
@@ -161,7 +161,7 @@ pnpm serve      # http://localhost:8080`,
   </div>
 
   <div class="g-block">
-    <h2>Define the board’s fields</h2>
+    <h2>Define the board's fields</h2>
     <p>
       The schema lists the shared fields in a document. This board has a
       <code>title</code> string and two maps named <code>notes</code> and{" "}
@@ -172,8 +172,8 @@ pnpm serve      # http://localhost:8080`,
       Keep these names in one file instead of repeating strings throughout the
       app. The <code>BoardDocument</code> type also prevents code from using one of
       these fields with a different kind of document. For the full picture of
-      what a field can be — a plain value, a handle to a nested map, or a
-      handle to another channel kind entirely — see{" "}
+      what a field can be (a plain value, a handle to a nested map, or a
+      handle to another channel kind entirely), see{" "}
       <a href="/foundations/schema">Foundations · schemas and fields</a>.
     </p>
     <SnippetBlock snippet={schemaSnippet} />
@@ -203,9 +203,9 @@ pnpm serve      # http://localhost:8080`,
     <h2>Build the board only when both channels are ready</h2>
     <p>
       Each call to <code>ensure_or_map</code> hands its map back separately,
-      and the two don’t arrive together. Build the board as soon as one shows
-      up and you’d get shared state with one channel missing, so the app holds
-      both results in a <code>PendingShared</code> pair and doesn’t assemble
+      and the two don't arrive together. Build the board as soon as one shows
+      up and you'd get shared state with one channel missing, so the app holds
+      both results in a <code>PendingShared</code> pair and doesn't assemble
       the board until both are in. Until then, the shell still renders and its
       status line reports <code>channels 1/2</code>.
     </p>
@@ -213,7 +213,7 @@ pnpm serve      # http://localhost:8080`,
     <p>
       The subscriptions come last, and they matter more than they look. A
       subscription only tells you about changes that happen <em>after</em> you
-      subscribe — it never replays what’s already in the map. That’s why{" "}
+      subscribe — it never replays what's already in the map. That's why{" "}
       <code>assemble</code> takes a snapshot of the current state in the same
       breath that it subscribes. Skip the snapshot, and the board boots up
       empty and stays empty until someone else happens to type.
@@ -232,8 +232,8 @@ pnpm serve      # http://localhost:8080`,
   <div class="g-block">
     <h3>Deepening: the same thing on the BEAM</h3>
     <p>
-      watershed is built BEAM-first — the BEAM is the Erlang virtual machine
-      that Gleam also targets on the server — and the same core logic compiles
+      watershed is built BEAM-first (the BEAM is the Erlang virtual machine
+      that Gleam also targets on the server), and the same core logic compiles
       to the browser too. The map operations are identical either way; only the
       connecting and subscribing look different, because the two runtimes work
       differently.
@@ -244,12 +244,12 @@ pnpm serve      # http://localhost:8080`,
       </figcaption>
     </SnippetBlock>
     <p>
-      On the BEAM, there’s no two-message dance to design around:{" "}
+      On the BEAM, there's no two-message dance to design around:{" "}
       <code>connect</code> simply pauses your code until the document has
-      fully caught up, so by the time you’re holding a handle, it’s already
-      synced. That’s the difference that changes how you design the connection,
-      and it’s why the browser path above needs the two-message pattern:
-      JavaScript can’t pause and wait the way an OTP process (an
+      fully caught up, so by the time you're holding a handle, it's already
+      synced. That's the difference that changes how you design the connection,
+      and it's why the browser path above needs the two-message pattern:
+      JavaScript can't pause and wait the way an OTP process (an
       Erlang-style lightweight process) can.
     </p>
     <FieldNoteRef id="shared-core-two-runtimes" />
@@ -258,7 +258,7 @@ pnpm serve      # http://localhost:8080`,
   <div class="g-block">
     <h2>Run it</h2>
     <p>
-      Here is the project’s source and test layout, so you know where each later
+      Here is the project's source and test layout, so you know where each later
       sheet puts its file. The board and note modules arrive in step 02; the
       app shell already imports them, so use the complete example and read the
       guide forward.

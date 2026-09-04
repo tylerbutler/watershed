@@ -22,13 +22,13 @@ import GuideRaceDemo from "../../components/GuideRaceDemo.astro";
     <h2>Each note uses a different key</h2>
     <p>
       Notes are keyed by note id in an <strong>OR-map</strong>, so two adds
-      write two different keys — there’s nothing for them to collide over.
+      write two different keys — there's nothing for them to collide over.
     </p>
     <p>
-      Store the board as a plain map keyed by column instead, and you’d get
+      Store the board as a plain map keyed by column instead, and you'd get
       one note back, not two: a map with one key per column has one slot per
-      column, so the second note overwrites the first — that’s what
-      “last write wins” means. Keying by note id means there’s no shared slot
+      column, so the second note overwrites the first — that's what
+      “last write wins” means. Keying by note id means there's no shared slot
       to overwrite.
     </p>
   </div>

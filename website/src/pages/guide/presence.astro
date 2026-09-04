@@ -21,21 +21,21 @@ const focusNamesSnippet = sourceSnippet("guide-presence-focus-names");
     <h2>Some facts should be allowed to expire</h2>
     <p>
       Notes and votes both had to survive — that was the whole argument
-      behind how they’re built. “Ada is reading this card right now” is the
+      behind how they're built. “Ada is reading this card right now” is the
       opposite kind of fact. Put it in the document, and it becomes permanent
       right along with everything else: ordered by the server, folded into
-      the board’s saved state, and played back to whoever opens the board
+      the board's saved state, and played back to whoever opens the board
       next Tuesday — long after it stopped being true.
     </p>
     <p>
-      watershed’s answer is a second system that runs alongside your channels,
-      built for facts that shouldn’t stick around.
+      watershed's answer is a second system that runs alongside your channels,
+      built for facts that shouldn't stick around.
       <strong>Ripples</strong> are the raw form: a message broadcast to every
       other client connected to this document right now, with no ordering
       guarantee and nothing saved anywhere — on purpose.
       <strong>Presence</strong> is the roster built on that same ephemeral
-      tier, and it’s the one you want here, because a raw ripple would leave a
-      peer’s last marker stuck on screen even after they close the tab;
+      tier, and it's the one you want here, because a raw ripple would leave a
+      peer's last marker stuck on screen even after they close the tab;
       presence knows how to clear itself when someone leaves.
     </p>
   </div>
@@ -44,14 +44,14 @@ const focusNamesSnippet = sourceSnippet("guide-presence-focus-names");
     <h2>Declare what a teammate broadcasts</h2>
     <p>
       A presence payload is a record you own, with an encoder and a decoder.
-      The tutorial’s is three fields: a colour, a short name, and the note this
+      The tutorial's is three fields: a colour, a short name, and the note this
       person is looking at — <code>None</code> when they are looking at the board
       as a whole.
     </p>
     <SnippetBlock snippet={payloadSnippet} />
     <p>
       Note the <code>optional_field</code> on the way in. Someone running last
-      week’s version of the app might not send <code>focused_note</code> at
+      week's version of the app might not send <code>focused_note</code> at
       all, and the roster should shrug that off instead of dropping them
       entirely.
     </p>
@@ -62,8 +62,8 @@ const focusNamesSnippet = sourceSnippet("guide-presence-focus-names");
     <p>
       <code>watershed_lustre.presence</code> is a single effect that starts
       everything running, hands back a <code>Handle</code> to keep in your
-      model, and dispatches roster events as they arrive. You don’t write any
-      of the plumbing yourself: no heartbeat (a periodic “I’m still here”
+      model, and dispatches roster events as they arrive. You don't write any
+      of the plumbing yourself: no heartbeat (a periodic “I'm still here”
       ping), no expiry timer, and no cleanup process to remove people who
       disappeared without saying goodbye.
     </p>
@@ -73,10 +73,10 @@ const focusNamesSnippet = sourceSnippet("guide-presence-focus-names");
         <strong>Two implementations, one API.</strong> Where the server can
         track each connection directly, it does: a late joiner gets the whole
         roster at once, and closing a tab removes that entry immediately.
-        Where it can’t, presence falls back to sending its own heartbeat over
-        ripples and expiring anyone who’s gone quiet for too long. The{" "}
+        Where it can't, presence falls back to sending its own heartbeat over
+        ripples and expiring anyone who's gone quiet for too long. The{" "}
         <a href="/runtime/presence">runtime note</a> covers which one you get
-        and what changes when it’s the fallback.
+        and what changes when it's the fallback.
       </p>
     </div>
   </div>
@@ -110,11 +110,11 @@ const focusNamesSnippet = sourceSnippet("guide-presence-focus-names");
     <SnippetBlock snippet={presenceEventsSnippet} />
     <p>
       The interesting part is what happens when something goes wrong. If one
-      teammate’s presence data doesn’t decode, that single entry is ignored — a
-      person on a broken build shouldn’t wipe out everyone else’s roster. If
-      the server doesn’t support presence at all, or rejects your attempt to
+      teammate's presence data doesn't decode, that single entry is ignored — a
+      person on a broken build shouldn't wipe out everyone else's roster. If
+      the server doesn't support presence at all, or rejects your attempt to
       join, you get a message on screen instead of a crash. Either way, the
-      board itself keeps working: notes and votes don’t depend on presence, so
+      board itself keeps working: notes and votes don't depend on presence, so
       losing presence never takes them down.
     </p>
     <SnippetBlock snippet={remotePeersSnippet} />
@@ -130,20 +130,20 @@ const focusNamesSnippet = sourceSnippet("guide-presence-focus-names");
     <h3>Deepening: one highlight, built from two systems</h3>
     <p>
       The highlight you see on a card is where the two systems meet. The
-      note’s id comes from the permanent channel — the document. Who’s looking
-      at it comes from the temporary one — presence. The card combines both,
-      freshly, every time it’s drawn.
+      note's id comes from the permanent channel: the document. Who's looking
+      at it comes from the temporary one: presence. The card combines both,
+      freshly, every time it's drawn.
     </p>
     <SnippetBlock snippet={focusNamesSnippet} />
     <p>
       Same idea, now with the actual function: <code>focus_names</code> combines
-      your own local focus with anyone else’s whose focused note matches this
+      your own local focus with anyone else's whose focused note matches this
       card, at render time. If you take one habit from this sheet, take that
       one — let the temporary system point at permanent state, never copy it.
     </p>
     <p>
       Fast-changing signals — cursor position, a typing indicator — stay as
-      raw ripples instead. Presence is for who’s here and the slower-changing
+      raw ripples instead. Presence is for who's here and the slower-changing
       status attached to that, not for anything that updates many times a
       second.
     </p>

@@ -64,18 +64,18 @@ gleam test`,
     </p>
     <p>
       It plugs into the same client code as production, including encoding,
-      queues, retries, reconnecting, and message order. It doesn’t open a real
-      network connection or reproduce floodgate’s storage and login.
+      queues, retries, reconnecting, and message order. It doesn't open a real
+      network connection or reproduce floodgate's storage and login.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Choose when messages arrive</h2>
     <p>
-      When a client submits something, it’s processed and given its place in
+      When a client submits something, it's processed and given its place in
       the order right away — but the messages that result from it sit in a
       queue instead of arriving immediately. <code>settle</code> drains that
-      queue until nothing’s left to deliver; <code>step</code> delivers
+      queue until nothing's left to deliver; <code>step</code> delivers
       exactly one message and stops. That splits “the order the server decided
       on” and “the order each client actually sees it in” into two separate
       things you control by hand.
@@ -89,7 +89,7 @@ gleam test`,
     <SnippetBlock snippet={roomSnippet} />
     <p>
       Neither settle call is decoration. Skip the second one, and client B is
-      looking at a root map that doesn’t have those channels in it yet — so{" "}
+      looking at a root map that doesn't have those channels in it yet — so{" "}
       <code>channels_of</code> fails, not because anything is broken, but
       because you asked too early.
     </p>
@@ -119,14 +119,14 @@ gleam test`,
       The add race checks two things:{" "}
       <code>board_a |> should.equal(board_b)</code> confirms both tabs ended
       up showing the identical board, and the note count, two lookups, and
-      column tally confirm they didn’t end up identical by both losing the same
+      column tally confirm they didn't end up identical by both losing the same
       note.
     </p>
     <SnippetBlock snippet={addRaceSnippet} />
     <p>
       The vote race sends three votes across two clients and checks they
       settle at <code>+1</code>. Same shape, same settle call, and no{" "}
-      <code>sleep</code> anywhere in sight — the test doesn’t wait and hope
+      <code>sleep</code> anywhere in sight — the test doesn't wait and hope
       the timing works out, it calls <code>settle</code> and gets the same
       answer every single time.
     </p>
@@ -148,7 +148,7 @@ gleam test`,
     <p>
       When you want to inspect a board mid-flight — one note delivered, the
       other still waiting — <code>step</code> advances one message at a time.
-      It doesn’t change the order things were already assigned; the order you
+      It doesn't change the order things were already assigned; the order you
       called the submit functions in decides that.
     </p>
     <SnippetBlock snippet={scriptedSnippet} />
@@ -156,8 +156,8 @@ gleam test`,
       <p>
         <strong>More controls.</strong> Both <code>sluice</code> and
         <code>sluice_js</code> provide <code>pause</code> / <code>resume</code>
-        {" "}to hold back one client’s messages specifically, and{" "}
-        <code>advance(ms)</code> to move the sluice’s logical clock forward.
+        {" "}to hold back one client's messages specifically, and{" "}
+        <code>advance(ms)</code> to move the sluice's logical clock forward.
         On <code>sluice_js</code>, advancing also fires every timer that became
         due. Hand its scheduler to <code>presence_js.start_with_scheduler</code>{" "}
         and presence runs on that clock too, so heartbeat and expiry tests
@@ -213,7 +213,7 @@ gleam test`,
     <span class="annot">You can now</span>
     <p>
       Run <code>gleam test</code> and get a clean pass in
-      about a second: two convergence races, two wrong-mode guards, the board’s
+      about a second: two convergence races, two wrong-mode guards, the board's
       ordering and joins, and the note codec — no server, no browser, no timing
       luck.
     </p>

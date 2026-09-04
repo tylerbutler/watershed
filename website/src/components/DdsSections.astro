@@ -20,7 +20,7 @@ const flow = [
     step: "2",
     title: "Sequence",
     detail:
-      "A server like floodgate puts everyone’s changes in one order and sends that order to every client.",
+      "A server like floodgate puts everyone's changes in one order and sends that order to every client.",
   },
   {
     step: "3",
@@ -42,13 +42,13 @@ const flow = [
     <div class="dds-copy">
       <h2 id="dds-field-title">One ordered stream, one clear rule per structure</h2>
       <p>
-        watershed doesn’t paper over conflicts with one catch-all merge. Each
+        watershed doesn't paper over conflicts with one catch-all merge. Each
         structure states a small, clear rule: what can show up instantly, what
         has to wait for the server to confirm it, and what gets saved so a client
         can reload later.
       </p>
       <p class="dds-atlas-note">
-        Only a few of watershed’s structures are shown here. Find the rest,
+        Only a few of watershed's structures are shown here. Find the rest,
         grouped by family, in <a href="/structures">the field atlas</a>. The
         full catalog includes a live demo for each structure.
       </p>
@@ -73,7 +73,7 @@ const flow = [
                 <dd>{dds.rule}</dd>
               </div>
               <div>
-                <dt>Before it’s confirmed</dt>
+                <dt>Before it's confirmed</dt>
                 <dd>{dds.optimistic}</dd>
               </div>
               <div>

@@ -17,9 +17,9 @@ const models = [
   {
     kind: "DDS",
     name: "Distributed Data Structure",
-    gloss: "Converges by one server’s total order.",
+    gloss: "Converges by one server's total order.",
     body: [
-      "A DDS here follows Fluid Framework’s collaborative-object model. Every client applies its own ops optimistically, sends them to a central sequencer, and receives one authoritative order back. Because every replica replays the same ordered stream, they all land in the same state.",
+      "A DDS here follows Fluid Framework's collaborative-object model. Every client applies its own ops optimistically, sends them to a central sequencer, and receives one authoritative order back. Because every replica replays the same ordered stream, they all land in the same state.",
       "The conflict policy applies on top of that order: last-write-wins for a map, first-writer-wins for a claim, FIFO for a queue, quorum for a pact. The order is the source of truth; the policy just decides what the order means.",
     ],
     tradeoff:
@@ -58,7 +58,7 @@ const models = [
 const rows = [
   {
     axis: "Converges via",
-    dds: "one server’s total order",
+    dds: "one server's total order",
     crdt: "a commutative merge function",
     ot: "pairwise op transforms",
   },
@@ -220,7 +220,7 @@ const rows = [
         <div class="mod-cta">
           <a class="cta-primary" href="/structures">Back to the field guide</a>
           <a class="cta-quiet" href="/runtime">How the runtime behaves →</a>
-          <a class="cta-quiet" href="/sharedtree">Fluid’s SharedTree, compared →</a>
+          <a class="cta-quiet" href="/sharedtree">Fluid's SharedTree, compared →</a>
           <a class="cta-quiet" href="/#demo">Compare live merge policies ↓</a>
         </div>
       </div>

@@ -108,8 +108,8 @@ const rows = [
       </p>
       <h1>Two places to put<br /><em>the guarantee.</em></h1>
       <p class="lede">
-        Fluid Framework’s <code>SharedTree</code> and watershed’s typed layer
-        want the same thing: declare a document’s shape once, get static types,
+        Fluid Framework's <code>SharedTree</code> and watershed's typed layer
+        want the same thing: declare a document's shape once, get static types,
         get roots that are guaranteed to be there, get told when something
         changes. They disagree about where to put the guarantee, and almost
         everything else follows from that choice.
@@ -123,7 +123,7 @@ const rows = [
       <p>
         SharedTree makes the schema <em>the document</em>. The
         <code>SchemaFactory</code> id you pick is written into the container as
-        the <strong>stored schema</strong>, and from then on every client’s
+        the <strong>stored schema</strong>, and from then on every client's
         SharedTree enforces it. A client whose view schema disagrees cannot
         silently write the wrong shape. Because there is one tree under one rebasable
         changeset algebra, transactions, undo/redo, node identity, cross-parent
@@ -160,8 +160,8 @@ const rows = [
         declaration <em>is</em>: a <code>SchemaFactory</code> id becomes part of
         the document, where <code>pub type Board</code> is a phantom tag that
         exists only to stop you reading a field against the wrong map. Note the
-        counter too: SharedTree’s <code>wipBreaches</code> is a number in the
-        tree; watershed’s is a handle to a whole <code>SharedCounter</code>,
+        counter too: SharedTree's <code>wipBreaches</code> is a number in the
+        tree; watershed's is a handle to a whole <code>SharedCounter</code>,
         with commutative increments of its own. <a href="/foundations/schema"
           >Foundations · schemas and fields</a
         > covers that phantom tag, and the three kinds of field, in full.
@@ -220,7 +220,7 @@ const rows = [
         <p>
           <strong>The losers stay attached.</strong> A candidate channel that
           did not win the race is still attached to the document, just
-          unreferenced. Orphan collection is out of scope; that’s the cost of
+          unreferenced. Orphan collection is out of scope; that's the cost of
           not having a leader elect the root.
         </p>
       </div>
@@ -342,7 +342,7 @@ const rows = [
       <p>
         So watershed makes you choose, and in exchange lets you choose right:
         pencil marks want an <a href="/structures/sets#orset">OR-set</a> where a
-        concurrent add beats a remove, the puzzle’s givens want{" "}
+        concurrent add beats a remove, the puzzle's givens want{" "}
         <a href="/structures/coordination#claims">first-writer-wins claims</a>,
         the mistake tally wants a{" "}
         <a href="/structures/counters#counter">counter</a> that does not
@@ -375,8 +375,8 @@ const rows = [
       <p>
         What a field subscription gives back in exchange is decoded on both
         sides. A <code>FieldChange</code> carries the previous value and the new
-        one, already run through the field’s decoder, plus whether this client
-        made it. A peer’s type-confused write arrives as an
+        one, already run through the field's decoder, plus whether this client
+        made it. A peer's type-confused write arrives as an
         <code>Error</code> in the event rather than as state that looks fine
         until it does not.
       </p>
@@ -447,11 +447,11 @@ const rows = [
       </ul>
       <p>
         The reason is worth stating as a number rather than an adjective. Fluid
-        Framework’s tree package (stored-versus-view schema system, forest,
+        Framework's tree package (stored-versus-view schema system, forest,
         compositional changeset rebasing, undo/redo, ID compression) is
         <strong>77,804 lines</strong> — a multi-year project to reproduce in
         any language, and one watershed would take on only for a compelling
-        product need. watershed’s entire schema vocabulary is
+        product need. watershed's entire schema vocabulary is
         one <strong>roughly 700-line</strong> module:
         <code>src/watershed/schema.gleam</code>. That is the trade.
       </p>

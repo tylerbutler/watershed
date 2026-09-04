@@ -12,7 +12,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
       Connections fail: a laptop sleeps, a tunnel closes, a phone walks out of
       signal. The question is never whether it happens but what state you come
       back to. watershed reconnects the transport, remaps the client id, and
-      resubmits pending operations against the server’s current reference
+      resubmits pending operations against the server's current reference
       sequence number before live delivery resumes.
     </p>
   </div>
@@ -23,7 +23,7 @@ import RuntimeLayout from "../../components/RuntimeLayout.astro";
       A long-lived document accumulates thousands of ops. Replaying all of them
       on every join would make reconnection slower the older the document got.
       An application can explicitly call <code>summarize(document)</code> to
-      write the client’s current confirmed channel snapshots to floodgate storage.
+      write the client's current confirmed channel snapshots to floodgate storage.
       The server records the sequence number covered by that summary. On a later
       bootstrap, watershed loads an available summary and applies operations
       after that point.

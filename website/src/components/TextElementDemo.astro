@@ -19,12 +19,12 @@ const panes = [
       are that element: two documents, one shared <code>SharedText</code>,
       the same in-memory sluice, and this page contributes <em>no editor code at all</em>.
       The channel goes in as one property (<code>el.channel&nbsp;=&nbsp;text</code>);
-      edits, errors, and this user’s cursor come back out as DOM events; the
-      other pane’s cursor goes back in as data.
+      edits, errors, and this user's cursor come back out as DOM events; the
+      other pane's cursor goes back in as data.
     </p>
     <p class="demo-hint">
       The component owns what the naïve bridge gets wrong: each keystroke is
-      diffed into one minimal grapheme op, a peer’s edit can’t teleport your
+      diffed into one minimal grapheme op, a peer's edit can't teleport your
       caret, and an IME composition survives remote
       keystrokes. <strong>Select a few words in one pane</strong> and a named
       highlight appears in the other, then type before them and watch it stay
@@ -52,7 +52,7 @@ const panes = [
 
   <p class="controls-hint">
     Cursors here hop panes through a property assignment; in an app
-    the <code>cursor</code> event’s payload rides your presence channel
+    the <code>cursor</code> event's payload rides your presence channel
     unchanged.
   </p>
 
@@ -65,9 +65,9 @@ const panes = [
   </noscript>
 
   <p class="demo-noscript" data-text-element-fallback hidden>
-    The live demo couldn’t start: it runs the compiled
+    The live demo couldn't start: it runs the compiled
     <code>&lt;watershed-textarea&gt;</code> component against the in-memory
-    <code>sluice</code>, and this browser didn’t load it. The rest of the page
+    <code>sluice</code>, and this browser didn't load it. The rest of the page
     works fine without it.
   </p>
 </section>

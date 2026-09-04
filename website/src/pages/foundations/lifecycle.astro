@@ -36,8 +36,8 @@ const ensuredArmsSnippet = sourceSnippet("foundations-lifecycle-ensured-arms");
       success, and it returns an <code>Error</code> instead of a handle.
     </p>
     <p>
-      <code>ensure_field</code> sits outside that gate — it never returns an{" "}
-      <code>Error</code> — but a write it makes before <code>connected</code>{" "}
+      <code>ensure_field</code> sits outside that gate, and never returns an{" "}
+      <code>Error</code>, but a write it makes before <code>connected</code>{" "}
       doesn't survive either: the runtime drops an edit made before the
       connection is ready instead of queuing it. Batch it with the
       channel-creating calls. Wait for <code>connected</code> before running
@@ -51,7 +51,7 @@ const ensuredArmsSnippet = sourceSnippet("foundations-lifecycle-ensured-arms");
   <div class="g-block">
     <h2><code>connected</code> always follows <code>got_document</code></h2>
     <p>
-      This isn't a race to guard against — it's a fixed order. <code>connect</code>{" "}
+      The order here is fixed. <code>connect</code>{" "}
       hands back a <code>Document</code> value the instant you call it, and{" "}
       <code>got_document</code> fires on the next tick. <code>connected</code>{" "}
       only fires once the handshake and the history replay round-trip to the
@@ -76,15 +76,15 @@ const ensuredArmsSnippet = sourceSnippet("foundations-lifecycle-ensured-arms");
       A fresh document has no channels in it yet, and every client that opens
       it runs the same bootstrap code — there's no leader, no one client
       responsible for creating things first. The channel-shaped members of
-      the <code>ensure_*</code> family — <code>ensure_map</code>,{" "}
-      <code>ensure_or_map</code>, and the rest — all follow one rule: if the
+      the <code>ensure_*</code> family (<code>ensure_map</code>,{" "}
+      <code>ensure_or_map</code>, and the rest) all follow one rule: if the
       field already holds a handle, adopt it; if it's empty, create a
       candidate, wait for your own write to sync, then re-read the field and
       adopt whatever handle is sitting there. <code>ensure_*</code> also keeps
       retrying that read for about five seconds while the handle it finds is
-      still mid-attach, and gives up with an <code>Error</code> — the same{" "}
-      <code>Error(reason)</code> arm that a failed creation reports — if
-      nothing has shown up by then. What resolves inside that window isn't
+      still mid-attach, and gives up with an <code>Error</code> if nothing has
+      shown up by then: the same{" "}
+      <code>Error(reason)</code> arm that a failed creation reports. What resolves inside that window isn't
       final, either: a concurrent client's write can still land after yours
       and replace the field a moment later.{" "}
       <code>ensure_field</code> is simpler, because a plain field isn't a
@@ -100,7 +100,7 @@ const ensuredArmsSnippet = sourceSnippet("foundations-lifecycle-ensured-arms");
         board opens with nobody's notes list created yet, and two browser
         tabs load it at the same moment, both seed a candidate. Waiting for
         sync only confirms that <em>your own</em> candidate's write has been
-        acknowledged — not that the other client's has arrived yet — so the
+        acknowledged (not that the other client's has arrived yet), so the
         handle you resolve right after your own sync can still be swapped
         out from under you a moment later, once the other client's write
         catches up. <code>ensure_*</code> doesn't referee that race: it has
@@ -110,14 +110,17 @@ const ensuredArmsSnippet = sourceSnippet("foundations-lifecycle-ensured-arms");
         that key means every client converges on the same one handle
         eventually, even if nobody observes it on the same tick. The
         candidate that loses stays attached to the document, just
-        unreferenced — nothing errors. A seeding call can spend about five
+        unreferenced; nothing errors.
+      </p>
+      <p>
+        A seeding call can spend about five
         seconds waiting for its candidate write to sync, then about five more
         resolving the handle that won the field. If the sync wait runs out, it
         proceeds to resolution; it reports an <code>Error</code> only if the
-        handle still hasn’t resolved when the second wait ends. That path can
+        handle still hasn't resolved when the second wait ends. That path can
         take up to about ten seconds in total. If your app needs the channel
         it's holding to track the field through a concurrent bootstrap,
-        subscribe to the root and resolve again when the field changes —{" "}
+        subscribe to the root and resolve again when the field changes:{" "}
         <code>ensure_*</code> gets you an attached channel, not a lock on being
         last.
       </p>
@@ -127,7 +130,7 @@ const ensuredArmsSnippet = sourceSnippet("foundations-lifecycle-ensured-arms");
   <div class="g-block">
     <h2>Bootstrap is just another effect</h2>
     <p>
-      In practice, bootstrap is one batch of effects fired once{" "}
+      One batch of effects fires once{" "}
       <code>got_document</code> and <code>connected</code> have both arrived: an
       <code>ensure_field</code> for a default value, an <code>ensure_or_map</code>{" "}
       for each nested channel the schema needs, and a subscription on the
@@ -182,8 +185,7 @@ const ensuredArmsSnippet = sourceSnippet("foundations-lifecycle-ensured-arms");
       edits get resubmitted, and a fresh bootstrap can rehydrate from a saved
       summary instead of replaying every event from the start.{" "}
       <a href="/runtime/reconnect">Runtime · reconnect</a> covers that path in
-      full; nothing above needs restating there, and nothing there needs
-      restating here.
+      full.
     </p>
   </div>
 
@@ -195,8 +197,8 @@ const ensuredArmsSnippet = sourceSnippet("foundations-lifecycle-ensured-arms");
       idempotent <code>ensure_*</code> bootstrap, with no leader to
       coordinate it, and the field it writes to converges to one handle even
       when two clients race. Take an explicit snapshot and subscribe for
-      what comes next — order between the two doesn't matter, having both
-      does — and hold each channel's result until every one your schema
+      what comes next (order between the two doesn't matter, having both
+      does), and hold each channel's result until every one your schema
       needs has arrived before you render anything.
       Next: <a href="/foundations/components">how a host describes reusable
       component kinds without giving up their typed configuration</a>.

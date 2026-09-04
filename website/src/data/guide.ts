@@ -58,7 +58,7 @@ export const steps = [
     n: "06",
     slug: "testing",
     title: "Write repeatable tests",
-    goal: "Turn the two-tab checks you’ve been running by hand into tests you can run anytime.",
+    goal: "Turn the two-tab checks you've been running by hand into tests you can run anytime.",
     surface: "sluice_js · start · settle · step",
   },
 ] as const satisfies readonly GuideStep[];
