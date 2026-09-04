@@ -208,11 +208,13 @@ add one only to create coverage. Renderer tests use a generated manifest entry
 to exercise the complete snippet path without changing the route's content.
 
 Syntax highlighting happens during the static build. `smalto` tokenizes each
-supported language, and `smalto_lustre` turns those tokens into Lustre elements
-with site-owned classes. The renderer preserves escaped source text, language
-classes, keyboard focus on source links, and the current visual theme. An
-unknown language produces an unhighlighted escaped code block and retains its
-language label.
+supported language, and a small site-owned function maps its token variants to
+Lustre elements with site-owned classes. The renderer does not use
+`smalto_lustre` because version 3.0 declares the Erlang target and cannot join
+the JavaScript-target site package. The renderer preserves escaped source text,
+language classes, keyboard focus on source links, and the current visual
+theme. An unknown language produces an unhighlighted escaped code block and
+retains its language label.
 
 ## Shared layouts
 
