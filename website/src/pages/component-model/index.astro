@@ -1,0 +1,35 @@
+---
+import ConceptIndex from "../../components/ConceptIndex.astro";
+import { componentModelDocs } from "../../data/foundations";
+---
+
+<ConceptIndex
+  section="Component model"
+  heading="Give users"
+  emphasis="the parts."
+  description="The optional model for user-constructable watershed apps: versioned component catalogs, typed ports, graph validation, workspace persistence, and dispatch planning."
+  scope="Optional · user-constructable apps"
+  optional
+  docs={componentModelDocs}
+  base="/component-model"
+  ledgerIntro={`${componentModelDocs.length} sheets. One board, built, wired, and saved. The first two split in half: using the parts, then writing one.`}
+>
+  <Fragment slot="lede">
+    <p class="lede">
+      These sheets answer one question: what if the user, not the author,
+      decides what is on the page? Build one shared board out of parts, wire it
+      up, and save it.
+    </p>
+    <p class="lede">
+      Skip this section if your application ships a screen you lay out
+      yourself. Start with <a href="/foundations">the foundations</a> for the
+      document model every watershed app uses.
+    </p>
+  </Fragment>
+
+  <p slot="aside">
+    Need a fixed application screen instead? Return to{" "}
+    <a href="/foundations">the foundations</a>, then follow{" "}
+    <a href="/guide">the survey procedure</a>.
+  </p>
+</ConceptIndex>

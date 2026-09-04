@@ -1,15 +1,12 @@
 // ──────────────────────────────────────────────────────────────────────────
-// watershed — foundations concept catalog
-// Single source of truth for the /foundations section: the hub index, the
-// per-doc prev/next pager, and the "adjoining sheets" footer column. These are
-// the core document model plus the component-composition foundation: what a
-// schema declares, how a document is laid out and started, and how a host
-// describes components and routes events between them.
-// Keep this list in reading order — the pager derives prev/next from it.
+// watershed — foundations and component-model concept catalogs
+// Single source of truth for both hub indexes, the per-doc prev/next pager,
+// and the "adjoining sheets" footer columns.
+// Keep each list in reading order — the pager derives prev/next from it.
 // ──────────────────────────────────────────────────────────────────────────
 
 export interface FoundationDoc {
-  /** Route slug under /foundations. */
+  /** Route slug under its section. */
   slug: string;
   /** Sheet title. */
   title: string;
@@ -41,6 +38,9 @@ export const foundationsDocs: FoundationDoc[] = [
       "Every client runs the same bootstrap: get a handle, wait for the catch-up, ensure the channels it needs exist, and only render once they've all reported in.",
     concept: "got_document · connected · ensure_* · subscribe",
   },
+];
+
+export const componentModelDocs: FoundationDoc[] = [
   {
     slug: "components",
     title: "Components and catalogs",
@@ -64,19 +64,24 @@ export const foundationsDocs: FoundationDoc[] = [
   },
 ];
 
+export const conceptDocs = [...foundationsDocs, ...componentModelDocs];
+
 /** slug → doc, for cross-links. */
-export const foundationsBySlug: Record<string, FoundationDoc> = Object.fromEntries(
-  foundationsDocs.map((d) => [d.slug, d]),
+export const conceptsBySlug: Record<string, FoundationDoc> = Object.fromEntries(
+  conceptDocs.map((d) => [d.slug, d]),
 );
 
-/** The doc before/after `slug` in reading order, or null at the ends. */
-export function foundationsNeighbours(slug: string): {
+/** The doc before/after `slug` within its section, or null at the ends. */
+export function conceptNeighbours(slug: string): {
   prev: FoundationDoc | null;
   next: FoundationDoc | null;
 } {
-  const i = foundationsDocs.findIndex((d) => d.slug === slug);
+  const docs = componentModelDocs.some((d) => d.slug === slug)
+    ? componentModelDocs
+    : foundationsDocs;
+  const i = docs.findIndex((d) => d.slug === slug);
   return {
-    prev: i > 0 ? foundationsDocs[i - 1] : null,
-    next: i >= 0 && i < foundationsDocs.length - 1 ? foundationsDocs[i + 1] : null,
+    prev: i > 0 ? docs[i - 1] : null,
+    next: i >= 0 && i < docs.length - 1 ? docs[i + 1] : null,
   };
 }

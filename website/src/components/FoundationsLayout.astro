@@ -2,7 +2,11 @@
 import Sheet from "../layouts/Sheet.astro";
 import Ecosystem from "./Ecosystem.astro";
 import RelatedFieldNotes from "./RelatedFieldNotes.astro";
-import { foundationsBySlug, foundationsNeighbours } from "../data/foundations";
+import {
+  componentModelDocs,
+  conceptsBySlug,
+  conceptNeighbours,
+} from "../data/foundations";
 
 interface Props {
   slug: string;
@@ -10,21 +14,37 @@ interface Props {
 }
 
 const { slug, description } = Astro.props;
-const doc = foundationsBySlug[slug];
+const doc = conceptsBySlug[slug];
 if (!doc) {
-  throw new Error(`Unknown foundations slug: ${slug}`);
+  throw new Error(`Unknown concept slug: ${slug}`);
 }
-const { prev, next } = foundationsNeighbours(slug);
+const componentModel = componentModelDocs.some((candidate) => candidate.slug === slug);
+const section = componentModel
+  ? {
+      title: "Component model",
+      href: "/component-model",
+      scope: "Optional · user-constructable apps",
+    }
+  : {
+      title: "Foundations",
+      href: "/foundations",
+      scope: "Core · every watershed app",
+    };
+const { prev, next } = conceptNeighbours(slug);
+const docHref = (docSlug: string) => `${section.href}/${docSlug}`;
 ---
 
 <Sheet title={`watershed — ${doc.title.toLowerCase()}`} description={description}>
   <header class="fd-hero">
     <div class="fd-hero-inner">
       <p class="fd-crumbs annot">
-        <a href="/">← watershed</a> · <a href="/foundations">Foundations</a> / {doc.title}
+        <a href="/">← watershed</a> · <a href={section.href}>{section.title}</a> / {doc.title}
       </p>
-      <span class="fd-eyebrow annot" aria-hidden="true">Foundations</span>
+      <span class="fd-eyebrow annot" aria-hidden="true">{section.title}</span>
       <h1>{doc.title}</h1>
+      <p class:list={["fd-scope", { "fd-scope-optional": componentModel }]}>
+        {section.scope}
+      </p>
       <p class="fd-gloss">{doc.gloss}</p>
       <p class="fd-concept annot"><span>Traces</span> {doc.concept}</p>
     </div>
@@ -34,25 +54,25 @@ const { prev, next } = foundationsNeighbours(slug);
     <slot />
   </main>
 
-  <RelatedFieldNotes page={`/foundations/${slug}`} />
+  <RelatedFieldNotes page={docHref(slug)} />
 
-  <nav class="fd-pager" aria-label="Foundations sheets">
+  <nav class="fd-pager" aria-label={`${section.title} sheets`}>
     {
       prev ? (
-        <a class="fd-pager-cell fd-pager-prev" href={`/foundations/${prev.slug}`}>
+        <a class="fd-pager-cell fd-pager-prev" href={docHref(prev.slug)}>
           <span class="annot">← {prev.title}</span>
           <span class="fd-pager-gloss">{prev.gloss}</span>
         </a>
       ) : (
-        <a class="fd-pager-cell fd-pager-prev" href="/foundations">
+        <a class="fd-pager-cell fd-pager-prev" href={section.href}>
           <span class="annot">← Index</span>
-          <span class="fd-pager-gloss">All foundations sheets</span>
+          <span class="fd-pager-gloss">All {section.title.toLowerCase()} sheets</span>
         </a>
       )
     }
     {
       next ? (
-        <a class="fd-pager-cell fd-pager-next" href={`/foundations/${next.slug}`}>
+        <a class="fd-pager-cell fd-pager-next" href={docHref(next.slug)}>
           <span class="annot">{next.title} →</span>
           <span class="fd-pager-gloss">{next.gloss}</span>
         </a>
@@ -123,6 +143,22 @@ const { prev, next } = foundationsNeighbours(slug);
     line-height: 1.55;
     max-width: 54ch;
     color: var(--ink);
+  }
+
+  .fd-scope {
+    display: inline-block;
+    margin-top: var(--space-md);
+    padding: 0.25rem 0.55rem;
+    border: 1px solid var(--waterline);
+    color: var(--waterline);
+    font-family: var(--font-mono);
+    font-size: var(--text-xs);
+    letter-spacing: 0.03em;
+  }
+
+  .fd-scope-optional {
+    border-color: var(--overprint);
+    color: var(--overprint-deep);
   }
 
   .fd-concept {
