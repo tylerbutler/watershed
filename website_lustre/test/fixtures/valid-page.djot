@@ -1,0 +1,13 @@
+---
+description = "A test page."
+layout = "guide"
+guide_step = "race"
+---
+
+# The race
+
+Both replicas write before either receives the other operation.
+
+{data-component="guide-race"}
+:::
+:::

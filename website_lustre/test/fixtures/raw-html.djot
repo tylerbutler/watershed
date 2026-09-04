@@ -1,0 +1,9 @@
+---
+description = "A test page."
+layout = "guide"
+guide_step = "race"
+---
+
+```=html
+<div>Not permitted</div>
+```
