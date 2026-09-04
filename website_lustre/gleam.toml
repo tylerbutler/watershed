@@ -14,6 +14,7 @@ lustre_ssg = { git = "https://github.com/lustre-labs/ssg", ref = "2992bf78179d1b
 watershed = { path = ".." }
 watershed_lustre = { path = "../watershed_lustre" }
 retro_tutorial_lustre = { path = "../examples/retro_tutorial_lustre" }
+gleam_json = ">= 3.1.0 and < 4.0.0"
 
 [dev_dependencies]
 gleeunit = ">= 1.11.0 and < 2.0.0"

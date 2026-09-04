@@ -10,6 +10,7 @@ import tom
 import watershed_site/error.{type BuildError}
 import watershed_site/guide
 import watershed_site/route
+import watershed_site/snippet
 
 pub type Metadata {
   Metadata(
@@ -131,6 +132,39 @@ pub fn validate(
 ) -> Result(Nil, BuildError) {
   use _ <- result.try(validate_blocks(document.content, path))
   document.footnotes |> dict.values |> list.try_each(validate_blocks(_, path))
+}
+
+pub fn validate_snippets(
+  document: jot.Document,
+  manifest: snippet.Manifest,
+  path: String,
+) -> Result(Nil, BuildError) {
+  use _ <- result.try(snippet_blocks(document.content, manifest, path))
+  document.footnotes
+  |> dict.values
+  |> list.try_each(snippet_blocks(_, manifest, path))
+}
+
+fn snippet_blocks(
+  blocks: List(jot.Container),
+  manifest: snippet.Manifest,
+  path: String,
+) -> Result(Nil, BuildError) {
+  list.try_each(blocks, fn(block) {
+    case block {
+      jot.Codeblock(attributes, _, _) ->
+        case dict.get(attributes, "data-snippet") {
+          Error(Nil) -> Ok(Nil)
+          Ok(id) -> snippet.get(manifest, path, id) |> result.replace(Nil)
+        }
+      jot.Div(_, children) | jot.BlockQuote(_, children) ->
+        snippet_blocks(children, manifest, path)
+      jot.BulletList(_, _, items) ->
+        list.try_each(items, snippet_blocks(_, manifest, path))
+      jot.RawBlock(_) -> Error(error.RawHtml(path))
+      jot.Paragraph(_, _) | jot.Heading(_, _, _) | jot.ThematicBreak -> Ok(Nil)
+    }
+  })
 }
 
 fn validate_blocks(
