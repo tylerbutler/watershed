@@ -13,5 +13,5 @@
   publish = "dist"
 
 [build.environment]
-  NODE_VERSION = "22"
+  NODE_VERSION = "24"
   GLEAM_VERSION = "1.16.0"
