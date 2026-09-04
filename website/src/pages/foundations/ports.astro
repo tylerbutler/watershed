@@ -10,6 +10,8 @@ const effectiveFn = sourceSnippet("foundations-ports-effective");
 const localPlan = sourceSnippet("foundations-ports-local-plan");
 const replicatedPlan = sourceSnippet("foundations-ports-replicated-plan");
 const planFn = sourceSnippet("foundations-ports-plan");
+const portsFn = sourceSnippet("foundations-components-ports");
+const deliverFn = sourceSnippet("foundations-components-deliver");
 
 const flowDiagram = `typed component code             erased host boundary
 
@@ -33,22 +35,62 @@ const flowDiagramSnippet = snippetFromLiteral(
   description="Watershed's port foundation uses payload types for direct connections, schema IDs for erased graph data, deterministic validation for an acyclic effective graph, and origin-aware dispatch planning."
 >
   <div class="g-block">
-    <h2>Declare one direction of data flow</h2>
+    <h2>A port is a component's declared connection point</h2>
     <p>
-      You send a typed payload out of a component through an output. Another
-      component receives it through an input. Each declaration includes a
-      stable port ID, a stable payload schema ID, and one side of the JSON
-      codec. Gleam keeps the payload type attached while you work with the
-      port.
+      Components are written apart from each other. A task list does not
+      import a notes panel, and neither one knows the other exists. So the
+      wiring between them cannot be code an author writes. It has to be data
+      a user can edit while the application runs.
+    </p>
+    <p>
+      A port is what makes that possible. It is a named, typed connection
+      point that a component publishes: an output it can send from, or an
+      input it can receive on. A <a href="/foundations/components">host</a>{" "}
+      reads those declarations, offers the user the connections that are
+      legal, and stores the ones the user makes. Neither component ever names
+      the other.
+    </p>
+    <p>
+      One port appears in three forms. This sheet moves through them in order:
+    </p>
+    <ul>
+      <li>
+        <strong>The typed declaration.</strong> An{" "}
+        <code>Output(String)</code> or <code>Input(String)</code> that holds
+        the payload type and its codec. Component code holds it.
+      </li>
+      <li>
+        <strong>The descriptor.</strong> The same port with the payload type
+        erased, leaving the port ID, direction, schema ID, and input class. A
+        catalog lists these and a stored graph validates against them.
+      </li>
+      <li>
+        <strong>The reference.</strong> Two strings, an instance ID and a port
+        ID. A stored connection is a pair of these plus an edge ID.
+      </li>
+    </ul>
+    <p>
+      Everything below wires one small board. A task list, a notes panel, and
+      an activity log sit side by side. Click a task in the list, and two
+      things should happen. The notes panel focuses that task. The activity
+      log records that the task was touched.
+    </p>
+    <p>
+      The task list sends a typed payload out through an output. The notes
+      panel and the activity log each receive it through an input. Every
+      declaration carries a stable port ID, a stable payload schema ID, and
+      one side of the JSON codec. Gleam keeps the payload type attached while
+      you hold the port.
     </p>
     <SnippetBlock snippet={portDeclarations} />
     <p>
-      Both <code>selected</code> and <code>focus_subject</code> use{" "}
-      <code>String</code>, and both name the same{" "}
-      <code>watershed/task-id@1</code> schema. The compiler rejects a direct
-      connection to <code>Input(Int)</code>. <code>port.connect</code> then
-      checks the schema IDs, catching two string-shaped payloads that mean
-      different things.
+      The task list's <code>selected</code> output and the notes panel's{" "}
+      <code>focus_subject</code> input both carry a <code>String</code>. Both
+      name the same <code>watershed/task-id@1</code> schema. The compiler
+      rejects a direct connection to <code>Input(Int)</code>.{" "}
+      <code>port.connect</code> then checks the schema IDs. That catches two
+      string-shaped payloads that mean different things, such as a task ID and
+      a line of activity text.
     </p>
     <SnippetBlock snippet={connectFn} />
   </div>
@@ -56,16 +98,22 @@ const flowDiagramSnippet = snippetFromLiteral(
   <div class="g-block">
     <h2>Local and collaborative describe the target effect</h2>
     <p>
+      The board's two inputs do different kinds of work. Focusing the notes
+      panel changes only the screen of the person who clicked. Appending to
+      the activity log changes shared state that every peer must see. An
+      input declares which of the two it is.
+    </p>
+    <p>
       <code>LocalInput</code> changes presentation or controller state on the
       client where the event began: focus a subject, select a row, apply a
       filter. <code>CollaborativeInput</code> asks the target component on that
-      same client to perform one of its own mutations. Watershed can then
-      replicate the resulting channel operation in the normal way.
+      same client to perform one of its own mutations. Watershed then
+      replicates the resulting channel operation in the normal way.
     </p>
     <p>
-      The collaborative declaration lists capabilities such as{" "}
+      The activity log's collaborative declaration lists capabilities such as{" "}
       <code>sequence:insert</code>. A host can show that shared-state effect
-      before storing a connection. The current foundation records the list. A
+      before it stores a connection. The current foundation records the list. A
       separate authorization layer must enforce policy.
     </p>
     <div class="g-note">
@@ -82,44 +130,75 @@ const flowDiagramSnippet = snippetFromLiteral(
   <div class="g-block">
     <h2>Erase payload types before storage</h2>
     <p>
-      <code>output_descriptor</code> and <code>input_descriptor</code> remove
-      the payload type but retain the port ID, direction, schema ID, and input
-      class. A mixed component catalog lists this metadata, and a stored graph
-      validates it. The typed input keeps the decoder a host uses when it
-      executes a delivery.
+      The board's wiring outlives the session. It has to be stored, and stored
+      data has no Gleam types. So the second form takes over here: from this
+      section on, a port is a descriptor, not a typed value. <code>output_descriptor</code> and{" "}
+      <code>input_descriptor</code> remove the payload type. They retain the
+      port ID, direction, schema ID, and input class. A mixed component
+      catalog lists this metadata, and a stored graph validates it. The typed
+      input keeps the decoder a host uses when it executes a delivery.
     </p>
     <SnippetBlock snippet={flowDiagramSnippet}>
       <figcaption slot="caption" class="annot">
         authors keep payload types; hosts store metadata
       </figcaption>
     </SnippetBlock>
+    <p>
+      A component descriptor carries that erased metadata for every port it
+      declares. <code>component.ports</code> is what a host reads to list the
+      notes panel's inputs or to check a stored edge against it, with no
+      payload type in sight.
+    </p>
+    <SnippetBlock snippet={portsFn} />
+    <p>
+      The typed values stay inside component code, and they are what actually
+      crosses the boundary. <code>component.emit</code> runs the output's
+      codec before the payload leaves. <code>component.deliver</code> finds
+      the handler that matches the delivered port ID and decodes before
+      component code sees anything.
+    </p>
+    <SnippetBlock snippet={deliverFn} />
+    <p>
+      Types protect code written together. Descriptors let the host validate
+      data it reads back later from a catalog or a stored graph. The rest of
+      this sheet is the second kind of check.
+    </p>
   </div>
 
   <div class="g-block">
     <h2>Validate the stored graph before dispatch</h2>
     <p>
-      A stored connection consists of two <code>PortRef</code> values and an
-      edge ID. It can name a missing instance, a retired port, two outputs, or
-      schemas that no longer match. Two clients can also add edges that look
-      safe alone but form a cycle after their connection sets merge.
+      A stored connection is two <code>PortRef</code> values and an edge ID.
+      By the time it is read back, the board may have moved on. The
+      connection can name a deleted notes panel, a retired port, or two
+      outputs. Its schemas may no longer match. Two people can also add edges
+      that look safe alone and form a cycle once their connection sets merge.
     </p>
     <p>
       <code>port_graph.effective</code> derives the graph a client may use. It
-      sorts edges by ID, rejects every duplicate ID, validates both endpoints,
-      and accepts edges in that stable order until the next edge would create
-      a cycle. Clients that read the same stored set derive the same acyclic
-      result.
+      applies five rules in order:
+    </p>
+    <ol>
+      <li>Sort the stored edges by edge ID.</li>
+      <li>Reject every duplicate ID.</li>
+      <li>Validate both endpoints against the current catalog.</li>
+      <li>Accept each surviving edge in that stable order.</li>
+      <li>Stop accepting an edge when it would close a cycle.</li>
+    </ol>
+    <p>
+      The order is what makes this safe. Two clients that read the same stored
+      set derive the same acyclic result, with no agreement step between them.
     </p>
     <SnippetBlock snippet={effectiveFn} />
     <p>
-      Rejected edges remain in storage. The effective graph returns diagnostics
+      Rejected edges stay in storage. The effective graph returns diagnostics
       for duplicates, missing instances or ports, wrong directions, schema
       mismatches, and cycles. A UI can explain the dropped connection without
       destroying data another client may still understand.
     </p>
     <SnippetBlock snippet={graphFn}>
       <figcaption slot="caption" class="annot">
-        stored instance and port IDs describe two typed relationships
+        the board's two edges, stored as instance and port IDs
       </figcaption>
     </SnippetBlock>
   </div>
@@ -127,31 +206,42 @@ const flowDiagramSnippet = snippetFromLiteral(
   <div class="g-block">
     <h2>Dispatch local intent once</h2>
     <p>
-      A user action can emit a component output. Suppress that output while
-      applying the replicated channel change, or each observer repeats the
-      target mutation. <code>dispatch.plan</code> makes the origin explicit
-      and returns no deliveries for{" "}
-      <code>ReplicatedChange</code>.
+      Now click the task. The click emits the task list's output on one
+      client, and the replicated channel change then arrives at every other
+      client. Both look like the same event. If both dispatch, every observer
+      repeats the activity-log append.
+    </p>
+    <p>
+      <code>dispatch.plan</code> makes the origin explicit. A{" "}
+      <code>LocalIntent</code> plan follows the effective graph's stable edge
+      order and produces one delivery per edge.
     </p>
     <SnippetBlock snippet={localPlan} />
+    <p>
+      A <code>ReplicatedChange</code> plan returns no deliveries at all. The
+      echo stops at the graph.
+    </p>
     <SnippetBlock snippet={replicatedPlan} />
     <p>
-      A local plan follows the effective graph's stable edge order. Each
-      <code>Delivery</code> records the trace, edge ID, target port, target
-      input class, and encoded JSON payload. The trace lets a host join later
-      diagnostics to the event that started them.
+      Each <code>Delivery</code> records the trace, edge ID, target port,
+      target input class, and encoded JSON payload. The trace lets a host join
+      later diagnostics to the click that started them.
     </p>
   </div>
 
   <div class="g-block">
     <h2>Planning checks the catalog again</h2>
     <p>
-      A graph can outlive the descriptor snapshot that validated it. Before it
-      creates deliveries, <code>dispatch.plan</code> re-reads the source and
-      each target. A missing or redirected port becomes{" "}
-      <code>SourceUnavailable</code> or <code>TargetUnavailable</code>; a
-      changed schema becomes <code>SchemaChanged</code>. Valid sibling edges
-      still produce deliveries.
+      A graph can outlive the descriptor snapshot that validated it. Someone
+      can remove the notes panel between validation and the next click. So{" "}
+      <code>dispatch.plan</code> re-reads the source and each target before it
+      creates deliveries.
+    </p>
+    <p>
+      A missing or redirected port becomes <code>SourceUnavailable</code> or{" "}
+      <code>TargetUnavailable</code>. A changed schema becomes{" "}
+      <code>SchemaChanged</code>. Valid sibling edges still produce
+      deliveries, so the activity log still records the click.
     </p>
     <SnippetBlock snippet={planFn} />
   </div>
@@ -160,14 +250,21 @@ const flowDiagramSnippet = snippetFromLiteral(
     <h3>The browser runtime follows the whole trace</h3>
     <p>
       Watershed's JavaScript component runtime takes the plan from data to
-      execution. It decodes target payloads, calls typed component handlers,
-      stores their next running values, queues cascading outputs, and remembers
-      which edges the trace already crossed. A local input changes only the
-      origin's controller state. A collaborative input submits once on the
-      origin; ordinary channel replication carries the mutation to peers
-      without sending it through the graph again.{" "}
-      <a href="/foundations/workspaces">The workspace layer</a> gives the
-      runtime the persisted manifest and graph it keeps reconciled.
+      execution. For each delivery it:
+    </p>
+    <ul>
+      <li>decodes the target payload;</li>
+      <li>calls the typed component handler;</li>
+      <li>stores the handler's next running value;</li>
+      <li>queues any outputs the handler emitted;</li>
+      <li>remembers which edges this trace already crossed.</li>
+    </ul>
+    <p>
+      A local input changes only the origin's controller state. A
+      collaborative input submits once on the origin. Ordinary channel
+      replication carries the mutation to peers without sending it through the
+      graph again. <a href="/foundations/workspaces">The workspace layer</a>{" "}
+      gives the runtime the persisted manifest and graph it keeps reconciled.
     </p>
   </div>
 

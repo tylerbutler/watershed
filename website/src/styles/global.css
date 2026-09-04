@@ -212,10 +212,11 @@ samp {
   color: var(--overprint-deep);
 }
 
-.doc-body ul {
+.doc-body ul,
+.doc-body ol {
   margin-top: var(--space-lg);
   max-width: 66ch;
-  padding-left: 1.1rem;
+  padding-left: 1.4rem;
   display: grid;
   gap: var(--space-sm);
 }

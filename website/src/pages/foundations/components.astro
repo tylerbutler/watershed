@@ -12,8 +12,6 @@ const findFn = sourceSnippet("foundations-components-find");
 const validateFn = sourceSnippet("foundations-components-validate-config");
 const startFn = sourceSnippet("foundations-components-start");
 const executableFn = sourceSnippet("foundations-components-executable-descriptor");
-const deliverFn = sourceSnippet("foundations-components-deliver");
-const portsFn = sourceSnippet("foundations-components-ports");
 ---
 
 <FoundationsLayout
@@ -23,18 +21,34 @@ const portsFn = sourceSnippet("foundations-components-ports");
   <div class="g-block">
     <h2>A descriptor is the catalog boundary</h2>
     <p>
-      A host wants one catalog of component kinds. Gleam requires one type for
-      all values in that catalog. Configuration breaks that uniformity: notes
-      might need a placeholder string, while a counter needs an integer step.
-      A broad config union would expose each component's private choices to the
-      host.
+      One word runs through this sheet and the two after it: the{" "}
+      <em>host</em>. The host is the program that embeds watershed and puts
+      components on screen, meaning your application shell, not a server. It
+      owns the set of component kinds it can build, decides which versions it
+      accepts, mounts the views, and supplies whatever context every component
+      needs to start. Watershed defines the contract. The host is the program
+      around it.
+    </p>
+    <p>
+      A descriptor is one component kind, described well enough that a host
+      can start it without knowing what it is. Two kinds run through this
+      sheet: a notes panel and a counter. A host that holds both descriptors
+      can build either one from stored JSON.
+    </p>
+    <p>
+      Their configuration is where the uniformity breaks. Notes needs a
+      placeholder string. The counter needs an integer step. Gleam requires
+      one type for all values in a catalog, and a broad config union would
+      expose each component's private choices to the host.
     </p>
     <p>
       <code>Descriptor(context, running)</code> keeps the config type out of
       its public type. The descriptor holds the decoder, callback-completed
       start closure, typed input handlers, and cleanup closure that know that
-      type. The catalog sees the two types all components in one host must
-      share: what the host passes in, and what it gets back.
+      type. The catalog sees only the two types every component in one host
+      must share: what the host passes in, and what it gets back. It also
+      carries erased port metadata, which{" "}
+      <a href="/foundations/ports">the next sheet</a> picks up.
     </p>
     <SnippetBlock snippet={descriptorType} />
   </div>
@@ -42,7 +56,7 @@ const portsFn = sourceSnippet("foundations-components-ports");
   <div class="g-block">
     <h2>Each component keeps its config type</h2>
     <p>
-      You still write ordinary typed Gleam inside a component. This notes
+      You still write ordinary typed Gleam inside a component. The notes
       definition decodes JSON into <code>NotesConfig</code>, then starts with
       that exact type. <code>component.descriptor</code> closes over both
       functions and removes the config type from the host-facing API.
@@ -50,9 +64,9 @@ const portsFn = sourceSnippet("foundations-components-ports");
     <SnippetBlock snippet={notesDefinition} />
     <p>
       The two <code>String</code> parameters in the return type are the host
-      contract in this test: a string context goes in and a string running
-      value comes back. Another descriptor in the same catalog can hide a
-      different config type, but it must honor that same host contract.
+      contract in this test. A string context goes in and a string running
+      value comes back. The counter descriptor hides a different config type
+      behind the same two parameters.
     </p>
   </div>
 
@@ -61,10 +75,13 @@ const portsFn = sourceSnippet("foundations-components-ports");
     <p>
       A catalog keys each descriptor by its stable kind and integer format
       version. Several versions of one kind can coexist. Registering the same
-      pair twice returns <code>DuplicateRegistration</code>. Lookup requires
-      the requested version.
+      pair twice returns <code>DuplicateRegistration</code>.
     </p>
     <SnippetBlock snippet={catalogType} />
+    <p>
+      Registration is where the notes panel and the counter land in the same
+      structure for the first time.
+    </p>
     <SnippetBlock snippet={registerFn} />
     <SnippetBlock snippet={catalogExample}>
       <figcaption slot="caption" class="annot">
@@ -72,11 +89,12 @@ const portsFn = sourceSnippet("foundations-components-ports");
       </figcaption>
     </SnippetBlock>
     <p>
-      With exact lookup, a host gets two useful failure states.{" "}
-      <code>NotRegistered(kind)</code> means it knows no version of the kind.
+      Lookup requires the requested version, and that exactness buys two
+      useful failure states. <code>NotRegistered(kind)</code> means the host
+      knows no version of the kind at all.{" "}
       <code>UnsupportedVersion(kind, requested, available)</code> means it can
-      name the versions it does know. A host can report the missing kind or the
-      unsupported version without guessing.
+      name the versions it does know. A host can report the missing kind or
+      the unsupported version without guessing which one went wrong.
     </p>
     <SnippetBlock snippet={findFn} />
     <div class="g-note">
@@ -91,45 +109,41 @@ const portsFn = sourceSnippet("foundations-components-ports");
   <div class="g-block">
     <h2>Validation and startup stay separate</h2>
     <p>
+      Checking that stored config is readable and actually running a component
+      are different jobs. A manifest reader wants the first without the
+      second.
+    </p>
+    <p>
       <code>validate_config</code> runs the descriptor's decoder and stops
       there. A builder or manifest reader can check stored JSON without
-      opening subscriptions or creating a running component.{" "}
+      opening subscriptions or creating a running component.
+    </p>
+    <SnippetBlock snippet={validateFn} />
+    <p>
       <code>start</code> decodes the same JSON, then calls the typed start
       closure. Readiness waits for that closure's callback, so channel
       bootstrap and subscriptions can finish first.
     </p>
-    <SnippetBlock snippet={validateFn} />
     <SnippetBlock snippet={startFn} />
     <SnippetBlock snippet={executableFn} />
     <p>
-      The error tells you which side failed. <code>InvalidConfig</code> reports
-      the kind, version, and JSON decode error. <code>StartFailed</code> reports
-      the same identity plus the reason returned by component code. Input
-      decoding, input handling, output validation, and cleanup keep their own
-      errors too—the runtime doesn't have to flatten every lifecycle failure
-      into “component failed.”
+      Because the two stay separate, the error tells you which side failed:
     </p>
-  </div>
-
-  <div class="g-block">
-    <h2>The port list is the component's public wiring surface</h2>
+    <ul>
+      <li>
+        <strong><code>InvalidConfig</code></strong> reports the kind, version,
+        and JSON decode error. The stored config is wrong.
+      </li>
+      <li>
+        <strong><code>StartFailed</code></strong> reports the same identity
+        plus the reason component code returned. The config was fine and the
+        component could not start.
+      </li>
+    </ul>
     <p>
-      A descriptor also includes erased port metadata.{" "}
-      <code>component.ports</code> exposes enough information for a host to
-      list ports and validate stored connections without knowing each payload
-      type. Component code keeps the typed input and output values that
-      perform encoding, decoding, and direct connection checks.{" "}
-      <code>component.emit</code> crosses the output boundary only after its
-      typed codec runs; <code>component.deliver</code> finds the matching
-      handler and decodes before component code sees the payload.
-    </p>
-    <SnippetBlock snippet={portsFn} />
-    <SnippetBlock snippet={deliverFn} />
-    <p>
-      Types protect code written together. Descriptors let the host validate
-      data read later from a catalog or graph.{" "}
-      <a href="/foundations/ports">The next sheet</a> follows both forms through
-      a connection and a dispatch plan.
+      Input decoding, input handling, output validation, and cleanup keep
+      their own errors too. The runtime never has to flatten a lifecycle
+      failure into “component failed.”
     </p>
   </div>
 

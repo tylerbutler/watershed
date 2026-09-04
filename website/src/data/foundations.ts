@@ -52,7 +52,7 @@ export const foundationsDocs: FoundationDoc[] = [
     slug: "ports",
     title: "Ports and dispatch",
     gloss:
-      "Connect typed outputs to local or collaborative inputs, reject bad edges deterministically, and plan each local event without replaying it on every client.",
+      "A port is a named connection point a component publishes so a host can wire it to another: typed while you write it, erased once it is stored, and checked again before every dispatch.",
     concept: "Output · Input · EffectiveGraph · LocalIntent · Delivery",
   },
   {
