@@ -14,14 +14,67 @@ const preservationTest = sourceSnippet("foundations-workspaces-preservation-test
 
 <FoundationsLayout
   slug="workspaces"
-  description="A watershed workspace persists component instances, layout, and port connections beneath one child map, then the browser runtime reconciles that state without discarding data the local host cannot use."
+  description="A workspace is the saved board: which components exist, where they sit, and how they are wired. Watershed persists all three beneath one child map, then the browser runtime reconciles that state without discarding data the local host cannot use."
 >
+  <div class="g-block">
+    <h2>A workspace is the saved board</h2>
+    <p>
+      The last two sheets built a board out of parts: a notes panel, a
+      counter, a task list, an activity log, and the connections a user drew
+      between them. Nothing so far has saved it. Close the tab, and the board
+      is gone.
+    </p>
+    <p>
+      A workspace is that board, stored. It holds three things, and it is
+      worth naming them plainly before any code:
+    </p>
+    <ul>
+      <li>
+        <strong>Which parts exist.</strong> One entry for each component
+        instance: its kind, its format version, its config, and a handle to
+        its own data.
+      </li>
+      <li>
+        <strong>Where they sit.</strong> The presentation order the users
+        arranged.
+      </li>
+      <li>
+        <strong>How they are wired.</strong> The port connections from{" "}
+        <a href="/foundations/ports">the last sheet</a>.
+      </li>
+    </ul>
+    <p>
+      All three are shared, collaborative state, the same as the data inside
+      the components. Two people arranging one board see each other do it.
+      That is the whole point, and it is also where the difficulty starts.
+    </p>
+    <p>
+      A saved board outlives the code that made it. Open one tomorrow and
+      this build may not carry the counter any more. Someone may have deleted
+      a panel that another connection still names. Two people can each add a
+      safe connection and get a cycle when their edits merge. A workspace
+      cannot answer those problems by deleting what it fails to understand:
+      one client's ignorance would become everybody's data loss.
+    </p>
+    <p>
+      So this sheet does two jobs. It stores the board, and it derives the
+      part of the board this client can safely run — while keeping the rest
+      exactly as written.
+    </p>
+    <p>
+      All of it is host work. The last two sheets each split in half, one part
+      for using components and one for writing them. This sheet has no second
+      half: a component never sees the workspace that holds it.
+    </p>
+  </div>
+
   <div class="g-block">
     <h2>One root slot opens the whole workspace</h2>
     <p>
-      A composed app still has one typed document root. Give the workspace one
-      <code>ChildField</code> there, and it owns three channels below it: a map
-      of component instances, a sequence for presentation order, and a
+      Those three lists become three channels, and one slot on the document
+      root opens all of them. A composed app still has one typed document
+      root. Give the workspace one <code>ChildField</code> there, and it owns
+      a map of component instances, a sequence for presentation order, and a
       sequence of port connections.
     </p>
     <SnippetBlock snippet={channelFields} />
@@ -53,11 +106,10 @@ const preservationTest = sourceSnippet("foundations-workspaces-preservation-test
   <div class="g-block">
     <h2>Stored data and usable data are different lists</h2>
     <p>
-      Collaborative state can outlive the code that wrote it. A manifest can
-      name a component this build doesn't carry. A layout can repeat an
-      instance. Two independently safe graph edits can form a cycle after
-      merge. Deleting those records on sight would turn one client's ignorance
-      into everybody's data loss.
+      Those three reopening problems — the unknown kind, the repeated layout
+      entry, the merged cycle — all arrive as stored data this client cannot
+      use. None of them makes the data wrong. They make it unusable{" "}
+      <em>here</em>, today, by this build.
     </p>
     <p>
       <code>workspace.snapshot</code> keeps the raw values, decodes what it can,

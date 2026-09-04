@@ -17,8 +17,17 @@ import { foundationsDocs } from "../../data/foundations";
       <p class="lede">
         The <a href="/guide">build guide</a> walks a working board through
         every step. These sheets cover the model underneath it: how you
-        declare and lay out a document, bring its channels online, package
-        reusable component definitions, and route typed events between them.
+        declare and lay out a document, and how you bring its channels
+        online.
+      </p>
+      <p class="lede">
+        The last three go together. They answer one question — what if the
+        user, not the author, decides what is on the page? — by building one
+        shared board out of parts, wiring it up, and saving it. The first
+        two split in half: using components, then writing one. Stop halfway
+        through each if you are only assembling parts somebody else wrote —
+        and skip all three if your application ships a screen you lay out
+        yourself.
       </p>
     </div>
   </header>
@@ -26,7 +35,7 @@ import { foundationsDocs } from "../../data/foundations";
   <main class="fh-ledger" aria-labelledby="fh-ledger-title">
     <div class="fh-ledger-head">
       <h2 id="fh-ledger-title">Foundations</h2>
-      <p>{foundationsDocs.length} sheets. Read in order — each one leans on the last.</p>
+      <p>{foundationsDocs.length} sheets. Read in order — each one leans on the last. Sheets 04&ndash;06 are one arc: one board, built, wired, and saved.</p>
     </div>
     <ol class="fh-list">
       {

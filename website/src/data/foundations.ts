@@ -45,21 +45,21 @@ export const foundationsDocs: FoundationDoc[] = [
     slug: "components",
     title: "Components and catalogs",
     gloss:
-      "Package one component kind behind a versioned descriptor: typed config goes in, one host-shaped running value comes out, and a catalog keeps unlike definitions together.",
+      "Let users, not the author, decide what is on the page: package each part of the app behind a versioned descriptor so it can be rebuilt from a saved document, and keep unlike parts in one catalog.",
     concept: "Descriptor · Catalog · register · find · start",
   },
   {
     slug: "ports",
     title: "Ports and dispatch",
     gloss:
-      "A port is a named connection point a component publishes so a host can wire it to another: typed while you write it, erased once it is stored, and checked again before every dispatch.",
+      "Let a user connect two parts that were written apart: a port is a named connection point a component publishes, typed while you write it, erased once it is stored, and checked again before every event it carries.",
     concept: "Output · Input · EffectiveGraph · LocalIntent · Delivery",
   },
   {
     slug: "workspaces",
     title: "Workspaces and instances",
     gloss:
-      "Persist a manifest, layout, and connection graph under one child map; derive the usable view without erasing data this client cannot understand.",
+      "Save the finished board — which parts exist, where they sit, how they are wired — and reopen it safely next year, without deleting the parts this build cannot understand.",
     concept: "ManifestEntry · Snapshot · Prepared · delete_instance",
   },
 ];
