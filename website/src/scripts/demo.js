@@ -386,8 +386,6 @@ export function initDemo() {
   const seqCounter = rig.querySelector("[data-seq-counter]");
   const opLogEl = rig.querySelector("[data-op-log]");
   const statusEl = document.querySelector("[data-status]");
-  const latencyInput = document.querySelector("[data-latency]");
-  const latencyOut = document.querySelector("[data-latency-out]");
   const paceInput = document.querySelector("[data-pace]");
   const paceOut = document.querySelector("[data-pace-out]");
   const fieldNotesToggle = document.querySelector("[data-field-notes]");
@@ -492,12 +490,10 @@ export function initDemo() {
     "tasks",
     "pact",
   ]);
-  // Shared demo infrastructure: latency/pace/jitter controls, the flow-dot
-  // layer, the op-log, and the FIFO sequencer transport. Latency and jitter
-  // change the simulation; animation speed only scales how fast you watch it.
+  // Shared demo infrastructure: pace/jitter controls, the flow-dot layer, the
+  // op-log, and the FIFO sequencer transport. Jitter changes the simulation;
+  // animation speed only scales how fast you watch it.
   const controls = createLatencyControls({
-    latencyInput,
-    latencyOut,
     paceInput,
     paceOut,
     varianceToggle: latencyVarianceToggle,

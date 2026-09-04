@@ -9,6 +9,7 @@ export interface FlowLayer {
    * `duration` ms. `sequenced` selects the post-sequencer styling (the dot
    * carries an assigned sequence number on the return leg). When `label` is
    * given it rides along with the dot to name the op/value in flight.
+   * `latency` adds the sampled network delay for this hop.
    */
   animateDot(
     fromEl: Element,
@@ -16,6 +17,7 @@ export interface FlowLayer {
     duration: number,
     sequenced: boolean,
     label?: string,
+    latency?: number,
   ): void;
 }
 
@@ -42,14 +44,17 @@ export function createFlowLayer(
     duration: number,
     sequenced: boolean,
     label?: string,
+    latency?: number,
   ): void {
     if (reducedMotion()) return;
     const dot = document.createElement("span");
     dot.className = sequenced ? "flow-dot sequenced" : "flow-dot";
-    if (label) {
+    if (label || latency !== undefined) {
       const tag = document.createElement("span");
       tag.className = "flow-dot-label";
-      tag.textContent = label;
+      tag.textContent = [label, latency === undefined ? null : `${latency} ms`]
+        .filter(Boolean)
+        .join(" · ");
       dot.append(tag);
     }
     flowLayer.append(dot);

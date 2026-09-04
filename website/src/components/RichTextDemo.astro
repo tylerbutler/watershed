@@ -83,19 +83,6 @@ const clients = [
   </div>
 
   <div class="demo-controls" data-reveal="rise">
-    <label class="latency">
-      <span class="annot">Link latency</span>
-      <input
-        type="range"
-        min="100"
-        max="2000"
-        step="100"
-        value="700"
-        data-rt-latency
-        disabled
-      />
-      <output data-rt-latency-out>700 ms</output>
-    </label>
     <label class="pace">
       <span class="annot">Animation speed</span>
       <input
@@ -103,21 +90,21 @@ const clients = [
         min="0.25"
         max="2"
         step="0.25"
-        value="0.5"
+        value="1"
         data-rt-pace
         title="Playback only; does not affect simulated ordering."
         disabled
       />
-      <output data-rt-pace-out>0.5×</output>
+      <output data-rt-pace-out>1×</output>
     </label>
     <label class="field-notes-toggle">
       <input
         type="checkbox"
         data-rt-latency-variance
-        title="Add random ±50 ms per hop; arrival order may change."
+        title="Add random ±100 ms per hop; arrival order may change."
         disabled
       />
-      <span class="annot">Jitter ±50&nbsp;ms</span>
+      <span class="annot">Jitter ±100&nbsp;ms</span>
     </label>
     <p class="status" data-rt-status role="status">
       <span class="stamp converged">Converged</span>
@@ -489,20 +476,17 @@ const clients = [
     gap: var(--space-xl);
   }
 
-  .latency,
   .pace {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
   }
 
-  .latency input,
   .pace input {
     accent-color: var(--overprint);
     width: clamp(8rem, 18vw, 14rem);
   }
 
-  .latency output,
   .pace output {
     font-family: var(--font-mono);
     font-size: var(--text-sm);

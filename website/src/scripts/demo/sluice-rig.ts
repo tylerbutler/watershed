@@ -43,7 +43,7 @@ export interface RigConfig {
   status: string;
   /** Section wrapper selector (used to enable its controls), e.g. `#sudoku-demo`. */
   section: string;
-  /** Control attribute prefix, e.g. `sudoku` → `[data-sudoku-latency]` etc. */
+  /** Control attribute prefix, e.g. `sudoku` → `[data-sudoku-pace]` etc. */
   control: string;
   /** Logical document name for the sluice. */
   document: string;
@@ -121,8 +121,6 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   const seqCounter = rig.querySelector("[data-seq-counter]");
   const opLogEl = rig.querySelector("[data-op-log]");
   const statusEl = document.querySelector(config.status);
-  const latencyInput = document.querySelector(`[data-${config.control}-latency]`);
-  const latencyOut = document.querySelector(`[data-${config.control}-latency-out]`);
   const paceInput = document.querySelector(`[data-${config.control}-pace]`);
   const paceOut = document.querySelector(`[data-${config.control}-pace-out]`);
   const varianceToggle = document.querySelector(
@@ -136,8 +134,6 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     !(seqCounter instanceof HTMLElement) ||
     !(opLogEl instanceof HTMLOListElement) ||
     !(statusEl instanceof HTMLElement) ||
-    !(latencyInput instanceof HTMLInputElement) ||
-    !(latencyOut instanceof HTMLElement) ||
     !(section instanceof HTMLElement)
   ) {
     return null;
@@ -148,8 +144,6 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   }
 
   const controls: LatencyControls = createLatencyControls({
-    latencyInput,
-    latencyOut,
     paceInput: paceInput instanceof HTMLInputElement ? paceInput : null,
     paceOut: paceOut instanceof HTMLElement ? paceOut : null,
     varianceToggle: varianceToggle instanceof HTMLInputElement ? varianceToggle : null,
@@ -298,13 +292,15 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   function deliver(delivery: Delivery) {
     const toId = sidToId[delivery.to];
     if (delivery.event !== "op" || !toId) return;
-    const duration = controls.paced(controls.sampleLatency());
+    const latency = controls.sampleLatency();
+    const duration = controls.paced(latency);
     flow.animateDot(
       seqNode,
       clients[toId].el,
       duration,
       true,
       `SN ${delivery.sequence_number}`,
+      latency,
     );
     ackIfAuthor(delivery);
     inFlight += 1;
@@ -427,8 +423,9 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     const sn = sluice.sequence_number(server);
     labelBySn.set(sn, label);
     const now = performance.now();
+    const latency = controls.sampleLatency();
     const arrivalAt = Math.max(
-      now + controls.paced(controls.sampleLatency()),
+      now + controls.paced(latency),
       lastOutboundArrival + controls.paced(FIFO_GAP_MS),
     );
     lastOutboundArrival = arrivalAt;
@@ -444,7 +441,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     }
     config.render(client);
     renderStatus();
-    flow.animateDot(client.el, seqNode, arrivalAt - now, false, label);
+    flow.animateDot(client.el, seqNode, arrivalAt - now, false, label, latency);
     pump();
   }
 

@@ -119,7 +119,7 @@ const PICKER_CELLS = [
         kernels, TaskManager, plus the runtime counter channel.
       </p>
       <p class="demo-hint">
-        Nudge a gauge, race a concurrent write, stretch the link latency: the
+        Nudge a gauge, race a concurrent write, switch on jitter: the
         replicas settle to the same state after the stream drains, each
         structure by its own rule.
       </p>
@@ -806,20 +806,6 @@ const PICKER_CELLS = [
   </div>
 
   <div class="demo-controls">
-    <label class="latency">
-      <span class="annot">Link latency</span>
-      <input
-        type="range"
-        min="100"
-        max="2000"
-        step="100"
-        value="700"
-        data-latency
-        title="Simulated network delay: how long an op spends travelling client → sequencer → replicas. This is the demo's physics: it changes ordering and which writes collide."
-        disabled
-      />
-      <output data-latency-out>700 ms</output>
-    </label>
     <label class="pace">
       <span class="annot">Animation speed</span>
       <input
@@ -827,21 +813,21 @@ const PICKER_CELLS = [
         min="0.25"
         max="2"
         step="0.25"
-        value="0.5"
+        value="1"
         data-pace
         title="Playback only; does not affect simulated ordering."
         disabled
       />
-      <output data-pace-out>0.5×</output>
+      <output data-pace-out>1×</output>
     </label>
     <label class="field-notes-toggle">
       <input
         type="checkbox"
         data-latency-variance
-        title="Add random ±50 ms per hop; arrival order may change."
+        title="Add random ±100 ms per hop; arrival order may change."
         disabled
       />
-      <span class="annot">Jitter ±50&nbsp;ms</span>
+      <span class="annot">Jitter ±100&nbsp;ms</span>
     </label>
     <button type="button" class="race-btn" data-race disabled>
       Race a concurrent write
@@ -873,9 +859,10 @@ const PICKER_CELLS = [
 
   <p class="controls-hint">
     <span>
-      Latency and jitter affect simulated arrival order; animation speed
-      changes playback only. “Ops in flight” counts every hop still
-      travelling: one client&nbsp;→&nbsp;sequencer leg, then one
+      Jitter can change simulated arrival order; animation speed changes
+      playback only. Each moving request shows its sampled hop latency. “Ops in
+      flight” counts every hop still travelling: one
+      client&nbsp;→&nbsp;sequencer leg, then one
       sequencer&nbsp;→&nbsp;replica leg per client.
     </span>
   </p>
@@ -2111,20 +2098,17 @@ const PICKER_CELLS = [
     gap: var(--space-xl);
   }
 
-  .latency,
   .pace {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
   }
 
-  .latency input,
   .pace input {
     accent-color: var(--overprint);
     width: clamp(8rem, 18vw, 14rem);
   }
 
-  .latency output,
   .pace output {
     font-family: var(--font-mono);
     font-size: var(--text-sm);

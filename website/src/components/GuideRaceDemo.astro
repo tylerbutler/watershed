@@ -82,18 +82,28 @@ const clients = [
   </div>
 
   <div class="gr-controls" data-reveal="rise">
-    <label class="gr-latency">
-      <span class="annot">Link latency</span>
+    <label class="gr-pace">
+      <span class="annot">Animation speed</span>
       <input
         type="range"
-        min="100"
-        max="2000"
-        step="100"
-        value="700"
-        data-guide-race-latency
+        min="0.25"
+        max="2"
+        step="0.25"
+        value="1"
+        data-guide-race-pace
+        title="Playback only; does not affect simulated ordering."
         disabled
       />
-      <output data-guide-race-latency-out>700 ms</output>
+      <output data-guide-race-pace-out>1×</output>
+    </label>
+    <label class="gr-toggle">
+      <input
+        type="checkbox"
+        data-guide-race-latency-variance
+        title="Add random ±100 ms per hop; arrival order may change."
+        disabled
+      />
+      <span class="annot">Jitter ±100&nbsp;ms</span>
     </label>
 
     <button type="button" class="race-btn" data-guide-race-add disabled>
@@ -464,22 +474,34 @@ const clients = [
     gap: var(--space-xl);
   }
 
-  .gr-latency {
+  .gr-pace,
+  .gr-toggle {
     display: flex;
     align-items: center;
     gap: var(--space-sm);
   }
 
-  .gr-latency input {
+  .gr-pace input {
     accent-color: var(--overprint);
     width: clamp(8rem, 18vw, 14rem);
   }
 
-  .gr-latency output {
+  .gr-pace output {
     font-family: var(--font-mono);
     font-size: var(--text-sm);
     font-variant-numeric: tabular-nums;
     min-width: 5ch;
+  }
+
+  .gr-toggle {
+    cursor: pointer;
+  }
+
+  .gr-toggle input {
+    accent-color: var(--overprint);
+    width: 1.05rem;
+    height: 1.05rem;
+    cursor: pointer;
   }
 
   .race-btn {
