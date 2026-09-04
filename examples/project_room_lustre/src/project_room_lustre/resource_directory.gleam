@@ -168,6 +168,7 @@ fn rebind(
                 running.directory_subscription,
               ))
               transport_js.set_cell(running.directory, current)
+              transport_js.set_cell(running.path, "/")
               transport_js.set_cell(
                 running.directory_subscription,
                 subscribe_directory(

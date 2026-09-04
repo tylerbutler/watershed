@@ -64,6 +64,22 @@ fn sorted_strings(values: List(String)) -> List(String) {
   list.sort(values, string.compare)
 }
 
+fn assert_client_entries(
+  running_a: resource_directory.Running,
+  running_b: resource_directory.Running,
+  expected: List(resource_directory.Entry),
+) -> Nil {
+  [
+    resource_directory.entries(running_a),
+    resource_directory.entries(running_b),
+  ]
+  |> should.equal([expected, expected])
+}
+
+fn assert_invalidated(counter: transport_js.Cell(Int), before: Int) -> Nil {
+  should.be_true(transport_js.get_cell(counter) > before)
+}
+
 pub fn config_round_trips_test() -> Nil {
   let config = resource_directory.Config(title: "Resources")
   json.parse(
@@ -140,6 +156,28 @@ pub fn replacing_tree_field_rebinds_and_unsubscribes_old_directory_test() -> Nil
   watershed.directory_create_subdirectory(original, "/", "old")
   transport_js.get_cell(counter) |> should.equal(after_rebind)
   resource_directory.folders(running) |> should.equal(["new"])
+}
+
+pub fn replacing_tree_field_resets_nested_path_before_mutation_test() -> Nil {
+  let #(_sluice, document) = document("resource-directory-rebind-path")
+  let subtree = new_subtree(document)
+  let running =
+    start(document, subtree, "resources-1", transport_js.new_cell(0))
+  let assert Ok(#(running, [_])) =
+    resource_directory.create_folder(running, "design")
+  let assert Ok(running) = resource_directory.open_folder(running, "design")
+  resource_directory.path(running) |> should.equal("/design")
+
+  let assert Ok(replacement) = watershed.create_directory(document)
+  watershed.set(subtree, "tree", watershed.directory_handle_of(replacement))
+  resource_directory.path(running) |> should.equal("/")
+
+  let assert Ok(#(running, [event])) =
+    resource_directory.create_folder(running, "drafts")
+  event_action(event).detail |> should.equal("Created folder /drafts")
+  resource_directory.folders(running) |> should.equal(["drafts"])
+  watershed.directory_subdirectories(replacement, "/")
+  |> should.equal(["drafts"])
 }
 
 pub fn stop_unsubscribes_directory_and_subtree_test() -> Nil {
@@ -298,18 +336,47 @@ pub fn replicated_deletion_returns_browsing_client_to_root_test() -> Nil {
   let assert Ok(tree_a) = watershed.get(subtree_a, "tree")
   let assert Ok(tree_b) = watershed.get(subtree_b, "tree")
   tree_b |> should.equal(tree_a)
-  let running_a =
-    start(document_a, subtree_a, "resources-a", transport_js.new_cell(0))
-  let running_b =
-    start(document_b, subtree_b, "resources-b", transport_js.new_cell(0))
-  let assert Ok(#(running_a, _)) =
+  let invalidations_a = transport_js.new_cell(0)
+  let invalidations_b = transport_js.new_cell(0)
+  let running_a = start(document_a, subtree_a, "resources-a", invalidations_a)
+  let running_b = start(document_b, subtree_b, "resources-b", invalidations_b)
+  let before_create_b = transport_js.get_cell(invalidations_b)
+  let assert Ok(#(running_a, [create_event])) =
     resource_directory.create_folder(running_a, "design")
+  event_action(create_event)
+  |> should.equal(component_event.Event(
+    source_instance_id: "resources-a",
+    source_kind: "project-room/resource-directory",
+    source_title: "Resources",
+    action: component_event.FolderChanged,
+    detail: "Created folder /design",
+  ))
   sluice_js.settle(sluice)
+  resource_directory.folders(running_a) |> should.equal(["design"])
+  resource_directory.folders(running_b) |> should.equal(["design"])
+  let _ = assert_client_entries(running_a, running_b, [])
+
+  let _ = assert_invalidated(invalidations_b, before_create_b)
   let assert Ok(running_b) = resource_directory.open_folder(running_b, "design")
-  let assert Ok(#(_running_a, _)) =
+  let before_delete_b = transport_js.get_cell(invalidations_b)
+  let assert Ok(#(_running_a, [delete_event])) =
     resource_directory.delete_folder(running_a, "design")
+  event_action(delete_event)
+  |> should.equal(component_event.Event(
+    source_instance_id: "resources-a",
+    source_kind: "project-room/resource-directory",
+    source_title: "Resources",
+    action: component_event.FolderChanged,
+    detail: "Deleted folder /design",
+  ))
+  resource_directory.path(running_b) |> should.equal("/design")
   sluice_js.settle(sluice)
   resource_directory.path(running_b) |> should.equal("/")
+  resource_directory.folders(running_a) |> should.equal([])
+  resource_directory.folders(running_b) |> should.equal([])
+  let _ = assert_client_entries(running_a, running_b, [])
+
+  let _ = assert_invalidated(invalidations_b, before_delete_b)
 }
 
 pub fn two_clients_converge_disjoint_edits_and_same_name_create_test() -> Nil {
@@ -332,33 +399,104 @@ pub fn two_clients_converge_disjoint_edits_and_same_name_create_test() -> Nil {
   let assert Ok(tree_a) = watershed.get(subtree_a, "tree")
   let assert Ok(tree_b) = watershed.get(subtree_b, "tree")
   tree_b |> should.equal(tree_a)
-  let running_a =
-    start(document_a, subtree_a, "resources-a", transport_js.new_cell(0))
-  let running_b =
-    start(document_b, subtree_b, "resources-b", transport_js.new_cell(0))
+  let invalidations_a = transport_js.new_cell(0)
+  let invalidations_b = transport_js.new_cell(0)
+  let running_a = start(document_a, subtree_a, "resources-a", invalidations_a)
+  let running_b = start(document_b, subtree_b, "resources-b", invalidations_b)
 
-  let assert Ok(#(running_a, _)) =
+  let before_design_b = transport_js.get_cell(invalidations_b)
+  let assert Ok(#(running_a, [design_event])) =
     resource_directory.create_folder(running_a, "design")
+  event_action(design_event)
+  |> should.equal(component_event.Event(
+    source_instance_id: "resources-a",
+    source_kind: "project-room/resource-directory",
+    source_title: "Resources",
+    action: component_event.FolderChanged,
+    detail: "Created folder /design",
+  ))
   sluice_js.settle(sluice)
-  let assert Ok(#(running_a, _)) =
+  resource_directory.folders(running_a) |> should.equal(["design"])
+  resource_directory.folders(running_b) |> should.equal(["design"])
+  let _ = assert_client_entries(running_a, running_b, [])
+
+  let _ = assert_invalidated(invalidations_b, before_design_b)
+
+  let before_owner_b = transport_js.get_cell(invalidations_b)
+  let assert Ok(#(running_a, [owner_event])) =
     resource_directory.set_entry(running_a, "owner", "a")
+  event_action(owner_event)
+  |> should.equal(component_event.Event(
+    source_instance_id: "resources-a",
+    source_kind: "project-room/resource-directory",
+    source_title: "Resources",
+    action: component_event.EntryChanged,
+    detail: "Updated /owner",
+  ))
   sluice_js.settle(sluice)
-  let assert Ok(#(running_b, _)) =
+  let _ =
+    assert_client_entries(running_a, running_b, [
+      resource_directory.Entry(key: "owner", value: "a"),
+    ])
+
+  let _ = assert_invalidated(invalidations_b, before_owner_b)
+
+  let before_status_a = transport_js.get_cell(invalidations_a)
+  let assert Ok(#(running_b, [status_event])) =
     resource_directory.set_entry(running_b, "status", "b")
+  event_action(status_event)
+  |> should.equal(component_event.Event(
+    source_instance_id: "resources-b",
+    source_kind: "project-room/resource-directory",
+    source_title: "Resources",
+    action: component_event.EntryChanged,
+    detail: "Updated /status",
+  ))
   sluice_js.settle(sluice)
-  resource_directory.entries(running_a)
-  |> should.equal(resource_directory.entries(running_b))
+  let _ =
+    assert_client_entries(running_a, running_b, [
+      resource_directory.Entry(key: "owner", value: "a"),
+      resource_directory.Entry(key: "status", value: "b"),
+    ])
+
+  let _ = assert_invalidated(invalidations_a, before_status_a)
 
   sluice_js.pause(sluice, document_b)
-  let assert Ok(#(running_a, _)) =
+  let before_shared_a = transport_js.get_cell(invalidations_a)
+  let assert Ok(#(running_a, [shared_a_event])) =
     resource_directory.create_folder(running_a, "shared")
-  let assert Ok(#(_running_b, _)) =
+  let assert Ok(#(running_b, [shared_b_event])) =
     resource_directory.create_folder(running_b, "shared")
+  event_action(shared_a_event)
+  |> should.equal(component_event.Event(
+    source_instance_id: "resources-a",
+    source_kind: "project-room/resource-directory",
+    source_title: "Resources",
+    action: component_event.FolderChanged,
+    detail: "Created folder /shared",
+  ))
+  event_action(shared_b_event)
+  |> should.equal(component_event.Event(
+    source_instance_id: "resources-b",
+    source_kind: "project-room/resource-directory",
+    source_title: "Resources",
+    action: component_event.FolderChanged,
+    detail: "Created folder /shared",
+  ))
   sluice_js.settle(sluice)
   sluice_js.resume(sluice, document_b)
   sluice_js.settle(sluice)
-  sorted_strings(resource_directory.folders(running_a))
+  resource_directory.folders(running_a)
+  |> sorted_strings
   |> should.equal(["design", "shared"])
-  sorted_strings(resource_directory.folders(running_b))
+  resource_directory.folders(running_b)
+  |> sorted_strings
   |> should.equal(["design", "shared"])
+  let _ =
+    assert_client_entries(running_a, running_b, [
+      resource_directory.Entry(key: "owner", value: "a"),
+      resource_directory.Entry(key: "status", value: "b"),
+    ])
+  let _ = assert_invalidated(invalidations_a, before_shared_a)
+  let _ = assert_invalidated(invalidations_a, before_shared_a)
 }
