@@ -52,13 +52,14 @@ exception = ">= 2.1.0 and < 3.0.0"
 # every `trellis run` task, but get no changelog, no version bump, and no tag:
 # `@release` maps them to the `workspace` lifecycle. The compile-fail fixture is
 # not a product either.
-"@release" = ["examples/*", "tools/compile-fail/*", "tools/website-samples", "tools/source-snippets"]
+"@release" = ["examples/*", "tools/compile-fail/*", "tools/website-samples", "tools/source-snippets", "website_lustre"]
 
 # `gleam test` is an error, not a no-op, in a package with no `test/` directory,
 # so the suite-less packages are named out of the fan-out. Delete an entry here
 # the day that package grows a suite — `trellis doctor` fails on a glob that
 # matches no member, so a stale name here cannot go unnoticed.
 test = [
+    "website_lustre",
     "examples/clap_counter_lustre",
     "examples/dice_cli",
     "examples/dice_lustre",
@@ -77,9 +78,10 @@ test = [
 # one `build` that cannot express it.
 # `tools/compile-fail/*` is excluded from both: those packages exist to NOT
 # compile, and only `just _test-compile-fail` may build them (expecting failure).
-build-erlang = ["watershed_lustre", "examples/*_lustre", "tools/compile-fail/*", "tools/website-samples", "tools/source-snippets"]
+build-erlang = ["watershed_lustre", "examples/*_lustre", "tools/compile-fail/*", "tools/website-samples", "tools/source-snippets", "website_lustre"]
 build-javascript = ["examples/dice_cli", "examples/scoreboard_cli", "tools/compile-fail/*"]
 bundle = [
+    "website_lustre",
     ".",
     "watershed_lustre",
     "examples/dice_cli",

@@ -1,0 +1,32 @@
+name = "watershed_site"
+version = "1.0.0"
+target = "javascript"
+
+[dependencies]
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"
+lustre = ">= 5.7.1 and < 6.0.0"
+jot = ">= 8.0.0 and < 9.0.0"
+tom = ">= 1.0.0 and < 2.0.0"
+smalto = ">= 3.0.0 and < 4.0.0"
+simplifile = ">= 2.7.0 and < 3.0.0"
+gleam_crypto = ">= 1.6.0 and < 2.0.0"
+lustre_ssg = { git = "https://github.com/lustre-labs/ssg", ref = "2992bf78179d1be2876f834f0d923003f7f43f44" }
+watershed = { path = ".." }
+watershed_lustre = { path = "../watershed_lustre" }
+retro_tutorial_lustre = { path = "../examples/retro_tutorial_lustre" }
+
+[dev_dependencies]
+gleeunit = ">= 1.11.0 and < 2.0.0"
+lustre_dev_tools = ">= 2.3.6 and < 3.0.0"
+html_parser = ">= 1.0.1 and < 2.0.0"
+argv = ">= 1.1.0 and < 2.0.0"
+envoy = ">= 1.2.0 and < 2.0.0"
+
+[tools.lustre.build]
+minify = true
+no_html = true
+no_tailwind = true
+outdir = "./build/static"
+
+[tools.lustre.html]
+body = '<div id="guide-race-demo"></div>'
