@@ -33,7 +33,22 @@ fn start(
   instance_id: String,
   invalidations: transport_js.Cell(Int),
 ) -> resource_directory.Running {
+  let #(running, _callback_outputs) =
+    start_with_callback_outputs(document, subtree, instance_id, invalidations)
+  running
+}
+
+fn start_with_callback_outputs(
+  document: watershed.Document(Root),
+  subtree: watershed.SharedMap,
+  instance_id: String,
+  invalidations: transport_js.Cell(Int),
+) -> #(
+  resource_directory.Running,
+  transport_js.Cell(List(List(component.OutputEvent))),
+) {
   let outcome = transport_js.new_cell(None)
+  let callback_outputs = transport_js.new_cell([])
   resource_directory.start(
     document,
     subtree,
@@ -43,12 +58,17 @@ fn start(
         invalidations,
         transport_js.get_cell(invalidations) + 1,
       )
+      let output: List(component.OutputEvent) = []
+      transport_js.set_cell(callback_outputs, [
+        output,
+        ..transport_js.get_cell(callback_outputs)
+      ])
     },
     resource_directory.Config(title: "Resources"),
     fn(result) { transport_js.set_cell(outcome, Some(result)) },
   )
   let assert Some(Ok(running)) = transport_js.get_cell(outcome)
-  running
+  #(running, callback_outputs)
 }
 
 fn event_action(event: component.OutputEvent) -> component_event.Event {
@@ -78,6 +98,16 @@ fn assert_client_entries(
 
 fn assert_invalidated(counter: transport_js.Cell(Int), before: Int) -> Nil {
   should.be_true(transport_js.get_cell(counter) > before)
+}
+
+fn assert_no_component_events(
+  outputs: transport_js.Cell(List(List(component.OutputEvent))),
+) -> Nil {
+  let batches = transport_js.get_cell(outputs)
+  should.be_true(batches != [])
+  batches
+  |> list.all(fn(events) { events == [] })
+  |> should.be_true
 }
 
 pub fn config_round_trips_test() -> Nil {
@@ -338,8 +368,20 @@ pub fn replicated_deletion_returns_browsing_client_to_root_test() -> Nil {
   tree_b |> should.equal(tree_a)
   let invalidations_a = transport_js.new_cell(0)
   let invalidations_b = transport_js.new_cell(0)
-  let running_a = start(document_a, subtree_a, "resources-a", invalidations_a)
-  let running_b = start(document_b, subtree_b, "resources-b", invalidations_b)
+  let #(running_a, _callback_outputs_a) =
+    start_with_callback_outputs(
+      document_a,
+      subtree_a,
+      "resources-a",
+      invalidations_a,
+    )
+  let #(running_b, callback_outputs_b) =
+    start_with_callback_outputs(
+      document_b,
+      subtree_b,
+      "resources-b",
+      invalidations_b,
+    )
   let before_create_b = transport_js.get_cell(invalidations_b)
   let assert Ok(#(running_a, [create_event])) =
     resource_directory.create_folder(running_a, "design")
@@ -357,6 +399,7 @@ pub fn replicated_deletion_returns_browsing_client_to_root_test() -> Nil {
   let _ = assert_client_entries(running_a, running_b, [])
 
   let _ = assert_invalidated(invalidations_b, before_create_b)
+  assert_no_component_events(callback_outputs_b)
   let assert Ok(running_b) = resource_directory.open_folder(running_b, "design")
   let before_delete_b = transport_js.get_cell(invalidations_b)
   let assert Ok(#(_running_a, [delete_event])) =
@@ -377,6 +420,7 @@ pub fn replicated_deletion_returns_browsing_client_to_root_test() -> Nil {
   let _ = assert_client_entries(running_a, running_b, [])
 
   let _ = assert_invalidated(invalidations_b, before_delete_b)
+  assert_no_component_events(callback_outputs_b)
 }
 
 pub fn two_clients_converge_disjoint_edits_and_same_name_create_test() -> Nil {
@@ -401,8 +445,20 @@ pub fn two_clients_converge_disjoint_edits_and_same_name_create_test() -> Nil {
   tree_b |> should.equal(tree_a)
   let invalidations_a = transport_js.new_cell(0)
   let invalidations_b = transport_js.new_cell(0)
-  let running_a = start(document_a, subtree_a, "resources-a", invalidations_a)
-  let running_b = start(document_b, subtree_b, "resources-b", invalidations_b)
+  let #(running_a, callback_outputs_a) =
+    start_with_callback_outputs(
+      document_a,
+      subtree_a,
+      "resources-a",
+      invalidations_a,
+    )
+  let #(running_b, callback_outputs_b) =
+    start_with_callback_outputs(
+      document_b,
+      subtree_b,
+      "resources-b",
+      invalidations_b,
+    )
 
   let before_design_b = transport_js.get_cell(invalidations_b)
   let assert Ok(#(running_a, [design_event])) =
@@ -421,6 +477,7 @@ pub fn two_clients_converge_disjoint_edits_and_same_name_create_test() -> Nil {
   let _ = assert_client_entries(running_a, running_b, [])
 
   let _ = assert_invalidated(invalidations_b, before_design_b)
+  assert_no_component_events(callback_outputs_b)
 
   let before_owner_b = transport_js.get_cell(invalidations_b)
   let assert Ok(#(running_a, [owner_event])) =
@@ -440,6 +497,7 @@ pub fn two_clients_converge_disjoint_edits_and_same_name_create_test() -> Nil {
     ])
 
   let _ = assert_invalidated(invalidations_b, before_owner_b)
+  assert_no_component_events(callback_outputs_b)
 
   let before_status_a = transport_js.get_cell(invalidations_a)
   let assert Ok(#(running_b, [status_event])) =
@@ -460,9 +518,11 @@ pub fn two_clients_converge_disjoint_edits_and_same_name_create_test() -> Nil {
     ])
 
   let _ = assert_invalidated(invalidations_a, before_status_a)
+  assert_no_component_events(callback_outputs_a)
 
   sluice_js.pause(sluice, document_b)
   let before_shared_a = transport_js.get_cell(invalidations_a)
+  let before_shared_b = transport_js.get_cell(invalidations_b)
   let assert Ok(#(running_a, [shared_a_event])) =
     resource_directory.create_folder(running_a, "shared")
   let assert Ok(#(running_b, [shared_b_event])) =
@@ -498,5 +558,7 @@ pub fn two_clients_converge_disjoint_edits_and_same_name_create_test() -> Nil {
       resource_directory.Entry(key: "status", value: "b"),
     ])
   let _ = assert_invalidated(invalidations_a, before_shared_a)
-  let _ = assert_invalidated(invalidations_a, before_shared_a)
+  let _ = assert_invalidated(invalidations_b, before_shared_b)
+  assert_no_component_events(callback_outputs_a)
+  assert_no_component_events(callback_outputs_b)
 }
