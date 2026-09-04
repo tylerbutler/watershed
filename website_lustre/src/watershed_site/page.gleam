@@ -1,10 +1,18 @@
+import gleam/dict
 import gleam/list
 import gleam/option
+import gleam/result
 import gleam/string
+import lustre/attribute
 import lustre/element.{type Element}
+import lustre/element/html
+import lustre/ssg/djot
+import watershed_site/code
 import watershed_site/content
+import watershed_site/error.{type BuildError}
 import watershed_site/guide
 import watershed_site/route
+import watershed_site/snippet
 import watershed_site/view/document
 import watershed_site/view/guide as guide_view
 
@@ -15,6 +23,44 @@ pub type GuidePage(msg) {
     step: guide.Step,
     body: List(Element(msg)),
     demo: Element(msg),
+  )
+}
+
+pub fn render(
+  source: content.Source,
+  route: route.Route,
+  manifest: snippet.Manifest,
+  revision: String,
+) -> Result(Element(Nil), BuildError) {
+  use _ <- result.try(content.validate(source.document, source.path))
+  use _ <- result.try(content.validate_snippets(
+    source.document,
+    manifest,
+    source.path,
+  ))
+  let default = code.renderer(manifest, revision)
+  let renderer =
+    djot.Renderer(..default, div: fn(attributes, children) {
+      case dict.get(attributes, "data-component") {
+        Ok("guide-race") ->
+          html.div(
+            [
+              attribute.id("guide-race-demo"),
+              attribute.attribute("data-guide-race", ""),
+            ],
+            [],
+          )
+        _ -> default.div(attributes, children)
+      }
+    })
+  Ok(
+    view(GuidePage(
+      route,
+      source.metadata,
+      guide.get(source.metadata.guide_step),
+      djot.render(source.body, renderer),
+      element.none(),
+    )),
   )
 }
 

@@ -1,0 +1,25 @@
+---
+description = "Step three of the watershed build guide: add notes from two tabs at the same instant and confirm that both appear on the shared board."
+layout = "guide"
+guide_step = "race"
+---
+
+::: g-block
+## Add notes from both tabs at once
+
+Open the board in two tabs. In each one, type a different note into _Went well_ and click Add in both at the same moment.
+
+Both notes show up, in both tabs, in the same order. Nothing is lost.
+:::
+
+::: g-block
+## Each note uses a different key
+
+Notes are keyed by note id in an *OR-map*, so two adds write two different keys — there's nothing for them to collide over.
+
+Store the board as a plain map keyed by column instead, and you'd get one note back, not two: a map with one key per column has one slot per column, so the second note overwrites the first — that's what “last write wins” means. Keying by note id means there's no shared slot to overwrite.
+:::
+
+{data-component="guide-race"}
+:::
+:::

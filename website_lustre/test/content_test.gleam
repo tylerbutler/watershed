@@ -1,7 +1,9 @@
+import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
+import jot
 import simplifile
 import watershed_site/content
 import watershed_site/error
@@ -17,6 +19,37 @@ fn parse(metadata: String) {
 }
 
 const required = "description = \"A test page.\"\nlayout = \"guide\"\nguide_step = \"race\""
+
+pub fn race_copy_is_preserved_test() {
+  let assert Ok(source) = content.load(route.guide_race())
+  source.metadata.description
+  |> should.equal(
+    "Step three of the watershed build guide: add notes from two tabs at the same instant and confirm that both appear on the shared board.",
+  )
+  source.metadata.guide_step |> should.equal(guide.Race)
+  let components =
+    list.filter(source.document.content, fn(block) {
+      case block {
+        jot.Div(attributes, _) ->
+          dict.get(attributes, "data-component") == Ok("guide-race")
+        _ -> False
+      }
+    })
+  list.length(components) |> should.equal(1)
+  [
+    "Add notes from both tabs at once",
+    "Open the board in two tabs. In each one, type a different note into",
+    "and click Add in both at the same moment.",
+    "Both notes show up, in both tabs, in the same order. Nothing is lost.",
+    "Each note uses a different key",
+    "Notes are keyed by note id in an",
+    "so two adds write two different keys — there's nothing for them to collide over.",
+    "Store the board as a plain map keyed by column instead, and you'd get one note back, not two: a map with one key per column has one slot per column, so the second note overwrites the first — that's what “last write wins” means. Keying by note id means there's no shared slot to overwrite.",
+  ]
+  |> list.each(fn(text) {
+    let assert True = string.contains(source.body, text) as text
+  })
+}
 
 pub fn valid_metadata_test() {
   let assert Ok(source) =
