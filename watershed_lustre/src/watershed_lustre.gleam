@@ -69,6 +69,17 @@ import watershed/sequence_kernel
 import watershed/task_manager_kernel
 import watershed/text_kernel
 import watershed/two_p_set_kernel
+import watershed_lustre/crdt as crdt_effect
+
+/// Run an operation when Lustre performs the effect.
+///
+/// The effect sends the outcome on a microtask.
+pub fn perform(
+  operation operation: fn() -> a,
+  outcome outcome: fn(a) -> msg,
+) -> Effect(msg) {
+  crdt_effect.perform(operation:, outcome:)
+}
 
 @external(javascript, "./watershed_lustre_ffi.mjs", "queue_microtask")
 fn queue_microtask(action: fn() -> Nil) -> Nil
