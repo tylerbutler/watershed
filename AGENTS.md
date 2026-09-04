@@ -30,6 +30,14 @@ manifest; its README documents the schema and marker placement.
 Every marker must be quoted by a snippet and every snippet must find its
 marker, or generation fails and names the file.
 
+Website pages and components must not import `.gleam` or `.mjs` files with
+Vite's `?raw` query or extract source text at runtime. They request generated
+snippets with `sourceSnippet(id)` instead. Only
+`website/src/components/SnippetBlock.astro` may import or render Astro's
+`Code` component; callers render source-backed snippets through
+`SnippetBlock`, and use `snippetFromLiteral` only for illustrative text that
+does not quote source.
+
 The generator is a Gleam package that targets JavaScript and runs on Node —
 `gleam run -m source_snippets/cli` with no `--target` flag, because its own
 `gleam.toml` names the target. Trellis builds and tests it with the
