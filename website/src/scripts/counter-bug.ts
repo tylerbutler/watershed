@@ -412,7 +412,7 @@ async function playFix(rig) {
   rig.mark(recorded, { type: "circle", color: blue, strokeWidth: 3, padding: 8 });
   rig.logLine("converged: 21 + 22 = 43", "seq");
   rig.caption.textContent =
-    "Both boats counted: 43. Commutative, per-replica tallies converge — the accounting watershed's SharedCounter does for you.";
+    "Both boats counted: 43. SharedCounter keeps one tally per replica; their signed deltas commute, so every copy converges without losing a boat.";
   rig.root.dataset.state = "done";
 }
 

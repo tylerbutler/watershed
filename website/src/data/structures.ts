@@ -161,14 +161,14 @@ const sets: Structure[] = [
     module: "or_set_kernel",
     kind: "CRDT",
     onHomepage: true,
-    tagline: "A set where add, remove, and add-again all work: the everyday choice.",
+    tagline: "Add it, remove it, add it again: unlike a 2P-set, this one can bring an item back.",
     rule: "add, remove, and add again all work; if an add and a remove race, the add wins",
     optimistic:
       "your change overlays the list in magenta until it's confirmed",
     summary: "current members and their removal history reload intact",
     how: [
-      "An observed-remove set fixes the 2P-set's fatal flaw: you can add, remove, and add again. Every add attaches a unique causal tag (a dot), and a remove only tombstones the tags it has actually observed.",
-      "If one client removes an element while another concurrently adds it under a fresh tag, the new tag survives and the element stays (add-wins). That bookkeeping is why the OR-set is the workhorse removable set across collaborative apps.",
+      "An observed-remove set gets around the 2P-set's one-way removal: you can add, remove, and add again. Every add attaches a unique causal tag (a dot), and a remove only tombstones the tags it has actually observed.",
+      "If one client removes an element while another concurrently adds it under a fresh tag, the new tag survives and the element stays (add-wins). That bookkeeping lets an item be removed and later re-added without giving up add-wins concurrency.",
     ],
     useCases: [
       "Collaborative selections, tags, labels, and shopping carts",
@@ -434,7 +434,7 @@ const coordination: Structure[] = [
     optimistic: "a pending proposal blocks competing ones until it's accepted or dropped",
     summary: "accepted values and pending sign-offs save and restore together",
     how: [
-      "A pact map is the strongest coordination structure here: it reaches agreement before committing. Proposing a value and sequencing that set freezes the list of clients who must sign off, and each connected client auto-submits the accept ops it owes.",
+      "PactMap has watershed's strictest coordination rule: it reaches agreement before committing. Proposing a value and sequencing that set freezes the list of clients who must sign off, and each connected client auto-submits the accept ops it owes.",
       "The value becomes accepted only once the signoff list drains. Concurrent proposals for the same pact resolve to the first sequenced one; the competitor is dropped. The design is modeled after Fluid's quorum-consensus primitive.",
     ],
     useCases: [

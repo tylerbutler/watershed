@@ -10,9 +10,9 @@ const clients = [
   <div class="demo-head" data-reveal="rise">
     <h2 id="sudoku-demo-title">SharedMap sudoku cells, live</h2>
     <p>
-      Three <code>watershed</code> documents run the full
-      runtime (wire codecs, pending queues, and all), compiled to JavaScript
-      and running in your browser. They talk to one <code>sluice</code>: the
+      Three <code>watershed</code> documents run the full runtime in your
+      browser, wire codecs and pending queues included. The runtime is compiled
+      to JavaScript. They talk to one <code>sluice</code>: the
       in-memory server that ships in the library,
       standing in for floodgate with no backend. A cell edit renders optimistically
       and pushes an op the sluice sequences; delivery is explicit, so state
