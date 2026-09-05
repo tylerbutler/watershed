@@ -1,57 +1,20 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
-import { readFile, stat, writeFile } from "node:fs/promises";
-import { createServer } from "node:http";
-import { dirname, extname, resolve, sep } from "node:path";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import puppeteer from "puppeteer";
+import { withBrowserSite } from "./site.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const record = process.argv.includes("--record-baseline");
 const site = resolve(root, record ? "../website/dist" : "dist");
 const fixture = resolve(root, "test/fixtures/astro-race-parity.json");
-const browserPath = process.env.WATERSHED_CHROME || await puppeteer.executablePath();
-if (!existsSync(browserPath)) {
-  if (process.env.CI) throw new Error(`Chromium is required in CI: ${browserPath}`);
-  console.log(`SKIP: Chromium is unavailable: ${browserPath}`);
-  process.exit(0);
-}
-assert.ok(existsSync(resolve(site, "guide/race/index.html")), `Build the site first: ${site}`);
-const mime = { ".html": "text/html", ".css": "text/css", ".js": "text/javascript", ".mjs": "text/javascript", ".svg": "image/svg+xml", ".png": "image/png", ".woff2": "font/woff2" };
-const server = createServer(async (request, response) => {
-  const pathname = new URL(request.url, "http://localhost").pathname;
-  let path = resolve(site, "." + decodeURIComponent(pathname));
-  if (!path.startsWith(site + sep) && path !== site) {
-    response.writeHead(403).end();
-    return;
-  }
-  try {
-    if ((await stat(path)).isDirectory()) path = resolve(path, "index.html");
-    const body = await readFile(path);
-    response.writeHead(200, { "content-type": mime[extname(path)] || "application/octet-stream" }).end(body);
-  } catch (error) {
-    if (error.code !== "ENOENT" && error.code !== "ENOTDIR") {
-      response.writeHead(500).end();
-      throw error;
-    }
-    response.writeHead(404).end("Not found");
-  }
-});
-await new Promise((resolve, reject) => {
-  server.once("error", reject);
-  server.listen(0, "127.0.0.1", resolve);
-});
-let browser;
 const errors = [];
 const selector = (id) => `[data-testid="${id}"]`;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-try {
-  browser = await puppeteer.launch({
-    executablePath: browserPath,
-    headless: true,
-    args: process.env.CI ? ["--no-sandbox"] : [],
-  });
-  const url = `http://127.0.0.1:${server.address().port}/guide/race/`;
+await withBrowserSite(site, async (browser, origin) => {
+  assert.ok(existsSync(resolve(site, "guide/race/index.html")), `Build the site first: ${site}`);
+  const url = `${origin}/guide/race/`;
   const page = await browser.newPage();
   page.on("pageerror", (error) => errors.push(error.message));
   page.on("console", (message) => {
@@ -270,7 +233,4 @@ try {
     console.log("PASS: static content, Astro parity, race, flow, reset, reduced motion, and failures.");
   }
   assert.deepEqual(errors, [], "browser errors");
-} finally {
-  if (browser) await browser.close();
-  await new Promise((resolve, reject) => server.close((error) => error ? reject(error) : resolve()));
-}
+});

@@ -11,12 +11,17 @@ import watershed_site/error.{type BuildError}
 import watershed_site/guide
 import watershed_site/route
 import watershed_site/snippet
+import watershed_site/view/guide_index
+
+pub type PageKind {
+  GuideStep(guide.Slug)
+  GuideIndex
+}
 
 pub type Metadata {
   Metadata(
     description: String,
-    layout: route.Layout,
-    guide_step: guide.Slug,
+    kind: PageKind,
     og_title: Option(String),
     og_description: Option(String),
   )
@@ -97,10 +102,42 @@ fn decode_metadata(
   )
   use description <- result.try(field(fields, "description", path))
   use layout <- result.try(field(fields, "layout", path))
-  use _ <- result.try(case layout, route.layout {
-    "guide", route.Guide -> Ok(Nil)
-    _, _ -> Error(error.InvalidFrontmatter(path, "layout: Expected guide."))
+  use kind <- result.try(case layout, route.layout {
+    "guide", route.Guide -> decode_step(fields, path, route)
+    "guide-index", route.GuideIndex ->
+      case dict.has_key(fields, "guide_step"), route.path {
+        True, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "guide_step: The guide index cannot name a step.",
+          ))
+        False, "/guide" -> Ok(GuideIndex)
+        False, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The guide index path must be /guide.",
+          ))
+      }
+    _, _ ->
+      Error(error.InvalidFrontmatter(
+        path,
+        "layout: The layout does not match the route.",
+      ))
   })
+  use og_title <- result.try(optional_field(fields, "og_title", path))
+  use og_description <- result.try(optional_field(
+    fields,
+    "og_description",
+    path,
+  ))
+  Ok(Metadata(description, kind, og_title, og_description))
+}
+
+fn decode_step(
+  fields: Dict(String, tom.Toml),
+  path: String,
+  route: route.Route,
+) -> Result(PageKind, BuildError) {
   use slug <- result.try(field(fields, "guide_step", path))
   use step <- result.try(
     guide.from_string(slug)
@@ -117,13 +154,7 @@ fn decode_metadata(
         "guide_step: The path does not match " <> route.path,
       ))
   })
-  use og_title <- result.try(optional_field(fields, "og_title", path))
-  use og_description <- result.try(optional_field(
-    fields,
-    "og_description",
-    path,
-  ))
-  Ok(Metadata(description, route.Guide, step, og_title, og_description))
+  Ok(GuideStep(step))
 }
 
 pub fn validate(
@@ -177,7 +208,10 @@ fn validate_blocks(
       jot.Div(attributes, children) -> {
         use _ <- result.try(case dict.get(attributes, "data-component") {
           Error(Nil) | Ok("guide-race") -> Ok(Nil)
-          Ok(name) -> Error(error.UnknownComponent(path, name))
+          Ok(name) ->
+            guide_index.component(name)
+            |> result.replace(Nil)
+            |> result.replace_error(error.UnknownComponent(path, name))
         })
         validate_blocks(children, path)
       }

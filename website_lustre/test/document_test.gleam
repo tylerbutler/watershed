@@ -13,8 +13,7 @@ pub fn fixture() -> page.GuidePage(Nil) {
     route.guide_race(),
     content.Metadata(
       "A guide description.",
-      route.Guide,
-      guide.Race,
+      content.GuideStep(guide.Race),
       None,
       None,
     ),

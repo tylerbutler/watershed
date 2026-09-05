@@ -1,0 +1,59 @@
+---
+description = "Build a multiplayer retro board on watershed: connect two tabs, add notes and votes, show who is reading, and test simultaneous edits."
+layout = "guide-index"
+---
+
+{data-component="guide-intro"}
+::::
+{.eyebrow .annot}
+[← watershed](/) · Build guide
+
+# Build a multiplayer app,\
+_step by step._
+
+{.lede data-testid="guide-lede"}
+Build a shared retro board in Gleam. Connect two browser tabs, add a note, and watch it appear in both. Then add votes, show who is reading, and test what happens when two people edit at once.
+
+{.cta-row}
+[Start · 01 Connect the board →](/guide/connect){.cta-primary data-testid="guide-start"}
+[Read the mental model first →](/foundations){.cta-quiet}
+[Browse the structures ↓](/structures){.cta-quiet}
+::::
+
+{data-component="guide-content"}
+::::::
+{data-component="guide-build"}
+:::::
+::: gi-build-copy
+{data-heading-id="gi-build-title"}
+## What you'll build
+
+One app runs the whole way through: a *sprint retro board*. Three columns of sticky notes, a vote count on each one, and a roster showing who is reading what. Each step adds one working piece — a title, notes, votes, presence — to the same codebase.
+
+Once notes work, you'll open the board in two tabs and add notes from both at the same instant. Both notes survive, and you'll see why. Votes get the same treatment: build the count first, then compare it with a read-modify-write counter that loses concurrent votes.
+
+{.gi-prereq}
+You'll need the [Gleam toolchain](https://gleam.run/getting-started/) throughout, and a [floodgate](https://floodgate.tylerbutler.com) server for the first five steps. The last step needs no server. Each code sample comes from [the complete tutorial project](https://github.com/tylerbutler/watershed/tree/main/examples/retro_tutorial_lustre).
+:::
+{data-component="guide-document"}
+:::
+:::
+:::::
+{data-component="guide-procedure"}
+:::::
+{data-heading-id="gi-ledger-title"}
+## The survey procedure
+
+Six sheets, in order. Each ends where the next begins.
+:::::
+{data-component="guide-companion"}
+:::::
+{data-heading-id="gi-companion-title"}
+## Then compare the working shapes.
+
+The procedure builds one application in order. The gallery lets you choose one of fourteen browser apps by conflict rule or interaction.
+
+{.gi-companion-links}
+[Browse the browser examples →](/examples)
+:::::
+::::::

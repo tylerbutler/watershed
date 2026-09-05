@@ -14,6 +14,12 @@ pub fn generated_route_and_assets_test() {
   let assert Ok(_) = simplifile.create_directory_all(".cache")
   watershed_site.build(output, "build/static", manifest, "fixture-revision")
   |> should.be_ok()
+  let assert Ok(index) = simplifile.read(output <> "/guide/index.html")
+  string.contains(index, "The survey procedure") |> should.be_true()
+  string.contains(index, "/guide_race.js") |> should.be_false()
+  let assert Ok(motion) = simplifile.read("../website/src/scripts/motion.js")
+  simplifile.read(output <> "/scripts/guide-index.js")
+  |> should.equal(Ok(motion <> "\ninitReveals();\n"))
   let assert Ok(html) = simplifile.read(output <> "/guide/race/index.html")
   let tree = html_parser.as_tree(html)
   find(tree, "id", "guide-race-demo") |> list.length |> should.equal(1)
@@ -36,6 +42,7 @@ pub fn generated_route_and_assets_test() {
     "guide_race.js",
     "styles/site.css",
     "styles/guide-race.css",
+    "styles/guide-index.css",
     "fonts/archivo/wdth.css",
     "favicon.svg",
     "og.png",

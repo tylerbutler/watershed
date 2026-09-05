@@ -37,7 +37,7 @@ pub fn build_routes(
   )
   let assets =
     list.append(
-      ["/styles/site.css", "/styles/guide-race.css", "/favicon.svg", "/og.png"],
+      ["/favicon.svg", "/og.png", ..list.flat_map(routes, route.stylesheets)],
       list.filter_map(routes, fn(route) {
         option.to_result(route.client_script, Nil)
       }),
@@ -56,6 +56,19 @@ pub fn build_routes(
       }
     }),
   )
+  use motion <- result.try(
+    case list.any(routes, fn(route) { route.layout == route.GuideIndex }) {
+      False -> Ok(option.None)
+      True -> {
+        let path = "../website/src/scripts/motion.js"
+        simplifile.read(path)
+        |> result.map(fn(source) { option.Some(source <> "\ninitReveals();\n") })
+        |> result.map_error(fn(reason) {
+          error.CannotRead(path, string.inspect(reason))
+        })
+      }
+    },
+  )
   case pages {
     [] ->
       Error(error.InvalidContent(
@@ -68,6 +81,11 @@ pub fn build_routes(
         |> ssg.add_static_dir(static_dir)
         |> ssg.use_index_routes
         |> ssg.add_static_route(path, page)
+      let config = case motion {
+        option.None -> config
+        option.Some(source) ->
+          ssg.add_static_asset(config, "/scripts/guide-index.js", source)
+      }
       list.fold(rest, config, fn(config, entry) {
         ssg.add_static_route(config, entry.0, entry.1)
       })

@@ -1,3 +1,4 @@
+import gleam/list
 import gleam/option.{Some}
 import gleeunit/should
 import watershed_site/error
@@ -5,6 +6,7 @@ import watershed_site/route
 
 pub fn pilot_route_is_registered_test() {
   route.all()
+  |> list.filter(fn(route) { route.path == "/guide/race" })
   |> should.equal([
     route.Route(
       path: "/guide/race",

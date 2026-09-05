@@ -1,6 +1,6 @@
 import gleam/dict
 import gleam/list
-import gleam/option.{type Option, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed_site/error.{type BuildError, DuplicateRoute}
 
@@ -16,6 +16,7 @@ pub type Route {
 
 pub type Layout {
   Guide
+  GuideIndex
 }
 
 pub type Analytics {
@@ -34,7 +35,23 @@ pub fn guide_race() -> Route {
 }
 
 pub fn all() -> List(Route) {
-  [guide_race()]
+  [
+    Route(
+      path: "/guide",
+      layout: GuideIndex,
+      content_path: "content/guide/index.djot",
+      client_script: None,
+      analytics: Tinylytics,
+    ),
+    guide_race(),
+  ]
+}
+
+pub fn stylesheets(route: Route) -> List(String) {
+  case route.layout {
+    Guide -> ["/styles/site.css", "/styles/guide-race.css"]
+    GuideIndex -> ["/styles/site.css", "/styles/guide-index.css"]
+  }
 }
 
 pub fn validate(routes: List(Route)) -> Result(List(Route), BuildError) {

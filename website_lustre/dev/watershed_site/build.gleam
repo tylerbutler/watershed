@@ -1,9 +1,12 @@
 import argv
 import envoy
 import gleam/io
+import gleam/list
 import gleam/result
+import gleam/string
 import watershed_site
 import watershed_site/error
+import watershed_site/route
 import watershed_site/system
 
 pub fn main() -> Nil {
@@ -27,7 +30,16 @@ pub fn main() -> Nil {
 fn run(output: String, assets: String, manifest: String) -> Nil {
   let revision = envoy.get("GITHUB_SHA") |> result.unwrap("main")
   case watershed_site.build(output, assets, manifest, revision) {
-    Ok(Nil) -> io.println("Generated /guide/race/ in " <> output)
+    Ok(Nil) ->
+      io.println(
+        "Generated "
+        <> string.join(
+          list.map(route.all(), fn(route) { route.path <> "/" }),
+          ", ",
+        )
+        <> " in "
+        <> output,
+      )
     Error(reason) -> {
       io.println_error(error.describe(reason))
       system.halt(1)

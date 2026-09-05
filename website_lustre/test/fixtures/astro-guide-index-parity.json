@@ -1,0 +1,577 @@
+{
+  "content": {
+    "title": "watershed — build guide",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Build a multiplayer retro board on watershed: connect two tabs, add notes and votes, show who is reading, and test simultaneous edits."
+      ],
+      [
+        "og:title",
+        "watershed — build guide"
+      ],
+      [
+        "og:description",
+        "Build a multiplayer retro board on watershed: connect two tabs, add notes and votes, show who is reading, and test simultaneous edits."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/guide/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Build a multiplayer app, step by step.",
+    "headingBreaks": 1,
+    "headings": [
+      "What you'll build",
+      "The survey procedure",
+      "Then compare the working shapes."
+    ],
+    "prose": [
+      "← watershed · Build guide",
+      "Build a shared retro board in Gleam. Connect two browser tabs, add a note, and watch it appear in both. Then add votes, show who is reading, and test what happens when two people edit at once.",
+      "One app runs the whole way through: a sprint retro board. Three columns of sticky notes, a vote count on each one, and a roster showing who is reading what. Each step adds one working piece — a title, notes, votes, presence — to the same codebase.",
+      "Once notes work, you'll open the board in two tabs and add notes from both at the same instant. Both notes survive, and you'll see why. Votes get the same treatment: build the count first, then compare it with a read-modify-write counter that loses concurrent votes.",
+      "You'll need the Gleam toolchain throughout, and a floodgate server for the first five steps. The last step needs no server. Each code sample comes from the complete tutorial project.",
+      "Six sheets, in order. Each ends where the next begins.",
+      "The procedure builds one application in order. The gallery lets you choose one of fourteen browser apps by conflict rule or interaction."
+    ],
+    "diagram": [
+      "title",
+      "String field → the board's name",
+      "notes",
+      "OR-map · RegisterMode → note id to whole note",
+      "votes",
+      "OR-map · TallyMode → note id to signed total",
+      "↯ focus",
+      "presence → who's reading which note"
+    ],
+    "steps": [
+      {
+        "href": "/guide/connect",
+        "number": "01",
+        "fields": [
+          "Connect the board",
+          "Open the same empty board in two browser tabs.",
+          "connect_dev · root_typed · ensure_or_map · subscribe"
+        ]
+      },
+      {
+        "href": "/guide/notes",
+        "number": "02",
+        "fields": [
+          "Add notes",
+          "Create a note and watch it show up in both tabs.",
+          "RegisterMode · or_map_set_json · or_map_entries"
+        ]
+      },
+      {
+        "href": "/guide/race",
+        "number": "03",
+        "fields": [
+          "Try two edits at once",
+          "Add notes from both tabs at the same instant and confirm both appear.",
+          "sluice · or_map_set_json · or_map_entries"
+        ]
+      },
+      {
+        "href": "/guide/votes",
+        "number": "04",
+        "fields": [
+          "Add votes",
+          "Build a vote count that stays correct even when clicks overlap.",
+          "TallyMode · or_map_increment · Tally"
+        ]
+      },
+      {
+        "href": "/guide/presence",
+        "number": "05",
+        "fields": [
+          "Add presence",
+          "Show who is looking at each note, and clear it when they leave.",
+          "presence.config · watershed_lustre.presence · update_presence"
+        ]
+      },
+      {
+        "href": "/guide/testing",
+        "number": "06",
+        "fields": [
+          "Write repeatable tests",
+          "Turn the two-tab checks you've been running by hand into tests you can run anytime.",
+          "sluice_js · start · settle · step"
+        ]
+      }
+    ],
+    "actions": [
+      {
+        "text": "← watershed",
+        "href": "/",
+        "current": null
+      },
+      {
+        "text": "Start · 01 Connect the board →",
+        "href": "/guide/connect",
+        "current": null
+      },
+      {
+        "text": "Read the mental model first →",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Browse the structures ↓",
+        "href": "/structures",
+        "current": null
+      }
+    ],
+    "bodyLinks": [
+      {
+        "text": "Gleam toolchain",
+        "href": "https://gleam.run/getting-started/",
+        "current": null
+      },
+      {
+        "text": "floodgate",
+        "href": "https://floodgate.tylerbutler.com",
+        "current": null
+      },
+      {
+        "text": "the complete tutorial project",
+        "href": "https://github.com/tylerbutler/watershed/tree/main/examples/retro_tutorial_lustre",
+        "current": null
+      },
+      {
+        "text": "01 Connect the board Open the same empty board in two browser tabs. connect_dev · root_typed · ensure_or_map · subscribe →",
+        "href": "/guide/connect",
+        "current": null
+      },
+      {
+        "text": "02 Add notes Create a note and watch it show up in both tabs. RegisterMode · or_map_set_json · or_map_entries →",
+        "href": "/guide/notes",
+        "current": null
+      },
+      {
+        "text": "03 Try two edits at once Add notes from both tabs at the same instant and confirm both appear. sluice · or_map_set_json · or_map_entries →",
+        "href": "/guide/race",
+        "current": null
+      },
+      {
+        "text": "04 Add votes Build a vote count that stays correct even when clicks overlap. TallyMode · or_map_increment · Tally →",
+        "href": "/guide/votes",
+        "current": null
+      },
+      {
+        "text": "05 Add presence Show who is looking at each note, and clear it when they leave. presence.config · watershed_lustre.presence · update_presence →",
+        "href": "/guide/presence",
+        "current": null
+      },
+      {
+        "text": "06 Write repeatable tests Turn the two-tab checks you've been running by hand into tests you can run anytime. sluice_js · start · settle · step →",
+        "href": "/guide/testing",
+        "current": null
+      },
+      {
+        "text": "Browse the browser examples →",
+        "href": "/examples",
+        "current": null
+      }
+    ],
+    "primary": [
+      {
+        "text": "Atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Guide",
+        "href": "/guide",
+        "current": "page"
+      },
+      {
+        "text": "Examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "adjoining": [
+      {
+        "text": "Data structures",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Field atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Counters",
+        "href": "/structures/counters",
+        "current": null
+      },
+      {
+        "text": "Sets",
+        "href": "/structures/sets",
+        "current": null
+      },
+      {
+        "text": "Maps",
+        "href": "/structures/maps",
+        "current": null
+      },
+      {
+        "text": "Sequences",
+        "href": "/structures/sequences",
+        "current": null
+      },
+      {
+        "text": "Coordination",
+        "href": "/structures/coordination",
+        "current": null
+      },
+      {
+        "text": "Transforms",
+        "href": "/structures/transforms",
+        "current": null
+      },
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Schemas and fields",
+        "href": "/foundations/schema",
+        "current": null
+      },
+      {
+        "text": "Documents and handles",
+        "href": "/foundations/topology",
+        "current": null
+      },
+      {
+        "text": "Starting a document",
+        "href": "/foundations/lifecycle",
+        "current": null
+      },
+      {
+        "text": "Component model",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Components and catalogs",
+        "href": "/component-model/components",
+        "current": null
+      },
+      {
+        "text": "Ports and dispatch",
+        "href": "/component-model/ports",
+        "current": null
+      },
+      {
+        "text": "Workspaces and instances",
+        "href": "/component-model/workspaces",
+        "current": null
+      },
+      {
+        "text": "Build guide",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "01 · Connect the board",
+        "href": "/guide/connect",
+        "current": null
+      },
+      {
+        "text": "02 · Add notes",
+        "href": "/guide/notes",
+        "current": null
+      },
+      {
+        "text": "03 · Try two edits at once",
+        "href": "/guide/race",
+        "current": null
+      },
+      {
+        "text": "04 · Add votes",
+        "href": "/guide/votes",
+        "current": null
+      },
+      {
+        "text": "05 · Add presence",
+        "href": "/guide/presence",
+        "current": null
+      },
+      {
+        "text": "06 · Write repeatable tests",
+        "href": "/guide/testing",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Behaviors",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Optimistic edits",
+        "href": "/runtime/optimistic",
+        "current": null
+      },
+      {
+        "text": "Reconnect & resync",
+        "href": "/runtime/reconnect",
+        "current": null
+      },
+      {
+        "text": "Idempotent re-delivery",
+        "href": "/runtime/redelivery",
+        "current": null
+      },
+      {
+        "text": "Presence & ripples",
+        "href": "/runtime/presence",
+        "current": null
+      },
+      {
+        "text": "Peer-to-peer over WebRTC",
+        "href": "/runtime/p2p",
+        "current": null
+      },
+      {
+        "text": "Reference & demos",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Browser examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Patterns",
+        "href": "/patterns",
+        "current": null
+      },
+      {
+        "text": "Convergence models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "SharedTree comparison",
+        "href": "/sharedtree",
+        "current": null
+      },
+      {
+        "text": "The counter bug",
+        "href": "/counter-bug",
+        "current": null
+      },
+      {
+        "text": "Shared directory",
+        "href": "/directory",
+        "current": null
+      },
+      {
+        "text": "JsonOt",
+        "href": "/json-ot",
+        "current": null
+      },
+      {
+        "text": "Rich text",
+        "href": "/rich-text",
+        "current": null
+      },
+      {
+        "text": "Sudoku",
+        "href": "/sudoku",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "canonical": null
+  },
+  "desktop": {
+    "hero": {
+      "padding": "112px 64.8px 80px",
+      "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+    },
+    "heading": {
+      "font-size": "86.4px",
+      "font-weight": "640",
+      "font-stretch": "122%",
+      "line-height": "85.536px",
+      "letter-spacing": "-2.16px"
+    },
+    "lede": {
+      "font-size": "21px",
+      "line-height": "33.6px",
+      "max-width": "721.606px",
+      "margin-top": "40px"
+    },
+    "start": {
+      "padding": "12.8px 25.6px",
+      "background-color": "oklch(0.55 0.21 340)",
+      "color": "oklch(1 0 0)",
+      "font-weight": "600"
+    },
+    "grid": {
+      "display": "grid",
+      "grid-template-columns": "589.078px 490.906px",
+      "gap": "72px"
+    },
+    "diagram": {
+      "border": "1px solid oklch(0.25 0.02 260)",
+      "background-color": "oklch(1 0 0)"
+    },
+    "ledger": {
+      "padding": "64px 64.8px 129.6px",
+      "max-width": "1152px"
+    },
+    "step": {
+      "display": "grid",
+      "grid-template-columns": "23.9375px 914.641px 11.8281px",
+      "gap": "24px",
+      "padding": "24px 12px"
+    },
+    "surface": {
+      "display": "block",
+      "font-size": "13px",
+      "color": "oklch(0.37 0.095 240)"
+    },
+    "companion": {
+      "padding": "64px 64.8px",
+      "background-color": "oklch(0.962 0.005 340)"
+    }
+  },
+  "mobile": {
+    "hero": {
+      "padding": "56px 20px 40px",
+      "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+    },
+    "heading": {
+      "font-size": "33.15px",
+      "font-weight": "640",
+      "font-stretch": "100%",
+      "line-height": "32.8185px",
+      "letter-spacing": "-0.9945px"
+    },
+    "lede": {
+      "font-size": "18.34px",
+      "line-height": "29.344px",
+      "max-width": "630.202px",
+      "margin-top": "40px"
+    },
+    "start": {
+      "padding": "12.8px 25.6px",
+      "background-color": "oklch(0.55 0.21 340)",
+      "color": "oklch(1 0 0)",
+      "font-weight": "600"
+    },
+    "grid": {
+      "display": "grid",
+      "grid-template-columns": "324px",
+      "gap": "40px"
+    },
+    "diagram": {
+      "border": "1px solid oklch(0.25 0.02 260)",
+      "background-color": "oklch(1 0 0)"
+    },
+    "ledger": {
+      "padding": "64px 20px 72px",
+      "max-width": "1152px"
+    },
+    "step": {
+      "display": "grid",
+      "grid-template-columns": "23.9375px 232.234px 11.8281px",
+      "gap": "16px",
+      "padding": "24px 12px"
+    },
+    "surface": {
+      "display": "none",
+      "font-size": "13px",
+      "color": "oklch(0.37 0.095 240)"
+    },
+    "companion": {
+      "padding": "64px 20px",
+      "background-color": "oklch(0.962 0.005 340)"
+    }
+  },
+  "focus": {
+    "outline": "oklch(0.55 0.21 340) solid 2px",
+    "offset": "2px"
+  }
+}

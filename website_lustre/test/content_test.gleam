@@ -26,7 +26,7 @@ pub fn race_copy_is_preserved_test() {
   |> should.equal(
     "Step three of the watershed build guide: add notes from two tabs at the same instant and confirm that both appear on the shared board.",
   )
-  source.metadata.guide_step |> should.equal(guide.Race)
+  source.metadata.kind |> should.equal(content.GuideStep(guide.Race))
   let components =
     list.filter(source.document.content, fn(block) {
       case block {
@@ -62,8 +62,7 @@ pub fn valid_metadata_test() {
   source.metadata
   |> should.equal(content.Metadata(
     "A test page.",
-    route.Guide,
-    guide.Race,
+    content.GuideStep(guide.Race),
     None,
     None,
   ))
