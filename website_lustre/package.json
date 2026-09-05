@@ -1,0 +1,13 @@
+{
+  "name": "watershed-site-browser-tests",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@11.13.1",
+  "scripts": {
+    "smoke": "node test/browser/guide-race.mjs",
+    "record:parity": "node test/browser/guide-race.mjs --record-baseline"
+  },
+  "devDependencies": {
+    "puppeteer": "^25.3.0"
+  }
+}

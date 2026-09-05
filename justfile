@@ -30,7 +30,7 @@ _build-bundles:
     trellis run bundle --serial
 
 # Run tests
-test: _test-gleam _test-js _test-compile-fail _test-website-snippets
+test: _test-gleam _test-js _test-compile-fail _test-website-snippets _test-website-lustre
 
 # Every member with a `test/` directory, each on the target its own gleam.toml
 # pins. This covers the Lustre bindings package (grapheme diff, UTF-16 offset
@@ -113,6 +113,10 @@ website-lustre: _build-website-lustre
 
 website-lustre-serve: _build-website-lustre
     pnpm dlx netlify-cli@27.4.1 dev --offline --port 4321 --dir website_lustre/dist
+
+_test-website-lustre: _build-website-lustre
+    cd website_lustre && gleam test --target javascript
+    cd website_lustre && pnpm run smoke
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by

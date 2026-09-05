@@ -1,0 +1,404 @@
+{
+  "content": {
+    "title": "watershed — try two edits at once",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Step three of the watershed build guide: add notes from two tabs at the same instant and confirm that both appear on the shared board."
+      ],
+      [
+        "og:title",
+        "watershed — try two edits at once"
+      ],
+      [
+        "og:description",
+        "Step three of the watershed build guide: add notes from two tabs at the same instant and confirm that both appear on the shared board."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/guide/race/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Try two edits at once",
+    "prose": [
+      "Add notes from both tabs at once Open the board in two tabs. In each one, type a different note into Went well and click Add in both at the same moment. Both notes show up, in both tabs, in the same order. Nothing is lost.",
+      "Each note uses a different key Notes are keyed by note id in an OR-map, so two adds write two different keys — there's nothing for them to collide over. Store the board as a plain map keyed by column instead, and you'd get one note back, not two: a map with one key per column has one slot per column, so the second note overwrites the first — that's what “last write wins” means. Keying by note id means there's no shared slot to overwrite."
+    ],
+    "primary": [
+      {
+        "text": "Atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Guide",
+        "href": "/guide",
+        "current": "page"
+      },
+      {
+        "text": "Examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "guide": [
+      {
+        "text": "← Step 02 Add notes",
+        "href": "/guide/notes",
+        "current": null
+      },
+      {
+        "text": "Step 04 → Add votes",
+        "href": "/guide/votes",
+        "current": null
+      }
+    ],
+    "adjoining": [
+      {
+        "text": "Data structures",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Field atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Counters",
+        "href": "/structures/counters",
+        "current": null
+      },
+      {
+        "text": "Sets",
+        "href": "/structures/sets",
+        "current": null
+      },
+      {
+        "text": "Maps",
+        "href": "/structures/maps",
+        "current": null
+      },
+      {
+        "text": "Sequences",
+        "href": "/structures/sequences",
+        "current": null
+      },
+      {
+        "text": "Coordination",
+        "href": "/structures/coordination",
+        "current": null
+      },
+      {
+        "text": "Transforms",
+        "href": "/structures/transforms",
+        "current": null
+      },
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Schemas and fields",
+        "href": "/foundations/schema",
+        "current": null
+      },
+      {
+        "text": "Documents and handles",
+        "href": "/foundations/topology",
+        "current": null
+      },
+      {
+        "text": "Starting a document",
+        "href": "/foundations/lifecycle",
+        "current": null
+      },
+      {
+        "text": "Component model",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Components and catalogs",
+        "href": "/component-model/components",
+        "current": null
+      },
+      {
+        "text": "Ports and dispatch",
+        "href": "/component-model/ports",
+        "current": null
+      },
+      {
+        "text": "Workspaces and instances",
+        "href": "/component-model/workspaces",
+        "current": null
+      },
+      {
+        "text": "Build guide",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "01 · Connect the board",
+        "href": "/guide/connect",
+        "current": null
+      },
+      {
+        "text": "02 · Add notes",
+        "href": "/guide/notes",
+        "current": null
+      },
+      {
+        "text": "03 · Try two edits at once",
+        "href": "/guide/race",
+        "current": null
+      },
+      {
+        "text": "04 · Add votes",
+        "href": "/guide/votes",
+        "current": null
+      },
+      {
+        "text": "05 · Add presence",
+        "href": "/guide/presence",
+        "current": null
+      },
+      {
+        "text": "06 · Write repeatable tests",
+        "href": "/guide/testing",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Behaviors",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Optimistic edits",
+        "href": "/runtime/optimistic",
+        "current": null
+      },
+      {
+        "text": "Reconnect & resync",
+        "href": "/runtime/reconnect",
+        "current": null
+      },
+      {
+        "text": "Idempotent re-delivery",
+        "href": "/runtime/redelivery",
+        "current": null
+      },
+      {
+        "text": "Presence & ripples",
+        "href": "/runtime/presence",
+        "current": null
+      },
+      {
+        "text": "Peer-to-peer over WebRTC",
+        "href": "/runtime/p2p",
+        "current": null
+      },
+      {
+        "text": "Reference & demos",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Browser examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Patterns",
+        "href": "/patterns",
+        "current": null
+      },
+      {
+        "text": "Convergence models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "SharedTree comparison",
+        "href": "/sharedtree",
+        "current": null
+      },
+      {
+        "text": "The counter bug",
+        "href": "/counter-bug",
+        "current": null
+      },
+      {
+        "text": "Shared directory",
+        "href": "/directory",
+        "current": null
+      },
+      {
+        "text": "JsonOt",
+        "href": "/json-ot",
+        "current": null
+      },
+      {
+        "text": "Rich text",
+        "href": "/rich-text",
+        "current": null
+      },
+      {
+        "text": "Sudoku",
+        "href": "/sudoku",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "canonical": null
+  },
+  "desktop": {
+    "body": {
+      "font-family": "\"Archivo Variable\", Archivo, system-ui, \"Segoe UI\", \"Helvetica Neue\", sans-serif",
+      "font-size": "17px",
+      "line-height": "28.05px"
+    },
+    "section": {
+      "padding-top": "129.6px",
+      "padding-left": "64.8px",
+      "border-bottom-width": "1px",
+      "border-bottom-color": "oklch(0.25 0.02 260 / 0.22)"
+    },
+    "rig": {
+      "display": "grid",
+      "grid-template-areas": "\"a seq b\"",
+      "grid-template-columns": "306.188px 168.422px 306.203px",
+      "gap": "24px"
+    },
+    "replica": {
+      "grid-area": "a",
+      "border-width": "1px",
+      "border-color": "oklch(0.25 0.02 260)"
+    },
+    "note": {
+      "border-width": "1px",
+      "border-color": "oklch(0.25 0.02 260)",
+      "padding": "13.6px 14.4px",
+      "font-size": "17px"
+    },
+    "button": {
+      "padding": "10.4px 19.2px",
+      "font-size": "17px",
+      "border-width": "1px",
+      "font-weight": "600"
+    }
+  },
+  "mobile": {
+    "body": {
+      "font-family": "\"Archivo Variable\", Archivo, system-ui, \"Segoe UI\", \"Helvetica Neue\", sans-serif",
+      "font-size": "17px",
+      "line-height": "28.05px"
+    },
+    "section": {
+      "padding-top": "72px",
+      "padding-left": "20px",
+      "border-bottom-width": "1px",
+      "border-bottom-color": "oklch(0.25 0.02 260 / 0.22)"
+    },
+    "rig": {
+      "display": "grid",
+      "grid-template-areas": "\"a\" \"seq\" \"b\"",
+      "grid-template-columns": "284px",
+      "gap": "24px"
+    },
+    "replica": {
+      "grid-area": "a",
+      "border-width": "1px",
+      "border-color": "oklch(0.25 0.02 260)"
+    },
+    "note": {
+      "border-width": "1px",
+      "border-color": "oklch(0.25 0.02 260)",
+      "padding": "13.6px 14.4px",
+      "font-size": "17px"
+    },
+    "button": {
+      "padding": "10.4px 19.2px",
+      "font-size": "17px",
+      "border-width": "1px",
+      "font-weight": "600"
+    }
+  },
+  "focus": {
+    "outline": "oklch(0.55 0.21 340) solid 2px",
+    "offset": "2px"
+  }
+}

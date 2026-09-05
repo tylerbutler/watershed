@@ -33,7 +33,7 @@ pub fn document_preserves_metadata_and_navigation_test() {
     "content=\"watershed — try two edits at once\" property=\"og:title\"",
     "content=\"A guide description.\" property=\"og:description\"",
     "content=\"website\" property=\"og:type\"",
-    "content=\"https://watershed.tylerbutler.com/guide/race\" property=\"og:url\"",
+    "content=\"https://watershed.tylerbutler.com/guide/race/\" property=\"og:url\"",
     "content=\"https://watershed.tylerbutler.com/og.png\" property=\"og:image\"",
     "content=\"2400\" property=\"og:image:width\"",
     "content=\"1260\" property=\"og:image:height\"", "property=\"og:image:alt\"",

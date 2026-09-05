@@ -75,6 +75,7 @@ fn step_link(
 ) -> Element(msg) {
   h.a([a.class("g-step-cell g-step-" <> direction), a.href(href)], [
     h.span([a.class("annot")], [h.text(label)]),
+    h.text(" "),
     h.span([a.class("g-step-title")], [h.text(title)]),
   ])
 }

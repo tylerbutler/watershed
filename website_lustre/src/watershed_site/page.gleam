@@ -83,7 +83,7 @@ pub fn view(page: GuidePage(msg)) -> Element(Nil) {
   document.view(document.Document(
     title:,
     description: page.metadata.description,
-    url: document.site_url <> page.route.path,
+    url: document.site_url <> page.route.path <> "/",
     og_title: option.unwrap(page.metadata.og_title, title),
     og_description: option.unwrap(
       page.metadata.og_description,
@@ -91,7 +91,12 @@ pub fn view(page: GuidePage(msg)) -> Element(Nil) {
     ),
     stylesheets: ["/styles/site.css", "/styles/guide-race.css"],
     scripts:,
-    body: guide_view.view(page.route.path, page.step, page.body, page.demo)
+    body: guide_view.view(
+      page.route.path <> "/",
+      page.step,
+      page.body,
+      page.demo,
+    )
       |> element.map(fn(_) { Nil }),
   ))
 }

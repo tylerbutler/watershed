@@ -5,6 +5,7 @@ import gleam/result
 import lustre/attribute as a
 import lustre/element.{type Element}
 import lustre/element/html as h
+import lustre/element/keyed
 import lustre/event
 import retro_tutorial_lustre/board
 import watershed_site/guide_race/runtime as race
@@ -87,25 +88,28 @@ pub fn view(model: race.Model, options: Options) -> Element(race.Msg) {
             }),
           ),
         ]),
-        h.div(
+        keyed.div(
           [
             a.class("flow-layer"),
             test_id("flow-layer"),
             a.attribute("aria-hidden", "true"),
           ],
           list.map(model.flows, fn(marker) {
-            h.span(
-              [
-                a.class(case marker.from {
-                  "seq" -> "flow-dot sequenced"
-                  _ -> "flow-dot"
-                }),
-                a.attribute("data-flow-id", int.to_string(marker.id)),
-                test_id("flow-" <> int.to_string(marker.id)),
-                a.attribute("data-from", marker.from),
-                a.attribute("data-to", marker.to),
-              ],
-              [h.span([a.class("flow-dot-label")], [h.text(marker.label)])],
+            #(
+              int.to_string(marker.id),
+              h.span(
+                [
+                  a.class(case marker.from {
+                    "seq" -> "flow-dot sequenced"
+                    _ -> "flow-dot"
+                  }),
+                  a.attribute("data-flow-id", int.to_string(marker.id)),
+                  test_id("flow-" <> int.to_string(marker.id)),
+                  a.attribute("data-from", marker.from),
+                  a.attribute("data-to", marker.to),
+                ],
+                [h.span([a.class("flow-dot-label")], [h.text(marker.label)])],
+              ),
             )
           }),
         ),
