@@ -29,6 +29,11 @@ The following observed API details supersede the corresponding examples below:
 - The official bundler emits `guide_race.js`; the route names that file
   explicitly. The build process uses `node:process.exit`, as the snippet
   generator does, rather than the nonexistent built-in `Never` type.
+- CI uses Gleam 1.18.1 to match the compiler used for local validation.
+- The browser-test package has its own `pnpm-workspace.yaml`, as the Astro
+  package does. Without it, pnpm installs the root workspace instead.
+- Preview deployment uses `--no-build` and downloads only the tested artifact,
+  without checking out the Astro deployment configuration.
 
 ### Original constraints
 

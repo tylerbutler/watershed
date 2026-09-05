@@ -1,0 +1,106 @@
+name: Lustre website preview
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: website-lustre-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      CI: "true"
+      PUPPETEER_CACHE_DIR: ${{ github.workspace }}/website_lustre/.cache/puppeteer
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: erlef/setup-beam@0f75c29430f34bb5af4cce5e3b7f6a8860fca236 # v1
+        with:
+          otp-version: "28"
+          gleam-version: "1.18.1"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: "11.13.1"
+      - uses: extractions/setup-just@f8a3cce218d9f83db3a2ecd90e41ac3de6cdfd9b # v3
+        with:
+          just-version: "1.58.0"
+      - name: Locate pnpm store
+        id: pnpm-store
+        run: echo "path=$(pnpm store path --silent)" >> "$GITHUB_OUTPUT"
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
+        with:
+          path: |
+            **/build/packages
+            tools/website-lustre-build/build
+            website_lustre/.lustre
+            website_lustre/.cache/puppeteer
+            ${{ steps.pnpm-store.outputs.path }}
+          key: lustre-${{ runner.os }}-${{ runner.arch }}-gleam-1.18.1-otp-28-${{ hashFiles('**/gleam.toml', '**/manifest.toml', 'website_lustre/pnpm-lock.yaml') }}
+      - name: Prepare source snippets
+        run: |
+          cd tools/source-snippets
+          gleam deps download
+          cd ../..
+          just snippets
+      - name: Install site and browser dependencies
+        working-directory: website_lustre
+        run: |
+          gleam deps download
+          pnpm install --frozen-lockfile
+          pnpm exec puppeteer browsers install chrome
+          gleam format --check src test dev
+      - name: Build and test the pilot
+        run: just _test-website-lustre
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: website-lustre
+          path: website_lustre/dist
+          if-no-files-found: error
+
+  preview:
+    needs: build
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'pull_request' &&
+       github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "24"
+      - uses: pnpm/action-setup@f40ffcd9367d9f12939873eb1018b921a783ffaa # v4
+        with:
+          version: "11.13.1"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: website-lustre
+          path: website_lustre/dist
+      - name: Deploy tested artifact as a preview
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+        run: |
+          args=()
+          if [ -n "$PR_NUMBER" ]; then
+            args+=(--alias "lustre-pr-$PR_NUMBER")
+          fi
+          pnpm dlx netlify-cli@27.4.1 deploy \
+            --dir website_lustre/dist \
+            --no-build \
+            --auth "$NETLIFY_AUTH_TOKEN" \
+            --site "$NETLIFY_SITE_ID" \
+            --message "Lustre pilot ${GITHUB_SHA}" \
+            "${args[@]}"
