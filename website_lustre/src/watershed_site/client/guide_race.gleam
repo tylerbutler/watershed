@@ -17,12 +17,16 @@ pub fn main() {
           model,
           effect.batch([
             effects,
-            effect.after_paint(fn(dispatch, root) {
-              case animate_flows(root, model.latency_ms) {
-                Ok(Nil) -> Nil
-                Error(reason) -> dispatch(runtime.AnimationFailed(reason))
-              }
-            }),
+            case model.phase == runtime.Failed || model.flows == [] {
+              True -> effect.none()
+              False ->
+                effect.after_paint(fn(dispatch, root) {
+                  case animate_flows(root, model.latency_ms) {
+                    Ok(Nil) -> Nil
+                    Error(reason) -> dispatch(runtime.AnimationFailed(reason))
+                  }
+                })
+            },
           ]),
         )
       },

@@ -16,6 +16,9 @@ erl_crash.dump
 /.serena/
 /.worktrees/
 
+# Netlify's offline preview server state and generated edge-runtime lockfile.
+/.netlify/
+/deno.lock
 
 # APM dependencies
 apm_modules/

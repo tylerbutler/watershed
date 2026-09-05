@@ -34,6 +34,14 @@ The following observed API details supersede the corresponding examples below:
   package does. Without it, pnpm installs the root workspace instead.
 - Preview deployment uses `--no-build` and downloads only the tested artifact,
   without checking out the Astro deployment configuration.
+- Approved during final validation: add the new site's source, dev, and test
+  directories and the build-tool source directory to `website/snippets.json`
+  marker roots. The repository gate requires coverage of all tracked Gleam
+  and FFI files. Astro pages and production deployment remain unchanged.
+- Netlify CLI exports both `netlify` and `ntl`, so pnpm requires an explicit
+  executable: `pnpm --package=netlify-cli@27.4.1 dlx netlify`. The local server
+  selects the static framework and an absolute output directory to avoid
+  using the Astro build configuration.
 
 ### Original constraints
 

@@ -98,6 +98,7 @@ try {
     for (const id of ["alpha-notes", "beta-notes"]) {
       assert.match(await page.$eval(selector(id), (node) => node.innerText), /ship week went smoothly/);
     }
+    assert.equal(await page.$eval(selector("race-fallback"), (node) => node.checkVisibility()), false);
     assert.deepEqual(await page.$$eval('script[type="module"]', (nodes) => nodes.map((node) => new URL(node.src).pathname)), ["/guide_race.js"]);
     assert.equal(await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"), null);
     await page.setJavaScriptEnabled(true);
@@ -134,7 +135,18 @@ try {
     };
   }, record);
   const desktop = await collectStyles();
-  await page.focus(selector("race-add"));
+  if (record) {
+    await page.focus(selector("race-add"));
+  } else {
+    await page.focus(selector("latency"));
+    await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.testid), "race-add");
+    await page.keyboard.press("Tab");
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.testid), "race-reset");
+    await page.keyboard.down("Shift");
+    await page.keyboard.press("Tab");
+    await page.keyboard.up("Shift");
+  }
   const focus = await page.$eval(selector("race-add"), (node) => {
     const style = getComputedStyle(node);
     return { outline: style.outline, offset: style.outlineOffset };
@@ -160,7 +172,8 @@ try {
       input.dispatchEvent(new Event("input", { bubbles: true }));
     });
     const start = Date.now();
-    await page.click(selector("race-add"));
+    await page.focus(selector("race-add"));
+    await page.keyboard.press("Space");
     await page.waitForFunction(() => document.querySelector('[data-testid="alpha-pending"]').textContent === "1 pending");
     const pending = await notes();
     assert.match(pending[0], /deploys got faster/);
@@ -223,7 +236,38 @@ try {
       nodes.every((node) => node.getAnimations().every((animation) => animation.effect.getTiming().duration === 0))));
     assert.equal(await page.$$eval('[id="guide-race-demo"]', (nodes) => nodes.length), 1);
     assert.equal(await page.$eval(selector("race-error"), (node) => node.textContent), "");
-    console.log("PASS: static content, Astro parity, race, flow, reset, and reduced motion.");
+    await page.click(selector("race-reset"));
+    await page.waitForFunction(() => !document.querySelector('[data-testid="race-add"]').disabled);
+    await page.evaluate(() => {
+      document.querySelector('[data-flow-node="seq"]').removeAttribute("data-flow-node");
+      window.endpointQueries = 0;
+      const query = Element.prototype.querySelector;
+      Element.prototype.querySelector = function (selector) {
+        if (selector === '[data-flow-node="seq"]') window.endpointQueries++;
+        return query.call(this, selector);
+      };
+    });
+    await page.click(selector("race-add"));
+    await page.waitForFunction(() => document.querySelector('[data-testid="race-demo"]').dataset.phase === "failed");
+    assert.match(await page.$eval(selector("race-error"), (node) => node.textContent), /Cannot find a flow endpoint/);
+    await pause(250);
+    assert.equal(await page.evaluate(() => window.endpointQueries), 1, "animation failure does not restart itself");
+
+    const blocked = await browser.newPage();
+    await blocked.setRequestInterception(true);
+    blocked.on("request", (request) => {
+      if (new URL(request.url()).pathname === "/guide_race.js") request.abort();
+      else if (request.url().startsWith("https://tinylytics.app/")) {
+        request.respond({ status: 200, contentType: "text/javascript", body: "" });
+      } else request.continue();
+    });
+    await blocked.goto(url);
+    await blocked.waitForSelector(selector("race-fallback"), { visible: true, timeout: 6000 });
+    assert.match(await blocked.$eval(selector("race-fallback"), (node) => node.textContent), /The live race couldn't start/);
+    assert.match(await blocked.$eval(selector("alpha-notes"), (node) => node.innerText), /ship week went smoothly/);
+    assert.equal(await blocked.$eval(selector("race-add"), (node) => node.disabled), true);
+    await blocked.close();
+    console.log("PASS: static content, Astro parity, race, flow, reset, reduced motion, and failures.");
   }
   assert.deepEqual(errors, [], "browser errors");
 } finally {

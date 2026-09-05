@@ -416,6 +416,19 @@
     color: var(--overprint-deep);
   }
 
+  .gr-fallback {
+    display: none;
+  }
+
+  /* The mounted view removes this node. A failed bundle cannot hide it. */
+  @media (scripting: enabled) {
+    .gr-fallback {
+      display: block;
+      visibility: hidden;
+      animation: gr-fallback-reveal 0s 3s forwards;
+    }
+  }
+
   @media (max-width: 1080px) {
     .gr-rig {
       grid-template-areas: "a" "seq" "b";
@@ -446,4 +459,8 @@
     }
   }
 
+}
+
+@keyframes gr-fallback-reveal {
+  to { visibility: visible; }
 }

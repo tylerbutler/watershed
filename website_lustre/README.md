@@ -18,7 +18,7 @@ just website-lustre
 just website-lustre-serve
 ```
 
-Open `http://localhost:4321/guide/race/`. The build writes
+Open `http://127.0.0.1:4321/guide/race/`. The build writes
 `website_lustre/dist/guide/race/index.html` and copies the fonts, styles,
 images, and `guide_race.js` bundle alongside it. Other routes have not
 moved: their links retain the Astro site's paths, but this preview artifact
@@ -79,7 +79,10 @@ hand-edit the generated manifest or load source files at runtime.
 
 The static page includes both initial boards and the no-script explanation.
 Lustre mounts inside `#guide-race-mount`; the shared view owns the single
-`#guide-race-demo` section. Mutable operations run through deferred effects.
+`#guide-race-demo` section. If the bundle does not load, CSS reveals the
+failed-start explanation after three seconds. With scripting disabled, the
+no-script explanation appears instead. Mutable operations run through deferred
+effects.
 Reset advances a generation counter so old delivery timers cannot change
 the new board.
 

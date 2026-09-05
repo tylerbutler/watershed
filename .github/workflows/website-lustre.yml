@@ -97,7 +97,7 @@ jobs:
           if [ -n "$PR_NUMBER" ]; then
             args+=(--alias "lustre-pr-$PR_NUMBER")
           fi
-          pnpm dlx netlify-cli@27.4.1 deploy \
+          pnpm --package=netlify-cli@27.4.1 dlx netlify deploy \
             --dir website_lustre/dist \
             --no-build \
             --auth "$NETLIFY_AUTH_TOKEN" \

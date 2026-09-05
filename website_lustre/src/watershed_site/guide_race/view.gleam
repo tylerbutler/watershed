@@ -214,6 +214,19 @@ pub fn view(model: race.Model, options: Options) -> Element(race.Msg) {
             ]),
           ])
       },
+      case model.phase {
+        race.Static ->
+          h.p([a.class("demo-noscript gr-fallback"), test_id("race-fallback")], [
+            h.text("The live race couldn't start: it runs two real "),
+            h.code([], [h.text("watershed")]),
+            h.text(" documents against the in-memory "),
+            h.code([], [h.text("sluice")]),
+            h.text(
+              " as compiled JavaScript, and this browser didn't load it. The rest of the page works fine without it.",
+            ),
+          ])
+        _ -> element.none()
+      },
     ],
   )
 }

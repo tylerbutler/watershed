@@ -112,7 +112,7 @@ _build-website-lustre: snippets _website-lustre-tools
 website-lustre: _build-website-lustre
 
 website-lustre-serve: _build-website-lustre
-    pnpm dlx netlify-cli@27.4.1 dev --offline --port 4321 --dir website_lustre/dist
+    pnpm --package=netlify-cli@27.4.1 dlx netlify dev --offline --framework "#static" --no-open --skip-gitignore --port 4321 --dir "{{justfile_directory()}}/website_lustre/dist"
 
 _test-website-lustre: _build-website-lustre
     cd website_lustre && gleam test --target javascript

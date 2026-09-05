@@ -37,6 +37,7 @@ pub fn static_view_has_one_complete_demo_test() {
     "Sequenced operations, newest first",
     "<noscript>",
     "The live race needs JavaScript",
+    "The live race couldn&#39;t start",
     "data-testid=\"race-votes\"",
     "hidden",
     "aria-live=\"polite\"",
