@@ -14,7 +14,7 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-gleam _build-bundles
+build: _build-gleam _build-bundles _build-website-lustre
 
 # `trellis run` fans the Gleam compile across every member in dependency order.
 # Only `watershed` belongs to both target families, so each target is its own
@@ -100,6 +100,19 @@ snippets:
     cd tools/source-snippets && gleam run -m source_snippets/cli -- ../../website/snippets.json ../../website/src/generated/snippets.json
 
 alias website-snippets := snippets
+
+_website-lustre-tools:
+    cd tools/website-lustre-build && gleam export escript
+
+_build-website-lustre: snippets _website-lustre-tools
+    rm -rf website_lustre/build/static
+    cd website_lustre && ../tools/website-lustre-build/website_lustre_tools build watershed_site/client/guide_race
+    cd website_lustre && gleam run -m watershed_site/build
+
+website-lustre: _build-website-lustre
+
+website-lustre-serve: _build-website-lustre
+    pnpm dlx netlify-cli@27.4.1 dev --offline --port 4321 --dir website_lustre/dist
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by

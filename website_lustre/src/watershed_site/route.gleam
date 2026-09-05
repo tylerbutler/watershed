@@ -28,7 +28,7 @@ pub fn guide_race() -> Route {
     path: "/guide/race",
     layout: Guide,
     content_path: "content/guide/race.djot",
-    client_script: Some("/watershed_site_client_guide_race.mjs"),
+    client_script: Some("/guide_race.js"),
     analytics: Tinylytics,
   )
 }

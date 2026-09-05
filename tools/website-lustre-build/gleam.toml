@@ -1,0 +1,7 @@
+name = "website_lustre_tools"
+version = "1.0.0"
+target = "erlang"
+
+[dependencies]
+gleam_stdlib = ">= 1.0.0 and < 2.0.0"
+lustre_dev_tools = "== 2.3.6"

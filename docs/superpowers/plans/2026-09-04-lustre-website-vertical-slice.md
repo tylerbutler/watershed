@@ -26,6 +26,9 @@ The following observed API details supersede the corresponding examples below:
   from `website_lustre`; do not compile the JavaScript-only watershed bindings
   for Erlang merely to start the bundler.
 - Trellis selects this package by its Gleam name, `watershed_site`.
+- The official bundler emits `guide_race.js`; the route names that file
+  explicitly. The build process uses `node:process.exit`, as the snippet
+  generator does, rather than the nonexistent built-in `Never` type.
 
 ### Original constraints
 

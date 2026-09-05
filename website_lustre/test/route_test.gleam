@@ -10,7 +10,7 @@ pub fn pilot_route_is_registered_test() {
       path: "/guide/race",
       layout: route.Guide,
       content_path: "content/guide/race.djot",
-      client_script: Some("/watershed_site_client_guide_race.mjs"),
+      client_script: Some("/guide_race.js"),
       analytics: route.Tinylytics,
     ),
   ])
