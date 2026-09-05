@@ -10,6 +10,25 @@
 
 ## Global constraints
 
+### Implementation adjustments
+
+The following observed API details supersede the corresponding examples below:
+
+- SSG 0.12 is not on Hex. Pin upstream commit
+  `2992bf78179d1be2876f834f0d923003f7f43f44` and use its compatible `tom` 1.x.
+- The snippet ID is `foundations-schema-title-field`; `retro-schema-title`
+  names its source marker, not its manifest entry.
+- Approved during implementation: mount Lustre inside a neutral
+  `#guide-race-mount` wrapper. The shared view keeps `#guide-race-demo`.
+  Lustre renders the selected host's children; it does not replace the host.
+- Approved during implementation: export the official Lustre CLI from a
+  separate Erlang package at `tools/website-lustre-build`. Run that executable
+  from `website_lustre`; do not compile the JavaScript-only watershed bindings
+  for Erlang merely to start the bundler.
+- Trellis selects this package by its Gleam name, `watershed_site`.
+
+### Original constraints
+
 - Keep `website/` and the current `netlify.toml` unchanged during the pilot.
 - Keep `/guide/race/` as the public route. Use index routes so the generated file is `dist/guide/race/index.html`.
 - Preserve the current page copy byte-for-byte except for markup syntax needed by Djot.

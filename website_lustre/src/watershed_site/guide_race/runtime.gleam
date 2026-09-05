@@ -73,6 +73,7 @@ pub type Msg {
   SetLatency(Int)
   Reset
   ResetDone(generation: Int, outcome: Result(Rig, DemoError))
+  AnimationFailed(reason: String)
 }
 
 pub opaque type Rig {
@@ -194,6 +195,7 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
             beta: rig.initial_beta,
             latest_sequence: rig.initial_sequence,
             error: None,
+            converged: rig.initial_alpha == rig.initial_beta,
           ),
           effect.none(),
         )
@@ -245,6 +247,7 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           ]),
         )
       }
+    Deliver(_) if model.phase != Delivering -> #(model, effect.none())
     Deliver(_) ->
       case model.rig, model.pending {
         Some(rig), [_, ..] -> #(
@@ -312,6 +315,7 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       Model(..model, latency_ms: int.clamp(value, 100, 2000)),
       effect.none(),
     )
+    AnimationFailed(reason) -> failed(model, UnexpectedDelivery(reason))
   }
 }
 

@@ -11,6 +11,7 @@ import watershed_site/code
 import watershed_site/content
 import watershed_site/error.{type BuildError}
 import watershed_site/guide
+import watershed_site/guide_race/view as race_view
 import watershed_site/route
 import watershed_site/snippet
 import watershed_site/view/document
@@ -45,10 +46,9 @@ pub fn render(
         Ok("guide-race") ->
           html.div(
             [
-              attribute.id("guide-race-demo"),
-              attribute.attribute("data-guide-race", ""),
+              attribute.id("guide-race-mount"),
             ],
-            [],
+            [race_view.static()],
           )
         _ -> default.div(attributes, children)
       }

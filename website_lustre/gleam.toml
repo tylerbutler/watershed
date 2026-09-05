@@ -30,4 +30,4 @@ no_tailwind = true
 outdir = "./build/static"
 
 [tools.lustre.html]
-body = '<div id="guide-race-demo"></div>'
+body = '<div id="guide-race-mount"></div>'

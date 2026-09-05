@@ -23,6 +23,7 @@ pub fn ready() {
 pub fn real_add_race_diverges_and_converges_test() {
   let #(model, rig) = ready()
   model.phase |> should.equal(race.Ready)
+  model.converged |> should.be_true()
   let locked = race.update(model, race.RunAddRace).0
   locked.race_locked |> should.be_true()
   race.update(locked, race.RunAddRace).0 |> should.equal(locked)
