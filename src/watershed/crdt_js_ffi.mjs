@@ -9,14 +9,7 @@
 // handed back as a string, which the facade reports as a
 // `SubscriberFailed` status. Nothing is silently swallowed.
 
-export function guard(work, onError) {
-  try {
-    work();
-  } catch (error) {
-    onError(describe(error));
-  }
-  return undefined;
-}
+export { guard } from "./callback_ffi.mjs";
 
 // Reference identity for two `crdt_core.Document` values, which Gleam has no
 // operator for: `==` compiles to a structural comparison, and walking the
@@ -29,11 +22,4 @@ export function guard(work, onError) {
 
 export function sameDocument(left, right) {
   return left === right;
-}
-
-function describe(error) {
-  if (error instanceof Error) {
-    return error.name + ": " + error.message;
-  }
-  return String(error);
 }

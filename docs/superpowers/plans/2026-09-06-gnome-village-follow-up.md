@@ -200,8 +200,8 @@ first completion for an obsolete generation:
 
 **Produces:** Shared internal-use functions `callback_js.capture(work: fn() -> value) -> Result(value, String)` and `callback_js.report(reason: String) -> Nil`. Add `HookThrew(instance_id: String, hook: String, reason: String)` to `RuntimeError`. Do not change the CRDT facade's existing reporting policy.
 
-- [ ] Add throwing action, input, start, stop, `on_change`, and `on_report` fixtures. Use the existing Gleam test convention of an intentional `panic` for a throwing callback; scope the expectation to that callback.
-- [ ] Assert this failure policy:
+- [x] Add throwing action, input, start, stop, `on_change`, and `on_report` fixtures. Use the existing Gleam test convention of an intentional `panic` for a throwing callback; scope the expectation to that callback.
+- [x] Assert this failure policy:
 
 | Callback | Required behavior |
 |---|---|
@@ -211,8 +211,8 @@ first completion for an obsolete generation:
 | `on_report` throws | Surface the failure through the platform error reporter; do not recursively invoke `on_report` |
 | Protocol/internal host code throws | Do not convert it into an observer failure and continue |
 
-- [ ] Run the host selector to establish the interrupted-dispatch and interrupted-cleanup failures.
-- [ ] Extract the existing callback error description and guard into the shared FFI file. Re-export `guard` from `crdt_js_ffi.mjs` so its current Gleam binding still works. Add the value-returning boundary:
+- [x] Run the host selector to establish the interrupted-dispatch and interrupted-cleanup failures.
+- [x] Extract the existing callback error description and guard into the shared FFI file. Re-export `guard` from `crdt_js_ffi.mjs` so its current Gleam binding still works. Add the value-returning boundary:
 
 ```javascript
 export function capture(work, onSuccess, onError) {
@@ -243,12 +243,12 @@ pub fn capture(work: fn() -> value) -> Result(value, String) {
 }
 ```
 
-- [ ] Put the non-recursive platform reporting function in the same FFI file. Use `globalThis.reportError(new Error(detail))` where available and `console.error` otherwise. Cover the reporting path with a test spy; restore globals after the test. Do not copy the CRDT facade's silent containment fallback into these new contracts.
-- [ ] Capture only application hook invocations. On a mutating hook exception, make the owner terminal before reporting or cleaning up; preserve the original fault and report cleanup faults separately. `command` returns `Error(HookThrew(...))` if its action throws. A later delivery fault goes through `RuntimeFailed` and does not retroactively claim the accepted source command was rolled back.
-- [ ] Keep exception-exit exclusion cleanup consistent with task 1. A terminal host remains terminal after the enclosing operation exits.
-- [ ] Document the resource limit: a starter that allocates resources and throws before transferring them through `done` must release those resources itself. The host can clean up only resources it owns.
-- [ ] Rerun `gleam test --target javascript -- component_runtime` and `gleam test --target javascript -- crdt_js`, plus the Lustre adapter package. Review that the extracted CRDT guard retains its previous behavior.
-- [ ] Commit: `fix: contain component callback failures`.
+- [x] Put the non-recursive platform reporting function in the same FFI file. Use `globalThis.reportError(new Error(detail))` where available and `console.error` otherwise. Cover the reporting path with a test spy; restore globals after the test. Do not copy the CRDT facade's silent containment fallback into these new contracts.
+- [x] Capture only application hook invocations. On a mutating hook exception, make the owner terminal before reporting or cleaning up; preserve the original fault and report cleanup faults separately. `command` returns `Error(HookThrew(...))` if its action throws. A later delivery fault goes through `RuntimeFailed` and does not retroactively claim the accepted source command was rolled back.
+- [x] Keep exception-exit exclusion cleanup consistent with task 1. A terminal host remains terminal after the enclosing operation exits.
+- [x] Document the resource limit: a starter that allocates resources and throws before transferring them through `done` must release those resources itself. The host can clean up only resources it owns.
+- [x] Rerun `gleam test --target javascript -- component_runtime` and `gleam test --target javascript -- crdt_js`, plus the Lustre adapter package. Review that the extracted CRDT guard retains its previous behavior.
+- [x] Commit: `fix: contain component callback failures`.
 
 **Acceptance:** Required cleanup gets a chance to run; observer exceptions do not interrupt valid work; a failed mutating hook cannot leave a host accepting commands against uncertain state.
 
@@ -567,11 +567,26 @@ No unmet task-1 criterion. Next: task 2.
 
 ### Task 2: one-shot startup
 
-Commit: `fix: accept component startup once` (hash recorded with task 3).
+Commit: `eb5175b` (`fix: accept component startup once`).
 Three regression tests reproduced duplicate cleanup and missing violation
 reports. They cover both result orderings and both removal timings. The host
 selector passed 27 tests after the change. `just snippets` regenerated the
 ignored manifest because the descriptor documentation is source-backed.
 No unmet task-2 criterion. Next: task 3.
+
+### Task 3: application hook failures
+
+Commit: `fix: contain component callback failures` (hash recorded with task 4).
+Five tests reproduced uncontained action, context, input, observer, and cleanup
+exceptions. Coverage also includes startup throwing after `done`, both platform
+reporting paths with globals restored in `finally`, terminal subsequent commands,
+and separate original/cleanup fault reports. Host tests: 32 passed. CRDT facade:
+64 passed. Lustre adapter: 60 passed. Source snippets regenerated.
+
+Inline startup completions are processed after the starter returns, still inside
+the lifecycle operation, so host transitions are outside the starter's exception
+boundary. If the starter throws after `done`, the transferred value is cleaned up
+as a late success. Host-wide `on_change` faults use an empty instance ID.
+No unmet task-3 criterion. Next: task 4.
 
 For each completed task, append its task number, commit, commands and outcomes, any unmet acceptance criterion, and the next task. For tasks 7-8, include the integration-file and adapter-repetition measurements. Keep temporary logs out of the repository.

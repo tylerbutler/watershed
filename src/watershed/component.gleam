@@ -164,6 +164,10 @@ pub fn descriptor(
 /// An incomplete start stays pending until removal or shutdown. It has no
 /// timeout.
 ///
+/// A starter that throws before it transfers resources through `done` must
+/// release those resources itself. The host can release only resources it
+/// owns. Rejecting returned state does not undo earlier channel mutations.
+///
 /// `inputs` must contain the handlers for the input descriptors in `ports`.
 /// Delivery rejects a missing handler or metadata that does not match the
 /// handler's typed port.

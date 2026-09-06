@@ -3,6 +3,10 @@
 //// The runtime observes workspace topology, starts prepared instances, and
 //// executes typed port deliveries. It owns no view framework. A browser host
 //// reads running values and turns the change callback into its own message.
+////
+//// An exception in an action, input, context factory, or starter stops the
+//// runtime. Cleanup continues after a stop hook throws. Observer exceptions
+//// are reported without invalidating component state.
 
 @target(javascript)
 import gleam/bool
@@ -20,6 +24,8 @@ import gleam/result
 import gleam/string
 @target(javascript)
 import watershed
+@target(javascript)
+import watershed/callback_js
 @target(javascript)
 import watershed/component
 @target(javascript)
@@ -47,6 +53,8 @@ pub type RuntimeError {
   RuntimeBusy
   RuntimeStopped
   DuplicateStartCompletion(instance_id: String)
+  /// Host-wide hooks use an empty instance ID.
+  HookThrew(instance_id: String, hook: String, reason: String)
   InstanceNotReady(instance_id: String)
   ActionFailed(instance_id: String, reason: String)
   ComponentFailed(instance_id: String, reason: component.ComponentError)
@@ -131,6 +139,7 @@ type State(root, context, running) {
     reconcile_armed: Bool,
     notify_armed: Bool,
     operation_active: Bool,
+    hook_failed: Bool,
     stopped: Bool,
   )
 }
@@ -190,6 +199,7 @@ pub fn start(
       reconcile_armed: False,
       notify_armed: False,
       operation_active: False,
+      hook_failed: False,
       stopped: False,
     ))
   let runtime =
@@ -265,6 +275,10 @@ pub fn running(
 ///
 /// Nested commands return `RuntimeBusy`. A stopped runtime returns
 /// `RuntimeStopped`. Reads remain available during an operation.
+///
+/// `Ok(Nil)` accepts the source state and output batch. Delivery failures are
+/// reported separately. Acceptance does not acknowledge sequencing or undo
+/// channel mutations that the action has already submitted.
 pub fn command(
   runtime: Runtime(root, context, running),
   instance_id: String,
@@ -294,7 +308,11 @@ fn command_owned(
     dict.get(state.instances, instance_id)
     |> result.map_error(fn(_) { InstanceNotReady(instance_id) }),
   )
-  let outcome = action(instance.running)
+  use outcome <- result.try(
+    invoke_hook(runtime, instance_id, "action", fn() {
+      action(instance.running)
+    }),
+  )
   use _ <- result.try(check_running(runtime))
   use outcome <- result.try(
     outcome
@@ -329,7 +347,10 @@ fn command_owned(
         outputs,
         state.next_trace - output_count + 1,
       )
-      check_running(runtime)
+      case get_state(runtime).hook_failed {
+        True -> Ok(Nil)
+        False -> check_running(runtime)
+      }
     }
   }
 }
@@ -343,6 +364,13 @@ fn command_owned(
 pub fn stop(
   runtime: Runtime(root, context, running),
 ) -> List(component.ComponentError) {
+  stop_owned(runtime) |> list.map(fn(failure) { failure.1 })
+}
+
+@target(javascript)
+fn stop_owned(
+  runtime: Runtime(root, context, running),
+) -> List(#(String, component.ComponentError)) {
   let state = get_state(runtime)
   case state.stopped {
     True -> []
@@ -375,9 +403,9 @@ pub fn stop(
       let errors =
         dict.values(state.instances)
         |> list.filter_map(fn(instance) {
-          case component.stop(instance.descriptor, instance.running) {
+          case stop_component(instance.descriptor, instance.running) {
             Ok(Nil) -> Error(Nil)
-            Error(reason) -> Ok(reason)
+            Error(reason) -> Ok(#(instance.entry.instance_id, reason))
           }
         })
       errors
@@ -522,31 +550,59 @@ fn start_instance(
           next_generation: generation,
         ),
       )
-      let context =
-        runtime.context_for(entry, subtree, fn() { notify(runtime) }, emitter)
-      use <- bool.guard(get_state(runtime).stopped, Nil)
-      let starting_inline = transport_js.new_cell(True)
-      let completed = transport_js.new_cell(False)
+      let _ = start_prepared(runtime, descriptor, pending, subtree, emitter)
+      Nil
+    }
+  }
+}
+
+@target(javascript)
+fn start_prepared(
+  runtime: Runtime(root, context, running),
+  descriptor: component.Descriptor(context, running),
+  pending: PendingStart,
+  subtree: watershed.SharedMap,
+  emitter: component.OutputEmitter,
+) -> Result(Nil, RuntimeError) {
+  let entry = pending.entry
+  use context <- result.try(
+    invoke_hook(runtime, entry.instance_id, "context", fn() {
+      runtime.context_for(entry, subtree, fn() { notify(runtime) }, emitter)
+    }),
+  )
+  use _ <- result.try(check_running(runtime))
+  let inline_completions = transport_js.new_cell(Some([]))
+  let completed = transport_js.new_cell(False)
+  let outcome =
+    invoke_hook(runtime, entry.instance_id, "start", fn() {
       component.start(descriptor, context, entry.config, fn(started) {
         let duplicate = transport_js.get_cell(completed)
         transport_js.set_cell(completed, True)
         let finish = fn() {
           case duplicate {
             True ->
-              runtime.on_report(
+              report(
+                runtime,
                 RuntimeFailed(DuplicateStartCompletion(entry.instance_id)),
               )
             False -> finish_start(runtime, descriptor, pending, started)
           }
         }
-        case transport_js.get_cell(starting_inline) {
-          True -> finish()
-          False -> own_lifecycle(runtime, finish)
+        case transport_js.get_cell(inline_completions) {
+          Some(completions) ->
+            transport_js.set_cell(
+              inline_completions,
+              Some([finish, ..completions]),
+            )
+          None -> own_lifecycle(runtime, finish)
         }
       })
-      transport_js.set_cell(starting_inline, False)
-    }
-  }
+    })
+  let assert Some(completions) = transport_js.get_cell(inline_completions)
+  transport_js.set_cell(inline_completions, None)
+  // Process host transitions outside the application exception boundary.
+  completions |> list.reverse |> list.each(fn(finish) { finish() })
+  outcome
 }
 
 @target(javascript)
@@ -564,10 +620,11 @@ fn finish_start(
   case active, started {
     False, Ok(running) -> {
       pending.disable_output()
-      case component.stop(descriptor, running) {
+      case stop_component(descriptor, running) {
         Ok(Nil) -> Nil
         Error(reason) ->
-          runtime.on_report(
+          report(
+            runtime,
             RuntimeFailed(ComponentFailed(pending.entry.instance_id, reason)),
           )
       }
@@ -653,10 +710,10 @@ fn stop_instance(
     Error(Nil) -> Nil
     Ok(instance) -> {
       instance.disable_output()
-      case component.stop(instance.descriptor, instance.running) {
+      case stop_component(instance.descriptor, instance.running) {
         Ok(Nil) -> Nil
         Error(reason) ->
-          runtime.on_report(RuntimeFailed(ComponentFailed(instance_id, reason)))
+          report(runtime, RuntimeFailed(ComponentFailed(instance_id, reason)))
       }
     }
   }
@@ -714,7 +771,7 @@ fn finish_reopen(
           snapshot: None,
         ),
       )
-      runtime.on_report(RuntimeFailed(WorkspaceFailed(reason)))
+      report(runtime, RuntimeFailed(WorkspaceFailed(reason)))
       notify(runtime)
     }
     False, Ok(store) -> {
@@ -821,11 +878,10 @@ fn report_async_failure(
   let state = get_state(runtime)
   let trace_number = state.next_trace + 1
   set_state(runtime, State(..state, next_trace: trace_number))
-  runtime.on_report(DispatchFailed(
-    "trace-" <> int.to_string(trace_number),
-    None,
-    reason,
-  ))
+  report(
+    runtime,
+    DispatchFailed("trace-" <> int.to_string(trace_number), None, reason),
+  )
 }
 
 @target(javascript)
@@ -874,7 +930,7 @@ fn enqueue_output(
 ) -> component_runtime.DispatchTrace {
   use <- bool.guard(get_state(runtime).stopped, trace)
   let source = port_graph.PortRef(instance_id, component.output_id(event))
-  runtime.on_report(Triggered(component_runtime.trace_id(trace), source))
+  report(runtime, Triggered(component_runtime.trace_id(trace), source))
   use <- bool.guard(get_state(runtime).stopped, trace)
   let plan =
     dispatch.plan(
@@ -887,11 +943,14 @@ fn enqueue_output(
     )
   list.each(dispatch.errors(plan), fn(reason) {
     use <- bool.guard(get_state(runtime).stopped, Nil)
-    runtime.on_report(DispatchFailed(
-      component_runtime.trace_id(trace),
-      None,
-      PlanningFailed(reason),
-    ))
+    report(
+      runtime,
+      DispatchFailed(
+        component_runtime.trace_id(trace),
+        None,
+        PlanningFailed(reason),
+      ),
+    )
   })
   component_runtime.enqueue(trace, dispatch.deliveries(plan))
 }
@@ -917,29 +976,38 @@ fn drain(
       let state = get_state(runtime)
       let trace = case dict.get(state.instances, target.instance_id) {
         Error(Nil) -> {
-          runtime.on_report(DispatchFailed(
-            component_runtime.trace_id(trace),
-            Some(edge_id),
-            TargetNotReady(target.instance_id),
-          ))
+          report(
+            runtime,
+            DispatchFailed(
+              component_runtime.trace_id(trace),
+              Some(edge_id),
+              TargetNotReady(target.instance_id),
+            ),
+          )
           trace
         }
         Ok(instance) -> {
           let delivered =
-            component.deliver(
-              instance.descriptor,
-              instance.running,
-              target.port_id,
-              payload,
-            )
+            invoke_hook(runtime, target.instance_id, "input", fn() {
+              component.deliver(
+                instance.descriptor,
+                instance.running,
+                target.port_id,
+                payload,
+              )
+            })
           use <- bool.guard(get_state(runtime).stopped, trace)
+          let assert Ok(delivered) = delivered
           case delivered {
             Error(reason) -> {
-              runtime.on_report(DispatchFailed(
-                component_runtime.trace_id(trace),
-                Some(edge_id),
-                TargetInputRejected(target.instance_id, reason),
-              ))
+              report(
+                runtime,
+                DispatchFailed(
+                  component_runtime.trace_id(trace),
+                  Some(edge_id),
+                  TargetInputRejected(target.instance_id, reason),
+                ),
+              )
               trace
             }
             Ok(delivered) -> {
@@ -959,17 +1027,23 @@ fn drain(
               notify(runtime)
               case input_class {
                 port.LocalInput ->
-                  runtime.on_report(LocalDelivered(
-                    component_runtime.trace_id(trace),
-                    edge_id,
-                    target,
-                  ))
+                  report(
+                    runtime,
+                    LocalDelivered(
+                      component_runtime.trace_id(trace),
+                      edge_id,
+                      target,
+                    ),
+                  )
                 port.CollaborativeInput(_) ->
-                  runtime.on_report(MutationSubmitted(
-                    component_runtime.trace_id(trace),
-                    edge_id,
-                    target,
-                  ))
+                  report(
+                    runtime,
+                    MutationSubmitted(
+                      component_runtime.trace_id(trace),
+                      edge_id,
+                      target,
+                    ),
+                  )
               }
               list.fold(delivered.1, trace, fn(trace, event) {
                 use <- bool.guard(get_state(runtime).stopped, trace)
@@ -983,11 +1057,14 @@ fn drain(
                       event,
                     )
                   Error(reason) -> {
-                    runtime.on_report(DispatchFailed(
-                      component_runtime.trace_id(trace),
-                      Some(edge_id),
-                      SourceOutputRejected(target.instance_id, reason),
-                    ))
+                    report(
+                      runtime,
+                      DispatchFailed(
+                        component_runtime.trace_id(trace),
+                        Some(edge_id),
+                        SourceOutputRejected(target.instance_id, reason),
+                      ),
+                    )
                     trace
                   }
                 }
@@ -1031,7 +1108,62 @@ fn flush_notification(runtime: Runtime(root, context, running)) -> Nil {
   set_state(runtime, State(..state, notify_armed: False))
   case state.stopped {
     True -> Nil
-    False -> runtime.on_change()
+    False ->
+      case callback_js.capture(runtime.on_change) {
+        Ok(Nil) -> Nil
+        Error(reason) ->
+          report(runtime, RuntimeFailed(HookThrew("", "on_change", reason)))
+      }
+  }
+}
+
+@target(javascript)
+fn report(
+  runtime: Runtime(root, context, running),
+  event: DispatchReport,
+) -> Nil {
+  case callback_js.capture(fn() { runtime.on_report(event) }) {
+    Ok(Nil) -> Nil
+    Error(reason) ->
+      callback_js.report("component runtime on_report: " <> reason)
+  }
+}
+
+@target(javascript)
+fn stop_component(
+  descriptor: component.Descriptor(context, running),
+  running: running,
+) -> Result(Nil, component.ComponentError) {
+  case callback_js.capture(fn() { component.stop(descriptor, running) }) {
+    Ok(outcome) -> outcome
+    Error(reason) ->
+      Error(component.StopFailed(
+        component.kind(descriptor),
+        component.version(descriptor),
+        reason,
+      ))
+  }
+}
+
+@target(javascript)
+fn invoke_hook(
+  runtime: Runtime(root, context, running),
+  instance_id: String,
+  hook: String,
+  work: fn() -> value,
+) -> Result(value, RuntimeError) {
+  case callback_js.capture(work) {
+    Ok(value) -> Ok(value)
+    Error(reason) -> {
+      let fault = HookThrew(instance_id, hook, reason)
+      set_state(runtime, State(..get_state(runtime), hook_failed: True))
+      let cleanup_errors = stop_owned(runtime)
+      report(runtime, RuntimeFailed(fault))
+      list.each(cleanup_errors, fn(failure) {
+        report(runtime, RuntimeFailed(ComponentFailed(failure.0, failure.1)))
+      })
+      Error(fault)
+    }
   }
 }
 

@@ -216,6 +216,26 @@ fn started_runtime_with_hooks(
   Cell(List(String)),
   Cell(List(component_runtime_js.DispatchReport)),
 ) {
+  started_runtime_with_observers(name, on_input, on_stop, on_report, fn() {
+    Nil
+  })
+}
+
+@target(javascript)
+fn started_runtime_with_observers(
+  name: String,
+  on_input: fn() -> Nil,
+  on_stop: fn() -> Nil,
+  on_report: fn(component_runtime_js.DispatchReport) -> Nil,
+  on_change: fn() -> Nil,
+) -> #(
+  sluice_js.Sluice,
+  workspace_js.Workspace(Root),
+  component_runtime_js.Runtime(Root, Context, Running),
+  Cell(List(String)),
+  Cell(List(String)),
+  Cell(List(component_runtime_js.DispatchReport)),
+) {
   let sluice = sluice_js.start(tenant: "default", document: name)
   let document = sluice_js.connect(sluice, "user-a")
   sluice_js.settle(sluice)
@@ -287,7 +307,7 @@ fn started_runtime_with_hooks(
         Context(entry.instance_id, starts, stops, output)
       },
       scheduler: sluice_js.scheduler(sluice),
-      on_change: fn() { Nil },
+      on_change: on_change,
       on_report: fn(report) {
         record(reports, report)
         on_report(report)
@@ -1265,5 +1285,209 @@ pub fn duplicate_completion_after_removal_never_cleans_up_twice_test() -> Nil {
     |> expect.to_be_error()
     transport_js.get_cell(fixture.stops) |> expect.to_equal(["delayed"])
     transport_js.get_cell(fixture.reports) |> list.length |> expect.to_equal(1)
+  })
+}
+
+@target(javascript)
+@external(javascript, "./callback_test_ffi.mjs", "withReporter")
+fn with_reporter(
+  fallback: Bool,
+  work: fn(fn() -> Int, fn() -> String) -> Nil,
+) -> Nil
+
+@target(javascript)
+pub fn throwing_action_stops_the_host_and_preserves_the_fault_test() -> Nil {
+  let #(_, _, runtime, _, stops, reports) =
+    started_runtime_with_hooks(
+      "throw-action",
+      fn() { Nil },
+      fn() { panic as "cleanup fault" },
+      fn(_) { Nil },
+    )
+  let assert Error(component_runtime_js.HookThrew("tasks", "action", reason)) =
+    component_runtime_js.command(runtime, "tasks", fn(_) {
+      panic as "action fault"
+    })
+  string.contains(reason, "action fault") |> expect.to_equal(True)
+  component_runtime_js.command(runtime, "tasks", fn(running) {
+    Ok(#(running, []))
+  })
+  |> expect.to_equal(Error(component_runtime_js.RuntimeStopped))
+  transport_js.get_cell(stops)
+  |> list.sort(string.compare)
+  |> expect.to_equal(["activity", "tasks"])
+  transport_js.get_cell(reports) |> list.length |> expect.to_equal(2)
+  let assert [
+    component_runtime_js.RuntimeFailed(component_runtime_js.ComponentFailed(
+      "notes",
+      component.StopFailed("notes", 1, _),
+    )),
+    component_runtime_js.RuntimeFailed(component_runtime_js.HookThrew(
+      "tasks",
+      "action",
+      _,
+    )),
+  ] = transport_js.get_cell(reports)
+  Nil
+}
+
+@target(javascript)
+pub fn throwing_input_stops_dispatch_without_rejecting_the_source_test() -> Nil {
+  let #(sluice, _, runtime, _, stops, reports) =
+    started_runtime_with_hooks(
+      "throw-input",
+      fn() { panic as "input fault" },
+      fn() { Nil },
+      fn(_) { Nil },
+    )
+  let assert Ok(Tasks(_, output)) =
+    component_runtime_js.running(runtime, "tasks")
+  component_runtime_js.command(runtime, "tasks", fn(running) {
+    Ok(
+      #(running, [
+        component.emit(selected_output(), "throws"),
+        component.emit(completed_output(), "not-delivered"),
+      ]),
+    )
+  })
+  |> expect.to_equal(Ok(Nil))
+  component_runtime_js.lifecycle(runtime) |> expect.to_equal([])
+  transport_js.get_cell(stops) |> list.length |> expect.to_equal(3)
+  transport_js.get_cell(reports) |> list.length |> expect.to_equal(2)
+  component.publish(output, [component.emit(selected_output(), "disabled")])
+  sluice_js.advance(sluice, 0)
+  transport_js.get_cell(reports) |> list.length |> expect.to_equal(2)
+}
+
+@target(javascript)
+pub fn throwing_stop_does_not_skip_other_cleanup_test() -> Nil {
+  let #(_, _, runtime, _, stops, _) =
+    started_runtime_with_hooks(
+      "throw-stop",
+      fn() { Nil },
+      fn() { panic as "stop fault" },
+      fn(_) { Nil },
+    )
+  let assert [component.StopFailed("notes", 1, reason)] =
+    component_runtime_js.stop(runtime)
+  string.contains(reason, "stop fault") |> expect.to_equal(True)
+  transport_js.get_cell(stops)
+  |> list.sort(string.compare)
+  |> expect.to_equal(["activity", "tasks"])
+  component_runtime_js.stop(runtime) |> expect.to_equal([])
+}
+
+@target(javascript)
+pub fn throwing_observers_do_not_interrupt_valid_component_work_test() -> Nil {
+  list.each([False, True], fn(fallback) {
+    use count, details <- with_reporter(fallback)
+    let enabled = transport_js.new_cell(False)
+    let #(sluice, _, runtime, _, _, reports) =
+      started_runtime_with_observers(
+        "throw-observers",
+        fn() { Nil },
+        fn() { Nil },
+        fn(_) { panic as "report fault" },
+        fn() {
+          case transport_js.get_cell(enabled) {
+            True -> panic as "change fault"
+            False -> Nil
+          }
+        },
+      )
+    transport_js.set_cell(enabled, True)
+    component_runtime_js.command(runtime, "tasks", fn(running) {
+      Ok(#(running, [component.emit(selected_output(), "delivered")]))
+    })
+    |> expect.to_equal(Ok(Nil))
+    sluice_js.advance(sluice, 0)
+    let assert Ok(Notes(Some("delivered"), _)) =
+      component_runtime_js.running(runtime, "notes")
+    count() |> expect.to_equal(3)
+    string.contains(details(), "report fault") |> expect.to_equal(True)
+    transport_js.get_cell(reports) |> list.length |> expect.to_equal(3)
+    component_runtime_js.command(runtime, "notes", fn(running) {
+      Ok(#(running, []))
+    })
+    |> expect.to_equal(Ok(Nil))
+  })
+}
+
+@target(javascript)
+pub fn throwing_context_or_start_terminates_and_releases_owned_values_test() -> Nil {
+  list.each(["context", "start", "after-done"], fn(stage) {
+    let sluice =
+      sluice_js.start(tenant: "default", document: "throw-start-" <> stage)
+    let document = sluice_js.connect(sluice, "user-a")
+    sluice_js.settle(sluice)
+    let store = ensure_workspace(document)
+    let stops = transport_js.new_cell([])
+    let reports = transport_js.new_cell([])
+    let outputs = transport_js.new_cell(None)
+    let descriptor =
+      component.executable_descriptor(
+        kind: "broken",
+        version: 1,
+        config_decoder: decode.string,
+        start: fn(context: Context, _, done) {
+          case stage {
+            "after-done" -> done(Ok(Delayed(context.stops)))
+            _ -> Nil
+          }
+          panic as "start fault"
+        },
+        stop: stop_running,
+        inputs: [],
+        ports: [port.output_descriptor(selected_output())],
+      )
+    let assert Ok(catalog) = component.register(catalog(), descriptor)
+    let assert Ok(_) =
+      workspace_js.add_instance(
+        store,
+        catalog,
+        "broken",
+        "broken",
+        1,
+        json.string("broken"),
+      )
+    let runtime =
+      component_runtime_js.start(
+        document: document,
+        root: watershed.root_typed(document),
+        field: workspace_field(),
+        store: store,
+        catalog: catalog,
+        context_for: fn(entry, _, _, output) {
+          transport_js.set_cell(outputs, Some(output))
+          case stage {
+            "context" -> panic as "context fault"
+            _ ->
+              Context(
+                entry.instance_id,
+                transport_js.new_cell([]),
+                stops,
+                output,
+              )
+          }
+        },
+        scheduler: sluice_js.scheduler(sluice),
+        on_change: fn() { Nil },
+        on_report: fn(report) { record(reports, report) },
+      )
+    sluice_js.advance(sluice, 0)
+    component_runtime_js.command(runtime, "broken", fn(running) {
+      Ok(#(running, []))
+    })
+    |> expect.to_equal(Error(component_runtime_js.RuntimeStopped))
+    component_runtime_js.lifecycle(runtime) |> expect.to_equal([])
+    transport_js.get_cell(stops)
+    |> expect.to_equal(case stage {
+      "after-done" -> ["delayed"]
+      _ -> []
+    })
+    let assert Some(output) = transport_js.get_cell(outputs)
+    component.publish(output, [component.emit(selected_output(), "disabled")])
+    sluice_js.advance(sluice, 0)
+    transport_js.get_cell(reports) |> list.length |> expect.to_equal(1)
   })
 }
