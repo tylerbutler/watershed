@@ -33,6 +33,43 @@ player map
   description="What a watershed document actually is underneath its schema: a root map plus whatever channels its handles point to, each one independently addressed, attached on creation, and resolved through a handle rather than nested by containment — with the limits that layout implies."
 >
   <div class="g-block">
+    <h2>Your app decides what a document means</h2>
+    <p>
+      <strong>Document</strong> is watershed's generic term for a collection
+      of shared state. Your app gives it a meaning: a saved game, a Kanban
+      board, a project. It doesn't have to look like a page of text, and
+      your users don't have to call it a document.
+    </p>
+    <p>
+      Separate the <em>kind</em> of document from an <em>instance</em>.
+      A saved game is a kind; your Friday-night campaign is one instance.
+      The kind describes what the data means and how your app structures
+      it. Each instance has its own identity and state.
+    </p>
+    <ul>
+      <li>
+        <strong>One kind, one instance.</strong> An app might open the same
+        shared household planner every time.
+      </li>
+      <li>
+        <strong>One kind, many instances.</strong> A Kanban app might create
+        a separate document for each board, all using the same schema.
+      </li>
+      <li>
+        <strong>Several kinds, many instances.</strong> An app might manage
+        project documents and saved-game documents, each with its own
+        schema and as many instances as users need.
+      </li>
+    </ul>
+    <p>
+      Those kinds are concepts your application defines. Watershed supplies
+      the document model underneath them. A tenant ID and document ID
+      identify an instance; two clients opening the same pair join the
+      same document, not two copies with separate identities.
+    </p>
+  </div>
+
+  <div class="g-block">
     <h2>The root is one map, not one tree</h2>
     <p>
       Every document has exactly one root: a <code>SharedMap</code>, reached
@@ -84,8 +121,8 @@ player map
       Both store a handle. The difference is only in what kind of thing the
       handle points to, and the schema layer tracks that at compile time.{" "}
       <code>ChildField(tag, child)</code> points at another typed map — a
-      nested document with its own schema, its own tag, its own set of
-      fields. <code>ChannelField(tag, kind)</code> points at a channel that
+      child map with its own schema, its own tag, its own set of fields,
+      within the same document. <code>ChannelField(tag, kind)</code> points at a channel that
       isn't a map at all: a counter, an OR-set, a claims channel, whatever{" "}
       <code>kind</code> names. Neither one is a subtree of the parent. Both
       are peer channels that happen to be reachable from it.
@@ -97,11 +134,10 @@ player map
     <p>
       A watershed document collects data in a set of channels, each with its
       own address, each syncing on its own terms, tied together only by handles
-      stored as ordinary values. Your application decides what that collection
-      represents: the build guide makes each document a retro board, while the
-      dice-scoreboard example makes each one a scoreboard. Its roster of
-      players, keyed by id, looks like this on the wire — a root map, a child
-      map, and a further map nested under that:
+      stored as ordinary values. The dice-scoreboard example makes each
+      document a scoreboard. Its roster of players, keyed by id, looks like
+      this on the wire — a root map, a child map, and a further map nested
+      under that:
     </p>
     <SnippetBlock snippet={layoutDiagramSnippet} />
     <p>

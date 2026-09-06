@@ -14,19 +14,20 @@ const preservationTest = sourceSnippet("foundations-workspaces-preservation-test
 
 <FoundationsLayout
   slug="workspaces"
-  description="A workspace is the saved board: which components exist, where they sit, and how they are wired. Watershed persists all three beneath one child map, then the browser runtime reconciles that state without discarding data the local host cannot use."
+  description="A workspace stores component instances, presentation order, and connections within a document. Watershed persists all three beneath one child map, then the browser runtime reconciles that state without discarding data the local host cannot use."
 >
   <div class="g-block">
-    <h2>A workspace is the saved board</h2>
+    <h2>Save the arrangement inside the document</h2>
     <p>
       The last two sheets built a board out of parts: a notes panel, a
       counter, a task list, an activity log, and the connections a user drew
-      between them. Nothing so far has saved it. Close the tab, and the board
-      is gone.
+      between them. The component data belongs to the shared document, but
+      the host also needs to save the arrangement so it can rebuild the
+      board when you reopen the tab.
     </p>
     <p>
-      A workspace is that board, stored. It holds three things, and it is
-      worth naming them plainly before any code:
+      A workspace stores that arrangement within the document. It holds
+      three things, whether your interface is a board or something else:
     </p>
     <ul>
       <li>
@@ -49,7 +50,7 @@ const preservationTest = sourceSnippet("foundations-workspaces-preservation-test
       That is the whole point, and it is also where the difficulty starts.
     </p>
     <p>
-      A saved board outlives the code that made it. Open one tomorrow and
+      A saved workspace outlives the code that made it. Open one tomorrow and
       this build may not carry the counter any more. Someone may have deleted
       a panel that another connection still names. Two people can each add a
       safe connection and get a cycle when their edits merge. A workspace
@@ -57,9 +58,9 @@ const preservationTest = sourceSnippet("foundations-workspaces-preservation-test
       one client's ignorance would become everybody's data loss.
     </p>
     <p>
-      So this sheet does two jobs. It stores the board, and it derives the
-      part of the board this client can safely run — while keeping the rest
-      exactly as written.
+      So this sheet does two jobs. It stores the workspace, and it derives
+      the components and connections this client can safely run — while
+      keeping the rest exactly as written.
     </p>
     <p>
       All of it is host work. The last two sheets each split in half, one part
