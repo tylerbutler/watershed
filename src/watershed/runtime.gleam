@@ -13,6 +13,10 @@
 //// UTF-8 payloads before readiness. An overflow fails the connection.
 //// Rejoin, close, and failure invalidate pending HTTP completions.
 ////
+//// Subscriber and outcome callbacks observe committed state. Their exceptions
+//// go to the platform error reporter and do not stop protocol processing or
+//// other observers.
+////
 //// JavaScript target only. `@target(javascript)` gates the module.
 
 @target(javascript)
@@ -48,6 +52,8 @@ import spillway/nack.{type Nack}
 @target(javascript)
 import spillway/types.{type SequencedDocumentMessage}
 
+@target(javascript)
+import watershed/callback_js
 @target(javascript)
 import watershed/channel.{
   type ChannelEvent, type Resolution, AcquireResolved, ClaimResolved,
@@ -662,21 +668,22 @@ pub fn ordered_acquire_with_outcome(
         // names another kernel. The runtime resolves the waiter at once and
         // changes nothing, because a client library must not panic.
         Error(_) -> {
-          on_outcome(ordered_collection_kernel.Aborted)
+          observe("acquire outcome", fn() {
+            on_outcome(ordered_collection_kernel.Aborted)
+          })
           acquire_id
         }
         Ok(#(core, events, outbound, immediate_outcome)) -> {
-          let state =
-            register_acquire_waiter(
-              state,
-              address,
-              acquire_id,
-              on_outcome,
-              immediate_outcome,
-            )
           cell_set(
             runtime.cell,
             State(..state, phase: Ready(core, resubmit_at)),
+          )
+          register_acquire_waiter(
+            runtime.cell,
+            address,
+            acquire_id,
+            on_outcome,
+            immediate_outcome,
           )
           case resubmit_at {
             None -> send_outbound(state.channel, core.client_id, outbound)
@@ -692,25 +699,28 @@ pub fn ordered_acquire_with_outcome(
         // names another kernel. The runtime resolves the waiter at once and
         // changes nothing, because a client library must not panic.
         Error(_) -> {
-          on_outcome(ordered_collection_kernel.Aborted)
+          observe("acquire outcome", fn() {
+            on_outcome(ordered_collection_kernel.Aborted)
+          })
           acquire_id
         }
         Ok(#(core, events, _outbound, immediate_outcome)) -> {
-          let state =
-            register_acquire_waiter(
-              state,
-              address,
-              acquire_id,
-              on_outcome,
-              immediate_outcome,
-            )
           cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+          register_acquire_waiter(
+            runtime.cell,
+            address,
+            acquire_id,
+            on_outcome,
+            immediate_outcome,
+          )
           fan_out(state.subscribers, events)
           acquire_id
         }
       }
     Connecting | Failed(_) -> {
-      on_outcome(ordered_collection_kernel.Aborted)
+      observe("acquire outcome", fn() {
+        on_outcome(ordered_collection_kernel.Aborted)
+      })
       acquire_id
     }
   }
@@ -1615,15 +1625,14 @@ fn claim_submit(
         Ok(runtime_core.ClaimAlreadyPendingLocally) -> AlreadyPendingLocally
         Ok(runtime_core.ClaimPending(core, outbound, immediate_outcome)) -> {
           let #(promise_outcome, resolve_outcome) = promise.start()
-          let state =
-            register_claim_waiter(
-              state,
-              address,
-              key,
-              resolve_outcome,
-              immediate_outcome,
-            )
           cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
+          register_claim_waiter(
+            cell,
+            address,
+            key,
+            resolve_outcome,
+            immediate_outcome,
+          )
           case resubmit_at {
             None -> send_outbound(state.channel, core.client_id, outbound)
             Some(_) -> Nil
@@ -1642,15 +1651,14 @@ fn claim_submit(
         Ok(runtime_core.ClaimAlreadyPendingLocally) -> AlreadyPendingLocally
         Ok(runtime_core.ClaimPending(core, _outbound, immediate_outcome)) -> {
           let #(promise_outcome, resolve_outcome) = promise.start()
-          let state =
-            register_claim_waiter(
-              state,
-              address,
-              key,
-              resolve_outcome,
-              immediate_outcome,
-            )
           cell_set(cell, State(..state, phase: Reconnecting(core)))
+          register_claim_waiter(
+            cell,
+            address,
+            key,
+            resolve_outcome,
+            immediate_outcome,
+          )
           Pending(promise_outcome)
         }
       }
@@ -1944,16 +1952,21 @@ pub fn go_online(runtime: Runtime) -> Nil {
 
 @target(javascript)
 pub fn close(runtime: Runtime) -> Nil {
-  let state = abort_outcome_waiters(cell_get(runtime.cell))
+  let state = cell_get(runtime.cell)
+  use <- bool.guard(state.channel == None, Nil)
   cell_set(
     runtime.cell,
     State(
       ..state,
       phase: Failed("runtime closed"),
+      channel: None,
+      claim_waiters: dict.new(),
+      acquire_waiters: dict.new(),
       bootstrap: None,
       bootstrap_generation: state.bootstrap_generation + 1,
     ),
   )
+  abort_outcome_waiters(state)
   notify_session_lost(runtime.cell, state.phase)
   case state.channel {
     Some(channel) -> channel.close()
@@ -2306,6 +2319,11 @@ fn on_join(cell: Cell(State)) -> Nil {
           // Rejoin without an intervening close event; treat as reconnect.
           cell_set(cell, State(..state, phase: Reconnecting(core)))
           notify_session_lost(cell, state.phase)
+          let current = cell_get(cell)
+          use <- bool.guard(
+            current.bootstrap_generation != state.bootstrap_generation,
+            Nil,
+          )
           push_connect(
             channel,
             state.connect_message,
@@ -2383,7 +2401,10 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
           // Presence is unsequenced, so it does not wait for the operation
           // catch-up `settle_reconnect` may still be pending — rejoining now is
           // both correct and the fastest way back to a roster.
-          notify_presence_session(cell, core)
+          case session_current(cell, state.bootstrap_generation) {
+            True -> notify_presence_session(cell, core)
+            False -> Nil
+          }
         }
         Ready(_, _) ->
           case state.bootstrap {
@@ -2689,8 +2710,7 @@ fn apply_received_operations(
     Ready(core, resubmit_at) ->
       case apply_operations(core, operations) {
         Ok(#(core, events, resolutions, request_from, released)) -> {
-          let state = resolve_claim_waiters(state, resolutions)
-          let state = resolve_acquire_waiters(state, resolutions)
+          let #(state, outcomes) = take_outcome_waiters(state, resolutions)
           // Commit the new core before fan-out (see fan_out's contract).
           case resubmit_at {
             Some(checkpoint) -> {
@@ -2699,8 +2719,19 @@ fn apply_received_operations(
             }
             None -> cell_set(cell, State(..state, phase: Ready(core, None)))
           }
+          list.each(outcomes, fn(outcome) {
+            observe("operation outcome", outcome)
+          })
           fan_out(state.subscribers, events)
+          use <- bool.guard(
+            !session_current(cell, state.bootstrap_generation),
+            Nil,
+          )
           maybe_request_operations(state.channel, request_from)
+          use <- bool.guard(
+            !session_current(cell, state.bootstrap_generation),
+            Nil,
+          )
           case resubmit_at {
             // Mid-reconnect these are already in the in-flight queue, and
             // `settle_reconnect` restamps that whole queue with fresh
@@ -2712,7 +2743,11 @@ fn apply_received_operations(
           }
           case resubmit_at {
             Some(_) -> Nil
-            None -> arm_summary(cell, core)
+            None ->
+              case cell_get(cell).phase {
+                Ready(current, _) -> arm_summary(cell, current)
+                _ -> Nil
+              }
           }
         }
         Error(core_error) ->
@@ -2837,109 +2872,117 @@ fn do_apply_operations(
 
 @target(javascript)
 fn register_claim_waiter(
-  state: State,
+  cell: Cell(State),
   address: String,
   key: String,
   resolve_outcome: fn(claims_kernel.ClaimOutcome) -> Nil,
   immediate_outcome: Option(claims_kernel.ClaimOutcome),
-) -> State {
+) -> Nil {
+  let state = cell_get(cell)
   case immediate_outcome {
     Some(outcome) -> {
-      resolve_outcome(outcome)
-      state
+      observe("claim outcome", fn() { resolve_outcome(outcome) })
     }
     None ->
-      State(
-        ..state,
-        claim_waiters: dict.insert(
-          state.claim_waiters,
-          #(address, key),
-          resolve_outcome,
+      cell_set(
+        cell,
+        State(
+          ..state,
+          claim_waiters: dict.insert(
+            state.claim_waiters,
+            #(address, key),
+            resolve_outcome,
+          ),
         ),
       )
   }
 }
 
 @target(javascript)
-fn resolve_claim_waiters(
+fn take_outcome_waiters(
   state: State,
   resolutions: List(#(String, Resolution)),
-) -> State {
-  let claim_waiters =
-    list.fold(resolutions, state.claim_waiters, fn(acc, item) {
+) -> #(State, List(fn() -> Nil)) {
+  let #(state, callbacks) =
+    list.fold(resolutions, #(state, []), fn(acc, item) {
+      let #(state, callbacks) = acc
       let #(address, resolution) = item
       case resolution {
         ClaimResolved(key, outcome) ->
-          case dict.get(acc, #(address, key)) {
+          case dict.get(state.claim_waiters, #(address, key)) {
             Ok(resolve_outcome) -> {
-              resolve_outcome(outcome)
-              dict.delete(acc, #(address, key))
+              #(
+                State(
+                  ..state,
+                  claim_waiters: dict.delete(state.claim_waiters, #(
+                    address,
+                    key,
+                  )),
+                ),
+                [fn() { resolve_outcome(outcome) }, ..callbacks],
+              )
             }
             Error(_) -> acc
           }
-        AcquireResolved(_, _) -> acc
+        AcquireResolved(acquire_id, outcome) ->
+          case dict.get(state.acquire_waiters, #(address, acquire_id)) {
+            Ok(resolve_outcome) -> #(
+              State(
+                ..state,
+                acquire_waiters: dict.delete(state.acquire_waiters, #(
+                  address,
+                  acquire_id,
+                )),
+              ),
+              [fn() { resolve_outcome(outcome) }, ..callbacks],
+            )
+            Error(_) -> acc
+          }
       }
     })
-  State(..state, claim_waiters: claim_waiters)
+  #(state, list.reverse(callbacks))
 }
 
 @target(javascript)
-fn abort_outcome_waiters(state: State) -> State {
+fn abort_outcome_waiters(state: State) -> Nil {
   dict.values(state.claim_waiters)
-  |> list.each(fn(resolve_outcome) { resolve_outcome(claims_kernel.Aborted) })
+  |> list.each(fn(resolve_outcome) {
+    observe("claim aborted", fn() { resolve_outcome(claims_kernel.Aborted) })
+  })
   dict.values(state.acquire_waiters)
   |> list.each(fn(resolve_outcome) {
-    resolve_outcome(ordered_collection_kernel.Aborted)
+    observe("acquire aborted", fn() {
+      resolve_outcome(ordered_collection_kernel.Aborted)
+    })
   })
-  State(..state, claim_waiters: dict.new(), acquire_waiters: dict.new())
 }
 
 @target(javascript)
 fn register_acquire_waiter(
-  state: State,
+  cell: Cell(State),
   address: String,
   acquire_id: String,
   resolve_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
   immediate_outcome: Option(ordered_collection_kernel.AcquireOutcome),
-) -> State {
+) -> Nil {
+  let state = cell_get(cell)
   case immediate_outcome {
     Some(outcome) -> {
-      resolve_outcome(outcome)
-      state
+      observe("acquire outcome", fn() { resolve_outcome(outcome) })
     }
     None ->
-      State(
-        ..state,
-        acquire_waiters: dict.insert(
-          state.acquire_waiters,
-          #(address, acquire_id),
-          resolve_outcome,
+      cell_set(
+        cell,
+        State(
+          ..state,
+          acquire_waiters: dict.insert(
+            state.acquire_waiters,
+            #(address, acquire_id),
+            resolve_outcome,
+          ),
         ),
       )
   }
-}
-
-@target(javascript)
-fn resolve_acquire_waiters(
-  state: State,
-  resolutions: List(#(String, Resolution)),
-) -> State {
-  let acquire_waiters =
-    list.fold(resolutions, state.acquire_waiters, fn(acc, item) {
-      let #(address, resolution) = item
-      case resolution {
-        AcquireResolved(acquire_id, outcome) ->
-          case dict.get(acc, #(address, acquire_id)) {
-            Ok(resolve_outcome) -> {
-              resolve_outcome(outcome)
-              dict.delete(acc, #(address, acquire_id))
-            }
-            Error(_) -> acc
-          }
-        ClaimResolved(_, _) -> acc
-      }
-    })
-  State(..state, acquire_waiters: acquire_waiters)
 }
 
 @target(javascript)
@@ -3211,7 +3254,10 @@ fn fan_out(
     let #(address, event) = event
     list.each(subscribers, fn(subscriber) {
       case subscriber.address == address {
-        True -> subscriber.handler(event)
+        True ->
+          observe("subscriber " <> subscriber.id <> " at " <> address, fn() {
+            subscriber.handler(event)
+          })
         False -> Nil
       }
     })
@@ -3228,7 +3274,9 @@ fn on_ripple(cell: Cell(State), payload: String) -> Nil {
     Error(_) -> Nil
     Ok(ripple) -> {
       let state = cell_get(cell)
-      list.each(state.ripple_subscribers, fn(handler) { handler(ripple) })
+      list.each(state.ripple_subscribers, fn(handler) {
+        observe("ripple subscriber", fn() { handler(ripple) })
+      })
     }
   }
 }
@@ -3236,7 +3284,9 @@ fn on_ripple(cell: Cell(State), payload: String) -> Nil {
 @target(javascript)
 fn notify_presence(cell: Cell(State), frame: PresenceFrame) -> Nil {
   let state = cell_get(cell)
-  list.each(state.presence_subscribers, fn(handler) { handler(frame) })
+  list.each(state.presence_subscribers, fn(handler) {
+    observe("presence subscriber", fn() { handler(frame) })
+  })
 }
 
 @target(javascript)
@@ -3270,16 +3320,19 @@ fn notify_session_lost(cell: Cell(State), previous: Phase) -> Nil {
 
 @target(javascript)
 fn fail(cell: Cell(State), reason: String) -> Nil {
-  let state = abort_outcome_waiters(cell_get(cell))
+  let state = cell_get(cell)
   cell_set(
     cell,
     State(
       ..state,
       phase: Failed(reason),
+      claim_waiters: dict.new(),
+      acquire_waiters: dict.new(),
       bootstrap: None,
       bootstrap_generation: state.bootstrap_generation + 1,
     ),
   )
+  abort_outcome_waiters(state)
   fire_ready(cell, Error(reason))
   notify_session_lost(cell, state.phase)
 }
@@ -3292,8 +3345,26 @@ fn fire_ready(cell: Cell(State), result: Result(Nil, String)) -> Nil {
     True -> Nil
     False -> {
       cell_set(cell, State(..state, ready_fired: True))
-      state.on_ready(result)
+      observe("on_ready", fn() { state.on_ready(result) })
     }
+  }
+}
+
+@target(javascript)
+fn observe(context: String, callback: fn() -> Nil) -> Nil {
+  case callback_js.capture(callback) {
+    Ok(Nil) -> Nil
+    Error(reason) ->
+      callback_js.report("sequenced runtime " <> context <> ": " <> reason)
+  }
+}
+
+@target(javascript)
+fn session_current(cell: Cell(State), generation: Int) -> Bool {
+  let state = cell_get(cell)
+  case state.phase {
+    Ready(_, _) -> state.bootstrap_generation == generation
+    _ -> False
   }
 }
 

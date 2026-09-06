@@ -369,11 +369,11 @@ Use a dummy token scoped to the fixture. Never contact the URL it names. Each te
 
 **Produces:** Observer exceptions surface through the platform error reporter while protocol processing and remaining observers continue. Public subscription and connection signatures stay unchanged.
 
-- [ ] Add two subscribers to one channel, with the first one throwing. Assert that the second observes the committed value and that the outbound/catch-up work still runs.
-- [ ] Add a gap-producing inbound operation with a throwing subscriber. Assert that the transport records `"requestOps"` despite the throw. Also cover an operation that releases outbound consensus work so the test checks more than notification counts.
-- [ ] Cover a throwing `on_ready`, presence listener, and ripple listener. An `on_ready` throw must not suppress presence session notification or fire readiness again.
-- [ ] Run `gleam test --target javascript -- runtime_callbacks` to establish the failure.
-- [ ] Wrap the observer invocation, not `on_operation` or `apply_operations`:
+- [x] Add two subscribers to one channel, with the first one throwing. Assert that the second observes the committed value and that the outbound/catch-up work still runs.
+- [x] Add a gap-producing inbound operation with a throwing subscriber. Assert that the transport records `"requestOps"` despite the throw. Also cover an operation that releases outbound consensus work so the test checks more than notification counts.
+- [x] Cover a throwing `on_ready`, presence listener, and ripple listener. An `on_ready` throw must not suppress presence session notification or fire readiness again.
+- [x] Run `gleam test --target javascript -- runtime_callbacks` to establish the failure.
+- [x] Wrap the observer invocation, not `on_operation` or `apply_operations`:
 
 ```gleam
 case callback_js.capture(fn() { subscriber.handler(event) }) {
@@ -384,10 +384,10 @@ case callback_js.capture(fn() { subscriber.handler(event) }) {
 
 Use task 3's `callback_js.report`. Include subscriber/channel or callback-kind context in the reported string at the call site.
 
-- [ ] Keep commit-before-notification and subscription-snapshot semantics. Audit adjacent callbacks that resolve claim/acquire outcomes: remove/commit waiters before invoking caller code so a callback cannot resurrect a waiter through an older state snapshot.
-- [ ] Commit failure state before `fire_ready(Error(...))` or session-loss callbacks. Use current state after callbacks rather than restoring a snapshot from before they ran.
-- [ ] Do not quarantine ordinary observers or add subscription settings. A bad observer may report another error on its next invocation, but cannot interrupt protocol work.
-- [ ] Run `runtime_callbacks`, the awaited bootstrap harness, and the sluice driver selector; commit: `fix: isolate sequenced runtime observers`.
+- [x] Keep commit-before-notification and subscription-snapshot semantics. Audit adjacent callbacks that resolve claim/acquire outcomes: remove/commit waiters before invoking caller code so a callback cannot resurrect a waiter through an older state snapshot.
+- [x] Commit failure state before `fire_ready(Error(...))` or session-loss callbacks. Use current state after callbacks rather than restoring a snapshot from before they ran.
+- [x] Do not quarantine ordinary observers or add subscription settings. A bad observer may report another error on its next invocation, but cannot interrupt protocol work.
+- [x] Run `runtime_callbacks`, the awaited bootstrap harness, and the sluice driver selector; commit: `fix: isolate sequenced runtime observers`.
 
 **Acceptance:** A throwing observer cannot skip recovery, acknowledgements, other observers, or session notification. Failures remain visible without turning a valid document into a failed one.
 
@@ -604,7 +604,7 @@ construction, and retired callbacks. No unmet task-4 criterion. Next: task 5.
 
 ### Task 5: asynchronous bootstrap retention
 
-Commit: `fix: retain operations during bootstrap` (hash recorded with task 6).
+Commit: `4243d85` (`fix: retain operations during bootstrap`).
 The awaited harness reproduced sequence 1 instead of 2 after a live operation
 arrived during summary loading with no later traffic. All harness scenarios
 pass: live operations, gaps, history duplicates, multiple prefix pages, stale
@@ -618,5 +618,19 @@ is part of `_test-js`. The quota spans all live traffic received during one
 bootstrap, including catch-up, until readiness; it is not reset between drain
 batches, so moving operations into the core's gap buffer cannot evade the cap.
 Diagnostics remain `catching-up` until contiguous. Next: task 6.
+
+### Task 6: sequenced observers and outcome callbacks
+
+Commit: `fix: isolate sequenced runtime observers` (hash recorded with task 7).
+Five regressions reproduced subscriber, PactMap observer, readiness, and outcome
+exceptions plus state resurrection after an immediate acquire callback closed
+the runtime. Callbacks now have scoped reporting boundaries; core and waiter
+state commit before callbacks. Resolved waiters are removed as a batch, and
+shutdown detaches all waiters before abort notification.
+
+Runtime callback tests: 9 passed, including committed reads, gap requests,
+outbound PactMap signoffs, presence after throwing readiness, ripple fan-out,
+reentrant shutdown, and failure-state visibility. Awaited bootstrap harness
+passed; sluice driver: 35 passed. No unmet task-6 criterion. Next: task 7.
 
 For each completed task, append its task number, commit, commands and outcomes, any unmet acceptance criterion, and the next task. For tasks 7-8, include the integration-file and adapter-repetition measurements. Keep temporary logs out of the repository.
