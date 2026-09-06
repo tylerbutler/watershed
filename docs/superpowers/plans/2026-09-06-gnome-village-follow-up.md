@@ -170,11 +170,11 @@ command exit:
 
 **Produces:** Add `DuplicateStartCompletion(instance_id: String)` to `RuntimeError`; report it through `RuntimeFailed`. Retain generation-based late-success cleanup.
 
-- [ ] Extend the deferred callback fixture in `a_late_start_is_stopped_after_its_instance_is_deleted_test`. Complete an active start with the same `Running` value twice. Assert one ready instance, zero stop calls before runtime shutdown, and one duplicate-completion report.
-- [ ] Give the fixture an output port and publish after the duplicate completion. Assert delivery succeeds: the accepted generation's emitter must remain enabled.
-- [ ] Cover first-error/second-success, first-success/second-error, duplicate completion after removal, and first late success after removal. The first late success still needs one cleanup; repeating that completion must not clean up the same value again.
-- [ ] Run the host selector to establish the failures.
-- [ ] Allocate a completion flag per invocation of `component.start`, not per instance ID. Consume it before `finish_start` invokes any user code:
+- [x] Extend the deferred callback fixture in `a_late_start_is_stopped_after_its_instance_is_deleted_test`. Complete an active start with the same `Running` value twice. Assert one ready instance, zero stop calls before runtime shutdown, and one duplicate-completion report.
+- [x] Give the fixture an output port and publish after the duplicate completion. Assert delivery succeeds: the accepted generation's emitter must remain enabled.
+- [x] Cover first-error/second-success, first-success/second-error, duplicate completion after removal, and first late success after removal. The first late success still needs one cleanup; repeating that completion must not clean up the same value again.
+- [x] Run the host selector to establish the failures.
+- [x] Allocate a completion flag per invocation of `component.start`, not per instance ID. Consume it before `finish_start` invokes any user code:
 
 ```text
 completion callback:
@@ -186,9 +186,9 @@ first completion for an obsolete generation:
   Error(_) -> disable that generation's emitter
 ```
 
-- [ ] Document ownership: a component transfers one successful running value to the host through the first completion. On a duplicate callback, the host cannot know whether it received the live value again or a separately allocated resource. It reports the violation and leaves extra-resource cleanup to the violating starter. Do not use structural equality to guess resource identity.
-- [ ] Keep incomplete starts pending until topology removal or host shutdown. Document this limit; do not add timeout configuration in this task.
-- [ ] Rerun the host selector and commit: `fix: accept component startup once`.
+- [x] Document ownership: a component transfers one successful running value to the host through the first completion. On a duplicate callback, the host cannot know whether it received the live value again or a separately allocated resource. It reports the violation and leaves extra-resource cleanup to the violating starter. Do not use structural equality to guess resource identity.
+- [x] Keep incomplete starts pending until topology removal or host shutdown. Document this limit; do not add timeout configuration in this task.
+- [x] Rerun the host selector and commit: `fix: accept component startup once`.
 
 **Acceptance:** A duplicate callback cannot disable or stop the accepted instance. A first late success still releases its resources.
 
@@ -552,7 +552,7 @@ fn stop_checklist(running: Running) -> Result(Nil, String) {
 
 ### Task 1: execution ownership and terminal shutdown
 
-Commit: `fix: guard component runtime execution` (hash recorded with task 2).
+Commit: `181e176` (`fix: guard component runtime execution`).
 Baseline: 15 host/core tests passed. The new regressions reproduced five
 failures: nested actions, nested input/report actions, action-stop resurrection,
 delivery after stop, and repeated cleanup. After implementation,
@@ -564,5 +564,14 @@ rechecking after shutdown, and shutdown from reconciliation cleanup. Missing
 instances and typed rejections release ownership. Reviewed the diff directly,
 as requested; no subagents. Existing unrelated compiler warnings remain.
 No unmet task-1 criterion. Next: task 2.
+
+### Task 2: one-shot startup
+
+Commit: `fix: accept component startup once` (hash recorded with task 3).
+Three regression tests reproduced duplicate cleanup and missing violation
+reports. They cover both result orderings and both removal timings. The host
+selector passed 27 tests after the change. `just snippets` regenerated the
+ignored manifest because the descriptor documentation is source-backed.
+No unmet task-2 criterion. Next: task 3.
 
 For each completed task, append its task number, commit, commands and outcomes, any unmet acceptance criterion, and the next task. For tasks 7-8, include the integration-file and adapter-repetition measurements. Keep temporary logs out of the repository.

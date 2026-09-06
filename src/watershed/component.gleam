@@ -156,6 +156,14 @@ pub fn descriptor(
 /// channels and installed its required subscriptions. The runtime does not
 /// mark the instance ready before that callback.
 ///
+/// Call `done` exactly once. The first successful completion transfers the
+/// running value to the host. The host stops a first late success if its
+/// generation is obsolete. A duplicate completion transfers no ownership:
+/// the starter must release any extra resources without stopping the accepted
+/// value. The JavaScript host reports the violation and does not use the value.
+/// An incomplete start stays pending until removal or shutdown. It has no
+/// timeout.
+///
 /// `inputs` must contain the handlers for the input descriptors in `ports`.
 /// Delivery rejects a missing handler or metadata that does not match the
 /// handler's typed port.

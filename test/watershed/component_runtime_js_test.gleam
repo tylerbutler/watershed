@@ -1181,3 +1181,89 @@ pub fn stop_during_reconcile_cleanup_cannot_restart_instances_test() -> Nil {
   |> list.sort(string.compare)
   |> expect.to_equal(["activity", "notes", "tasks"])
 }
+
+@target(javascript)
+pub fn duplicate_start_completion_preserves_the_live_emitter_test() -> Nil {
+  let fixture = deferred_runtime("duplicate-start")
+  let value = Delayed(fixture.stops)
+  fixture.done(Ok(value))
+  fixture.done(Ok(value))
+  transport_js.get_cell(fixture.stops) |> expect.to_equal([])
+  component.publish(fixture.output, [
+    component.emit(selected_output(), "accepted"),
+  ])
+  sluice_js.advance(fixture.sluice, 0)
+  let assert Ok(Notes(Some("accepted"), _)) =
+    component_runtime_js.running(fixture.runtime, "notes")
+  transport_js.get_cell(fixture.reports)
+  |> list.filter(fn(report) {
+    case report {
+      component_runtime_js.RuntimeFailed(component_runtime_js.DuplicateStartCompletion(
+        "delayed",
+      )) -> True
+      _ -> False
+    }
+  })
+  |> list.length
+  |> expect.to_equal(1)
+  component_runtime_js.stop(fixture.runtime) |> expect.to_equal([])
+  transport_js.get_cell(fixture.stops)
+  |> list.sort(string.compare)
+  |> expect.to_equal(["delayed", "notes", "tasks"])
+}
+
+@target(javascript)
+pub fn only_the_first_start_result_transfers_ownership_test() -> Nil {
+  list.each([True, False], fn(first_succeeds) {
+    let fixture = deferred_runtime("duplicate-results")
+    case first_succeeds {
+      True -> {
+        fixture.done(Ok(Delayed(fixture.stops)))
+        fixture.done(Error("duplicate error"))
+        component_runtime_js.running(fixture.runtime, "delayed")
+        |> expect.to_be_ok()
+        Nil
+      }
+      False -> {
+        fixture.done(Error("first error"))
+        fixture.done(Ok(Delayed(fixture.stops)))
+        component_runtime_js.running(fixture.runtime, "delayed")
+        |> expect.to_be_error()
+        Nil
+      }
+    }
+    transport_js.get_cell(fixture.stops) |> expect.to_equal([])
+    transport_js.get_cell(fixture.reports) |> list.length |> expect.to_equal(1)
+    component_runtime_js.stop(fixture.runtime) |> expect.to_equal([])
+    transport_js.get_cell(fixture.stops)
+    |> list.length
+    |> expect.to_equal(case first_succeeds {
+      True -> 3
+      False -> 2
+    })
+  })
+}
+
+@target(javascript)
+pub fn duplicate_completion_after_removal_never_cleans_up_twice_test() -> Nil {
+  list.each([True, False], fn(complete_before_removal) {
+    let fixture = deferred_runtime("duplicate-late-start")
+    let value = Delayed(fixture.stops)
+    case complete_before_removal {
+      True -> fixture.done(Ok(value))
+      False -> Nil
+    }
+    let assert Ok(Nil) =
+      workspace_js.delete_instance(fixture.store, fixture.catalog, "delayed")
+    sluice_js.advance(fixture.sluice, 0)
+    fixture.done(Ok(value))
+    case complete_before_removal {
+      True -> Nil
+      False -> fixture.done(Ok(value))
+    }
+    component_runtime_js.running(fixture.runtime, "delayed")
+    |> expect.to_be_error()
+    transport_js.get_cell(fixture.stops) |> expect.to_equal(["delayed"])
+    transport_js.get_cell(fixture.reports) |> list.length |> expect.to_equal(1)
+  })
+}

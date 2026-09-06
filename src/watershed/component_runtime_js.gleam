@@ -46,6 +46,7 @@ import watershed/workspace_js
 pub type RuntimeError {
   RuntimeBusy
   RuntimeStopped
+  DuplicateStartCompletion(instance_id: String)
   InstanceNotReady(instance_id: String)
   ActionFailed(instance_id: String, reason: String)
   ComponentFailed(instance_id: String, reason: component.ComponentError)
@@ -525,13 +526,22 @@ fn start_instance(
         runtime.context_for(entry, subtree, fn() { notify(runtime) }, emitter)
       use <- bool.guard(get_state(runtime).stopped, Nil)
       let starting_inline = transport_js.new_cell(True)
+      let completed = transport_js.new_cell(False)
       component.start(descriptor, context, entry.config, fn(started) {
-        case transport_js.get_cell(starting_inline) {
-          True -> finish_start(runtime, descriptor, pending, started)
-          False -> {
-            use <- own_lifecycle(runtime)
-            finish_start(runtime, descriptor, pending, started)
+        let duplicate = transport_js.get_cell(completed)
+        transport_js.set_cell(completed, True)
+        let finish = fn() {
+          case duplicate {
+            True ->
+              runtime.on_report(
+                RuntimeFailed(DuplicateStartCompletion(entry.instance_id)),
+              )
+            False -> finish_start(runtime, descriptor, pending, started)
           }
+        }
+        case transport_js.get_cell(starting_inline) {
+          True -> finish()
+          False -> own_lifecycle(runtime, finish)
         }
       })
       transport_js.set_cell(starting_inline, False)
