@@ -135,8 +135,18 @@ pub type TransportCallbacks {
 /// A replaceable connection to a floodgate-shaped server. `connect` opens the
 /// link, connects the callbacks, and returns the handle for the outbound
 /// frames.
+///
+/// Callbacks raised during `connect` are processed in arrival order after the
+/// returned handle is installed.
 pub type Transport {
   Transport(connect: fn(TransportCallbacks) -> TransportHandle)
+}
+
+@target(javascript)
+type TransportEvent {
+  TransportJoined
+  TransportClosed
+  TransportReceived(event: String, payload: String)
 }
 
 @target(javascript)
@@ -332,17 +342,64 @@ pub fn start_with_transport(
       scheduler: transport_js.real_scheduler(),
     ))
 
+  let constructing = transport_js.new_cell(Some([]))
   let handle =
     transport.connect(
       TransportCallbacks(
-        on_event: fn(event, payload) { on_event(cell, event, payload) },
-        on_join: fn() { on_join(cell) },
-        on_close: fn() { on_close(cell) },
+        on_event: fn(event, payload) {
+          transport_event(cell, constructing, TransportReceived(event, payload))
+        },
+        on_join: fn() { transport_event(cell, constructing, TransportJoined) },
+        on_close: fn() { transport_event(cell, constructing, TransportClosed) },
       ),
     )
 
   cell_set(cell, State(..cell_get(cell), channel: Some(handle)))
+  drain_transport_start(cell, constructing)
   Runtime(cell: cell)
+}
+
+@target(javascript)
+fn transport_event(
+  cell: Cell(State),
+  constructing: Cell(Option(List(TransportEvent))),
+  event: TransportEvent,
+) -> Nil {
+  case transport_js.get_cell(constructing) {
+    Some(events) -> transport_js.set_cell(constructing, Some([event, ..events]))
+    None -> deliver_transport_event(cell, event)
+  }
+}
+
+@target(javascript)
+fn drain_transport_start(
+  cell: Cell(State),
+  constructing: Cell(Option(List(TransportEvent))),
+) -> Nil {
+  case transport_js.get_cell(constructing) {
+    None -> Nil
+    Some([]) -> transport_js.set_cell(constructing, None)
+    Some(events) -> {
+      transport_js.set_cell(constructing, Some([]))
+      events
+      |> list.reverse
+      |> list.each(fn(event) { deliver_transport_event(cell, event) })
+      drain_transport_start(cell, constructing)
+    }
+  }
+}
+
+@target(javascript)
+fn deliver_transport_event(cell: Cell(State), event: TransportEvent) -> Nil {
+  case cell_get(cell).phase {
+    Failed(_) -> Nil
+    _ ->
+      case event {
+        TransportJoined -> on_join(cell)
+        TransportClosed -> on_close(cell)
+        TransportReceived(event, payload) -> on_event(cell, event, payload)
+      }
+  }
 }
 
 @target(javascript)
@@ -2288,11 +2345,11 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
           // Ask for the gap. Nothing else will: no server pushes it unprompted,
           // and the reactive `requestOps` in `on_operation` needs an operation
           // to react to. See `runtime_core.catch_up_from`.
+          settle_reconnect(cell, core, checkpoint)
           maybe_request_operations(
             state.channel,
             runtime_core.catch_up_from(core, checkpoint),
           )
-          settle_reconnect(cell, core, checkpoint)
           // Presence is unsequenced, so it does not wait for the operation
           // catch-up `settle_reconnect` may still be pending — rejoining now is
           // both correct and the fastest way back to a roster.
@@ -2521,8 +2578,8 @@ fn settle_reconnect(
   case core.last_seen_sequence_number >= checkpoint {
     True -> {
       let #(core, outbound) = runtime_core.resubmit(runtime_core.go_live(core))
-      send_outbound(state.channel, core.client_id, outbound)
       cell_set(cell, State(..state, phase: Ready(core, None)))
+      send_outbound(state.channel, core.client_id, outbound)
     }
     False ->
       cell_set(cell, State(..state, phase: Ready(core, Some(checkpoint))))

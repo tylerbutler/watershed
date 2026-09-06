@@ -262,7 +262,7 @@ pub fn capture(work: fn() -> value) -> Result(value, String) {
 
 `sluice_js.connect` deliberately fires `on_join` after `connect_via` returns. It cannot expose this bug by itself. Build an adversarial test-local transport rather than weakening the shared sluice fixture.
 
-- [ ] Add an inline-join transport using the current constructor shape:
+- [x] Add an inline-join transport using the current constructor shape:
 
 ```gleam
 let pushes = transport_js.new_cell([])
@@ -286,9 +286,9 @@ let transport =
 
 Pass it to `watershed.connect_via` with the same arguments as `sluice_js.connect`. Assert that `pushes` contains exactly one `"connect_document"` after connect returns. Add a variant whose `push` synchronously responds through `on_event` using `watershed/sluice/frame` encoders.
 
-- [ ] Add relay cases: a compatible greeting from inside `Driver.open`; `on_ready` immediately sends through the relay; close before `open` returns; a callback followed by `Error(detail)`; callbacks from a retired generation.
-- [ ] Run the new `runtime_callbacks` selector and `crdt_sequencer_js` selector to establish failures.
-- [ ] Buffer construction-time callbacks in arrival order until the handle is installed. Use a small local event union/list for each existing owner. Keep the buffer active while draining so a synchronous response to a send cannot overtake an earlier buffered callback:
+- [x] Add relay cases: a compatible greeting from inside `Driver.open`; `on_ready` immediately sends through the relay; close before `open` returns; a callback followed by `Error(detail)`; callbacks from a retired generation.
+- [x] Run the new `runtime_callbacks` selector and `crdt_sequencer_js` selector to establish failures.
+- [x] Buffer construction-time callbacks in arrival order until the handle is installed. Use a small local event union/list for each existing owner. Keep the buffer active while draining so a synchronous response to a send cannot overtake an earlier buffered callback:
 
 ```text
 construct -> record callbacks
@@ -297,10 +297,10 @@ failed return -> discard unusable conversation -> existing failure/retry path
 retired generation -> close returned handle; do not revive the generation
 ```
 
-- [ ] Preserve relay `start`/`connect` separation, close semantics, and backoff. Recheck generation and terminal state between buffered callbacks. Do not force ordinary callbacks through a new timer or change readiness into a scheduled event.
-- [ ] Do not generalize this into a permanent mailbox for all traffic. Fix any additional inline response within this handshake path that the adversarial fixture exposes by committing owner state before the outbound call.
-- [ ] Run the two targeted selectors and `gleam test --target javascript -- sluice/driver_js`.
-- [ ] Commit: `fix: buffer transport startup callbacks`.
+- [x] Preserve relay `start`/`connect` separation, close semantics, and backoff. Recheck generation and terminal state between buffered callbacks. Do not force ordinary callbacks through a new timer or change readiness into a scheduled event.
+- [x] Do not generalize this into a permanent mailbox for all traffic. Fix any additional inline response within this handshake path that the adversarial fixture exposes by committing owner state before the outbound call.
+- [x] Run the two targeted selectors and `gleam test --target javascript -- sluice/driver_js`.
+- [x] Commit: `fix: buffer transport startup callbacks`.
 
 **Acceptance:** Inline and deferred transports produce the same handshake and readiness outcome. No callback observes a ready connection whose outbound handle is still absent.
 
@@ -576,7 +576,7 @@ No unmet task-2 criterion. Next: task 3.
 
 ### Task 3: application hook failures
 
-Commit: `fix: contain component callback failures` (hash recorded with task 4).
+Commit: `a6cc307` (`fix: contain component callback failures`).
 Five tests reproduced uncontained action, context, input, observer, and cleanup
 exceptions. Coverage also includes startup throwing after `done`, both platform
 reporting paths with globals restored in `finally`, terminal subsequent commands,
@@ -588,5 +588,18 @@ the lifecycle operation, so host transitions are outside the starter's exception
 boundary. If the starter throws after `done`, the transferred value is cleaned up
 as a late success. Host-wide `on_change` faults use an empty instance ID.
 No unmet task-3 criterion. Next: task 4.
+
+### Task 4: transport construction
+
+Commit: `fix: buffer transport startup callbacks` (hash recorded with task 5).
+Reproduced missing `connect_document`, premature relay readiness, and callbacks
+from failed construction. Buffering exposed a second failure: inline reconnect
+catch-up replies were dropped before the adopted core was committed. The
+reconnect path now commits before requests and resubmission.
+
+Runtime callback tests: 2 passed. Relay driver tests: 30 passed. Sluice driver:
+35 passed. Relay lifecycle: 49 passed. Coverage includes FIFO replies during
+drain, driver close during construction, owner close before handle return, failed
+construction, and retired callbacks. No unmet task-4 criterion. Next: task 5.
 
 For each completed task, append its task number, commit, commands and outcomes, any unmet acceptance criterion, and the next task. For tasks 7-8, include the integration-file and adapter-repetition measurements. Keep temporary logs out of the repository.
