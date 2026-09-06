@@ -5,6 +5,8 @@
 //// reads running values and turns the change callback into its own message.
 
 @target(javascript)
+import gleam/bool
+@target(javascript)
 import gleam/dict.{type Dict}
 @target(javascript)
 import gleam/int
@@ -42,6 +44,8 @@ import watershed/workspace_js
 @target(javascript)
 /// A runtime or component lifecycle failure.
 pub type RuntimeError {
+  RuntimeBusy
+  RuntimeStopped
   InstanceNotReady(instance_id: String)
   ActionFailed(instance_id: String, reason: String)
   ComponentFailed(instance_id: String, reason: component.ComponentError)
@@ -125,6 +129,7 @@ type State(root, context, running) {
     workspace_generation: Int,
     reconcile_armed: Bool,
     notify_armed: Bool,
+    operation_active: Bool,
     stopped: Bool,
   )
 }
@@ -183,6 +188,7 @@ pub fn start(
       workspace_generation: 0,
       reconcile_armed: False,
       notify_armed: False,
+      operation_active: False,
       stopped: False,
     ))
   let runtime =
@@ -255,7 +261,29 @@ pub fn running(
 
 @target(javascript)
 /// Apply one host action and route its typed output events.
+///
+/// Nested commands return `RuntimeBusy`. A stopped runtime returns
+/// `RuntimeStopped`. Reads remain available during an operation.
 pub fn command(
+  runtime: Runtime(root, context, running),
+  instance_id: String,
+  action: fn(running) -> Result(#(running, List(component.OutputEvent)), String),
+) -> Result(Nil, RuntimeError) {
+  use _ <- result.try(check_running(runtime))
+  let state = get_state(runtime)
+  case state.operation_active {
+    True -> Error(RuntimeBusy)
+    False -> {
+      set_state(runtime, State(..state, operation_active: True))
+      let outcome = command_owned(runtime, instance_id, action)
+      release_operation(runtime)
+      outcome
+    }
+  }
+}
+
+@target(javascript)
+fn command_owned(
   runtime: Runtime(root, context, running),
   instance_id: String,
   action: fn(running) -> Result(#(running, List(component.OutputEvent)), String),
@@ -265,16 +293,20 @@ pub fn command(
     dict.get(state.instances, instance_id)
     |> result.map_error(fn(_) { InstanceNotReady(instance_id) }),
   )
+  let outcome = action(instance.running)
+  use _ <- result.try(check_running(runtime))
   use outcome <- result.try(
-    action(instance.running)
+    outcome
     |> result.map_error(fn(reason) { ActionFailed(instance_id, reason) }),
   )
   use _ <- result.try(
     validate_outputs(instance, outcome.1)
     |> result.map_error(fn(reason) { ComponentFailed(instance_id, reason) }),
   )
+  use _ <- result.try(check_running(runtime))
   let instance = RunningInstance(..instance, running: outcome.0)
   let output_count = list.length(outcome.1)
+  let state = get_state(runtime)
   let state =
     State(
       ..state,
@@ -296,7 +328,7 @@ pub fn command(
         outputs,
         state.next_trace - output_count + 1,
       )
-      Ok(Nil)
+      check_running(runtime)
     }
   }
 }
@@ -305,7 +337,8 @@ pub fn command(
 /// Stop the runtime and every running component.
 ///
 /// Cleanup errors are returned after all instances and subscriptions have had
-/// a chance to stop.
+/// a chance to stop. The runtime is terminal before cleanup starts. A stop
+/// during an action prevents the action from committing its returned state.
 pub fn stop(
   runtime: Runtime(root, context, running),
 ) -> List(component.ComponentError) {
@@ -313,25 +346,6 @@ pub fn stop(
   case state.stopped {
     True -> []
     False -> {
-      case runtime.root_subscription {
-        Some(subscription) -> watershed.unsubscribe(subscription)
-        None -> Nil
-      }
-      case state.workspace_subscription {
-        Some(subscription) -> workspace_js.unsubscribe(subscription)
-        None -> Nil
-      }
-      let errors =
-        dict.values(state.instances)
-        |> list.filter_map(fn(instance) {
-          instance.disable_output()
-          case component.stop(instance.descriptor, instance.running) {
-            Ok(Nil) -> Error(Nil)
-            Error(reason) -> Ok(reason)
-          }
-        })
-      dict.values(state.pending)
-      |> list.each(fn(pending) { pending.disable_output() })
       set_state(
         runtime,
         State(
@@ -345,6 +359,26 @@ pub fn stop(
           stopped: True,
         ),
       )
+      dict.values(state.instances)
+      |> list.each(fn(instance) { instance.disable_output() })
+      dict.values(state.pending)
+      |> list.each(fn(pending) { pending.disable_output() })
+      case runtime.root_subscription {
+        Some(subscription) -> watershed.unsubscribe(subscription)
+        None -> Nil
+      }
+      case state.workspace_subscription {
+        Some(subscription) -> workspace_js.unsubscribe(subscription)
+        None -> Nil
+      }
+      let errors =
+        dict.values(state.instances)
+        |> list.filter_map(fn(instance) {
+          case component.stop(instance.descriptor, instance.running) {
+            Ok(Nil) -> Error(Nil)
+            Error(reason) -> Ok(reason)
+          }
+        })
       errors
     }
   }
@@ -366,6 +400,7 @@ fn arm_reconcile(runtime: Runtime(root, context, running)) -> Nil {
 
 @target(javascript)
 fn reconcile_now(runtime: Runtime(root, context, running)) -> Nil {
+  use <- own_lifecycle(runtime)
   let state = get_state(runtime)
   set_state(runtime, State(..state, reconcile_armed: False))
   case state.stopped, state.workspace {
@@ -397,6 +432,7 @@ fn reconcile_now(runtime: Runtime(root, context, running)) -> Nil {
         stop_instance(runtime, instance_id)
       })
       let state = get_state(runtime)
+      use <- bool.guard(state.stopped, Nil)
       let lifecycle = lifecycle_for_plan(state, plan)
       set_state(
         runtime,
@@ -453,6 +489,7 @@ fn start_instance(
   runtime: Runtime(root, context, running),
   starting: component_runtime.StartInstance(watershed.SharedMap),
 ) -> Nil {
+  use <- bool.guard(get_state(runtime).stopped, Nil)
   let component_runtime.StartInstance(entry, identity, subtree) = starting
   case component.find(runtime.catalog, entry.kind, entry.version) {
     Error(reason) -> {
@@ -486,9 +523,18 @@ fn start_instance(
       )
       let context =
         runtime.context_for(entry, subtree, fn() { notify(runtime) }, emitter)
+      use <- bool.guard(get_state(runtime).stopped, Nil)
+      let starting_inline = transport_js.new_cell(True)
       component.start(descriptor, context, entry.config, fn(started) {
-        finish_start(runtime, descriptor, pending, started)
+        case transport_js.get_cell(starting_inline) {
+          True -> finish_start(runtime, descriptor, pending, started)
+          False -> {
+            use <- own_lifecycle(runtime)
+            finish_start(runtime, descriptor, pending, started)
+          }
+        }
       })
+      transport_js.set_cell(starting_inline, False)
     }
   }
 }
@@ -580,6 +626,15 @@ fn stop_instance(
   instance_id: String,
 ) -> Nil {
   let state = get_state(runtime)
+  set_state(
+    runtime,
+    State(
+      ..state,
+      instances: dict.delete(state.instances, instance_id),
+      pending: dict.delete(state.pending, instance_id),
+      failed: dict.delete(state.failed, instance_id),
+    ),
+  )
   case dict.get(state.pending, instance_id) {
     Ok(pending) -> pending.disable_output()
     Error(Nil) -> Nil
@@ -595,20 +650,11 @@ fn stop_instance(
       }
     }
   }
-  let state = get_state(runtime)
-  set_state(
-    runtime,
-    State(
-      ..state,
-      instances: dict.delete(state.instances, instance_id),
-      pending: dict.delete(state.pending, instance_id),
-      failed: dict.delete(state.failed, instance_id),
-    ),
-  )
 }
 
 @target(javascript)
 fn reopen_workspace(runtime: Runtime(root, context, running)) -> Nil {
+  use <- own_lifecycle(runtime)
   let state = get_state(runtime)
   case state.stopped {
     True -> Nil
@@ -631,6 +677,7 @@ fn finish_reopen(
   generation: Int,
   opened: Result(workspace_js.Workspace(root), workspace_js.WorkspaceError),
 ) -> Nil {
+  use <- own_lifecycle(runtime)
   let state = get_state(runtime)
   case state.stopped || generation != state.workspace_generation, opened {
     True, _ -> Nil
@@ -719,6 +766,7 @@ fn dispatch_async_outputs(
   generation: Int,
   outputs: List(component.OutputEvent),
 ) -> Nil {
+  use <- own_lifecycle(runtime)
   let state = get_state(runtime)
   case state.stopped, dict.get(state.instances, instance_id) {
     True, _ | _, Error(Nil) ->
@@ -788,6 +836,7 @@ fn dispatch_outputs(
   outputs: List(component.OutputEvent),
   trace_number: Int,
 ) -> Nil {
+  use <- bool.guard(get_state(runtime).stopped, Nil)
   case outputs {
     [] -> Nil
     [event, ..rest] -> {
@@ -813,8 +862,10 @@ fn enqueue_output(
   instance_id: String,
   event: component.OutputEvent,
 ) -> component_runtime.DispatchTrace {
+  use <- bool.guard(get_state(runtime).stopped, trace)
   let source = port_graph.PortRef(instance_id, component.output_id(event))
   runtime.on_report(Triggered(component_runtime.trace_id(trace), source))
+  use <- bool.guard(get_state(runtime).stopped, trace)
   let plan =
     dispatch.plan(
       trace_id: component_runtime.trace_id(trace),
@@ -825,6 +876,7 @@ fn enqueue_output(
       ports_for: fn(id) { ports_for(runtime, id) },
     )
   list.each(dispatch.errors(plan), fn(reason) {
+    use <- bool.guard(get_state(runtime).stopped, Nil)
     runtime.on_report(DispatchFailed(
       component_runtime.trace_id(trace),
       None,
@@ -840,6 +892,7 @@ fn drain(
   graph: port_graph.EffectiveGraph,
   trace: component_runtime.DispatchTrace,
 ) -> Nil {
+  use <- bool.guard(get_state(runtime).stopped, Nil)
   let #(next, trace) = component_runtime.next(trace)
   case next {
     None -> Nil
@@ -861,15 +914,16 @@ fn drain(
           ))
           trace
         }
-        Ok(instance) ->
-          case
+        Ok(instance) -> {
+          let delivered =
             component.deliver(
               instance.descriptor,
               instance.running,
               target.port_id,
               payload,
             )
-          {
+          use <- bool.guard(get_state(runtime).stopped, trace)
+          case delivered {
             Error(reason) -> {
               runtime.on_report(DispatchFailed(
                 component_runtime.trace_id(trace),
@@ -908,6 +962,7 @@ fn drain(
                   ))
               }
               list.fold(delivered.1, trace, fn(trace, event) {
+                use <- bool.guard(get_state(runtime).stopped, trace)
                 case component.validate_output(instance.descriptor, event) {
                   Ok(Nil) ->
                     enqueue_output(
@@ -929,6 +984,7 @@ fn drain(
               })
             }
           }
+        }
       }
       drain(runtime, graph, trace)
     }
@@ -960,11 +1016,47 @@ fn notify(runtime: Runtime(root, context, running)) -> Nil {
 
 @target(javascript)
 fn flush_notification(runtime: Runtime(root, context, running)) -> Nil {
+  use <- own_lifecycle(runtime)
   let state = get_state(runtime)
   set_state(runtime, State(..state, notify_armed: False))
   case state.stopped {
     True -> Nil
     False -> runtime.on_change()
+  }
+}
+
+@target(javascript)
+fn check_running(
+  runtime: Runtime(root, context, running),
+) -> Result(Nil, RuntimeError) {
+  case get_state(runtime).stopped {
+    True -> Error(RuntimeStopped)
+    False -> Ok(Nil)
+  }
+}
+
+@target(javascript)
+fn release_operation(runtime: Runtime(root, context, running)) -> Nil {
+  set_state(runtime, State(..get_state(runtime), operation_active: False))
+}
+
+@target(javascript)
+fn own_lifecycle(
+  runtime: Runtime(root, context, running),
+  work: fn() -> Nil,
+) -> Nil {
+  let state = get_state(runtime)
+  case state.operation_active {
+    True -> {
+      let transport_js.Scheduler(schedule:, ..) = runtime.scheduler
+      let _cancel = schedule(fn() { own_lifecycle(runtime, work) }, 0)
+      Nil
+    }
+    False -> {
+      set_state(runtime, State(..state, operation_active: True))
+      work()
+      release_operation(runtime)
+    }
   }
 }
 

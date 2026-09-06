@@ -114,6 +114,14 @@ fn tasks_descriptor() -> component.Descriptor(Context, Running) {
 
 @target(javascript)
 fn notes_descriptor() -> component.Descriptor(Context, Running) {
+  notes_descriptor_with_hooks(fn() { Nil }, fn() { Nil })
+}
+
+@target(javascript)
+fn notes_descriptor_with_hooks(
+  on_input: fn() -> Nil,
+  on_stop: fn() -> Nil,
+) -> component.Descriptor(Context, Running) {
   component.executable_descriptor(
     kind: "notes",
     version: 1,
@@ -124,13 +132,17 @@ fn notes_descriptor() -> component.Descriptor(Context, Running) {
     },
     inputs: [
       component.input_handler(focus_input(), fn(running, task_id) {
+        on_input()
         case running {
           Notes(_, stops) -> Ok(#(Notes(Some(task_id), stops), []))
           _ -> Error("focus reached the wrong component")
         }
       }),
     ],
-    stop: stop_running,
+    stop: fn(running) {
+      on_stop()
+      stop_running(running)
+    },
     ports: [port.input_descriptor(focus_input())],
   )
 }
@@ -187,11 +199,33 @@ fn started_runtime(
   Cell(List(String)),
   Cell(List(component_runtime_js.DispatchReport)),
 ) {
+  started_runtime_with_hooks(name, fn() { Nil }, fn() { Nil }, fn(_) { Nil })
+}
+
+@target(javascript)
+fn started_runtime_with_hooks(
+  name: String,
+  on_input: fn() -> Nil,
+  on_stop: fn() -> Nil,
+  on_report: fn(component_runtime_js.DispatchReport) -> Nil,
+) -> #(
+  sluice_js.Sluice,
+  workspace_js.Workspace(Root),
+  component_runtime_js.Runtime(Root, Context, Running),
+  Cell(List(String)),
+  Cell(List(String)),
+  Cell(List(component_runtime_js.DispatchReport)),
+) {
   let sluice = sluice_js.start(tenant: "default", document: name)
   let document = sluice_js.connect(sluice, "user-a")
   sluice_js.settle(sluice)
   let store = ensure_workspace(document)
-  let catalog = catalog()
+  let assert Ok(catalog) =
+    component.new_catalog()
+    |> component.register(tasks_descriptor())
+  let assert Ok(catalog) =
+    component.register(catalog, notes_descriptor_with_hooks(on_input, on_stop))
+  let assert Ok(catalog) = component.register(catalog, activity_descriptor())
   let assert Ok(_) =
     workspace_js.add_instance(
       store,
@@ -254,7 +288,10 @@ fn started_runtime(
       },
       scheduler: sluice_js.scheduler(sluice),
       on_change: fn() { Nil },
-      on_report: fn(report) { record(reports, report) },
+      on_report: fn(report) {
+        record(reports, report)
+        on_report(report)
+      },
     )
   sluice_js.advance(sluice, 0)
   #(sluice, store, runtime, starts, stops, reports)
@@ -800,4 +837,347 @@ fn runtime_for(
     on_change: fn() { Nil },
     on_report: fn(_) { Nil },
   )
+}
+
+@target(javascript)
+pub fn nested_commands_are_rejected_before_the_action_runs_test() -> Nil {
+  let #(_, _, runtime, _, _, _) = started_runtime("nested-command")
+  let nested_results = transport_js.new_cell([])
+  let nested_calls = transport_js.new_cell([])
+  list.each(["tasks", "notes"], fn(target) {
+    component_runtime_js.command(runtime, "tasks", fn(running) {
+      record(
+        nested_results,
+        component_runtime_js.command(runtime, target, fn(inner) {
+          record(nested_calls, "called")
+          Ok(#(inner, []))
+        }),
+      )
+      component_runtime_js.running(runtime, "tasks") |> expect.to_be_ok()
+      component_runtime_js.layout(runtime)
+      |> expect.to_equal(["tasks", "notes", "activity"])
+      component_runtime_js.lifecycle(runtime)
+      |> list.length
+      |> expect.to_equal(3)
+      let assert Some(_) = component_runtime_js.graph(runtime)
+      Ok(#(running, []))
+    })
+    |> expect.to_equal(Ok(Nil))
+  })
+  transport_js.get_cell(nested_results)
+  |> list.all(fn(outcome) { outcome == Error(component_runtime_js.RuntimeBusy) })
+  |> expect.to_equal(True)
+  transport_js.get_cell(nested_calls) |> expect.to_equal([])
+  component_runtime_js.command(runtime, "notes", fn(running) {
+    Ok(#(running, []))
+  })
+  |> expect.to_equal(Ok(Nil))
+}
+
+@target(javascript)
+pub fn nested_input_and_report_commands_are_rejected_test() -> Nil {
+  let reference = transport_js.new_cell(None)
+  let results = transport_js.new_cell([])
+  let calls = transport_js.new_cell([])
+  let nested = fn() {
+    let assert Some(runtime) = transport_js.get_cell(reference)
+    record(
+      results,
+      component_runtime_js.command(runtime, "notes", fn(running) {
+        record(calls, "called")
+        Ok(#(running, []))
+      }),
+    )
+  }
+  let #(sluice, _, runtime, _, _, _) =
+    started_runtime_with_hooks("nested-delivery", nested, fn() { Nil }, fn(_) {
+      nested()
+    })
+  transport_js.set_cell(reference, Some(runtime))
+  component_runtime_js.command(runtime, "tasks", fn(running) {
+    Ok(#(running, [component.emit(selected_output(), "outer")]))
+  })
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(Notes(Some("outer"), _)) =
+    component_runtime_js.running(runtime, "notes")
+  let assert Ok(Tasks(_, output)) =
+    component_runtime_js.running(runtime, "tasks")
+  component.publish(output, [component.emit(selected_output(), "async")])
+  sluice_js.advance(sluice, 0)
+  let assert Ok(Notes(Some("async"), _)) =
+    component_runtime_js.running(runtime, "notes")
+  transport_js.get_cell(results) |> list.length |> expect.to_equal(6)
+  transport_js.get_cell(results)
+  |> list.all(fn(outcome) { outcome == Error(component_runtime_js.RuntimeBusy) })
+  |> expect.to_equal(True)
+  transport_js.get_cell(calls) |> expect.to_equal([])
+  component_runtime_js.command(runtime, "notes", fn(running) {
+    Ok(#(running, []))
+  })
+  |> expect.to_equal(Ok(Nil))
+}
+
+@target(javascript)
+pub fn stop_is_terminal_before_cleanup_and_reentrant_stop_test() -> Nil {
+  let reference = transport_js.new_cell(None)
+  let cleanup_calls = transport_js.new_cell([])
+  let results = transport_js.new_cell([])
+  let #(sluice, _, runtime, _, stops, reports) =
+    started_runtime_with_hooks(
+      "nested-stop",
+      fn() { Nil },
+      fn() {
+        let assert Some(runtime) = transport_js.get_cell(reference)
+        record(cleanup_calls, "cleanup")
+        record(
+          results,
+          component_runtime_js.command(runtime, "tasks", fn(running) {
+            Ok(#(running, []))
+          }),
+        )
+        // Limit recursion so the regression fails without exhausting the stack.
+        case transport_js.get_cell(cleanup_calls) {
+          [_] -> component_runtime_js.stop(runtime) |> expect.to_equal([])
+          _ -> Nil
+        }
+      },
+      fn(_) { Nil },
+    )
+  transport_js.set_cell(reference, Some(runtime))
+  let assert Ok(Tasks(_, output)) =
+    component_runtime_js.running(runtime, "tasks")
+  component_runtime_js.stop(runtime) |> expect.to_equal([])
+  transport_js.get_cell(cleanup_calls) |> expect.to_equal(["cleanup"])
+  transport_js.get_cell(results)
+  |> list.all(fn(outcome) {
+    outcome == Error(component_runtime_js.RuntimeStopped)
+  })
+  |> expect.to_equal(True)
+  transport_js.get_cell(stops)
+  |> list.sort(string.compare)
+  |> expect.to_equal(["activity", "notes", "tasks"])
+  component.publish(output, [component.emit(selected_output(), "stopped")])
+  sluice_js.advance(sluice, 0)
+  transport_js.get_cell(reports) |> expect.to_equal([])
+}
+
+@target(javascript)
+pub fn stop_during_action_cannot_restore_instances_test() -> Nil {
+  let #(sluice, _, runtime, _, stops, reports) = started_runtime("stop-action")
+  component_runtime_js.command(runtime, "tasks", fn(running) {
+    component_runtime_js.stop(runtime) |> expect.to_equal([])
+    Ok(#(running, [component.emit(selected_output(), "stopped")]))
+  })
+  |> expect.to_equal(Error(component_runtime_js.RuntimeStopped))
+  component_runtime_js.running(runtime, "tasks") |> expect.to_be_error()
+  component_runtime_js.lifecycle(runtime) |> expect.to_equal([])
+  sluice_js.advance(sluice, 0)
+  transport_js.get_cell(reports) |> expect.to_equal([])
+  transport_js.get_cell(stops) |> list.length |> expect.to_equal(3)
+  component_runtime_js.command(runtime, "tasks", fn(running) {
+    Ok(#(running, []))
+  })
+  |> expect.to_equal(Error(component_runtime_js.RuntimeStopped))
+  Nil
+}
+
+@target(javascript)
+pub fn stop_during_input_or_report_prevents_later_deliveries_test() -> Nil {
+  list.each([True, False], fn(stop_in_input) {
+    let reference = transport_js.new_cell(None)
+    let stop = fn() {
+      let assert Some(runtime) = transport_js.get_cell(reference)
+      let _ = component_runtime_js.stop(runtime)
+      Nil
+    }
+    let #(_, _, runtime, _, stops, reports) =
+      started_runtime_with_hooks(
+        "stop-delivery",
+        fn() {
+          case stop_in_input {
+            True -> stop()
+            False -> Nil
+          }
+        },
+        fn() { Nil },
+        fn(_) {
+          case stop_in_input {
+            False -> stop()
+            True -> Nil
+          }
+        },
+      )
+    transport_js.set_cell(reference, Some(runtime))
+    component_runtime_js.command(runtime, "tasks", fn(running) {
+      Ok(
+        #(running, [
+          component.emit(selected_output(), "stopped"),
+          component.emit(completed_output(), "not-delivered"),
+        ]),
+      )
+    })
+    |> expect.to_equal(Error(component_runtime_js.RuntimeStopped))
+    component_runtime_js.running(runtime, "notes") |> expect.to_be_error()
+    component_runtime_js.running(runtime, "activity") |> expect.to_be_error()
+    transport_js.get_cell(stops) |> list.length |> expect.to_equal(3)
+    transport_js.get_cell(reports) |> list.length |> expect.to_equal(1)
+  })
+}
+
+@target(javascript)
+pub fn rejected_commands_release_execution_ownership_test() -> Nil {
+  let #(_, _, runtime, _, _, _) = started_runtime("command-errors")
+  component_runtime_js.command(runtime, "missing", fn(running) {
+    Ok(#(running, []))
+  })
+  |> expect.to_be_error()
+  component_runtime_js.command(runtime, "tasks", fn(_) { Error("rejected") })
+  |> expect.to_be_error()
+  component_runtime_js.command(runtime, "tasks", fn(running) {
+    Ok(#(running, [component.emit(undeclared_output(), "invalid")]))
+  })
+  |> expect.to_be_error()
+  component_runtime_js.command(runtime, "tasks", fn(running) {
+    Ok(#(running, []))
+  })
+  |> expect.to_equal(Ok(Nil))
+}
+
+@target(javascript)
+type DeferredRuntime {
+  DeferredRuntime(
+    sluice: sluice_js.Sluice,
+    store: workspace_js.Workspace(Root),
+    catalog: component.Catalog(Context, Running),
+    runtime: component_runtime_js.Runtime(Root, Context, Running),
+    done: fn(Result(Running, String)) -> Nil,
+    output: component.OutputEmitter,
+    stops: Cell(List(String)),
+    reports: Cell(List(component_runtime_js.DispatchReport)),
+  )
+}
+
+@target(javascript)
+fn deferred_runtime(name: String) -> DeferredRuntime {
+  let sluice = sluice_js.start(tenant: "default", document: name)
+  let document = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+  let store = ensure_workspace(document)
+  let starts = transport_js.new_cell([])
+  let stops = transport_js.new_cell([])
+  let reports = transport_js.new_cell([])
+  let deferred = transport_js.new_cell(None)
+  let emitter = transport_js.new_cell(None)
+  let descriptor =
+    component.executable_descriptor(
+      kind: "delayed",
+      version: 1,
+      config_decoder: decode.string,
+      start: fn(context: Context, _, done) {
+        transport_js.set_cell(deferred, Some(done))
+        transport_js.set_cell(emitter, Some(context.output))
+      },
+      inputs: [],
+      stop: stop_running,
+      ports: [port.output_descriptor(selected_output())],
+    )
+  let assert Ok(catalog) = component.register(catalog(), descriptor)
+  list.each(["tasks", "notes", "delayed"], fn(id) {
+    let assert Ok(_) =
+      workspace_js.add_instance(store, catalog, id, id, 1, json.string(id))
+    Nil
+  })
+  let assert Ok(_) =
+    workspace_js.add_connection(
+      store,
+      catalog,
+      port_graph.connection(
+        "delayed-focus",
+        port_graph.PortRef("delayed", "selected"),
+        port_graph.PortRef("notes", "focus"),
+      ),
+    )
+  let runtime =
+    component_runtime_js.start(
+      document: document,
+      root: watershed.root_typed(document),
+      field: workspace_field(),
+      store: store,
+      catalog: catalog,
+      context_for: fn(entry, _, _, output) {
+        Context(entry.instance_id, starts, stops, output)
+      },
+      scheduler: sluice_js.scheduler(sluice),
+      on_change: fn() { Nil },
+      on_report: fn(report) { record(reports, report) },
+    )
+  sluice_js.advance(sluice, 0)
+  let assert Some(done) = transport_js.get_cell(deferred)
+  let assert Some(output) = transport_js.get_cell(emitter)
+  DeferredRuntime(sluice, store, catalog, runtime, done, output, stops, reports)
+}
+
+@target(javascript)
+pub fn external_start_completion_waits_for_the_current_command_test() -> Nil {
+  let fixture = deferred_runtime("deferred-ownership")
+  component_runtime_js.command(fixture.runtime, "tasks", fn(running) {
+    fixture.done(Ok(Delayed(fixture.stops)))
+    component_runtime_js.running(fixture.runtime, "delayed")
+    |> expect.to_be_error()
+    Ok(#(running, []))
+  })
+  |> expect.to_equal(Ok(Nil))
+  sluice_js.advance(fixture.sluice, 0)
+  component_runtime_js.running(fixture.runtime, "delayed") |> expect.to_be_ok()
+  Nil
+}
+
+@target(javascript)
+pub fn deferred_completion_rechecks_shutdown_before_installing_test() -> Nil {
+  let fixture = deferred_runtime("deferred-stop")
+  component_runtime_js.command(fixture.runtime, "tasks", fn(running) {
+    fixture.done(Ok(Delayed(fixture.stops)))
+    component_runtime_js.stop(fixture.runtime) |> expect.to_equal([])
+    Ok(#(running, []))
+  })
+  |> expect.to_equal(Error(component_runtime_js.RuntimeStopped))
+  sluice_js.advance(fixture.sluice, 0)
+  component_runtime_js.running(fixture.runtime, "delayed")
+  |> expect.to_be_error()
+  transport_js.get_cell(fixture.stops)
+  |> list.sort(string.compare)
+  |> expect.to_equal(["delayed", "notes", "tasks"])
+}
+
+@target(javascript)
+pub fn stop_during_reconcile_cleanup_cannot_restart_instances_test() -> Nil {
+  let reference = transport_js.new_cell(None)
+  let #(sluice, store, runtime, starts, stops, _) =
+    started_runtime_with_hooks(
+      "stop-reconcile",
+      fn() { Nil },
+      fn() {
+        let assert Some(runtime) = transport_js.get_cell(reference)
+        component_runtime_js.stop(runtime) |> expect.to_equal([])
+      },
+      fn(_) { Nil },
+    )
+  transport_js.set_cell(reference, Some(runtime))
+  let assert Ok(Nil) = workspace_js.delete_instance(store, catalog(), "notes")
+  let assert Ok(_) =
+    workspace_js.add_instance(
+      store,
+      catalog(),
+      "replacement",
+      "notes",
+      1,
+      json.string("new"),
+    )
+  sluice_js.advance(sluice, 0)
+  component_runtime_js.running(runtime, "replacement") |> expect.to_be_error()
+  component_runtime_js.lifecycle(runtime) |> expect.to_equal([])
+  transport_js.get_cell(starts) |> list.length |> expect.to_equal(3)
+  transport_js.get_cell(stops)
+  |> list.sort(string.compare)
+  |> expect.to_equal(["activity", "notes", "tasks"])
 }

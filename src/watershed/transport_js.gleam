@@ -98,6 +98,9 @@ pub fn clear_timer(id: TimerId) -> Nil
 /// `schedule` returns a canceller and not a `TimerId`, so a substitute
 /// scheduler needs no FFI type of its own. See `sluice_js.scheduler`, which
 /// builds one on the `advance` function of the sluice.
+///
+/// `schedule` must invoke work after the scheduling call returns. This rule
+/// also applies when the delay is zero.
 pub type Scheduler {
   Scheduler(
     now_milliseconds: fn() -> Int,
