@@ -461,8 +461,8 @@ Ok(#(catalog.RoomAgreement(next, refresh_pending), outputs))
 
 **Produces:** One descriptor list used for registration and enumeration, plus projection-based adapter code. No new public SDK abstraction.
 
-- [ ] Add assertions that each descriptor returned by `catalog.descriptors()` resolves through `component.find(catalog.catalog(), ...)` with the same kind/version. Cover wrong-variant inputs and cleanup returning explicit errors.
-- [ ] Replace the separate registration chain with a fold over `descriptors()`:
+- [x] Add assertions that each descriptor returned by `catalog.descriptors()` resolves through `component.find(catalog.catalog(), ...)` with the same kind/version. Cover wrong-variant inputs and cleanup returning explicit errors.
+- [x] Replace the separate registration chain with a fold over `descriptors()`:
 
 ```gleam
 pub fn catalog() -> component.Catalog(Context(root), Running) {
@@ -476,7 +476,7 @@ pub fn catalog() -> component.Catalog(Context(root), Running) {
 
 The existing catalog already asserts that its fixed registrations are valid; this preserves that behavior while removing a second list to update.
 
-- [ ] Use each existing typed projection once per adapter instead of repeating the full negative `Running` match in every input and stop closure. Keep an explicit error for a wrong variant:
+- [x] Use each existing typed projection once per adapter instead of repeating the full negative `Running` match in every input and stop closure. Keep an explicit error for a wrong variant:
 
 ```gleam
 fn stop_checklist(running: Running) -> Result(Nil, String) {
@@ -490,10 +490,10 @@ fn stop_checklist(running: Running) -> Result(Nil, String) {
 }
 ```
 
-- [ ] Add a shared adapter helper only if the integration inventory shows repeated identical mapping that projections do not remove. Keep it private to `catalog.gleam`; do not create a generic registry or lift it into the library as part of this task.
-- [ ] Audit start arguments against headless signatures. Retain document/channel access where required and avoid passing participant/publication capabilities to components that do not consume them. The common catalog context remains a trusted application context, not a security boundary.
-- [ ] Record before/after registration sites and repeated negative-match counts. Do not set an arbitrary line-count target or rewrite working components to improve the metric.
-- [ ] Run `(cd examples/project_room_lustre && gleam test && pnpm run build)` and commit: `refactor: simplify project room adapters`.
+- [x] Add a shared adapter helper only if the integration inventory shows repeated identical mapping that projections do not remove. Keep it private to `catalog.gleam`; do not create a generic registry or lift it into the library as part of this task.
+- [x] Audit start arguments against headless signatures. Retain document/channel access where required and avoid passing participant/publication capabilities to components that do not consume them. The common catalog context remains a trusted application context, not a security boundary.
+- [x] Record before/after registration sites and repeated negative-match counts. Do not set an arbitrary line-count target or rewrite working components to improve the metric.
+- [x] Run `(cd examples/project_room_lustre && gleam test && pnpm run build)` and commit: `refactor: simplify project room adapters`.
 
 **Acceptance:** Adding the next kind requires one descriptor-list entry and one projection per type, without adding that kind to unrelated handlers' negative matches.
 
@@ -644,7 +644,7 @@ acceptance, catalog-count, and browser tests.
 
 ### Task 7: Room Agreement integration
 
-Commit: `feat: integrate room agreement component` (hash recorded with task 8).
+Commit: `54ab2e1` (`feat: integrate room agreement component`).
 The missing preset and seeded edge failed before integration. The ninth
 descriptor, third creation preset, and sixth edge now share the headless domain
 implementation. Draft/proposal/refresh actions use instance IDs and runtime
@@ -659,5 +659,20 @@ The browser script covers accepted text and the single Activity event, but was
 not run: Chromium is available; floodgate is not listening on port 4000.
 The 29 old negative matches were updated to accept the new union variant.
 Task 8 removes that coupling. No domain proposal/event rules changed.
+
+### Task 8: catalog simplification
+
+Commit: `refactor: simplify project room adapters` (hash recorded with task 9).
+Descriptor identity and wrong-variant input/cleanup tests passed before and
+after the refactor. Registration calls decreased from 9 to 1; the descriptor
+list is now the single enumeration and registration source. Full negative
+variant lists decreased from 29 to 0. The 21 old input/stop matches now use
+typed projections; 9 projections each recognize only their own variant.
+The remaining flag/refresh matches belong specifically to Room Agreement.
+
+No extra mapping helper or SDK abstraction was needed. Start arguments still
+match each headless signature; the agreement receives neither the participant
+label nor emitter. Example tests: 91 passed; browser bundle built. No unmet
+task-8 criterion. Next: task 9.
 
 For each completed task, append its task number, commit, commands and outcomes, any unmet acceptance criterion, and the next task. For tasks 7-8, include the integration-file and adapter-repetition measurements. Keep temporary logs out of the repository.

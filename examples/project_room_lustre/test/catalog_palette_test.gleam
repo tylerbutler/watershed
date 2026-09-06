@@ -16,6 +16,66 @@ import project_room_lustre/checklist
 import project_room_lustre/document_schema
 import project_room_lustre/workspace_setup
 
+pub fn every_enumerated_descriptor_is_registered_test() -> Nil {
+  let registered = catalog.catalog()
+  list.each(catalog.descriptors(), fn(descriptor) {
+    let assert Ok(found) =
+      component.find(
+        registered,
+        component.kind(descriptor),
+        component.version(descriptor),
+      )
+    component.kind(found) |> should.equal(component.kind(descriptor))
+    component.version(found) |> should.equal(component.version(descriptor))
+    component.ports(found) |> should.equal(component.ports(descriptor))
+  })
+}
+
+pub fn wrong_variant_inputs_and_cleanup_return_explicit_errors_test() -> Nil {
+  let #(_, document) = document("wrong-catalog-variant")
+  let assert Ok(subtree) = watershed.create_map(document)
+  let started = transport_js.new_cell(None)
+  checklist.start(
+    document,
+    subtree,
+    fn() { Nil },
+    checklist.Config("Items"),
+    fn(value) { transport_js.set_cell(started, Some(value)) },
+  )
+  let assert Some(Ok(inner)) = transport_js.get_cell(started)
+  let running = catalog.Checklist(inner)
+  let assert Ok(descriptor) =
+    component.find(catalog.catalog(), catalog.tally_kind, catalog.tally_version)
+  component.deliver(descriptor, running, "add", json.int(1))
+  |> should.equal(
+    Error(component.InputFailed(
+      catalog.tally_kind,
+      catalog.tally_version,
+      "add",
+      "tally input reached the wrong component",
+    )),
+  )
+  component.stop(descriptor, running)
+  |> should.equal(
+    Error(component.StopFailed(
+      catalog.tally_kind,
+      catalog.tally_version,
+      "tally stop reached the wrong component",
+    )),
+  )
+  let assert Ok(agreement) =
+    component.find(catalog.catalog(), catalog.room_agreement_kind, 1)
+  component.stop(agreement, running)
+  |> should.equal(
+    Error(component.StopFailed(
+      catalog.room_agreement_kind,
+      1,
+      "agreement stop reached the wrong component",
+    )),
+  )
+  checklist.stop(inner) |> should.equal(Ok(Nil))
+}
+
 pub fn room_agreement_preset_builds_valid_config_test() -> Nil {
   let assert Ok(preset) =
     catalog.find_creation_preset("project-room/room-agreement")

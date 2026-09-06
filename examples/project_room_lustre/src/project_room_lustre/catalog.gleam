@@ -277,24 +277,12 @@ pub fn find_creation_preset(kind: String) -> Result(CreationPreset(root), Nil) {
 }
 
 pub fn catalog() -> component.Catalog(Context(root), Running) {
-  let assert Ok(with_tasks) =
-    component.register(component.new_catalog(), task_collection_descriptor())
-  let assert Ok(with_inspector) =
-    component.register(with_tasks, inspector_descriptor())
-  let assert Ok(with_poll) =
-    component.register(with_inspector, decision_poll_descriptor())
-  let assert Ok(with_ownership) =
-    component.register(with_poll, ownership_slots_descriptor())
-  let assert Ok(with_notes) =
-    component.register(with_ownership, notes_descriptor())
-  let assert Ok(with_activity) =
-    component.register(with_notes, activity_descriptor())
-  let assert Ok(with_checklist) =
-    component.register(with_activity, checklist_descriptor())
-  let assert Ok(with_tally) =
-    component.register(with_checklist, tally_descriptor())
   let assert Ok(full) =
-    component.register(with_tally, room_agreement_descriptor())
+    list.try_fold(
+      descriptors(),
+      component.new_catalog(),
+      fn(catalog, descriptor) { component.register(catalog, descriptor) },
+    )
   full
 }
 
@@ -394,28 +382,14 @@ pub fn as_task_collection(
 ) -> Result(task_collection.Running, Nil) {
   case running {
     TaskCollection(inner) -> Ok(inner)
-    Inspector(_)
-    | DecisionPoll(_)
-    | OwnershipSlots(_)
-    | Notes(_)
-    | Activity(_)
-    | Checklist(_)
-    | Tally(_)
-    | RoomAgreement(_, _) -> Error(Nil)
+    _ -> Error(Nil)
   }
 }
 
 pub fn as_inspector(running: Running) -> Result(inspector.Running, Nil) {
   case running {
     Inspector(inner) -> Ok(inner)
-    TaskCollection(_)
-    | DecisionPoll(_)
-    | OwnershipSlots(_)
-    | Notes(_)
-    | Activity(_)
-    | Checklist(_)
-    | Tally(_)
-    | RoomAgreement(_, _) -> Error(Nil)
+    _ -> Error(Nil)
   }
 }
 
@@ -424,14 +398,7 @@ pub fn as_decision_poll(
 ) -> Result(decision_poll.Running, Nil) {
   case running {
     DecisionPoll(inner) -> Ok(inner)
-    TaskCollection(_)
-    | Inspector(_)
-    | OwnershipSlots(_)
-    | Notes(_)
-    | Activity(_)
-    | Checklist(_)
-    | Tally(_)
-    | RoomAgreement(_, _) -> Error(Nil)
+    _ -> Error(Nil)
   }
 }
 
@@ -440,70 +407,35 @@ pub fn as_ownership_slots(
 ) -> Result(ownership_slots.Running, Nil) {
   case running {
     OwnershipSlots(inner) -> Ok(inner)
-    TaskCollection(_)
-    | Inspector(_)
-    | DecisionPoll(_)
-    | Notes(_)
-    | Activity(_)
-    | Checklist(_)
-    | Tally(_)
-    | RoomAgreement(_, _) -> Error(Nil)
+    _ -> Error(Nil)
   }
 }
 
 pub fn as_notes(running: Running) -> Result(notes.Running, Nil) {
   case running {
     Notes(inner) -> Ok(inner)
-    TaskCollection(_)
-    | Inspector(_)
-    | DecisionPoll(_)
-    | OwnershipSlots(_)
-    | Activity(_)
-    | Checklist(_)
-    | Tally(_)
-    | RoomAgreement(_, _) -> Error(Nil)
+    _ -> Error(Nil)
   }
 }
 
 pub fn as_activity(running: Running) -> Result(activity.Running, Nil) {
   case running {
     Activity(inner) -> Ok(inner)
-    TaskCollection(_)
-    | Inspector(_)
-    | DecisionPoll(_)
-    | OwnershipSlots(_)
-    | Notes(_)
-    | Checklist(_)
-    | Tally(_)
-    | RoomAgreement(_, _) -> Error(Nil)
+    _ -> Error(Nil)
   }
 }
 
 pub fn as_checklist(running: Running) -> Result(checklist.Running, Nil) {
   case running {
     Checklist(inner) -> Ok(inner)
-    TaskCollection(_)
-    | Inspector(_)
-    | DecisionPoll(_)
-    | OwnershipSlots(_)
-    | Notes(_)
-    | Activity(_)
-    | Tally(_)
-    | RoomAgreement(_, _) -> Error(Nil)
+    _ -> Error(Nil)
   }
 }
 
 pub fn as_tally(running: Running) -> Result(tally.Running, Nil) {
   case running {
     Tally(inner) -> Ok(inner)
-    TaskCollection(_)
-    | Inspector(_)
-    | DecisionPoll(_)
-    | OwnershipSlots(_)
-    | Notes(_)
-    | Activity(_)
-    | Checklist(_)
-    | RoomAgreement(_, _) -> Error(Nil)
+    _ -> Error(Nil)
   }
 }
 
@@ -592,17 +524,9 @@ fn task_collection_descriptor() -> component.Descriptor(Context(root), Running) 
     },
     inputs: [],
     stop: fn(running) {
-      case running {
-        TaskCollection(inner) -> task_collection.stop(inner)
-        Inspector(_)
-        | DecisionPoll(_)
-        | OwnershipSlots(_)
-        | Notes(_)
-        | Activity(_)
-        | Checklist(_)
-        | Tally(_)
-        | RoomAgreement(_, _) ->
-          Error("task collection stop reached the wrong component")
+      case as_task_collection(running) {
+        Ok(inner) -> task_collection.stop(inner)
+        Error(Nil) -> Error("task collection stop reached the wrong component")
       }
     },
     ports: [
@@ -633,35 +557,19 @@ fn inspector_descriptor() -> component.Descriptor(Context(root), Running) {
     },
     inputs: [
       component.input_handler(payload.inspect_task(), fn(running, task) {
-        case running {
-          Inspector(inner) -> {
+        case as_inspector(running) {
+          Ok(inner) -> {
             let #(next, events) = inspector.inspect(inner, task)
             Ok(#(Inspector(next), events))
           }
-          TaskCollection(_)
-          | DecisionPoll(_)
-          | OwnershipSlots(_)
-          | Notes(_)
-          | Activity(_)
-          | Checklist(_)
-          | Tally(_)
-          | RoomAgreement(_, _) ->
-            Error("inspector input reached the wrong component")
+          Error(Nil) -> Error("inspector input reached the wrong component")
         }
       }),
     ],
     stop: fn(running) {
-      case running {
-        Inspector(inner) -> inspector.stop(inner)
-        TaskCollection(_)
-        | DecisionPoll(_)
-        | OwnershipSlots(_)
-        | Notes(_)
-        | Activity(_)
-        | Checklist(_)
-        | Tally(_)
-        | RoomAgreement(_, _) ->
-          Error("inspector stop reached the wrong component")
+      case as_inspector(running) {
+        Ok(inner) -> inspector.stop(inner)
+        Error(Nil) -> Error("inspector stop reached the wrong component")
       }
     },
     ports: [port.input_descriptor(payload.inspect_task())],
@@ -696,66 +604,35 @@ fn decision_poll_descriptor() -> component.Descriptor(Context(root), Running) {
       component.input_handler(
         governance_payload.show_results(),
         fn(running, command) {
-          case running {
-            DecisionPoll(inner) ->
+          case as_decision_poll(running) {
+            Ok(inner) ->
               decision_poll.set_results_visibility(inner, command)
               |> result.map(fn(next) { #(DecisionPoll(next.0), next.1) })
-            TaskCollection(_)
-            | Inspector(_)
-            | OwnershipSlots(_)
-            | Notes(_)
-            | Activity(_)
-            | Checklist(_)
-            | Tally(_)
-            | RoomAgreement(_, _) ->
-              Error("poll input reached the wrong component")
+            Error(Nil) -> Error("poll input reached the wrong component")
           }
         },
       ),
       component.input_handler(governance_payload.open_poll(), fn(running, _) {
-        case running {
-          DecisionPoll(inner) ->
+        case as_decision_poll(running) {
+          Ok(inner) ->
             decision_poll.set_lifecycle(inner, governance_payload.OpenPoll)
             |> result.map(fn(next) { #(DecisionPoll(next.0), next.1) })
-          TaskCollection(_)
-          | Inspector(_)
-          | OwnershipSlots(_)
-          | Notes(_)
-          | Activity(_)
-          | Checklist(_)
-          | Tally(_)
-          | RoomAgreement(_, _) ->
-            Error("poll input reached the wrong component")
+          Error(Nil) -> Error("poll input reached the wrong component")
         }
       }),
       component.input_handler(governance_payload.close_poll(), fn(running, _) {
-        case running {
-          DecisionPoll(inner) ->
+        case as_decision_poll(running) {
+          Ok(inner) ->
             decision_poll.set_lifecycle(inner, governance_payload.ClosePoll)
             |> result.map(fn(next) { #(DecisionPoll(next.0), next.1) })
-          TaskCollection(_)
-          | Inspector(_)
-          | OwnershipSlots(_)
-          | Notes(_)
-          | Activity(_)
-          | Checklist(_)
-          | Tally(_)
-          | RoomAgreement(_, _) ->
-            Error("poll input reached the wrong component")
+          Error(Nil) -> Error("poll input reached the wrong component")
         }
       }),
     ],
     stop: fn(running) {
-      case running {
-        DecisionPoll(inner) -> decision_poll.stop(inner)
-        TaskCollection(_)
-        | Inspector(_)
-        | OwnershipSlots(_)
-        | Notes(_)
-        | Activity(_)
-        | Checklist(_)
-        | Tally(_)
-        | RoomAgreement(_, _) -> Error("poll stop reached the wrong component")
+      case as_decision_poll(running) {
+        Ok(inner) -> decision_poll.stop(inner)
+        Error(Nil) -> Error("poll stop reached the wrong component")
       }
     },
     ports: [
@@ -827,34 +704,18 @@ fn ownership_slots_descriptor() -> component.Descriptor(Context(root), Running) 
         },
       ),
       component.input_handler(governance_payload.reveal_owner(), fn(running, _) {
-        case running {
-          OwnershipSlots(inner) ->
+        case as_ownership_slots(running) {
+          Ok(inner) ->
             ownership_slots.toggle_details(inner)
             |> result.map(fn(next) { #(OwnershipSlots(next.0), next.1) })
-          TaskCollection(_)
-          | Inspector(_)
-          | DecisionPoll(_)
-          | Notes(_)
-          | Activity(_)
-          | Checklist(_)
-          | Tally(_)
-          | RoomAgreement(_, _) ->
-            Error("ownership input reached the wrong component")
+          Error(Nil) -> Error("ownership input reached the wrong component")
         }
       }),
     ],
     stop: fn(running) {
-      case running {
-        OwnershipSlots(inner) -> ownership_slots.stop(inner)
-        TaskCollection(_)
-        | Inspector(_)
-        | DecisionPoll(_)
-        | Notes(_)
-        | Activity(_)
-        | Checklist(_)
-        | Tally(_)
-        | RoomAgreement(_, _) ->
-          Error("ownership stop reached the wrong component")
+      case as_ownership_slots(running) {
+        Ok(inner) -> ownership_slots.stop(inner)
+        Error(Nil) -> Error("ownership stop reached the wrong component")
       }
     },
     ports: [
@@ -873,19 +734,11 @@ fn ownership_input(
   running: Running,
   command: governance_payload.SlotCommand,
 ) -> Result(#(Running, List(component.OutputEvent)), String) {
-  case running {
-    OwnershipSlots(inner) ->
+  case as_ownership_slots(running) {
+    Ok(inner) ->
       ownership_slots.submit(inner, command)
       |> result.map(fn(next) { #(OwnershipSlots(next.0), next.1) })
-    TaskCollection(_)
-    | Inspector(_)
-    | DecisionPoll(_)
-    | Notes(_)
-    | Activity(_)
-    | Checklist(_)
-    | Tally(_)
-    | RoomAgreement(_, _) ->
-      Error("ownership input reached the wrong component")
+    Error(Nil) -> Error("ownership input reached the wrong component")
   }
 }
 
@@ -910,16 +763,9 @@ fn notes_descriptor() -> component.Descriptor(Context(root), Running) {
     },
     inputs: [],
     stop: fn(running) {
-      case running {
-        Notes(inner) -> notes.stop(inner)
-        TaskCollection(_)
-        | Inspector(_)
-        | DecisionPoll(_)
-        | OwnershipSlots(_)
-        | Activity(_)
-        | Checklist(_)
-        | Tally(_)
-        | RoomAgreement(_, _) -> Error("notes stop reached the wrong component")
+      case as_notes(running) {
+        Ok(inner) -> notes.stop(inner)
+        Error(Nil) -> Error("notes stop reached the wrong component")
       }
     },
     ports: [],
@@ -947,88 +793,48 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
     },
     inputs: [
       component.input_handler(payload.append_entry(), fn(running, entry) {
-        case running {
-          Activity(inner) ->
+        case as_activity(running) {
+          Ok(inner) ->
             activity.append_entry(inner, entry)
             |> result.map(fn(next) { #(Activity(next.0), next.1) })
-          TaskCollection(_)
-          | Inspector(_)
-          | DecisionPoll(_)
-          | OwnershipSlots(_)
-          | Notes(_)
-          | Checklist(_)
-          | Tally(_)
-          | RoomAgreement(_, _) ->
-            Error("activity input reached the wrong component")
+          Error(Nil) -> Error("activity input reached the wrong component")
         }
       }),
       component.input_handler(
         governance_payload.append_poll_threshold(),
         fn(running, entry) {
-          case running {
-            Activity(inner) ->
+          case as_activity(running) {
+            Ok(inner) ->
               activity.append_poll_threshold(inner, entry)
               |> result.map(fn(next) { #(Activity(next.0), next.1) })
-            TaskCollection(_)
-            | Inspector(_)
-            | DecisionPoll(_)
-            | OwnershipSlots(_)
-            | Notes(_)
-            | Checklist(_)
-            | Tally(_)
-            | RoomAgreement(_, _) ->
-              Error("activity input reached the wrong component")
+            Error(Nil) -> Error("activity input reached the wrong component")
           }
         },
       ),
       component.input_handler(
         governance_payload.append_ownership_change(),
         fn(running, entry) {
-          case running {
-            Activity(inner) ->
+          case as_activity(running) {
+            Ok(inner) ->
               activity.append_ownership_change(inner, entry)
               |> result.map(fn(next) { #(Activity(next.0), next.1) })
-            TaskCollection(_)
-            | Inspector(_)
-            | DecisionPoll(_)
-            | OwnershipSlots(_)
-            | Notes(_)
-            | Checklist(_)
-            | Tally(_)
-            | RoomAgreement(_, _) ->
-              Error("activity input reached the wrong component")
+            Error(Nil) -> Error("activity input reached the wrong component")
           }
         },
       ),
       component.input_handler(component_event.append(), fn(running, entry) {
-        case running {
-          Activity(inner) ->
+        case as_activity(running) {
+          Ok(inner) ->
             activity.append_component_event(inner, entry)
             |> result.map(fn(next) { #(Activity(next.0), next.1) })
-          TaskCollection(_)
-          | Inspector(_)
-          | DecisionPoll(_)
-          | OwnershipSlots(_)
-          | Notes(_)
-          | Checklist(_)
-          | Tally(_)
-          | RoomAgreement(_, _) ->
-            Error("activity input reached the wrong component")
+          Error(Nil) -> Error("activity input reached the wrong component")
         }
       }),
     ],
     stop: fn(running) {
-      case running {
-        Activity(inner) -> activity.stop(inner)
-        TaskCollection(_)
-        | Inspector(_)
-        | DecisionPoll(_)
-        | OwnershipSlots(_)
-        | Notes(_)
-        | Checklist(_)
-        | Tally(_)
-        | RoomAgreement(_, _) ->
-          Error("activity stop reached the wrong component")
+      case as_activity(running) {
+        Ok(inner) -> activity.stop(inner)
+        Error(Nil) -> Error("activity stop reached the wrong component")
       }
     },
     ports: [
@@ -1061,50 +867,26 @@ fn checklist_descriptor() -> component.Descriptor(Context(root), Running) {
     },
     inputs: [
       component.input_handler(checklist.add_item(), fn(running, label) {
-        case running {
-          Checklist(inner) ->
+        case as_checklist(running) {
+          Ok(inner) ->
             checklist.add_label(inner, label)
             |> result.map(fn(next) { #(Checklist(next.0), next.1) })
-          TaskCollection(_)
-          | Inspector(_)
-          | DecisionPoll(_)
-          | OwnershipSlots(_)
-          | Notes(_)
-          | Activity(_)
-          | Tally(_)
-          | RoomAgreement(_, _) ->
-            Error("checklist input reached the wrong component")
+          Error(Nil) -> Error("checklist input reached the wrong component")
         }
       }),
       component.input_handler(checklist.complete_item(), fn(running, item_id) {
-        case running {
-          Checklist(inner) ->
+        case as_checklist(running) {
+          Ok(inner) ->
             checklist.complete(inner, item_id)
             |> result.map(fn(next) { #(Checklist(next.0), next.1) })
-          TaskCollection(_)
-          | Inspector(_)
-          | DecisionPoll(_)
-          | OwnershipSlots(_)
-          | Notes(_)
-          | Activity(_)
-          | Tally(_)
-          | RoomAgreement(_, _) ->
-            Error("checklist input reached the wrong component")
+          Error(Nil) -> Error("checklist input reached the wrong component")
         }
       }),
     ],
     stop: fn(running) {
-      case running {
-        Checklist(inner) -> checklist.stop(inner)
-        TaskCollection(_)
-        | Inspector(_)
-        | DecisionPoll(_)
-        | OwnershipSlots(_)
-        | Notes(_)
-        | Activity(_)
-        | Tally(_)
-        | RoomAgreement(_, _) ->
-          Error("checklist stop reached the wrong component")
+      case as_checklist(running) {
+        Ok(inner) -> checklist.stop(inner)
+        Error(Nil) -> Error("checklist stop reached the wrong component")
       }
     },
     ports: [
@@ -1137,33 +919,18 @@ fn tally_descriptor() -> component.Descriptor(Context(root), Running) {
     },
     inputs: [
       component.input_handler(tally_payload.add(), fn(running, amount) {
-        case running {
-          Tally(inner) ->
+        case as_tally(running) {
+          Ok(inner) ->
             tally.add(inner, amount)
             |> result.map(fn(next) { #(Tally(next.0), next.1) })
-          TaskCollection(_)
-          | Inspector(_)
-          | DecisionPoll(_)
-          | OwnershipSlots(_)
-          | Notes(_)
-          | Activity(_)
-          | Checklist(_)
-          | RoomAgreement(_, _) ->
-            Error("tally input reached the wrong component")
+          Error(Nil) -> Error("tally input reached the wrong component")
         }
       }),
     ],
     stop: fn(running) {
-      case running {
-        Tally(inner) -> tally.stop(inner)
-        TaskCollection(_)
-        | Inspector(_)
-        | DecisionPoll(_)
-        | OwnershipSlots(_)
-        | Notes(_)
-        | Activity(_)
-        | Checklist(_)
-        | RoomAgreement(_, _) -> Error("tally stop reached the wrong component")
+      case as_tally(running) {
+        Ok(inner) -> tally.stop(inner)
+        Error(Nil) -> Error("tally stop reached the wrong component")
       }
     },
     ports: [
