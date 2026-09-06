@@ -16,6 +16,9 @@ The executable runtime in this release targets JavaScript. The descriptor,
 catalog, port, dispatch, and workspace contracts remain target-independent;
 a BEAM runtime shell is deferred.
 
+The implemented execution, lifecycle, transport, and extension rules are in
+[Component runtime contracts](../../component-runtime-contracts.md).
+
 The project-room example proves three forms of component communication:
 
 - local connections coordinate presentation on one client;
@@ -96,7 +99,7 @@ At startup, the shell performs these steps for each manifest entry:
 3. Resolve the instance child map.
 4. Bootstrap the headless component.
 5. Start its subscriptions.
-6. Mount an available view adapter.
+6. Let the application shell select a view and route its messages.
 
 Component code stays typed on both sides of the descriptor. Type erasure occurs
 only when the shell stores unrelated component definitions together or sends a
@@ -154,14 +157,20 @@ directly and omit the adapter.
 
 ### Lustre adapter
 
-An optional Lustre adapter follows the existing nested MVU contract with
-`init`, `update`, and `view`. The shell gives it a started headless instance.
-The adapter does not connect to the document or create a second set of channel
-subscriptions.
+The implemented `watershed_lustre/component_runtime` bridge wraps runtime
+operations as effects. The Project Room shell owns its message variants,
+instance-ID action routing, and view selection. A headless descriptor alone
+does not mount a UI.
 
-This split lets the same headless component run without Lustre or behind
-several Lustre views. The first runtime host is JavaScript; a BEAM host can use
-the same target-independent contracts later.
+An optional nested MVU adapter with `init`, `update`, and `view` remains a
+design direction, not an implemented heterogeneous mounting contract. Such an
+adapter should receive a started headless instance rather than connect another
+document or duplicate its channel subscriptions. The follow-up implementation
+does not add automatic mounting.
+
+The headless/adapter split still lets a component run without Lustre or behind
+several views. The first runtime host is JavaScript; a BEAM host can use the
+target-independent contracts later.
 
 ## Lifecycle
 

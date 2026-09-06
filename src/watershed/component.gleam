@@ -156,9 +156,10 @@ pub fn descriptor(
 /// channels and installed its required subscriptions. The runtime does not
 /// mark the instance ready before that callback.
 ///
-/// Call `done` exactly once. The first successful completion transfers the
-/// running value to the host. The host stops a first late success if its
-/// generation is obsolete. A duplicate completion transfers no ownership:
+/// Call `done` exactly once. The first completion consumes the invocation.
+/// An `Ok` first completion transfers the running value to the host.
+/// The host stops a first late success if its generation is obsolete.
+/// A duplicate completion transfers no ownership:
 /// the starter must release any extra resources without stopping the accepted
 /// value. The JavaScript host reports the violation and does not use the value.
 /// An incomplete start stays pending until removal or shutdown. It has no
@@ -221,6 +222,9 @@ pub fn executable_descriptor(
 // docs:snippet-end foundations-components-executable-descriptor
 
 /// Build a typed input handler for an executable descriptor.
+///
+/// An error rejects the returned state. It does not undo channel mutations
+/// that the handler has already submitted.
 pub fn input_handler(
   input input: port.Input(payload),
   handle handle: fn(running, payload) ->

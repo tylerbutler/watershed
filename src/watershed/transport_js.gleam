@@ -101,6 +101,7 @@ pub fn clear_timer(id: TimerId) -> Nil
 ///
 /// `schedule` must invoke work after the scheduling call returns. This rule
 /// also applies when the delay is zero.
+/// An inline callback violates component lifecycle execution ownership.
 pub type Scheduler {
   Scheduler(
     now_milliseconds: fn() -> Int,

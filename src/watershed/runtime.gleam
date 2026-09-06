@@ -11,6 +11,7 @@
 //// A bootstrap retains validated live operations through summary and prefix
 //// loads. Each bootstrap permits at most 10,000 operations and 16 MiB of
 //// UTF-8 payloads before readiness. An overflow fails the connection.
+//// These limits count live catch-up traffic across all bootstrap drain batches.
 //// Rejoin, close, and failure invalidate pending HTTP completions.
 ////
 //// Subscriber and outcome callbacks observe committed state. Their exceptions
@@ -151,6 +152,8 @@ pub type TransportCallbacks {
 ///
 /// Callbacks raised during `connect` are processed in arrival order after the
 /// returned handle is installed.
+/// Synchronous replies during that drain remain in the same queue. Normal
+/// traffic uses direct callbacks after construction finishes.
 pub type Transport {
   Transport(connect: fn(TransportCallbacks) -> TransportHandle)
 }

@@ -505,7 +505,7 @@ fn stop_checklist(running: Running) -> Result(Nil, String) {
 
 **Produces:** A contract reference and an extension checklist that match the working example.
 
-- [ ] Write `docs/component-runtime-contracts.md` with these sections and explicit statements:
+- [x] Write `docs/component-runtime-contracts.md` with these sections and explicit statements:
 
 | Section | Required content |
 |---|---|
@@ -519,23 +519,23 @@ fn stop_checklist(running: Running) -> Result(Nil, String) {
 | Trust and capabilities | Capability strings document intended use; they are not authorization; opaque handles are not read-only handles |
 | Rendering | The current shell owns message routing and view selection; a headless descriptor alone does not mount a UI |
 
-- [ ] Add a codec compatibility example based on `component_event.encode`/`decoder`, showing a valid round trip and a malformed payload rejection. Reference the existing tests rather than creating a runtime schema registry.
-- [ ] Correct the SDK design's Lustre adapter section: distinguish its optional nested-MVU direction from today's implemented shell integration. State that this plan does not implement an automatic mounting contract. Preserve the headless/adapter separation as a design direction.
-- [ ] Add the Room Agreement extension checklist to the example README: headless lifecycle; descriptor and projection; preset/seed; typed ports; instance-ID messages/effects; view; deterministic acceptance case. Link the new contract reference.
-- [ ] Record the task 7/8 extension-cost findings as measured counts, without claiming development-time savings.
-- [ ] Check links and the implementation against each contract statement. If an implementation differs from this plan, explain that difference in the execution record and document the behavior that actually shipped.
-- [ ] Commit: `docs: define runtime and extension contracts`.
+- [x] Add a codec compatibility example based on `component_event.encode`/`decoder`, showing a valid round trip and a malformed payload rejection. Reference the existing tests rather than creating a runtime schema registry.
+- [x] Correct the SDK design's Lustre adapter section: distinguish its optional nested-MVU direction from today's implemented shell integration. State that this plan does not implement an automatic mounting contract. Preserve the headless/adapter separation as a design direction.
+- [x] Add the Room Agreement extension checklist to the example README: headless lifecycle; descriptor and projection; preset/seed; typed ports; instance-ID messages/effects; view; deterministic acceptance case. Link the new contract reference.
+- [x] Record the task 7/8 extension-cost findings as measured counts, without claiming development-time savings.
+- [x] Check links and the implementation against each contract statement. If an implementation differs from this plan, explain that difference in the execution record and document the behavior that actually shipped.
+- [x] Commit: `docs: define runtime and extension contracts`.
 
 **Acceptance:** A caller can find execution, lifecycle, schema, and extension rules without inferring them from callback timing or reading the research report.
 
 ## Final integration checkpoint
 
-- [ ] Confirm all acceptance scenarios above have durable coverage and all new harnesses run through an existing gate.
-- [ ] Confirm new runtime error variants compile through the Lustre adapter and example consumers.
-- [ ] Run the smallest combined root selector covering the changed runtime modules, the awaited bootstrap harness, and both consumer packages. Run the relay lifecycle selector if relay callback ordering changed its facade behavior.
-- [ ] Run Erlang coverage for target-independent edits. Run the existing port compile-fail gate if typed port APIs changed; this plan does not require changing them.
-- [ ] Preserve source snippet markers. If a marked source block changed, run `just snippets`; do not commit `website/src/generated/snippets.json`.
-- [ ] Review for accidental scope growth: no component actors, plugin registry, new transport protocol, startup timeout system, service repartitioning, or unrelated prose rewrite.
+- [x] Confirm all acceptance scenarios above have durable coverage and all new harnesses run through an existing gate.
+- [x] Confirm new runtime error variants compile through the Lustre adapter and example consumers.
+- [x] Run the smallest combined root selector covering the changed runtime modules, the awaited bootstrap harness, and both consumer packages. Run the relay lifecycle selector if relay callback ordering changed its facade behavior.
+- [x] Run Erlang coverage for target-independent edits. Run the existing port compile-fail gate if typed port APIs changed; this plan does not require changing them.
+- [x] Preserve source snippet markers. If a marked source block changed, run `just snippets`; do not commit `website/src/generated/snippets.json`.
+- [x] Review for accidental scope growth: no component actors, plugin registry, new transport protocol, startup timeout system, service repartitioning, or unrelated prose rewrite.
 
 ## Deferred work and its trigger
 
@@ -662,7 +662,7 @@ Task 8 removes that coupling. No domain proposal/event rules changed.
 
 ### Task 8: catalog simplification
 
-Commit: `refactor: simplify project room adapters` (hash recorded with task 9).
+Commit: `218ff39` (`refactor: simplify project room adapters`).
 Descriptor identity and wrong-variant input/cleanup tests passed before and
 after the refactor. Registration calls decreased from 9 to 1; the descriptor
 list is now the single enumeration and registration source. Full negative
@@ -674,5 +674,37 @@ No extra mapping helper or SDK abstraction was needed. Start arguments still
 match each headless signature; the agreement receives neither the participant
 label nor emitter. Example tests: 91 passed; browser bundle built. No unmet
 task-8 criterion. Next: task 9.
+
+### Task 9: contracts and final integration
+
+Commit: `docs: define runtime and extension contracts`.
+Published the execution, acceptance/delivery, rollback, startup/ownership,
+failure, scheduling/bootstrap, schema, trust, and rendering contracts.
+The SDK design now distinguishes application-owned view selection from the
+optional nested-MVU direction. The example README includes the ninth seeded
+component, sixth edge, third preset, extension checklist, and measured
+catalog coupling. Public API comments state the same rules.
+
+Final validation:
+
+- Combined JavaScript selectors `runtime crdt_sequencer_js
+  crdt_relay_lifecycle crdt_js sluice/driver_js`: 319 passed across 8 files.
+- Awaited bootstrap harness: passed, including retention without later traffic,
+  gaps, duplicate history, later prefix pages, generations, and both limits.
+- Lustre adapter: 60 passed. Project Room: 91 passed and its browser bundle built.
+- Erlang selectors `component port runtime_core`: 144 passed across 5 files.
+  Typed port signatures did not change, so the compile-fail gate was not needed.
+- Source snippets regenerated; the ignored manifest remains uncommitted.
+  Relative documentation links resolve; changed-file formatting and diff checks
+  passed.
+
+The new tests use existing package gates; the awaited harness runs in
+`just test` through `_test-js`. Direct review found no additional architecture,
+dependency, transport protocol, or unrelated prose changes.
+
+All nine implementation tasks are complete. The live browser scenario remains
+unexecuted because floodgate is not running on port 4000; its deterministic
+counterpart and updated browser script are committed. Bootstrap quotas remain
+conservative across drain batches as recorded in task 5.
 
 For each completed task, append its task number, commit, commands and outcomes, any unmet acceptance criterion, and the next task. For tasks 7-8, include the integration-file and adapter-repetition measurements. Keep temporary logs out of the repository.

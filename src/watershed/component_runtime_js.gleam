@@ -85,6 +85,10 @@ pub type DispatchFailure {
 
 @target(javascript)
 /// One observable stage of an origin-side dispatch.
+///
+/// `MutationSubmitted` reports target acceptance on this client. It does not
+/// acknowledge server sequencing. A delivery failure does not undo source
+/// state or channel mutations.
 pub type DispatchReport {
   Triggered(trace_id: String, source: port_graph.PortRef)
   LocalDelivered(trace_id: String, edge_id: String, target: port_graph.PortRef)
