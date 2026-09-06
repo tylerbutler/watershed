@@ -296,6 +296,10 @@ pub fn draft(running: Running) -> String {
   transport_js.get_cell(running.draft)
 }
 
+pub fn config(running: Running) -> Config {
+  running.config
+}
+
 pub fn set_draft(running: Running, draft: String) -> Running {
   transport_js.set_cell(running.draft, draft)
   running

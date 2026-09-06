@@ -16,6 +16,35 @@ import project_room_lustre/checklist
 import project_room_lustre/document_schema
 import project_room_lustre/workspace_setup
 
+pub fn room_agreement_preset_builds_valid_config_test() -> Nil {
+  let assert Ok(preset) =
+    catalog.find_creation_preset("project-room/room-agreement")
+  let catalog.CreationPreset(kind:, version:, config:, ..) = preset
+  let assert Ok(descriptor) = component.find(catalog.catalog(), kind, version)
+  component.validate_config(descriptor, config("Working agreement"))
+  |> should.equal(Ok(Nil))
+}
+
+pub fn room_agreement_is_seeded_once_with_its_activity_edge_test() -> Nil {
+  let #(sluice, document) = document("agreement-seed")
+  let store = ensure_workspace(document)
+  workspace_setup.seed(store) |> should.equal(Ok(Nil))
+  workspace_setup.seed(store) |> should.equal(Ok(Nil))
+  sluice_js.settle(sluice)
+  let snapshot = workspace_js.read(store, catalog.catalog())
+  snapshot
+  |> workspace.manifest_entries
+  |> list.filter(fn(entry) { entry.instance_id == "agreement" })
+  |> list.length
+  |> should.equal(1)
+  snapshot
+  |> workspace.graph
+  |> port_graph.connections
+  |> list.filter(fn(edge) { edge.id == "agreement-accepted-to-activity" })
+  |> list.length
+  |> should.equal(1)
+}
+
 pub fn creation_presets_build_valid_configs_test() -> Nil {
   let presets = catalog.creation_presets()
 
@@ -24,7 +53,11 @@ pub fn creation_presets_build_valid_configs_test() -> Nil {
     let catalog.CreationPreset(kind:, ..) = preset
     kind
   })
-  |> should.equal([catalog.checklist_kind, catalog.tally_kind])
+  |> should.equal([
+    catalog.checklist_kind,
+    catalog.tally_kind,
+    catalog.room_agreement_kind,
+  ])
 
   presets
   |> list.each(fn(preset) {

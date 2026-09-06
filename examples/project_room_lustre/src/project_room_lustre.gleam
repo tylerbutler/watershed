@@ -33,6 +33,7 @@ import project_room_lustre/governance_payload
 import project_room_lustre/inspector
 import project_room_lustre/notes
 import project_room_lustre/ownership_slots
+import project_room_lustre/room_agreement
 import project_room_lustre/room_presence.{type RoomPresence}
 import project_room_lustre/tally
 import project_room_lustre/task_collection
@@ -123,6 +124,9 @@ type Msg {
   ChecklistComplete(String, String)
   ChecklistReopen(String, String)
   TallyAdd(String, Int)
+  AgreementDraftChanged(String, String)
+  AgreementPropose(String)
+  AgreementRefresh(String)
   NotesEditor(textarea.Msg)
   PresenceStarted(Handle(RoomPresence))
   PresenceEvent(presence.Event(RoomPresence))
@@ -250,8 +254,8 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     )
 
     RuntimeStarted(runtime) ->
-      refresh(Model(..model, runtime: Some(runtime), status: Preparing))
-    RuntimeChanged -> refresh(model)
+      refresh_room(Model(..model, runtime: Some(runtime), status: Preparing))
+    RuntimeChanged -> refresh_room(model)
     RuntimeReport(report) ->
       case report {
         component_runtime_js.DispatchFailed(_, _, reason) -> #(
@@ -465,6 +469,15 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
     TallyAdd(instance_id, amount) ->
       run_tally_action(model, instance_id, amount)
 
+    AgreementDraftChanged(instance_id, text) ->
+      run_agreement_action(model, instance_id, fn(inner) {
+        Ok(room_agreement.set_draft(inner, text))
+      })
+    AgreementPropose(instance_id) ->
+      run_agreement_action(model, instance_id, room_agreement.propose)
+    AgreementRefresh(instance_id) ->
+      run_component_action(model, instance_id, catalog.refresh_room_agreement)
+
     NotesEditor(inner) ->
       case model.editor {
         None -> #(model, effect.none())
@@ -515,6 +528,32 @@ fn open_workspace(model: Model) -> #(Model, Effect(Msg)) {
     )
     _, _, _ -> #(model, effect.none())
   }
+}
+
+fn refresh_room(model: Model) -> #(Model, Effect(Msg)) {
+  let #(model, existing) = refresh(model)
+  let pending = case model.runtime {
+    None -> []
+    Some(runtime) -> agreement_refresh_ids(runtime)
+  }
+  #(
+    model,
+    effect.batch([
+      existing,
+      ..list.map(pending, fn(instance_id) {
+        effect.from(fn(dispatch) { dispatch(AgreementRefresh(instance_id)) })
+      })
+    ]),
+  )
+}
+
+pub fn agreement_refresh_ids(runtime: RoomRuntime) -> List(String) {
+  component_runtime_js.layout(runtime)
+  |> list.filter(fn(instance_id) {
+    component_runtime_js.running(runtime, instance_id)
+    |> result.map(catalog.room_agreement_needs_refresh)
+    |> result.unwrap(False)
+  })
 }
 
 fn refresh(model: Model) -> #(Model, Effect(Msg)) {
@@ -816,6 +855,21 @@ fn run_tally_action(
   })
 }
 
+fn run_agreement_action(
+  model: Model,
+  instance_id: String,
+  action: fn(room_agreement.Running) -> Result(room_agreement.Running, String),
+) -> #(Model, Effect(Msg)) {
+  run_component_action(model, instance_id, fn(running) {
+    case running {
+      catalog.RoomAgreement(inner, pending) ->
+        action(inner)
+        |> result.map(fn(next) { #(catalog.RoomAgreement(next, pending), []) })
+      _ -> Error("agreement action reached the wrong component")
+    }
+  })
+}
+
 fn run_component_action(
   model: Model,
   instance_id: String,
@@ -876,7 +930,7 @@ fn view(model: Model) -> Element(Msg) {
         html.h1([], [html.text("Project room")]),
         html.p([attribute.class("status")], [
           html.text(
-            "Eight components: Tasks, Task inspector, Decision poll, Ownership slots, Notes, Activity, Checklist, and Tally. One workspace.",
+            "Nine components: Tasks, Task inspector, Decision poll, Ownership slots, Notes, Activity, Checklist, Tally, and Room Agreement. One workspace.",
           ),
         ]),
       ]),
@@ -923,7 +977,7 @@ fn demo_guide() -> Element(msg) {
     html.h2([], [html.text("What this demo shows")]),
     html.p([], [
       html.text(
-        "One runtime starts eight typed components from a catalog. Local inputs control one tab, presence shares awareness, and collaborative inputs change durable data.",
+        "One runtime starts nine typed components from a catalog. Local inputs control one tab, presence shares awareness, and collaborative inputs change durable data.",
       ),
     ]),
     html.ol([], [
@@ -1125,6 +1179,13 @@ fn instance_view(
           views.tally(instance_id, tally, fn(amount) {
             TallyAdd(instance_id, amount)
           })
+        _, catalog.RoomAgreement(agreement, _) ->
+          views.room_agreement(
+            instance_id,
+            agreement,
+            fn(text) { AgreementDraftChanged(instance_id, text) },
+            AgreementPropose(instance_id),
+          )
         _, _ -> views.placeholder(instance_id, "Failed")
       }
   }

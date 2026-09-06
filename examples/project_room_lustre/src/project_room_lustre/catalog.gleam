@@ -8,6 +8,7 @@ import watershed
 import watershed/component
 import watershed/port
 import watershed/port_graph
+import watershed/transport_js
 
 import project_room_lustre/activity
 import project_room_lustre/checklist
@@ -18,6 +19,7 @@ import project_room_lustre/inspector
 import project_room_lustre/notes
 import project_room_lustre/ownership_slots
 import project_room_lustre/payload
+import project_room_lustre/room_agreement
 import project_room_lustre/tally
 import project_room_lustre/tally_payload
 import project_room_lustre/task_collection
@@ -45,6 +47,10 @@ pub type Running {
   Activity(activity.Running)
   Checklist(checklist.Running)
   Tally(tally.Running)
+  RoomAgreement(
+    running: room_agreement.Running,
+    refresh_pending: transport_js.Cell(Bool),
+  )
 }
 
 /// A component that the room can create at runtime.
@@ -75,6 +81,8 @@ pub const checklist_kind = "project-room/checklist"
 
 pub const tally_kind = "project-room/tally"
 
+pub const room_agreement_kind = "project-room/room-agreement"
+
 pub const task_collection_version = 1
 
 pub const notes_version = 1
@@ -90,6 +98,8 @@ pub const ownership_slots_version = 1
 pub const checklist_version = 1
 
 pub const tally_version = 1
+
+pub const room_agreement_version = 1
 
 pub const task_collection_instance_id = "tasks"
 
@@ -107,6 +117,8 @@ pub const checklist_instance_id = "checklist"
 
 pub const tally_instance_id = "tally"
 
+pub const room_agreement_instance_id = "agreement"
+
 pub const selected_inspect_connection_id = "tasks-selected-to-inspector"
 
 pub const completed_append_connection_id = "tasks-completed-to-activity-append"
@@ -116,6 +128,8 @@ pub const threshold_append_connection_id = "poll-threshold-to-activity-append"
 pub const ownership_append_connection_id = "ownership-changed-to-activity-append"
 
 pub const checklist_tally_connection_id = "checklist-completed-to-tally-add"
+
+pub const agreement_activity_connection_id = "agreement-accepted-to-activity"
 
 pub fn context(
   document: watershed.Document(root),
@@ -246,6 +260,15 @@ pub fn creation_presets() -> List(CreationPreset(root)) {
       },
       initialize: tally.initialize,
     ),
+    CreationPreset(
+      label: "Room Agreement",
+      kind: room_agreement_kind,
+      version: room_agreement_version,
+      config: fn(title) {
+        room_agreement.encode_config(room_agreement.Config(title))
+      },
+      initialize: room_agreement.initialize,
+    ),
   ]
 }
 
@@ -268,7 +291,10 @@ pub fn catalog() -> component.Catalog(Context(root), Running) {
     component.register(with_notes, activity_descriptor())
   let assert Ok(with_checklist) =
     component.register(with_activity, checklist_descriptor())
-  let assert Ok(full) = component.register(with_checklist, tally_descriptor())
+  let assert Ok(with_tally) =
+    component.register(with_checklist, tally_descriptor())
+  let assert Ok(full) =
+    component.register(with_tally, room_agreement_descriptor())
   full
 }
 
@@ -282,6 +308,7 @@ pub fn descriptors() -> List(component.Descriptor(Context(root), Running)) {
     activity_descriptor(),
     checklist_descriptor(),
     tally_descriptor(),
+    room_agreement_descriptor(),
   ]
 }
 
@@ -292,6 +319,7 @@ pub fn persisted_connections() -> List(port_graph.Connection) {
     threshold_append_connection(),
     ownership_append_connection(),
     checklist_tally_connection(),
+    agreement_activity_connection(),
   ]
 }
 
@@ -302,6 +330,16 @@ pub fn checklist_tally_connection() -> port_graph.Connection {
     checklist_tally_connection_id,
     port_graph.PortRef(checklist_instance_id, template.source_port),
     port_graph.PortRef(tally_instance_id, template.target_port),
+  )
+}
+
+pub fn agreement_activity_connection() -> port_graph.Connection {
+  let assert Ok(template) =
+    port.connect(component_event.emitted(), component_event.append())
+  port_graph.connection(
+    agreement_activity_connection_id,
+    port_graph.PortRef(room_agreement_instance_id, template.source_port),
+    port_graph.PortRef(activity_instance_id, template.target_port),
   )
 }
 
@@ -362,7 +400,8 @@ pub fn as_task_collection(
     | Notes(_)
     | Activity(_)
     | Checklist(_)
-    | Tally(_) -> Error(Nil)
+    | Tally(_)
+    | RoomAgreement(_, _) -> Error(Nil)
   }
 }
 
@@ -375,7 +414,8 @@ pub fn as_inspector(running: Running) -> Result(inspector.Running, Nil) {
     | Notes(_)
     | Activity(_)
     | Checklist(_)
-    | Tally(_) -> Error(Nil)
+    | Tally(_)
+    | RoomAgreement(_, _) -> Error(Nil)
   }
 }
 
@@ -390,7 +430,8 @@ pub fn as_decision_poll(
     | Notes(_)
     | Activity(_)
     | Checklist(_)
-    | Tally(_) -> Error(Nil)
+    | Tally(_)
+    | RoomAgreement(_, _) -> Error(Nil)
   }
 }
 
@@ -405,7 +446,8 @@ pub fn as_ownership_slots(
     | Notes(_)
     | Activity(_)
     | Checklist(_)
-    | Tally(_) -> Error(Nil)
+    | Tally(_)
+    | RoomAgreement(_, _) -> Error(Nil)
   }
 }
 
@@ -418,7 +460,8 @@ pub fn as_notes(running: Running) -> Result(notes.Running, Nil) {
     | OwnershipSlots(_)
     | Activity(_)
     | Checklist(_)
-    | Tally(_) -> Error(Nil)
+    | Tally(_)
+    | RoomAgreement(_, _) -> Error(Nil)
   }
 }
 
@@ -431,7 +474,8 @@ pub fn as_activity(running: Running) -> Result(activity.Running, Nil) {
     | OwnershipSlots(_)
     | Notes(_)
     | Checklist(_)
-    | Tally(_) -> Error(Nil)
+    | Tally(_)
+    | RoomAgreement(_, _) -> Error(Nil)
   }
 }
 
@@ -444,7 +488,8 @@ pub fn as_checklist(running: Running) -> Result(checklist.Running, Nil) {
     | OwnershipSlots(_)
     | Notes(_)
     | Activity(_)
-    | Tally(_) -> Error(Nil)
+    | Tally(_)
+    | RoomAgreement(_, _) -> Error(Nil)
   }
 }
 
@@ -457,8 +502,73 @@ pub fn as_tally(running: Running) -> Result(tally.Running, Nil) {
     | OwnershipSlots(_)
     | Notes(_)
     | Activity(_)
-    | Checklist(_) -> Error(Nil)
+    | Checklist(_)
+    | RoomAgreement(_, _) -> Error(Nil)
   }
+}
+
+pub fn as_room_agreement(
+  running: Running,
+) -> Result(room_agreement.Running, Nil) {
+  case running {
+    RoomAgreement(inner, _) -> Ok(inner)
+    _ -> Error(Nil)
+  }
+}
+
+pub fn room_agreement_needs_refresh(running: Running) -> Bool {
+  case running {
+    RoomAgreement(_, pending) -> transport_js.get_cell(pending)
+    _ -> False
+  }
+}
+
+pub fn refresh_room_agreement(
+  running: Running,
+) -> Result(#(Running, List(component.OutputEvent)), String) {
+  case running {
+    RoomAgreement(inner, pending) -> {
+      transport_js.set_cell(pending, False)
+      let #(next, outputs) = room_agreement.refresh(inner)
+      Ok(#(RoomAgreement(next, pending), outputs))
+    }
+    _ -> Error("agreement refresh reached the wrong component")
+  }
+}
+
+fn room_agreement_descriptor() -> component.Descriptor(Context(root), Running) {
+  component.executable_descriptor(
+    kind: room_agreement_kind,
+    version: room_agreement_version,
+    config_decoder: room_agreement.config_decoder(),
+    start: fn(context, config, done) {
+      let pending = transport_js.new_cell(True)
+      room_agreement.start(
+        document(context),
+        subtree(context),
+        instance_id(context),
+        fn() {
+          transport_js.set_cell(pending, True)
+          invalidate(context)()
+        },
+        config,
+        fn(started) {
+          done(result.map(started, fn(inner) { RoomAgreement(inner, pending) }))
+        },
+      )
+    },
+    inputs: [],
+    stop: fn(running) {
+      use inner <- result.try(
+        as_room_agreement(running)
+        |> result.map_error(fn(_) {
+          "agreement stop reached the wrong component"
+        }),
+      )
+      room_agreement.stop(inner)
+    },
+    ports: [port.output_descriptor(component_event.emitted())],
+  )
 }
 
 fn task_collection_descriptor() -> component.Descriptor(Context(root), Running) {
@@ -490,7 +600,9 @@ fn task_collection_descriptor() -> component.Descriptor(Context(root), Running) 
         | Notes(_)
         | Activity(_)
         | Checklist(_)
-        | Tally(_) -> Error("task collection stop reached the wrong component")
+        | Tally(_)
+        | RoomAgreement(_, _) ->
+          Error("task collection stop reached the wrong component")
       }
     },
     ports: [
@@ -532,7 +644,9 @@ fn inspector_descriptor() -> component.Descriptor(Context(root), Running) {
           | Notes(_)
           | Activity(_)
           | Checklist(_)
-          | Tally(_) -> Error("inspector input reached the wrong component")
+          | Tally(_)
+          | RoomAgreement(_, _) ->
+            Error("inspector input reached the wrong component")
         }
       }),
     ],
@@ -545,7 +659,9 @@ fn inspector_descriptor() -> component.Descriptor(Context(root), Running) {
         | Notes(_)
         | Activity(_)
         | Checklist(_)
-        | Tally(_) -> Error("inspector stop reached the wrong component")
+        | Tally(_)
+        | RoomAgreement(_, _) ->
+          Error("inspector stop reached the wrong component")
       }
     },
     ports: [port.input_descriptor(payload.inspect_task())],
@@ -590,7 +706,9 @@ fn decision_poll_descriptor() -> component.Descriptor(Context(root), Running) {
             | Notes(_)
             | Activity(_)
             | Checklist(_)
-            | Tally(_) -> Error("poll input reached the wrong component")
+            | Tally(_)
+            | RoomAgreement(_, _) ->
+              Error("poll input reached the wrong component")
           }
         },
       ),
@@ -605,7 +723,9 @@ fn decision_poll_descriptor() -> component.Descriptor(Context(root), Running) {
           | Notes(_)
           | Activity(_)
           | Checklist(_)
-          | Tally(_) -> Error("poll input reached the wrong component")
+          | Tally(_)
+          | RoomAgreement(_, _) ->
+            Error("poll input reached the wrong component")
         }
       }),
       component.input_handler(governance_payload.close_poll(), fn(running, _) {
@@ -619,7 +739,9 @@ fn decision_poll_descriptor() -> component.Descriptor(Context(root), Running) {
           | Notes(_)
           | Activity(_)
           | Checklist(_)
-          | Tally(_) -> Error("poll input reached the wrong component")
+          | Tally(_)
+          | RoomAgreement(_, _) ->
+            Error("poll input reached the wrong component")
         }
       }),
     ],
@@ -632,7 +754,8 @@ fn decision_poll_descriptor() -> component.Descriptor(Context(root), Running) {
         | Notes(_)
         | Activity(_)
         | Checklist(_)
-        | Tally(_) -> Error("poll stop reached the wrong component")
+        | Tally(_)
+        | RoomAgreement(_, _) -> Error("poll stop reached the wrong component")
       }
     },
     ports: [
@@ -714,7 +837,9 @@ fn ownership_slots_descriptor() -> component.Descriptor(Context(root), Running) 
           | Notes(_)
           | Activity(_)
           | Checklist(_)
-          | Tally(_) -> Error("ownership input reached the wrong component")
+          | Tally(_)
+          | RoomAgreement(_, _) ->
+            Error("ownership input reached the wrong component")
         }
       }),
     ],
@@ -727,7 +852,9 @@ fn ownership_slots_descriptor() -> component.Descriptor(Context(root), Running) 
         | Notes(_)
         | Activity(_)
         | Checklist(_)
-        | Tally(_) -> Error("ownership stop reached the wrong component")
+        | Tally(_)
+        | RoomAgreement(_, _) ->
+          Error("ownership stop reached the wrong component")
       }
     },
     ports: [
@@ -756,7 +883,9 @@ fn ownership_input(
     | Notes(_)
     | Activity(_)
     | Checklist(_)
-    | Tally(_) -> Error("ownership input reached the wrong component")
+    | Tally(_)
+    | RoomAgreement(_, _) ->
+      Error("ownership input reached the wrong component")
   }
 }
 
@@ -789,7 +918,8 @@ fn notes_descriptor() -> component.Descriptor(Context(root), Running) {
         | OwnershipSlots(_)
         | Activity(_)
         | Checklist(_)
-        | Tally(_) -> Error("notes stop reached the wrong component")
+        | Tally(_)
+        | RoomAgreement(_, _) -> Error("notes stop reached the wrong component")
       }
     },
     ports: [],
@@ -827,7 +957,9 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
           | OwnershipSlots(_)
           | Notes(_)
           | Checklist(_)
-          | Tally(_) -> Error("activity input reached the wrong component")
+          | Tally(_)
+          | RoomAgreement(_, _) ->
+            Error("activity input reached the wrong component")
         }
       }),
       component.input_handler(
@@ -843,7 +975,9 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
             | OwnershipSlots(_)
             | Notes(_)
             | Checklist(_)
-            | Tally(_) -> Error("activity input reached the wrong component")
+            | Tally(_)
+            | RoomAgreement(_, _) ->
+              Error("activity input reached the wrong component")
           }
         },
       ),
@@ -860,7 +994,9 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
             | OwnershipSlots(_)
             | Notes(_)
             | Checklist(_)
-            | Tally(_) -> Error("activity input reached the wrong component")
+            | Tally(_)
+            | RoomAgreement(_, _) ->
+              Error("activity input reached the wrong component")
           }
         },
       ),
@@ -875,7 +1011,9 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
           | OwnershipSlots(_)
           | Notes(_)
           | Checklist(_)
-          | Tally(_) -> Error("activity input reached the wrong component")
+          | Tally(_)
+          | RoomAgreement(_, _) ->
+            Error("activity input reached the wrong component")
         }
       }),
     ],
@@ -888,7 +1026,9 @@ fn activity_descriptor() -> component.Descriptor(Context(root), Running) {
         | OwnershipSlots(_)
         | Notes(_)
         | Checklist(_)
-        | Tally(_) -> Error("activity stop reached the wrong component")
+        | Tally(_)
+        | RoomAgreement(_, _) ->
+          Error("activity stop reached the wrong component")
       }
     },
     ports: [
@@ -931,7 +1071,9 @@ fn checklist_descriptor() -> component.Descriptor(Context(root), Running) {
           | OwnershipSlots(_)
           | Notes(_)
           | Activity(_)
-          | Tally(_) -> Error("checklist input reached the wrong component")
+          | Tally(_)
+          | RoomAgreement(_, _) ->
+            Error("checklist input reached the wrong component")
         }
       }),
       component.input_handler(checklist.complete_item(), fn(running, item_id) {
@@ -945,7 +1087,9 @@ fn checklist_descriptor() -> component.Descriptor(Context(root), Running) {
           | OwnershipSlots(_)
           | Notes(_)
           | Activity(_)
-          | Tally(_) -> Error("checklist input reached the wrong component")
+          | Tally(_)
+          | RoomAgreement(_, _) ->
+            Error("checklist input reached the wrong component")
         }
       }),
     ],
@@ -958,7 +1102,9 @@ fn checklist_descriptor() -> component.Descriptor(Context(root), Running) {
         | OwnershipSlots(_)
         | Notes(_)
         | Activity(_)
-        | Tally(_) -> Error("checklist stop reached the wrong component")
+        | Tally(_)
+        | RoomAgreement(_, _) ->
+          Error("checklist stop reached the wrong component")
       }
     },
     ports: [
@@ -1001,7 +1147,9 @@ fn tally_descriptor() -> component.Descriptor(Context(root), Running) {
           | OwnershipSlots(_)
           | Notes(_)
           | Activity(_)
-          | Checklist(_) -> Error("tally input reached the wrong component")
+          | Checklist(_)
+          | RoomAgreement(_, _) ->
+            Error("tally input reached the wrong component")
         }
       }),
     ],
@@ -1014,7 +1162,8 @@ fn tally_descriptor() -> component.Descriptor(Context(root), Running) {
         | OwnershipSlots(_)
         | Notes(_)
         | Activity(_)
-        | Checklist(_) -> Error("tally stop reached the wrong component")
+        | Checklist(_)
+        | RoomAgreement(_, _) -> Error("tally stop reached the wrong component")
       }
     },
     ports: [

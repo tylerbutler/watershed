@@ -401,8 +401,8 @@ Use task 3's `callback_js.report`. Include subscriber/channel or callback-kind c
 
 **Produces:** `catalog.RoomAgreement(running: room_agreement.Running, refresh_pending: transport_js.Cell(Bool))`, kind `"project-room/room-agreement"`, version `1`, seeded instance ID `"agreement"`, and a creation preset titled `"Room Agreement"`. The flag belongs to the application adapter, not to the headless component. Add a seeded edge `"agreement-accepted-to-activity"` from `component_event` to Activity's `append_component_event`.
 
-- [ ] Before refactoring, record the files and exhaustive matches touched by this integration in the execution record. This is the extension-cost measurement for task 8.
-- [ ] Add a catalog test using existing public APIs:
+- [x] Before refactoring, record the files and exhaustive matches touched by this integration in the execution record. This is the extension-cost measurement for task 8.
+- [x] Add a catalog test using existing public APIs:
 
 ```gleam
 pub fn room_agreement_preset_builds_valid_config_test() -> Nil {
@@ -415,11 +415,11 @@ pub fn room_agreement_preset_builds_valid_config_test() -> Nil {
 }
 ```
 
-- [ ] Extend the deterministic runtime acceptance scenario: start two clients; seed one agreement; propose from A; settle the protocol; refresh both components through runtime commands. Assert accepted text on both clients, one Activity entry, and an output dispatch only from the proposing client.
-- [ ] Add runtime-created instances with distinct IDs. Assert independent local drafts, correct rendering/action targeting, movement/removal, and non-destructive reopening. Keep runtime-created instances unconnected, matching the palette's current policy.
-- [ ] Run `(cd examples/project_room_lustre && gleam test)` to establish the integration failures.
-- [ ] Register the descriptor with no input ports and `component_event.emitted()` as its output. Forward only the arguments `room_agreement.start` consumes: document, subtree, instance ID, invalidation, config, completion. It does not need the common context's participant label or emitter; it derives participant identity from the document. Allocate `refresh_pending` with initial value `True`. Its invalidation closure sets that flag and then calls the host's invalidation callback.
-- [ ] Add catalog projections and shell messages keyed by instance ID: draft change, propose, and refresh. Route operations through `watershed_lustre/component_runtime` effects. Wrap the existing return shapes without changing domain behavior:
+- [x] Extend the deterministic runtime acceptance scenario: start two clients; seed one agreement; propose from A; settle the protocol; refresh both components through runtime commands. Assert accepted text on both clients, one Activity entry, and an output dispatch only from the proposing client.
+- [x] Add runtime-created instances with distinct IDs. Assert independent local drafts, correct rendering/action targeting, movement/removal, and non-destructive reopening. Keep runtime-created instances unconnected, matching the palette's current policy.
+- [x] Run `(cd examples/project_room_lustre && gleam test)` to establish the integration failures.
+- [x] Register the descriptor with no input ports and `component_event.emitted()` as its output. Forward only the arguments `room_agreement.start` consumes: document, subtree, instance ID, invalidation, config, completion. It does not need the common context's participant label or emitter; it derives participant identity from the document. Allocate `refresh_pending` with initial value `True`. Its invalidation closure sets that flag and then calls the host's invalidation callback.
+- [x] Add catalog projections and shell messages keyed by instance ID: draft change, propose, and refresh. Route operations through `watershed_lustre/component_runtime` effects. Wrap the existing return shapes without changing domain behavior:
 
 ```gleam
 // Action bodies after matching RoomAgreement(inner, refresh_pending):
@@ -443,13 +443,13 @@ let #(next, outputs) = room_agreement.refresh(inner)
 Ok(#(catalog.RoomAgreement(next, refresh_pending), outputs))
 ```
 
-- [ ] Add `catalog.as_room_agreement(running: Running) -> Result(room_agreement.Running, Nil)` for reads and `catalog.room_agreement_needs_refresh(running: Running) -> Bool` for the shell. The latter returns the flag for an agreement and `False` for other variants. On `RuntimeChanged`, schedule a refresh command only for an agreement whose flag is set. Clear the flag inside the effect-performed action before refreshing, so a new invalidation during refresh survives.
-- [ ] Keep refresh out of `view` and Lustre `update`. Command completion triggers a host notification but does not set the adapter's invalidation flag; that distinction prevents an endless refresh-command-notification loop. Add a deterministic settle-count assertion for an idle agreement and a case where invalidation arrives during refresh.
-- [ ] Render accepted text, pending proposal, pending signoff count, local draft, and the propose action using existing view conventions. Do not add a manual signoff button: the existing PactMap protocol handles signoffs.
-- [ ] Extend `seed` idempotently and append the seeded edge. Preserve existing stored IDs and connections; update exact layout/preset expectations in tests. Older rooms receive only the missing seeded instance/edge through the existing seed flow.
-- [ ] Extend the two-tab smoke for accepted text and one Activity entry. Do not route refreshed state from remote clients back into new acceptance events.
-- [ ] Run `(cd examples/project_room_lustre && gleam test && pnpm run build)`. Run `just project-room-smoke` only with its documented Chromium and floodgate prerequisites available; record a missing prerequisite instead of calling the browser check passed.
-- [ ] Commit: `feat: integrate room agreement component`.
+- [x] Add `catalog.as_room_agreement(running: Running) -> Result(room_agreement.Running, Nil)` for reads and `catalog.room_agreement_needs_refresh(running: Running) -> Bool` for the shell. The latter returns the flag for an agreement and `False` for other variants. On `RuntimeChanged`, schedule a refresh command only for an agreement whose flag is set. Clear the flag inside the effect-performed action before refreshing, so a new invalidation during refresh survives.
+- [x] Keep refresh out of `view` and Lustre `update`. Command completion triggers a host notification but does not set the adapter's invalidation flag; that distinction prevents an endless refresh-command-notification loop. Add a deterministic settle-count assertion for an idle agreement and a case where invalidation arrives during refresh.
+- [x] Render accepted text, pending proposal, pending signoff count, local draft, and the propose action using existing view conventions. Do not add a manual signoff button: the existing PactMap protocol handles signoffs.
+- [x] Extend `seed` idempotently and append the seeded edge. Preserve existing stored IDs and connections; update exact layout/preset expectations in tests. Older rooms receive only the missing seeded instance/edge through the existing seed flow.
+- [x] Extend the two-tab smoke for accepted text and one Activity entry. Do not route refreshed state from remote clients back into new acceptance events.
+- [x] Run `(cd examples/project_room_lustre && gleam test && pnpm run build)`. Run `just project-room-smoke` only with its documented Chromium and floodgate prerequisites available; record a missing prerequisite instead of calling the browser check passed.
+- [x] Commit: `feat: integrate room agreement component`.
 
 **Acceptance:** Room Agreement works as a seeded and runtime-created component without copying its domain rules into the shell.
 
@@ -621,7 +621,7 @@ Diagnostics remain `catching-up` until contiguous. Next: task 6.
 
 ### Task 6: sequenced observers and outcome callbacks
 
-Commit: `fix: isolate sequenced runtime observers` (hash recorded with task 7).
+Commit: `d2c94ec` (`fix: isolate sequenced runtime observers`).
 Five regressions reproduced subscriber, PactMap observer, readiness, and outcome
 exceptions plus state resurrection after an immediate acquire callback closed
 the runtime. Callbacks now have scoped reporting boundaries; core and waiter
@@ -632,5 +632,32 @@ Runtime callback tests: 9 passed, including committed reads, gap requests,
 outbound PactMap signoffs, presence after throwing readiness, ripple fan-out,
 reentrant shutdown, and failure-state visibility. Awaited bootstrap harness
 passed; sluice driver: 35 passed. No unmet task-6 criterion. Next: task 7.
+
+### Task 7 integration inventory (before edits)
+
+The catalog has 8 registration calls and 29 exhaustive `case running` matches:
+8 projections, 8 stop adapters, and 13 input adapters. Adding the ninth variant
+requires touching all 29 negative matches before task 8. Production integration
+touches catalog, workspace setup, shell, and views, plus a read-only config
+projection in the headless agreement for its title. Coverage touches palette,
+acceptance, catalog-count, and browser tests.
+
+### Task 7: Room Agreement integration
+
+Commit: `feat: integrate room agreement component` (hash recorded with task 8).
+The missing preset and seeded edge failed before integration. The ninth
+descriptor, third creation preset, and sixth edge now share the headless domain
+implementation. Draft/proposal/refresh actions use instance IDs and runtime
+effects. Only the adapter tracks refresh dirtiness; an idle settle performs
+zero refresh commands. A channel replacement during a refresh command retains
+its invalidation and requires one more refresh.
+
+The example's 89 tests and browser bundle build passed. Acceptance covers
+two-client agreement, origin-only output, one Activity entry, independent
+dynamic drafts, rendering IDs, movement/removal, and reopening without replay.
+The browser script covers accepted text and the single Activity event, but was
+not run: Chromium is available; floodgate is not listening on port 4000.
+The 29 old negative matches were updated to accept the new union variant.
+Task 8 removes that coupling. No domain proposal/event rules changed.
 
 For each completed task, append its task number, commit, commands and outcomes, any unmet acceptance criterion, and the next task. For tasks 7-8, include the integration-file and adapter-repetition measurements. Keep temporary logs out of the repository.
