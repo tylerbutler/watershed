@@ -11,6 +11,7 @@ devDependencies:
     - tylerbutler/apm-base
     - tylerbutler/agent-marketplace/plugins/gleam
     - tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
+    - obra/superpowers
 
     # - tylerbutler/agent-marketplace/plugins/repo-tools
     # - tylerbutler/agent-marketplace/plugins/specialists
@@ -25,9 +26,6 @@ devDependencies:
     # - tylerbutler/agent-marketplace/plugins/repo-tools/skills/release-skills
     # - tylerbutler/agent-marketplace/plugins/repo-tools/skills/repopo-setup
 
-    # - JuliusBrussee/caveman/skills/caveman-commit
-    # - git: https://github.com/obra/superpowers
-    # - DietrichGebert/ponytail
   mcp: []
 includes: auto
 scripts: {}
