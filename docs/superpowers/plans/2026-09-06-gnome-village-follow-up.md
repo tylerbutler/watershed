@@ -314,7 +314,7 @@ retired generation -> close returned handle; do not revive the generation
 
 **Produces:** A bootstrap-session generation and a bounded buffer for validated operations received after a successful handshake but before bootstrap finishes. No new public storage API.
 
-- [ ] Build an awaited regression harness around the real runtime. Expose `run() -> Promise(Nil)` from the new Gleam harness and await it from `smoke/runtime_bootstrap.mjs`:
+- [x] Build an awaited regression harness around the real runtime. Expose `run() -> Promise(Nil)` from the new Gleam harness and await it from `smoke/runtime_bootstrap.mjs`:
 
 ```javascript
 const { run } = await import(
@@ -323,7 +323,7 @@ const { run } = await import(
 await run();
 ```
 
-- [ ] In the test-only FFI, intercept HTTP through `globalThis.fetch`, retain a release callback for each deferred response, and restore fetch in `finally`. Use no public service and no wall-clock sleep. An unexpected request must reject the test. Reuse `sluice/frame` for handshake and operation encoding, and `summary_blob.encode_channels` for summary content rather than inventing a parallel wire format.
+- [x] In the test-only FFI, intercept HTTP through `globalThis.fetch`, retain a release callback for each deferred response, and restore fetch in `finally`. Use no public service and no wall-clock sleep. An unexpected request must reject the test. Reuse `sluice/frame` for handshake and operation encoding, and `summary_blob.encode_channels` for summary content rather than inventing a parallel wire format.
 
 The real summary reader expects these response shapes:
 
@@ -337,7 +337,7 @@ const deltasResponse = (messages) => ({ value: messages });
 
 Use a dummy token scoped to the fixture. Never contact the URL it names. Each test must close its runtime/transport and leave no real timers running.
 
-- [ ] Implement these scripts as separate assertions within the awaited harness:
+- [x] Implement these scripts as separate assertions within the awaited harness:
 
 | Scenario | Required observation |
 |---|---|
@@ -349,15 +349,15 @@ Use a dummy token scoped to the fixture. Never contact the URL it names. Each te
 | HTTP failure or buffer overflow | One explicit failure, no readiness success, buffer released |
 | No summary and no async prefix | Existing synchronous bootstrap behavior remains |
 
-- [ ] Run `gleam build --target javascript && node smoke/runtime_bootstrap.mjs` and establish the no-later-traffic failure.
-- [ ] Start buffering after accepting the handshake for the current session, not for arbitrary pre-handshake traffic. Tag every summary/prefix completion with the session generation and invalidate it on close, failure, or a newer handshake.
-- [ ] Bound the new buffer at 10,000 operations and 16 MiB of UTF-8 payload bytes, whichever comes first. Check byte size before JSON decoding and count decoded operations, not envelopes. Overflow fails the connection with an explicit reason; do not drop the oldest operations or add public tuning options in this change. Test both limits using generated input.
-- [ ] Replay buffered operations through the same core application path used for normal traffic. Keep the owner in bootstrap/catch-up until it has applied the contiguous received history; issue existing gap requests when needed. Preserve acknowledgements, released outbound operations, and readiness/presence ordering. Do not replay by calling a ready-only handler that would drop the messages again.
-- [ ] Drain batches until no buffered work remains, then publish readiness. Release retained payloads on completion or failure. Keep duplicate handling in the core rather than maintaining another deduplication set.
-- [ ] Remove the current comment claiming that future traffic repairs dropped startup operations. Document the new buffer and generation rules.
-- [ ] Add `node smoke/runtime_bootstrap.mjs` after the existing compilation/test command in `justfile`'s `_test-js` recipe so `just test` runs the awaited regression.
-- [ ] Run the awaited harness and `gleam test --target javascript -- runtime`, then the sluice driver selector. If changes to `runtime_core.gleam` prove necessary, run `gleam test --target erlang -- runtime_core` too.
-- [ ] Commit: `fix: retain operations during bootstrap`.
+- [x] Run `gleam build --target javascript && node smoke/runtime_bootstrap.mjs` and establish the no-later-traffic failure.
+- [x] Start buffering after accepting the handshake for the current session, not for arbitrary pre-handshake traffic. Tag every summary/prefix completion with the session generation and invalidate it on close, failure, or a newer handshake.
+- [x] Bound the new buffer at 10,000 operations and 16 MiB of UTF-8 payload bytes, whichever comes first. Check byte size before JSON decoding and count decoded operations, not envelopes. Overflow fails the connection with an explicit reason; do not drop the oldest operations or add public tuning options in this change. Test both limits using generated input.
+- [x] Replay buffered operations through the same core application path used for normal traffic. Keep the owner in bootstrap/catch-up until it has applied the contiguous received history; issue existing gap requests when needed. Preserve acknowledgements, released outbound operations, and readiness/presence ordering. Do not replay by calling a ready-only handler that would drop the messages again.
+- [x] Drain batches until no buffered work remains, then publish readiness. Release retained payloads on completion or failure. Keep duplicate handling in the core rather than maintaining another deduplication set.
+- [x] Remove the current comment claiming that future traffic repairs dropped startup operations. Document the new buffer and generation rules.
+- [x] Add `node smoke/runtime_bootstrap.mjs` after the existing compilation/test command in `justfile`'s `_test-js` recipe so `just test` runs the awaited regression.
+- [x] Run the awaited harness and `gleam test --target javascript -- runtime`, then the sluice driver selector. If changes to `runtime_core.gleam` prove necessary, run `gleam test --target erlang -- runtime_core` too.
+- [x] Commit: `fix: retain operations during bootstrap`.
 
 **Acceptance:** Startup converges with no later live traffic, and a stale HTTP completion cannot change a newer session.
 
@@ -591,7 +591,7 @@ No unmet task-3 criterion. Next: task 4.
 
 ### Task 4: transport construction
 
-Commit: `fix: buffer transport startup callbacks` (hash recorded with task 5).
+Commit: `8bc26d4` (`fix: buffer transport startup callbacks`).
 Reproduced missing `connect_document`, premature relay readiness, and callbacks
 from failed construction. Buffering exposed a second failure: inline reconnect
 catch-up replies were dropped before the adopted core was committed. The
@@ -601,5 +601,22 @@ Runtime callback tests: 2 passed. Relay driver tests: 30 passed. Sluice driver:
 35 passed. Relay lifecycle: 49 passed. Coverage includes FIFO replies during
 drain, driver close during construction, owner close before handle return, failed
 construction, and retired callbacks. No unmet task-4 criterion. Next: task 5.
+
+### Task 5: asynchronous bootstrap retention
+
+Commit: `fix: retain operations during bootstrap` (hash recorded with task 6).
+The awaited harness reproduced sequence 1 instead of 2 after a live operation
+arrived during summary loading with no later traffic. All harness scenarios
+pass: live operations, gaps, history duplicates, multiple prefix pages, stale
+HTTP completion after rejoin or close, HTTP errors, both limits, and synchronous
+summary-free startup. Limit coverage includes exactly 10,000 operations in one
+envelope, exactly 16 MiB, and a non-ASCII payload over the byte limit.
+
+`gleam test --target javascript -- runtime`: 134 passed.
+Sluice driver: 35 passed. No pure core change was needed. The awaited harness
+is part of `_test-js`. The quota spans all live traffic received during one
+bootstrap, including catch-up, until readiness; it is not reset between drain
+batches, so moving operations into the core's gap buffer cannot evade the cap.
+Diagnostics remain `catching-up` until contiguous. Next: task 6.
 
 For each completed task, append its task number, commit, commands and outcomes, any unmet acceptance criterion, and the next task. For tasks 7-8, include the integration-file and adapter-repetition measurements. Keep temporary logs out of the repository.

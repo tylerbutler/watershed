@@ -8,8 +8,15 @@
 //// no OTP. The state is in a mutable cell, and the Phoenix transport delivers
 //// its events through callbacks.
 ////
+//// A bootstrap retains validated live operations through summary and prefix
+//// loads. Each bootstrap permits at most 10,000 operations and 16 MiB of
+//// UTF-8 payloads before readiness. An overflow fails the connection.
+//// Rejoin, close, and failure invalidate pending HTTP completions.
+////
 //// JavaScript target only. `@target(javascript)` gates the module.
 
+@target(javascript)
+import gleam/bool
 @target(javascript)
 import gleam/dict.{type Dict}
 @target(javascript)
@@ -237,6 +244,8 @@ type State {
     ),
     on_ready: fn(Result(Nil, String)) -> Nil,
     ready_fired: Bool,
+    bootstrap_generation: Int,
+    bootstrap: Option(Bootstrap),
     /// The automatic summarization policy. The value is `None` unless an
     /// application asked for one. This field is on `State`, and not on the
     /// core, because it is part of the configuration of this client, and not
@@ -250,6 +259,16 @@ type State {
     /// so `sluice_js.advance` drives the delay window of the policy, and not
     /// the elapsed time.
     scheduler: transport_js.Scheduler,
+  )
+}
+
+@target(javascript)
+type Bootstrap {
+  Bootstrap(
+    batches: List(List(SequencedDocumentMessage)),
+    operation_count: Int,
+    payload_bytes: Int,
+    draining: Bool,
   )
 }
 
@@ -337,6 +356,8 @@ pub fn start_with_transport(
       acquire_waiters: dict.new(),
       on_ready: on_ready,
       ready_fired: False,
+      bootstrap_generation: 0,
+      bootstrap: None,
       auto_summary: None,
       summary_armed: False,
       scheduler: transport_js.real_scheduler(),
@@ -1924,7 +1945,15 @@ pub fn go_online(runtime: Runtime) -> Nil {
 @target(javascript)
 pub fn close(runtime: Runtime) -> Nil {
   let state = abort_outcome_waiters(cell_get(runtime.cell))
-  cell_set(runtime.cell, State(..state, phase: Failed("runtime closed")))
+  cell_set(
+    runtime.cell,
+    State(
+      ..state,
+      phase: Failed("runtime closed"),
+      bootstrap: None,
+      bootstrap_generation: state.bootstrap_generation + 1,
+    ),
+  )
   notify_session_lost(runtime.cell, state.phase)
   case state.channel {
     Some(channel) -> channel.close()
@@ -1936,7 +1965,9 @@ pub fn close(runtime: Runtime) -> Nil {
 /// Whether the document is caught up, which is true when the server acked every
 /// local edit. The confirmed state is then complete and stable.
 pub fn is_synced(runtime: Runtime) -> Bool {
-  case cell_get(runtime.cell).phase {
+  let state = cell_get(runtime.cell)
+  use <- bool.guard(state.bootstrap != None, False)
+  case state.phase {
     Ready(core, None) -> runtime_core.is_synced(core)
     Ready(_, Some(_)) | Connecting | Reconnecting(_) | Failed(_) -> False
   }
@@ -1967,13 +1998,18 @@ pub fn diagnostics(runtime: Runtime) -> Diagnostics {
     Ready(core, Some(checkpoint)) ->
       diagnostics_from_core(core, "catching-up", Some(checkpoint), False, state)
     Ready(core, None) ->
-      diagnostics_from_core(
-        core,
-        "ready",
-        None,
-        runtime_core.is_synced(core),
-        state,
-      )
+      case state.bootstrap {
+        Some(_) ->
+          diagnostics_from_core(core, "catching-up", None, False, state)
+        None ->
+          diagnostics_from_core(
+            core,
+            "ready",
+            None,
+            runtime_core.is_synced(core),
+            state,
+          )
+      }
     Failed(reason) ->
       Diagnostics(
         phase: "failed: " <> reason,
@@ -2253,6 +2289,7 @@ fn finish_summarize(
 /// starts the handshake again, with the last sequence number that this client
 /// saw, so the server pushes the delta only.
 fn on_join(cell: Cell(State)) -> Nil {
+  invalidate_bootstrap(cell)
   let state = cell_get(cell)
   case state.channel {
     None -> Nil
@@ -2282,6 +2319,7 @@ fn on_join(cell: Cell(State)) -> Nil {
 
 @target(javascript)
 fn on_close(cell: Cell(State)) -> Nil {
+  invalidate_bootstrap(cell)
   let state = cell_get(cell)
   case state.phase {
     // Preserve the core so kernel/pending/in-flight survive the reconnect.
@@ -2326,15 +2364,7 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
       )
       let state = cell_get(cell)
       case state.phase {
-        Connecting ->
-          // A never-summarized document bootstraps synchronously from
-          // `initialMessages`. A summarized document first fetches its summary
-          // blob over HTTP (async), then bootstraps seeded from that state.
-          case connected.summary_context {
-            None -> finish_bootstrap(cell, connected, None)
-            Some(context) ->
-              load_summary_then_bootstrap(cell, state, connected, context)
-          }
+        Connecting -> begin_bootstrap(cell, connected)
         Reconnecting(core) -> {
           let core = runtime_core.adopt_reconnect(core, connected)
           let checkpoint =
@@ -2355,23 +2385,26 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
           // both correct and the fastest way back to a roster.
           notify_presence_session(cell, core)
         }
-        Ready(_, _) | Failed(_) -> Nil
+        Ready(_, _) ->
+          case state.bootstrap {
+            Some(_) -> begin_bootstrap(cell, connected)
+            None -> Nil
+          }
+        Failed(_) -> Nil
       }
     }
   }
 }
 
 @target(javascript)
-/// Fetch the summary blob that `context` references, and then bootstrap the core
-/// from it. The runtime drops a real-time operation that arrives during the
-/// asynchronous fetch, while the phase is still `Connecting`. The gap that those
-/// drops create repairs itself: the first operation after the bootstrap that is
-/// not contiguous starts a `requestOps` catch-up.
+/// Fetch the summary under the current bootstrap generation. Live operations
+/// remain buffered until the summary and all prefix pages have loaded.
 fn load_summary_then_bootstrap(
   cell: Cell(State),
   state: State,
   connected: ConnectedMessage,
   context: SummaryContext,
+  generation: Int,
 ) -> Nil {
   case state.connect_message.token {
     None -> fail(cell, "loading a summarized document requires an auth token")
@@ -2384,6 +2417,7 @@ fn load_summary_then_bootstrap(
           handle: context.handle,
         )
         |> promise.map(fn(result) {
+          use <- bool.guard(!bootstrap_current(cell, generation), Nil)
           case result {
             Error(error) ->
               fail(
@@ -2399,6 +2433,7 @@ fn load_summary_then_bootstrap(
                 cell,
                 connected,
                 Some(runtime_core.summary_from_blob(blob)),
+                generation,
               )
           }
         })
@@ -2413,9 +2448,11 @@ fn finish_bootstrap(
   cell: Cell(State),
   connected: ConnectedMessage,
   summary: Option(runtime_core.Summary),
+  generation: Int,
 ) -> Nil {
+  use <- bool.guard(!bootstrap_current(cell, generation), Nil)
   case runtime_core.bootstrap(connected, summary: summary) {
-    Ok(bootstrapped) -> continue_bootstrap(cell, bootstrapped)
+    Ok(bootstrapped) -> continue_bootstrap(cell, bootstrapped, generation)
     Error(error) -> fail(cell, "bootstrap failed: " <> string.inspect(error))
   }
 }
@@ -2429,14 +2466,13 @@ fn finish_bootstrap(
 fn continue_bootstrap(
   cell: Cell(State),
   bootstrapped: runtime_core.Bootstrapped,
+  generation: Int,
 ) -> Nil {
+  use <- bool.guard(!bootstrap_current(cell, generation), Nil)
   case bootstrapped {
     runtime_core.Complete(core) -> {
       cell_set(cell, State(..cell_get(cell), phase: Ready(core, None)))
-      fire_ready(cell, Ok(Nil))
-      // The one completion point shared by the synchronous and
-      // summary-fetching bootstrap paths.
-      notify_presence_session(cell, core)
+      drain_bootstrap(cell, generation)
     }
     runtime_core.MissingPrefix(core, checkpoint, from, to) -> {
       let state = cell_get(cell)
@@ -2453,6 +2489,7 @@ fn continue_bootstrap(
               to: to,
             )
             |> promise.map(fn(result) {
+              use <- bool.guard(!bootstrap_current(cell, generation), Nil)
               case result {
                 Error(error) ->
                   fail(
@@ -2468,7 +2505,7 @@ fn continue_bootstrap(
                       deltas: deltas,
                     )
                   {
-                    Ok(next) -> continue_bootstrap(cell, next)
+                    Ok(next) -> continue_bootstrap(cell, next, generation)
                     Error(error) ->
                       fail(cell, "bootstrap failed: " <> string.inspect(error))
                   }
@@ -2478,6 +2515,142 @@ fn continue_bootstrap(
         }
       }
     }
+  }
+}
+
+@target(javascript)
+fn begin_bootstrap(cell: Cell(State), connected: ConnectedMessage) -> Nil {
+  let state = cell_get(cell)
+  let generation = state.bootstrap_generation + 1
+  let state =
+    State(
+      ..state,
+      phase: Connecting,
+      bootstrap_generation: generation,
+      bootstrap: Some(Bootstrap([], 0, 0, False)),
+    )
+  cell_set(cell, state)
+  case connected.summary_context {
+    None -> finish_bootstrap(cell, connected, None, generation)
+    Some(context) ->
+      load_summary_then_bootstrap(cell, state, connected, context, generation)
+  }
+}
+
+@target(javascript)
+fn invalidate_bootstrap(cell: Cell(State)) -> Nil {
+  let state = cell_get(cell)
+  let phase = case state.bootstrap, state.phase {
+    Some(_), Ready(_, _) -> Connecting
+    _, phase -> phase
+  }
+  cell_set(
+    cell,
+    State(
+      ..state,
+      phase: phase,
+      bootstrap: None,
+      bootstrap_generation: state.bootstrap_generation + 1,
+    ),
+  )
+}
+
+@target(javascript)
+fn bootstrap_current(cell: Cell(State), generation: Int) -> Bool {
+  let state = cell_get(cell)
+  state.bootstrap_generation == generation && state.bootstrap != None
+}
+
+@target(javascript)
+@external(javascript, "./ws_ffi.mjs", "byteSize")
+fn payload_byte_size(payload: String) -> Int
+
+@target(javascript)
+fn buffer_bootstrap(
+  cell: Cell(State),
+  state: State,
+  bootstrap: Bootstrap,
+  payload: String,
+) -> Nil {
+  let bytes = bootstrap.payload_bytes + payload_byte_size(payload)
+  case bytes > 16 * 1024 * 1024 {
+    True -> fail(cell, "bootstrap payload byte limit exceeded")
+    False ->
+      case json.parse(payload, socket.operation_message_decoder()) {
+        Error(_) -> fail(cell, "malformed op payload")
+        Ok(message) -> {
+          let count = bootstrap.operation_count + list.length(message.ops)
+          case count > 10_000 {
+            True -> fail(cell, "bootstrap operation limit exceeded")
+            False -> {
+              cell_set(
+                cell,
+                State(
+                  ..state,
+                  bootstrap: Some(
+                    Bootstrap(
+                      ..bootstrap,
+                      batches: [message.ops, ..bootstrap.batches],
+                      operation_count: count,
+                      payload_bytes: bytes,
+                    ),
+                  ),
+                ),
+              )
+              drain_bootstrap(cell, state.bootstrap_generation)
+            }
+          }
+        }
+      }
+  }
+}
+
+@target(javascript)
+fn drain_bootstrap(cell: Cell(State), generation: Int) -> Nil {
+  use <- bool.guard(!bootstrap_current(cell, generation), Nil)
+  let state = cell_get(cell)
+  case state.bootstrap, state.phase {
+    Some(bootstrap), Ready(_, _) if !bootstrap.draining -> {
+      cell_set(
+        cell,
+        State(
+          ..state,
+          bootstrap: Some(Bootstrap(..bootstrap, batches: [], draining: True)),
+        ),
+      )
+      bootstrap.batches
+      |> list.reverse
+      |> list.each(fn(operations) {
+        use <- bool.guard(!bootstrap_current(cell, generation), Nil)
+        apply_received_operations(cell, operations)
+      })
+      use <- bool.guard(!bootstrap_current(cell, generation), Nil)
+      let state = cell_get(cell)
+      let assert Some(bootstrap) = state.bootstrap
+      cell_set(
+        cell,
+        State(..state, bootstrap: Some(Bootstrap(..bootstrap, draining: False))),
+      )
+      case bootstrap.batches, state.phase {
+        [], Ready(core, _) ->
+          case core.out_of_order {
+            [] -> {
+              cell_set(cell, State(..cell_get(cell), bootstrap: None))
+              fire_ready(cell, Ok(Nil))
+              let current = cell_get(cell)
+              case current.phase {
+                Ready(core, _) if current.bootstrap_generation == generation ->
+                  notify_presence_session(cell, core)
+                _ -> Nil
+              }
+            }
+            [_, ..] -> Nil
+          }
+        [_, ..], _ -> drain_bootstrap(cell, generation)
+        _, _ -> Nil
+      }
+    }
+    _, _ -> Nil
   }
 }
 
@@ -2492,45 +2665,61 @@ fn on_connect_error(cell: Cell(State), payload: String) -> Nil {
 @target(javascript)
 fn on_operation(cell: Cell(State), payload: String) -> Nil {
   let state = cell_get(cell)
+  case state.bootstrap {
+    Some(bootstrap) -> buffer_bootstrap(cell, state, bootstrap, payload)
+    None ->
+      case state.phase {
+        Ready(_, _) ->
+          case json.parse(payload, socket.operation_message_decoder()) {
+            Error(_) -> fail(cell, "malformed op payload")
+            Ok(message) -> apply_received_operations(cell, message.ops)
+          }
+        Connecting | Reconnecting(_) | Failed(_) -> Nil
+      }
+  }
+}
+
+@target(javascript)
+fn apply_received_operations(
+  cell: Cell(State),
+  operations: List(SequencedDocumentMessage),
+) -> Nil {
+  let state = cell_get(cell)
   case state.phase {
     Ready(core, resubmit_at) ->
-      case json.parse(payload, socket.operation_message_decoder()) {
-        Error(_) -> fail(cell, "malformed op payload")
-        Ok(message) ->
-          case apply_operations(core, message.ops) {
-            Ok(#(core, events, resolutions, request_from, released)) -> {
-              let state = resolve_claim_waiters(state, resolutions)
-              let state = resolve_acquire_waiters(state, resolutions)
-              // Commit the new core before fan-out (see fan_out's contract).
-              case resubmit_at {
-                Some(checkpoint) -> {
-                  cell_set(cell, state)
-                  settle_reconnect(cell, core, checkpoint)
-                }
-                None -> cell_set(cell, State(..state, phase: Ready(core, None)))
-              }
-              fan_out(state.subscribers, events)
-              maybe_request_operations(state.channel, request_from)
-              case resubmit_at {
-                // Mid-reconnect these are already in the in-flight queue, and
-                // `settle_reconnect` restamps that whole queue with fresh
-                // client sequence numbers and sends it. Sending them here as
-                // well puts two copies of each on the wire; the server
-                // sequences both and the stale ack fails the FIFO match.
-                Some(_) -> Nil
-                None -> send_outbound(state.channel, core.client_id, released)
-              }
-              case resubmit_at {
-                Some(_) -> Nil
-                None -> arm_summary(cell, core)
-              }
+      case apply_operations(core, operations) {
+        Ok(#(core, events, resolutions, request_from, released)) -> {
+          let state = resolve_claim_waiters(state, resolutions)
+          let state = resolve_acquire_waiters(state, resolutions)
+          // Commit the new core before fan-out (see fan_out's contract).
+          case resubmit_at {
+            Some(checkpoint) -> {
+              cell_set(cell, state)
+              settle_reconnect(cell, core, checkpoint)
             }
-            Error(core_error) ->
-              fail(
-                cell,
-                "sequenced op processing failed: " <> string.inspect(core_error),
-              )
+            None -> cell_set(cell, State(..state, phase: Ready(core, None)))
           }
+          fan_out(state.subscribers, events)
+          maybe_request_operations(state.channel, request_from)
+          case resubmit_at {
+            // Mid-reconnect these are already in the in-flight queue, and
+            // `settle_reconnect` restamps that whole queue with fresh
+            // client sequence numbers and sends it. Sending them here as
+            // well puts two copies of each on the wire; the server
+            // sequences both and the stale ack fails the FIFO match.
+            Some(_) -> Nil
+            None -> send_outbound(state.channel, core.client_id, released)
+          }
+          case resubmit_at {
+            Some(_) -> Nil
+            None -> arm_summary(cell, core)
+          }
+        }
+        Error(core_error) ->
+          fail(
+            cell,
+            "sequenced op processing failed: " <> string.inspect(core_error),
+          )
       }
     // Operations before a connected session (or while reconnecting) carry no
     // state we can trust; ignore them.
@@ -3082,8 +3271,16 @@ fn notify_session_lost(cell: Cell(State), previous: Phase) -> Nil {
 @target(javascript)
 fn fail(cell: Cell(State), reason: String) -> Nil {
   let state = abort_outcome_waiters(cell_get(cell))
+  cell_set(
+    cell,
+    State(
+      ..state,
+      phase: Failed(reason),
+      bootstrap: None,
+      bootstrap_generation: state.bootstrap_generation + 1,
+    ),
+  )
   fire_ready(cell, Error(reason))
-  cell_set(cell, State(..state, phase: Failed(reason)))
   notify_session_lost(cell, state.phase)
 }
 

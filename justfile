@@ -47,6 +47,7 @@ _test-gleam:
 # separate suite, not a re-run: neither target sees the other's tests.
 _test-js:
     trellis run test --target javascript watershed
+    node smoke/runtime_bootstrap.mjs
 
 # The one guarantee no ordinary test can make: that *wrong* code is rejected.
 # `tools/compile-fail/two_root_tags` views one document's root through two
