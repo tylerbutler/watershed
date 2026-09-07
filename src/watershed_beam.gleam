@@ -970,12 +970,11 @@ pub fn resolve_ordered_collection_field(
 // ─────────────────────────────────────────────────────────────────────────────
 // Declarative bootstrap (ensure_*)
 //
-// Each `ensure_*` gives a typed slot a guaranteed channel: adopt the sequenced
-// LWW winner if the key is already set, otherwise seed a candidate channel,
-// wait for sync, and adopt whichever handle the sequencer ordered first (losing
-// candidates stay attached but unreferenced — orphan GC is out of scope). This
-// subsumes the seed + wait-synced + bounded-retry-resolve loop every app used
-// to hand-roll. `ensure_field` is the set-if-absent primitive for plain values.
+// Each channel `ensure_*` waits for synchronization before it reads the slot.
+// It adopts an existing handle, or seeds a candidate and waits for its write
+// to synchronize before resolving. A later write can still replace the field.
+// Losing candidates stay attached but unreferenced; orphan GC is out of scope.
+// `ensure_field` is the set-if-absent primitive for plain values.
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
@@ -985,12 +984,17 @@ const resolve_retry_milliseconds = 200
 const resolve_attempts = 25
 
 @target(erlang)
-/// Block until every local edit is acked (the confirmed root is stable),
-/// bounded by the resolve budget, then return regardless.
-fn await_synced(document: Document(root), attempts: Int) -> Nil {
-  case attempts <= 0 || is_synced(document) {
-    True -> Nil
-    False -> {
+/// Wait for synchronization within the resolve budget. Report a timeout if the
+/// document does not synchronize.
+fn await_synced(
+  document: Document(root),
+  attempts: Int,
+) -> Result(Nil, String) {
+  case is_synced(document), attempts <= 0 {
+    True, _ -> Ok(Nil)
+    False, True ->
+      Error("ensure: timed out waiting for document synchronization")
+    False, False -> {
       process.sleep(resolve_retry_milliseconds)
       await_synced(document, attempts - 1)
     }
@@ -1017,10 +1021,10 @@ fn resolve_with_retry(
 }
 
 @target(erlang)
-/// Adopt the channel under `key`. If the key holds a value, the function
-/// resolves the sequenced winner. If the key is empty, the function calls `seed`
-/// to create a candidate, waits for the synchronization, and then resolves the
-/// channel that won.
+/// Wait for synchronization before reading `key`. Adopt an existing channel,
+/// or seed a candidate and wait for its write to synchronize before resolving.
+/// Either wait can return a timeout. A timeout does not undo a submitted seed.
+/// A later write from another client can still replace the field.
 fn ensure_channel(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1028,11 +1032,12 @@ fn ensure_channel(
   seed: fn() -> Result(Nil, String),
   resolve: fn() -> Result(Option(shared), String),
 ) -> Result(shared, String) {
+  use _ <- result.try(await_synced(document, resolve_attempts))
   case has(typed_map.map, key) {
     True -> resolve_with_retry(resolve, resolve_attempts)
     False -> {
       use _ <- result.try(seed())
-      await_synced(document, resolve_attempts)
+      use _ <- result.try(await_synced(document, resolve_attempts))
       resolve_with_retry(resolve, resolve_attempts)
     }
   }

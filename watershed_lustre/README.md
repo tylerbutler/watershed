@@ -88,6 +88,11 @@ so a document's nested structure is an `effect.batch` in `init`:
 `ensure_sequence` / `ensure_text` / `ensure_rich_text` / `ensure_json_ot` /
 `ensure_child`, and `ensure_field` (synchronous set-if-absent).
 
+Channel ensures may start as soon as the document handle is available: they
+wait for synchronization before reading the field or creating a candidate.
+If either that wait or the candidate's acknowledgement wait expires, the
+effect dispatches an error. It does not undo an already submitted seed.
+
 **Presence** — the heartbeat driver as effects:
 `presence(document:, user_id:, config:, encode:, decode:, started:, on_peers:)`
 starts it and hands the `Handle` back; `announce(handle, payload)` broadcasts.

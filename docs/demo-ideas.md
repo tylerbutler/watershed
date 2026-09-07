@@ -46,8 +46,8 @@ Both of these were mis-assumed during the brainstorm that produced this list, an
 
 All of FP1–FP6 shipped on 2026-08-08 (`docs/plans/2026-08-08-facade-parity-sweep-plan.md`): the real quorum roster, rich text on the JS facade, the three missing subscribes, the pending-signoff accessors, and the `watershed_lustre` fill-in. Both facades also expose `client_id` now, so a client can find itself in a list a kernel reports about the room.
 
-The checkpoint roster and reconnect-roster gaps are closed. Remaining planned
-library work includes the `ensure_*` readiness defect, automatic summaries by
+The checkpoint roster, reconnect-roster, and channel `ensure_*` readiness gaps
+are closed. Remaining planned library work includes automatic summaries by
 default and their docs, summary version history, and the MV-register channel.
 See their plans for current status. `GCounter` remains an unwired backlog idea.
 

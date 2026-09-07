@@ -1011,8 +1011,8 @@ pub fn resolve_directory_field(
 
 // ── Declarative bootstrap (ensure_*) ─────────────────────────────────────────
 //
-// Each `ensure_*` gives a typed slot a channel: adopt the handle already
-// under the key, or seed a candidate, wait for the caller's own write to
+// Each channel `ensure_*` waits for synchronization before it reads the slot:
+// adopt the handle under the key, or seed a candidate, wait for its write to
 // sync, and resolve the handle visible under the key at that point. The
 // field is last-writer-wins, and `ensure_*` does not coordinate across
 // clients: a concurrent client's later write can still replace the field
@@ -1032,16 +1032,18 @@ const resolve_retry_milliseconds = 200
 const resolve_attempts = 25
 
 @target(javascript)
-/// Read `is_synced` at intervals until the confirmed root is stable, and then
-/// call `next`. The resolve budget limits the number of reads.
+/// Wait for synchronization within the resolve budget. Report a timeout if the
+/// document does not synchronize.
 fn await_synced(
   document: Document(root),
   attempts: Int,
-  next: fn() -> Nil,
+  next: fn(Result(Nil, String)) -> Nil,
 ) -> Nil {
-  case attempts <= 0 || is_synced(document) {
-    True -> next()
-    False ->
+  case is_synced(document), attempts <= 0 {
+    True, _ -> next(Ok(Nil))
+    False, True ->
+      next(Error("ensure: timed out waiting for document synchronization"))
+    False, False ->
       set_timeout(
         fn() { await_synced(document, attempts - 1, next) },
         resolve_retry_milliseconds,
@@ -1073,11 +1075,10 @@ fn resolve_with_retry(
 
 // docs:snippet-start watershed-ensure-channel
 @target(javascript)
-/// Adopt the channel under `key`. If the key already holds a value, the
-/// function resolves the handle currently there. If the key is empty, the
-/// function calls `seed` to create a candidate, waits for the caller's own
-/// write to sync, and then resolves the handle the field shows at that
-/// point. A later write from another client can still replace the field.
+/// Wait for synchronization before reading `key`. Adopt an existing channel,
+/// or seed a candidate and wait for its write to synchronize before resolving.
+/// Either wait can return a timeout. A timeout does not undo a submitted seed.
+/// A later write from another client can still replace the field.
 fn ensure_channel(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1086,15 +1087,23 @@ fn ensure_channel(
   resolve: fn() -> Result(Option(shared), String),
   done: fn(Result(shared, String)) -> Nil,
 ) -> Nil {
-  case has(typed_map.map, key) {
-    True -> resolve_with_retry(resolve, resolve_attempts, done)
-    False ->
-      case seed() {
-        Error(reason) -> done(Error(reason))
-        Ok(Nil) ->
-          await_synced(document, resolve_attempts, fn() {
-            resolve_with_retry(resolve, resolve_attempts, done)
-          })
+  use synced <- await_synced(document, resolve_attempts)
+  case synced {
+    Error(reason) -> done(Error(reason))
+    Ok(Nil) ->
+      case has(typed_map.map, key) {
+        True -> resolve_with_retry(resolve, resolve_attempts, done)
+        False ->
+          case seed() {
+            Error(reason) -> done(Error(reason))
+            Ok(Nil) -> {
+              use synced <- await_synced(document, resolve_attempts)
+              case synced {
+                Error(reason) -> done(Error(reason))
+                Ok(Nil) -> resolve_with_retry(resolve, resolve_attempts, done)
+              }
+            }
+          }
       }
   }
 }

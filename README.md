@@ -185,6 +185,12 @@ watershed.ensure_field(root, title(), "Untitled")
 let assert Ok(sequence) = watershed.ensure_sequence(document, root, items())
 ```
 
+Channel `ensure_*` calls wait for synchronization before reading or seeding a
+field, so they can start before the handshake completes. They report a timeout
+if the document or a newly seeded field does not synchronize within the retry
+budget. A timeout does not undo an already submitted seed. `ensure_field`
+remains synchronous set-if-absent.
+
 For a whole record spread across keys, the `record1`..`record9` builders plus
 `sealed_known` derive the decoder *and* the encoder from one prop list so they
 cannot drift. Events narrow per field or per channel via `subscribe_field`,
