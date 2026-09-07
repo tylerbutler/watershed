@@ -145,3 +145,45 @@ pub fn votes_page_contains_the_complete_guide_test() {
     string.contains(source.body, text) |> should.be_true()
   })
 }
+
+pub fn presence_page_contains_the_complete_guide_test() {
+  let assert Ok(source) = content.load(route.guide_presence())
+  source.metadata.description
+  |> should.equal(
+    "Step five of the watershed build guide: publish the note a teammate is reading through presence, a roster that clears itself out when someone leaves, instead of storing it in the document where it would stick around forever.",
+  )
+  let assert Ok(manifest) =
+    snippet.load("../website/src/generated/snippets.json")
+  content.validate_snippets(source.document, manifest, source.path)
+  |> should.be_ok()
+  [
+    "Some facts should be allowed to expire",
+    "Declare what a teammate broadcasts",
+    "One effect handles all of it",
+    "Publishing a change is republishing the whole payload",
+    "The roster arrives as events, including the bad ones",
+    "Deepening: one highlight, built from two systems",
+    "Click *Focus* in one tab",
+  ]
+  |> list.each(fn(text) {
+    string.contains(source.body, text) |> should.be_true()
+  })
+  [
+    "guide-presence-payload",
+    "guide-presence-effect",
+    "guide-presence-announce",
+    "guide-presence-focus-clicked",
+    "guide-presence-events",
+    "guide-presence-remote-peers",
+    "guide-presence-focus-names",
+  ]
+  |> list.each(fn(id) {
+    string.contains(source.body, "data-snippet=\"" <> id <> "\"")
+    |> should.be_true()
+  })
+  ["presence-idiom", "protocol-on-ripples"]
+  |> list.each(fn(id) {
+    string.contains(source.body, "data-practice=\"" <> id <> "\"")
+    |> should.be_true()
+  })
+}

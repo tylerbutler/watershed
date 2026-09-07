@@ -11,6 +11,7 @@ const routes = [
   { slug: "connect", anchor: "ffi-surface" },
   { slug: "notes", anchor: "authoritative-channel" },
   { slug: "votes", anchor: "unsettled-writes" },
+  { slug: "presence", anchor: "presence-idiom" },
 ];
 
 async function snapshot(page) {

@@ -129,6 +129,33 @@ pub fn generated_route_and_assets_test() {
   |> list.each(fn(text) {
     string.contains(votes_html, text) |> should.be_true()
   })
+  let assert Ok(presence_html) =
+    simplifile.read(output <> "/guide/presence/index.html")
+  let presence_tree = html_parser.as_tree(presence_html)
+  ["realtime-out-of-band", "presence-idiom", "protocol-on-ripples"]
+  |> list.each(fn(id) {
+    find(presence_tree, "id", id) |> list.length |> should.equal(1)
+  })
+  find(presence_tree, "src", "/scripts/field-notes.js")
+  |> list.length
+  |> should.equal(1)
+  find(presence_tree, "src", "/guide_race.js")
+  |> list.is_empty
+  |> should.be_true()
+  find(presence_tree, "href", "/guide/votes")
+  |> list.is_empty
+  |> should.be_false()
+  find(presence_tree, "href", "/guide/testing")
+  |> list.is_empty
+  |> should.be_false()
+  [
+    "Some facts should be allowed to expire",
+    "The roster arrives as events, including the bad ones",
+    "Deepening: one highlight, built from two systems",
+  ]
+  |> list.each(fn(text) {
+    string.contains(presence_html, text) |> should.be_true()
+  })
   [
     "guide_race.js",
     "styles/site.css",

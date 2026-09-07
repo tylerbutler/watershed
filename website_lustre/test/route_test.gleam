@@ -65,6 +65,22 @@ pub fn votes_route_is_registered_as_a_static_guide_test() {
   |> should.equal(["/styles/site.css"])
 }
 
+pub fn presence_route_is_registered_as_a_static_guide_test() {
+  route.all()
+  |> list.filter(fn(item) { item.path == "/guide/presence" })
+  |> should.equal([route.guide_presence()])
+  route.guide_presence()
+  |> should.equal(route.Route(
+    path: "/guide/presence",
+    layout: route.Guide,
+    content_path: "content/guide/presence.djot",
+    client_script: None,
+    analytics: route.Tinylytics,
+  ))
+  route.stylesheets(route.guide_presence())
+  |> should.equal(["/styles/site.css"])
+}
+
 pub fn duplicate_paths_report_both_sources_test() {
   let first = route.guide_race()
   let second = route.Route(..first, content_path: "other.djot")
