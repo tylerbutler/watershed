@@ -74,6 +74,16 @@ pub fn guide_presence() -> Route {
   )
 }
 
+pub fn guide_testing() -> Route {
+  Route(
+    path: "/guide/testing",
+    layout: Guide,
+    content_path: "content/guide/testing.djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn all() -> List(Route) {
   [
     Route(
@@ -88,6 +98,7 @@ pub fn all() -> List(Route) {
     guide_race(),
     guide_votes(),
     guide_presence(),
+    guide_testing(),
   ]
 }
 

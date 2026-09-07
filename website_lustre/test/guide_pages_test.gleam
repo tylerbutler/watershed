@@ -187,3 +187,48 @@ pub fn presence_page_contains_the_complete_guide_test() {
     |> should.be_true()
   })
 }
+
+pub fn testing_page_contains_the_complete_guide_test() {
+  let assert Ok(source) = content.load(route.guide_testing())
+  source.metadata.description
+  |> should.equal(
+    "Step six of the watershed build guide: run two clients in one Gleam test and control when each message arrives.",
+  )
+  let assert Ok(manifest) =
+    snippet.load("../website/src/generated/snippets.json")
+  content.validate_snippets(source.document, manifest, source.path)
+  |> should.be_ok()
+  [
+    "Run two clients in one test",
+    "Choose when messages arrive",
+    "Assert on the board, not on the map",
+    "Both races, written as tests",
+    "Deepening: script the intermediate state",
+    "The finished project",
+    "Where to go when this board gets too small",
+    "Run `gleam test` and get a clean pass",
+  ]
+  |> list.each(fn(text) {
+    string.contains(source.body, text) |> should.be_true()
+  })
+  [
+    "guide-testing-room",
+    "guide-testing-board-of",
+    "guide-testing-add-race",
+    "guide-testing-vote-race",
+  ]
+  |> list.each(fn(id) {
+    string.contains(source.body, "data-snippet=\"" <> id <> "\"")
+    |> should.be_true()
+  })
+  [
+    "data-source-label=\"(illustrative — scripted delivery)\"",
+    "data-source-label=\"examples/retro_tutorial_lustre/\"",
+    "data-source-label=\"(shell)\"",
+    "data-practice=\"pure-modules\"",
+    "data-practice=\"deterministic-death\"",
+  ]
+  |> list.each(fn(text) {
+    string.contains(source.body, text) |> should.be_true()
+  })
+}

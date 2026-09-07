@@ -156,6 +156,33 @@ pub fn generated_route_and_assets_test() {
   |> list.each(fn(text) {
     string.contains(presence_html, text) |> should.be_true()
   })
+  let assert Ok(testing_html) =
+    simplifile.read(output <> "/guide/testing/index.html")
+  let testing_tree = html_parser.as_tree(testing_html)
+  ["pure-modules", "deterministic-death"]
+  |> list.each(fn(id) {
+    find(testing_tree, "id", id) |> list.length |> should.equal(1)
+  })
+  find(testing_tree, "src", "/scripts/field-notes.js")
+  |> list.length
+  |> should.equal(1)
+  find(testing_tree, "src", "/guide_race.js")
+  |> list.is_empty
+  |> should.be_true()
+  find(testing_tree, "href", "/guide/presence")
+  |> list.is_empty
+  |> should.be_false()
+  find(testing_tree, "href", "/examples#retro_board_lustre")
+  |> list.is_empty
+  |> should.be_false()
+  [
+    "(illustrative — scripted delivery)",
+    "examples/retro_tutorial_lustre/",
+    "Where to go when this board gets too small",
+  ]
+  |> list.each(fn(text) {
+    string.contains(testing_html, text) |> should.be_true()
+  })
   [
     "guide_race.js",
     "styles/site.css",

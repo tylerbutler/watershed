@@ -12,6 +12,7 @@ const routes = [
   { slug: "notes", anchor: "authoritative-channel" },
   { slug: "votes", anchor: "unsettled-writes" },
   { slug: "presence", anchor: "presence-idiom" },
+  { slug: "testing", anchor: "deterministic-death" },
 ];
 
 async function snapshot(page) {
