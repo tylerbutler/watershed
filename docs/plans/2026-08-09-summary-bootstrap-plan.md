@@ -3,11 +3,12 @@
 **Date:** 2026-08-09
 **Builds on:** `2026-08-09-consensus-replay-quorum-plan.md` (the replay-membership fix this depends on, and whose two open pieces are folded in here), `tylerbutler/levee#85` (the floodgate half).
 **Benchmark:** Fluid Framework's summarizer. Fluid elects a dedicated summarizer client and has the server prompt it; the design question below is how much of that we want.
-**Status:** SB1, SB2, SB3, SB4, SB7 shipped. Documents now summarize themselves when asked to — the policy exists, both runtimes drive it, and it is on in the drum machine. What is left is turning it on by default (SB6) and the docs (SB8). SB5 is an unimplemented server feature, not a broken test. Rungs below carry their outcomes.
+**Status:** SB1–SB4 and SB6–SB8 shipped. Automatic summaries are enabled by default on JavaScript and BEAM, with the existing 500-message threshold and 3000ms jitter window. The reconnect page, READMEs, and API docs describe the defaults, opt-out, tuning, and checkpoint boundary. SB5 is the only remaining rung: version history needs server support.
 
-**Reconciled 2026-09-06:** those remaining rungs are still open. Both runtimes
-initialize `auto_summary: None`; the reconnect page still describes only manual
-summaries. The client still requests `/versions/:tenant/:document`, which
+**Reconciled 2026-09-06, then completed SB6/SB8:** both runtimes now initialize
+`auto_summary: Some(summary_policy.policy())`. Live regressions exercise default
+checkpoint uploads and fresh-client bootstrap on both targets. Explicit tuning
+and opt-out remain available. The client still requests `/versions/:tenant/:document`, which
 current Floodgate does not route. Floodgate's commit/ref handling has evolved
 since the SB5 investigation below, so recheck storage before choosing an
 implementation; the old claim that there is no commit chain is not a current
@@ -21,7 +22,11 @@ This is the only statement of the goal anywhere in the repo, and until now it li
 
 **Summary bootstrap makes joining cost proportional to ops-since-checkpoint instead of ops-ever.** That is the whole goal. This plan is about turning it on.
 
-## Where it actually stands
+## Original inventory and design
+
+The investigation through "Data model" below is historical. The rungs and
+execution records describe what shipped; statements there about missing callers
+or discarded sequence numbers are the original defects, not current behavior.
 
 The surprising part, and the reason this plan exists rather than a one-line ticket: **the machinery is built and nothing uses it.**
 
@@ -112,14 +117,14 @@ json.object([
 
 - **SB1 — ✅ done.** Settled by construction rather than by proving the race: `runtime_core.summary_from_blob` now takes the load point from the blob's own `sequenceNumber`, and both runtimes call it. Correct either way — when the two numbers agree it is identical, and when they differ the window surfaces as a `MissingPrefix` that the existing `fetch_deltas` → `resume_bootstrap` path fills. See "How SB1 was actually settled" below.
 - **SB2 — ✅ done.** Blob v4 carries `members`; `git_storage.upload_summary` takes it, `runtime_core.summary_members` supplies it, both load points seed from it. v3 and a v4 without `members` are both refused rather than read as an empty room. Gate met in `roster_test`: a proposal sequenced after the checkpoint reconstructs the signoff list a present client froze, and the same test fails with an empty checkpoint roster.
-- **SB3 — ✅ done.** `watershed/summary_policy` carries the knobs (threshold 500, jitter 3000ms), `runtime_core` carries the decision (`last_summary_sn`, `ops_since_summary`, `wants_summary`, `summary_jitter_ms`), and both runtimes arm a wake-up from their sequenced-op path and re-take the decision on arrival. Off unless `auto_summarize` installs a policy. Two departures from the plan as written, both recorded below: the trigger is not *only* threshold + jitter, and the knob is not a connect option.
+- **SB3 — ✅ done.** `watershed/summary_policy` carries the knobs (threshold 500, jitter 3000ms), `runtime_core` carries the decision (`last_summary_sn`, `ops_since_summary`, `wants_summary`, `summary_jitter_ms`), and both runtimes arm a wake-up from their sequenced-op path and re-take the decision on arrival. Initially opt-in; SB6 enabled the default policy. Two departures from the plan as written, both recorded below: the trigger is not *only* threshold + jitter, and the knob is not a connect option.
 - **SB4 — ✅ done, verified against floodgate.** The policy is on in both live suites (`auto_summary_writes_without_an_explicit_call_test`, `a_peers_summary_resets_the_local_threshold_test`, and a fourth `live_js` scenario) and in the drum machine, app and smoke. A document summarizes itself with nothing calling `summarize`, and a fresh client bootstraps from that checkpoint and applies the post-checkpoint delta — on both targets. The only live summary failure left is `summary_versions_test`'s 404, which is SB5.
 - **SB5 — ⛔ rescoped: not a broken test, an unimplemented feature.** See "What SB5 turned out to be" below.
-- **SB6 — enable by default. Unblocked:** levee#85 is closed by floodgate `0b24bbd`, which sequences durable leaves for unmatched joins before the first post-restart connection. The client half is verified by `ghost_members_do_not_survive_a_server_restart_test` (`WATERSHED_INTEGRATION_RESTART=1`, `just integration-restart`), verified to fail against floodgate at `63a1996` with the three pre-restart ids still in the reconstructed `TaskManager` queue. What remains in SB6 is the default flip itself, which depends on SB3.
+- **SB6 — ✅ done.** Both runtimes start with `Some(summary_policy.policy())`: 500 sequenced messages, 3000ms jitter. `stop_auto_summarize` disables it per client; `auto_summarize` tunes or re-enables it. JavaScript's logical-clock regression covers the threshold, an opted-out wake-up, and re-enabling. Both live suites now require enough separately sequenced writes to cross the default threshold and then prove a fresh client bootstraps from the resulting checkpoint. The BEAM suite also covers explicit tuning and opt-out. The prerequisite remains floodgate `0b24bbd` (tylerbutler/levee#85): durable leaves for unmatched joins after restart, previously exercised by `ghost_members_do_not_survive_a_server_restart_test`.
 - **SB7 — ✅ done.** `adopt_reconnect` now keeps `members` at `last_seen_sn` and defers the handshake roster to `live_members`, which `settle_bootstrap` already adopts when the gap closes. The gap's own `join`/`leave` messages — including the leave for the dropped id and the join for the new one — walk the roster to the post-reconnect room. Gate met in `roster_test`.
-- **SB8 — docs.** Update `website/src/pages/runtime/reconnect.astro` from "an application can explicitly call" to whatever SB3 makes true, and say what the checkpoint boundary guarantees.
+- **SB8 — ✅ done.** The reconnect page, root and Lustre READMEs, policy module, and facade docs describe default scheduling, tuning, per-client opt-out, storage/auth requirements, and retry behavior. The checkpoint boundary is confirmed channel state and membership at the blob's own sequence number. Bootstrap replays later messages, including the upload interval; pending local edits remain outside the checkpoint and reconnect resubmits them. The threshold is not a hard replay bound.
 
-**Remaining: SB6's default flip, SB8.** SB5 stays unimplemented (server-side). SB6 is unblocked as far as watershed is concerned — the whole path is green against floodgate — but pick the default threshold knowing it counts sequenced messages, not edits.
+**Remaining: SB5 only.** Version history still needs a current server/storage design; it is not part of the default-policy rollout.
 
 ## What SB3 changed about its own design
 
@@ -144,10 +149,12 @@ imagining single edits far too high, and it is why the live tests write one key
 at a time and why they assert "the drift fell back under the threshold" rather
 than counting.
 
-**The policy arms on a sequenced message, so a document that falls quiet just
-over the threshold stays there until the next one arrives.** Correct, invisible
-in an app (the next edit summarizes), and a trap for a test that stops writing
-and waits — both live tests generate traffic until the checkpoint moves instead.
+**The policy arms on a sequenced message, not a periodic timer.** A scheduled
+attempt can run while the room is quiet. If it fails or finds the client no
+longer eligible, it needs another sequenced message to schedule a retry. The
+live tests generate traffic until the checkpoint moves. SB6 also corrected a
+gap in those tests: a low initial drift cannot count as success before enough
+messages have sequenced to cross the threshold.
 
 **A client's own summarize op is itself a sequenced message**, so the drift
 settles at 1 rather than 0 after a checkpoint. Harmless at any sane threshold;
@@ -165,8 +172,8 @@ put it: the BEAM `connect` takes six required labelled arguments, and JS
 site including raw JS (`examples/text_lustre/element_host.mjs`). A sixth field
 would be a source break everywhere. `auto_summarize(document, policy)` follows
 `presence_js.start` instead, and `summary_policy.Policy` copies
-`presence.Config`'s opaque-record + `with_*` + accessor shape. SB6's default flip
-becomes a one-line change to the runtime's initial `auto_summary`.
+`presence.Config`'s opaque-record + `with_*` + accessor shape. SB6 changed each
+runtime's initial `auto_summary` without changing connection configuration.
 
 **The BEAM upload still blocks the actor**, deliberately (the plan's decision,
 confirmed on execution). One bounded stall per summary, no new concurrency, and

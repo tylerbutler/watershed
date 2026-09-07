@@ -921,12 +921,12 @@ pub fn stop_presence(handle: presence_js.Handle(a)) -> Effect(msg) {
 // Summaries
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// Let this client summarize the document without a request, under `policy`.
+/// Set or re-enable the automatic summary policy for this client.
 ///
-/// Without this effect nothing summarizes, and every client that joins replays
-/// the whole log. The effect dispatches no message back, and the policy applies
-/// from the next sequenced operation. Put it in a batch beside `connect_dev`,
-/// in the effect that receives the `Document` value.
+/// New connections use `summary_policy.policy()`: a threshold of 500 sequenced
+/// messages and a 3 second delay window. This effect replaces that policy.
+/// It dispatches no message. The policy applies from the next sequenced
+/// message. Use it in the update that receives the `Document` value.
 pub fn auto_summarize(
   document document: Document(root),
   policy policy: summary_policy.Policy,
@@ -935,7 +935,8 @@ pub fn auto_summarize(
   watershed.auto_summarize(document, policy)
 }
 
-/// Stop the automatic summaries.
+/// Stop automatic summaries for this client. Other clients keep their policies.
+/// An upload that has already started can finish.
 pub fn stop_auto_summarize(document document: Document(root)) -> Effect(msg) {
   use _dispatch <- effect.from
   watershed.stop_auto_summarize(document)

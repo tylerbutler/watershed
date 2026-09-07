@@ -223,7 +223,40 @@ pub fn summary_bootstrap_test() -> Nil {
 /// bootstraps from it.
 pub fn auto_summary_writes_without_an_explicit_call_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
-    Ok("1") -> run_auto_summary_test()
+    Ok("1") -> run_auto_summary_test(default_policy: False)
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// SB6: the default policy writes a checkpoint without configuration.
+pub fn default_auto_summary_writes_without_configuration_test() -> Nil {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_auto_summary_test(default_policy: True)
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+pub fn stopping_auto_summary_prevents_checkpoint_test() -> Nil {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> {
+      let document_id =
+        "watershed-no-auto-" <> int.to_string(system_time(Second))
+      let document = connect_or_panic(document_id, "user-a")
+      watershed_beam.auto_summarize(
+        document,
+        summary_policy.policy()
+          |> summary_policy.with_threshold(4)
+          |> summary_policy.with_jitter_milliseconds(0),
+      )
+      watershed_beam.stop_auto_summarize(document)
+      write_keys_drained(document, watershed_beam.root(document), 1, 5)
+      process.sleep(200)
+      { watershed_beam.operations_since_summary(document) >= 5 }
+      |> expect.to_be_true()
+      watershed_beam.close(document)
+    }
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
   }
 }
@@ -964,6 +997,7 @@ fn run_large_history_test() -> Nil {
   let operation_count = 1050
 
   let document_a = connect_or_panic(document_id, "user-a")
+  watershed_beam.stop_auto_summarize(document_a)
   let map_a = watershed_beam.root(document_a)
 
   // Write more distinct keys than the history window holds. The earliest
@@ -1087,27 +1121,35 @@ fn run_summary_test() -> Nil {
 }
 
 @target(erlang)
-fn run_auto_summary_test() -> Nil {
-  let document_id = "watershed-auto-" <> int.to_string(system_time(Second))
+fn run_auto_summary_test(default_policy default_policy: Bool) -> Nil {
+  let threshold = case default_policy {
+    True -> 500
+    False -> 4
+  }
+  let document_id =
+    "watershed-auto-"
+    <> int.to_string(threshold)
+    <> "-"
+    <> int.to_string(system_time(Second))
 
   let document_a = connect_or_panic(document_id, "user-a")
   let map_a = watershed_beam.root(document_a)
 
-  watershed_beam.auto_summarize(
-    document_a,
-    summary_policy.policy()
-      |> summary_policy.with_threshold(4)
-      |> summary_policy.with_jitter_milliseconds(0),
-  )
+  case default_policy {
+    True -> Nil
+    False ->
+      watershed_beam.auto_summarize(
+        document_a,
+        summary_policy.policy()
+          |> summary_policy.with_threshold(threshold)
+          |> summary_policy.with_jitter_milliseconds(0),
+      )
+  }
 
-  // Nothing here calls `summarize`. The drift falling back under the threshold
-  // is the observable: only a checkpoint moves it.
-  //
-  // Written as traffic-until-it-happens rather than write-then-wait, because
-  // the policy arms on a sequenced message. A document that falls quiet just
-  // over the threshold stays there until the next one arrives — correct, and
-  // invisible in an app, but a test that stopped writing could wait forever.
-  summarizes_within(document_a, map_a, 20, 4) |> expect.to_be_true()
+  // Each drained write sequences separately. A lower count after this many
+  // messages proves that a checkpoint moved, not that the room is still new.
+  write_keys_drained(document_a, map_a, 1, threshold + 1)
+  summarizes_within(document_a, map_a, 50, threshold) |> expect.to_be_true()
 
   // A post-checkpoint edit, so the fresh client has to apply a delta on top of
   // the summary rather than landing on it exactly.
@@ -1124,6 +1166,8 @@ fn run_auto_summary_test() -> Nil {
   |> expect.to_be_true()
   watershed_beam.get(map_b, "post")
   |> expect.to_equal(Ok(json.string("after-summary")))
+  { watershed_beam.operations_since_summary(document_b) < threshold }
+  |> expect.to_be_true()
 
   watershed_beam.close(document_a)
   watershed_beam.close(document_b)

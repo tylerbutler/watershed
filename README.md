@@ -200,13 +200,28 @@ cannot drift. Events narrow per field or per channel via `subscribe_field`,
 
 ## Summaries
 
-`summarize` writes a checkpoint that a later client bootstraps from instead of
-replaying the whole operation log. `auto_summarize(document, summary_policy.policy())`
-hands that decision to the runtime, which writes one once the document has
-drifted past the policy's threshold and this client is settled. It is safe to
-install on every client in a room: attempts are spread over a jitter window, and
-the first summary sequenced stands the rest down. Off unless installed;
-`operations_since_summary` reports the current drift.
+Automatic summaries are enabled by default on JavaScript and BEAM, including
+Lustre connections. A settled client schedules a checkpoint after **500
+sequenced messages** since the last known summary, with attempts spread across
+a **3-second jitter window**. Messages can contain multiple edits. Each client
+checks again before uploading, so a peer's summary can make its attempt
+unnecessary. This reduces replay work; it does not guarantee a fixed replay
+limit.
+
+Tune `summary_policy.policy()` with `with_threshold` and
+`with_jitter_milliseconds`, then apply it with `auto_summarize(document, policy)`.
+`stop_auto_summarize(document)` opts that client out; `auto_summarize` re-enables
+it. Manual `summarize(document)` remains available, and
+`operations_since_summary` reports the message count. Uploads need floodgate
+summary storage and a token with `summary:write`, which `connect` includes by
+default.
+
+A checkpoint captures confirmed channel state and membership at the blob's
+own sequence number. A later client loads it and replays subsequent messages,
+including those sequenced during upload. Pending local edits are not in the
+checkpoint; reconnect preserves and resubmits them. See
+[reconnect and summaries](https://watershed.tylerbutler.com/runtime/reconnect)
+for the boundary and retry behavior.
 
 ## Testing your app
 

@@ -3406,13 +3406,13 @@ pub fn summarize(document: Document(root)) -> Promise(Result(String, String)) {
 }
 
 @target(javascript)
-/// Let this client summarize the document without a request, under `policy`.
+/// Set or re-enable the automatic summary policy for this client.
 ///
-/// Without this function nothing summarizes, and every client that joins
-/// replays the whole log. You must then call `summarize` by hand. With this
-/// function, the runtime writes a checkpoint after the document moves past the
-/// threshold of the policy and this client is settled. A later join thus costs
-/// the recent history, and not all of it.
+/// New connections use `summary_policy.policy()`: a threshold of 500 sequenced
+/// messages and a 3 second delay window. This function replaces that policy.
+/// The runtime attempts a checkpoint when the threshold is reached and this
+/// client is settled. A later client can load the checkpoint and replay the
+/// subsequent messages.
 ///
 /// It is safe to install the policy on every client in a room. The attempts
 /// spread across a delay window, and the first summary that sequences stops the
@@ -3430,14 +3430,16 @@ pub fn auto_summarize(
 @target(javascript)
 /// Stop the automatic summaries. An attempt that is already scheduled still
 /// checks again before it acts, and it then finds no policy.
+/// An upload that has already started can finish. Other clients keep their
+/// policies.
 pub fn stop_auto_summarize(document: Document(root)) -> Nil {
   runtime.auto_summarize(document.runtime, None)
 }
 
 @target(javascript)
-/// The number of operations that sequenced after the newest summary that this
+/// The number of messages that sequenced after the newest summary that this
 /// client knows about. An automatic policy compares that number with its
-/// threshold, and a client that joins replays those operations on top of the
+/// threshold, and a client that joins replays those messages on top of the
 /// checkpoint.
 ///
 /// On a document that no client has summarized, this number is the whole

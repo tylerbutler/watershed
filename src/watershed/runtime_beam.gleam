@@ -633,8 +633,8 @@ type State {
       #(String, String),
       Subject(ordered_collection_kernel.AcquireOutcome),
     ),
-    /// The automatic summarization policy. The value is `None` unless an
-    /// application asked for one. This field is on `State`, and not on the
+    /// The automatic summarization policy. The value is `None` when disabled.
+    /// This field is on `State`, and not on the
     /// core, because it is part of the configuration of this client, and not
     /// part of the document.
     auto_summary: Option(summary_policy.Policy),
@@ -698,7 +698,7 @@ pub fn start_with_transport(
         supported_features: dict.new(),
         claim_waiters: dict.new(),
         acquire_waiters: dict.new(),
-        auto_summary: None,
+        auto_summary: Some(summary_policy.policy()),
         summary_armed: False,
         self: self,
       )

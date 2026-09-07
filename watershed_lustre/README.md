@@ -97,10 +97,12 @@ effect dispatches an error. It does not undo an already submitted seed.
 `presence(document:, user_id:, config:, encode:, decode:, started:, on_peers:)`
 starts it and hands the `Handle` back; `announce(handle, payload)` broadcasts.
 
-**Summaries** — `auto_summarize(document:, policy:)` lets the client write its
-own checkpoints once the document drifts past the policy's threshold, so a
-later join replays recent history instead of all of it; `stop_auto_summarize`
-turns it off. Off unless installed.
+**Summaries** — enabled by default, with a threshold of 500 sequenced messages
+and a 3-second jitter window. `auto_summarize(document:, policy:)` tunes or
+re-enables the policy; `stop_auto_summarize(document:)` opts that client out.
+Uploads need floodgate summary storage and a token with `summary:write`.
+A later join loads confirmed state and replays messages after the checkpoint;
+pending local edits stay separate.
 
 **Timers & misc**: `after(ms, msg)`, `submit_ripple`, `force_reconnect`.
 

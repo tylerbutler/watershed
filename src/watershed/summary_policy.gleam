@@ -7,7 +7,7 @@
 ////
 //// **The procedure: threshold, then delay, then a second check.** The runtime
 //// counts the messages that sequence after the last known checkpoint. When
-//// that count is more than `threshold`, and the client is settled (see
+//// that count reaches `threshold`, and the client is settled (see
 //// `runtime_core.wants_summary`), the runtime waits. The length of the wait
 //// comes from the client id, so it differs for each client. The runtime then
 //// asks again.
@@ -24,31 +24,33 @@
 //// because a client that joins replays messages. But a threshold that you
 //// choose by counting single edits is much too high.
 ////
-//// **A summary needs traffic.** The check runs when a message sequences. A
-//// document that becomes quiet immediately after the threshold stays at that
-//// count until the next edit. That edit causes the summary. Nothing is lost
-//// before it.
+//// **A summary needs traffic to schedule an attempt.** The check runs when a
+//// message sequences. A scheduled attempt can run while the room is quiet.
+//// If it fails or the client is no longer settled, another sequenced message
+//// is needed to schedule the next attempt.
 ////
-//// **The policy is off unless you ask for it.** `watershed.auto_summarize`
-//// installs a policy on a connected document. Without a policy, nothing
-//// summarizes, which is the behaviour of every existing application.
+//// **The policy is enabled by default on both runtimes.**
+//// `watershed.auto_summarize` and `watershed_beam.auto_summarize` replace the
+//// policy on a connected document. Their `stop_auto_summarize` functions
+//// disable it for that client. Uploads require floodgate summary storage and
+//// a token with the `summary:write` scope.
 
-/// A summarization policy. It sets how far a document can drift past the last
-/// checkpoint, and how wide the window is that the room spreads its attempts
-/// over.
+/// A summarization policy. It sets the number of messages that triggers an
+/// attempt and the delay window for the clients in a room.
 pub opaque type Policy {
   Policy(threshold: Int, jitter_milliseconds: Int)
 }
 
-/// The default policy. It summarizes after 500 operations sequence past the
-/// last checkpoint, and it spreads the attempts across a 3 second window.
+/// The default policy. It attempts a summary after 500 messages sequence past
+/// the last checkpoint. It spreads the attempts across a 3 second window.
 ///
 /// The threshold is conservative on purpose. A threshold that is too high makes
 /// a client that joins replay a long tail. A threshold that is too low makes a
 /// busy document write many blobs, and each blob is a full snapshot of every
 /// channel. 500 is less than the 1000-message in-band history window of
-/// floodgate, so the catch-up of a client that joins stays in band. The count
-/// is in sequenced messages, so it is much more than 500 edits.
+/// floodgate. This leaves room for messages during the delay and upload, but
+/// does not guarantee an in-band catch-up. Failures and clients that are not
+/// settled can also extend the history. A message can contain multiple edits.
 ///
 /// Keep the threshold much more than 1. The summarize operation of a client is
 /// itself a sequenced message, so the drift becomes 1 after a checkpoint, and
@@ -58,8 +60,8 @@ pub fn policy() -> Policy {
   Policy(threshold: 500, jitter_milliseconds: 3000)
 }
 
-/// The number of operations past the checkpoint before the client attempts a
-/// summary.
+/// The number of sequenced messages past the checkpoint before the client
+/// attempts a summary.
 pub fn with_threshold(policy: Policy, threshold: Int) -> Policy {
   Policy(..policy, threshold: threshold)
 }

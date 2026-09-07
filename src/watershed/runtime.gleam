@@ -255,8 +255,8 @@ type State {
     ready_fired: Bool,
     bootstrap_generation: Int,
     bootstrap: Option(Bootstrap),
-    /// The automatic summarization policy. The value is `None` unless an
-    /// application asked for one. This field is on `State`, and not on the
+    /// The automatic summarization policy. The value is `None` when disabled.
+    /// This field is on `State`, and not on the
     /// core, because it is part of the configuration of this client, and not
     /// part of the document.
     auto_summary: Option(summary_policy.Policy),
@@ -367,7 +367,7 @@ pub fn start_with_transport(
       ready_fired: False,
       bootstrap_generation: 0,
       bootstrap: None,
-      auto_summary: None,
+      auto_summary: Some(summary_policy.policy()),
       summary_armed: False,
       scheduler: transport_js.real_scheduler(),
     ))

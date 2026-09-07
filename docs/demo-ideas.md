@@ -46,9 +46,9 @@ Both of these were mis-assumed during the brainstorm that produced this list, an
 
 All of FP1–FP6 shipped on 2026-08-08 (`docs/plans/2026-08-08-facade-parity-sweep-plan.md`): the real quorum roster, rich text on the JS facade, the three missing subscribes, the pending-signoff accessors, and the `watershed_lustre` fill-in. Both facades also expose `client_id` now, so a client can find itself in a list a kernel reports about the room.
 
-The checkpoint roster, reconnect-roster, and channel `ensure_*` readiness gaps
-are closed. Remaining planned library work includes automatic summaries by
-default and their docs, summary version history, and the MV-register channel.
+The checkpoint roster, reconnect-roster, channel `ensure_*` readiness, and
+default automatic-summary gaps are closed, including the summary docs (SB8).
+Remaining planned library work includes summary version history and the MV-register channel.
 See their plans for current status. `GCounter` remains an unwired backlog idea.
 
 **Correction worth not re-learning:** an earlier version of this section claimed the `OrderedCollection` op surface and `complete_task` were missing from the facades. They were present on both. That came from grepping by prefix guess (`ordered_collection_*`, `task_*`), which misses `ordered_*` and `complete_task`. Audit by full `pub fn` inventory diff — the command is at the end of the parity plan, and `facade_parity_test.gleam` now enforces it mechanically.
