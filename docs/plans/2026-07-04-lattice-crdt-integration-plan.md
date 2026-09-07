@@ -1,6 +1,11 @@
 # Lattice CRDT integration plan: MV register, G-set, and 2P-set
 
 **Date:** 2026-07-04
+**Status (2026-09-06):** partially complete. G-set and 2P-set have kernels,
+channel/wire support, both public facades, Lustre bindings, and demos. Plan 1,
+the MV-register channel, remains unimplemented. `RegisterCollection` is a
+different structure and does not close that rung.
+
 **Builds on:** `2026-07-03-pn-counter-kernel-plan.md`,
 `2026-07-03-or-map-kernel-plan.md`, and the integrated
 `src/watershed/or_set_kernel.gleam` pattern.
@@ -400,4 +405,3 @@ Add JS wrappers in `runtime_js.gleam`.
 2. **2P-set**: same set-shaped plumbing plus tombstone semantics.
 3. **MV register**: requires causal/version-vector semantics and a more careful
    demo narrative.
-

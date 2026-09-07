@@ -5,6 +5,14 @@
 **Benchmark:** Fluid Framework's summarizer. Fluid elects a dedicated summarizer client and has the server prompt it; the design question below is how much of that we want.
 **Status:** SB1, SB2, SB3, SB4, SB7 shipped. Documents now summarize themselves when asked to — the policy exists, both runtimes drive it, and it is on in the drum machine. What is left is turning it on by default (SB6) and the docs (SB8). SB5 is an unimplemented server feature, not a broken test. Rungs below carry their outcomes.
 
+**Reconciled 2026-09-06:** those remaining rungs are still open. Both runtimes
+initialize `auto_summary: None`; the reconnect page still describes only manual
+summaries. The client still requests `/versions/:tenant/:document`, which
+current Floodgate does not route. Floodgate's commit/ref handling has evolved
+since the SB5 investigation below, so recheck storage before choosing an
+implementation; the old claim that there is no commit chain is not a current
+inventory.
+
 ## Why
 
 A document accumulates ops forever. Replaying all of them on every join makes a document slower to enter the older it gets, and there is no point at which that stops — a year-old document is a year of ops to anyone who opens it.

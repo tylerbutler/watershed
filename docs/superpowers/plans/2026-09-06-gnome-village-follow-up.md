@@ -12,7 +12,14 @@
 
 ## Status and scope
 
-This document plans implementation; it does not claim that the reported failures have been reproduced or fixed. The research cites `122ccba`. At planning time, HEAD was `6da6d5c`, which added the research document without changing the cited implementation.
+**Complete through task 9 (`2043827`).** The execution record below lists the
+implementation commits and outcomes for all nine tasks. The live Project Room
+browser scenario remains unexecuted in that record because Floodgate was not
+running; do not mistake implementation completion for a recorded live run.
+
+The research cites `122ccba`. At planning time, HEAD was `6da6d5c`, which added
+the research document without changing the cited implementation. The task
+instructions below preserve that planning baseline.
 
 The user approved planning these five recommendations: host run-to-completion, synchronization startup, failure and completion contracts, Room Agreement as an extension exercise, and accompanying contract documentation. The implementation choices below are the proposed defaults for that work.
 
@@ -677,7 +684,7 @@ task-8 criterion. Next: task 9.
 
 ### Task 9: contracts and final integration
 
-Commit: `docs: define runtime and extension contracts`.
+Commit: `2043827` (`docs: define runtime and extension contracts`).
 Published the execution, acceptance/delivery, rollback, startup/ownership,
 failure, scheduling/bootstrap, schema, trust, and rendering contracts.
 The SDK design now distinguishes application-owned view selection from the

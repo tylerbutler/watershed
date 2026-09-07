@@ -1,6 +1,14 @@
 # RFC publishing room demo plan — `SharedRichText` + `PactMap` + presence
 
 **Date:** 2026-08-19
+**Status (2026-09-06):** not implemented as an RFC room. There is no
+`examples/rfc_room_lustre/`. Project Room now contains reusable
+`rich_document.gleam` and `rich_editor.gleam`/Quill code, plus a separate
+Room Agreement component. None implements this plan's shared formatted draft
+and immutable published snapshot together. Reuse those modules when revisiting
+RR1-RR7; RR8 remains optional. The original claim that rich text has no code
+under `examples/` is obsolete.
+
 **Builds on:** `2026-07-03-pact-map-kernel-plan.md` (shipped), `2026-08-08-facade-parity-sweep-plan.md` (FP2 shipped `SharedRichText` on the JS facade; FP5 shipped the Lustre `ensure_rich_text`/`subscribe_rich_text` and `ensure_pact_map`/`subscribe_pact_map` effects), `website/src/scripts/rich-text-demo.ts` (the Quill bridge this extracts), `examples/release_checklist_lustre` (the scaffold template *and* the prior art for every PactMap discipline below), `2026-08-09-ensure-channel-seed-needs-a-ready-connection.md` (the bootstrap-arm workaround this must follow).
 **Benchmark:** a Google Doc crossed with an RFC tracker's published-revision slot — everyone types at once, but "the published revision" is a single fact the room settles on.
 

@@ -2,24 +2,26 @@
 
 **Started:** 2026-08-08
 
-Candidate example apps for `examples/`, kept here so they survive between sessions. Seven have been promoted to full plans:
+Candidate example apps for `examples/`, kept here so they survive between sessions.
+Status reconciled against the repository on 2026-09-06:
 
-- `docs/plans/2026-08-08-pixel-canvas-demo-plan.md` — `OrMap` register mode, zero prerequisites
-- `docs/plans/2026-08-08-retro-board-demo-plan.md` — `OrMap` both modes + `SharedSequence` + presence, zero prerequisites
+- `docs/plans/2026-08-08-pixel-canvas-demo-plan.md` — `OrMap` register mode, **shipped**
+- `docs/plans/2026-08-08-retro-board-demo-plan.md` — `OrMap` both modes + `SharedSequence` + presence, **shipped**
 - `docs/plans/2026-08-08-grocery-triptych-demo-plan.md` — `GSet` | `TwoPSet` | `OrSet`, **shipped, GT1–GT6**, `examples/grocery_triptych_lustre/`
 - `docs/plans/2026-08-08-work-queue-demo-plan.md` — `OrderedCollection` + `TaskManager`, **shipped, WQ1–WQ7**, `examples/work_queue_lustre/`
 - `docs/plans/2026-08-08-drum-machine-demo-plan.md` — `OrSet` + `PactMap`, **shipped, DM1–DM7**
 - `docs/plans/2026-08-19-json-workspace-demo-plan.md` — `SharedDirectory` + `JsonOt` + presence, **shipped, JW1–JW7**, `examples/json_workspace_lustre/`; retired the "one site only" row's directory/JSON OT entry
-- `docs/plans/2026-08-19-rfc-room-demo-plan.md` — `SharedRichText` + `PactMap` + presence, RR1–RR8, zero prerequisites; retires the "one site only" row's `SharedRichText` entry
+- `docs/plans/2026-08-19-rfc-room-demo-plan.md` — `SharedRichText` + `PactMap` + presence, **open**; Project Room has reusable rich-document and Quill modules, but not the RFC draft-to-publication workflow
+- `docs/plans/2026-08-19-markdown-notes-demo-plan.md` — **shipped**, including its P2P port and durable IndexedDB persistence
 
 And the gaps those plans surfaced have their own plan:
 
 - `docs/plans/2026-08-08-facade-parity-sweep-plan.md` — FP1–FP6, **shipped**
-- `docs/plans/2026-08-09-consensus-replay-quorum-plan.md` — **client half fixed**; a replaying client no longer rebuilds a consensus quorum from its present-day roster. What remains is the roster at a summary checkpoint, which is a floodgate change. `TaskManager` turned out never to have been affected.
+- `docs/plans/2026-08-09-consensus-replay-quorum-plan.md` — **complete**, including checkpoint membership and reconnect-roster follow-ups delivered by the summary-bootstrap plan
 
 One plan is not a demo but a way of presenting them:
 
-- `docs/plans/2026-08-08-showcase-composition-plan.md` — SC1–SC8, existing examples composed as nested child maps in one document, one connection, one presence roster. Zero prerequisites; the work is refactoring examples into MVU components.
+- `docs/plans/2026-08-08-showcase-composition-plan.md` — **shipped, SC0-SC8**; four panels share a document and roster. Its v2 panels remain deferred.
 
 ## Why this list exists: kind coverage
 
@@ -28,7 +30,7 @@ Coverage across `examples/` and the website demos as of 2026-08-08, updated 2026
 | State | Kinds |
 |---|---|
 | Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples, `OrSet`, `GSet`, `TwoPSet`, `OrderedCollection`, `TaskManager`, `PactMap`, `RegisterCollection`, `OrMap` (pixel canvas, retro board), `PnCounter` (clap counter), `Claims` (sudoku, release checklist), `SharedDirectory` + `JsonOt` (JSON workspace) |
-| One site only | `SharedRichText` (website only) |
+| Reusable example code; standalone app pending | `SharedRichText` (Project Room headless component and Quill bridge; RFC publishing room still open) |
 | **No demo** | none |
 
 `PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively; `Claims` moved from "one site only" to "well demoed" with the release checklist's captain seat and compare-and-set take-over; `SharedDirectory` and `JsonOt` moved there with the JSON workspace's tree of folders and live documents. Every kind now has at least one example — the remaining gap is `SharedRichText` (getting its own proper Lustre example) and the unwired `GCounter` primitive noted under the clap counter below, which is a library gap rather than a demo gap.
@@ -44,7 +46,10 @@ Both of these were mis-assumed during the brainstorm that produced this list, an
 
 All of FP1–FP6 shipped on 2026-08-08 (`docs/plans/2026-08-08-facade-parity-sweep-plan.md`): the real quorum roster, rich text on the JS facade, the three missing subscribes, the pending-signoff accessors, and the `watershed_lustre` fill-in. Both facades also expose `client_id` now, so a client can find itself in a list a kernel reports about the room.
 
-One gap remains, and it is not a facade gap: **the roster at a summary checkpoint** — `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`.
+The checkpoint roster and reconnect-roster gaps are closed. Remaining planned
+library work includes the `ensure_*` readiness defect, automatic summaries by
+default and their docs, summary version history, and the MV-register channel.
+See their plans for current status. `GCounter` remains an unwired backlog idea.
 
 **Correction worth not re-learning:** an earlier version of this section claimed the `OrderedCollection` op surface and `complete_task` were missing from the facades. They were present on both. That came from grepping by prefix guess (`ordered_collection_*`, `task_*`), which misses `ordered_*` and `complete_task`. Audit by full `pub fn` inventory diff — the command is at the end of the parity plan, and `facade_parity_test.gleam` now enforces it mechanically.
 
