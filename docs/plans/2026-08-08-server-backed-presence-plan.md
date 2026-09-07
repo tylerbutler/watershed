@@ -1,6 +1,14 @@
 # Server-backed presence plan
 
 **Date:** 2026-08-08
+**Status (2026-09-06):** the Watershed client implementation shipped:
+session-aware core types (`4159bd5`), runtime lanes on both targets (`6399187`),
+server/ripple drivers (`cd6b084`), and live Floodgate coverage (`10e435d`).
+The old `announce` API is gone; callers use `presence_js.update`.
+Cross-node Floodgate delivery and SP8's telemetry requirements need their own
+upstream/current-state review before this cross-repository plan can be marked
+complete. The original heartbeat-only model below is historical.
+
 **Builds on:** `2026-07-06-typed-presence-plan.md` (the current ripple-backed
 driver), Beryl's `beryl/presence` actor and Phoenix-compatible presence diffs,
 and Floodgate's document channel connection lifecycle.
