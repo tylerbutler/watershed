@@ -10,6 +10,7 @@ const site = resolve(root, record ? "../website/dist" : "dist");
 const routes = [
   { slug: "connect", anchor: "ffi-surface" },
   { slug: "notes", anchor: "authoritative-channel" },
+  { slug: "votes", anchor: "unsettled-writes" },
 ];
 
 async function snapshot(page) {

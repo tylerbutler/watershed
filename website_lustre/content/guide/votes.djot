@@ -1,0 +1,93 @@
+---
+description = "Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other."
+layout = "guide"
+guide_step = "votes"
+---
+
+::: g-block
+## `TallyMode`: a counter per key
+
+You already created the `votes` channel back in step 01, when `ensure_or_map` set it up with `TallyMode`. That mode turns every key in the map into what's sometimes called a PN counter, short for “positive-negative counter”: a value that only accepts changes — plus one, minus one — and combines them by adding them up, never by picking one write as the winner.
+
+The vote API is three functions, one line of work each. An upvote sends `+1`; a downvote sends `-1`.
+
+{data-snippet="guide-votes-vote-ops"}
+```gleam
+generated
+```
+
+
+{data-snippet="guide-votes-vote-clicks"}
+```gleam
+generated
+```
+
+Both branches re-read the board immediately after writing. The change applies to your own copy the moment you click, so the number moves right away under your finger — and then stays put once the server confirms it, because adding the same changes in a different order produces the same total.
+:::
+
+::: g-block
+## Why not read, add one, write back?
+
+A simpler-looking approach stores the total as a plain number and updates it like this:
+
+{data-source-label="(illustrative — not in the tutorial source)"}
+```gleam
+// The version that loses a vote: a plain number in a SharedMap.
+// Two clients read 4, both write 5, and the second write is not wrong —
+// it is just the last one.
+let current = read_total(board, id)
+watershed.set(board, id, json.int(current + 1))
+```
+
+It reads, adds one, writes the result back. _Read_ is the problem: by the time your write reaches the server, the number it was based on is already out of date, because someone else's write got there first. The newer write silently overwrites the older one's work. Two votes go in, one total comes out, and no error appears anywhere — the lost vote just vanishes without a trace. The `+1` tally above avoids this because it sends the change, not the number you think the total should become. However the changes arrive, they add up to the same total.
+
+The [counter bug](/counter-bug) page runs the losing version and a commuting fix against the same two clicks, then shows the same idea with signed deltas.
+:::
+
+::: g-block
+## Two channels, one board
+
+Notes and votes are separate channels, keyed the same way, by note id. Reading the votes map mirrors reading the notes map: every value comes back as a `Tally`, and anything else would mean the channel was set up in the wrong mode.
+
+{data-snippet="guide-votes-vote-entries"}
+```gleam
+generated
+```
+
+The board joins them by note id when it builds each card. A note with no tally shows `0` rather than nothing, so a fresh note and a note voted back down to zero look the same — which is what a reader expects.
+
+{data-snippet="guide-votes-card"}
+```gleam
+generated
+```
+:::
+
+::: g-note
+*Two channels, one order.* Both maps belong to the same document, so every tab applies their operations in the order the sequencer picked. A vote cannot overtake the note it belongs to. The read still cannot assume that every tally has a note: a note that never arrived, or one removed later, leaves a tally with nothing to attach to. The read is note-driven, so each card looks up its tally and a tally without a note is never visited.
+:::
+
+::: g-block
+{data-snippet="guide-votes-orphan-test" data-caption="the tally for a note that isn't there renders nowhere and breaks nothing"}
+```gleam
+generated
+```
+:::
+
+::: g-block
+### Deepening: what a tally deliberately can't do
+
+A tally settles on the same total everywhere, no matter what order the votes arrive in — and it manages that by refusing to answer questions about _who_. It has no per-voter record, so it can't enforce one vote per person, can't give you a vote budget, and can't tell you whether a total of `2` means two people voted or one person clicked twice.
+
+Those are real features, and they need a different structure: an [OR-set](/structures/sets#orset) of voter ids per note, or the [coordination family](/structures/coordination) when the question is “who holds this” rather than “how many”. Add them only when the question actually demands it — a tally that fits is worth more than a fancier structure that doesn't.
+:::
+
+{data-component="field-note-ref" data-practice="unsettled-writes"}
+:::
+:::
+
+::: g-out
+{.annot}
+You can now
+
+Open two tabs, hammer `+1` and `-1` on the same note from both, and get an honest total every time — every click counted, whatever order the sequencer assigns.
+:::

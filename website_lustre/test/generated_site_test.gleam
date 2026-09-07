@@ -102,6 +102,33 @@ pub fn generated_route_and_assets_test() {
   |> list.each(fn(text) {
     string.contains(notes_html, text) |> should.be_true()
   })
+  let assert Ok(votes_html) =
+    simplifile.read(output <> "/guide/votes/index.html")
+  let votes_tree = html_parser.as_tree(votes_html)
+  ["quorum-pending-roster", "unsettled-writes"]
+  |> list.each(fn(id) {
+    find(votes_tree, "id", id) |> list.length |> should.equal(1)
+  })
+  find(votes_tree, "src", "/scripts/field-notes.js")
+  |> list.length
+  |> should.equal(1)
+  find(votes_tree, "src", "/guide_race.js")
+  |> list.is_empty
+  |> should.be_true()
+  find(votes_tree, "href", "/guide/race")
+  |> list.is_empty
+  |> should.be_false()
+  find(votes_tree, "href", "/guide/presence")
+  |> list.is_empty
+  |> should.be_false()
+  [
+    "(illustrative — not in the tutorial source)",
+    "the tally for a note that isn&#39;t there renders nowhere and breaks nothing",
+    "Deepening: what a tally deliberately can&#39;t do",
+  ]
+  |> list.each(fn(text) {
+    string.contains(votes_html, text) |> should.be_true()
+  })
   [
     "guide_race.js",
     "styles/site.css",

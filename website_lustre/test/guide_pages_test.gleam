@@ -104,3 +104,44 @@ pub fn notes_page_contains_the_complete_guide_test() {
     |> should.be_true()
   })
 }
+
+pub fn votes_page_contains_the_complete_guide_test() {
+  let assert Ok(source) = content.load(route.guide_votes())
+  source.metadata.description
+  |> should.equal(
+    "Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other.",
+  )
+  let assert Ok(manifest) =
+    snippet.load("../website/src/generated/snippets.json")
+  content.validate_snippets(source.document, manifest, source.path)
+  |> should.be_ok()
+  [
+    "a counter per key",
+    "Why not read, add one, write back?",
+    "Two channels, one board",
+    "Deepening: what a tally deliberately can't do",
+    "Open two tabs, hammer",
+  ]
+  |> list.each(fn(text) {
+    string.contains(source.body, text) |> should.be_true()
+  })
+  [
+    "guide-votes-vote-ops",
+    "guide-votes-vote-entries",
+    "guide-votes-card",
+    "guide-votes-vote-clicks",
+    "guide-votes-orphan-test",
+  ]
+  |> list.each(fn(id) {
+    string.contains(source.body, "data-snippet=\"" <> id <> "\"")
+    |> should.be_true()
+  })
+  [
+    "data-source-label=\"(illustrative — not in the tutorial source)\"",
+    "the tally for a note that isn't there renders nowhere and breaks nothing",
+    "data-practice=\"unsettled-writes\"",
+  ]
+  |> list.each(fn(text) {
+    string.contains(source.body, text) |> should.be_true()
+  })
+}

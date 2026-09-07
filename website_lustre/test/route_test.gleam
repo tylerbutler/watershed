@@ -49,6 +49,22 @@ pub fn notes_route_is_registered_as_a_static_guide_test() {
   |> should.equal(["/styles/site.css"])
 }
 
+pub fn votes_route_is_registered_as_a_static_guide_test() {
+  route.all()
+  |> list.filter(fn(item) { item.path == "/guide/votes" })
+  |> should.equal([route.guide_votes()])
+  route.guide_votes()
+  |> should.equal(route.Route(
+    path: "/guide/votes",
+    layout: route.Guide,
+    content_path: "content/guide/votes.djot",
+    client_script: None,
+    analytics: route.Tinylytics,
+  ))
+  route.stylesheets(route.guide_votes())
+  |> should.equal(["/styles/site.css"])
+}
+
 pub fn duplicate_paths_report_both_sources_test() {
   let first = route.guide_race()
   let second = route.Route(..first, content_path: "other.djot")

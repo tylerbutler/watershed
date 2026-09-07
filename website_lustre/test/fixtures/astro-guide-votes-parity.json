@@ -1,0 +1,368 @@
+{
+  "desktop": {
+    "title": "watershed — add votes",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other."
+      ],
+      [
+        "og:title",
+        "watershed — add votes"
+      ],
+      [
+        "og:description",
+        "Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/guide/votes/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Add votes",
+    "headings": [
+      "TallyMode: a counter per key",
+      "Why not read, add one, write back?",
+      "Two channels, one board",
+      "Deepening: what a tally deliberately can't do",
+      "How the examples do it",
+      "Propose on release, render the pending signoff",
+      "Show writes that have not settled"
+    ],
+    "prose": [
+      "You already created the votes channel back in step 01, when ensure_or_map set it up with TallyMode. That mode turns every key in the map into what's sometimes called a PN counter, short for “positive-negative counter”: a value that only accepts changes — plus one, minus one — and combines them by adding them up, never by picking one write as the winner.",
+      "The vote API is three functions, one line of work each. An upvote sends +1; a downvote sends -1.",
+      "Both branches re-read the board immediately after writing. The change applies to your own copy the moment you click, so the number moves right away under your finger — and then stays put once the server confirms it, because adding the same changes in a different order produces the same total.",
+      "A simpler-looking approach stores the total as a plain number and updates it like this:",
+      "It reads, adds one, writes the result back. Read is the problem: by the time your write reaches the server, the number it was based on is already out of date, because someone else's write got there first. The newer write silently overwrites the older one's work. Two votes go in, one total comes out, and no error appears anywhere — the lost vote just vanishes without a trace. The +1 tally above avoids this because it sends the change, not the number you think the total should become. However the changes arrive, they add up to the same total.",
+      "The counter bug page runs the losing version and a commuting fix against the same two clicks, then shows the same idea with signed deltas.",
+      "Notes and votes are separate channels, keyed the same way, by note id. Reading the votes map mirrors reading the notes map: every value comes back as a Tally, and anything else would mean the channel was set up in the wrong mode.",
+      "The board joins them by note id when it builds each card. A note with no tally shows 0 rather than nothing, so a fresh note and a note voted back down to zero look the same — which is what a reader expects.",
+      "Two channels, one order. Both maps belong to the same document, so every tab applies their operations in the order the sequencer picked. A vote cannot overtake the note it belongs to. The read still cannot assume that every tally has a note: a note that never arrived, or one removed later, leaves a tally with nothing to attach to. The read is note-driven, so each card looks up its tally and a tally without a note is never visited.",
+      "A tally settles on the same total everywhere, no matter what order the votes arrive in — and it manages that by refusing to answer questions about who. It has no per-voter record, so it can't enforce one vote per person, can't give you a vote budget, and can't tell you whether a total of 2 means two people voted or one person clicked twice.",
+      "Those are real features, and they need a different structure: an OR-set of voter ids per note, or the coordination family when the question is “who holds this” rather than “how many”. Add them only when the question actually demands it — a tally that fits is worth more than a fancier structure that doesn't.",
+      "FIELD NOTE Show writes that have not settled ↓",
+      "Open two tabs, hammer +1 and -1 on the same note from both, and get an honest total every time — every click counted, whatever order the sequencer assigns."
+    ],
+    "links": [
+      [
+        "counter bug",
+        "/counter-bug"
+      ],
+      [
+        "OR-set",
+        "/structures/sets#orset"
+      ],
+      [
+        "coordination family",
+        "/structures/coordination"
+      ],
+      [
+        "Show writes that have not settled ↓",
+        "/guide/votes#unsettled-writes"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/drum_machine_lustre/src/drum_machine_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#drum_machine_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/tournament_bracket_lustre/src/tournament_bracket_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#tournament_bracket_lustre"
+      ]
+    ],
+    "guide": [
+      [
+        "← STEP 03 Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "STEP 05 → Add presence",
+        "/guide/presence"
+      ]
+    ],
+    "labels": [
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "(illustrative — not in the tutorial source)",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/test/board_test.gleam",
+      "",
+      ""
+    ],
+    "captions": [
+      "THE TALLY FOR A NOTE THAT ISN'T THERE RENDERS NOWHERE AND BREAKS NOTHING",
+      "",
+      ""
+    ],
+    "code": [
+      "pub fn upvote(votes: OrMap, id: String) -> Nil {\n  change_votes(votes, id, 1)\n}\n\npub fn downvote(votes: OrMap, id: String) -> Nil {\n  change_votes(votes, id, -1)\n}\n\nfn change_votes(votes: OrMap, id: String, amount: Int) -> Nil {\n  watershed.or_map_increment(votes, id, amount)\n}",
+      "UpvoteClicked(id) ->\n  case model.shared {\n    Some(shared) -> {\n      board.upvote(shared.votes, id)\n      #(snapshot(model), effect.none())\n    }\n    None -> #(model, effect.none())\n  }\n\nDownvoteClicked(id) ->\n  case model.shared {\n    Some(shared) -> {\n      board.downvote(shared.votes, id)\n      #(snapshot(model), effect.none())\n    }\n    None -> #(model, effect.none())\n  }",
+      "// The version that loses a vote: a plain number in a SharedMap.\n// Two clients read 4, both write 5, and the second write is not wrong —\n// it is just the last one.\nlet current = read_total(board, id)\nwatershed.set(board, id, json.int(current + 1))",
+      "fn vote_entries(votes: OrMap) -> Result(List(#(String, Int)), String) {\n  watershed.or_map_entries(votes)\n  |> list.try_map(fn(entry) {\n    case entry.1 {\n      or_map_kernel.Tally(count) -> Ok(#(entry.0, count))\n      or_map_kernel.Register(_) ->\n        Error(\"votes channel has wrong mode; expected TallyMode\")\n    }\n  })\n}",
+      "fn card(id: String, note: Note, votes_by_id: Dict(String, Int)) -> NoteCard {\n  NoteCard(\n    id: id,\n    note: note,\n    votes: dict.get(votes_by_id, id) |> result.unwrap(0),\n  )\n}",
+      "pub fn tallies_attach_to_matching_notes_and_orphans_are_ignored_test() -> Nil {\n  let snapshot =\n    board.snapshot(\n      \"Sprint retro\",\n      [#(\"note-1\", note_in(\"action_items\", 1, \"ship docs\"))],\n      [#(\"gone\", 7), #(\"note-1\", 2)],\n    )\n\n  snapshot.action_items\n  |> should.equal([\n    NoteCard(\n      id: \"note-1\",\n      note: note_in(\"action_items\", 1, \"ship docs\"),\n      votes: 2,\n    ),\n  ])\n  total_occurrences(snapshot, \"gone\") |> should.equal(0)\n}",
+      "// Propose on release, never per pointer move. A `pact_map_set` per frame\n// would flood the protocol with proposals that invalidate each other —\n// `apply_set` rejects a proposal made while one is pending — so a dragged\n// slider would land on whichever frame happened to arrive between pacts.\nBpmCommitted ->\n  case model.shared, tempo_locked(model), model.bpm_draft == model.bpm {\n    Some(shared), False, False -> {\n      watershed.pact_map_set(\n        shared.settings,\n        bpm_key,\n        json.int(model.bpm_draft),\n      )\n      // Poll rather than wait for an event, because a proposal the kernel\n      // *rejects* — one made while a peer's is already pending — emits\n      // nothing at all. Without this tick the control would stay disabled\n      // forever on a rejection.\n      #(\n        Model(..model, proposing: True),\n        watershed_lustre.after(signoff_poll_milliseconds, PollSignoffs),\n      )\n    }\n    _, _, _ -> #(model, effect.none())\n  }",
+      "ReportClicked(match_key, winner) ->\n  case model.matches {\n    None -> #(model, effect.none())\n    Some(matches) -> {\n      let score =\n        dict.get(model.score_drafts, match_key)\n        |> option.from_result\n        |> option.unwrap(\"\")\n      let value = bracket.to_json(MatchResult(winner:, score:))\n      watershed.register_write(matches, match_key, value)\n      #(\n        Model(..model, pending: set.insert(model.pending, match_key))\n          |> log_line(\n            match_key <> \" submitted: \" <> winner <> \" (\" <> score <> \")\",\n          ),\n        effect.none(),\n      )\n    }\n  }\n\n// ... and in the register event handler:\nAtomicChanged(key, value, _local) -> {\n  let result = bracket.from_json(value)\n  Model(\n    ..model,\n    results: dict.insert(model.results, key, result),\n    pending: set.delete(model.pending, key),\n  )\n  |> log_line(key <> \" official result: \" <> result.winner)\n}"
+    ],
+    "notes": [
+      {
+        "id": "quorum-pending-roster",
+        "summary": "Propose on release, render the pending signoff Send one consensus proposal per gesture, then show whose approval is still missing.",
+        "body": ""
+      },
+      {
+        "id": "unsettled-writes",
+        "summary": "Show writes that have not settled When writes are not optimistic, show them as pending until the confirming event arrives.",
+        "body": ""
+      }
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "reference": {
+        "display": "flex",
+        "padding": "12px 16px",
+        "border-left": "2px solid oklch(0.55 0.21 340)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "note": {
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "scroll-margin-top": "24px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — add votes",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other."
+      ],
+      [
+        "og:title",
+        "watershed — add votes"
+      ],
+      [
+        "og:description",
+        "Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/guide/votes/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Add votes",
+    "headings": [
+      "TallyMode: a counter per key",
+      "Why not read, add one, write back?",
+      "Two channels, one board",
+      "Deepening: what a tally deliberately can't do",
+      "How the examples do it",
+      "Propose on release, render the pending signoff",
+      "Show writes that have not settled"
+    ],
+    "prose": [
+      "You already created the votes channel back in step 01, when ensure_or_map set it up with TallyMode. That mode turns every key in the map into what's sometimes called a PN counter, short for “positive-negative counter”: a value that only accepts changes — plus one, minus one — and combines them by adding them up, never by picking one write as the winner.",
+      "The vote API is three functions, one line of work each. An upvote sends +1; a downvote sends -1.",
+      "Both branches re-read the board immediately after writing. The change applies to your own copy the moment you click, so the number moves right away under your finger — and then stays put once the server confirms it, because adding the same changes in a different order produces the same total.",
+      "A simpler-looking approach stores the total as a plain number and updates it like this:",
+      "It reads, adds one, writes the result back. Read is the problem: by the time your write reaches the server, the number it was based on is already out of date, because someone else's write got there first. The newer write silently overwrites the older one's work. Two votes go in, one total comes out, and no error appears anywhere — the lost vote just vanishes without a trace. The +1 tally above avoids this because it sends the change, not the number you think the total should become. However the changes arrive, they add up to the same total.",
+      "The counter bug page runs the losing version and a commuting fix against the same two clicks, then shows the same idea with signed deltas.",
+      "Notes and votes are separate channels, keyed the same way, by note id. Reading the votes map mirrors reading the notes map: every value comes back as a Tally, and anything else would mean the channel was set up in the wrong mode.",
+      "The board joins them by note id when it builds each card. A note with no tally shows 0 rather than nothing, so a fresh note and a note voted back down to zero look the same — which is what a reader expects.",
+      "Two channels, one order. Both maps belong to the same document, so every tab applies their operations in the order the sequencer picked. A vote cannot overtake the note it belongs to. The read still cannot assume that every tally has a note: a note that never arrived, or one removed later, leaves a tally with nothing to attach to. The read is note-driven, so each card looks up its tally and a tally without a note is never visited.",
+      "A tally settles on the same total everywhere, no matter what order the votes arrive in — and it manages that by refusing to answer questions about who. It has no per-voter record, so it can't enforce one vote per person, can't give you a vote budget, and can't tell you whether a total of 2 means two people voted or one person clicked twice.",
+      "Those are real features, and they need a different structure: an OR-set of voter ids per note, or the coordination family when the question is “who holds this” rather than “how many”. Add them only when the question actually demands it — a tally that fits is worth more than a fancier structure that doesn't.",
+      "FIELD NOTE Show writes that have not settled ↓",
+      "Open two tabs, hammer +1 and -1 on the same note from both, and get an honest total every time — every click counted, whatever order the sequencer assigns."
+    ],
+    "links": [
+      [
+        "counter bug",
+        "/counter-bug"
+      ],
+      [
+        "OR-set",
+        "/structures/sets#orset"
+      ],
+      [
+        "coordination family",
+        "/structures/coordination"
+      ],
+      [
+        "Show writes that have not settled ↓",
+        "/guide/votes#unsettled-writes"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/drum_machine_lustre/src/drum_machine_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#drum_machine_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/tournament_bracket_lustre/src/tournament_bracket_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#tournament_bracket_lustre"
+      ]
+    ],
+    "guide": [
+      [
+        "← STEP 03 Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "STEP 05 → Add presence",
+        "/guide/presence"
+      ]
+    ],
+    "labels": [
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "(illustrative — not in the tutorial source)",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/test/board_test.gleam",
+      "",
+      ""
+    ],
+    "captions": [
+      "THE TALLY FOR A NOTE THAT ISN'T THERE RENDERS NOWHERE AND BREAKS NOTHING",
+      "",
+      ""
+    ],
+    "code": [
+      "pub fn upvote(votes: OrMap, id: String) -> Nil {\n  change_votes(votes, id, 1)\n}\n\npub fn downvote(votes: OrMap, id: String) -> Nil {\n  change_votes(votes, id, -1)\n}\n\nfn change_votes(votes: OrMap, id: String, amount: Int) -> Nil {\n  watershed.or_map_increment(votes, id, amount)\n}",
+      "UpvoteClicked(id) ->\n  case model.shared {\n    Some(shared) -> {\n      board.upvote(shared.votes, id)\n      #(snapshot(model), effect.none())\n    }\n    None -> #(model, effect.none())\n  }\n\nDownvoteClicked(id) ->\n  case model.shared {\n    Some(shared) -> {\n      board.downvote(shared.votes, id)\n      #(snapshot(model), effect.none())\n    }\n    None -> #(model, effect.none())\n  }",
+      "// The version that loses a vote: a plain number in a SharedMap.\n// Two clients read 4, both write 5, and the second write is not wrong —\n// it is just the last one.\nlet current = read_total(board, id)\nwatershed.set(board, id, json.int(current + 1))",
+      "fn vote_entries(votes: OrMap) -> Result(List(#(String, Int)), String) {\n  watershed.or_map_entries(votes)\n  |> list.try_map(fn(entry) {\n    case entry.1 {\n      or_map_kernel.Tally(count) -> Ok(#(entry.0, count))\n      or_map_kernel.Register(_) ->\n        Error(\"votes channel has wrong mode; expected TallyMode\")\n    }\n  })\n}",
+      "fn card(id: String, note: Note, votes_by_id: Dict(String, Int)) -> NoteCard {\n  NoteCard(\n    id: id,\n    note: note,\n    votes: dict.get(votes_by_id, id) |> result.unwrap(0),\n  )\n}",
+      "pub fn tallies_attach_to_matching_notes_and_orphans_are_ignored_test() -> Nil {\n  let snapshot =\n    board.snapshot(\n      \"Sprint retro\",\n      [#(\"note-1\", note_in(\"action_items\", 1, \"ship docs\"))],\n      [#(\"gone\", 7), #(\"note-1\", 2)],\n    )\n\n  snapshot.action_items\n  |> should.equal([\n    NoteCard(\n      id: \"note-1\",\n      note: note_in(\"action_items\", 1, \"ship docs\"),\n      votes: 2,\n    ),\n  ])\n  total_occurrences(snapshot, \"gone\") |> should.equal(0)\n}",
+      "// Propose on release, never per pointer move. A `pact_map_set` per frame\n// would flood the protocol with proposals that invalidate each other —\n// `apply_set` rejects a proposal made while one is pending — so a dragged\n// slider would land on whichever frame happened to arrive between pacts.\nBpmCommitted ->\n  case model.shared, tempo_locked(model), model.bpm_draft == model.bpm {\n    Some(shared), False, False -> {\n      watershed.pact_map_set(\n        shared.settings,\n        bpm_key,\n        json.int(model.bpm_draft),\n      )\n      // Poll rather than wait for an event, because a proposal the kernel\n      // *rejects* — one made while a peer's is already pending — emits\n      // nothing at all. Without this tick the control would stay disabled\n      // forever on a rejection.\n      #(\n        Model(..model, proposing: True),\n        watershed_lustre.after(signoff_poll_milliseconds, PollSignoffs),\n      )\n    }\n    _, _, _ -> #(model, effect.none())\n  }",
+      "ReportClicked(match_key, winner) ->\n  case model.matches {\n    None -> #(model, effect.none())\n    Some(matches) -> {\n      let score =\n        dict.get(model.score_drafts, match_key)\n        |> option.from_result\n        |> option.unwrap(\"\")\n      let value = bracket.to_json(MatchResult(winner:, score:))\n      watershed.register_write(matches, match_key, value)\n      #(\n        Model(..model, pending: set.insert(model.pending, match_key))\n          |> log_line(\n            match_key <> \" submitted: \" <> winner <> \" (\" <> score <> \")\",\n          ),\n        effect.none(),\n      )\n    }\n  }\n\n// ... and in the register event handler:\nAtomicChanged(key, value, _local) -> {\n  let result = bracket.from_json(value)\n  Model(\n    ..model,\n    results: dict.insert(model.results, key, result),\n    pending: set.delete(model.pending, key),\n  )\n  |> log_line(key <> \" official result: \" <> result.winner)\n}"
+    ],
+    "notes": [
+      {
+        "id": "quorum-pending-roster",
+        "summary": "Propose on release, render the pending signoff Send one consensus proposal per gesture, then show whose approval is still missing.",
+        "body": ""
+      },
+      {
+        "id": "unsettled-writes",
+        "summary": "Show writes that have not settled When writes are not optimistic, show them as pending until the confirming event arrives.",
+        "body": ""
+      }
+    ],
+    "fitsViewport": false,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "reference": {
+        "display": "flex",
+        "padding": "12px 16px",
+        "border-left": "2px solid oklch(0.55 0.21 340)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "note": {
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "scroll-margin-top": "24px"
+      }
+    }
+  }
+}
