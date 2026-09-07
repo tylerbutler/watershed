@@ -1,6 +1,6 @@
 import gleam/dict
 import gleam/list
-import gleam/option
+import gleam/option.{type Option, None, Some}
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -11,28 +11,64 @@ import smalto/languages/javascript
 import smalto/token
 import watershed_site/snippet
 
-pub fn block(snippet: snippet.Snippet, revision: String) -> Element(msg) {
-  html.div([attribute.class("snippet-block")], [
-    html.div([attribute.class("snippet-label")], [
-      element.text(snippet.language),
-      html.a(
-        [
-          attribute.class("snippet-source"),
-          attribute.href(snippet.source_url(snippet, revision)),
-        ],
-        [element.text(snippet.source_path)],
-      ),
+pub fn source_block(
+  item: snippet.Snippet,
+  source_url: Option(String),
+  caption: Option(String),
+) -> Element(msg) {
+  block(item.code, item.language, Some(item.source_path), source_url, caption)
+}
+
+pub fn literal_block(
+  source: String,
+  language: String,
+  source_label: Option(String),
+  caption: Option(String),
+) -> Element(msg) {
+  block(source, language, source_label, None, caption)
+}
+
+fn block(
+  source: String,
+  language: String,
+  source_label: Option(String),
+  source_url: Option(String),
+  caption: Option(String),
+) -> Element(msg) {
+  let label = case source_label {
+    None -> []
+    Some(label) -> [
+      case source_url {
+        None -> html.span([attribute.class("g-file")], [element.text(label)])
+        Some(url) ->
+          html.a([attribute.class("g-file"), attribute.href(url)], [
+            element.text(label),
+          ])
+      },
+    ]
+  }
+  let caption = case caption {
+    None -> []
+    Some(caption) -> [
+      html.figcaption([attribute.class("annot")], [element.text(caption)]),
+    ]
+  }
+  element.fragment(
+    list.append(label, [
+      html.figure([attribute.class("g-code")], [
+        html.pre([], [
+          html.code(
+            [
+              attribute.class("language-" <> language),
+              attribute.attribute("data-language", language),
+            ],
+            highlighted(language, source),
+          ),
+        ]),
+        ..caption
+      ]),
     ]),
-    html.pre([], [
-      html.code(
-        [
-          attribute.class("language-" <> snippet.language),
-          attribute.attribute("data-language", snippet.language),
-        ],
-        highlighted(snippet.language, snippet.code),
-      ),
-    ]),
-  ])
+  )
 }
 
 pub fn highlighted(language: String, source: String) -> List(Element(msg)) {
@@ -57,7 +93,7 @@ fn token_view(item: token.Token) -> Element(msg) {
 
 pub fn renderer(
   manifest: snippet.Manifest,
-  revision: String,
+  _revision: String,
 ) -> djot.Renderer(Element(msg)) {
   djot.Renderer(
     ..djot.default_renderer(),
@@ -65,22 +101,33 @@ pub fn renderer(
       case dict.get(attributes, "data-snippet") {
         Ok(id) -> {
           let assert Ok(snippet) = dict.get(manifest.snippets, id)
-          block(snippet, revision)
+          source_block(
+            snippet,
+            None,
+            attribute_value(attributes, "data-caption"),
+          )
         }
         Error(Nil) -> {
           let language = option.unwrap(language, "text")
-          html.pre([], [
-            html.code(
-              [
-                attribute.attribute("data-language", language),
-                attribute.class("language-" <> language),
-              ],
-              highlighted(language, source),
-            ),
-          ])
+          literal_block(
+            source,
+            language,
+            attribute_value(attributes, "data-source-label"),
+            attribute_value(attributes, "data-caption"),
+          )
         }
       }
     },
     raw_html: fn(_) { element.text("Raw HTML is not permitted.") },
   )
+}
+
+fn attribute_value(
+  attributes: dict.Dict(String, String),
+  name: String,
+) -> Option(String) {
+  case dict.get(attributes, name) {
+    Ok(value) -> Some(value)
+    Error(Nil) -> None
+  }
 }

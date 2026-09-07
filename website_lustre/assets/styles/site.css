@@ -15,18 +15,6 @@
   padding: 0.5rem;
   background: var(--bg);
 }
-.snippet-label {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: space-between;
-  gap: var(--space-sm);
-  font-family: var(--font-mono);
-  font-size: var(--text-annot);
-}
-.snippet-source:focus-visible {
-  outline: 2px solid var(--overprint);
-  outline-offset: 2px;
-}
 .smalto-keyword, .smalto-operator { color: var(--overprint-deep); }
 .smalto-function, .smalto-type, .smalto-module { color: var(--waterline); }
 .smalto-string { color: var(--syntax-string); }

@@ -1,4 +1,6 @@
 import gleam/dict
+import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import jot
@@ -57,11 +59,52 @@ pub fn snippet_fixture_uses_manifest_and_highlights_test() {
     |> element.to_string
   string.contains(html, "ignored fixture text") |> should.be_false()
   string.contains(html, "smalto-keyword") |> should.be_true()
-  string.contains(html, "https://github.com/tylerbutler/watershed/blob/abc123/")
-  |> should.be_true()
+  string.contains(html, "class=\"g-file\"") |> should.be_true()
+  string.contains(html, "class=\"g-code\"") |> should.be_true()
+  string.contains(html, "href=") |> should.be_false()
   let assert Ok(entry) =
     snippet.get(manifest, "fixture.djot", "foundations-schema-title-field")
   string.contains(html, entry.source_path) |> should.be_true()
+}
+
+pub fn literal_labels_and_captions_render_test() {
+  let assert Ok(manifest) = snippet.load(manifest_path)
+  let source =
+    "{data-source-label=\"(shell)\" data-caption=\"Run the suite\"}\n```sh\ngleam test\n```"
+  let html =
+    djot.render(source, code.renderer(manifest, "abc123"))
+    |> element.fragment
+    |> element.to_string
+  [
+    "<span class=\"g-file\">(shell)</span>",
+    "<figure class=\"g-code\">",
+    "<figcaption class=\"annot\">Run the suite</figcaption>",
+    "gleam test",
+  ]
+  |> list.each(fn(expected) {
+    string.contains(html, expected) |> should.be_true()
+  })
+}
+
+pub fn source_block_links_only_when_policy_supplies_one_test() {
+  let item =
+    snippet.Snippet("let x = 1", "gleam", "src/example.gleam", snippet.File)
+  let unlinked =
+    code.source_block(item, None, None)
+    |> element.to_string
+  string.contains(unlinked, "<span class=\"g-file\">") |> should.be_true()
+  string.contains(unlinked, "href=") |> should.be_false()
+  let linked =
+    code.source_block(
+      item,
+      Some("https://example.test/source"),
+      Some("Example"),
+    )
+    |> element.to_string
+  string.contains(linked, "href=\"https://example.test/source\"")
+  |> should.be_true()
+  string.contains(linked, "<figcaption class=\"annot\">Example</figcaption>")
+  |> should.be_true()
 }
 
 pub fn unknown_language_escapes_source_test() {

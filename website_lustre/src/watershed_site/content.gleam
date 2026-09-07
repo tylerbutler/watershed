@@ -183,17 +183,49 @@ fn snippet_blocks(
 ) -> Result(Nil, BuildError) {
   list.try_each(blocks, fn(block) {
     case block {
-      jot.Codeblock(attributes, _, _) ->
+      jot.Codeblock(attributes, _, _) -> {
+        use _ <- result.try(validate_snippet_attributes(attributes, path))
         case dict.get(attributes, "data-snippet") {
           Error(Nil) -> Ok(Nil)
           Ok(id) -> snippet.get(manifest, path, id) |> result.replace(Nil)
         }
+      }
       jot.Div(_, children) | jot.BlockQuote(_, children) ->
         snippet_blocks(children, manifest, path)
       jot.BulletList(_, _, items) ->
         list.try_each(items, snippet_blocks(_, manifest, path))
       jot.RawBlock(_) -> Error(error.RawHtml(path))
       jot.Paragraph(_, _) | jot.Heading(_, _, _) | jot.ThematicBreak -> Ok(Nil)
+    }
+  })
+}
+
+fn validate_snippet_attributes(
+  attributes: Dict(String, String),
+  path: String,
+) -> Result(Nil, BuildError) {
+  use _ <- result.try(
+    case
+      dict.has_key(attributes, "data-snippet"),
+      dict.has_key(attributes, "data-source-label")
+    {
+      True, True ->
+        Error(error.InvalidContent(
+          path,
+          "data-source-label cannot override a generated data-snippet.",
+        ))
+      _, _ -> Ok(Nil)
+    },
+  )
+  ["data-snippet", "data-source-label", "data-caption"]
+  |> list.try_each(fn(name) {
+    case dict.get(attributes, name) {
+      Ok(value) ->
+        case string.trim(value) {
+          "" -> Error(error.InvalidContent(path, name <> " cannot be empty."))
+          _ -> Ok(Nil)
+        }
+      Error(Nil) -> Ok(Nil)
     }
   })
 }

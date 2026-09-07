@@ -9,6 +9,7 @@ import watershed_site/content
 import watershed_site/error
 import watershed_site/guide
 import watershed_site/route
+import watershed_site/snippet
 
 fn parse(metadata: String) {
   content.parse(
@@ -151,4 +152,21 @@ pub fn guide_catalog_matches_astro_test() {
   |> should.equal(#(Some(guide.get(guide.Notes)), Some(guide.get(guide.Votes))))
   guide.neighbours(guide.Connect).0 |> should.equal(None)
   guide.neighbours(guide.Testing).1 |> should.equal(None)
+}
+
+pub fn invalid_snippet_attributes_are_rejected_test() {
+  let manifest = snippet.Manifest(1, dict.new())
+  [
+    #(
+      "{data-snippet=\"missing\" data-source-label=\"label\"}\n```gleam\nx\n```",
+      "data-source-label",
+    ),
+    #("{data-source-label=\"\"}\n```text\nx\n```", "data-source-label"),
+    #("{data-caption=\"\"}\n```text\nx\n```", "data-caption"),
+  ]
+  |> list.each(fn(item) {
+    let assert Error(error.InvalidContent("page.djot", reason)) =
+      content.validate_snippets(jot.parse(item.0), manifest, "page.djot")
+    string.contains(reason, item.1) |> should.be_true()
+  })
 }
