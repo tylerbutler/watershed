@@ -37,7 +37,12 @@ pub fn build_routes(
   )
   let assets =
     list.append(
-      ["/favicon.svg", "/og.png", ..list.flat_map(routes, route.stylesheets)],
+      [
+        "/favicon.svg",
+        "/og.png",
+        "/scripts/field-notes.js",
+        ..list.flat_map(routes, route.stylesheets)
+      ],
       list.filter_map(routes, fn(route) {
         option.to_result(route.client_script, Nil)
       }),

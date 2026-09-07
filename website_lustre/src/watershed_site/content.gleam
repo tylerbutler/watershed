@@ -9,6 +9,7 @@ import simplifile
 import tom
 import watershed_site/error.{type BuildError}
 import watershed_site/guide
+import watershed_site/practice
 import watershed_site/route
 import watershed_site/snippet
 import watershed_site/view/guide_index
@@ -240,6 +241,19 @@ fn validate_blocks(
       jot.Div(attributes, children) -> {
         use _ <- result.try(case dict.get(attributes, "data-component") {
           Error(Nil) | Ok("guide-race") -> Ok(Nil)
+          Ok("field-note-ref") ->
+            case dict.get(attributes, "data-practice") {
+              Error(Nil) ->
+                Error(error.InvalidContent(
+                  path,
+                  "field-note-ref requires data-practice.",
+                ))
+              Ok(id) ->
+                case practice.get(id) {
+                  Ok(_) -> Ok(Nil)
+                  Error(Nil) -> Error(error.UnknownPractice(path, id))
+                }
+            }
           Ok(name) ->
             guide_index.component(name)
             |> result.replace(Nil)

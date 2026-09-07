@@ -12,9 +12,11 @@ import watershed_site/content
 import watershed_site/error.{type BuildError}
 import watershed_site/guide
 import watershed_site/guide_race/view as race_view
+import watershed_site/practice
 import watershed_site/route
 import watershed_site/snippet
 import watershed_site/view/document
+import watershed_site/view/field_notes
 import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
 
@@ -25,6 +27,7 @@ pub type GuidePage(msg) {
     step: guide.Step,
     body: List(Element(msg)),
     demo: Element(msg),
+    field_notes: Element(msg),
   )
 }
 
@@ -53,6 +56,11 @@ pub fn render(
               ],
               [race_view.static()],
             )
+          Ok("field-note-ref") -> {
+            let assert Ok(id) = dict.get(attributes, "data-practice")
+            let assert Ok(item) = practice.get(id)
+            field_notes.reference(item)
+          }
           Ok(name) ->
             case guide_index.component(name) {
               Ok(component) -> guide_index.component_view(component, children)
@@ -81,23 +89,28 @@ pub fn render(
       },
     )
   let body = djot.render(source.body, renderer)
-  Ok(case source.metadata.kind {
-    content.GuideStep(slug) ->
-      view(GuidePage(
-        route,
-        source.metadata,
-        guide.get(slug),
-        body,
-        element.none(),
-      ))
+  case source.metadata.kind {
+    content.GuideStep(slug) -> {
+      use notes <- result.try(field_notes.view(slug, manifest))
+      Ok(
+        view(GuidePage(
+          route,
+          source.metadata,
+          guide.get(slug),
+          body,
+          element.none(),
+          notes,
+        )),
+      )
+    }
     content.GuideIndex ->
-      render_document(
+      Ok(render_document(
         route,
         source.metadata,
         "watershed — build guide",
         guide_index.view(body),
-      )
-  })
+      ))
+  }
 }
 
 pub fn view(page: GuidePage(msg)) -> Element(Nil) {
@@ -106,7 +119,13 @@ pub fn view(page: GuidePage(msg)) -> Element(Nil) {
     page.route,
     page.metadata,
     title,
-    guide_view.view(page.route.path <> "/", page.step, page.body, page.demo)
+    guide_view.view(
+      page.route.path <> "/",
+      page.step,
+      page.body,
+      page.demo,
+      page.field_notes,
+    )
       |> element.map(fn(_) { Nil }),
   )
 }
@@ -131,6 +150,15 @@ fn render_document(
       option.None -> []
       option.Some(src) -> [document.Module(src)]
     })
+  let scripts = case metadata.kind {
+    content.GuideStep(slug) ->
+      case list.is_empty(practice.by_step(slug)) {
+        True -> scripts
+        False ->
+          list.append(scripts, [document.Module("/scripts/field-notes.js")])
+      }
+    content.GuideIndex -> scripts
+  }
   let scripts = case page_route.layout {
     route.Guide -> scripts
     route.GuideIndex ->

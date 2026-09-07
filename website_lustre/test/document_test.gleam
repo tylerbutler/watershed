@@ -20,6 +20,7 @@ pub fn fixture() -> page.GuidePage(Nil) {
     guide.get(guide.Race),
     [element.text("Guide content")],
     element.none(),
+    element.none(),
   )
 }
 

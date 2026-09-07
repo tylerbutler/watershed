@@ -170,3 +170,12 @@ pub fn invalid_snippet_attributes_are_rejected_test() {
     string.contains(reason, item.1) |> should.be_true()
   })
 }
+
+pub fn stale_field_note_references_are_rejected_test() {
+  let page =
+    "---\n"
+    <> required
+    <> "\n---\n\n{data-component=\"field-note-ref\" data-practice=\"missing\"}\n:::\n:::"
+  content.parse(page, "page.djot", route.guide_race())
+  |> should.equal(Error(error.UnknownPractice("page.djot", "missing")))
+}

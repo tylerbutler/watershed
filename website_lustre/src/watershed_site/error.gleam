@@ -9,6 +9,7 @@ pub type BuildError {
   InvalidContent(path: String, reason: String)
   InvalidSnippetManifest(path: String, reason: String)
   MissingSnippet(path: String, id: String)
+  UnknownPractice(path: String, id: String)
   UnknownComponent(path: String, name: String)
   RawHtml(path: String)
   SiteGenerationFailed(reason: String)
@@ -25,6 +26,7 @@ pub fn describe(error: BuildError) -> String {
     InvalidSnippetManifest(path, reason) ->
       path <> ": Invalid snippet manifest: " <> reason
     MissingSnippet(path, id) -> path <> ": Missing snippet: " <> id
+    UnknownPractice(path, id) -> path <> ": Unknown practice: " <> id
     UnknownComponent(path, name) -> path <> ": Unknown component: " <> name
     RawHtml(path) -> path <> ": Raw HTML is not permitted."
     SiteGenerationFailed(reason) -> "Site generation failed: " <> reason

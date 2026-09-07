@@ -15,10 +15,10 @@ pub fn images_match_production_test() {
 
 pub fn fonts_and_styles_are_complete_test() {
   [
-    "styles/site.css", "styles/guide-race.css", "fonts/archivo/wdth.css",
-    "fonts/archivo/LICENSE", "fonts/jetbrains-mono/400.css",
-    "fonts/jetbrains-mono/400-italic.css", "fonts/jetbrains-mono/700.css",
-    "fonts/jetbrains-mono/LICENSE",
+    "styles/site.css", "styles/guide-race.css", "scripts/field-notes.js",
+    "fonts/archivo/wdth.css", "fonts/archivo/LICENSE",
+    "fonts/jetbrains-mono/400.css", "fonts/jetbrains-mono/400-italic.css",
+    "fonts/jetbrains-mono/700.css", "fonts/jetbrains-mono/LICENSE",
   ]
   |> list.each(fn(file) {
     let assert Ok(_) = simplifile.read("assets/" <> file) as file

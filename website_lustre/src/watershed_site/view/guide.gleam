@@ -12,6 +12,7 @@ pub fn view(
   step: guide.Step,
   body: List(Element(msg)),
   demo: Element(msg),
+  field_notes: Element(msg),
 ) -> Element(msg) {
   let #(previous, next) = guide.neighbours(step.slug)
   sheet.view(path, [
@@ -34,7 +35,10 @@ pub fn view(
         ]),
       ]),
     ]),
-    h.main([a.id("content"), a.class("doc-body")], list.append(body, [demo])),
+    h.main(
+      [a.id("content"), a.class("doc-body")],
+      list.append(body, [demo, field_notes]),
+    ),
     h.nav([a.class("g-step"), a.attribute("aria-label", "Guide steps")], [
       case previous {
         Some(step) ->
