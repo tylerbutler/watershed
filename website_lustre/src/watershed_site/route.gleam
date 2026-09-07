@@ -44,6 +44,16 @@ pub fn guide_connect() -> Route {
   )
 }
 
+pub fn guide_notes() -> Route {
+  Route(
+    path: "/guide/notes",
+    layout: Guide,
+    content_path: "content/guide/notes.djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn all() -> List(Route) {
   [
     Route(
@@ -54,6 +64,7 @@ pub fn all() -> List(Route) {
       analytics: Tinylytics,
     ),
     guide_connect(),
+    guide_notes(),
     guide_race(),
   ]
 }

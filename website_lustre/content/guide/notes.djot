@@ -1,0 +1,104 @@
+---
+description = "Step two of the watershed build guide: add a note to the board, keyed by its own id in a register OR-map, stored as one JSON value, and read back through a decoder that shows a broken note instead of crashing the board."
+layout = "guide"
+guide_step = "notes"
+---
+
+::: g-block
+## Each note gets its own id
+
+The notes channel is an [OR-map](/structures/maps#ormap) running in `RegisterMode`, keyed by *note id*, not by column. Every key holds exactly one note, so adding one never touches another — even if two people add notes at the same instant.
+:::
+
+::: g-block
+## The whole note is one register
+
+Every key in a `RegisterMode` map holds exactly one string — that's the whole constraint this mode gives you, and the tutorial takes it literally: a note gets turned into JSON on the way in, and parsed back on the way out. The text, the column, the author, and a creation timestamp all travel together as one value.
+
+Which means the column is stored inside the note itself. That's the tradeoff: moving a note between columns means rewriting the whole note, so if two people move the same note at the same moment, the register keeps the write with the later clock value and the other disappears. The tutorial doesn't offer moves at all. The [advanced retro board](/examples#retro_board_lustre) keeps the column on the note and adds a sequence per column, then treats the note's column register as authoritative when it reconciles the two.
+:::
+
+{data-component="field-note-ref" data-practice="authoritative-channel"}
+:::
+:::
+
+::: g-block
+{data-snippet="guide-notes-note-record"}
+```gleam
+generated
+```
+
+
+{data-snippet="guide-notes-codec"}
+```gleam
+generated
+```
+:::
+
+::: g-note
+*Anyone can write anything.* The typed `Note` record is a place where you decode incoming data, not a schema the server enforces — an older version of the app, or a stale copy, could put any string into that field. So `from_register` doesn't have an error case to forget about: a value that fails to decode becomes a visible placeholder card instead. A card you can see and recognize as broken beats a crash that takes the whole board down.
+:::
+
+{data-component="field-note-ref" data-practice="stamp-schema"}
+:::
+:::
+
+::: g-block
+## Adding a note is one map write
+
+Mint an id, encode the note, write it to the map. The nonce — a small random number added just to keep ids unique — is there because two notes from one author can land in the same millisecond.
+
+{data-snippet="guide-notes-add-note"}
+```gleam
+generated
+```
+
+`board` keeps the UI and the tests on the exact same write function, not two separate copies of the same logic. If a test reimplemented the write instead of calling it, all that would prove is that the reimplementation agrees with itself. Step 06 depends on this.
+
+{data-snippet="guide-notes-add-clicked"}
+```gleam
+generated
+```
+:::
+
+::: g-block
+## Reading back: entries in, board out
+
+`or_map_entries` hands you every live key together with its value. The tutorial creates this map in `RegisterMode`, so every value should be a `Register`. The `case` below checks that assumption for each entry and returns an explicit error if it finds a `Tally`. That would mean the channel was set up in the wrong mode: a bug in your own startup code, not messy user data to defend against.
+
+{data-snippet="guide-notes-note-entries"}
+```gleam
+generated
+```
+
+From there, turning that list into a board is just a plain function: no side effects, no network calls, data in and data out. Group notes by their column field, sort by `(created, id)`, and every replica — every open tab, running the same code — renders the same order. If two notes ever get the same creation timestamp, the id breaks the tie, identically, everywhere.
+
+{data-snippet="guide-notes-ordering"}
+```gleam
+generated
+```
+:::
+
+::: g-note
+*Sort by content, never by arrival.* Two tabs receive the same edits in the same server-assigned order, but the order things happened to arrive in isn't something you should render directly. Deriving the display order from the note's own fields, instead of from arrival order, is what makes “both clients show the same board” a thing you can actually guarantee.
+:::
+
+::: g-block
+### Deepening: the column you don't recognise
+
+Three columns are hardcoded, so what happens when a note arrives filed under `parking_lot` — a column a newer build added, or a register that came back as the placeholder? Dropping it would be the worst option available: the note is real, someone typed it, and it would vanish with no trace.
+
+{data-snippet="guide-notes-unfiled"}
+```gleam
+generated
+```
+
+Unknown columns land in `unfiled` and render in their own section. It costs one small function and it is the difference between a forward compatible board and a lossy one.
+:::
+
+::: g-out
+{.annot}
+You can now
+
+Open the board in two tabs, add a note in one, and watch it appear in the other, with `votes 0` under it. The buttons are already wired; step 04 explains why their tally updates don't lose concurrent votes.
+:::

@@ -63,3 +63,44 @@ pub fn connect_page_contains_the_complete_guide_test() {
     string.contains(source.body, text) |> should.be_true()
   })
 }
+
+pub fn notes_page_contains_the_complete_guide_test() {
+  let assert Ok(source) = content.load(route.guide_notes())
+  source.metadata.description
+  |> should.equal(
+    "Step two of the watershed build guide: add a note to the board, keyed by its own id in a register OR-map, stored as one JSON value, and read back through a decoder that shows a broken note instead of crashing the board.",
+  )
+  let assert Ok(manifest) =
+    snippet.load("../website/src/generated/snippets.json")
+  content.validate_snippets(source.document, manifest, source.path)
+  |> should.be_ok()
+  [
+    "Each note gets its own id",
+    "The whole note is one register",
+    "Adding a note is one map write",
+    "Reading back: entries in, board out",
+    "Deepening: the column you don't recognise",
+    "Open the board in two tabs",
+  ]
+  |> list.each(fn(text) {
+    string.contains(source.body, text) |> should.be_true()
+  })
+  [
+    "guide-notes-note-record",
+    "guide-notes-codec",
+    "guide-notes-add-note",
+    "guide-notes-note-entries",
+    "guide-notes-ordering",
+    "guide-notes-unfiled",
+    "guide-notes-add-clicked",
+  ]
+  |> list.each(fn(id) {
+    string.contains(source.body, "data-snippet=\"" <> id <> "\"")
+    |> should.be_true()
+  })
+  ["authoritative-channel", "stamp-schema"]
+  |> list.each(fn(id) {
+    string.contains(source.body, "data-practice=\"" <> id <> "\"")
+    |> should.be_true()
+  })
+}

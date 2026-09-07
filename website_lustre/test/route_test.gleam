@@ -33,6 +33,22 @@ pub fn connect_route_is_static_and_uses_shared_styles_test() {
   |> should.equal(["/styles/site.css", "/styles/guide-race.css"])
 }
 
+pub fn notes_route_is_registered_as_a_static_guide_test() {
+  route.all()
+  |> list.filter(fn(item) { item.path == "/guide/notes" })
+  |> should.equal([route.guide_notes()])
+  route.guide_notes()
+  |> should.equal(route.Route(
+    path: "/guide/notes",
+    layout: route.Guide,
+    content_path: "content/guide/notes.djot",
+    client_script: None,
+    analytics: route.Tinylytics,
+  ))
+  route.stylesheets(route.guide_notes())
+  |> should.equal(["/styles/site.css"])
+}
+
 pub fn duplicate_paths_report_both_sources_test() {
   let first = route.guide_race()
   let second = route.Route(..first, content_path: "other.djot")

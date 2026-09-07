@@ -9,6 +9,7 @@ const record = process.argv.includes("--record-baseline");
 const site = resolve(root, record ? "../website/dist" : "dist");
 const routes = [
   { slug: "connect", anchor: "ffi-surface" },
+  { slug: "notes", anchor: "authoritative-channel" },
 ];
 
 async function snapshot(page) {

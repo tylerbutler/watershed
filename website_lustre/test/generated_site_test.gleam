@@ -70,6 +70,38 @@ pub fn generated_route_and_assets_test() {
   |> list.each(fn(text) {
     string.contains(connect_html, text) |> should.be_true()
   })
+  let assert Ok(notes_html) =
+    simplifile.read(output <> "/guide/notes/index.html")
+  let notes_tree = html_parser.as_tree(notes_html)
+  [
+    "fallible-edits",
+    "authoritative-channel",
+    "stamp-schema",
+    "anchors-not-offsets",
+  ]
+  |> list.each(fn(id) {
+    find(notes_tree, "id", id) |> list.length |> should.equal(1)
+  })
+  find(notes_tree, "src", "/scripts/field-notes.js")
+  |> list.length
+  |> should.equal(1)
+  find(notes_tree, "src", "/guide_race.js")
+  |> list.is_empty
+  |> should.be_true()
+  find(notes_tree, "href", "/guide/connect")
+  |> list.is_empty
+  |> should.be_false()
+  find(notes_tree, "href", "/guide/race")
+  |> list.is_empty
+  |> should.be_false()
+  [
+    "Each note gets its own id",
+    "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+    "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+  ]
+  |> list.each(fn(text) {
+    string.contains(notes_html, text) |> should.be_true()
+  })
   [
     "guide_race.js",
     "styles/site.css",
