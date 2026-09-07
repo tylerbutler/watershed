@@ -1,10 +1,10 @@
 # Lustre website migration
 
-This package renders `/guide/` and `/guide/race/` with Lustre SSG. The guide
-index is static; the race page runs its two-replica demo as a page-scoped
-Lustre application. The Astro site under `website/`
-remains the production site. The root `netlify.toml` still builds and
-publishes Astro; production cutover is a later milestone.
+This package renders `/guide/` and all six guide steps with Lustre SSG. The
+index and five prose-first steps are static documents; `/guide/race/` runs its
+two-replica demo as a page-scoped Lustre application. The Astro site under
+`website/` remains the production site. The root `netlify.toml` still builds
+and publishes Astro; production cutover is a later milestone.
 
 ## Run it
 
@@ -19,12 +19,10 @@ just website-lustre
 just website-lustre-serve
 ```
 
-Open `http://127.0.0.1:4321/guide/`, then choose step 03 to try the race.
-The build writes `website_lustre/dist/guide/index.html` and
-`website_lustre/dist/guide/race/index.html`, with the fonts, styles, images,
-and page scripts alongside them. Other routes have not moved: their links
-retain the Astro site's paths, but this preview artifact does not contain
-those pages.
+Open `http://127.0.0.1:4321/guide/`. The preview contains `/guide/` and the
+Connect, Notes, Race, Votes, Presence, and Testing sheets. Fonts, styles,
+images, and page scripts sit alongside the generated documents in
+`website_lustre/dist/`.
 
 The first build downloads Gleam dependencies and the Bun executable used
 by the official Lustre bundler. You do not need a separate Bun installation.
@@ -35,20 +33,20 @@ just _test-website-lustre
 ```
 
 This command rebuilds snippets and the site, runs the Gleam suite, and runs
-both Puppeteer gates against temporary loopback servers. It also runs as part
+three Puppeteer gates against temporary loopback servers. It also runs as part
 of `just test`; `just build` includes the site build. Puppeteer installs
 Chrome with the npm dependencies. Set `WATERSHED_CHROME` to use another
 Chromium executable. A missing browser skips the gate locally and fails in
 CI. No running Astro server or external collaboration service is required.
 
-The browser fixtures at `test/fixtures/astro-guide-index-parity.json` and
-`test/fixtures/astro-race-parity.json` record the original routes' copy,
-metadata, navigation, and computed styles. The index gate also follows the
-step-03 link and back, and checks keyboard navigation, no-script content,
-and reduced-motion behavior. To update the fixtures after an intentional
-Astro change, build `website/`, then run
-`pnpm run record:parity` from this directory. Review the fixture diff before
-accepting a new baseline.
+The browser fixtures under `test/fixtures/` record Astro's copy, metadata,
+navigation, code figures, field notes, and computed styles for the index, race
+sheet, and five static sheets. The index gate also follows the step-03 link and
+back, and checks keyboard navigation, no-script content, and reduced-motion
+behavior. The static-sheet gate checks field-note fragments on initial load
+and `hashchange`. To update the fixtures after an intentional Astro change,
+build `website/`, then run `pnpm run record:parity` from this directory. Review
+the fixture diff before accepting a new baseline.
 
 ## Build and rendering
 
@@ -66,23 +64,51 @@ parser. `code.gleam` maps Smalto tokens to Lustre elements because
 | Location | Purpose |
 | --- | --- |
 | `content/guide/index.djot` | Guide landing-page prose and section markers |
-| `content/guide/race.djot` | Page prose and TOML frontmatter |
+| `content/guide/*.djot` | Guide prose and TOML frontmatter |
 | `src/watershed_site/route.gleam` | Explicit route, source path, and client entry registry |
 | `src/watershed_site/content.gleam` | Metadata decoding and Djot AST validation |
 | `src/watershed_site/page.gleam` | Djot renderer and embedded demo |
+| `src/watershed_site/practice.gleam` | Typed catalog for all 17 field notes |
+| `src/watershed_site/view/field_notes.gleam` | Inline references and complete field-note sections |
 | `src/watershed_site/view/` | Complete document, sheet, guide, and footer markup |
 | `src/watershed_site/view/guide_index.gleam` | Guide landing sections, document diagram, and shared step ledger |
 | `src/watershed_site/guide_race/` | Shared static/browser view and real sluice runtime |
 | `src/watershed_site/client/guide_race.gleam` | Page-scoped browser entry |
 | `src/watershed_site/client/guide_race_ffi.mjs` | DOM geometry and Web Animations only |
+| `assets/scripts/field-notes.js` | Fragment-target reveal behavior for static sheets |
 | `assets/` | Copied CSS, licensed fonts, favicon, and social image |
 | `dev/watershed_site/build.gleam` | SSG command and contextual build errors |
 
-The build rejects raw HTML, unknown metadata, unknown components, and missing
-snippet IDs before rendering. Source-backed code blocks use the existing
-`../website/src/generated/snippets.json`, regenerated by `just snippets`.
-Declare a snippet in `website/snippets.json` and mark its source; do not
-hand-edit the generated manifest or load source files at runtime.
+The build rejects raw HTML, unknown metadata, unknown components, stale
+practice IDs, and missing snippet IDs before rendering. Source-backed code
+blocks use the existing `../website/src/generated/snippets.json`, regenerated
+by `just snippets`. Declare a snippet in `website/snippets.json` and mark its
+source; do not hand-edit the generated manifest or load source files at
+runtime. The Connect sheet's `gleam.toml` is a whole-file manifest entry, so
+Astro and Lustre quote the same file.
+
+Static guide Djot has three explicit extensions:
+
+````djot
+{data-snippet="guide-notes-note-record"}
+```gleam
+generated
+```
+
+{data-source-label="(illustrative — not in the tutorial source)"}
+```gleam
+let current = read_total(board, id)
+```
+
+{data-component="field-note-ref" data-practice="authoritative-channel"}
+:::
+:::
+````
+
+`data-caption` adds a plain-text figure caption to either code-block form.
+Generated snippet IDs must resolve through the manifest. Field-note IDs must
+resolve through `practice.gleam`; the catalog also decides which complete
+notes appear at the end of each sheet.
 
 The guide index loads its own stylesheet and no Lustre client bundle. Its
 small reveal script comes from `website/src/scripts/motion.js`: the SSG build
@@ -90,6 +116,10 @@ copies that shared implementation and adds its startup call. The six step
 links use the same typed guide catalog as the race page's navigation.
 Content stays visible without JavaScript, and the script respects reduced
 motion.
+
+Connect, Notes, Votes, Presence, and Testing load only the shared
+`/scripts/field-notes.js` module. Race loads only `/guide_race.js` and is the
+only route that receives `guide-race.css`.
 
 For headings referenced by `aria-labelledby`, use the `data-heading-id`
 Djot attribute. The renderer turns it into an HTML `id`; Jot replaces the
