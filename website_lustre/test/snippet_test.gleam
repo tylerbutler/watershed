@@ -70,7 +70,7 @@ pub fn snippet_fixture_uses_manifest_and_highlights_test() {
 pub fn literal_labels_and_captions_render_test() {
   let assert Ok(manifest) = snippet.load(manifest_path)
   let source =
-    "{data-source-label=\"(shell)\" data-caption=\"Run the suite\"}\n```sh\ngleam test\n```"
+    "{data-source-label=\"(shell)\" data-caption=\"Run %3Fsuite%3D\"}\n```sh\ngleam test\n```"
   let html =
     djot.render(source, code.renderer(manifest, "abc123"))
     |> element.fragment
@@ -78,7 +78,7 @@ pub fn literal_labels_and_captions_render_test() {
   [
     "<span class=\"g-file\">(shell)</span>",
     "<figure class=\"g-code\">",
-    "<figcaption class=\"annot\">Run the suite</figcaption>",
+    "<figcaption class=\"annot\">Run ?suite=</figcaption>",
     "gleam test",
   ]
   |> list.each(fn(expected) {

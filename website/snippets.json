@@ -455,6 +455,12 @@
       "wholeFile": true
     },
     {
+      "id": "guide-connect-gleam-toml",
+      "sourcePath": "examples/retro_tutorial_lustre/gleam.toml",
+      "language": "toml",
+      "wholeFile": true
+    },
+    {
       "id": "guide-notes-add-clicked",
       "sourcePath": "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
       "language": "gleam",

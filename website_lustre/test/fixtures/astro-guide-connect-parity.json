@@ -1,0 +1,570 @@
+{
+  "desktop": {
+    "title": "watershed — connect the board",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Step one of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render."
+      ],
+      [
+        "og:title",
+        "watershed — connect the board"
+      ],
+      [
+        "og:description",
+        "Step one of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/guide/connect/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Connect the board",
+    "headings": [
+      "Connect to a live document",
+      "Connecting is a declared effect, not a callback",
+      "The handle and the handshake are two different events",
+      "Define the board's fields",
+      "Create the shared maps",
+      "Build the board only when both channels are ready",
+      "Deepening: the same thing on the BEAM",
+      "Run it",
+      "How the examples do it",
+      "Treat the server as an optional decorator",
+      "One shared core, two runtimes",
+      "Sample diagnostics on every event",
+      "Hand a rendering surface to FFI, and bootstrap on Connected",
+      "Panels take a TypedMap, never a root",
+      "Seed idempotently with Claims"
+    ],
+    "prose": [
+      "A watershed document is a collection of data stored in collaborative structures. Watershed defines how those structures sync; your application decides what their data means. In this tutorial, each document is one retro board.",
+      "A tenant id and a document id address the document. The tenant id groups documents; the document id picks one board in that group. Any client that opens the same pair of names joins the same live board — open the same link in two tabs and you're looking at the same board in both.",
+      "Connecting does two things. First it catches you up: the server replays the document's whole history of edits, so this board opens at its current state instead of an empty one. Then it keeps the line open, streaming every later edit — yours and everyone else's — in the single order the server assigns.",
+      "The browser side of watershed talks in callbacks: on_ready, subscription handlers, presence events. If you wired those into Lustre by hand, each one would need to fire off a message on its own, and firing a message from inside update, while update is still assembling the model you're about to return, quietly overwrites that half-built model with a stale one. watershed_lustre does that wiring once, correctly, so your init just returns the connection as one more effect — the same way it returns any other effect in Lustre.",
+      "Development and production put token signing on opposite sides of the browser boundary. connect_dev keeps this tutorial self-contained by signing an HS256 token in the browser with the tenant secret expected by just integration-up. A production browser cannot hold that secret: anyone who extracts it could mint tokens for the tenant. Your backend must authenticate the user, sign the token, and send only that token to the browser, which passes it to watershed_lustre.connect. The two functions make that credential boundary explicit; after token creation, both use the same connection path.",
+      "Notice that connect_dev fires two separate messages. got_document arrives the moment you have something to hold onto — a reference to the document, before it's caught up. connected arrives later, once the server has finished replaying history and you're actually in sync. Treat those as the same moment and you get a subtle bug on first load: you start building on a document that looks ready but hasn't caught up yet, and wonder why the board flickers or shows nothing.",
+      "So the tutorial app keeps both messages separate, and only starts building the board once whichever one arrives second has shown up. That is the whole reason for the double case below.",
+      "FIELD NOTE Hand a rendering surface to FFI, and bootstrap on Connected ↓",
+      "The schema lists the shared fields in a document. This board has a title string and two maps named notes and votes. A named shared map is called a channel.",
+      "Keep these names in one file instead of repeating strings throughout the app. The BoardDocument type also prevents code from using one of these fields with a different kind of document. For the full picture of what a field can be (a plain value, a handle to a nested map, or a handle to another channel kind entirely), see Foundations · schemas and fields.",
+      "A new document starts empty. ensure_or_map creates a map if the field is empty, or adopts whichever one is already there. Open a new board from two tabs at once and both calls still resolve to an attached map — the field settles on one handle without a leader — but the two calls aren't promised to hand back the same map in the same tick. See Foundations · starting a document for the concurrent-bootstrap details.",
+      "RegisterMode stores one string per key for notes. TallyMode stores one signed number per key for votes. You choose the mode when you create the channel.",
+      "FIELD NOTE Seed idempotently with Claims ↓",
+      "Each call to ensure_or_map hands its map back separately, and the two don't arrive together. Build the board as soon as one shows up and you'd get shared state with one channel missing, so the app holds both results in a PendingShared pair and doesn't assemble the board until both are in. Until then, the shell still renders and its status line reports channels 1/2.",
+      "The subscriptions come last, and they matter more than they look. A subscription only tells you about changes that happen after you subscribe — it never replays what's already in the map. That's why assemble takes a snapshot of the current state in the same breath that it subscribes. Skip the snapshot, and the board boots up empty and stays empty until someone else happens to type.",
+      "One message for both origins. A local edit and a remote edit both end in the same snapshot re-read. The local branch calls it after writing; a remote change reaches it through SharedChanged. Keeping one snapshot path prevents the two origins from producing different board state.",
+      "watershed is built BEAM-first (the BEAM is the Erlang virtual machine that Gleam also targets on the server), and the same core logic compiles to the browser too. The map operations are identical either way; only the connecting and subscribing look different, because the two runtimes work differently.",
+      "On the BEAM, there's no two-message dance to design around: connect simply pauses your code until the document has fully caught up, so by the time you're holding a handle, it's already synced. That's the difference that changes how you design the connection, and it's why the browser path above needs the two-message pattern: JavaScript can't pause and wait the way an OTP process (an Erlang-style lightweight process) can.",
+      "FIELD NOTE One shared core, two runtimes ↓",
+      "Here is the project's source and test layout, so you know where each later sheet puts its file. The board and note modules arrive in step 02; the app shell already imports them, so use the complete example and read the guide forward.",
+      "watershed is not published to Hex yet, so the two path dependencies resolve because this example is in examples/ inside a watershed checkout. In your own project take both as git dependencies pinned to a commit; the README gives the exact lines.",
+      "Start a floodgate development server on port 4000 with just integration-up, then:",
+      "Open http://localhost:8080 and read the status line: connected · board ready · 0 notes. The document is live and both channels are attached — there is just nothing in them yet. Step 02 fixes that."
+    ],
+    "links": [
+      [
+        "watershed_lustre",
+        "https://github.com/tylerbutler/watershed/tree/main/watershed_lustre"
+      ],
+      [
+        "Hand a rendering surface to FFI, and bootstrap on Connected ↓",
+        "/guide/connect#ffi-surface"
+      ],
+      [
+        "Foundations · schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Foundations · starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "Seed idempotently with Claims ↓",
+        "/guide/connect#claims-seeding"
+      ],
+      [
+        "One shared core, two runtimes ↓",
+        "/guide/connect#shared-core-two-runtimes"
+      ],
+      [
+        "README",
+        "https://github.com/tylerbutler/watershed#install"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/clap_counter_lustre/src/clap_counter_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#clap_counter_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/dice_cli/src/dice_cli.gleam"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/dice_lustre/src/dice_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#dice_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/pixel_canvas_lustre/src/pixel_canvas_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#pixel_canvas_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/showcase_lustre/src/showcase_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#showcase_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre/src/sudoku_lustre/component.gleam"
+      ],
+      [
+        "",
+        "/examples#sudoku_lustre"
+      ]
+    ],
+    "guide": [
+      [
+        "← INDEX The survey procedure",
+        "/guide"
+      ],
+      [
+        "STEP 02 → Add notes",
+        "/guide/notes"
+      ]
+    ],
+    "labels": [
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "watershed_beam (comparison)",
+      "examples/retro_tutorial_lustre/",
+      "examples/retro_tutorial_lustre/gleam.toml",
+      "(shell)",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "captions": [
+      "DOCUMENT_ON_NAVIGATE READS ?DOCUMENT= FROM THE URL, OR MINTS A NAME AND PUTS IT THERE — SO TWO TABS SHARE A BOARD BY SHARING THE LINK",
+      "WATERSHED_BEAM · FOR COMPARISON ONLY, THE TUTORIAL STAYS IN THE BROWSER",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "code": [
+      "/// These dev constants match `just integration-up`.\n/// Change them when you point the example at another server.\nconst socket_url = \"ws://localhost:4000/socket/websocket?vsn=2.0.0\"\n\nconst tenant = \"dev-tenant\"\n\nconst tenant_secret = \"levee-dev-secret-change-in-production\"",
+      "pub fn main() -> Nil {\n  let app = lustre.application(init, update, view)\n  let document = browser.document_on_navigate(\"retro-tutorial\")\n  let assert Ok(_) = lustre.start(app, \"#app\", document)\n  Nil\n}",
+      "fn init(document: String) -> #(Model, Effect(Msg)) {\n  let user_id = \"web-\" <> int.to_string(1000 + int.random(9000))\n  let model =\n    Model(\n      status: Connecting,\n      document: None,\n      shared: None,\n      pending: PendingShared(None, None),\n      user_id: user_id,\n      color: presence.color_for(user_id),\n      focus: None,\n      presence: None,\n      peers: [],\n      board: board.empty(\"Sprint retro\"),\n      drafts: dict.new(),\n      last_error: None,\n    )\n\n  #(\n    model,\n    watershed_lustre.connect_dev(\n      url: socket_url,\n      tenant: tenant,\n      secret: tenant_secret,\n      document: document,\n      user_id: user_id,\n      got_document: GotDocument,\n      connected: Connected,\n    ),\n  )\n}",
+      "GotDocument(document) -> {\n  let model = Model(..model, document: Some(document))\n  let presence_start = presence_effect(model, document)\n  case model.status, model.shared {\n    Ready, None -> #(\n      model,\n      effect.batch([bootstrap_effect(document), presence_start]),\n    )\n    _, _ -> #(model, presence_start)\n  }\n}\n\nConnected(Ok(_)) -> {\n  let model = Model(..model, status: Ready)\n  case model.document, model.shared {\n    Some(document), None -> #(model, bootstrap_effect(document))\n    _, _ -> #(model, effect.none())\n  }\n}\n\nConnected(Error(reason)) -> #(\n  Model(..model, status: Failed(reason), last_error: Some(reason)),\n  effect.none(),\n)",
+      "//// Typed schema for the tutorial retro board.\n////\n//// The root map carries one field (`title`) and two nested OR-map channels.\n//// `notes` uses RegisterMode for whole-note writes. `votes` uses TallyMode\n//// for per-note signed tallies.\n\nimport gleam/dynamic/decode\nimport gleam/json\nimport watershed/schema.{type ChannelField, type Field, type OrMapChannel}\n\n/// Phantom tag for the root map.\npub type BoardDocument\n\n/// The board title shown in the header.\npub fn title() -> Field(BoardDocument, String) {\n  schema.field(\"title\", json.string, decode.string)\n}\n\n/// Note id → JSON note string in RegisterMode.\npub fn notes() -> ChannelField(BoardDocument, OrMapChannel) {\n  schema.channel_field(\"notes\")\n}\n\n/// Note id → signed tally in TallyMode.\npub fn votes() -> ChannelField(BoardDocument, OrMapChannel) {\n  schema.channel_field(\"votes\")\n}",
+      "fn bootstrap_effect(\n  document: Document(document_schema.BoardDocument),\n) -> Effect(Msg) {\n  let root = watershed.root_typed(document)\n  effect.batch([\n    watershed_lustre.ensure_field(root, document_schema.title(), \"Sprint retro\"),\n    watershed_lustre.ensure_or_map(\n      document,\n      root,\n      document_schema.notes(),\n      or_map_kernel.RegisterMode,\n      EnsuredNotes,\n    ),\n    watershed_lustre.ensure_or_map(\n      document,\n      root,\n      document_schema.votes(),\n      or_map_kernel.TallyMode,\n      EnsuredVotes,\n    ),\n    watershed_lustre.subscribe(watershed.root(document), fn(_event) {\n      SharedChanged\n    }),\n  ])\n}",
+      "fn assemble(model: Model) -> #(Model, Effect(Msg)) {\n  case model.shared, model.pending {\n    None, PendingShared(Some(notes), Some(votes)) -> {\n      let shared = SharedState(notes:, votes:)\n      let model = snapshot(Model(..model, shared: Some(shared)))\n      #(\n        model,\n        effect.batch([\n          watershed_lustre.subscribe_or_map(shared.notes, fn(_) {\n            SharedChanged\n          }),\n          watershed_lustre.subscribe_or_map(shared.votes, fn(_) {\n            SharedChanged\n          }),\n        ]),\n      )\n    }\n    _, _ -> #(model, effect.none())\n  }\n}",
+      "import gleam/erlang/process.{type Subject}\nimport watershed/map_kernel\nimport watershed_beam\n\n// Blocks until the document's full history has replayed locally, then\n// hands back the document — fine inside an OTP process, but it would\n// freeze everything in a browser tab.\nlet assert Ok(doc) =\n  watershed_beam.connect(\n    host: \"127.0.0.1\",\n    port: 4000,\n    tenant: \"dev-tenant\",\n    document: \"retro-tutorial\",\n    token: token,\n    user_id: \"ada\",\n  )\n\n// Root-map changes arrive as a Subject you select on, not as a callback.\nlet events: Subject(map_kernel.MapEvent) =\n  watershed_beam.subscribe(watershed_beam.root(doc))",
+      "retro_tutorial_lustre/\n├── gleam.toml\n├── package.json\n├── pnpm-workspace.yaml\n├── build.mjs\n├── index.html\n├── src/\n│   ├── retro_tutorial_lustre.gleam ← every sheet\n│   └── retro_tutorial_lustre/\n│       ├── document_schema.gleam   ← this sheet\n│       ├── note.gleam              ← step 02\n│       └── board.gleam             ← step 02\n└── test/\n    ├── retro_tutorial_lustre_test.gleam\n    ├── note_codec_test.gleam\n    ├── board_test.gleam\n    └── convergence_test.gleam      ← step 06",
+      "name = \"retro_tutorial_lustre\"\nversion = \"1.0.0\"\ndescription = \"Small retro board tutorial example for watershed Lustre\"\nlicences = [\"MIT\"]\ngleam = \">= 1.7.0\"\ntarget = \"javascript\"\n\n[dependencies]\ngleam_stdlib = \">= 0.62.0 and < 2.0.0\"\ngleam_json = \">= 3.0.0 and < 4.0.0\"\ngleam_javascript = \">= 1.0.0 and < 2.0.0\"\nlustre = \">= 5.0.0 and < 6.0.0\"\nwatershed = { path = \"../..\" }\nwatershed_lustre = { path = \"../../watershed_lustre\" }\n\n[dev-dependencies]\ngleeunit = \">= 1.0.0 and < 3.0.0\"",
+      "cd examples/retro_tutorial_lustre\npnpm install\npnpm build\npnpm serve      # http://localhost:8080",
+      "let config =\n  crdt_js.config(\n    room_id: room,\n    replica_label: \"tab\",\n    compatibility_tag: compatibility,\n    root: p2p.pn_counter_root(),\n    signaling: signaling,\n  )\n  |> crdt_js.with_ice_servers(ice_servers())\n  |> with_relay\n\n/// Attach the optional relay named by `?relay=`, and nothing at all\n/// without one. The policy stays `Auto` either way: readiness never waits\n/// for a relay, so a URL pointing at a service that is down costs a\n/// status line and no claps.\nfn with_relay(\n  config: crdt_js.Config(PnCounterChannel),\n) -> crdt_js.Config(PnCounterChannel) {\n  case query(relay_param, \"\") {\n    \"\" -> config\n    url -> crdt_js.with_sequencer(config, crdt_js.sequencer(url))\n  }\n}",
+      "fn event_loop(\n  map: watershed_beam.SharedMap,\n  selector: process.Selector(CliMsg),\n  roll_due: process.Subject(Nil),\n) -> Nil {\n  case process.selector_receive_forever(selector) {\n    MapChanged(event) -> {\n      print_event(event)\n      print_snapshot(map)\n      event_loop(map, selector, roll_due)\n    }\n    RollDue -> {\n      roll(map)\n      schedule_roll(roll_due, roll_interval_milliseconds)\n      event_loop(map, selector, roll_due)\n    }\n  }\n}",
+      "fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {\n  \"phase=\"\n  <> diagnostics.phase\n  <> \" client=\"\n  <> option.unwrap(diagnostics.client_id, \"none\")\n  <> \" sn=\"\n  <> option_int(diagnostics.last_seen_sequence_number)\n  <> \" next_csn=\"\n  <> option_int(diagnostics.next_client_sequence_number)\n  <> \" in_flight=\"\n  <> int.to_string(diagnostics.in_flight_count)\n  <> \" buffered=\"\n  <> int.to_string(diagnostics.buffered_out_of_order_count)\n  <> \" resubmit_at=\"\n  <> option_int(diagnostics.resubmit_checkpoint)\n  <> \" synced=\"\n  <> bool_to_string(diagnostics.synced)\n}",
+      "// `root_typed` is the line that makes this the standalone app rather than a\n// panel: it is the only place the document's root is named.\nConnected(Ok(_)) ->\n  case model.document {\n    None -> #(Model(..model, status: Ready), effect.none())\n    Some(document) -> {\n      let #(canvas, canvas_effect) =\n        component.init(document, watershed.root_typed(document))\n      #(\n        Model(..model, status: Ready, canvas: Some(canvas)),\n        effect.map(canvas_effect, Canvas),\n      )\n    }\n  }\nConnected(Error(reason)) -> #(\n  Model(..model, status: Failed(reason), last_error: Some(reason)),\n  effect.none(),\n)",
+      "/// Bootstrap the document declaratively: one summarization policy and four\n/// child maps, as one batch.\n///\n/// Every tab runs this unconditionally. `ensure_child` creates a map only if\n/// the key is absent, so two tabs opening a *cold* document can both create one\n/// and LWW settles a single handle — the loser is orphaned before anybody has\n/// interacted with it, and every tab converges on the same four handles. That\n/// race predates the showcase; what is new is running it four times per cold\n/// start instead of once.\nfn bootstrap_effect(\n  document: Document(document_schema.Showcase),\n) -> Effect(Msg) {\n  let root = watershed.root_typed(document)\n  effect.batch([\n    watershed_lustre.auto_summarize(\n      document: document,\n      policy: summary_policy.policy()\n        |> summary_policy.with_threshold(summary_threshold),\n    ),\n    watershed_lustre.ensure_child(\n      document,\n      root,\n      document_schema.text(),\n      EnsuredText,\n    ),\n    watershed_lustre.ensure_child(\n      document,\n      root,\n      document_schema.playlist(),\n      EnsuredPlaylist,\n    ),\n    watershed_lustre.ensure_child(\n      document,\n      root,\n      document_schema.sudoku(),\n      EnsuredSudoku,\n    ),\n    watershed_lustre.ensure_child(\n      document,\n      root,\n      document_schema.canvas(),\n      EnsuredCanvas,\n    ),\n  ])\n}",
+      "fn seed_givens(\n  claims: Claims,\n  active_puzzle: Puzzle,\n  row: Int,\n  column: Int,\n) -> Nil {\n  case row >= 9 {\n    True -> Nil\n    False -> {\n      let given = puzzle.given_at(active_puzzle, row, column)\n      case given > 0 {\n        True -> {\n          let _ =\n            watershed.claim_once(claims, cell_key(row, column), json.int(given))\n          Nil\n        }\n        False -> Nil\n      }\n      case column == 8 {\n        True -> seed_givens(claims, active_puzzle, row + 1, 0)\n        False -> seed_givens(claims, active_puzzle, row, column + 1)\n      }\n    }\n  }\n}"
+    ],
+    "notes": [
+      {
+        "id": "relay-decorator",
+        "summary": "Treat the server as an optional decorator A peer-to-peer app may use a relay for durability, but it should not need one to start.",
+        "body": ""
+      },
+      {
+        "id": "shared-core-two-runtimes",
+        "summary": "One shared core, two runtimes Keep the shared core portable by connecting to the same document from the BEAM and the browser.",
+        "body": ""
+      },
+      {
+        "id": "diagnostics-first",
+        "summary": "Sample diagnostics on every event Put the runtime's diagnostics on screen before you debug synchronization.",
+        "body": ""
+      },
+      {
+        "id": "ffi-surface",
+        "summary": "Hand a rendering surface to FFI, and bootstrap on Connected Let an FFI module own the canvas pixels, and create shared channels only after the connection opens.",
+        "body": ""
+      },
+      {
+        "id": "typedmap-panels",
+        "summary": "Panels take a TypedMap, never a root Give a reusable component a typed map, whether that map is a root or a child. Keep document-wide effects in the shell.",
+        "body": ""
+      },
+      {
+        "id": "claims-seeding",
+        "summary": "Seed idempotently with Claims Let every client seed the same initial values through first-writer-wins claims.",
+        "body": ""
+      }
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "reference": {
+        "display": "flex",
+        "padding": "12px 16px",
+        "border-left": "2px solid oklch(0.55 0.21 340)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "note": {
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "scroll-margin-top": "24px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — connect the board",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Step one of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render."
+      ],
+      [
+        "og:title",
+        "watershed — connect the board"
+      ],
+      [
+        "og:description",
+        "Step one of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/guide/connect/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Connect the board",
+    "headings": [
+      "Connect to a live document",
+      "Connecting is a declared effect, not a callback",
+      "The handle and the handshake are two different events",
+      "Define the board's fields",
+      "Create the shared maps",
+      "Build the board only when both channels are ready",
+      "Deepening: the same thing on the BEAM",
+      "Run it",
+      "How the examples do it",
+      "Treat the server as an optional decorator",
+      "One shared core, two runtimes",
+      "Sample diagnostics on every event",
+      "Hand a rendering surface to FFI, and bootstrap on Connected",
+      "Panels take a TypedMap, never a root",
+      "Seed idempotently with Claims"
+    ],
+    "prose": [
+      "A watershed document is a collection of data stored in collaborative structures. Watershed defines how those structures sync; your application decides what their data means. In this tutorial, each document is one retro board.",
+      "A tenant id and a document id address the document. The tenant id groups documents; the document id picks one board in that group. Any client that opens the same pair of names joins the same live board — open the same link in two tabs and you're looking at the same board in both.",
+      "Connecting does two things. First it catches you up: the server replays the document's whole history of edits, so this board opens at its current state instead of an empty one. Then it keeps the line open, streaming every later edit — yours and everyone else's — in the single order the server assigns.",
+      "The browser side of watershed talks in callbacks: on_ready, subscription handlers, presence events. If you wired those into Lustre by hand, each one would need to fire off a message on its own, and firing a message from inside update, while update is still assembling the model you're about to return, quietly overwrites that half-built model with a stale one. watershed_lustre does that wiring once, correctly, so your init just returns the connection as one more effect — the same way it returns any other effect in Lustre.",
+      "Development and production put token signing on opposite sides of the browser boundary. connect_dev keeps this tutorial self-contained by signing an HS256 token in the browser with the tenant secret expected by just integration-up. A production browser cannot hold that secret: anyone who extracts it could mint tokens for the tenant. Your backend must authenticate the user, sign the token, and send only that token to the browser, which passes it to watershed_lustre.connect. The two functions make that credential boundary explicit; after token creation, both use the same connection path.",
+      "Notice that connect_dev fires two separate messages. got_document arrives the moment you have something to hold onto — a reference to the document, before it's caught up. connected arrives later, once the server has finished replaying history and you're actually in sync. Treat those as the same moment and you get a subtle bug on first load: you start building on a document that looks ready but hasn't caught up yet, and wonder why the board flickers or shows nothing.",
+      "So the tutorial app keeps both messages separate, and only starts building the board once whichever one arrives second has shown up. That is the whole reason for the double case below.",
+      "FIELD NOTE Hand a rendering surface to FFI, and bootstrap on Connected ↓",
+      "The schema lists the shared fields in a document. This board has a title string and two maps named notes and votes. A named shared map is called a channel.",
+      "Keep these names in one file instead of repeating strings throughout the app. The BoardDocument type also prevents code from using one of these fields with a different kind of document. For the full picture of what a field can be (a plain value, a handle to a nested map, or a handle to another channel kind entirely), see Foundations · schemas and fields.",
+      "A new document starts empty. ensure_or_map creates a map if the field is empty, or adopts whichever one is already there. Open a new board from two tabs at once and both calls still resolve to an attached map — the field settles on one handle without a leader — but the two calls aren't promised to hand back the same map in the same tick. See Foundations · starting a document for the concurrent-bootstrap details.",
+      "RegisterMode stores one string per key for notes. TallyMode stores one signed number per key for votes. You choose the mode when you create the channel.",
+      "FIELD NOTE Seed idempotently with Claims ↓",
+      "Each call to ensure_or_map hands its map back separately, and the two don't arrive together. Build the board as soon as one shows up and you'd get shared state with one channel missing, so the app holds both results in a PendingShared pair and doesn't assemble the board until both are in. Until then, the shell still renders and its status line reports channels 1/2.",
+      "The subscriptions come last, and they matter more than they look. A subscription only tells you about changes that happen after you subscribe — it never replays what's already in the map. That's why assemble takes a snapshot of the current state in the same breath that it subscribes. Skip the snapshot, and the board boots up empty and stays empty until someone else happens to type.",
+      "One message for both origins. A local edit and a remote edit both end in the same snapshot re-read. The local branch calls it after writing; a remote change reaches it through SharedChanged. Keeping one snapshot path prevents the two origins from producing different board state.",
+      "watershed is built BEAM-first (the BEAM is the Erlang virtual machine that Gleam also targets on the server), and the same core logic compiles to the browser too. The map operations are identical either way; only the connecting and subscribing look different, because the two runtimes work differently.",
+      "On the BEAM, there's no two-message dance to design around: connect simply pauses your code until the document has fully caught up, so by the time you're holding a handle, it's already synced. That's the difference that changes how you design the connection, and it's why the browser path above needs the two-message pattern: JavaScript can't pause and wait the way an OTP process (an Erlang-style lightweight process) can.",
+      "FIELD NOTE One shared core, two runtimes ↓",
+      "Here is the project's source and test layout, so you know where each later sheet puts its file. The board and note modules arrive in step 02; the app shell already imports them, so use the complete example and read the guide forward.",
+      "watershed is not published to Hex yet, so the two path dependencies resolve because this example is in examples/ inside a watershed checkout. In your own project take both as git dependencies pinned to a commit; the README gives the exact lines.",
+      "Start a floodgate development server on port 4000 with just integration-up, then:",
+      "Open http://localhost:8080 and read the status line: connected · board ready · 0 notes. The document is live and both channels are attached — there is just nothing in them yet. Step 02 fixes that."
+    ],
+    "links": [
+      [
+        "watershed_lustre",
+        "https://github.com/tylerbutler/watershed/tree/main/watershed_lustre"
+      ],
+      [
+        "Hand a rendering surface to FFI, and bootstrap on Connected ↓",
+        "/guide/connect#ffi-surface"
+      ],
+      [
+        "Foundations · schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Foundations · starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "Seed idempotently with Claims ↓",
+        "/guide/connect#claims-seeding"
+      ],
+      [
+        "One shared core, two runtimes ↓",
+        "/guide/connect#shared-core-two-runtimes"
+      ],
+      [
+        "README",
+        "https://github.com/tylerbutler/watershed#install"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/clap_counter_lustre/src/clap_counter_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#clap_counter_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/dice_cli/src/dice_cli.gleam"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/dice_lustre/src/dice_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#dice_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/pixel_canvas_lustre/src/pixel_canvas_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#pixel_canvas_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/showcase_lustre/src/showcase_lustre.gleam"
+      ],
+      [
+        "",
+        "/examples#showcase_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre/src/sudoku_lustre/component.gleam"
+      ],
+      [
+        "",
+        "/examples#sudoku_lustre"
+      ]
+    ],
+    "guide": [
+      [
+        "← INDEX The survey procedure",
+        "/guide"
+      ],
+      [
+        "STEP 02 → Add notes",
+        "/guide/notes"
+      ]
+    ],
+    "labels": [
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/document_schema.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "watershed_beam (comparison)",
+      "examples/retro_tutorial_lustre/",
+      "examples/retro_tutorial_lustre/gleam.toml",
+      "(shell)",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "captions": [
+      "DOCUMENT_ON_NAVIGATE READS ?DOCUMENT= FROM THE URL, OR MINTS A NAME AND PUTS IT THERE — SO TWO TABS SHARE A BOARD BY SHARING THE LINK",
+      "WATERSHED_BEAM · FOR COMPARISON ONLY, THE TUTORIAL STAYS IN THE BROWSER",
+      "",
+      "",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "code": [
+      "/// These dev constants match `just integration-up`.\n/// Change them when you point the example at another server.\nconst socket_url = \"ws://localhost:4000/socket/websocket?vsn=2.0.0\"\n\nconst tenant = \"dev-tenant\"\n\nconst tenant_secret = \"levee-dev-secret-change-in-production\"",
+      "pub fn main() -> Nil {\n  let app = lustre.application(init, update, view)\n  let document = browser.document_on_navigate(\"retro-tutorial\")\n  let assert Ok(_) = lustre.start(app, \"#app\", document)\n  Nil\n}",
+      "fn init(document: String) -> #(Model, Effect(Msg)) {\n  let user_id = \"web-\" <> int.to_string(1000 + int.random(9000))\n  let model =\n    Model(\n      status: Connecting,\n      document: None,\n      shared: None,\n      pending: PendingShared(None, None),\n      user_id: user_id,\n      color: presence.color_for(user_id),\n      focus: None,\n      presence: None,\n      peers: [],\n      board: board.empty(\"Sprint retro\"),\n      drafts: dict.new(),\n      last_error: None,\n    )\n\n  #(\n    model,\n    watershed_lustre.connect_dev(\n      url: socket_url,\n      tenant: tenant,\n      secret: tenant_secret,\n      document: document,\n      user_id: user_id,\n      got_document: GotDocument,\n      connected: Connected,\n    ),\n  )\n}",
+      "GotDocument(document) -> {\n  let model = Model(..model, document: Some(document))\n  let presence_start = presence_effect(model, document)\n  case model.status, model.shared {\n    Ready, None -> #(\n      model,\n      effect.batch([bootstrap_effect(document), presence_start]),\n    )\n    _, _ -> #(model, presence_start)\n  }\n}\n\nConnected(Ok(_)) -> {\n  let model = Model(..model, status: Ready)\n  case model.document, model.shared {\n    Some(document), None -> #(model, bootstrap_effect(document))\n    _, _ -> #(model, effect.none())\n  }\n}\n\nConnected(Error(reason)) -> #(\n  Model(..model, status: Failed(reason), last_error: Some(reason)),\n  effect.none(),\n)",
+      "//// Typed schema for the tutorial retro board.\n////\n//// The root map carries one field (`title`) and two nested OR-map channels.\n//// `notes` uses RegisterMode for whole-note writes. `votes` uses TallyMode\n//// for per-note signed tallies.\n\nimport gleam/dynamic/decode\nimport gleam/json\nimport watershed/schema.{type ChannelField, type Field, type OrMapChannel}\n\n/// Phantom tag for the root map.\npub type BoardDocument\n\n/// The board title shown in the header.\npub fn title() -> Field(BoardDocument, String) {\n  schema.field(\"title\", json.string, decode.string)\n}\n\n/// Note id → JSON note string in RegisterMode.\npub fn notes() -> ChannelField(BoardDocument, OrMapChannel) {\n  schema.channel_field(\"notes\")\n}\n\n/// Note id → signed tally in TallyMode.\npub fn votes() -> ChannelField(BoardDocument, OrMapChannel) {\n  schema.channel_field(\"votes\")\n}",
+      "fn bootstrap_effect(\n  document: Document(document_schema.BoardDocument),\n) -> Effect(Msg) {\n  let root = watershed.root_typed(document)\n  effect.batch([\n    watershed_lustre.ensure_field(root, document_schema.title(), \"Sprint retro\"),\n    watershed_lustre.ensure_or_map(\n      document,\n      root,\n      document_schema.notes(),\n      or_map_kernel.RegisterMode,\n      EnsuredNotes,\n    ),\n    watershed_lustre.ensure_or_map(\n      document,\n      root,\n      document_schema.votes(),\n      or_map_kernel.TallyMode,\n      EnsuredVotes,\n    ),\n    watershed_lustre.subscribe(watershed.root(document), fn(_event) {\n      SharedChanged\n    }),\n  ])\n}",
+      "fn assemble(model: Model) -> #(Model, Effect(Msg)) {\n  case model.shared, model.pending {\n    None, PendingShared(Some(notes), Some(votes)) -> {\n      let shared = SharedState(notes:, votes:)\n      let model = snapshot(Model(..model, shared: Some(shared)))\n      #(\n        model,\n        effect.batch([\n          watershed_lustre.subscribe_or_map(shared.notes, fn(_) {\n            SharedChanged\n          }),\n          watershed_lustre.subscribe_or_map(shared.votes, fn(_) {\n            SharedChanged\n          }),\n        ]),\n      )\n    }\n    _, _ -> #(model, effect.none())\n  }\n}",
+      "import gleam/erlang/process.{type Subject}\nimport watershed/map_kernel\nimport watershed_beam\n\n// Blocks until the document's full history has replayed locally, then\n// hands back the document — fine inside an OTP process, but it would\n// freeze everything in a browser tab.\nlet assert Ok(doc) =\n  watershed_beam.connect(\n    host: \"127.0.0.1\",\n    port: 4000,\n    tenant: \"dev-tenant\",\n    document: \"retro-tutorial\",\n    token: token,\n    user_id: \"ada\",\n  )\n\n// Root-map changes arrive as a Subject you select on, not as a callback.\nlet events: Subject(map_kernel.MapEvent) =\n  watershed_beam.subscribe(watershed_beam.root(doc))",
+      "retro_tutorial_lustre/\n├── gleam.toml\n├── package.json\n├── pnpm-workspace.yaml\n├── build.mjs\n├── index.html\n├── src/\n│   ├── retro_tutorial_lustre.gleam ← every sheet\n│   └── retro_tutorial_lustre/\n│       ├── document_schema.gleam   ← this sheet\n│       ├── note.gleam              ← step 02\n│       └── board.gleam             ← step 02\n└── test/\n    ├── retro_tutorial_lustre_test.gleam\n    ├── note_codec_test.gleam\n    ├── board_test.gleam\n    └── convergence_test.gleam      ← step 06",
+      "name = \"retro_tutorial_lustre\"\nversion = \"1.0.0\"\ndescription = \"Small retro board tutorial example for watershed Lustre\"\nlicences = [\"MIT\"]\ngleam = \">= 1.7.0\"\ntarget = \"javascript\"\n\n[dependencies]\ngleam_stdlib = \">= 0.62.0 and < 2.0.0\"\ngleam_json = \">= 3.0.0 and < 4.0.0\"\ngleam_javascript = \">= 1.0.0 and < 2.0.0\"\nlustre = \">= 5.0.0 and < 6.0.0\"\nwatershed = { path = \"../..\" }\nwatershed_lustre = { path = \"../../watershed_lustre\" }\n\n[dev-dependencies]\ngleeunit = \">= 1.0.0 and < 3.0.0\"",
+      "cd examples/retro_tutorial_lustre\npnpm install\npnpm build\npnpm serve      # http://localhost:8080",
+      "let config =\n  crdt_js.config(\n    room_id: room,\n    replica_label: \"tab\",\n    compatibility_tag: compatibility,\n    root: p2p.pn_counter_root(),\n    signaling: signaling,\n  )\n  |> crdt_js.with_ice_servers(ice_servers())\n  |> with_relay\n\n/// Attach the optional relay named by `?relay=`, and nothing at all\n/// without one. The policy stays `Auto` either way: readiness never waits\n/// for a relay, so a URL pointing at a service that is down costs a\n/// status line and no claps.\nfn with_relay(\n  config: crdt_js.Config(PnCounterChannel),\n) -> crdt_js.Config(PnCounterChannel) {\n  case query(relay_param, \"\") {\n    \"\" -> config\n    url -> crdt_js.with_sequencer(config, crdt_js.sequencer(url))\n  }\n}",
+      "fn event_loop(\n  map: watershed_beam.SharedMap,\n  selector: process.Selector(CliMsg),\n  roll_due: process.Subject(Nil),\n) -> Nil {\n  case process.selector_receive_forever(selector) {\n    MapChanged(event) -> {\n      print_event(event)\n      print_snapshot(map)\n      event_loop(map, selector, roll_due)\n    }\n    RollDue -> {\n      roll(map)\n      schedule_roll(roll_due, roll_interval_milliseconds)\n      event_loop(map, selector, roll_due)\n    }\n  }\n}",
+      "fn diagnostic_line(diagnostics: watershed.Diagnostics) -> String {\n  \"phase=\"\n  <> diagnostics.phase\n  <> \" client=\"\n  <> option.unwrap(diagnostics.client_id, \"none\")\n  <> \" sn=\"\n  <> option_int(diagnostics.last_seen_sequence_number)\n  <> \" next_csn=\"\n  <> option_int(diagnostics.next_client_sequence_number)\n  <> \" in_flight=\"\n  <> int.to_string(diagnostics.in_flight_count)\n  <> \" buffered=\"\n  <> int.to_string(diagnostics.buffered_out_of_order_count)\n  <> \" resubmit_at=\"\n  <> option_int(diagnostics.resubmit_checkpoint)\n  <> \" synced=\"\n  <> bool_to_string(diagnostics.synced)\n}",
+      "// `root_typed` is the line that makes this the standalone app rather than a\n// panel: it is the only place the document's root is named.\nConnected(Ok(_)) ->\n  case model.document {\n    None -> #(Model(..model, status: Ready), effect.none())\n    Some(document) -> {\n      let #(canvas, canvas_effect) =\n        component.init(document, watershed.root_typed(document))\n      #(\n        Model(..model, status: Ready, canvas: Some(canvas)),\n        effect.map(canvas_effect, Canvas),\n      )\n    }\n  }\nConnected(Error(reason)) -> #(\n  Model(..model, status: Failed(reason), last_error: Some(reason)),\n  effect.none(),\n)",
+      "/// Bootstrap the document declaratively: one summarization policy and four\n/// child maps, as one batch.\n///\n/// Every tab runs this unconditionally. `ensure_child` creates a map only if\n/// the key is absent, so two tabs opening a *cold* document can both create one\n/// and LWW settles a single handle — the loser is orphaned before anybody has\n/// interacted with it, and every tab converges on the same four handles. That\n/// race predates the showcase; what is new is running it four times per cold\n/// start instead of once.\nfn bootstrap_effect(\n  document: Document(document_schema.Showcase),\n) -> Effect(Msg) {\n  let root = watershed.root_typed(document)\n  effect.batch([\n    watershed_lustre.auto_summarize(\n      document: document,\n      policy: summary_policy.policy()\n        |> summary_policy.with_threshold(summary_threshold),\n    ),\n    watershed_lustre.ensure_child(\n      document,\n      root,\n      document_schema.text(),\n      EnsuredText,\n    ),\n    watershed_lustre.ensure_child(\n      document,\n      root,\n      document_schema.playlist(),\n      EnsuredPlaylist,\n    ),\n    watershed_lustre.ensure_child(\n      document,\n      root,\n      document_schema.sudoku(),\n      EnsuredSudoku,\n    ),\n    watershed_lustre.ensure_child(\n      document,\n      root,\n      document_schema.canvas(),\n      EnsuredCanvas,\n    ),\n  ])\n}",
+      "fn seed_givens(\n  claims: Claims,\n  active_puzzle: Puzzle,\n  row: Int,\n  column: Int,\n) -> Nil {\n  case row >= 9 {\n    True -> Nil\n    False -> {\n      let given = puzzle.given_at(active_puzzle, row, column)\n      case given > 0 {\n        True -> {\n          let _ =\n            watershed.claim_once(claims, cell_key(row, column), json.int(given))\n          Nil\n        }\n        False -> Nil\n      }\n      case column == 8 {\n        True -> seed_givens(claims, active_puzzle, row + 1, 0)\n        False -> seed_givens(claims, active_puzzle, row, column + 1)\n      }\n    }\n  }\n}"
+    ],
+    "notes": [
+      {
+        "id": "relay-decorator",
+        "summary": "Treat the server as an optional decorator A peer-to-peer app may use a relay for durability, but it should not need one to start.",
+        "body": ""
+      },
+      {
+        "id": "shared-core-two-runtimes",
+        "summary": "One shared core, two runtimes Keep the shared core portable by connecting to the same document from the BEAM and the browser.",
+        "body": ""
+      },
+      {
+        "id": "diagnostics-first",
+        "summary": "Sample diagnostics on every event Put the runtime's diagnostics on screen before you debug synchronization.",
+        "body": ""
+      },
+      {
+        "id": "ffi-surface",
+        "summary": "Hand a rendering surface to FFI, and bootstrap on Connected Let an FFI module own the canvas pixels, and create shared channels only after the connection opens.",
+        "body": ""
+      },
+      {
+        "id": "typedmap-panels",
+        "summary": "Panels take a TypedMap, never a root Give a reusable component a typed map, whether that map is a root or a child. Keep document-wide effects in the shell.",
+        "body": ""
+      },
+      {
+        "id": "claims-seeding",
+        "summary": "Seed idempotently with Claims Let every client seed the same initial values through first-writer-wins claims.",
+        "body": ""
+      }
+    ],
+    "fitsViewport": false,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "reference": {
+        "display": "flex",
+        "padding": "12px 16px",
+        "border-left": "2px solid oklch(0.55 0.21 340)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "note": {
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "scroll-margin-top": "24px"
+      }
+    }
+  }
+}

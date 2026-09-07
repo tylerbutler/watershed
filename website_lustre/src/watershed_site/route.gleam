@@ -34,6 +34,16 @@ pub fn guide_race() -> Route {
   )
 }
 
+pub fn guide_connect() -> Route {
+  Route(
+    path: "/guide/connect",
+    layout: Guide,
+    content_path: "content/guide/connect.djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn all() -> List(Route) {
   [
     Route(
@@ -43,13 +53,18 @@ pub fn all() -> List(Route) {
       client_script: None,
       analytics: Tinylytics,
     ),
+    guide_connect(),
     guide_race(),
   ]
 }
 
 pub fn stylesheets(route: Route) -> List(String) {
   case route.layout {
-    Guide -> ["/styles/site.css", "/styles/guide-race.css"]
+    Guide ->
+      case route.path {
+        "/guide/race" -> ["/styles/site.css", "/styles/guide-race.css"]
+        _ -> ["/styles/site.css"]
+      }
     GuideIndex -> ["/styles/site.css", "/styles/guide-index.css"]
   }
 }

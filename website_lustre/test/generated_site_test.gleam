@@ -38,6 +38,38 @@ pub fn generated_route_and_assets_test() {
   })
   ["astro-island", "/_astro/", "@vite", "data-component"]
   |> list.each(fn(text) { string.contains(html, text) |> should.be_false() })
+  let assert Ok(connect_html) =
+    simplifile.read(output <> "/guide/connect/index.html")
+  let connect_tree = html_parser.as_tree(connect_html)
+  [
+    "ffi-surface",
+    "claims-seeding",
+    "shared-core-two-runtimes",
+  ]
+  |> list.each(fn(id) {
+    find(connect_tree, "id", id) |> list.length |> should.equal(1)
+  })
+  find(connect_tree, "src", "/scripts/field-notes.js")
+  |> list.length
+  |> should.equal(1)
+  find(connect_tree, "src", "/guide_race.js")
+  |> list.is_empty
+  |> should.be_true()
+  find(connect_tree, "href", "/guide")
+  |> list.is_empty
+  |> should.be_false()
+  find(connect_tree, "href", "/guide/race")
+  |> list.is_empty
+  |> should.be_false()
+  [
+    "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+    "examples/retro_tutorial_lustre/gleam.toml",
+    "document_on_navigate reads ?document= from the URL",
+    "watershed_beam · for comparison only, the tutorial stays in the browser",
+  ]
+  |> list.each(fn(text) {
+    string.contains(connect_html, text) |> should.be_true()
+  })
   [
     "guide_race.js",
     "styles/site.css",

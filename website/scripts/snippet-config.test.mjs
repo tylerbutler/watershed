@@ -360,7 +360,7 @@ describe("every tracked source is scanned or excluded on purpose", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// Inventory by area — the 103-id two-way check, broken down
+// Inventory by area — the 104-id two-way check, broken down
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("inventory counts by area", () => {
@@ -368,8 +368,8 @@ describe("inventory counts by area", () => {
 
   const count = (prefix) => ids.filter((id) => id.startsWith(prefix)).length;
 
-  it("guide and foundations sheets: 76 snippets", () => {
-    assert.equal(count("guide-") + count("foundations-"), 76);
+  it("guide and foundations sheets: 77 snippets", () => {
+    assert.equal(count("guide-") + count("foundations-"), 77);
   });
 
   it("field note practices: 17 snippets", () => {
@@ -384,8 +384,8 @@ describe("inventory counts by area", () => {
     assert.equal(count("sharedtree-"), 7);
   });
 
-  it("total: 103 snippets", () => {
-    assert.equal(ids.length, 103);
+  it("total: 104 snippets", () => {
+    assert.equal(ids.length, 104);
   });
 });
 

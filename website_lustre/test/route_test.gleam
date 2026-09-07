@@ -1,5 +1,5 @@
 import gleam/list
-import gleam/option.{Some}
+import gleam/option.{None, Some}
 import gleeunit/should
 import watershed_site/error
 import watershed_site/route
@@ -16,6 +16,21 @@ pub fn pilot_route_is_registered_test() {
       analytics: route.Tinylytics,
     ),
   ])
+}
+
+pub fn connect_route_is_static_and_uses_shared_styles_test() {
+  route.guide_connect()
+  |> should.equal(route.Route(
+    path: "/guide/connect",
+    layout: route.Guide,
+    content_path: "content/guide/connect.djot",
+    client_script: None,
+    analytics: route.Tinylytics,
+  ))
+  route.stylesheets(route.guide_connect())
+  |> should.equal(["/styles/site.css"])
+  route.stylesheets(route.guide_race())
+  |> should.equal(["/styles/site.css", "/styles/guide-race.css"])
 }
 
 pub fn duplicate_paths_report_both_sources_test() {

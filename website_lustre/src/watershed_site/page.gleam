@@ -73,6 +73,7 @@ pub fn render(
         case dict.get(attributes, "class") {
           Ok("cta-row" as class) | Ok("gi-companion-links" as class) ->
             html.div([attribute.class(class)], children)
+          Ok("annot" as class) -> html.span([attribute.class(class)], children)
           _ -> default.paragraph(attributes, children)
         }
       },

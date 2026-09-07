@@ -1,6 +1,7 @@
 import gleam/dict
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/string
 import lustre/attribute
 import lustre/element.{type Element}
 import lustre/element/html
@@ -50,9 +51,16 @@ fn block(
   let caption = case caption {
     None -> []
     Some(caption) -> [
-      html.figcaption([attribute.class("annot")], [element.text(caption)]),
+      html.figcaption([attribute.class("annot")], [
+        element.text(
+          caption
+          |> string.replace("%3F", "?")
+          |> string.replace("%3D", "="),
+        ),
+      ]),
     ]
   }
+
   element.fragment(
     list.append(label, [
       html.figure([attribute.class("g-code")], [
