@@ -20,6 +20,24 @@
   ],
   "snippets": [
     {
+      "id": "mv-register-sequenced",
+      "sourcePath": "tools/website-samples/src/website_samples/mv_register_sample.gleam",
+      "language": "gleam",
+      "markers": ["mv-register-sequenced"]
+    },
+    {
+      "id": "mv-register-p2p",
+      "sourcePath": "tools/website-samples/src/website_samples/mv_register_sample.gleam",
+      "language": "gleam",
+      "markers": ["mv-register-p2p"]
+    },
+    {
+      "id": "mv-register-concurrent-resolution",
+      "sourcePath": "test/watershed/mv_register_kernel_test.gleam",
+      "language": "gleam",
+      "markers": ["mv-register-concurrent-resolution"]
+    },
+    {
       "id": "foundations-components-catalog-example",
       "sourcePath": "test/watershed/component_test.gleam",
       "language": "gleam",

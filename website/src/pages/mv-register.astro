@@ -1,6 +1,8 @@
 ---
 import Sheet from "../layouts/Sheet.astro";
 import Demo from "../components/Demo.astro";
+import SnippetBlock from "../components/SnippetBlock.astro";
+import { standaloneSnippets } from "../data/standalone-snippets.ts";
 ---
 
 <Sheet
@@ -37,6 +39,57 @@ import Demo from "../components/Demo.astro";
         </p>
       </div>
     </Demo>
+    <section class="mv-notes">
+      <h2>A list isn't a queue</h2>
+      <p>
+        <code>mv_register_values</code> returns a result containing a sorted
+        <code>List(String)</code>. The order is for display, not priority.
+        A fresh register reads <code>[]</code>; writing an empty string reads
+        <code>[""]</code>. There's no delete hidden in that spelling.
+      </p>
+      <p>
+        Two concurrent writes of the same text still produce two entries.
+        Don't deduplicate them and mistake that for causal agreement. A fresh
+        write after observing both replaces both, even if its text is unchanged.
+        The clock advances, though no visible-value event need fire.
+      </p>
+      <h2>One typed field on the sequenced stream</h2>
+      <p>
+        The JavaScript facade's ensure callback returns an <code>MvRegister</code>
+        handle. Ensure waits for synchronization before looking up or creating
+        the field; it doesn't make the next user write wait for acknowledgement.
+        The read below includes that optimistic write. On the BEAM,
+        <code>watershed_beam</code> has the corresponding typed API with blocking
+        ensures and subject subscriptions.
+      </p>
+      <SnippetBlock snippet={standaloneSnippets["mv-register-sequenced"]} />
+      <h2>Or let the peers exchange revisions</h2>
+      <p>
+        A CRDT document can use this register as its root. Connect with this
+        configuration, then use the document delivered by a successful readiness
+        callback. If you're filling a missing default rather than handling a
+        user edit, wait for readiness and inspect the synchronized value first:
+        an early seed can become a concurrent alternative.
+      </p>
+      <SnippetBlock snippet={standaloneSnippets["mv-register-p2p"]} />
+      <h2>The merge example is a regression, too</h2>
+      <p>
+        This is the kernel test the suite runs, not a second merge implementation
+        written for the page. A and B author independently, observe each other's
+        alternatives, then A writes a combined revision. An unseen C would not
+        be superseded: resolution covers only the history the writer observed.
+      </p>
+      <SnippetBlock snippet={standaloneSnippets["mv-register-concurrent-resolution"]} />
+      <p>
+        Compare the <a href="/structures/maps#mv-register">maps field sheet</a>
+        with <a href="/structures/coordination#registers">RegisterCollection</a>,
+        which maintains atomic and last-write-wins views using server sequence
+        numbers, and <a href="/structures/coordination#pact">PactMap</a>, which
+        waits for a frozen quorum's protocol acknowledgements. None of those
+        acknowledgements means a person approved a revision. Here, the
+        application decides when and how to offer a resolving write.
+      </p>
+    </section>
   </main>
 </Sheet>
 
@@ -53,5 +106,17 @@ import Demo from "../components/Demo.astro";
   }
   .mv-hero p {
     max-width: 65ch;
+  }
+  .mv-notes {
+    max-width: 70rem;
+    margin-inline: auto;
+    padding: 3rem var(--content-pad);
+  }
+  .mv-notes p {
+    max-width: 70ch;
+    line-height: 1.7;
+  }
+  .mv-notes h2 {
+    margin-top: 3rem;
   }
 </style>

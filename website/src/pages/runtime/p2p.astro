@@ -53,6 +53,7 @@ const cfgSnippet = standaloneSnippets["p2p-config"];
       A merge rule is what makes order-independence possible, so only the
       channels built as CRDTs may run this way:
       <a href="/structures/counters#pn">PN counter</a>,
+      <a href="/mv-register">MV register</a>,
       <a href="/structures/sets#orset">OR-set</a>,
       the <a href="/structures/maps#ormap">OR-map</a>,
       <a href="/structures/sets#gset">G-set</a>,
@@ -61,6 +62,13 @@ const cfgSnippet = standaloneSnippets["p2p-config"];
       <a href="/structures/sequences#text">SharedText</a>. A p2p document's
       root is one of these, chosen explicitly at <code>config</code> time,
       never the ordinary last-write-wins <a href="/structures/maps">SharedMap</a>.
+    </p>
+    <p>
+      An MV register keeps the tagged alternatives and its full causal clock,
+      not just the strings on screen. Snapshots and digests retain that history
+      so a resolved revision can't return in a stale delta. A same-text write
+      can change this causal state without firing a visible-value event; peer
+      synchronization and digest-gated persistence still detect the change.
     </p>
     <p>
       Everything that depends on server order or acknowledgement stays out:

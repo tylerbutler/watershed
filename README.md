@@ -92,7 +92,7 @@ merge rule, optimistic behaviour, and what it is best for.
 
 | Family | Structures | Use it for |
 | --- | --- | --- |
-| Maps | `SharedMap`, `OR-Map`, `SharedDirectory` | key/value state; last-write-wins, edit-wins-over-delete, or nested folders |
+| Maps & cells | `SharedMap`, `OR-Map`, `SharedDirectory`, `MvRegister` | key/value state, nested folders, or a cell that keeps concurrent alternatives |
 | Counters | `SharedCounter`, `G-Counter`, `PN Counter` | numbers many people add to at once |
 | Sets | `OR-Set`, `G-Set`, `2P-Set` | membership: re-addable, add-only, or permanent removal |
 | Sequences | `SharedSequence`, `SharedText` | ordered lists with `move`, and plain text many people type into |
@@ -116,6 +116,19 @@ Indexing rules differ by structure and are enforced, not clamped:
 `SharedSequence` and `SharedText` index by **Unicode grapheme cluster**, while
 `SharedRichText` uses **UTF-16 code units** to match Quill and JavaScript string
 indexing exactly.
+
+`MvRegister` holds strings and returns a sorted list of alternatives, preserving
+duplicate text from independent concurrent writes. Use `create_mv_register`,
+`ensure_mv_register`, `mv_register_set`, `mv_register_values`, and
+`subscribe_mv_register` on either sequenced facade; typed fields use
+`schema.MvRegisterChannel`. A new write replaces only the history its author has
+observed. Writing `""` stores an empty string; it does not delete the value.
+
+The peer-to-peer facade uses `p2p.mv_register_root()` with
+`crdt_js.mv_register_set`, `mv_register_values`, and `subscribe_mv_register`.
+Snapshots retain causal history even when the visible alternatives don't change.
+The [revision slate](https://watershed.tylerbutler.com/mv-register) demonstrates
+concurrent writes, ordinary-write resolution, and stale-delta replay.
 
 ## Targets
 

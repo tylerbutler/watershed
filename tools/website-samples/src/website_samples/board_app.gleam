@@ -131,7 +131,9 @@ fn write_card(card: watershed.TypedMap(Card)) -> Result(Nil, Nil) {
 // ── Field events ──────────────────────────────────────────────────────────────
 
 // docs:snippet-start sharedtree-events
-fn subscribe_title(root: watershed.TypedMap(document_schema.Board)) -> Nil {
+fn subscribe_title(
+  root: watershed.TypedMap(document_schema.Board),
+) -> watershed.SubscriptionToken {
   // Per field. The change carries the decoded previous value AND the
   // new one, plus whether this client made it — and a peer's
   // type-confused write surfaces here as `Error(Invalid(_))`.

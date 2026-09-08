@@ -1,16 +1,19 @@
 # Lattice CRDT integration plan: MV register, G-set, and 2P-set
 
 **Date:** 2026-07-04
-**Status (2026-09-06):** partially complete. G-set and 2P-set have kernels,
-channel/wire support, both public facades, Lustre bindings, and demos. Plan 1,
-the MV-register channel, remains unimplemented. `RegisterCollection` is a
-different structure and does not close that rung.
+**Status (2026-09-08):** complete. G-set, 2P-set, and MV register have kernels,
+channel/wire support, both public sequenced facades, CRDT support, Lustre
+bindings, and demos. `RegisterCollection` remains a different structure:
+the MV-register implementation preserves concurrent string alternatives.
 
 **Execution plan (2026-09-07):** [MV register integration](../superpowers/plans/2026-09-07-mv-register-integration.md)
 revises Plan 1 for the current sequenced and CRDT runtimes, both public target
-facades, Lustre effects, and website demos and documentation. Use that plan for
-implementation; the outline below preserves the original design. MV register
-remains unimplemented.
+facades, Lustre effects, and website demos and documentation. Its
+[execution record](../superpowers/plans/2026-09-07-mv-register-integration.md#review-checkpoints-and-execution-record)
+records the implementation commits and final gates. The outline below preserves
+the original design; the September plan is authoritative where it differs.
+This completion does not include GCounter integration, summary version history,
+RFC Room, or BEAM component-host parity.
 
 **Builds on:** `2026-07-03-pn-counter-kernel-plan.md`,
 `2026-07-03-or-map-kernel-plan.md`, and the integrated

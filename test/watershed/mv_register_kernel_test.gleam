@@ -6,6 +6,7 @@ import lattice_registers/mv_register
 import startest/expect
 import watershed/mv_register_kernel as mv
 
+// docs:snippet-start mv-register-concurrent-resolution
 pub fn concurrent_writes_survive_until_observed_resolution_test() -> Nil {
   let #(a, _, write_a, id_a) =
     mv.set(mv.new(replica_id.new("a")), "raise crest")
@@ -22,6 +23,8 @@ pub fn concurrent_writes_survive_until_observed_resolution_test() -> Nil {
   mv.values(a) |> expect.to_equal(["raise crest + arm pump"])
   mv.values(b) |> expect.to_equal(["raise crest + arm pump"])
 }
+
+// docs:snippet-end mv-register-concurrent-resolution
 
 pub fn rollback_does_not_reuse_a_write_tag_test() -> Nil {
   let #(a, _, old, id) = mv.set(mv.new(replica_id.new("a")), "old")

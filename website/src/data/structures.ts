@@ -489,10 +489,11 @@ export const categories: Category[] = [
   {
     slug: "maps",
     name: "Maps",
-    tagline: "Keyed state, resolved two different ways.",
+    tagline: "Pick a winner, keep an edit, or keep the disagreement.",
     lede: [
       "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed's maps span that choice.",
       "SharedMap resolves each key by server order, following the last-write-wins design used by Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete (correctness over simplicity when last-write-wins would drop data). SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
+      "MvRegister narrows that down to one string cell and refuses to pick a winner: concurrent revisions survive as alternatives. After reading the disagreement, an ordinary write replaces the revisions you've observed. An unseen writer still gets a say.",
     ],
     structures: maps,
   },

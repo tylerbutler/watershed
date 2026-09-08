@@ -360,7 +360,7 @@ describe("every tracked source is scanned or excluded on purpose", () => {
 });
 
 // ══════════════════════════════════════════════════════════════════════════
-// Inventory by area — the 103-id two-way check, broken down
+// Inventory by area — the 106-id two-way check, broken down
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("inventory counts by area", () => {
@@ -384,8 +384,12 @@ describe("inventory counts by area", () => {
     assert.equal(count("sharedtree-"), 7);
   });
 
-  it("total: 103 snippets", () => {
-    assert.equal(ids.length, 103);
+  it("MV-register revision slate: 3 snippets", () => {
+    assert.equal(count("mv-register-"), 3);
+  });
+
+  it("total: 106 snippets", () => {
+    assert.equal(ids.length, 106);
   });
 });
 

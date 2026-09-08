@@ -3,7 +3,7 @@
 **Started:** 2026-08-08
 
 Candidate example apps for `examples/`, kept here so they survive between sessions.
-Status reconciled against the repository on 2026-09-06:
+Status reconciled against the repository on 2026-09-08:
 
 - `docs/plans/2026-08-08-pixel-canvas-demo-plan.md` — `OrMap` register mode, **shipped**
 - `docs/plans/2026-08-08-retro-board-demo-plan.md` — `OrMap` both modes + `SharedSequence` + presence, **shipped**
@@ -13,6 +13,7 @@ Status reconciled against the repository on 2026-09-06:
 - `docs/plans/2026-08-19-json-workspace-demo-plan.md` — `SharedDirectory` + `JsonOt` + presence, **shipped, JW1–JW7**, `examples/json_workspace_lustre/`; retired the "one site only" row's directory/JSON OT entry
 - `docs/plans/2026-08-19-rfc-room-demo-plan.md` — `SharedRichText` + `PactMap` + presence, **open**; Project Room has reusable rich-document and Quill modules, but not the RFC draft-to-publication workflow
 - `docs/plans/2026-08-19-markdown-notes-demo-plan.md` — **shipped**, including its P2P port and durable IndexedDB persistence
+- [MV-register integration](superpowers/plans/2026-09-07-mv-register-integration.md#review-checkpoints-and-execution-record) — **shipped**; the shared revision slate runs on `/structures/maps` and `/mv-register`, with concurrent alternatives, ordinary-write resolution, and stale-delta replay
 
 And the gaps those plans surfaced have their own plan:
 
@@ -31,6 +32,7 @@ Coverage across `examples/` and the website demos as of 2026-08-08, updated 2026
 |---|---|
 | Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples, `OrSet`, `GSet`, `TwoPSet`, `OrderedCollection`, `TaskManager`, `PactMap`, `RegisterCollection`, `OrMap` (pixel canvas, retro board), `PnCounter` (clap counter), `Claims` (sudoku, release checklist), `SharedDirectory` + `JsonOt` (JSON workspace) |
 | Reusable example code; standalone app pending | `SharedRichText` (Project Room headless component and Quill bridge; RFC publishing room still open) |
+| Website conflict-resolution demo | `MvRegister` (shared revision slate, with typed sequenced and CRDT samples) |
 | **No demo** | none |
 
 `PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively; `Claims` moved from "one site only" to "well demoed" with the release checklist's captain seat and compare-and-set take-over; `SharedDirectory` and `JsonOt` moved there with the JSON workspace's tree of folders and live documents. Every kind now has at least one example — the remaining gap is `SharedRichText` (getting its own proper Lustre example) and the unwired `GCounter` primitive noted under the clap counter below, which is a library gap rather than a demo gap.
@@ -48,8 +50,11 @@ All of FP1–FP6 shipped on 2026-08-08 (`docs/plans/2026-08-08-facade-parity-swe
 
 The checkpoint roster, reconnect-roster, channel `ensure_*` readiness, and
 default automatic-summary gaps are closed, including the summary docs (SB8).
-Remaining planned library work includes summary version history and the MV-register channel.
-See their plans for current status. `GCounter` remains an unwired backlog idea.
+The MV-register channel is shipped across the sequenced JS/BEAM facades, the
+CRDT runtime, and Lustre, with source-backed website examples. See its
+[execution record](superpowers/plans/2026-09-07-mv-register-integration.md#review-checkpoints-and-execution-record).
+Summary version history remains planned. `GCounter` remains an unwired backlog
+idea; neither that nor RFC Room or BEAM component-host parity is closed by this work.
 
 **Correction worth not re-learning:** an earlier version of this section claimed the `OrderedCollection` op surface and `complete_task` were missing from the facades. They were present on both. That came from grepping by prefix guess (`ordered_collection_*`, `task_*`), which misses `ordered_*` and `complete_task`. Audit by full `pub fn` inventory diff — the command is at the end of the parity plan, and `facade_parity_test.gleam` now enforces it mechanically.
 

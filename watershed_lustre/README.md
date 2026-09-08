@@ -59,6 +59,7 @@ only wraps the callback-shaped surface.
 **Subscriptions** — each delivers its channel's own event type, never the
 whole-runtime union:
 `subscribe` (map) and `subscribe_directory` / `_counter` / `_pn_counter` /
+`_mv_register` /
 `_or_map` / `_or_set` / `_g_set` / `_two_p_set` / `_register_collection` /
 `_claims` / `_task_manager` / `_pact_map` / `_ordered_collection` / `_sequence` /
 `_text` / `_rich_text` / `_json_ot`, plus `subscribe_ripples` for ephemeral
@@ -85,6 +86,7 @@ so a document's nested structure is an `effect.batch` in `init`:
 `ensure_or_set` / `ensure_g_set` / `ensure_two_p_set` /
 `ensure_register_collection` / `ensure_claims` / `ensure_task_manager` /
 `ensure_pn_counter` / `ensure_pact_map` / `ensure_ordered_collection` /
+`ensure_mv_register` /
 `ensure_sequence` / `ensure_text` / `ensure_rich_text` / `ensure_json_ot` /
 `ensure_child`, and `ensure_field` (synchronous set-if-absent).
 
@@ -132,6 +134,22 @@ crdt.subscribe_pn_counter(crdt_js.root(document), subscribed: Watching, event: B
 crdt.perform(fn() { crdt_js.pn_counter_update(counter, 1) }, Clapped)
 ```
 
+For a string-valued MV register, configure `p2p.mv_register_root()`. After
+readiness succeeds, subscribe to the alternatives and perform intentional
+revisions in the effect phase:
+
+```gleam
+crdt.subscribe_mv_register(register, subscribed: Watching, event: RevisionsChanged)
+crdt.perform(fn() { crdt_js.mv_register_set(register, "raise crest + arm pump") }, Revised)
+```
+
+`crdt_js.mv_register_values(register)` returns the sorted alternatives in a
+`Result`. Concurrent equal strings remain separate entries. A resolving write
+replaces only observed history; an unseen revision survives. On the sequenced
+stack, `watershed_lustre.ensure_mv_register` and `subscribe_mv_register` use the
+same deferred dispatch as the other channel effects, while synchronous writes
+and reads stay on `watershed`.
+
 ### Why a separate module
 
 The names mirror `crdt_js` exactly, and the module boundary is what keeps them
@@ -147,7 +165,7 @@ handle passed to the wrong stack.
 | Group | Effects |
 | --- | --- |
 | Connect & lifecycle | `open`, `connect`, `attach`, `attach_with_rtc` — `open` tries IndexedDB first and reports `PersistenceStatus`; all four deliver the `CrdtConnection` to retain (always before `ready`), readiness, and every `Status`; `close` tears the connection down |
-| Subscriptions | `subscribe_pn_counter` / `_or_map` / `_or_set` / `_g_set` / `_two_p_set` / `_sequence` / `_text` — each delivers its channel's own event type and hands back the `Subscription`; `unsubscribe` drops one while the document stays connected |
+| Subscriptions | `subscribe_pn_counter` / `_mv_register` / `_or_map` / `_or_set` / `_g_set` / `_two_p_set` / `_sequence` / `_text` — each delivers its channel's own event type and hands back the `Subscription`; `unsubscribe` drops one while the document stays connected |
 | Mutations | one generic `perform(operation:, outcome:)` — compose it with the typed `crdt_js` edit (`perform(fn() { crdt_js.or_set_add(set, "x") }, Added)`); it runs the edit in the effect phase and delivers the typed `Result(Nil, P2pError)` deferred, passed through untouched — an invalid or unsupported edit stays an `Error`, never a success-shaped `Ok` |
 | Snapshots | `export_snapshot`, `import_snapshot` |
 | Persistence | `start_persistence`, `persistence_changed`, `stop_persistence` — start digest-gated IndexedDB saving, report `Saving` / `Saved` / `SaveFailed`, call `persistence_changed` after local edits, and stop the timers / `pagehide` hook when the document closes |
@@ -159,7 +177,7 @@ synchronously from inside a running `update` can never clobber it.
 
 Pure configuration (`crdt_js.config`, `with_transport_policy`,
 `with_sequencer`, `with_ice_servers`), synchronous reads (`pn_counter_value`,
-`or_set_values`, `text_value`, …), channel registration (`create_channel`,
+`mv_register_values`, `or_set_values`, `text_value`, …), channel registration (`create_channel`,
 `root`), and diagnostics (`peer_count`, `policy`, `effective_path`, …) stay on
 `crdt_js` and are called directly: they need no scheduling, and wrapping them
 would only duplicate a pure API. The transport policy is chosen with
@@ -211,7 +229,7 @@ signaling alone is never storage.
   durable storage.
 - **Relay limits, checkpointing, and quarantine** are specified in
   [`docs/crdt-relay-v1.md`](../docs/crdt-relay-v1.md).
-- **Supported structures** are PN counter, OR-map, OR-set, G-set, 2P-set,
+- **Supported structures** are PN counter, MV register, OR-map, OR-set, G-set, 2P-set,
   sequence, and text. The consensus, acknowledgement-based DDS, and
   last-write-wins types that need a sequencer are outside this set: they are not
   eligible and are refused at the `create_channel`/`new_document` boundary
