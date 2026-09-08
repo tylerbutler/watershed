@@ -92,6 +92,7 @@ fn render(state: channel.ChannelState) -> String {
   case state {
     channel.PnCounterState(kernel) ->
       int.to_string(pn_counter_kernel.value(kernel))
+    channel.MvRegisterState(_) -> "mv-register"
     channel.OrSetState(kernel) -> string.join(or_set_kernel.values(kernel), ",")
     channel.GSetState(kernel) -> string.join(g_set_kernel.values(kernel), ",")
     channel.TwoPSetState(kernel) ->

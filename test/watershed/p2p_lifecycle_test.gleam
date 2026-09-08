@@ -325,6 +325,7 @@ pub fn text_empty_edit_still_commits_an_operation_test() -> Nil {
     | channel.MapOperation(..)
     | channel.CounterOperation(..)
     | channel.PnCounterOperation(..)
+    | channel.MvRegisterOperation(..)
     | channel.OrMapOperation(..)
     | channel.OrSetOperation(..)
     | channel.GSetOperation(..)

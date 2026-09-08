@@ -33,6 +33,7 @@ import lattice_core/version_vector
 import lattice_counters/pn_counter
 import lattice_maps/crdt
 import lattice_maps/or_map
+import lattice_registers/mv_register
 import lattice_sequence/sequence
 import lattice_sets/g_set
 import lattice_sets/or_set
@@ -46,6 +47,7 @@ import watershed/g_set_kernel.{type GSetOperation}
 import watershed/json_ot
 import watershed/json_ot_kernel.{type JsonOtWireOperation, JsonOtWireOperation}
 import watershed/map_kernel.{type MapOperation, Clear, Delete, Set}
+import watershed/mv_register_kernel.{type MvRegisterOperation}
 import watershed/or_map_kernel.{type OrMapOperation}
 import watershed/or_set_kernel.{type OrSetOperation}
 import watershed/ordered_collection_kernel.{type OrderedOperation}
@@ -163,6 +165,8 @@ pub fn encode_channel_operation(operation: channel.ChannelOperation) -> Json {
     channel.CounterOperation(operation) -> encode_counter_operation(operation)
     channel.PnCounterOperation(operation) ->
       encode_pn_counter_operation(operation)
+    channel.MvRegisterOperation(operation) ->
+      encode_mv_register_operation(operation)
     channel.OrMapOperation(operation) -> encode_or_map_operation(operation)
     channel.OrSetOperation(operation) -> encode_or_set_operation(operation)
     channel.GSetOperation(operation) -> encode_g_set_operation(operation)
@@ -198,6 +202,8 @@ pub fn channel_operation_decoder(
       counter_operation_decoder() |> decode.map(channel.CounterOperation)
     channel.PnCounterChannel ->
       pn_counter_operation_decoder() |> decode.map(channel.PnCounterOperation)
+    channel.MvRegisterChannel ->
+      mv_register_operation_decoder() |> decode.map(channel.MvRegisterOperation)
     channel.OrMapChannel ->
       or_map_operation_decoder() |> decode.map(channel.OrMapOperation)
     channel.OrSetChannel ->
@@ -303,6 +309,59 @@ pub fn encode_pn_counter_operation(operation: PnCounterOperation) -> Json {
         #("amount", json.int(amount)),
         #("delta", pn_counter_delta_json(delta)),
       ])
+  }
+}
+
+pub fn encode_mv_register_envelope(
+  address: String,
+  operation: MvRegisterOperation,
+) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_mv_register_operation(operation)),
+  ])
+}
+
+pub fn encode_mv_register_operation(operation: MvRegisterOperation) -> Json {
+  let mv_register_kernel.Set(value, delta) = operation
+  json.object([
+    #("type", json.string("mvRegisterSet")),
+    #("value", json.string(value)),
+    #("delta", json.string(mv_register.to_json(delta) |> json.to_string)),
+  ])
+}
+
+pub fn decode_mv_register_envelope(
+  contents: Dynamic,
+) -> Result(#(String, MvRegisterOperation), List(decode.DecodeError)) {
+  decode.run(contents, mv_register_envelope_decoder())
+}
+
+pub fn mv_register_envelope_decoder() -> Decoder(#(String, MvRegisterOperation)) {
+  use address <- decode.field("address", decode.string)
+  use operation <- decode.field("contents", mv_register_operation_decoder())
+  decode.success(#(address, operation))
+}
+
+pub fn mv_register_operation_decoder() -> Decoder(MvRegisterOperation) {
+  use tag <- decode.field("type", decode.string)
+  use value <- decode.field("value", decode.string)
+  use encoded <- decode.field("delta", decode.string)
+  case mv_register_kernel.decode_crdt(encoded) {
+    Ok(delta) ->
+      case tag == "mvRegisterSet" && mv_register.value(delta) == [value] {
+        True -> decode.success(mv_register_kernel.Set(value, delta))
+        False ->
+          decode.failure(
+            mv_register_kernel.Set(value, delta),
+            "one matching MV-register write",
+          )
+      }
+    Error(_) ->
+      decode.failure(
+        mv_register_kernel.Set(value, mv_register.new(replica_id.new(""))),
+        "MvRegisterDelta",
+      )
   }
 }
 

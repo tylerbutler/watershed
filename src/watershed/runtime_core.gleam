@@ -38,6 +38,7 @@ import watershed/handle
 import watershed/json_ot
 import watershed/json_ot_kernel
 import watershed/map_kernel
+import watershed/mv_register_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/ordered_collection_kernel
@@ -1768,6 +1769,7 @@ pub fn pn_counter_update(
         ),
       )
     }
+
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation, message_id) =
         pn_counter_kernel.update(kernel, amount)
@@ -1780,6 +1782,61 @@ pub fn pn_counter_update(
         channel.PnCounterMeta(message_id),
       ))
     }
+  }
+}
+
+pub fn mv_register_set(
+  core: Core,
+  address: String,
+  value: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.MvRegisterState(kernel)) -> {
+      let #(kernel, events, _, _) = mv_register_kernel.set(kernel, value)
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.MvRegisterState(kernel)),
+          list.map(events, fn(event) {
+            #(address, channel.MvRegisterEvent(event))
+          }),
+          [],
+        ),
+      )
+    }
+    Attached(channel.MvRegisterState(kernel)) -> {
+      let #(kernel, events, operation, message_id) =
+        mv_register_kernel.set(kernel, value)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.MvRegisterState(kernel),
+        list.map(events, fn(event) {
+          #(address, channel.MvRegisterEvent(event))
+        }),
+        channel.MvRegisterOperation(operation),
+        channel.MvRegisterMeta(message_id),
+      ))
+    }
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.MvRegisterChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
+pub fn mv_register_values(
+  core: Core,
+  address: String,
+) -> Result(List(String), Nil) {
+  case find_channel(core, address) {
+    Ok(channel.MvRegisterState(kernel)) -> Ok(mv_register_kernel.values(kernel))
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 

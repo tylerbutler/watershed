@@ -129,6 +129,9 @@ pub type MapChannel
 
 pub type CounterChannel
 
+/// A string cell that retains concurrent alternatives.
+pub type MvRegisterChannel
+
 pub type OrMapChannel
 
 pub type OrSetChannel
