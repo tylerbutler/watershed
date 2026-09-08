@@ -86,6 +86,19 @@ fn kinds() -> List(Kind) {
       ["subscribe_pn_counter"],
     ),
     Kind(
+      "mv_register",
+      [
+        "create_mv_register",
+        "ensure_mv_register",
+        "resolve_mv_register",
+        "resolve_mv_register_field",
+        "set_mv_register_field",
+        "mv_register_handle_of",
+      ],
+      ["mv_register_set", "mv_register_values"],
+      ["subscribe_mv_register"],
+    ),
+    Kind(
       "or_map",
       [
         "create_or_map",

@@ -81,6 +81,7 @@ import watershed/crdt_js.{
   type Subscription,
 }
 import watershed/g_set_kernel
+import watershed/mv_register_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/p2p.{type P2pError}
@@ -345,6 +346,15 @@ pub fn subscribe_pn_counter(
   event event: fn(pn_counter_kernel.PnCounterEvent) -> msg,
 ) -> Effect(msg) {
   subscribe(crdt_js.subscribe_pn_counter(handle, _), subscribed, event)
+}
+
+/// Subscribe to changes in the peer-to-peer register alternatives.
+pub fn subscribe_mv_register(
+  handle: Handle(schema.MvRegisterChannel),
+  subscribed subscribed: fn(Subscription) -> msg,
+  event event: fn(mv_register_kernel.MvRegisterEvent) -> msg,
+) -> Effect(msg) {
+  subscribe(crdt_js.subscribe_mv_register(handle, _), subscribed, event)
 }
 
 /// Subscribe to a peer-to-peer OR-map.
