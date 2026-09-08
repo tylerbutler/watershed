@@ -1018,12 +1018,8 @@ pub fn resolve_directory_field(
 // clients: a concurrent client's later write can still replace the field
 // after this call resolves. Losing candidates stay attached but
 // unreferenced — orphan GC is out of scope. The browser cannot block, so
-// each takes a `done` continuation and waits/retries on a library-owned
-// timer; the BEAM facade blocks and returns instead.
-
-@target(javascript)
-@external(javascript, "./watershed_ffi.mjs", "set_timeout")
-fn set_timeout(action: fn() -> Nil, milliseconds: Int) -> Nil
+// each takes a `done` continuation and waits/retries on the runtime
+// scheduler; the BEAM facade blocks and returns instead.
 
 @target(javascript)
 const resolve_retry_milliseconds = 200
@@ -1044,7 +1040,8 @@ fn await_synced(
     False, True ->
       next(Error("ensure: timed out waiting for document synchronization"))
     False, False ->
-      set_timeout(
+      runtime.schedule(
+        document.runtime,
         fn() { await_synced(document, attempts - 1, next) },
         resolve_retry_milliseconds,
       )
@@ -1056,6 +1053,7 @@ fn await_synced(
 /// handle is absent, and while the attach operation of the channel that it
 /// references is still in flight.
 fn resolve_with_retry(
+  document: Document(root),
   resolve: fn() -> Result(Option(shared), String),
   attempts: Int,
   done: fn(Result(shared, String)) -> Nil,
@@ -1066,8 +1064,9 @@ fn resolve_with_retry(
       done(Error("ensure: no channel handle appeared under the field"))
     Error(reason), n if n <= 1 -> done(Error(reason))
     _, _ ->
-      set_timeout(
-        fn() { resolve_with_retry(resolve, attempts - 1, done) },
+      runtime.schedule(
+        document.runtime,
+        fn() { resolve_with_retry(document, resolve, attempts - 1, done) },
         resolve_retry_milliseconds,
       )
   }
@@ -1092,7 +1091,7 @@ fn ensure_channel(
     Error(reason) -> done(Error(reason))
     Ok(Nil) ->
       case has(typed_map.map, key) {
-        True -> resolve_with_retry(resolve, resolve_attempts, done)
+        True -> resolve_with_retry(document, resolve, resolve_attempts, done)
         False ->
           case seed() {
             Error(reason) -> done(Error(reason))
@@ -1100,7 +1099,8 @@ fn ensure_channel(
               use synced <- await_synced(document, resolve_attempts)
               case synced {
                 Error(reason) -> done(Error(reason))
-                Ok(Nil) -> resolve_with_retry(resolve, resolve_attempts, done)
+                Ok(Nil) ->
+                  resolve_with_retry(document, resolve, resolve_attempts, done)
               }
             }
           }

@@ -24,18 +24,14 @@ fn counter_field() -> schema.ChannelField(Fields, schema.CounterChannel) {
 }
 
 @target(javascript)
-@external(javascript, "./ensure_test_ffi.mjs", "withTimers")
-fn with_timers(work: fn(fn(Int) -> Nil) -> Nil) -> Nil
-
-@target(javascript)
 fn exhaust_wait(advance: fn(Int) -> Nil) -> Nil {
   list.repeat(Nil, 30) |> list.each(fn(_) { advance(200) })
 }
 
 @target(javascript)
 pub fn ensure_waits_for_a_fresh_document_before_seeding_test() -> Nil {
-  use advance <- with_timers
   let sluice = sluice_js.start(tenant: "default", document: "ensure-fresh")
+  let advance = fn(milliseconds) { sluice_js.advance(sluice, milliseconds) }
   let document = sluice_js.connect(sluice, "author")
   let root = watershed.typed(watershed.root(document))
   let outcomes = transport_js.new_cell([])
@@ -71,8 +67,8 @@ pub fn ensure_waits_for_a_fresh_document_before_seeding_test() -> Nil {
 
 @target(javascript)
 pub fn ensure_adopts_a_field_replayed_during_the_handshake_test() -> Nil {
-  use advance <- with_timers
   let sluice = sluice_js.start(tenant: "default", document: "ensure-existing")
+  let advance = fn(milliseconds) { sluice_js.advance(sluice, milliseconds) }
   let author = sluice_js.connect(sluice, "author")
   sluice_js.settle(sluice)
   let assert Ok(counter) = watershed.create_counter(author)
@@ -111,8 +107,8 @@ pub fn ensure_adopts_a_field_replayed_during_the_handshake_test() -> Nil {
 
 @target(javascript)
 pub fn ensure_times_out_without_seeding_after_a_late_handshake_test() -> Nil {
-  use advance <- with_timers
   let sluice = sluice_js.start(tenant: "default", document: "ensure-timeout")
+  let advance = fn(milliseconds) { sluice_js.advance(sluice, milliseconds) }
   let document = sluice_js.connect(sluice, "author")
   let outcomes = transport_js.new_cell([])
   watershed.ensure_counter(
@@ -138,8 +134,8 @@ pub fn ensure_times_out_without_seeding_after_a_late_handshake_test() -> Nil {
 
 @target(javascript)
 pub fn ensure_does_not_report_an_unacknowledged_seed_as_success_test() -> Nil {
-  use advance <- with_timers
   let sluice = sluice_js.start(tenant: "default", document: "ensure-unacked")
+  let advance = fn(milliseconds) { sluice_js.advance(sluice, milliseconds) }
   let document = sluice_js.connect(sluice, "author")
   sluice_js.settle(sluice)
   let outcomes = transport_js.new_cell(None)
@@ -157,8 +153,8 @@ pub fn ensure_does_not_report_an_unacknowledged_seed_as_success_test() -> Nil {
 
 @target(javascript)
 pub fn ensure_reports_failure_if_the_document_closes_while_waiting_test() -> Nil {
-  use advance <- with_timers
   let sluice = sluice_js.start(tenant: "default", document: "ensure-closed")
+  let advance = fn(milliseconds) { sluice_js.advance(sluice, milliseconds) }
   let document = sluice_js.connect(sluice, "author")
   let outcomes = transport_js.new_cell([])
   watershed.ensure_counter(

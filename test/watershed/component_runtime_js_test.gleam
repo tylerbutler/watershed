@@ -296,6 +296,7 @@ fn started_runtime_with_observers(
   let starts = transport_js.new_cell([])
   let stops = transport_js.new_cell([])
   let reports = transport_js.new_cell([])
+  sluice_js.settle(sluice)
   let runtime =
     component_runtime_js.start(
       document: document,
@@ -622,6 +623,7 @@ pub fn a_late_start_is_stopped_after_its_instance_is_deleted_test() -> Nil {
       1,
       json.string("delayed"),
     )
+  sluice_js.settle(sluice)
   let runtime =
     component_runtime_js.start(
       document: document,
@@ -683,6 +685,7 @@ pub fn a_failed_identity_is_not_retried_by_unrelated_topology_changes_test() -> 
       1,
       json.string("broken"),
     )
+  sluice_js.settle(sluice)
   let runtime =
     component_runtime_js.start(
       document: document,
@@ -759,9 +762,11 @@ pub fn cold_workspace_runtimes_reopen_the_same_winner_test() -> Nil {
   let runtime_b =
     runtime_for(sluice, document_b, store_b, catalog, starts_b, stops_b)
   sluice_js.advance(sluice, 0)
+  transport_js.get_cell(starts_a) |> expect.to_equal([])
+  transport_js.get_cell(starts_b) |> expect.to_equal([])
 
   sluice_js.settle(sluice)
-  sluice_js.advance(sluice, 0)
+  sluice_js.advance(sluice, 200)
   sluice_js.settle(sluice)
   sluice_js.advance(sluice, 0)
 
@@ -784,7 +789,7 @@ pub fn cold_workspace_runtimes_reopen_the_same_winner_test() -> Nil {
   }
   list.length(transport_js.get_cell(stops_a))
   + list.length(transport_js.get_cell(stops_b))
-  |> expect.to_equal(1)
+  |> expect.to_equal(0)
 }
 
 @target(javascript)
@@ -1117,6 +1122,7 @@ fn deferred_runtime(name: String) -> DeferredRuntime {
         port_graph.PortRef("notes", "focus"),
       ),
     )
+  sluice_js.settle(sluice)
   let runtime =
     component_runtime_js.start(
       document: document,
@@ -1450,6 +1456,7 @@ pub fn throwing_context_or_start_terminates_and_releases_owned_values_test() -> 
         1,
         json.string("broken"),
       )
+    sluice_js.settle(sluice)
     let runtime =
       component_runtime_js.start(
         document: document,

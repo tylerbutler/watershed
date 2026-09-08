@@ -2068,13 +2068,23 @@ fn diagnostics_from_core(
 /// Replace the scheduler of the runtime. This is a test seam for the in-memory
 /// hub, which binds the delayed work to its logical clock. A production runtime
 /// keeps the real `setTimeout` function that it started with. You can call this
-/// function at any time before the first sequenced operation, which is the
-/// earliest moment at which the runtime schedules anything.
+/// function before the first delayed operation is scheduled.
 pub fn set_scheduler(
   runtime: Runtime,
   scheduler: transport_js.Scheduler,
 ) -> Nil {
   cell_set(runtime.cell, State(..cell_get(runtime.cell), scheduler: scheduler))
+}
+
+@target(javascript)
+/// Schedule delayed work with the runtime clock.
+pub fn schedule(
+  runtime: Runtime,
+  action: fn() -> Nil,
+  milliseconds: Int,
+) -> Nil {
+  let _cancel = cell_get(runtime.cell).scheduler.schedule(action, milliseconds)
+  Nil
 }
 
 @target(javascript)
