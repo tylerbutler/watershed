@@ -65,7 +65,7 @@ const pnFillSteps = [2, 6];
 // picker just decides which are reachable, matching DDSes sharing a container.
 const ALL_VIEWS = [
   "map", "counter", "gcounter", "pn", "ormap", "orset", "gset",
-  "twopset", "claims", "registers", "ordered", "tasks", "pact",
+  "twopset", "claims", "registers", "ordered", "tasks", "pact", "mv-register",
 ] as const;
 
 interface Props {
@@ -92,6 +92,7 @@ const PICKER_CELLS = [
   { value: "gcounter", label: "G-counter", kind: "CRDT" },
   { value: "pn", label: "PN counter", kind: "CRDT" },
   { value: "ormap", label: "OR-map", kind: "CRDT" },
+  { value: "mv-register", label: "MV register", kind: "CRDT" },
   { value: "orset", label: "OR-set", kind: "CRDT" },
   { value: "gset", label: "G-set", kind: "CRDT" },
   { value: "twopset", label: "2P-set", kind: "CRDT" },
@@ -115,7 +116,7 @@ const PICKER_CELLS = [
         field-checked. This demo borrows that color code: pending edits are drawn
         in <strong class="k-pending">magenta</strong> and sequenced state in
         <strong class="k-seq">ink</strong>. All three clients run watershed's compiled
-        Gleam code in one ordered stream: map/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register
+        Gleam code in one ordered stream: map/G-counter/PN/OR-map/OR-set/G-set/2P-set/MV-register/claims/register
         kernels, TaskManager, plus the runtime counter channel.
       </p>
       <p class="demo-hint">
@@ -184,6 +185,11 @@ const PICKER_CELLS = [
       travels as a CRDT delta; merging is commutative and idempotent. Race
       it, resend it, deliver it twice: it counts exactly once, and the
       balance converges on fill&nbsp;−&nbsp;cut.
+    </p>
+    <p class="merge-rule" data-merge-rule="mv-register" hidden={initial !== "mv-register"}>
+      <strong>Merge rule: keep concurrent alternatives.</strong> Two revisions
+      can converge without agreeing on one answer. After both arrive, write
+      a combined revision to replace the alternatives you've seen.
     </p>
     <p class="merge-rule" data-merge-rule="claims" hidden={initial !== "claims"}>
       <strong>Merge rule: first writer wins.</strong> A claim commits only
@@ -423,6 +429,21 @@ const PICKER_CELLS = [
               ))}
             </div>
           </div>
+          <div class="mv-register-panel dds-mv-register">
+            <h3 class="annot">Revision slate</h3>
+            <p class="annot">Confirmed alternatives</p>
+            <output class="mv-alternatives k-seq" data-mv-register-confirmed aria-live="polite">["Survey datum"]</output>
+            <p class="annot">Local view</p>
+            <output class="mv-alternatives" data-mv-register-values aria-live="polite">["Survey datum"]</output>
+            <label class="annot" for={`mv-revision-${c.id}`}>Next revision</label>
+            <input id={`mv-revision-${c.id}`} data-mv-register-input value={c.id === "a" ? "raise crest" : c.id === "b" ? "arm pump" : "check datum"} disabled />
+            <div class="mv-actions">
+              <button type="button" data-mv-register-write disabled>Write revision</button>
+              <button type="button" data-mv-register-resolve disabled>Resolve with both</button>
+            </div>
+            <p class="mv-hint">Resolve writes "raise crest + arm pump". Any new revision replaces only the history this client has seen.</p>
+          </div>
+
           <table class="gauge-table claims-table dds-claims">
             <caption class="visually-hidden">
               Claims replica on {c.name}
@@ -893,6 +914,7 @@ const PICKER_CELLS = [
       <code>runtime_core</code> counter channel plus
       <code>map_kernel</code>, <code>lattice_counters/g_counter</code>,
       <code>pn_counter_kernel</code>,
+      <code>mv_register_kernel</code>,
       <code>or_map_kernel</code>, <code>or_set_kernel</code>,
       <code>g_set_kernel</code>, <code>two_p_set_kernel</code>,
       <code>claims_kernel</code>, <code>register_collection_kernel</code>,
@@ -964,6 +986,42 @@ const PICKER_CELLS = [
 </script>
 
 <style>
+  .rig:not([data-dds="mv-register"]) .dds-mv-register,
+  .rig[data-dds="mv-register"] .client > :is(table, .counter-panel) {
+    display: none;
+  }
+  .mv-register-panel {
+    padding: var(--space-md);
+    display: grid;
+    gap: 0.75rem;
+  }
+  .mv-register-panel p,
+  .mv-register-panel h3 {
+    margin: 0;
+  }
+  .mv-alternatives {
+    font: 0.85rem var(--font-mono);
+    overflow-wrap: anywhere;
+    min-height: 3em;
+  }
+  .mv-register-panel input {
+    min-width: 0;
+    width: 100%;
+    font: inherit;
+    padding: 0.5rem;
+    border: 1px solid var(--hairline);
+    background: transparent;
+    color: var(--ink);
+  }
+  .mv-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+  }
+  .mv-hint {
+    font-size: 0.8rem;
+    color: var(--muted);
+  }
   .demo {
     position: relative;
     padding: var(--space-section) var(--content-pad);
@@ -1155,7 +1213,8 @@ const PICKER_CELLS = [
   .dds-picker label:has(input[value="ormap"]) b,
   .dds-picker label:has(input[value="orset"]) b,
   .dds-picker label:has(input[value="gset"]) b,
-  .dds-picker label:has(input[value="twopset"]) b {
+  .dds-picker label:has(input[value="twopset"]) b,
+  .dds-picker label:has(input[value="mv-register"]) b {
     color: var(--waterline);
     background: var(--waterline-faint);
   }

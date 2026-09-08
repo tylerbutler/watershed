@@ -7,6 +7,7 @@
 // picker only changes which replica view is shown.
 import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
 import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
+import * as mvKernel from "../../../build/dev/javascript/watershed/watershed/mv_register_kernel.mjs";
 import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as orSetKernel from "../../../build/dev/javascript/watershed/watershed/or_set_kernel.mjs";
 import * as gSetKernel from "../../../build/dev/javascript/watershed/watershed/g_set_kernel.mjs";
@@ -68,6 +69,22 @@ function pnBaselineSummary() {
   base = pnLattice.increment(base, PN_FILL_BASE);
   base = pnLattice.decrement(base, PN_CUT_BASE);
   return json.to_string(pnLattice.to_json(base));
+}
+
+function mvBaselineSummary(epoch) {
+  const [base] = mvKernel.p2p_set(
+    mvKernel.new$(replicaId.new$(`survey-mv-${epoch}`)),
+    "Survey datum",
+  );
+  return json.to_string(mvKernel.summary(base));
+}
+
+function mvFromBaseline(baseline, id, epoch) {
+  const loaded = mvKernel.from_summary(
+    baseline, replicaId.new$(`client-${id}-mv-${epoch}`),
+  );
+  if (!loaded.isOk()) throw new Error("MV-register baseline summary failed to load");
+  return loaded[0];
 }
 
 function gCounterBaselineSummary() {
@@ -309,6 +326,7 @@ function signed(n) {
 }
 
 function describeOp(ddsId, op) {
+  if (ddsId === "mv-register") return `revise ${JSON.stringify(op.operation.value)}`;
   if (ddsId === "counter") return `inc ${signed(op.increment_amount)}`;
   if (ddsId === "gcounter") return `inspect +${op.amount}`;
   if (ddsId === "pn") {
@@ -403,6 +421,7 @@ export function initDemo() {
   const initial = toList(INITIAL.map(([k, v]) => [k, jsonInt(v)]));
   const gCounterBaseline = gCounterBaselineSummary();
   const pnBaseline = pnBaselineSummary();
+  const mvBaseline = mvBaselineSummary(0);
   const orMapBaseline = orMapBaselineSummary();
   const orSetBaseline = orSetBaselineSummary();
   const gSetBaseline = gSetBaselineSummary();
@@ -447,6 +466,7 @@ export function initDemo() {
       counterClientId: counterChannel.clientId,
       counterCore: counterChannel.core,
       pn: pnLoaded[0],
+      "mv-register": mvFromBaseline(mvBaseline, id, 0),
       ormap: orMapLoaded[0],
       orset: orSetLoaded[0],
       gset: gSetLoaded[0],
@@ -476,6 +496,7 @@ export function initDemo() {
   // Structures whose field notes flash the values that change (see tutorial.js
   // CHANGE_TARGETS). Kept in sync there; used to route the demo's op-flow hooks.
   const FIELD_FLASH = new Set([
+    "mv-register",
     "map",
     "counter",
     "pn",
@@ -521,6 +542,9 @@ export function initDemo() {
   const heldHops = []; // sequenced ops awaiting delivery to B (catch-up)
   const heldSubmits = []; // B's local ops parked while offline (resubmit)
   let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
+  // Keep an early delta so replay after resolution proves it cannot resurrect.
+  let lastMv = null;
+  let mvEpoch = 0;
   let lastGCounter = null; // the most recently *sequenced* G-counter delta
   let lastOrMap = null; // the most recently *sequenced* OR-map op
   let lastOrSet = null; // the most recently *sequenced* OR-set op
@@ -601,6 +625,17 @@ export function initDemo() {
       const cell = client.el.querySelector(`[data-gcounter-author="${id}"]`);
       if (cell) cell.textContent = String(readCount(count));
     }
+  }
+
+  function renderMv(client) {
+    const state = client["mv-register"];
+    const optimistic = client.el.querySelector("[data-mv-register-values]");
+    optimistic.textContent = JSON.stringify(mvKernel.values(state).toArray());
+    optimistic.classList.toggle("k-pending", state.pending.toArray().length > 0);
+    client.el.querySelector("[data-mv-register-confirmed]").textContent =
+      JSON.stringify(mvKernel.sequenced_values(state).toArray());
+    client.el.querySelector("[data-mv-register-resolve]").disabled =
+      mvKernel.values(state).toArray().length < 2;
   }
 
   function renderPn(client) {
@@ -1018,6 +1053,7 @@ export function initDemo() {
   }
 
   function render(client) {
+    if (present.has("mv-register")) renderMv(client);
     if (present.has("map")) renderMap(client);
     if (present.has("counter")) renderCounter(client);
     if (present.has("gcounter")) renderGCounter(client);
@@ -1041,6 +1077,7 @@ export function initDemo() {
       total += counterPending(client).count;
       total += client.gcounter.pending.length;
       total += client.pn.pending.toArray().length;
+      total += client["mv-register"].pending.toArray().length;
       total += client.ormap.pending.toArray().length;
       total += client.orset.pending.toArray().length;
       total += client.gset.pending.toArray().length;
@@ -1055,7 +1092,12 @@ export function initDemo() {
   }
 
   function replicaSignature(client) {
+    const { entries, vclock } = JSON.parse(
+      json.to_string(mvKernel.summary(client["mv-register"])),
+    ).state;
     return JSON.stringify([
+      entries.map(({ tag, value }) => [tag.r, tag.c, value]).sort(),
+      Object.entries(vclock).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0),
       mapSnapshot(client.map),
       counterValue(client),
       gCounterSnapshot(client.gcounter),
@@ -1083,7 +1125,10 @@ export function initDemo() {
       const signatures = Object.values(clients).map(replicaSignature);
       const same = signatures.every((sig) => sig === signatures[0]);
       statusEl.innerHTML = same
-        ? `<span class="stamp converged">Converged</span> replicas identical · nothing pending`
+        ? `<span class="stamp converged">Converged</span> replicas identical · ${
+          activeDds === "mv-register" && mvKernel.values(clients.a["mv-register"]).toArray().length > 1
+            ? `${mvKernel.values(clients.a["mv-register"]).toArray().length} alternatives · ready to resolve`
+            : "nothing pending"}`
         : `<span class="stamp revising">Diverged</span> this should be impossible — please file a bug`;
     } else {
       statusEl.innerHTML = `<span class="stamp revising">Revising</span> ${inFlight} op${inFlight === 1 ? "" : "s"} in flight · ${pending} pending`;
@@ -1228,6 +1273,16 @@ export function initDemo() {
       } else {
         const [next] = mapKernel.apply_remote(target.map, op);
         target.map = next;
+      }
+    } else if (ddsId === "mv-register") {
+      if (target.id === originId) {
+        const result = mvKernel.ack_local_with_message_id(
+          target["mv-register"], op.operation, op.messageId,
+        );
+        if (!result.isOk()) throw new Error("Unexpected MV-register acknowledgement");
+        target["mv-register"] = result[0];
+      } else {
+        [target["mv-register"]] = mvKernel.apply_remote(target["mv-register"], op.operation);
       }
     } else if (ddsId === "pn") {
       if (target.id === originId) {
@@ -1454,6 +1509,8 @@ export function initDemo() {
   }
 
   function submit(originId, ddsId, op) {
+    // The author captured this epoch before offline work could be parked.
+    if (ddsId === "mv-register" && op.epoch !== mvEpoch) return;
     // Offline author: the edit already applied optimistically; the send parks
     // until the link is restored, then resubmits — like the runtime's own
     // resubmit queue.
@@ -1467,7 +1524,9 @@ export function initDemo() {
     // stamped, or it would commit on one replica and fail to ack on the
     // other. Each DDS that resets out of band carries its own epoch.
     const epochFor = () =>
-      ddsId === "claims"
+      ddsId === "mv-register"
+        ? mvEpoch
+      : ddsId === "claims"
         ? claimsEpoch
         : ddsId === "twopset"
           ? twoPSetEpoch
@@ -1496,7 +1555,10 @@ export function initDemo() {
           ddsId,
           ddsId === "counter" ? { increment_amount: op.amount } : op,
         );
-        if (ddsId === "pn") {
+        if (ddsId === "mv-register") {
+          lastMv ??= { op, sn: stamped };
+          if (activeDds === "mv-register") replayBtn.disabled = false;
+        } else if (ddsId === "pn") {
           lastPn = { op, sn: stamped };
           replayBtn.disabled = false;
         } else if (ddsId === "gcounter") {
@@ -1581,6 +1643,14 @@ export function initDemo() {
     };
     fieldNotes.trackChange("gcounter", client.el, true, () => render(client));
     submit(clientId, "gcounter", { delta, amount, messageId });
+  }
+
+  function localMvSet(clientId, value) {
+    const client = clients[clientId];
+    const [next, _events, operation, messageId] = mvKernel.set(client["mv-register"], value);
+    client["mv-register"] = next;
+    fieldNotes.trackChange("mv-register", client.el, true, () => render(client));
+    submit(clientId, "mv-register", { operation, messageId, epoch: mvEpoch });
   }
 
   function localPnUpdate(clientId, amount) {
@@ -1918,6 +1988,18 @@ export function initDemo() {
     }
   }
 
+  function resetMv() {
+    mvEpoch += 1;
+    lastMv = null;
+    const baseline = mvBaselineSummary(mvEpoch);
+    for (const client of Object.values(clients)) {
+      client["mv-register"] = mvFromBaseline(baseline, client.id, mvEpoch);
+      render(client);
+    }
+    replayBtn.disabled = true;
+    renderStatus();
+  }
+
   function resetTwoPSet() {
     twoPSetEpoch += 1;
     lastTwoPSet = null;
@@ -1939,7 +2021,9 @@ export function initDemo() {
   function redeliverLastDelta() {
     const ddsId = activeDds;
     const last =
-      ddsId === "ormap"
+      ddsId === "mv-register"
+        ? lastMv
+      : ddsId === "ormap"
         ? lastOrMap
         : ddsId === "orset"
           ? lastOrSet
@@ -1961,11 +2045,14 @@ export function initDemo() {
 
     sequencer.broadcast({
       label: describeOp(ddsId, op),
+      isStale: () => ddsId === "mv-register" && op.epoch !== mvEpoch,
       onDeliver: (target) => {
         // Both replicas take the duplicate through `apply_remote` — even the
         // origin, whose acked delta is already merged. Idempotence makes
         // both a no-op.
-        if (ddsId === "ormap") {
+        if (ddsId === "mv-register") {
+          [target["mv-register"]] = mvKernel.apply_remote(target["mv-register"], op.operation);
+        } else if (ddsId === "ormap") {
           const result = orMapKernel.apply_remote(target.ormap, op);
           if (result.isOk()) target.ormap = result[0][0];
           else console.error("unexpected duplicate OR-map op", result[0]);
@@ -2006,7 +2093,22 @@ export function initDemo() {
   // ── wiring ────────────────────────────────────────────────────────────────
 
   for (const client of Object.values(clients)) {
+    client.el.querySelector("[data-mv-register-input]").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        hasInteracted = true;
+        localMvSet(client.id, event.target.value);
+      }
+    });
     client.el.addEventListener("click", (event) => {
+      if (event.target.closest("[data-mv-register-write], [data-mv-register-resolve]")) {
+        hasInteracted = true;
+        const value = event.target.closest("[data-mv-register-resolve]")
+          ? "raise crest + arm pump"
+          : client.el.querySelector("[data-mv-register-input]").value;
+        localMvSet(client.id, value);
+        return;
+      }
       const stepBtn = event.target.closest("button[data-step]");
       if (stepBtn) {
         hasInteracted = true;
@@ -2162,6 +2264,7 @@ export function initDemo() {
   }
 
   const RACE_LABELS = {
+    "mv-register": "Race two revisions",
     map: "Race a concurrent write",
     counter: "Race concurrent increments",
     gcounter: "Race grow-only inspections",
@@ -2177,6 +2280,7 @@ export function initDemo() {
     pact: "Race two pact proposals",
   };
   const RESET_LABELS = {
+    "mv-register": "Reload all MV registers from a fresh baseline and discard pending revisions",
     map: "Reset all gauges to their surveyed baseline values",
     counter: "Reset the counter to its surveyed baseline value",
     gcounter: "Ensure the inspection counter is at least its surveyed baseline",
@@ -2201,6 +2305,7 @@ export function initDemo() {
     if (resetBtn) resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
     if (replayBtn) {
       replayBtn.hidden = ![
+        "mv-register",
         "gcounter",
         "pn",
         "ormap",
@@ -2209,7 +2314,9 @@ export function initDemo() {
         "twopset",
       ].includes(activeDds);
       replayBtn.disabled =
-        activeDds === "gcounter"
+        activeDds === "mv-register"
+          ? !lastMv
+        : activeDds === "gcounter"
           ? !lastGCounter
         : activeDds === "ormap"
           ? !lastOrMap
@@ -2225,6 +2332,7 @@ export function initDemo() {
     renderBadge(clients.b);
     renderBadge(clients.c);
     fieldNotes.render(activeDds);
+    renderStatus();
   }
 
   const fieldNotes = createFieldNotes({
@@ -2262,7 +2370,10 @@ export function initDemo() {
 
   raceBtn.addEventListener("click", () => {
     hasInteracted = true;
-    if (activeDds === "map") {
+    if (activeDds === "mv-register") {
+      localMvSet("a", "raise crest");
+      localMvSet("b", "arm pump");
+    } else if (activeDds === "map") {
       // Both clients write the same key inside one latency window. The op the
       // server sequences last wins on every replica — that's LWW, and both
       // replicas agree because they apply ops in the same order.
@@ -2375,6 +2486,7 @@ export function initDemo() {
   replayBtn.addEventListener("click", () => {
     hasInteracted = true;
     if (
+      (activeDds === "mv-register" && lastMv) ||
       (activeDds === "ormap" && lastOrMap) ||
       (activeDds === "orset" && lastOrSet) ||
       (activeDds === "gset" && lastGSet) ||
@@ -2389,7 +2501,9 @@ export function initDemo() {
   resetBtn.addEventListener("click", () => {
     hasInteracted = true;
     // Reset goes through the sequencer like any other edit.
-    if (activeDds === "map") {
+    if (activeDds === "mv-register") {
+      resetMv();
+    } else if (activeDds === "map") {
       // One set op per gauge that has drifted from its surveyed baseline.
       for (const [key, base] of INITIAL) {
         if (readInt(mapKernel.get(clients.a.map, key)) !== base) {

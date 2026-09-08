@@ -1,0 +1,57 @@
+---
+import Sheet from "../layouts/Sheet.astro";
+import Demo from "../components/Demo.astro";
+---
+
+<Sheet
+  title="watershed — MV-register revision slate"
+  description="Race two revisions, keep both, then resolve what you've read. A live multi-value register running watershed's compiled Gleam kernel."
+>
+  <header class="mv-hero">
+    <p class="annot"><a href="/structures/maps">Maps &amp; cells</a> / Revision slate</p>
+    <h1>Converged.<br />Still <em>two answers.</em></h1>
+    <p>
+      A last-write-wins cell would discard one revision. This one keeps the
+      disagreement. Race "raise crest" against "arm pump": all three clients
+      reach the same two alternatives. Nothing is stuck in transit.
+    </p>
+    <p>
+      Once you've read both, resolve with "raise crest + arm pump".
+      That's an ordinary write, not a special conflict API. An unseen third
+      revision would survive it.
+    </p>
+  </header>
+  <main>
+    <Demo views={["mv-register"]} showPicker={false} heading="One slate, three field crews">
+      <div slot="intro">
+        <p>
+          Confirmed alternatives stay in ink; your pending revision appears
+          in magenta. Cut Client B's link, write on both sides, then restore it.
+          Agreement means every crew sees the same alternatives, not necessarily
+          a single answer.
+        </p>
+        <p>
+          Re-deliver keeps an earlier delta even after resolution. The old
+          revision stays retired. Reset tears off a fresh slate and discards
+          delayed work from the previous one.
+        </p>
+      </div>
+    </Demo>
+  </main>
+</Sheet>
+
+<script>
+  import { initReveals } from "../scripts/motion.js";
+  initReveals();
+</script>
+
+<style>
+  .mv-hero {
+    padding: clamp(3rem, 7vw, 6rem) var(--content-pad);
+    max-width: 70rem;
+    margin-inline: auto;
+  }
+  .mv-hero p {
+    max-width: 65ch;
+  }
+</style>

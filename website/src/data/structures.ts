@@ -201,6 +201,26 @@ const maps: Structure[] = [
     ],
   },
   {
+    id: "mv-register",
+    name: "MvRegister",
+    module: "mv_register_kernel",
+    kind: "CRDT",
+    onHomepage: true,
+    tagline: "One cell, several answers: concurrent revisions stay until someone resolves them.",
+    rule: "keep concurrent writes; a new write replaces only the history its author has seen",
+    optimistic: "your revision appears in magenta while the confirmed alternatives stay in ink",
+    summary: "tagged alternatives and the full causal clock survive reload, including retired history",
+    how: [
+      "Last-write-wins picks a winner. A multi-value register keeps the disagreement: two offline authors can write different revisions and every replica converges on both. The returned list is sorted for display, not ranked by time or preference.",
+      "Resolution is an ordinary write after reading the alternatives. It replaces those observed revisions, not an unseen third writer. Equal text from concurrent authors still occupies two entries; an empty string is a value, not deletion.",
+    ],
+    useCases: [
+      "Offline settings where silently dropping a revision would be a mistake",
+      "Review workflows that ask a person to combine concurrent answers",
+      "One shared string with an explicit conflict-resolution step",
+    ],
+  },
+  {
     id: "ormap",
     name: "OrMap",
     module: "or_map_kernel",
