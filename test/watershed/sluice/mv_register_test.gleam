@@ -81,6 +81,67 @@ pub fn public_mv_register_ensure_conflict_and_resolution_test() -> Nil {
   watershed.resolve_mv_register(a, watershed.handle_of(watershed.root(a)))
   |> result.is_error
   |> expect.to_be_true()
+  sluice.drop(rig, b)
+  watershed.mv_register_set(register_b, "offline")
+  watershed.mv_register_set(register_a, "online")
+  sluice.settle(rig)
+  sluice.rejoin(rig, b)
+  sluice.settle(rig)
+  watershed.mv_register_values(register_a)
+  |> expect.to_equal(Ok(["offline", "online"]))
+  watershed.mv_register_values(register_b)
+  |> expect.to_equal(Ok(["offline", "online"]))
+  let assert Ok(late) = sluice.connect(rig, "late")
+  sluice.settle(rig)
+  let assert Ok(Some(register_late)) =
+    watershed.resolve_mv_register_field(
+      late,
+      watershed.typed(watershed.root(late)),
+      field(),
+    )
+  watershed.mv_register_values(register_late)
+  |> expect.to_equal(Ok(["offline", "online"]))
+  watershed.close(a)
+  watershed.close(b)
+  watershed.close(late)
+}
+
+@target(erlang)
+pub fn public_mv_register_simultaneous_ensures_share_the_visible_field_test() -> Nil {
+  let assert Ok(rig) = sluice.start(tenant: "default", document: "mv-ensures")
+  let assert Ok(a) = sluice.connect(rig, "a")
+  let assert Ok(b) = sluice.connect(rig, "b")
+  let replies = process.new_subject()
+  let ensure = fn(document) {
+    process.send(
+      replies,
+      watershed.ensure_mv_register(
+        document,
+        watershed.typed(watershed.root(document)),
+        field(),
+      ),
+    )
+  }
+  let _a = process.spawn(fn() { ensure(a) })
+  let _b = process.spawn(fn() { ensure(b) })
+  let assert Ok(_) = settle_until(rig, replies, 100)
+  let assert Ok(_) = settle_until(rig, replies, 100)
+  sluice.settle(rig)
+  let assert Ok(Some(register_a)) =
+    watershed.resolve_mv_register_field(
+      a,
+      watershed.typed(watershed.root(a)),
+      field(),
+    )
+  let assert Ok(Some(register_b)) =
+    watershed.resolve_mv_register_field(
+      b,
+      watershed.typed(watershed.root(b)),
+      field(),
+    )
+  watershed.mv_register_set(register_a, "shared")
+  sluice.settle(rig)
+  watershed.mv_register_values(register_b) |> expect.to_equal(Ok(["shared"]))
   watershed.close(a)
   watershed.close(b)
 }

@@ -2179,18 +2179,9 @@ fn spawn_kind(
 }
 
 @target(javascript)
-/// An OR-set edit authored while the relay is primary reaches a mesh-only
-/// peer the moment the relay drops.
-///
-/// The delta went to the relay and not to the mesh, and the digest that
-/// would have told the peer is still inside its anti-entropy window — so
-/// without the fallback flushing that digest the peer would answer the
-/// failover `stateRequest` with a state that does not contain the edit,
-/// merge nothing, and stay behind until the room was edited again. No
-/// clock is advanced here past the settling of the mesh: convergence is
-/// the fallback's, not the interval's.
 pub fn mv_register_relay_replays_conflict_and_resolved_checkpoint_test() -> Nil {
   let environment = setup(SequencedOnly)
+  let hub = hub_of(environment)
   let #(alpha, alpha_connection) =
     spawn_kind(environment, "alpha", SequencedOnly, p2p.mv_register_root())
   let #(beta, beta_connection) =
@@ -2212,12 +2203,41 @@ pub fn mv_register_relay_replays_conflict_and_resolved_checkpoint_test() -> Nil 
   crdt_js.digest(alpha) |> expect.to_equal(crdt_js.digest(late))
   crdt_js.mv_register_values(crdt_js.root(alpha))
   |> expect.to_equal(Ok(["resolved"]))
+  list.each(list.repeat(Nil, crdt_relay.max_room_records + 20), fn(_) {
+    let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(late), "resolved")
+    settle(environment)
+  })
+  converge(environment)
+  { relay_fake.checkpoint_requests(hub, room) > 0 } |> expect.to_be_true()
+  { relay_fake.checkpoint_order(hub, room) > 0 } |> expect.to_be_true()
+  { relay_fake.log_size(hub, room) < crdt_relay.max_room_records }
+  |> expect.to_be_true()
+  let digest = crdt_js.digest(late)
   crdt_js.close(alpha_connection)
   crdt_js.close(beta_connection)
   crdt_js.close(late_connection)
+  relay_fake.stop(hub)
+  relay_fake.restart(hub)
+  let #(restored, restored_connection) =
+    spawn_kind(environment, "restored", SequencedOnly, p2p.mv_register_root())
+  converge(environment)
+  crdt_js.mv_register_values(crdt_js.root(restored))
+  |> expect.to_equal(Ok(["resolved"]))
+  crdt_js.digest(restored) |> expect.to_equal(digest)
+  crdt_js.close(restored_connection)
 }
 
 @target(javascript)
+/// An OR-set edit authored while the relay is primary reaches a mesh-only
+/// peer the moment the relay drops.
+///
+/// The delta went to the relay and not to the mesh, and the digest that
+/// would have told the peer is still inside its anti-entropy window — so
+/// without the fallback flushing that digest the peer would answer the
+/// failover `stateRequest` with a state that does not contain the edit,
+/// merge nothing, and stay behind until the room was edited again. No
+/// clock is advanced here past the settling of the mesh: convergence is
+/// the fallback's, not the interval's.
 pub fn an_or_set_peer_converges_when_the_relay_drops_test() -> Nil {
   let environment = setup(Auto)
   let #(alpha, _) = spawn_kind(environment, "alpha", Auto, p2p.or_set_root())
