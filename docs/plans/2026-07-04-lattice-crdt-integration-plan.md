@@ -6,6 +6,12 @@ channel/wire support, both public facades, Lustre bindings, and demos. Plan 1,
 the MV-register channel, remains unimplemented. `RegisterCollection` is a
 different structure and does not close that rung.
 
+**Execution plan (2026-09-07):** [MV register integration](../superpowers/plans/2026-09-07-mv-register-integration.md)
+revises Plan 1 for the current sequenced and CRDT runtimes, both public target
+facades, Lustre effects, and website demos and documentation. Use that plan for
+implementation; the outline below preserves the original design. MV register
+remains unimplemented.
+
 **Builds on:** `2026-07-03-pn-counter-kernel-plan.md`,
 `2026-07-03-or-map-kernel-plan.md`, and the integrated
 `src/watershed/or_set_kernel.gleam` pattern.
