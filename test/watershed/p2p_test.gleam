@@ -5,11 +5,17 @@ import watershed/channel
 import watershed/or_map_kernel
 import watershed/p2p
 
+pub fn mv_register_is_eligible_test() -> Nil {
+  p2p.validate(channel.MvRegisterChannel)
+  |> expect.to_equal(Ok(channel.MvRegisterChannel))
+}
+
 fn channel_cases() -> List(#(channel.ChannelType, Bool)) {
   [
     #(channel.MapChannel, False),
     #(channel.CounterChannel, False),
     #(channel.PnCounterChannel, True),
+    #(channel.MvRegisterChannel, True),
     #(channel.OrMapChannel, True),
     #(channel.OrSetChannel, True),
     #(channel.GSetChannel, True),
@@ -41,6 +47,7 @@ fn unsupported_types() -> List(channel.ChannelType) {
 fn supported_inits() -> List(channel.ChannelInit) {
   [
     channel.InitPnCounter,
+    channel.InitMvRegister,
     channel.InitOrMap(or_map_kernel.RegisterMode),
     channel.InitOrSet,
     channel.InitGSet,
@@ -61,6 +68,7 @@ pub fn every_channel_has_an_explicit_p2p_eligibility_test() -> Nil {
 pub fn typed_root_constructors_cover_every_eligible_kind_test() -> Nil {
   [
     p2p.pn_counter_root() |> p2p.kind_type,
+    p2p.mv_register_root() |> p2p.kind_type,
     p2p.or_map_root(or_map_kernel.RegisterMode) |> p2p.kind_type,
     p2p.or_set_root() |> p2p.kind_type,
     p2p.g_set_root() |> p2p.kind_type,
@@ -70,6 +78,7 @@ pub fn typed_root_constructors_cover_every_eligible_kind_test() -> Nil {
   ]
   |> expect.to_equal([
     channel.PnCounterChannel,
+    channel.MvRegisterChannel,
     channel.OrMapChannel,
     channel.OrSetChannel,
     channel.GSetChannel,

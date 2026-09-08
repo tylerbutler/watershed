@@ -977,6 +977,10 @@ fn projected(snapshot: Snapshot) -> JsonValue {
 /// would let two different winners produce the same hash.
 fn merge_relevant(value: JsonValue) -> JsonValue {
   case type_tag(value) {
+    "mv_register" ->
+      map_member(value, "state", fn(state) {
+        state |> without(["replica_id"]) |> map_member("entries", ordered)
+      })
     "pn_counter" ->
       map_member(value, "state", fn(state) {
         state
@@ -1224,8 +1228,7 @@ fn entries(document: Document) -> List(ChannelEntry) {
 fn init_for(snapshot: Snapshot) -> Result(ChannelInit, P2pError) {
   case snapshot {
     channel.PnCounterSnapshot(_) -> Ok(channel.InitPnCounter)
-    channel.MvRegisterSnapshot(_) ->
-      Error(p2p.UnsupportedChannel(channel.MvRegisterChannel))
+    channel.MvRegisterSnapshot(_) -> Ok(channel.InitMvRegister)
     channel.OrMapSnapshot(mode, _) -> Ok(channel.InitOrMap(mode))
     channel.OrSetSnapshot(_) -> Ok(channel.InitOrSet)
     channel.GSetSnapshot(_) -> Ok(channel.InitGSet)

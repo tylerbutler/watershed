@@ -11,6 +11,7 @@ import watershed/crdt_core
 import watershed/crdt_sim
 import watershed/crdt_wire
 import watershed/g_set_kernel
+import watershed/mv_register_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/p2p
@@ -23,6 +24,65 @@ import watershed/two_p_set_kernel
 const room = "trip-planning"
 
 const compatibility = "watershed-crdt-1"
+
+fn mv_document(replica: String) -> crdt_core.Document {
+  let assert Ok(document) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: compatibility,
+      replica: replica,
+      session: replica <> "-session",
+      root: channel.InitMvRegister,
+    ))
+  document
+}
+
+pub fn mv_register_repairs_causal_state_and_survives_duplicate_delivery_test() -> Nil {
+  let mesh =
+    crdt_sim.new()
+    |> crdt_sim.add("a", mv_document("a"))
+    |> crdt_sim.add("b", mv_document("b"))
+    |> crdt_sim.add("c", mv_document("c"))
+    |> crdt_sim.connect("a", "b")
+    |> crdt_sim.connect("b", "c")
+    |> crdt_sim.settle
+    |> crdt_sim.edit("a", root(), channel.MvRegisterEdit("raise crest"))
+    |> crdt_sim.edit("b", root(), channel.MvRegisterEdit("arm pump"))
+  let #(mesh, original) = crdt_sim.take_queue(mesh)
+  let mesh =
+    crdt_sim.enqueue(mesh, list.append(list.reverse(original), original))
+    |> crdt_sim.settle
+    |> crdt_sim.gossip_state
+    |> crdt_sim.gossip_state
+  converged(mesh)
+  view(crdt_sim.document(mesh, "a"))
+  |> expect.to_equal([#(root(), "arm pump,raise crest")])
+  let mesh =
+    crdt_sim.edit(mesh, "a", root(), channel.MvRegisterEdit("resolved"))
+    |> crdt_sim.settle
+    |> crdt_sim.gossip_state
+    |> crdt_sim.gossip_state
+    |> crdt_sim.enqueue(original)
+    |> crdt_sim.settle
+  converged(mesh)
+  view(crdt_sim.document(mesh, "c")) |> expect.to_equal([#(root(), "resolved")])
+  let before = crdt_core.digest(crdt_sim.document(mesh, "b"))
+  let mesh =
+    crdt_sim.edit(mesh, "a", root(), channel.MvRegisterEdit("resolved"))
+  let #(mesh, _dropped) = crdt_sim.take_queue(mesh)
+  crdt_core.digest(crdt_sim.document(mesh, "a")) |> expect.to_not_equal(before)
+  let mesh = mesh |> crdt_sim.gossip_state |> crdt_sim.gossip_state
+  converged(mesh)
+}
+
+pub fn mv_register_digest_pins_full_causal_projection_test() -> Nil {
+  let assert Ok(#(document, _)) =
+    crdt_core.edit(mv_document("a"), root(), channel.MvRegisterEdit("x"))
+  crdt_core.digest_canonical_json(document)
+  |> expect.to_equal(
+    "{\"channels\":[{\"descriptor\":{\"address\":\"root\",\"channelType\":\"mv-register\",\"createdBy\":\"\"},\"state\":{\"state\":{\"entries\":[{\"tag\":{\"c\":1,\"r\":\"a\"},\"value\":\"x\"}],\"vclock\":{\"a\":1}},\"type\":\"mv_register\",\"v\":1}}],\"compatibility\":\"watershed-crdt-1\",\"room\":\"trip-planning\",\"root\":\"mv-register\",\"v\":1}",
+  )
+}
 
 fn config(replica: String) -> crdt_core.Config {
   crdt_core.config(
@@ -92,7 +152,8 @@ fn render(state: channel.ChannelState) -> String {
   case state {
     channel.PnCounterState(kernel) ->
       int.to_string(pn_counter_kernel.value(kernel))
-    channel.MvRegisterState(_) -> "mv-register"
+    channel.MvRegisterState(kernel) ->
+      string.join(mv_register_kernel.values(kernel), ",")
     channel.OrSetState(kernel) -> string.join(or_set_kernel.values(kernel), ",")
     channel.GSetState(kernel) -> string.join(g_set_kernel.values(kernel), ",")
     channel.TwoPSetState(kernel) ->

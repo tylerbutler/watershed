@@ -42,6 +42,8 @@ import watershed/crdt_wire
 @target(javascript)
 import watershed/g_set_kernel
 @target(javascript)
+import watershed/mv_register_kernel
+@target(javascript)
 import watershed/or_map_kernel
 @target(javascript)
 import watershed/p2p
@@ -70,6 +72,101 @@ const room = "trip-planning"
 
 @target(javascript)
 const tag = "clap-counter/v1"
+
+@target(javascript)
+pub fn mv_register_mesh_repairs_dropped_and_eventless_writes_test() -> Nil {
+  let world = p2p_fake.new_world()
+  let clock = relay_fake.new_clock()
+  let signaling = p2p_fake.signaling(world)
+  let interval = crdt_js.default_anti_entropy_milliseconds
+  let a =
+    spawn_synced(world, signaling, "a", p2p.mv_register_root(), tag, clock)
+  let b =
+    spawn_synced(world, signaling, "b", p2p.mv_register_root(), tag, clock)
+  let c =
+    spawn_synced(world, signaling, "c", p2p.mv_register_root(), tag, clock)
+  p2p_fake.settle(world)
+  p2p_fake.sever(
+    world,
+    crdt_js.replica_id(a.document),
+    crdt_js.replica_id(c.document),
+  )
+  p2p_fake.settle(world)
+  let assert Ok(Nil) =
+    crdt_js.mv_register_set(crdt_js.root(a.document), "raise crest")
+  let assert Ok(Nil) =
+    crdt_js.mv_register_set(crdt_js.root(b.document), "arm pump")
+  drive_convergence(
+    world,
+    clock,
+    interval,
+    [a.document, b.document, c.document],
+    12,
+  )
+  list.each([a.document, b.document, c.document], fn(document) {
+    crdt_js.mv_register_values(crdt_js.root(document))
+    |> expect.to_equal(Ok(["arm pump", "raise crest"]))
+  })
+  let events = transport_js.new_cell([])
+  let subscription =
+    crdt_js.subscribe_mv_register(crdt_js.root(b.document), fn(event) {
+      transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
+    })
+  let assert Ok(Nil) =
+    crdt_js.mv_register_set(crdt_js.root(a.document), "resolved")
+  drive_convergence(
+    world,
+    clock,
+    interval,
+    [a.document, b.document, c.document],
+    12,
+  )
+  transport_js.get_cell(events)
+  |> expect.to_equal([mv_register_kernel.ValuesChanged(["resolved"])])
+  p2p_fake.sever(
+    world,
+    crdt_js.replica_id(a.document),
+    crdt_js.replica_id(b.document),
+  )
+  p2p_fake.settle(world)
+  let assert Ok(Nil) =
+    crdt_js.mv_register_set(crdt_js.root(a.document), "resolved")
+  crdt_js.digest(a.document) |> expect.to_not_equal(crdt_js.digest(b.document))
+  p2p_fake.reconnect(
+    world,
+    crdt_js.replica_id(a.document),
+    crdt_js.replica_id(b.document),
+  )
+  p2p_fake.settle(world)
+  drive_convergence(
+    world,
+    clock,
+    interval,
+    [a.document, b.document, c.document],
+    12,
+  )
+  transport_js.get_cell(events)
+  |> expect.to_equal([mv_register_kernel.ValuesChanged(["resolved"])])
+  crdt_js.unsubscribe(subscription)
+  let late =
+    spawn_synced(world, signaling, "late", p2p.mv_register_root(), tag, clock)
+  drive_convergence(
+    world,
+    clock,
+    interval,
+    [a.document, b.document, c.document, late.document],
+    12,
+  )
+  crdt_js.mv_register_values(crdt_js.root(late.document))
+  |> expect.to_equal(Ok(["resolved"]))
+  crdt_js.close(a.connection)
+  crdt_js.close(b.connection)
+  crdt_js.close(c.connection)
+  crdt_js.close(late.connection)
+  let assert Error(p2p.DocumentClosed) =
+    crdt_js.mv_register_values(crdt_js.root(a.document))
+  Nil
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // A synchronous signaling hub

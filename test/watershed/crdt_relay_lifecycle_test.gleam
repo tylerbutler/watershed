@@ -2189,6 +2189,35 @@ fn spawn_kind(
 /// merge nothing, and stay behind until the room was edited again. No
 /// clock is advanced here past the settling of the mesh: convergence is
 /// the fallback's, not the interval's.
+pub fn mv_register_relay_replays_conflict_and_resolved_checkpoint_test() -> Nil {
+  let environment = setup(SequencedOnly)
+  let #(alpha, alpha_connection) =
+    spawn_kind(environment, "alpha", SequencedOnly, p2p.mv_register_root())
+  let #(beta, beta_connection) =
+    spawn_kind(environment, "beta", SequencedOnly, p2p.mv_register_root())
+  settle(environment)
+  let assert Ok(Nil) =
+    crdt_js.mv_register_set(crdt_js.root(alpha), "raise crest")
+  let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(beta), "arm pump")
+  settle(environment)
+  crdt_js.mv_register_values(crdt_js.root(beta))
+  |> expect.to_equal(Ok(["arm pump", "raise crest"]))
+  let #(late, late_connection) =
+    spawn_kind(environment, "late", SequencedOnly, p2p.mv_register_root())
+  settle(environment)
+  crdt_js.mv_register_values(crdt_js.root(late))
+  |> expect.to_equal(Ok(["arm pump", "raise crest"]))
+  let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(late), "resolved")
+  settle(environment)
+  crdt_js.digest(alpha) |> expect.to_equal(crdt_js.digest(late))
+  crdt_js.mv_register_values(crdt_js.root(alpha))
+  |> expect.to_equal(Ok(["resolved"]))
+  crdt_js.close(alpha_connection)
+  crdt_js.close(beta_connection)
+  crdt_js.close(late_connection)
+}
+
+@target(javascript)
 pub fn an_or_set_peer_converges_when_the_relay_drops_test() -> Nil {
   let environment = setup(Auto)
   let #(alpha, _) = spawn_kind(environment, "alpha", Auto, p2p.or_set_root())

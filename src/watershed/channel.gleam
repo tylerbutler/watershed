@@ -180,6 +180,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
 pub fn supports_p2p(channel_type: ChannelType) -> Bool {
   case channel_type {
     PnCounterChannel
+    | MvRegisterChannel
     | OrMapChannel
     | OrSetChannel
     | GSetChannel
@@ -187,7 +188,6 @@ pub fn supports_p2p(channel_type: ChannelType) -> Bool {
     | SequenceChannel
     | TextChannel -> True
     MapChannel
-    | MvRegisterChannel
     | CounterChannel
     | RegisterCollectionChannel
     | ClaimsChannel

@@ -41,6 +41,10 @@ pub fn pn_counter_root() -> CrdtKind(schema.PnCounterChannel) {
   CrdtKind(channel.InitPnCounter)
 }
 
+pub fn mv_register_root() -> CrdtKind(schema.MvRegisterChannel) {
+  CrdtKind(channel.InitMvRegister)
+}
+
 pub fn or_map_root(mode: OrMapMode) -> CrdtKind(schema.OrMapChannel) {
   CrdtKind(channel.InitOrMap(mode))
 }

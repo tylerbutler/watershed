@@ -113,6 +113,8 @@ import watershed/g_set_kernel
 @target(javascript)
 import watershed/id
 @target(javascript)
+import watershed/mv_register_kernel
+@target(javascript)
 import watershed/or_map_kernel.{type OrMapValue}
 @target(javascript)
 import watershed/or_set_kernel
@@ -3322,6 +3324,61 @@ fn mutate(
   list.each(outcome.broadcast, fn(message) { broadcast(cell, message) })
   dispatch(cell, outcome.events)
   Ok(Nil)
+}
+
+@target(javascript)
+pub fn mv_register_set(
+  handle: Handle(schema.MvRegisterChannel),
+  value: String,
+) -> Result(Nil, P2pError) {
+  mutate(handle, channel.MvRegisterEdit(value))
+}
+
+@target(javascript)
+pub fn mv_register_values(
+  handle: Handle(schema.MvRegisterChannel),
+) -> Result(List(String), P2pError) {
+  let values =
+    read(handle, channel.MvRegisterChannel, fn(state) {
+      case state {
+        channel.MvRegisterState(kernel) -> Ok(mv_register_kernel.values(kernel))
+        other ->
+          Error(p2p.ChannelTypeMismatch(
+            handle.address,
+            channel.MvRegisterChannel,
+            channel.channel_type(other),
+          ))
+      }
+    })
+  result.flatten(values)
+}
+
+@target(javascript)
+pub fn subscribe_mv_register(
+  handle: Handle(schema.MvRegisterChannel),
+  handler: fn(mv_register_kernel.MvRegisterEvent) -> Nil,
+) -> Subscription {
+  use event <- subscribe_narrowed(handle, handler)
+  case event {
+    channel.MvRegisterEvent(inner) -> Some(inner)
+    channel.PnCounterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
 }
 
 // ── PN counter ───────────────────────────────────────────────────────────────

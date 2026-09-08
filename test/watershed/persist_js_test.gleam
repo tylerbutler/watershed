@@ -18,7 +18,7 @@ import watershed/persist_js
 @target(javascript)
 import watershed/relay_fake
 @target(javascript)
-import watershed/schema.{type GSetChannel}
+import watershed/schema.{type GSetChannel, type MvRegisterChannel}
 @target(javascript)
 import watershed/transport_js.{type Cell}
 
@@ -27,6 +27,62 @@ const room = "persist-room"
 
 @target(javascript)
 const compatibility = "persist-test/v1"
+
+@target(javascript)
+fn mv_config() -> Config(MvRegisterChannel) {
+  crdt_js.config(
+    room_id: room,
+    replica_label: "mv-persist",
+    compatibility_tag: compatibility,
+    root: p2p.mv_register_root(),
+    signaling: p2p_fake.signaling(p2p_fake.new_world()),
+  )
+}
+
+@target(javascript)
+pub fn mv_register_persistence_retains_conflicts_and_eventless_causal_changes_test() -> Nil {
+  let store = memory(None, False)
+  let assert Ok(a) = crdt_js.new_document(mv_config())
+  let assert Ok(b) = crdt_js.new_document(mv_config())
+  let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(a), "a")
+  let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(b), "b")
+  let assert Ok(old_b) = crdt_js.export_snapshot(b)
+  let assert Ok(_) = crdt_js.merge_snapshot(a, old_b)
+  let saved = transport_js.new_cell(None)
+  persist_js.save(memory_storage(store), a, fn(value) {
+    transport_js.set_cell(saved, Some(value))
+  })
+  let assert Some(Ok(_)) = transport_js.get_cell(saved)
+  let loaded = transport_js.new_cell(None)
+  persist_js.load(memory_storage(store), mv_config(), fn(value) {
+    transport_js.set_cell(loaded, Some(value))
+  })
+  let assert Some(Ok(Some(restored))) = transport_js.get_cell(loaded)
+  crdt_js.replica_id(restored) |> expect.to_not_equal(crdt_js.replica_id(a))
+  crdt_js.mv_register_values(crdt_js.root(restored))
+  |> expect.to_equal(Ok(["a", "b"]))
+  let assert Ok(Nil) =
+    crdt_js.mv_register_set(crdt_js.root(restored), "resolved")
+  let assert Ok(snapshot) = crdt_js.export_snapshot(restored)
+  let assert Ok(_) = crdt_js.merge_snapshot(a, snapshot)
+  let assert Ok(Nil) =
+    crdt_js.mv_register_set(crdt_js.root(restored), "resolved")
+  let assert Ok(snapshot) = crdt_js.export_snapshot(restored)
+  let assert Ok(outcome) = crdt_js.merge_snapshot(a, snapshot)
+  outcome.events |> expect.to_equal([])
+  persist_js.save(memory_storage(store), a, fn(value) {
+    transport_js.set_cell(saved, Some(value))
+  })
+  let assert Some(Ok(_)) = transport_js.get_cell(saved)
+  persist_js.load(memory_storage(store), mv_config(), fn(value) {
+    transport_js.set_cell(loaded, Some(value))
+  })
+  let assert Some(Ok(Some(reloaded))) = transport_js.get_cell(loaded)
+  crdt_js.digest(reloaded) |> expect.to_equal(crdt_js.digest(restored))
+  let assert Ok(_) = crdt_js.merge_snapshot(reloaded, old_b)
+  crdt_js.mv_register_values(crdt_js.root(reloaded))
+  |> expect.to_equal(Ok(["resolved"]))
+}
 
 @target(javascript)
 type UpdateMode {
