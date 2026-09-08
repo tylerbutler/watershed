@@ -3390,3 +3390,27 @@ fn cell_get(cell: Cell(State)) -> State {
 fn cell_set(cell: Cell(State), state: State) -> Nil {
   transport_js.set_cell(cell, state)
 }
+
+@target(javascript)
+pub fn create_mv_register(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitMvRegister, "create_mv_register")
+}
+
+@target(javascript)
+pub fn mv_register_set(
+  runtime: Runtime,
+  address: String,
+  value: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.mv_register_set(core, address, value)
+  })
+}
+
+@target(javascript)
+pub fn mv_register_values(
+  runtime: Runtime,
+  address: String,
+) -> Result(List(String), Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.mv_register_values(_, address))
+}

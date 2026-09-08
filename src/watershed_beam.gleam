@@ -71,6 +71,8 @@ import watershed/json_ot_kernel
 @target(erlang)
 import watershed/map_kernel
 @target(erlang)
+import watershed/mv_register_kernel
+@target(erlang)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
 import watershed/or_set_kernel
@@ -4001,3 +4003,134 @@ type TimeUnit {
 @target(erlang)
 @external(erlang, "os", "system_time")
 fn system_time(unit: TimeUnit) -> Int
+
+@target(erlang)
+pub fn create_mv_register(
+  document: Document(root),
+) -> Result(MvRegister, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: runtime_beam.CreateMvRegister,
+  )
+  |> result.map(fn(address) {
+    MvRegister(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn mv_register_handle_of(mv_register: MvRegister) -> Json {
+  handle.encode_handle(mv_register.address)
+}
+
+@target(erlang)
+pub fn resolve_mv_register(
+  document: Document(root),
+  value: Json,
+) -> Result(MvRegister, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) -> {
+      use _ <- result.try(
+        process.call(
+          document.runtime,
+          waiting: call_timeout_milliseconds,
+          sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
+        ),
+      )
+      let register = MvRegister(runtime: document.runtime, address: address)
+      mv_register_values(register)
+      |> result.replace_error("address does not name an MV-register channel")
+      |> result.map(fn(_) { register })
+    }
+  }
+}
+
+@target(erlang)
+pub fn set_mv_register_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+  mv_register: MvRegister,
+) -> Nil {
+  put_channel_field(typed_map, field, mv_register_handle_of(mv_register))
+}
+
+@target(erlang)
+pub fn resolve_mv_register_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+) -> Result(Option(MvRegister), String) {
+  get_channel_field(document, typed_map, field, resolve_mv_register)
+}
+
+@target(erlang)
+pub fn ensure_mv_register(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+) -> Result(MvRegister, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use mv_register <- result.map(create_mv_register(document))
+      set_mv_register_field(typed_map, field, mv_register)
+    },
+    fn() { resolve_mv_register_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+pub fn mv_register_set(mv_register: MvRegister, value: String) -> Nil {
+  process.send(
+    mv_register.runtime,
+    runtime_beam.SetMvRegister(mv_register.address, value),
+  )
+}
+
+@target(erlang)
+pub fn mv_register_values(
+  mv_register: MvRegister,
+) -> Result(List(String), Nil) {
+  process.call(
+    mv_register.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetMvRegisterValues(mv_register.address, reply)
+    },
+  )
+}
+
+@target(erlang)
+pub fn subscribe_mv_register(
+  mv_register: MvRegister,
+) -> Subject(mv_register_kernel.MvRegisterEvent) {
+  use event <- subscribe_narrowed(mv_register.runtime, mv_register.address)
+  case event {
+    channel.MvRegisterEvent(inner) -> Some(inner)
+    channel.PnCounterEvent(_) -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+@target(erlang)
+pub opaque type MvRegister {
+  MvRegister(runtime: Subject(runtime_beam.Msg), address: String)
+}

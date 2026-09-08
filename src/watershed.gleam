@@ -84,6 +84,8 @@ import watershed/json_ot_kernel
 @target(javascript)
 import watershed/map_kernel
 @target(javascript)
+import watershed/mv_register_kernel
+@target(javascript)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(javascript)
 import watershed/or_set_kernel
@@ -3662,4 +3664,123 @@ pub fn dev_token(
   user_id user_id: String,
 ) -> Promise(String) {
   transport_js.mint_dev_token(secret, tenant, document, user_id)
+}
+
+@target(javascript)
+pub fn create_mv_register(
+  document: Document(root),
+) -> Result(MvRegister, String) {
+  runtime.create_mv_register(document.runtime)
+  |> result.map(fn(address) {
+    MvRegister(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn mv_register_handle_of(mv_register: MvRegister) -> Json {
+  handle.encode_handle(mv_register.address)
+}
+
+@target(javascript)
+pub fn resolve_mv_register(
+  document: Document(root),
+  value: Json,
+) -> Result(MvRegister, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) -> {
+      use _ <- result.try(runtime.resolve_address(document.runtime, address))
+      let register = MvRegister(runtime: document.runtime, address: address)
+      mv_register_values(register)
+      |> result.replace_error("address does not name an MV-register channel")
+      |> result.map(fn(_) { register })
+    }
+  }
+}
+
+@target(javascript)
+pub fn set_mv_register_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+  mv_register: MvRegister,
+) -> Nil {
+  put_channel_field(typed_map, field, mv_register_handle_of(mv_register))
+}
+
+@target(javascript)
+pub fn resolve_mv_register_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+) -> Result(Option(MvRegister), String) {
+  get_channel_field(document, typed_map, field, resolve_mv_register)
+}
+
+@target(javascript)
+pub fn ensure_mv_register(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+  done: fn(Result(MvRegister, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use mv_register <- result.map(create_mv_register(document))
+      set_mv_register_field(typed_map, field, mv_register)
+    },
+    fn() { resolve_mv_register_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+pub fn mv_register_set(mv_register: MvRegister, value: String) -> Nil {
+  runtime.mv_register_set(mv_register.runtime, mv_register.address, value)
+}
+
+@target(javascript)
+pub fn mv_register_values(
+  mv_register: MvRegister,
+) -> Result(List(String), Nil) {
+  runtime.mv_register_values(mv_register.runtime, mv_register.address)
+}
+
+@target(javascript)
+pub fn subscribe_mv_register(
+  mv_register: MvRegister,
+  handler: fn(mv_register_kernel.MvRegisterEvent) -> Nil,
+) -> SubscriptionToken {
+  use event <- subscribe_narrowed(
+    mv_register.runtime,
+    mv_register.address,
+    handler,
+  )
+  case event {
+    channel.MvRegisterEvent(inner) -> Some(inner)
+    channel.PnCounterEvent(_) -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+@target(javascript)
+pub opaque type MvRegister {
+  MvRegister(runtime: runtime.Runtime, address: String)
 }
