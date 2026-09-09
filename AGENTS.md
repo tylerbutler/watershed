@@ -15,6 +15,24 @@ just snippets  # regenerate the website's snippet manifest
 The website is a separate Astro project under `website/` (`pnpm build`,
 `pnpm run og:image` to regenerate the social card).
 
+## Code discovery
+
+Use `just code-map overview` for a repository outline, `just code-map find
+<name>` to locate declarations, and `just code-map file <path>` for a file's
+functions and types. Add `--json` for structured output. Results default to
+50 entries; when `hasMore` is true, repeat with the next `--offset`.
+
+The tool refreshes from on-disk source before queries. Exit 2 and
+`complete: false` mean some files could not be read or parsed; do not treat
+their missing declarations as evidence that the code does not exist. Read
+referenced source before edits and use an LSP for resolved references or
+renames. Do not edit or commit `.code-map/`.
+
+`tools/code-map/` is a self-contained, extractable tool. Keep repository-specific
+exclusions in root `code-map.json` and corpus assertions in
+`tools/code-map-watershed.test.mjs`, outside the tool. Run its focused suites
+with `just code-map-test`; `just deps` installs its isolated Node dependencies.
+
 ## Website code snippets
 
 Every code block on the site that quotes real source comes from

@@ -328,3 +328,15 @@ just format
 just lint
 just integration-up             # local floodgate server on :4000
 ```
+
+For source navigation, `just code-map overview` lists repository areas,
+`just code-map find connect --path src` finds declarations, and
+`just code-map file src/watershed/p2p.gleam` shows a file outline. Add `--json`
+for agent-readable results. Queries refresh an ignored cache from current
+source; they do not require an application or website build.
+
+The [code-map tool](tools/code-map/README.md) has its own dependencies and can
+move into a standalone repository. Watershed supplies exclusions through
+[`code-map.json`](code-map.json), and keeps its real-source coverage gate in
+[`tools/code-map-watershed.test.mjs`](tools/code-map-watershed.test.mjs).
+`just deps` installs the tool; `just code-map-test` runs its focused suites.
