@@ -15,6 +15,7 @@ erl_crash.dump
 /.playwright-mcp/
 /.serena/
 /.worktrees/
+/.code-map/
 
 
 # APM dependencies

@@ -1,0 +1,5 @@
+{
+  "version": 1,
+  "excludeDirs": ["build", "dist", "node_modules"],
+  "excludePaths": ["apm_modules", ".agents/skills"]
+}
