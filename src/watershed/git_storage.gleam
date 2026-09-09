@@ -5,10 +5,10 @@
 //// server.
 ////
 //// A watershed summary is one JSON blob. See `summary_blob.encode_channels`.
-//// A git tree holds that blob at the path `"header"`. The client sets the
-//// `handle` field of the summarize operation to the tree SHA. To load a
-//// summary, the client thus fetches the tree by its handle, reads the `header`
-//// blob, decodes that blob from base64, and then decodes the summary.
+//// A git tree holds that blob at the path `"header"`. The client stages that
+//// tree in the `handle` field of a summarize proposal. Floodgate publishes a
+//// commit over the tree. To load a published summary, the client resolves the
+//// commit to its tree, reads the `header` blob, and decodes the summary.
 ////
 //// A write with `upload_summary` needs the `summary:write` scope on the token.
 //// A read with `fetch_summary` needs the `doc:read` scope.
@@ -28,7 +28,6 @@ import gleam/http/response.{type Response}
 import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{type Option, None}
 import gleam/result
 import gleam/string
 
@@ -49,17 +48,14 @@ import gleam/javascript/promise.{type Promise}
 /// The tree entry path that stores a watershed summary blob.
 const summary_blob_path = "header"
 
-/// One stored summary version, as `GET /versions/:tenant_id/:id` lists it,
-/// newest first. `handle` identifies the snapshot tree. Give that handle to
-/// `fetch_summary` to read the state that the snapshot captured.
-/// `sequence_number` is the sequence number that the server gave to the
-/// summarize operation.
+/// One published summary version from the document's commit history.
+/// `id` is the published commit SHA. `tree_id` is its root tree SHA.
 pub type SummaryVersion {
   SummaryVersion(
-    handle: String,
-    sequence_number: Int,
-    message: Option(String),
-    created_at: Option(String),
+    id: String,
+    tree_id: String,
+    message: String,
+    created_at: String,
   )
 }
 
@@ -67,6 +63,8 @@ pub type SummaryVersion {
 /// storage protocol that failed, and it carries the data that a reader needs
 /// to find the fault.
 pub type StorageError {
+  /// A version history request must ask for at least one version.
+  InvalidVersionCount(count: Int)
   /// The client could not build the request. The URL is not a valid one.
   BadRequestUrl(url: String)
   /// The network call did not complete.
@@ -90,6 +88,8 @@ pub type StorageError {
 /// String.
 pub fn error_to_string(error: StorageError) -> String {
   case error {
+    InvalidVersionCount(count) ->
+      "version count must be positive: " <> int.to_string(count)
     BadRequestUrl(url) -> "storage url is not valid: " <> url
     RequestFailed(url, detail) ->
       "storage request to " <> url <> " failed: " <> detail
@@ -118,20 +118,34 @@ pub fn error_to_string(error: StorageError) -> String {
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Fetch and decode the summary that `handle` identifies. A handle is a git
-/// tree SHA.
+/// Fetch and decode the summary that a published commit identifies.
+/// A missing commit falls back to the supplied ID as a legacy tree SHA.
 pub fn fetch_summary(
   base_url base_url: String,
   tenant tenant: String,
   token token: String,
   handle handle: String,
 ) -> Result(SummaryBlob, StorageError) {
+  use tree_id <- result.try(resolve_summary_tree_id(
+    handle,
+    get_json(commit_url(base_url, tenant, handle), token, commit_tree_decoder()),
+  ))
+  fetch_tree_summary(base_url, tenant, token, tree_id)
+}
+
+@target(erlang)
+fn fetch_tree_summary(
+  base_url: String,
+  tenant: String,
+  token: String,
+  tree_id: String,
+) -> Result(SummaryBlob, StorageError) {
   use tree <- result.try(get_json(
-    tree_url(base_url, tenant, handle),
+    tree_url(base_url, tenant, tree_id),
     token,
     tree_decoder(),
   ))
-  use blob_sha <- result.try(find_blob_sha(tree, handle))
+  use blob_sha <- result.try(find_blob_sha(tree, tree_id))
   use blob <- result.try(get_json(
     blob_url(base_url, tenant, blob_sha),
     token,
@@ -142,8 +156,8 @@ pub fn fetch_summary(
 
 @target(erlang)
 /// Serialize the supplied channel state as a summary blob. Upload that blob as
-/// a git blob in a tree with one entry. Return the tree SHA, which is both the
-/// `head` field and the `handle` field of the summarize operation.
+/// a git blob in a tree with one entry. Return the staged tree SHA for the
+/// `handle` field of the summarize operation.
 ///
 /// `members` is the connected roster at `sequence_number`. It travels with the
 /// snapshots, and not beside them, because it is checkpoint state of the same
@@ -192,9 +206,8 @@ pub fn fetch_deltas(
 }
 
 @target(erlang)
-/// List the stored summary versions of the document, newest first. This is the
-/// client half of the `getVersions` function of Fluid. Give the `handle` of a
-/// version to `fetch_summary` to read the snapshot that it captured.
+/// List the published summary commits of the document, newest first. Give the
+/// `id` of a version to `fetch_summary` to read its snapshot.
 pub fn fetch_versions(
   base_url base_url: String,
   tenant tenant: String,
@@ -202,6 +215,7 @@ pub fn fetch_versions(
   document document: String,
   count count: Int,
 ) -> Result(List(SummaryVersion), StorageError) {
+  use Nil <- result.try(validate_version_count(count))
   get_json(
     versions_url(base_url, tenant, document, count),
     token,
@@ -214,20 +228,36 @@ pub fn fetch_versions(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Fetch and decode the summary that `handle` identifies. A handle is a git
-/// tree SHA.
+/// Fetch and decode the summary that a published commit identifies.
+/// A missing commit falls back to the supplied ID as a legacy tree SHA.
 pub fn fetch_summary(
   base_url base_url: String,
   tenant tenant: String,
   token token: String,
   handle handle: String,
 ) -> Promise(Result(SummaryBlob, StorageError)) {
+  use commit_result <- promise.await(get_json(
+    commit_url(base_url, tenant, handle),
+    token,
+    commit_tree_decoder(),
+  ))
+  use tree_id <- promise_try(resolve_summary_tree_id(handle, commit_result))
+  fetch_tree_summary(base_url, tenant, token, tree_id)
+}
+
+@target(javascript)
+fn fetch_tree_summary(
+  base_url: String,
+  tenant: String,
+  token: String,
+  tree_id: String,
+) -> Promise(Result(SummaryBlob, StorageError)) {
   use tree <- promise.try_await(get_json(
-    tree_url(base_url, tenant, handle),
+    tree_url(base_url, tenant, tree_id),
     token,
     tree_decoder(),
   ))
-  use blob_sha <- promise_try(find_blob_sha(tree, handle))
+  use blob_sha <- promise_try(find_blob_sha(tree, tree_id))
   use blob <- promise.try_await(get_json(
     blob_url(base_url, tenant, blob_sha),
     token,
@@ -238,8 +268,8 @@ pub fn fetch_summary(
 
 @target(javascript)
 /// Serialize the supplied channel state as a summary blob. Upload that blob as
-/// a git blob in a tree with one entry. Return the tree SHA, which is both the
-/// `head` field and the `handle` field of the summarize operation.
+/// a git blob in a tree with one entry. Return the staged tree SHA for the
+/// `handle` field of the summarize operation.
 ///
 /// `members` is the connected roster at `sequence_number`. It travels with the
 /// snapshots, and not beside them, because it is checkpoint state of the same
@@ -288,9 +318,8 @@ pub fn fetch_deltas(
 }
 
 @target(javascript)
-/// List the stored summary versions of the document, newest first. This is the
-/// client half of the `getVersions` function of Fluid. Give the `handle` of a
-/// version to `fetch_summary` to read the snapshot that it captured.
+/// List the published summary commits of the document, newest first. Give the
+/// `id` of a version to `fetch_summary` to read its snapshot.
 pub fn fetch_versions(
   base_url base_url: String,
   tenant tenant: String,
@@ -298,6 +327,7 @@ pub fn fetch_versions(
   document document: String,
   count count: Int,
 ) -> Promise(Result(List(SummaryVersion), StorageError)) {
+  use Nil <- promise_try(validate_version_count(count))
   get_json(
     versions_url(base_url, tenant, document, count),
     token,
@@ -308,6 +338,14 @@ pub fn fetch_versions(
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared URL construction
 // ─────────────────────────────────────────────────────────────────────────────
+
+pub fn commit_url(
+  base_url: String,
+  tenant: String,
+  commit_id: String,
+) -> String {
+  base_url <> "/repos/" <> tenant <> "/git/commits/" <> commit_id
+}
 
 fn tree_url(base_url: String, tenant: String, handle: String) -> String {
   base_url <> "/repos/" <> tenant <> "/git/trees/" <> handle
@@ -345,19 +383,26 @@ fn deltas_url(
   <> int.to_string(to)
 }
 
-fn versions_url(
+pub fn versions_url(
   base_url: String,
   tenant: String,
   document: String,
   count: Int,
 ) -> String {
   base_url
-  <> "/versions/"
+  <> "/repos/"
   <> tenant
-  <> "/"
+  <> "/commits?sha="
   <> document
-  <> "?count="
+  <> "&count="
   <> int.to_string(count)
+}
+
+pub fn validate_version_count(count: Int) -> Result(Nil, StorageError) {
+  case count > 0 {
+    True -> Ok(Nil)
+    False -> Error(InvalidVersionCount(count))
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -648,28 +693,39 @@ fn deltas_decoder() -> Decoder(List(SequencedDocumentMessage)) {
   decode.at(["value"], decode.list(socket.sequenced_document_message_decoder()))
 }
 
-/// The versions response `{value: [{handle, sequenceNumber, message, ...}]}`,
-/// newest first.
-fn versions_decoder() -> Decoder(List(SummaryVersion)) {
-  decode.at(["value"], decode.list(version_decoder()))
+/// Decode a commit response to its root tree SHA.
+pub fn commit_tree_decoder() -> Decoder(String) {
+  decode.subfield(["tree", "sha"], decode.string, decode.success)
+}
+
+/// Use a published commit's tree, or a legacy tree ID after a commit 404.
+pub fn resolve_summary_tree_id(
+  version_id: String,
+  commit_result: Result(String, StorageError),
+) -> Result(String, StorageError) {
+  case commit_result {
+    Ok(tree_id) -> Ok(tree_id)
+    Error(UnexpectedStatus(_, 404, _)) -> Ok(version_id)
+    Error(error) -> Error(error)
+  }
+}
+
+/// Decode the newest-first commit history response.
+pub fn versions_decoder() -> Decoder(List(SummaryVersion)) {
+  decode.list(version_decoder())
 }
 
 fn version_decoder() -> Decoder(SummaryVersion) {
-  use handle <- decode.field("handle", decode.string)
-  use sequence_number <- decode.field("sequenceNumber", decode.int)
-  use message <- decode.optional_field(
-    "message",
-    None,
-    decode.optional(decode.string),
+  use id <- decode.field("sha", decode.string)
+  use message <- decode.subfield(["commit", "message"], decode.string)
+  use created_at <- decode.subfield(
+    ["commit", "committer", "date"],
+    decode.string,
   )
-  use created_at <- decode.optional_field(
-    "createdAt",
-    None,
-    decode.optional(decode.string),
-  )
+  use tree_id <- decode.subfield(["commit", "tree", "sha"], decode.string)
   decode.success(SummaryVersion(
-    handle: handle,
-    sequence_number: sequence_number,
+    id: id,
+    tree_id: tree_id,
     message: message,
     created_at: created_at,
   ))

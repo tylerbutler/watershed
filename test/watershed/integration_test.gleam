@@ -937,12 +937,11 @@ fn run_versions_test() -> Nil {
     Error(reason) -> panic as { "second summarize failed: " <> reason }
   }
 
-  // The server registers a version per summarize operation (async relative to
-  // the summarize reply), newest first.
+  // Published commit versions are newest first.
   wait_until(50, fn() {
     case watershed_beam.get_versions(document, count: 10) {
       Ok(versions) ->
-        list.map(versions, fn(v: git_storage.SummaryVersion) { v.handle })
+        list.map(versions, fn(v: git_storage.SummaryVersion) { v.id })
         == [handle_2, handle_1]
       Error(_) -> False
     }
@@ -951,11 +950,13 @@ fn run_versions_test() -> Nil {
 
   let assert Ok([latest, previous]) =
     watershed_beam.get_versions(document, count: 10)
-  { latest.sequence_number > previous.sequence_number } |> expect.to_be_true()
+  latest.id |> expect.to_equal(handle_2)
+  previous.id |> expect.to_equal(handle_1)
+  { latest.tree_id != latest.id } |> expect.to_be_true()
 
   // `count` keeps only the newest versions.
   let assert Ok([only]) = watershed_beam.get_versions(document, count: 1)
-  only.handle |> expect.to_equal(handle_2)
+  only.id |> expect.to_equal(handle_2)
 
   // Historical snapshot reads by handle: each version returns exactly the
   // confirmed state it captured, without affecting the live document.
