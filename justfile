@@ -102,6 +102,12 @@ snippets:
 
 alias website-snippets := snippets
 
+# Syntax-backed discovery; the tool owns all indexing and configuration.
+[positional-arguments]
+code-map *args:
+    @cd tools/code-map && gleam build >&2
+    @node tools/code-map/cli.mjs "$@"
+
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
 # default (see test/watershed/fuzz/README.md). Set FUZZ_SEED to pin a

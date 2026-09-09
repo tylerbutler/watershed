@@ -9,6 +9,8 @@ import { parseJavaScript } from "./javascript.mjs";
 import { parseAstro } from "./astro.mjs";
 import { compare, kinds, statuses } from "./symbols.mjs";
 
+export { queryIndex } from "./queries.mjs";
+
 const sha256 = /^[a-f0-9]{64}$/;
 const object = (v) => v !== null && typeof v === "object" && !Array.isArray(v);
 const strings = (v) => Array.isArray(v) && v.every((s) => typeof s === "string");
