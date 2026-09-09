@@ -229,6 +229,16 @@ fn apply_tagged(
   }
 }
 
+fn apply_summary(
+  core: Core,
+  sequenced: types.SequencedDocumentMessage,
+) -> #(Core, List(runtime_core.SummaryEvent)) {
+  case runtime_core.handle_sequenced(core, sequenced) {
+    Ok(#(core, ingested)) -> #(core, ingested.summary_events)
+    Error(_) -> panic as "expected handle_sequenced to succeed"
+  }
+}
+
 fn ingest(
   core: Core,
   sequenced: types.SequencedDocumentMessage,
@@ -3844,14 +3854,42 @@ fn summarize_message(
   sequenced_message(
     client_id: Some(by),
     sequence_number: sequence_number,
-    client_sequence_number: -1,
+    client_sequence_number: 7,
     message_type: "summarize",
     contents: json_to_dynamic(
       json.object([
-        #("handle", json.string("deadbeef")),
+        #("handle", json.string("tree-1")),
         #("message", json.string("watershed summary")),
         #("parents", json.array([], json.string)),
-        #("head", json.string("deadbeef")),
+        #("head", json.string("")),
+      ]),
+    ),
+  )
+}
+
+fn summary_response_message(
+  sequence_number: Int,
+  proposal_sequence_number: Int,
+  response: String,
+) -> types.SequencedDocumentMessage {
+  let fields = case response {
+    "summaryAck" -> [#("handle", json.string("commit-1"))]
+    _ -> [#("message", json.string("Summary parent is not the published head"))]
+  }
+  sequenced_message(
+    client_id: None,
+    sequence_number: sequence_number,
+    client_sequence_number: -1,
+    message_type: response,
+    contents: json_to_dynamic(
+      json.object([
+        #(
+          "summaryProposal",
+          json.object([
+            #("summarySequenceNumber", json.int(proposal_sequence_number)),
+          ]),
+        ),
+        ..fields
       ]),
     ),
   )
@@ -3892,62 +3930,98 @@ pub fn bootstrap_without_a_summary_counts_from_zero_test() -> Nil {
   runtime_core.operations_since_summary(core) |> expect.to_equal(3)
 }
 
-pub fn an_observed_summarize_advances_the_local_checkpoint_test() -> Nil {
-  // A peer's summarize operation is sequenced like any other message. The core
-  // has no use for its contents, but its sequence number is what stops every
-  // other client in the room from summarizing the same state again.
+pub fn bootstrap_summary_context_seeds_the_published_head_test() -> Nil {
+  let connected =
+    message.ConnectedMessage(
+      ..connected_message([], 5),
+      summary_context: Some(message.SummaryContext("commit-1", 5)),
+    )
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap(connected, summary: Some(root_summary(5, [])))
+  core.summary_head |> expect.to_equal(Some("commit-1"))
+}
+
+pub fn building_a_first_summary_uses_no_parent_test() -> Nil {
+  let core = bootstrap(initial_messages: [], checkpoint: 12)
+  let #(core, outbound) =
+    runtime_core.build_summarize(
+      core,
+      handle: "tree-1",
+      message: "watershed summary",
+    )
+  runtime_core.operations_since_summary(core) |> expect.to_equal(12)
+  decode.run(
+    json_to_dynamic(outbound.contents),
+    decode.at(["head"], decode.string),
+  )
+  |> expect.to_equal(Ok(""))
+  decode.run(
+    json_to_dynamic(outbound.contents),
+    decode.at(["parents"], decode.list(decode.string)),
+  )
+  |> expect.to_equal(Ok([]))
+}
+
+pub fn building_a_later_summary_uses_the_published_head_test() -> Nil {
+  let core =
+    runtime_core.Core(
+      ..bootstrap(initial_messages: [], checkpoint: 12),
+      summary_head: Some("commit-1"),
+    )
+  let #(_, outbound) =
+    runtime_core.build_summarize(
+      core,
+      handle: "tree-2",
+      message: "watershed summary",
+    )
+  decode.run(
+    json_to_dynamic(outbound.contents),
+    decode.at(["head"], decode.string),
+  )
+  |> expect.to_equal(Ok("commit-1"))
+  decode.run(
+    json_to_dynamic(outbound.contents),
+    decode.at(["parents"], decode.list(decode.string)),
+  )
+  |> expect.to_equal(Ok(["commit-1"]))
+}
+
+pub fn summary_proposal_waits_for_publication_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 3)
-  runtime_core.operations_since_summary(core) |> expect.to_equal(3)
+  let #(core, events) =
+    apply_summary(
+      core,
+      summarize_message(sequence_number: 4, by: our_client_id),
+    )
+  events
+  |> expect.to_equal([
+    runtime_core.SummaryProposalSequenced(Some(our_client_id), 7, 4),
+  ])
+  runtime_core.operations_since_summary(core) |> expect.to_equal(4)
 
   let #(core, events) =
-    apply(core, summarize_message(sequence_number: 4, by: other_client_id))
-  events |> expect.to_equal([])
-  runtime_core.operations_since_summary(core) |> expect.to_equal(0)
-
-  let #(core, _) =
-    apply(
-      core,
-      map_operation_message(
-        client_id: other_client_id,
-        sequence_number: 5,
-        client_sequence_number: 1,
-        operation: Set("after", json.int(1)),
-      ),
-    )
+    apply_summary(core, summary_response_message(5, 4, "summaryAck"))
+  events
+  |> expect.to_equal([runtime_core.SummaryPublished(4, "commit-1")])
+  core.summary_head |> expect.to_equal(Some("commit-1"))
   runtime_core.operations_since_summary(core) |> expect.to_equal(1)
 }
 
-pub fn a_stale_summarize_does_not_move_the_checkpoint_backwards_test() -> Nil {
-  // Replaying an old log after loading a newer summary must not un-summarize
-  // the document.
-  let summary = root_summary(10, [])
-  let core = case
-    runtime_core.bootstrap(connected_message([], 10), summary: Some(summary))
-  {
-    Ok(runtime_core.Complete(core)) -> core
-    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
-      panic as "expected summary bootstrap to succeed"
-  }
-
+pub fn rejected_summary_does_not_advance_the_checkpoint_test() -> Nil {
+  let core = bootstrap(initial_messages: [], checkpoint: 3)
   let #(core, _) =
-    apply(core, summarize_message(sequence_number: 4, by: other_client_id))
-  runtime_core.operations_since_summary(core) |> expect.to_equal(0)
-}
-
-pub fn building_a_summarize_operation_advances_the_local_checkpoint_test() -> Nil {
-  // Our own summarize operation is fire-and-forget — no ack, no in-flight entry
-  // — so the checkpoint moves when the operation is built rather than when it
-  // lands. Without this a client re-arms on every operation until its own echo
-  // returns.
-  let core = bootstrap(initial_messages: [], checkpoint: 12)
-  let #(core, _outbound) =
-    runtime_core.build_summarize(
+    apply_summary(
       core,
-      handle: "deadbeef",
-      message: "watershed summary",
-      head: "deadbeef",
+      summarize_message(sequence_number: 4, by: our_client_id),
     )
-  runtime_core.operations_since_summary(core) |> expect.to_equal(0)
+  let #(core, events) =
+    apply_summary(core, summary_response_message(5, 4, "summaryNack"))
+  events
+  |> expect.to_equal([
+    runtime_core.SummaryRejected(4, "Summary parent is not the published head"),
+  ])
+  core.summary_head |> expect.to_equal(None)
+  runtime_core.operations_since_summary(core) |> expect.to_equal(5)
 }
 
 pub fn wants_summary_crosses_at_the_threshold_test() -> Nil {

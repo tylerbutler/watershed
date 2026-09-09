@@ -2286,7 +2286,6 @@ fn finish_summarize(
           core,
           handle: tree_sha,
           message: "watershed summary",
-          head: tree_sha,
         )
       push_json(
         channel,

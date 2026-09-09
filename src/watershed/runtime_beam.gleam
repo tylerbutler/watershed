@@ -2968,7 +2968,6 @@ fn do_summarize(
       core,
       handle: tree_sha,
       message: "watershed summary",
-      head: tree_sha,
     )
   push(
     channel,

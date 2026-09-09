@@ -121,11 +121,10 @@ pub fn outbound_attach_operation(
 }
 
 /// A `"summarize"` operation that announces a stored snapshot. The contents
-/// carry the fields that the `validate_summarize_contents` function of the
-/// server needs: `handle`, the storage handle of the snapshot; `message`, the
-/// commit message; `parents`, the handles of the parent summaries; and `head`,
-/// the git tree SHA that the client uploaded. The client sets `handle` equal to
-/// `head`, so a client that loads the summary can fetch the tree by its handle.
+/// carry the fields that the server needs. `handle` is the staged tree SHA.
+/// `head` is the current published commit SHA, or an empty string for the first
+/// summary. `parents` is empty for the first summary and otherwise contains
+/// only `head`.
 pub fn outbound_summarize_operation(
   client_sequence_number client_sequence_number: Int,
   reference_sequence_number reference_sequence_number: Int,

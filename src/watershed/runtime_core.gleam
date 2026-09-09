@@ -54,6 +54,7 @@ import watershed/text_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
 import watershed/wire/op as wire_op
+import watershed/wire/summary as wire_summary
 import watershed/wire/summary_blob.{type SummaryBlob}
 
 const root_address = "root"
@@ -111,25 +112,13 @@ pub type Core {
     /// incorrect. To add *self* to the quorum of an operation that sequenced
     /// before this client joined puts the client in a room that it was not in.
     ingest: IngestPosition,
-    /// The sequence number of the newest checkpoint that this client knows
-    /// about. That checkpoint is the blob that the client started from, a
-    /// summarize operation that it saw after that, or one that it wrote itself.
-    /// The value is zero on a document that no client has summarized.
-    ///
-    /// The value is an upper bound, and not the exact capture point. A
-    /// summarize operation that the client sees reports the sequence number of
-    /// the *operation*, which is at or after the point at which the writer
-    /// captured the contents of the blob. The two numbers differ by the traffic
-    /// that the room wrote during the upload. That difference makes the policy
-    /// a little slower, and it never makes the policy summarize two times,
-    /// which is the safe direction. `summary_from_blob` is the exception. A
-    /// client that loads a blob takes the number of that blob, because there
-    /// the seeded state matters, and not the pointer to it.
-    ///
-    /// The correctness of the document does not depend on this value. It exists
-    /// so that `wants_summary` can measure the drift after the last checkpoint
-    /// without a request to the server.
+    /// The proposal sequence number of the newest published checkpoint that
+    /// this client knows. Floodgate reports it in the bootstrap context and in
+    /// each summary acknowledgement. A proposal or rejection does not change
+    /// it. The value is zero before the first published summary.
     last_summary_sequence_number: Int,
+    /// The commit SHA of the newest published summary that this client knows.
+    summary_head: Option(String),
     /// A buffer for each channel, which holds the *owed* follow-up operations
     /// that a kernel released while it applied a sequenced operation. One
     /// example is a consensus `Accept` operation in reaction to a `Set`
@@ -195,10 +184,21 @@ pub type Bootstrapped {
   MissingPrefix(core: Core, checkpoint: Int, from: Int, to: Int)
 }
 
+pub type SummaryEvent {
+  SummaryProposalSequenced(
+    client_id: Option(String),
+    client_sequence_number: Int,
+    sequence_number: Int,
+  )
+  SummaryPublished(proposal_sequence_number: Int, version_id: String)
+  SummaryRejected(proposal_sequence_number: Int, reason: String)
+}
+
 pub type Ingested {
   Ingested(
     events: List(#(String, ChannelEvent)),
     resolutions: List(#(String, Resolution)),
+    summary_events: List(SummaryEvent),
     request_operations_from: Option(Int),
     /// The operations that a one-operation-in-flight kernel, which is json0,
     /// released onto the wire while the runtime acked its own operation. The
@@ -284,10 +284,14 @@ pub fn bootstrap(
       detached: dict.new(),
       next_client_sequence_number: 1,
       last_seen_sequence_number: last_seen,
-      // The blob we loaded *is* the newest checkpoint we know of; a document
-      // with no summary has none, and every operation in its log is
-      // outstanding.
-      last_summary_sequence_number: last_seen,
+      last_summary_sequence_number: case connected.summary_context {
+        Some(context) -> context.sequence_number
+        None -> last_seen
+      },
+      summary_head: case connected.summary_context {
+        Some(context) -> Some(context.handle)
+        None -> None
+      },
       in_flight: [],
       out_of_order: [],
       // Seeded from the checkpoint, **not** from the handshake's roster, and
@@ -478,28 +482,26 @@ pub fn build_summarize(
   core: Core,
   handle handle: String,
   message message: String,
-  head head: String,
 ) -> #(Core, wire.OutboundOperation) {
   let client_sequence_number = core.next_client_sequence_number
+  let head = case core.summary_head {
+    Some(head) -> head
+    None -> ""
+  }
   let outbound =
     wire_op.outbound_summarize_operation(
       client_sequence_number: client_sequence_number,
       reference_sequence_number: core.last_seen_sequence_number,
       handle: handle,
       message: message,
-      parents: [],
+      parents: case core.summary_head {
+        Some(head) -> [head]
+        None -> []
+      },
       head: head,
     )
-  // Our own checkpoint moves here rather than when the operation is echoed
-  // back: a summarize operation carries no ack and no in-flight entry, so
-  // waiting for the echo would leave the policy re-arming on every operation in
-  // between.
   #(
-    Core(
-      ..core,
-      next_client_sequence_number: client_sequence_number + 1,
-      last_summary_sequence_number: core.last_seen_sequence_number,
-    ),
+    Core(..core, next_client_sequence_number: client_sequence_number + 1),
     outbound,
   )
 }
@@ -924,7 +926,7 @@ pub fn handle_sequenced(
   let next = core.last_seen_sequence_number + 1
   case msg.sequence_number {
     sequence_number if sequence_number < next ->
-      Ok(#(core, Ingested([], [], None, [])))
+      Ok(#(core, Ingested([], [], [], None, [])))
     sequence_number if sequence_number > next -> {
       let request = case core.out_of_order {
         [] -> Some(core.last_seen_sequence_number)
@@ -932,11 +934,16 @@ pub fn handle_sequenced(
       }
       let core =
         Core(..core, out_of_order: buffer_insert(core.out_of_order, msg))
-      Ok(#(core, Ingested([], [], request, [])))
+      Ok(#(core, Ingested([], [], [], request, [])))
     }
     _ -> {
-      use #(core, events, resolutions) <- result.try(apply_one(core, msg))
-      use #(core, drained, drained_resolutions) <- result.try(drain_buffer(core))
+      use #(core, events, resolutions, summary_events) <- result.try(apply_one(
+        core,
+        msg,
+      ))
+      use #(core, drained, drained_resolutions, drained_summary_events) <- result.try(
+        drain_buffer(core),
+      )
       // A single-in-flight kernel (json0 or rich text) may have promoted a
       // buffered operation to the wire while acking its own operation; collect
       // and stamp those now, after every operation in this batch has been
@@ -947,6 +954,7 @@ pub fn handle_sequenced(
         Ingested(
           events: list.append(events, drained),
           resolutions: list.append(resolutions, drained_resolutions),
+          summary_events: list.append(summary_events, drained_summary_events),
           request_operations_from: None,
           outbound: outbound,
         ),
@@ -1056,35 +1064,86 @@ fn apply_one(
   core: Core,
   msg: SequencedDocumentMessage,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(SummaryEvent),
+  ),
   CoreError,
 ) {
   let core = Core(..core, last_seen_sequence_number: msg.sequence_number)
   case msg.message_type {
-    "op" -> handle_operation(core, msg)
-    "join" -> handle_join(core, msg)
-    "leave" -> handle_leave(core, msg)
-    // Someone summarized. The contents are a storage handle this client has no
-    // use for — it is already caught up — but the sequence number tells the
-    // automatic policy that the document has a fresher checkpoint than it
-    // thought, which is how a room writes one summary per crossing rather than
-    // one per client. `int.max` because a summarize operation replayed out of
-    // an old log must not un-summarize a document loaded from a newer blob.
+    "op" -> without_summary_events(handle_operation(core, msg))
+    "join" -> without_summary_events(handle_join(core, msg))
+    "leave" -> without_summary_events(handle_leave(core, msg))
     "summarize" ->
       Ok(
-        #(
+        #(core, [], [], [
+          SummaryProposalSequenced(
+            msg.client_id,
+            msg.client_sequence_number,
+            msg.sequence_number,
+          ),
+        ]),
+      )
+    "summaryAck" | "summaryNack" -> apply_summary_response(core, msg)
+    _ -> Ok(#(core, [], [], []))
+  }
+}
+
+fn without_summary_events(
+  outcome: Result(
+    #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+    CoreError,
+  ),
+) -> Result(
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(SummaryEvent),
+  ),
+  CoreError,
+) {
+  result.map(outcome, fn(outcome) {
+    let #(core, events, resolutions) = outcome
+    #(core, events, resolutions, [])
+  })
+}
+
+fn apply_summary_response(
+  core: Core,
+  msg: SequencedDocumentMessage,
+) -> Result(
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(SummaryEvent),
+  ),
+  CoreError,
+) {
+  case wire_summary.decode_message(msg.message_type, msg.contents) {
+    Error(Nil) -> Error(BadOperationContents(msg.sequence_number))
+    Ok(wire_summary.Ack(proposal_sequence_number, version_id)) -> {
+      let core = case
+        proposal_sequence_number >= core.last_summary_sequence_number
+      {
+        True ->
           Core(
             ..core,
-            last_summary_sequence_number: int.max(
-              core.last_summary_sequence_number,
-              msg.sequence_number,
-            ),
-          ),
-          [],
-          [],
-        ),
+            last_summary_sequence_number: proposal_sequence_number,
+            summary_head: Some(version_id),
+          )
+        False -> core
+      }
+      Ok(
+        #(core, [], [], [SummaryPublished(proposal_sequence_number, version_id)]),
       )
-    _ -> Ok(#(core, [], []))
+    }
+    Ok(wire_summary.Nack(proposal_sequence_number, reason)) ->
+      Ok(#(core, [], [], [SummaryRejected(proposal_sequence_number, reason)]))
   }
 }
 
@@ -1182,7 +1241,12 @@ fn system_payload(
 fn drain_buffer(
   core: Core,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(SummaryEvent),
+  ),
   CoreError,
 ) {
   case core.out_of_order {
@@ -1191,18 +1255,21 @@ fn drain_buffer(
     [head, ..rest]
       if head.sequence_number == core.last_seen_sequence_number + 1
     -> {
-      use #(core, events, resolutions) <- result.try(apply_one(
+      use #(core, events, resolutions, summary_events) <- result.try(apply_one(
         Core(..core, out_of_order: rest),
         head,
       ))
-      use #(core, more, more_resolutions) <- result.try(drain_buffer(core))
+      use #(core, more, more_resolutions, more_summary_events) <- result.try(
+        drain_buffer(core),
+      )
       Ok(#(
         core,
         list.append(events, more),
         list.append(resolutions, more_resolutions),
+        list.append(summary_events, more_summary_events),
       ))
     }
-    _ -> Ok(#(core, [], []))
+    _ -> Ok(#(core, [], [], []))
   }
 }
 

@@ -42,6 +42,7 @@ import watershed/text_kernel
 import watershed/wire
 import watershed/wire/op as wire_op
 import watershed/wire/socket
+import watershed/wire/summary
 import watershed/wire/summary_blob
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -299,6 +300,55 @@ pub fn partial_flat_summary_fields_are_invalid_test() -> Nil {
   })
 }
 
+pub fn summary_ack_decodes_test() -> Nil {
+  let contents =
+    json.object([
+      #("handle", json.string("commit-abc")),
+      #(
+        "summaryProposal",
+        json.object([#("summarySequenceNumber", json.int(41))]),
+      ),
+    ])
+    |> json.to_string
+    |> parse(decode.dynamic)
+  summary.decode_message("summaryAck", contents)
+  |> expect.to_equal(
+    Ok(summary.Ack(proposal_sequence_number: 41, version_id: "commit-abc")),
+  )
+}
+
+pub fn summary_nack_decodes_test() -> Nil {
+  let contents =
+    json.object([
+      #(
+        "summaryProposal",
+        json.object([#("summarySequenceNumber", json.int(41))]),
+      ),
+      #("message", json.string("Summary parent is not the published head")),
+    ])
+    |> json.to_string
+    |> parse(decode.dynamic)
+  summary.decode_message("summaryNack", contents)
+  |> expect.to_equal(
+    Ok(summary.Nack(
+      proposal_sequence_number: 41,
+      reason: "Summary parent is not the published head",
+    )),
+  )
+}
+
+pub fn malformed_summary_responses_are_rejected_test() -> Nil {
+  [
+    #("summaryAck", json.object([])),
+    #("summaryNack", json.object([])),
+    #("op", json.object([])),
+  ]
+  |> list.each(fn(fixture) {
+    let contents = fixture.1 |> json.to_string |> parse(decode.dynamic)
+    summary.decode_message(fixture.0, contents) |> expect.to_be_error()
+  })
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // summary blob codec
 // ─────────────────────────────────────────────────────────────────────────────
@@ -344,16 +394,17 @@ pub fn encode_summarize_operation_test() -> Nil {
       reference_sequence_number: 9,
       handle: "tree-abc",
       message: "watershed summary",
-      parents: [],
-      head: "tree-abc",
+      parents: ["commit-1"],
+      head: "commit-1",
     )
   let encoded =
     socket.encode_submit_operation("default_dice_1", [[operation]])
     |> json.to_string
   string_contains(encoded, "\"type\":\"summarize\"") |> expect.to_be_true()
   string_contains(encoded, "\"handle\":\"tree-abc\"") |> expect.to_be_true()
-  string_contains(encoded, "\"head\":\"tree-abc\"") |> expect.to_be_true()
-  string_contains(encoded, "\"parents\":[]") |> expect.to_be_true()
+  string_contains(encoded, "\"head\":\"commit-1\"") |> expect.to_be_true()
+  string_contains(encoded, "\"parents\":[\"commit-1\"]")
+  |> expect.to_be_true()
   string_contains(encoded, "\"clientSequenceNumber\":3") |> expect.to_be_true()
 }
 
