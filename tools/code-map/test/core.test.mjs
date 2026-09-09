@@ -49,3 +49,18 @@ test("Gleam normalizes raw parser declarations and rejects malformed kinds", asy
   raw.symbols[0].kind = "typo";
   assert.throws(() => core().normalize_parse(file.path, raw), /parser/i);
 });
+
+test("Gleam queries remain synchronous and preserve every baseline view", async () => {
+  const { core } = await import("../lib/core.mjs");
+  for (const { request, view, text } of baseline.views) {
+    const actual = core().query_index(baseline.index, request);
+    assert.equal(actual instanceof Promise, false);
+    assert.deepEqual(actual, view);
+    assert.equal(core().render_text(actual), text);
+  }
+  for (const request of [
+    { command: "find", query: "a", limit: 2 ** 54 },
+    { command: "overview", limit: 1 },
+    { command: "files", path: null },
+  ]) assert.throws(() => core().query_index(baseline.index, request));
+});

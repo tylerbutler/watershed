@@ -4,6 +4,8 @@ import code_map
 import code_map/codec
 import code_map/config
 import code_map/model
+import code_map/query
+import code_map/query_codec
 import code_map/symbols
 import gleam/dynamic/decode
 import gleam/json
@@ -92,4 +94,37 @@ pub fn normalize_parse(path: String, value: decode.Dynamic) -> json.Json {
 
 pub fn parse_gleam(path: String, source: String) -> json.Json {
   code_map.extract(path, source) |> for_javascript |> codec.encode_parse
+}
+
+pub fn query_index(
+  index: decode.Dynamic,
+  request: decode.Dynamic,
+) -> json.Json {
+  let request = query_codec.decode_request(request) |> for_javascript
+  query.run(decode_index(index), request)
+  |> for_javascript
+  |> query_codec.encode_view
+}
+
+pub fn validate_request(value: decode.Dynamic) -> json.Json {
+  query_codec.decode_request(value)
+  |> for_javascript
+  |> query_codec.encode_request
+}
+
+pub fn render_text(value: decode.Dynamic) -> String {
+  query_codec.decode_view(value) |> for_javascript |> query.render
+}
+
+pub fn cli_request(
+  values: decode.Dynamic,
+  positionals: decode.Dynamic,
+) -> json.Json {
+  let invocation = query_codec.decode_cli(values, positionals) |> for_javascript
+  json.object([
+    #("request", query_codec.encode_request(invocation.request)),
+    #("root", json.nullable(invocation.root, json.string)),
+    #("json", json.bool(invocation.json)),
+    #("rebuild", json.bool(invocation.rebuild)),
+  ])
 }

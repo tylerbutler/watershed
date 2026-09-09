@@ -4,7 +4,8 @@ import { realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { resolve } from "node:path";
 import { refreshIndex } from "./lib/index.mjs";
-import { validateRequest, queryIndex, renderText } from "./lib/queries.mjs";
+import { queryIndex, renderText } from "./lib/queries.mjs";
+import { core } from "./lib/core.mjs";
 
 const help = `Usage: code-map [--root <directory>] <command> [options]
 Commands:
@@ -32,23 +33,11 @@ export async function main(argv, { cwd = process.cwd(), stdout = process.stdout,
       },
     });
     if (values.help) { stdout.write(help); return 0; }
-    const [command = "overview", argument, ...extra] = positionals;
-    const request = { command };
-    if (extra.length || (argument !== undefined && !["file", "find"].includes(command))) throw new Error("Unexpected positional argument");
-    if (command === "file") request.path = argument;
-    if (command === "find") request.query = argument;
-    for (const key of ["path", "kind", "limit", "offset"]) {
-      if (values[key] === undefined) continue;
-      if (key === "path" && command === "file") throw new Error("file takes its path as a positional argument");
-      if (["limit", "offset"].includes(key) && !/^\d+$/.test(values[key])) throw new Error(`${key} must be an integer`);
-      request[key] = ["limit", "offset"].includes(key) ? Number(values[key]) : values[key];
-    }
-    if (values.rebuild && command !== "refresh") throw new Error("--rebuild is only valid for refresh");
-    validateRequest(request);
-    const root = values.root === undefined ? cwd : resolve(cwd, values.root);
-    const index = await refreshIndex(root, { rebuild: values.rebuild ?? false });
-    const view = queryIndex(index, request);
-    stdout.write(values.json ? `${JSON.stringify(view)}\n` : renderText(view));
+    const invocation = core().cli_request(values, positionals);
+    const root = invocation.root === null ? cwd : resolve(cwd, invocation.root);
+    const index = await refreshIndex(root, { rebuild: invocation.rebuild });
+    const view = queryIndex(index, invocation.request);
+    stdout.write(invocation.json ? `${JSON.stringify(view)}\n` : renderText(view));
     return index.complete ? 0 : 2;
   } catch (error) {
     stderr.write(`error: ${JSON.stringify(error instanceof Error ? error.message : String(error))}\n`);

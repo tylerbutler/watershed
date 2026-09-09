@@ -147,3 +147,113 @@ pub fn failed(status: FileStatus) -> Bool {
     Indexed | Unsupported | Excluded -> False
   }
 }
+
+pub const statuses = [Indexed, Unsupported, Excluded, ParseError, Unreadable]
+
+pub type Page {
+  Page(limit: Int, offset: Int)
+}
+
+pub type Request {
+  Overview
+  Refresh
+  Files(path: Option(String), page: Page)
+  File(path: String, page: Page)
+  Find(
+    query: String,
+    path: Option(String),
+    kind: Option(SymbolKind),
+    page: Page,
+  )
+}
+
+pub fn command(request: Request) -> String {
+  request_command(request) |> command_name
+}
+
+pub type Command {
+  OverviewCommand
+  RefreshCommand
+  FilesCommand
+  FileCommand
+  FindCommand
+}
+
+pub fn request_command(request: Request) -> Command {
+  case request {
+    Overview -> OverviewCommand
+    Refresh -> RefreshCommand
+    Files(..) -> FilesCommand
+    File(..) -> FileCommand
+    Find(..) -> FindCommand
+  }
+}
+
+pub fn command_name(command: Command) -> String {
+  case command {
+    OverviewCommand -> "overview"
+    RefreshCommand -> "refresh"
+    FilesCommand -> "files"
+    FileCommand -> "file"
+    FindCommand -> "find"
+  }
+}
+
+pub type Metadata {
+  Metadata(
+    path: String,
+    language: Option(Language),
+    status: FileStatus,
+    reason: Option(String),
+    symbol_count: Int,
+    diagnostic_count: Int,
+    skipped_count: Int,
+  )
+}
+
+pub type FileDetail {
+  FileDetail(
+    metadata: Metadata,
+    diagnostics: List(Diagnostic),
+    skipped_regions: List(SkippedRegion),
+  )
+}
+
+pub type Group {
+  Group(path: String, files: Int, symbols: Int)
+}
+
+pub type Content {
+  Summary(files: Int, symbols: Int, groups: List(Group), groups_total: Int)
+  Inventory(items: List(Metadata), total: Int, page: Page)
+  Declarations(
+    items: List(#(String, Symbol)),
+    total: Int,
+    page: Page,
+    file: Option(FileDetail),
+  )
+}
+
+pub type View {
+  View(
+    command: Command,
+    complete: Bool,
+    counts: List(#(FileStatus, Int)),
+    diagnostic_count: Int,
+    skipped_count: Int,
+    diagnostics: List(Diagnostic),
+    content: Content,
+  )
+}
+
+pub type Invocation {
+  Invocation(request: Request, root: Option(String), json: Bool, rebuild: Bool)
+}
+
+pub const limits = [
+  "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+  "Named declarations and callable bindings; not unbound anonymous callbacks.",
+  "Gleam constructors are represented by their enclosing type.",
+  "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+  "Other formats are inventoried but not parsed.",
+]
