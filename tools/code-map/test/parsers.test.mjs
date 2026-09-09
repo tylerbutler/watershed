@@ -95,6 +95,26 @@ test("JS/TS signatures keep structural types, defaults and multiline parameters"
   assert.equal(slice(source, result.symbols[0]), source);
 });
 
+test("wrapped callable bindings and object-bound classes retain their binding names", () => {
+  const source = "const run = (() => 1) satisfies Function;\n"
+    + "const types = { Client: class Internal { open() {} } };\n"
+    + "const factory = (class Named {});";
+  const result = parseJavaScript({ path: "a.ts", source });
+  assert.deepEqual(result.diagnostics, []);
+  assert.deepEqual(result.symbols.map((s) => [s.name, s.kind, s.container]), [
+    ["run", "function", []], ["types", "constant", []],
+    ["Client", "class", ["types"]], ["open", "method", ["types", "Client"]],
+    ["factory", "class", []],
+  ]);
+});
+
+test("Gleam target variants keep distinct identity and byte ranges", async () => {
+  const source = '@target(erlang)\npub fn name() { Nil }\n@target(javascript)\npub fn name() { Nil }';
+  const result = await parseGleam({ path: "a.gleam", source });
+  assert.deepEqual(result.symbols.map((s) => s.target), ["erlang", "javascript"]);
+  assert.notEqual(result.symbols[0].id, result.symbols[1].id);
+});
+
 for (const [path, source] of [
   ["a.js", "export async function* values() { yield 1; }"],
   ["a.cjs", "function main() {} module.exports = main;"],

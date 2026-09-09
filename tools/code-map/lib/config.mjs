@@ -16,7 +16,7 @@ export function validateConfig(input) {
   }
   const result = { version: 1, excludeDirs: [], excludePaths: [] };
   for (const key of ["excludeDirs", "excludePaths"]) {
-    const entries = input[key] ?? [];
+    const entries = input[key] === undefined ? [] : input[key];
     if (!Array.isArray(entries) || new Set(entries).size !== entries.length
         || entries.some((entry) => !relativePath(entry) || (key === "excludeDirs" && entry.includes("/")))) {
       throw new Error(`Invalid code-map config: ${key} must contain unique relative ${key === "excludeDirs" ? "directory names" : "paths"}`);

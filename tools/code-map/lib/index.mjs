@@ -59,8 +59,12 @@ async function toolHash() {
       throw new Error(`Unexpected tool resource: ${path}`);
     }
   }
-  for (const path of ["lib", "src", "gleam.toml", "manifest.toml", "package.json", "pnpm-lock.yaml", "build/dev/javascript"]) {
-    await add(path);
+  for (const path of ["cli.mjs", "lib", "src", "gleam.toml", "manifest.toml", "package.json", "pnpm-lock.yaml", "build/dev/javascript"]) {
+    try { await add(path); }
+    catch (error) {
+      if (error.code !== "ENOENT" || !path.startsWith("build/")) throw error;
+      throw new Error("Code map's compiled helper is missing. Run pnpm run build in the code-map tool directory.", { cause: error });
+    }
   }
   return hash.digest("hex");
 }

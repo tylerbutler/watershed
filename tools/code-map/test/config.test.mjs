@@ -14,6 +14,7 @@ test("config validates version, fields and exclusion paths", () => {
     { version: 1, excludeDirs: ["a/b"] }, { version: 1, excludeDirs: [".."] },
     { version: 1, excludePaths: ["../a"] }, { version: 1, excludePaths: ["/a"] },
     { version: 1, excludePaths: ["a\\b"] }, { version: 1, excludePaths: ["a", "a"] },
+    { version: 1, excludeDirs: null }, { version: 1, excludePaths: null },
   ]) assert.throws(() => validateConfig(input), /config/i);
   assert.deepEqual(validateConfig({ version: 1 }), { version: 1, excludeDirs: [], excludePaths: [] });
 });

@@ -55,6 +55,15 @@ test("configuration changes invalidate cached classification without source edit
   assert.deepEqual(names(await refreshIndex(root)), ["a"]);
 });
 
+test("tool version changes force reparsing even when cached source hashes match", async (t) => {
+  const root = await makeRepo(t, { "a.ts": "function actual() {}" });
+  const index = await refreshIndex(root);
+  index.toolHash = "0".repeat(64);
+  index.files[0].symbols = [];
+  await fs.writeFile(join(root, ".code-map/index.json"), JSON.stringify(index));
+  assert.deepEqual(names(await refreshIndex(root)), ["actual"]);
+});
+
 test("corrupt and malformed caches require explicit rebuild", async (t) => {
   const root = await makeRepo(t, { "a.ts": "function a() {}" });
   const first = await refreshIndex(root);

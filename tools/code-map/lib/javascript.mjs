@@ -46,6 +46,16 @@ export function parseJavaScript({ path, source, scriptKind }) {
     }));
   }
   const callable = (node) => ts.isArrowFunction(node) || ts.isFunctionExpression(node);
+  const wrapper = (node) => ts.isParenthesizedExpression(node) || ts.isAsExpression(node)
+    || ts.isSatisfiesExpression(node) || ts.isNonNullExpression(node) || ts.isTypeAssertionExpression(node);
+  function unwrap(node) {
+    while (node && wrapper(node)) node = node.expression;
+    return node;
+  }
+  function boundExpression(node) {
+    while (wrapper(node.parent)) node = node.parent;
+    return ts.isVariableDeclaration(node.parent) || ts.isPropertyAssignment(node.parent) || ts.isPropertyDeclaration(node.parent);
+  }
   function visit(node, scope) {
     let childScope = scope;
     if (ts.isFunctionDeclaration(node) && node.name) {
@@ -53,23 +63,24 @@ export function parseJavaScript({ path, source, scriptKind }) {
       childScope = [...scope, node.name.text];
     } else if (ts.isVariableDeclaration(node)) {
       const name = staticName(node.name);
+      const initializer = unwrap(node.initializer);
       if (name) {
-        if (node.initializer && callable(node.initializer)) {
-          add(node.initializer, name, "function", scope, node.initializer.body.getStart(file), node);
+        if (initializer && callable(initializer)) {
+          add(initializer, name, "function", scope, initializer.body.getStart(file), node);
           childScope = [...scope, name];
-        } else if (node.initializer && ts.isClassExpression(node.initializer)) {
-          add(node.initializer, name, "class", scope, classHeaderEnd(node.initializer), node);
+        } else if (initializer && ts.isClassExpression(initializer)) {
+          add(initializer, name, "class", scope, classHeaderEnd(initializer), node);
           childScope = [...scope, name];
         } else {
           if (scope.length === 0 && ts.isVariableDeclarationList(node.parent)
               && (node.parent.flags & ts.NodeFlags.Const) && ts.isSourceFile(node.parent.parent.parent)) {
             add(node, name, "constant", scope, node.type?.end ?? node.name.end);
           }
-          if (node.initializer && ts.isObjectLiteralExpression(node.initializer)) childScope = [...scope, name];
+          if (initializer && ts.isObjectLiteralExpression(initializer)) childScope = [...scope, name];
         }
       }
     } else if (ts.isClassDeclaration(node) || ts.isClassExpression(node)) {
-      const bound = ts.isVariableDeclaration(node.parent) || ts.isPropertyAssignment(node.parent);
+      const bound = boundExpression(node);
       const name = node.name?.text ?? (hasModifier(node, ts.SyntaxKind.DefaultKeyword) ? "default" : null);
       if (name && !bound) {
         add(node, name, "class", scope, classHeaderEnd(node));
@@ -85,14 +96,18 @@ export function parseJavaScript({ path, source, scriptKind }) {
       }
     } else if (ts.isPropertyAssignment(node) || ts.isPropertyDeclaration(node)) {
       const name = staticName(node.name);
-      if (name && node.initializer && callable(node.initializer)) {
-        add(node, name, "method", scope, node.initializer.body.getStart(file));
+      const initializer = unwrap(node.initializer);
+      if (name && initializer && callable(initializer)) {
+        add(node, name, "method", scope, initializer.body.getStart(file));
         childScope = [...scope, name];
-      } else if (name && node.initializer && ts.isObjectLiteralExpression(node.initializer)) {
+      } else if (name && initializer && ts.isClassExpression(initializer)) {
+        add(node, name, "class", scope, classHeaderEnd(initializer));
+        childScope = [...scope, name];
+      } else if (name && initializer && ts.isObjectLiteralExpression(initializer)) {
         childScope = [...scope, name];
       }
     } else if (ts.isFunctionExpression(node)) {
-      const bound = ts.isVariableDeclaration(node.parent) || ts.isPropertyAssignment(node.parent) || ts.isPropertyDeclaration(node.parent);
+      const bound = boundExpression(node);
       if (node.name && !bound) {
         add(node, node.name.text, "function", scope, node.body.getStart(file));
         childScope = [...scope, node.name.text];
