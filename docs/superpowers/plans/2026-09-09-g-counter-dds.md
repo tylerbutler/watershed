@@ -13,7 +13,7 @@ Sluice, and the existing CRDT simulator.
 
 **Spec:** `docs/superpowers/specs/2026-09-09-lattice-dds-expansion-design.md`
 
-**Status:** Draft; implementation has not started.
+**Status:** Shipped. Commits `0008150`, `e21a906`, `8ee2875`, `646ba45`, plus `1289d59` for the website demo (beyond the plan's scope).
 
 ## Global constraints
 
@@ -83,7 +83,7 @@ operation, and Lattice types with GCounter equivalents.
 **Interfaces:** Consume Lattice's fallible increment/delta API and merge.
 Produce the kernel API defined above; do not expose decrement.
 
-- [ ] Add these initial tests:
+- [x] Add these initial tests:
 
 ```gleam
 import lattice_core/replica_id
@@ -109,29 +109,29 @@ pub fn independent_increments_merge_once_test() -> Nil {
 }
 ```
 
-- [ ] Run `rtk proxy gleam test --target javascript -- g_counter_kernel`.
+- [x] Run `rtk proxy gleam test --target javascript -- g_counter_kernel`.
   Expect a missing-module failure before implementation.
-- [ ] Use `g_counter.try_increment_with_delta` for nonnegative mutations.
+- [x] Use `g_counter.try_increment_with_delta` for nonnegative mutations.
   Queue the produced fragment for sequenced edits. For p2p edits, merge
   it into both states without a pending entry. Emit `Updated(after -
   before, after)` only when the visible value changes.
-- [ ] Add FIFO acknowledgment and LIFO rollback tests with two pending
+- [x] Add FIFO acknowledgment and LIFO rollback tests with two pending
   increments; reject wrong IDs, amounts, fragments, and empty queues.
   Rebuild rollback state by folding the remaining fragments over the
   sequenced base.
-- [ ] Add summary reload under replica `b` after `a` wrote 2. Increment
+- [x] Add summary reload under replica `b` after `a` wrote 2. Increment
   `b` by 3 and merge; expect 5. Rebrand loads with
   `g_counter.merge(g_counter.new(local_id), decoded)`.
-- [ ] Add zero, duplicate stash replay, pending-summary exclusion, and
+- [x] Add zero, duplicate stash replay, pending-summary exclusion, and
   direct p2p-merge tests. Stash replay must return the original operation.
-- [ ] Run the kernel selector on both targets:
+- [x] Run the kernel selector on both targets:
 
 ```bash
 rtk proxy gleam test --target erlang -- g_counter_kernel
 rtk proxy gleam test --target javascript -- g_counter_kernel
 ```
 
-- [ ] Commit the kernel and its tests with `feat: add GCounter kernel`.
+- [x] Commit the kernel and its tests with `feat: add GCounter kernel`.
 
 ### Task 2: Register the channel and sequenced core operations
 
@@ -149,7 +149,7 @@ Expose `runtime_core.g_counter_increment(core, address, amount)` with the
 standard core edit result and `g_counter_value(core, address) ->
 Result(Int, Nil)`.
 
-- [ ] Add the channel round-trip test:
+- [x] Add the channel round-trip test:
 
 ```gleam
 import gleam/json
@@ -174,32 +174,32 @@ pub fn g_counter_snapshot_round_trip_test() -> Nil {
 }
 ```
 
-- [ ] Run `rtk proxy gleam test --target javascript -- g_counter_channel wire`
+- [x] Run `rtk proxy gleam test --target javascript -- g_counter_channel wire`
   and confirm the new variants are missing.
-- [ ] Complete the spec's channel lifecycle checklist, including local
+- [x] Complete the spec's channel lifecycle checklist, including local
   metadata, attach promotion, resubmission, and `crdt_core.init_for`.
   Exercise stash, rollback, and cache checks through the kernel harness.
   Extend exhaustive matches rather than adding catch-all success cases.
-- [ ] Encode `gCounterIncrement` with `amount` and a stringified
+- [x] Encode `gCounterIncrement` with `amount` and a stringified
   `g_counter.to_json(delta)`. Validate nonnegative intent and decoded
   per-replica counts; reject wrong type/version and malformed fragments.
   The fragment is cumulative, so do not require its count to equal the
   intent amount.
-- [ ] Add runtime-core cases using the bootstrap fixture in
+- [x] Add runtime-core cases using the bootstrap fixture in
   `test/watershed/pn_counter_channel_test.gleam`: detached increment 4,
   attach through a root-map handle, increment 2, acknowledge, and reload.
   Expect no outbound op while detached and value 6 after reload.
-- [ ] Add negative-edit tests that preserve the core, pending queue, and
+- [x] Add negative-edit tests that preserve the core, pending queue, and
   outbound sequence number. Map `NegativeIncrement` to the existing
   caller-visible core error path.
-- [ ] Run the channel, wire, core, and p2p selectors together on each target:
+- [x] Run the channel, wire, core, and p2p selectors together on each target:
 
 ```bash
 rtk proxy gleam test --target erlang -- g_counter wire runtime_core crdt_core p2p
 rtk proxy gleam test --target javascript -- g_counter wire runtime_core crdt_core p2p
 ```
 
-- [ ] Commit with `feat: register GCounter channel`.
+- [x] Commit with `feat: register GCounter channel`.
 
 ### Task 3: Expose sequenced and CRDT APIs
 
@@ -231,23 +231,23 @@ pub fn g_counter_root() -> CrdtKind(schema.GCounterChannel) {
 }
 ```
 
-- [ ] Write Sluice cases through both facades: create, attach a typed field,
+- [x] Write Sluice cases through both facades: create, attach a typed field,
   resolve from a second client, increment 2 and 3, and observe 5.
   Assert a negative edit returns an error and submits nothing.
-- [ ] Run the relevant driver/schema selectors and confirm missing API errors.
-- [ ] Add result-returning runtime calls. BEAM edits need a reply subject;
+- [x] Run the relevant driver/schema selectors and confirm missing API errors.
+- [x] Add result-returning runtime calls. BEAM edits need a reply subject;
   do not copy PN-counter's fire-and-forget update message. Use the existing
   fallible text-edit request/reply pattern.
-- [ ] Add the p2p root and typed facade functions through `mutate` and
+- [x] Add the p2p root and typed facade functions through `mutate` and
   `read`. Extend typed subscription event filtering. Reject wrong-kind
   handles with the established error, not a zero fallback.
-- [ ] Add two-replica and three-peer-chain CRDT cases. Check value and
+- [x] Add two-replica and three-peer-chain CRDT cases. Check value and
   digest after duplicate delivery, a late join, and snapshot export/import.
   Verify differing local `self_id` values do not prevent equal digests.
-- [ ] Run the driver, schema, CRDT, and p2p selectors together on each
+- [x] Run the driver, schema, CRDT, and p2p selectors together on each
   applicable target. Include existing persistence and relay-lifecycle
   selectors when extending those scenarios.
-- [ ] Commit with `feat: expose GCounter runtime APIs`.
+- [x] Commit with `feat: expose GCounter runtime APIs`.
 
 ### Task 4: Add effects, model coverage, and documentation
 
@@ -261,28 +261,28 @@ sequenced subscription tests under `watershed_lustre/test/`.
 `ensure_g_counter` in the sequenced module. Keep mutations behind the
 existing generic effect-perform API.
 
-- [ ] Add subscription tests for an increment, cancellation, and deferred
+- [x] Add subscription tests for an increment, cancellation, and deferred
   dispatch. Use an effect-perform thunk:
 
 ```gleam
 crdt.perform(fn() { crdt_js.g_counter_increment(counter, 2) }, Outcome)
 ```
 
-- [ ] Run `rtk proxy gleam test` from `watershed_lustre/` before and after
+- [x] Run `rtk proxy gleam test` from `watershed_lustre/` before and after
   adding the wrappers. Assert no mutation occurs when the effect is
   constructed and no callback dispatch occurs inside `update`.
-- [ ] Implement the existing `KernelModel` interface in
+- [x] Implement the existing `KernelModel` interface in
   `test/watershed/fuzz/g_counter_model.gleam`. Use
   `pn_counter_model.gleam` for its harness contract, but generate
   nonnegative amounts and use an independent sum-of-sequenced-intents
   oracle. Include duplicates, reconnect/stash, rollback, and summary load.
-- [ ] Add planted faults that drop an increment and replay an increment
+- [x] Add planted faults that drop an increment and replay an increment
   twice. Require the model to detect both faults; a test that reuses
   Lattice merge as its oracle cannot establish this.
-- [ ] Update the README's supported types and add a create/increment/read
+- [x] Update the README's supported types and add a create/increment/read
   example. Explain grow-only confirmed state, negative rejection, and
   possible rollback of optimistic state.
-- [ ] Run the targeted GCounter, facade, and CRDT tests on both targets,
+- [x] Run the targeted GCounter, facade, and CRDT tests on both targets,
   the Lustre suite, and `rtk proxy gleam format --check src test` plus
   the corresponding Lustre source/test format check.
-- [ ] Commit with `feat: complete GCounter bindings`.
+- [x] Commit with `feat: complete GCounter bindings`.
