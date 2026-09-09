@@ -558,6 +558,27 @@ pub fn pn_counter_value(runtime: Runtime, address: String) -> Result(Int, Nil) {
 }
 
 @target(javascript)
+/// Add `amount` to the grow-only counter at `address`. The result is an error
+/// with a description when the amount is negative.
+pub fn g_counter_increment(
+  runtime: Runtime,
+  address: String,
+  amount: Int,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.g_counter_increment(core, address, amount)
+  })
+}
+
+@target(javascript)
+/// The optimistic value of the grow-only counter. The result is `Error(Nil)`
+/// when the address does not exist, and when it does not name a GCounter
+/// channel.
+pub fn g_counter_value(runtime: Runtime, address: String) -> Result(Int, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.g_counter_value(_, address))
+}
+
+@target(javascript)
 /// Propose `value` for `key` in the PactMap at `address`. This write is a
 /// consensus write, and it is not optimistic. The value takes effect only after
 /// the `Set` operation sequences, and after the `Accept` operation that follows
@@ -1531,6 +1552,13 @@ pub fn create_counter(runtime: Runtime) -> Result(String, String) {
 /// `create_map`.
 pub fn create_pn_counter(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitPnCounter, "create_pn_counter")
+}
+
+@target(javascript)
+/// Create a new detached grow-only counter channel. The lifecycle is the same
+/// as for `create_map`.
+pub fn create_g_counter(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitGCounter, "create_g_counter")
 }
 
 @target(javascript)
@@ -3213,7 +3241,9 @@ fn edit_sequence_with_result(
           fan_out(state.subscribers, events)
           Ok(Nil)
         }
-        Error(runtime_core.SequenceOperationFailed(_, detail)) -> Error(detail)
+        Error(runtime_core.SequenceOperationFailed(_, detail))
+        | Error(runtime_core.GCounterOperationFailed(_, detail)) ->
+          Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
     Reconnecting(core) ->
@@ -3223,7 +3253,9 @@ fn edit_sequence_with_result(
           fan_out(state.subscribers, events)
           Ok(Nil)
         }
-        Error(runtime_core.SequenceOperationFailed(_, detail)) -> Error(detail)
+        Error(runtime_core.SequenceOperationFailed(_, detail))
+        | Error(runtime_core.GCounterOperationFailed(_, detail)) ->
+          Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
     Connecting | Failed(_) ->

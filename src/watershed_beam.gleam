@@ -59,6 +59,8 @@ import watershed/counter_kernel
 @target(erlang)
 import watershed/directory_kernel
 @target(erlang)
+import watershed/g_counter_kernel
+@target(erlang)
 import watershed/g_set_kernel
 @target(erlang)
 import watershed/git_storage.{type SummaryVersion}
@@ -80,7 +82,6 @@ import watershed/or_set_kernel
 import watershed/ordered_collection_kernel
 @target(erlang)
 import watershed/pact_map_kernel
-@target(erlang)
 import watershed/pn_counter_kernel
 @target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
@@ -186,6 +187,11 @@ pub opaque type SharedDirectory {
 @target(erlang)
 pub opaque type PnCounter {
   PnCounter(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type GCounter {
+  GCounter(runtime: Subject(runtime_beam.Msg), address: String)
 }
 
 @target(erlang)
@@ -920,6 +926,16 @@ pub fn set_pn_counter_field(
 }
 
 @target(erlang)
+/// Store a handle to `g_counter` under a typed channel field.
+pub fn set_g_counter_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+  g_counter: GCounter,
+) -> Nil {
+  put_channel_field(typed_map, field, g_counter_handle_of(g_counter))
+}
+
+@target(erlang)
 /// Resolve the PN-counter referenced by a typed channel field.
 pub fn resolve_pn_counter_field(
   document: Document(root),
@@ -927,6 +943,16 @@ pub fn resolve_pn_counter_field(
   field: ChannelField(s, schema.PnCounterChannel),
 ) -> Result(Option(PnCounter), String) {
   get_channel_field(document, typed_map, field, resolve_pn_counter)
+}
+
+@target(erlang)
+/// Read the grow-only counter that `field` points at.
+pub fn resolve_g_counter_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+) -> Result(Option(GCounter), String) {
+  get_channel_field(document, typed_map, field, resolve_g_counter)
 }
 
 @target(erlang)
@@ -1331,6 +1357,26 @@ pub fn ensure_pn_counter(
       set_pn_counter_field(typed_map, field, pn_counter)
     },
     fn() { resolve_pn_counter_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Make sure that a grow-only counter exists under `field`. If the slot is
+/// empty, the function creates one.
+pub fn ensure_g_counter(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+) -> Result(GCounter, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use g_counter <- result.map(create_g_counter(document))
+      set_g_counter_field(typed_map, field, g_counter)
+    },
+    fn() { resolve_g_counter_field(document, typed_map, field) },
   )
 }
 
@@ -3124,6 +3170,104 @@ pub fn subscribe_directory(
 // ─────────────────────────────────────────────────────────────────────────────
 // PN-counters (increment and decrement)
 // ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new grow-only counter channel. The detached lifecycle is the same
+/// as for `create_map`.
+pub fn create_g_counter(document: Document(root)) -> Result(GCounter, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: runtime_beam.CreateGCounter,
+  )
+  |> result.map(fn(address) {
+    GCounter(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn g_counter_handle_of(g_counter: GCounter) -> Json {
+  handle.encode_handle(g_counter.address)
+}
+
+@target(erlang)
+pub fn resolve_g_counter(
+  document: Document(root),
+  value: Json,
+) -> Result(GCounter, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_milliseconds,
+        sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        GCounter(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Add `amount` optimistically. The amount must not be negative. The result is
+/// an error with a description for a negative amount, and the counter does not
+/// change.
+pub fn g_counter_increment(
+  g_counter: GCounter,
+  amount: Int,
+) -> Result(Nil, String) {
+  process.call(
+    g_counter.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.IncrementGCounter(g_counter.address, amount, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// The current optimistic value of the counter. The result is `Error(Nil)`
+/// when the address does not name a grow-only counter channel.
+pub fn g_counter_value(g_counter: GCounter) -> Result(Int, Nil) {
+  process.call(
+    g_counter.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetGCounterValue(g_counter.address, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// Subscribe the calling process to this grow-only counter's local and remote
+/// change events.
+pub fn subscribe_g_counter(
+  g_counter: GCounter,
+) -> Subject(g_counter_kernel.GCounterEvent) {
+  use event <- subscribe_narrowed(g_counter.runtime, g_counter.address)
+  case event {
+    channel.GCounterEvent(inner) -> Some(inner)
+    channel.PnCounterEvent(_)
+    | channel.MvRegisterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
 
 @target(erlang)
 /// Create a new PN-counter channel. The detached lifecycle is the same as for

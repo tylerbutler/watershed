@@ -109,6 +109,8 @@ import watershed/crdt_sequencer_js
 @target(javascript)
 import watershed/crdt_wire.{type Message}
 @target(javascript)
+import watershed/g_counter_kernel
+@target(javascript)
 import watershed/g_set_kernel
 @target(javascript)
 import watershed/id
@@ -124,7 +126,6 @@ import watershed/p2p.{type P2pError}
 import watershed/p2p_transport_js.{
   type IceServer, type Signaling, type Transport,
 }
-@target(javascript)
 import watershed/pn_counter_kernel
 @target(javascript)
 import watershed/schema
@@ -3370,6 +3371,77 @@ pub fn subscribe_mv_register(
     channel.MvRegisterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_)
     | channel.GCounterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+// ── Grow-only counter ────────────────────────────────────────────────────────
+
+@target(javascript)
+/// Add `amount` to the grow-only counter. The amount must not be negative.
+pub fn g_counter_increment(
+  handle: Handle(schema.GCounterChannel),
+  amount: Int,
+) -> Result(Nil, P2pError) {
+  mutate(handle, channel.GCounterIncrementEdit(amount))
+}
+
+@target(javascript)
+/// The current value of the grow-only counter.
+pub fn g_counter_value(
+  handle: Handle(schema.GCounterChannel),
+) -> Result(Int, P2pError) {
+  use state <- read(handle, channel.GCounterChannel)
+  case state {
+    channel.GCounterState(kernel) -> g_counter_kernel.value(kernel)
+    channel.PnCounterState(_) -> 0
+    channel.MvRegisterState(_) -> 0
+    channel.MapState(_)
+    | channel.CounterState(_)
+    | channel.OrMapState(_)
+    | channel.OrSetState(_)
+    | channel.GSetState(_)
+    | channel.TwoPSetState(_)
+    | channel.RegisterCollectionState(_)
+    | channel.ClaimsState(_)
+    | channel.TaskManagerState(_)
+    | channel.PactMapState(_)
+    | channel.JsonOtState(_)
+    | channel.DirectoryState(_)
+    | channel.OrderedCollectionState(_)
+    | channel.SequenceState(_)
+    | channel.RichTextState(_)
+    | channel.TextState(_) -> 0
+  }
+}
+
+@target(javascript)
+/// Register a callback for every local change and remote change to this
+/// grow-only counter.
+pub fn subscribe_g_counter(
+  handle: Handle(schema.GCounterChannel),
+  handler: fn(g_counter_kernel.GCounterEvent) -> Nil,
+) -> Subscription {
+  use event <- subscribe_narrowed(handle, handler)
+  case event {
+    channel.GCounterEvent(inner) -> Some(inner)
+    channel.PnCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.OrMapEvent(_)

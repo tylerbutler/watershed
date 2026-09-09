@@ -72,6 +72,8 @@ import watershed/counter_kernel
 @target(javascript)
 import watershed/directory_kernel
 @target(javascript)
+import watershed/g_counter_kernel
+@target(javascript)
 import watershed/g_set_kernel
 @target(javascript)
 import watershed/git_storage.{type SummaryVersion}
@@ -93,7 +95,6 @@ import watershed/or_set_kernel
 import watershed/ordered_collection_kernel
 @target(javascript)
 import watershed/pact_map_kernel
-@target(javascript)
 import watershed/pn_counter_kernel
 @target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
@@ -196,6 +197,11 @@ pub opaque type TaskManager {
 @target(javascript)
 pub opaque type PnCounter {
   PnCounter(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type GCounter {
+  GCounter(runtime: runtime.Runtime, address: String)
 }
 
 @target(javascript)
@@ -862,6 +868,16 @@ pub fn set_pn_counter_field(
 }
 
 @target(javascript)
+/// Store a handle to `g_counter` under a typed channel field.
+pub fn set_g_counter_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+  g_counter: GCounter,
+) -> Nil {
+  put_channel_field(typed_map, field, g_counter_handle_of(g_counter))
+}
+
+@target(javascript)
 /// Resolve the PN-counter referenced by a typed channel field.
 pub fn resolve_pn_counter_field(
   document: Document(root),
@@ -869,6 +885,16 @@ pub fn resolve_pn_counter_field(
   field: ChannelField(s, schema.PnCounterChannel),
 ) -> Result(Option(PnCounter), String) {
   get_channel_field(document, typed_map, field, resolve_pn_counter)
+}
+
+@target(javascript)
+/// Read the grow-only counter that `field` points at.
+pub fn resolve_g_counter_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+) -> Result(Option(GCounter), String) {
+  get_channel_field(document, typed_map, field, resolve_g_counter)
 }
 
 @target(javascript)
@@ -1322,6 +1348,28 @@ pub fn ensure_pn_counter(
       set_pn_counter_field(typed_map, field, pn_counter)
     },
     fn() { resolve_pn_counter_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Make sure that a grow-only counter exists under `field`. If the slot is
+/// empty, the function creates one.
+pub fn ensure_g_counter(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+  done: fn(Result(GCounter, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use g_counter <- result.map(create_g_counter(document))
+      set_g_counter_field(typed_map, field, g_counter)
+    },
+    fn() { resolve_g_counter_field(document, typed_map, field) },
     done,
   )
 }
@@ -2473,8 +2521,88 @@ pub fn subscribe_pn_counter(
   }
 }
 
-// ── PactMaps ─────────────────────────────────────────────────────────────────
+// ── Grow-only counters ───────────────────────────────────────────────────────
 
+@target(javascript)
+/// Create a new grow-only counter channel. The detached lifecycle is the same
+/// as for `create_map`.
+pub fn create_g_counter(document: Document(root)) -> Result(GCounter, String) {
+  runtime.create_g_counter(document.runtime)
+  |> result.map(fn(address) {
+    GCounter(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn g_counter_handle_of(g_counter: GCounter) -> Json {
+  handle.encode_handle(g_counter.address)
+}
+
+@target(javascript)
+pub fn resolve_g_counter(
+  document: Document(root),
+  value: Json,
+) -> Result(GCounter, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        GCounter(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Add `amount` optimistically. The amount must not be negative. The result is
+/// an error with a description for a negative amount, and the counter does not
+/// change.
+pub fn g_counter_increment(
+  g_counter: GCounter,
+  amount: Int,
+) -> Result(Nil, String) {
+  runtime.g_counter_increment(g_counter.runtime, g_counter.address, amount)
+}
+
+@target(javascript)
+/// The current optimistic value of the counter. The result is `Error(Nil)`
+/// when the address does not name a grow-only counter channel.
+pub fn g_counter_value(g_counter: GCounter) -> Result(Int, Nil) {
+  runtime.g_counter_value(g_counter.runtime, g_counter.address)
+}
+
+@target(javascript)
+/// Register a callback for every local change and remote change to this
+/// grow-only counter.
+pub fn subscribe_g_counter(
+  g_counter: GCounter,
+  handler: fn(g_counter_kernel.GCounterEvent) -> Nil,
+) -> SubscriptionToken {
+  use event <- subscribe_narrowed(g_counter.runtime, g_counter.address, handler)
+  case event {
+    channel.GCounterEvent(inner) -> Some(inner)
+    channel.PnCounterEvent(_)
+    | channel.MvRegisterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+// ── PactMaps ─────────────────────────────────────────────────────────────────
 @target(javascript)
 /// Create a new PactMap channel. The detached lifecycle is the same as for
 /// `create_map`.

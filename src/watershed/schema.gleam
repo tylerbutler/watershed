@@ -161,6 +161,9 @@ pub type DirectoryChannel
 /// A counter that supports an increment and a decrement.
 pub type PnCounterChannel
 
+/// The phantom type for a grow-only counter channel field.
+pub type GCounterChannel
+
 /// A consensus map. Each write is a proposal, and the server sequencing
 /// settles it.
 pub type PactMapChannel

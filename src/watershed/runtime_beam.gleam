@@ -77,10 +77,11 @@ import spillway/types.{type SequencedDocumentMessage}
 @target(erlang)
 import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, AcquireResolved,
-  ClaimResolved, InitClaims, InitCounter, InitDirectory, InitGSet, InitJsonOt,
-  InitMap, InitMvRegister, InitOrMap, InitOrSet, InitOrderedCollection,
-  InitPactMap, InitPnCounter, InitRegisterCollection, InitRichText, InitSequence,
-  InitTaskManager, InitText, InitTwoPSet, SequenceChannel, TextChannel,
+  ClaimResolved, InitClaims, InitCounter, InitDirectory, InitGCounter, InitGSet,
+  InitJsonOt, InitMap, InitMvRegister, InitOrMap, InitOrSet,
+  InitOrderedCollection, InitPactMap, InitPnCounter, InitRegisterCollection,
+  InitRichText, InitSequence, InitTaskManager, InitText, InitTwoPSet,
+  SequenceChannel, TextChannel,
 } as _watershed_channel
 @target(erlang)
 import watershed/claims_kernel
@@ -220,6 +221,11 @@ pub type Msg {
   RemoveAll(address: String)
   IncrementCounter(address: String, amount: Int)
   UpdatePnCounter(address: String, amount: Int)
+  IncrementGCounter(
+    address: String,
+    amount: Int,
+    reply: Subject(Result(Nil, String)),
+  )
   SetMvRegister(address: String, value: String)
   SetPactMap(address: String, key: String, value: Json)
   DeletePactMap(address: String, key: String)
@@ -336,6 +342,7 @@ pub type Msg {
   /// Create a new detached PN-counter channel. The lifecycle is the same as
   /// for `CreateMap`.
   CreatePnCounter(reply: Subject(Result(String, String)))
+  CreateGCounter(reply: Subject(Result(String, String)))
   CreateMvRegister(reply: Subject(Result(String, String)))
   /// Create a new detached PactMap channel, which is a consensus map. The
   /// lifecycle is the same as for `CreateMap`.
@@ -385,6 +392,7 @@ pub type Msg {
   /// The optimistic value of the PN-counter. The reply is `Error(Nil)` when the
   /// address does not exist, and when it does not name a PN-counter channel.
   GetPnCounterValue(address: String, reply: Subject(Result(Int, Nil)))
+  GetGCounterValue(address: String, reply: Subject(Result(Int, Nil)))
   GetMvRegisterValues(
     address: String,
     reply: Subject(Result(List(String), Nil)),
@@ -1248,6 +1256,13 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) {
         runtime_core.pn_counter_update(core, address, amount)
       })
+    IncrementGCounter(address, amount, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.g_counter_increment(core, address, amount) },
+        "grow-only counter increment",
+      )
     SetMvRegister(address, value) ->
       edit(state, fn(core) {
         runtime_core.mv_register_set(core, address, value)
@@ -1392,6 +1407,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       create_channel(state, reply, InitCounter, "create_counter")
     CreatePnCounter(reply) ->
       create_channel(state, reply, InitPnCounter, "create_pn_counter")
+    CreateGCounter(reply) ->
+      create_channel(state, reply, InitGCounter, "create_g_counter")
     CreateMvRegister(reply) ->
       create_channel(state, reply, InitMvRegister, "create_mv_register")
     CreatePactMap(reply) ->
@@ -1501,6 +1518,13 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, Error(Nil), runtime_core.pn_counter_value(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetGCounterValue(address, reply) -> {
+      process.send(
+        reply,
+        read(state, Error(Nil), runtime_core.g_counter_value(_, address)),
       )
       actor.continue(state)
     }

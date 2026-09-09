@@ -818,6 +818,34 @@ pub fn importing_the_same_snapshot_twice_changes_nothing_test() -> Nil {
   Nil
 }
 
+/// A grow-only counter keys its counts by replica, and it also remembers which
+/// replica the local peer is. That local marker is private, so the digest must
+/// leave it out. Two peers that hold the same counts must agree, even though
+/// each one writes under its own replica key.
+pub fn g_counter_peers_agree_although_the_local_replica_differs_test() -> Nil {
+  let mesh = full_mesh(["peer-a", "peer-b"])
+  let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitGCounter)
+  let mesh = crdt_sim.settle(mesh)
+  let mesh =
+    crdt_sim.edit(mesh, "peer-a", address, channel.GCounterIncrementEdit(3))
+  let mesh =
+    crdt_sim.edit(mesh, "peer-b", address, channel.GCounterIncrementEdit(5))
+  let mesh = crdt_sim.settle(mesh)
+
+  let a = crdt_sim.document(mesh, "peer-a")
+  let b = crdt_sim.document(mesh, "peer-b")
+
+  let assert Ok(channel.GCounterState(kernel_a)) =
+    crdt_core.channel_state(a, address)
+  let assert Ok(channel.GCounterState(kernel_b)) =
+    crdt_core.channel_state(b, address)
+  g_counter_kernel.value(kernel_a) |> expect.to_equal(8)
+  g_counter_kernel.value(kernel_b) |> expect.to_equal(8)
+
+  crdt_core.digest(a) |> expect.to_equal(crdt_core.digest(b))
+  Nil
+}
+
 pub fn a_digest_is_lowercase_sha256_hex_test() -> Nil {
   let digest = sha256.hex("watershed")
   string.length(digest) |> expect.to_equal(64)

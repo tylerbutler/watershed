@@ -41,6 +41,11 @@ pub fn pn_counter_root() -> CrdtKind(schema.PnCounterChannel) {
   CrdtKind(channel.InitPnCounter)
 }
 
+/// The root kind for a peer-to-peer grow-only counter document.
+pub fn g_counter_root() -> CrdtKind(schema.GCounterChannel) {
+  CrdtKind(channel.InitGCounter)
+}
+
 pub fn mv_register_root() -> CrdtKind(schema.MvRegisterChannel) {
   CrdtKind(channel.InitMvRegister)
 }
