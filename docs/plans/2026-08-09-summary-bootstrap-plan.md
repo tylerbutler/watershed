@@ -3,16 +3,9 @@
 **Date:** 2026-08-09
 **Builds on:** `2026-08-09-consensus-replay-quorum-plan.md` (the replay-membership fix this depends on, and whose two open pieces are folded in here), `tylerbutler/levee#85` (the floodgate half).
 **Benchmark:** Fluid Framework's summarizer. Fluid elects a dedicated summarizer client and has the server prompt it; the design question below is how much of that we want.
-**Status:** SB1–SB4 and SB6–SB8 shipped. Automatic summaries are enabled by default on JavaScript and BEAM, with the existing 500-message threshold and 3000ms jitter window. The reconnect page, READMEs, and API docs describe the defaults, opt-out, tuning, and checkpoint boundary. SB5 is the only remaining rung: version history needs server support.
+**Status:** SB1–SB4 and SB6–SB8 shipped. Automatic summaries are enabled by default on JavaScript and BEAM, with the existing 500-message threshold and 3000ms jitter window. The reconnect page, READMEs, and API docs describe the defaults, opt-out, tuning, and checkpoint boundary. SB5 remains unimplemented, but its original endpoint design is superseded by the coordinated Routerlicious-style commit-history plan in `../superpowers/plans/2026-09-09-summary-version-history.md`.
 
-**Reconciled 2026-09-06, then completed SB6/SB8:** both runtimes now initialize
-`auto_summary: Some(summary_policy.policy())`. Live regressions exercise default
-checkpoint uploads and fresh-client bootstrap on both targets. Explicit tuning
-and opt-out remain available. The client still requests `/versions/:tenant/:document`, which
-current Floodgate does not route. Floodgate's commit/ref handling has evolved
-since the SB5 investigation below, so recheck storage before choosing an
-implementation; the old claim that there is no commit chain is not a current
-inventory.
+**Reconciled 2026-09-06, then completed SB6/SB8; SB5 revised 2026-09-09:** both runtimes now initialize `auto_summary: Some(summary_policy.policy())`. Live regressions exercise default checkpoint uploads and fresh-client bootstrap on both targets. Explicit tuning and opt-out remain available. Later research against Fluid Framework, Routerlicious, current Floodgate, and Silt rejected the proposed custom `/versions/:tenant/:document` endpoint. Floodgate already exposes Git commit history and a document summary ref. The remaining work is to make Watershed and Floodgate use that canonical publication model consistently.
 
 ## Why
 
@@ -41,7 +34,7 @@ The surprising part, and the reason this plan exists rather than a one-line tick
 | Checkpoint roster in the blob | ✅ blob v4, SB2 |
 | Load point matches the blob | ✅ SB1 |
 | Durable log with matched join/leave | ✅ floodgate `0b24bbd`, levee#85 closed |
-| `get_versions` / `load_version` | ❌ no server implements `/versions` — see SB5 |
+| `get_versions` / `load_version` | ⏳ planned against canonical commit history — see SB5 and the 2026-09-09 implementation plan |
 
 *(Written when `summarize` had no caller in `src/`, `examples/`, `website/`, or any test outside the gated ones — so every document replayed from sequence number zero, paging through `fetch_deltas` past floodgate's 1000-op `initialMessages` cap. That is what SB3 closed. Floodgate still never asks for a summary: there is no summarizer election and no nack prompting one — it accepts summarize ops, stores what it is given, and broadcasts the op to the room.)*
 
@@ -118,13 +111,13 @@ json.object([
 - **SB1 — ✅ done.** Settled by construction rather than by proving the race: `runtime_core.summary_from_blob` now takes the load point from the blob's own `sequenceNumber`, and both runtimes call it. Correct either way — when the two numbers agree it is identical, and when they differ the window surfaces as a `MissingPrefix` that the existing `fetch_deltas` → `resume_bootstrap` path fills. See "How SB1 was actually settled" below.
 - **SB2 — ✅ done.** Blob v4 carries `members`; `git_storage.upload_summary` takes it, `runtime_core.summary_members` supplies it, both load points seed from it. v3 and a v4 without `members` are both refused rather than read as an empty room. Gate met in `roster_test`: a proposal sequenced after the checkpoint reconstructs the signoff list a present client froze, and the same test fails with an empty checkpoint roster.
 - **SB3 — ✅ done.** `watershed/summary_policy` carries the knobs (threshold 500, jitter 3000ms), `runtime_core` carries the decision (`last_summary_sn`, `ops_since_summary`, `wants_summary`, `summary_jitter_ms`), and both runtimes arm a wake-up from their sequenced-op path and re-take the decision on arrival. Initially opt-in; SB6 enabled the default policy. Two departures from the plan as written, both recorded below: the trigger is not *only* threshold + jitter, and the knob is not a connect option.
-- **SB4 — ✅ done, verified against floodgate.** The policy is on in both live suites (`auto_summary_writes_without_an_explicit_call_test`, `a_peers_summary_resets_the_local_threshold_test`, and a fourth `live_js` scenario) and in the drum machine, app and smoke. A document summarizes itself with nothing calling `summarize`, and a fresh client bootstraps from that checkpoint and applies the post-checkpoint delta — on both targets. The only live summary failure left is `summary_versions_test`'s 404, which is SB5.
-- **SB5 — ⛔ rescoped: not a broken test, an unimplemented feature.** See "What SB5 turned out to be" below.
+- **SB4 — ✅ done, verified against floodgate.** The policy is on in both live suites (`auto_summary_writes_without_an_explicit_call_test`, `a_peers_summary_resets_the_local_threshold_test`, and a fourth `live_js` scenario) and in the drum machine, app and smoke. A document summarizes itself with nothing calling `summarize`, and a fresh client bootstraps from that checkpoint and applies the post-checkpoint delta — on both targets.
+- **SB5 — ⏳ planned, not started.** Version history will use Floodgate's Routerlicious-compatible commit/ref model, not the obsolete custom `/versions` route. See "What SB5 requires now" below and `../superpowers/plans/2026-09-09-summary-version-history.md`.
 - **SB6 — ✅ done.** Both runtimes start with `Some(summary_policy.policy())`: 500 sequenced messages, 3000ms jitter. `stop_auto_summarize` disables it per client; `auto_summarize` tunes or re-enables it. JavaScript's logical-clock regression covers the threshold, an opted-out wake-up, and re-enabling. Both live suites now require enough separately sequenced writes to cross the default threshold and then prove a fresh client bootstraps from the resulting checkpoint. The BEAM suite also covers explicit tuning and opt-out. The prerequisite remains floodgate `0b24bbd` (tylerbutler/levee#85): durable leaves for unmatched joins after restart, previously exercised by `ghost_members_do_not_survive_a_server_restart_test`.
 - **SB7 — ✅ done.** `adopt_reconnect` now keeps `members` at `last_seen_sn` and defers the handshake roster to `live_members`, which `settle_bootstrap` already adopts when the gap closes. The gap's own `join`/`leave` messages — including the leave for the dropped id and the join for the new one — walk the roster to the post-reconnect room. Gate met in `roster_test`.
 - **SB8 — ✅ done.** The reconnect page, root and Lustre READMEs, policy module, and facade docs describe default scheduling, tuning, per-client opt-out, storage/auth requirements, and retry behavior. The checkpoint boundary is confirmed channel state and membership at the blob's own sequence number. Bootstrap replays later messages, including the upload interval; pending local edits remain outside the checkpoint and reconnect resubmits them. The threshold is not a hard replay bound.
 
-**Remaining: SB5 only.** Version history still needs a current server/storage design; it is not part of the default-policy rollout.
+**Remaining: SB5 only.** Its server/storage design is now settled: published versions are a linear first-parent commit history under the document summary ref. Implementation remains separate from the default-policy rollout.
 
 ## What SB3 changed about its own design
 
@@ -211,16 +204,22 @@ The hazard is real, and wider on the JS target than this plan first assumed. On 
 
 Rather than reproduce it, the fix removes the possibility: the blob is self-describing, so the load point comes from the blob. The decision was extracted into a pure function precisely so it could be tested without a server.
 
-## What SB5 turned out to be
+## What SB5 requires now
 
-`summary_versions_test` does not fail because of the checkpoint boundary. It fails because **`GET /versions/:tenant/:document` does not exist on any server** — it 404s on floodgate, while `/repos/:tenant/commits` and `/deltas/...` 401 (present, auth required). That is why it failed against levee too.
+The first SB5 investigation correctly found that Watershed's custom `GET /versions/:tenant/:document` request had no server route. Its broader conclusion became stale as Floodgate's Routerlicious support evolved. Current Floodgate creates Git commit objects for accepted summaries, publishes `refs/heads/<document>`, and exposes `GET /repos/:tenant/commits?sha=<document>&count=<count>`. Silt walks that history through first parents.
 
-There is no small fix, because there is nothing to list:
+Fluid Framework and Routerlicious make that commit/ref model canonical. SB5 must therefore remove the custom endpoint assumption rather than add the missing route. The remaining gaps are protocol and lifecycle gaps:
 
-- Floodgate stores exactly **one** summary pointer per document (`doc_state.Doc.summary: #(String, Int)`, a single overwritten key). No history is retained.
-- The endpoint that *does* exist, `GET /repos/:tenant/commits?sha=&count=`, walks a git commit chain. Watershed's `upload_summary` posts a blob and a tree and never a commit, and `outbound_summarize_op` always sends `parents: []`. So there is no chain to walk.
+- Watershed treats an uploaded tree SHA as a public version handle, while Floodgate publishes a commit SHA.
+- Watershed sends `parents: []`, so concurrent or repeated proposals do not intentionally extend the published head.
+- Watershed resolves `summarize` after upload and submission instead of waiting for `summaryAck`; a rejected proposal can look successful.
+- The automatic policy advances on the summarize proposal instead of confirmed publication.
+- Floodgate accepts client-supplied parents without requiring the first parent to equal the current document head, so concurrent proposals can create siblings and make an accepted checkpoint unreachable from the ref.
+- Floodgate's durable pointer and summary ref need recovery rules that make every acknowledged publication discoverable after a crash.
+- Watershed's storage client must list commits, resolve commit to tree, and then load the `header` blob. `SummaryVersion.sequence_number` must go because the canonical commit response does not provide it; the loaded blob remains the authority for the snapshot capture point.
+- Watershed must decode the current Floodgate bootstrap fields as well as its existing nested compatibility shape.
 
-Closing this means choosing a direction and implementing it end to end — either watershed starts writing real git commits so version history falls out of the commit chain (changing what `handle` means, and touching `fetch_summary`), or floodgate adds a versions endpoint over retained pointers (changing what it stores). Both are cross-repo feature work, not a repair, and neither belongs in a correctness pass. `get_versions` / `load_version` should be treated as unimplemented until then.
+The detailed, task-by-task cross-repository plan is `../superpowers/plans/2026-09-09-summary-version-history.md`. Until it ships, `get_versions` is an unimplemented API against current Floodgate. `load_version` can read a known staged tree handle, but that is not published version-history semantics.
 
 ## Found on the way: reconnect after a server restart — both fixed
 
