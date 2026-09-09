@@ -233,25 +233,70 @@ pub fn decode_connected_message_rejects_unknown_scope_test() -> Nil {
   Nil
 }
 
+fn connected_summary_fixture(summary_fields: String) -> String {
+  "{
+    \"claims\": {\"documentId\": \"dice\", \"scopes\": [], \"tenantId\": \"default\",
+                 \"user\": {\"id\": \"u\"}, \"iat\": 0, \"exp\": 0, \"ver\": \"1.0\"},
+    \"clientId\": \"default_dice_2\",
+    \"maxMessageSize\": 16000,
+    \"mode\": \"write\",
+    \"serviceConfiguration\": {\"blockSize\": 65536, \"maxMessageSize\": 16000},
+    \"initialMessages\": [],
+    \"version\": \"^0.1.0\",
+    \"checkpointSequenceNumber\": 42,
+    " <> summary_fields <> "
+  }"
+}
+
 pub fn decode_connected_message_with_summary_context_test() -> Nil {
-  let fixture =
-    "{
-      \"claims\": {\"documentId\": \"dice\", \"scopes\": [], \"tenantId\": \"default\",
-                   \"user\": {\"id\": \"u\"}, \"iat\": 0, \"exp\": 0, \"ver\": \"1.0\"},
-      \"clientId\": \"default_dice_2\",
-      \"maxMessageSize\": 16000,
-      \"mode\": \"write\",
-      \"serviceConfiguration\": {\"blockSize\": 65536, \"maxMessageSize\": 16000},
-      \"initialMessages\": [],
-      \"version\": \"^0.1.0\",
-      \"checkpointSequenceNumber\": 42,
-      \"summaryContext\": {\"handle\": \"tree-abc\", \"sequenceNumber\": 40}
-    }"
-  let connected = parse(fixture, socket.connected_message_decoder())
+  let connected =
+    connected_summary_fixture(
+      "\"summaryContext\": {\"handle\": \"tree-abc\", \"sequenceNumber\": 40}",
+    )
+    |> parse(socket.connected_message_decoder())
   connected.summary_context
   |> expect.to_equal(
     Some(message.SummaryContext(handle: "tree-abc", sequence_number: 40)),
   )
+}
+
+pub fn decode_connected_message_with_flat_summary_fields_test() -> Nil {
+  let connected =
+    connected_summary_fixture(
+      "\"summaryHandle\": \"commit-abc\", \"summarySequenceNumber\": 40",
+    )
+    |> parse(socket.connected_message_decoder())
+  connected.summary_context
+  |> expect.to_equal(
+    Some(message.SummaryContext(handle: "commit-abc", sequence_number: 40)),
+  )
+}
+
+pub fn nested_summary_context_wins_over_flat_fields_test() -> Nil {
+  let connected =
+    connected_summary_fixture(
+      "\"summaryContext\": {\"handle\": \"nested\", \"sequenceNumber\": 40},
+       \"summaryHandle\": \"flat\", \"summarySequenceNumber\": 41",
+    )
+    |> parse(socket.connected_message_decoder())
+  connected.summary_context
+  |> expect.to_equal(
+    Some(message.SummaryContext(handle: "nested", sequence_number: 40)),
+  )
+}
+
+pub fn partial_flat_summary_fields_are_invalid_test() -> Nil {
+  [
+    "\"summaryHandle\": \"commit-abc\"",
+    "\"summarySequenceNumber\": 40",
+  ]
+  |> list.each(fn(fields) {
+    let _ =
+      connected_summary_fixture(fields)
+      |> json.parse(socket.connected_message_decoder())
+      |> expect.to_be_error()
+    Nil
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

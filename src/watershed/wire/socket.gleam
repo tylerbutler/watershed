@@ -301,11 +301,26 @@ pub fn connected_message_decoder() -> Decoder(ConnectedMessage) {
     None,
     decode.optional(decode.string),
   )
-  use summary_context <- decode.optional_field(
+  use nested_summary_context <- decode.optional_field(
     "summaryContext",
     None,
     decode.optional(summary_context_decoder()),
   )
+  use summary_handle <- decode.optional_field(
+    "summaryHandle",
+    None,
+    decode.optional(decode.string),
+  )
+  use summary_sequence_number <- decode.optional_field(
+    "summarySequenceNumber",
+    None,
+    decode.optional(decode.int),
+  )
+  use summary_context <- decode.then(resolve_summary_context(
+    nested_summary_context,
+    summary_handle,
+    summary_sequence_number,
+  ))
   decode.success(ConnectedMessage(
     claims: claims,
     client_id: client_id,
@@ -347,6 +362,22 @@ pub fn supports_feature(
   case dict.get(features, feature) {
     Ok(value) -> decode.run(value, decode.bool) == Ok(True)
     Error(Nil) -> False
+  }
+}
+
+fn resolve_summary_context(
+  nested: Option(SummaryContext),
+  flat_handle: Option(String),
+  flat_sequence_number: Option(Int),
+) -> Decoder(Option(SummaryContext)) {
+  case nested, flat_handle, flat_sequence_number {
+    Some(context), _, _ -> decode.success(Some(context))
+    None, Some(handle), Some(sequence_number) ->
+      decode.success(
+        Some(SummaryContext(handle: handle, sequence_number: sequence_number)),
+      )
+    None, None, None -> decode.success(None)
+    _, _, _ -> decode.failure(None, "complete summary fields")
   }
 }
 
