@@ -41,17 +41,18 @@ import watershed/presence_js
 import watershed/summary_policy
 
 import watershed.{
-  type Claims, type Document, type GSet, type JsonOt, type MvRegister,
-  type OrMap, type OrSet, type OrderedCollection, type PactMap, type PnCounter,
-  type RegisterCollection, type Ripple, type SharedCounter, type SharedDirectory,
-  type SharedMap, type SharedRichText, type SharedSequence, type SharedText,
-  type TaskManager, type TwoPSet, type TypedMap, type WatershedConfig,
-  WatershedConfig,
+  type Claims, type Document, type GCounter, type GSet, type JsonOt,
+  type MvRegister, type OrMap, type OrSet, type OrderedCollection, type PactMap,
+  type PnCounter, type RegisterCollection, type Ripple, type SharedCounter,
+  type SharedDirectory, type SharedMap, type SharedRichText, type SharedSequence,
+  type SharedText, type TaskManager, type TwoPSet, type TypedMap,
+  type WatershedConfig, WatershedConfig,
 }
 import watershed/claim_outcome_js
 import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/directory_kernel
+import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/json_ot_kernel
 import watershed/map_kernel
@@ -266,6 +267,19 @@ pub fn subscribe_pn_counter(
   use dispatch <- effect.from
   let _ =
     watershed.subscribe_pn_counter(pn_counter, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
+}
+
+/// Subscribe to a grow-only counter channel.
+pub fn subscribe_g_counter(
+  g_counter: GCounter,
+  to_msg to_msg: fn(g_counter_kernel.GCounterEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  let _ =
+    watershed.subscribe_g_counter(g_counter, fn(event) {
       queue_microtask(fn() { dispatch(to_msg(event)) })
     })
   Nil
@@ -710,6 +724,20 @@ pub fn ensure_pn_counter(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   watershed.ensure_pn_counter(document, typed_map, field, fn(result) {
+    queue_microtask(fn() { dispatch(to_msg(result)) })
+  })
+}
+
+/// Make sure that a grow-only counter exists under `field`. If the slot is
+/// empty, the effect creates one.
+pub fn ensure_g_counter(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+  to_msg to_msg: fn(Result(GCounter, String)) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed.ensure_g_counter(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }

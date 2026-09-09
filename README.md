@@ -117,8 +117,25 @@ Indexing rules differ by structure and are enforced, not clamped:
 `SharedRichText` uses **UTF-16 code units** to match Quill and JavaScript string
 indexing exactly.
 
-`MvRegister` holds strings and returns a sorted list of alternatives, preserving
-duplicate text from independent concurrent writes. Use `create_mv_register`,
+`G-Counter` only goes up, which is what you want for hit counts, votes, and
+anything else where a decrement would be a bug rather than a feature. Every
+replica keeps its own tally and the visible value is their sum, so concurrent
+increments never fight. A negative amount is refused and nothing is sent:
+
+```gleam
+let assert Ok(hits) = watershed.create_g_counter(document)
+let assert Ok(Nil) = watershed.g_counter_increment(hits, 3)
+let assert Error(_) = watershed.g_counter_increment(hits, -1)
+watershed.g_counter_value(hits)
+// Ok(3)
+```
+
+Use `create_g_counter`, `ensure_g_counter`, `g_counter_increment`,
+`g_counter_value`, and `subscribe_g_counter` on either sequenced facade; typed
+fields use `schema.GCounterChannel`, and peer-to-peer documents get
+`p2p.g_counter_root()`.
+
+`MvRegister` holds strings and returns a sorted list of alternatives, preservingduplicate text from independent concurrent writes. Use `create_mv_register`,
 `ensure_mv_register`, `mv_register_set`, `mv_register_values`, and
 `subscribe_mv_register` on either sequenced facade; typed fields use
 `schema.MvRegisterChannel`. A new write replaces only the history its author has

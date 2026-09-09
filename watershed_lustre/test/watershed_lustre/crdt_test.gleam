@@ -25,6 +25,7 @@ import lustre/effect.{type Effect}
 import watershed/crdt_js.{
   type CrdtConnection, type CrdtDocument, type Status, type Subscription,
 }
+import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
@@ -50,6 +51,7 @@ type Msg {
   Statused(Status)
   Subscribed(Subscription)
   Counter(pn_counter_kernel.PnCounterEvent)
+  GrowOnly(g_counter_kernel.GCounterEvent)
   Grow(g_set_kernel.GSetEvent)
   TwoPhase(two_p_set_kernel.TwoPSetEvent)
   Observed(or_set_kernel.OrSetEvent)
@@ -164,6 +166,7 @@ fn is_held(msg: Msg) -> Bool {
     | Statused(_)
     | Subscribed(_)
     | Counter(_)
+    | GrowOnly(_)
     | Grow(_)
     | TwoPhase(_)
     | Observed(_)
@@ -178,6 +181,7 @@ fn is_subscribed(msg: Msg) -> Bool {
     | Readied(_)
     | Statused(_)
     | Counter(_)
+    | GrowOnly(_)
     | Grow(_)
     | TwoPhase(_)
     | Observed(_)
@@ -196,6 +200,7 @@ fn has_status(
       | Readied(_)
       | Subscribed(_)
       | Counter(_)
+      | GrowOnly(_)
       | Grow(_)
       | TwoPhase(_)
       | Observed(_)
@@ -223,6 +228,7 @@ fn subscriptions(recorded_messages: List(Msg)) -> List(Subscription) {
       | Readied(_)
       | Statused(_)
       | Counter(_)
+      | GrowOnly(_)
       | Grow(_)
       | TwoPhase(_)
       | Observed(_)
@@ -241,6 +247,7 @@ fn count_set_events(recorded_messages: List(Msg)) -> Int {
         | Statused(_)
         | Subscribed(_)
         | Counter(_)
+        | GrowOnly(_)
         | Outcome(_) -> False
       }
     }),
@@ -281,6 +288,7 @@ pub fn attach_defers_then_delivers_connection_ready_and_status_test() -> Promise
         | Statused(_)
         | Subscribed(_)
         | Counter(_)
+        | GrowOnly(_)
         | Grow(_)
         | TwoPhase(_)
         | Observed(_)
@@ -421,6 +429,7 @@ pub fn subscribe_and_mutation_defer_then_deliver_event_and_outcome_test() -> Pro
         | Statused(_)
         | Subscribed(_)
         | Counter(_)
+        | GrowOnly(_)
         | Grow(_)
         | TwoPhase(_)
         | Observed(_)
@@ -432,6 +441,59 @@ pub fn subscribe_and_mutation_defer_then_deliver_event_and_outcome_test() -> Pro
     list.any(recorded_messages, fn(msg) { msg == Outcome(Ok(Nil)) })
   // And the read-side agrees.
   let assert Ok(5) = crdt_js.pn_counter_value(counter)
+
+  promise.resolve(Nil)
+}
+
+/// The grow-only counter takes the same deferred path, and it also refuses a
+/// negative amount without touching the value.
+pub fn g_counter_subscribe_delivers_events_and_refuses_a_decrement_test() -> Promise(
+  Nil,
+) {
+  let sink = new_sink()
+  let assert Ok(document) = solo_document(p2p.g_counter_root())
+  attached(document, sink)
+  use _ <- promise.await(flush())
+
+  let counter = crdt_js.root(document)
+  run(
+    crdt.subscribe_g_counter(counter, subscribed: Subscribed, event: GrowOnly),
+    sink,
+  )
+  let before = messages(sink)
+  run(
+    crdt.perform(fn() { crdt_js.g_counter_increment(counter, 5) }, Outcome),
+    sink,
+  )
+  let assert True = messages(sink) == before
+
+  use _ <- promise.await(flush())
+  let recorded_messages = messages(sink)
+
+  let assert True = list.any(recorded_messages, is_subscribed)
+  let assert True =
+    list.any(recorded_messages, fn(msg) {
+      case msg {
+        GrowOnly(g_counter_kernel.Updated(_applied, 5)) -> True
+        Held(_)
+        | Readied(_)
+        | Statused(_)
+        | Subscribed(_)
+        | Counter(_)
+        | GrowOnly(_)
+        | Grow(_)
+        | TwoPhase(_)
+        | Observed(_)
+        | Outcome(_) -> False
+      }
+    })
+  let assert True =
+    list.any(recorded_messages, fn(msg) { msg == Outcome(Ok(Nil)) })
+  let assert Ok(5) = crdt_js.g_counter_value(counter)
+
+  // A decrement is refused, and the value does not move.
+  let assert Error(_) = crdt_js.g_counter_increment(counter, -1)
+  let assert Ok(5) = crdt_js.g_counter_value(counter)
 
   promise.resolve(Nil)
 }
@@ -486,6 +548,7 @@ fn is_counter(msg: Msg) -> Bool {
   case msg {
     Counter(_) -> True
     Held(_)
+    | GrowOnly(_)
     | Readied(_)
     | Statused(_)
     | Subscribed(_)
@@ -556,6 +619,7 @@ pub fn sequenced_only_without_a_sequencer_fails_readiness_test() -> Promise(Nil)
         | Statused(_)
         | Subscribed(_)
         | Counter(_)
+        | GrowOnly(_)
         | Grow(_)
         | TwoPhase(_)
         | Observed(_)
@@ -623,6 +687,7 @@ pub fn an_invalid_mutation_surfaces_as_a_typed_error_test() -> Promise(Nil) {
         | Statused(_)
         | Subscribed(_)
         | Counter(_)
+        | GrowOnly(_)
         | Grow(_)
         | TwoPhase(_)
         | Observed(_)
@@ -681,6 +746,7 @@ pub fn multiple_channels_subscribe_mutate_and_clean_up_independently_test() -> P
         | Statused(_)
         | Subscribed(_)
         | Counter(_)
+        | GrowOnly(_)
         | Grow(_)
         | TwoPhase(_)
         | Observed(_)
@@ -696,6 +762,7 @@ pub fn multiple_channels_subscribe_mutate_and_clean_up_independently_test() -> P
         | Statused(_)
         | Subscribed(_)
         | Counter(_)
+        | GrowOnly(_)
         | Grow(_)
         | TwoPhase(_)
         | Observed(_)
@@ -711,6 +778,7 @@ pub fn multiple_channels_subscribe_mutate_and_clean_up_independently_test() -> P
         | Statused(_)
         | Subscribed(_)
         | Counter(_)
+        | GrowOnly(_)
         | Grow(_)
         | TwoPhase(_)
         | Observed(_)

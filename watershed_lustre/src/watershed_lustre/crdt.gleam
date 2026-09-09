@@ -80,6 +80,7 @@ import watershed/crdt_js.{
   type Config, type CrdtConnection, type CrdtDocument, type Handle, type Status,
   type Subscription,
 }
+import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/mv_register_kernel
 import watershed/or_map_kernel
@@ -346,6 +347,16 @@ pub fn subscribe_pn_counter(
   event event: fn(pn_counter_kernel.PnCounterEvent) -> msg,
 ) -> Effect(msg) {
   subscribe(crdt_js.subscribe_pn_counter(handle, _), subscribed, event)
+}
+
+/// Subscribe to a peer-to-peer grow-only counter. `event` receives every local
+/// and remote `g_counter_kernel.GCounterEvent` value.
+pub fn subscribe_g_counter(
+  handle: Handle(schema.GCounterChannel),
+  subscribed subscribed: fn(Subscription) -> msg,
+  event event: fn(g_counter_kernel.GCounterEvent) -> msg,
+) -> Effect(msg) {
+  subscribe(crdt_js.subscribe_g_counter(handle, _), subscribed, event)
 }
 
 /// Subscribe to changes in the peer-to-peer register alternatives.
