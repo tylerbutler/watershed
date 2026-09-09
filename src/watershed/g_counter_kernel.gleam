@@ -72,6 +72,15 @@ pub type EditError {
   NegativeIncrement(amount: Int)
 }
 
+/// A short description of an edit error, for a caller that reports text.
+pub fn edit_error_text(error: EditError) -> String {
+  case error {
+    NegativeIncrement(amount) ->
+      "a grow-only counter does not accept the negative amount "
+      <> int.to_string(amount)
+  }
+}
+
 /// The kernel returns this error when a local acknowledgment or rollback does
 /// not agree with the pending queue. A runtime caller must treat this error as
 /// fatal. It must not continue with divergent state.

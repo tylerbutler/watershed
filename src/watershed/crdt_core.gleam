@@ -1228,6 +1228,7 @@ fn entries(document: Document) -> List(ChannelEntry) {
 fn init_for(snapshot: Snapshot) -> Result(ChannelInit, P2pError) {
   case snapshot {
     channel.PnCounterSnapshot(_) -> Ok(channel.InitPnCounter)
+    channel.GCounterSnapshot(_) -> Ok(channel.InitGCounter)
     channel.MvRegisterSnapshot(_) -> Ok(channel.InitMvRegister)
     channel.OrMapSnapshot(mode, _) -> Ok(channel.InitOrMap(mode))
     channel.OrSetSnapshot(_) -> Ok(channel.InitOrSet)

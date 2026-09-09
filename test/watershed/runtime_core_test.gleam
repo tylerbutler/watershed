@@ -461,6 +461,7 @@ fn is_ack_mismatch(core_error: runtime_core.CoreError) -> Bool {
     | runtime_core.TaskNotAssigned(..)
     | runtime_core.DirectoryOperationFailed(..)
     | runtime_core.SequenceOperationFailed(..)
+    | runtime_core.GCounterOperationFailed(..)
     | runtime_core.TextOperationFailed(..)
     | runtime_core.BadSummaryChannel(..) -> False
   }
@@ -2692,6 +2693,7 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected increment on RegisterMode to be rejected"
@@ -2716,6 +2718,7 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected set on TallyMode to be rejected"
@@ -2786,6 +2789,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected set on a counter channel to be rejected"
@@ -2802,6 +2806,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected delete on a counter channel to be rejected"
@@ -2818,6 +2823,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected clear on a counter channel to be rejected"
@@ -2840,6 +2846,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected increment on a map channel to be rejected"

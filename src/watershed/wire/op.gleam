@@ -30,6 +30,7 @@ import gleam/option.{None, Some}
 
 import lattice_core/replica_id
 import lattice_core/version_vector
+import lattice_counters/g_counter
 import lattice_counters/pn_counter
 import lattice_maps/crdt
 import lattice_maps/or_map
@@ -43,6 +44,7 @@ import watershed/channel
 import watershed/claims_kernel.{type ClaimOperation, Claim}
 import watershed/counter_kernel.{type CounterOperation, Increment}
 import watershed/directory_kernel.{type DirectoryOperation}
+import watershed/g_counter_kernel.{type GCounterOperation}
 import watershed/g_set_kernel.{type GSetOperation}
 import watershed/json_ot
 import watershed/json_ot_kernel.{type JsonOtWireOperation, JsonOtWireOperation}
@@ -164,6 +166,8 @@ pub fn encode_channel_operation(operation: channel.ChannelOperation) -> Json {
     channel.CounterOperation(operation) -> encode_counter_operation(operation)
     channel.PnCounterOperation(operation) ->
       encode_pn_counter_operation(operation)
+    channel.GCounterOperation(operation) ->
+      encode_g_counter_operation(operation)
     channel.MvRegisterOperation(operation) ->
       encode_mv_register_operation(operation)
     channel.OrMapOperation(operation) -> encode_or_map_operation(operation)
@@ -201,6 +205,8 @@ pub fn channel_operation_decoder(
       counter_operation_decoder() |> decode.map(channel.CounterOperation)
     channel.PnCounterChannel ->
       pn_counter_operation_decoder() |> decode.map(channel.PnCounterOperation)
+    channel.GCounterChannel ->
+      g_counter_operation_decoder() |> decode.map(channel.GCounterOperation)
     channel.MvRegisterChannel ->
       mv_register_operation_decoder() |> decode.map(channel.MvRegisterOperation)
     channel.OrMapChannel ->
@@ -307,6 +313,28 @@ pub fn encode_pn_counter_operation(operation: PnCounterOperation) -> Json {
         #("type", json.string("pnCounterUpdate")),
         #("amount", json.int(amount)),
         #("delta", pn_counter_delta_json(delta)),
+      ])
+  }
+}
+
+/// The `{address, contents}` document envelope around a GCounter operation.
+pub fn encode_g_counter_envelope(
+  address: String,
+  operation: GCounterOperation,
+) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_g_counter_operation(operation)),
+  ])
+}
+
+pub fn encode_g_counter_operation(operation: GCounterOperation) -> Json {
+  case operation {
+    g_counter_kernel.Increment(amount, delta) ->
+      json.object([
+        #("type", json.string("gCounterIncrement")),
+        #("amount", json.int(amount)),
+        #("delta", g_counter_delta_json(delta)),
       ])
   }
 }
@@ -997,6 +1025,10 @@ fn pn_counter_delta_json(delta: pn_counter.PNCounter) -> Json {
   json.string(json.to_string(pn_counter.to_json(delta)))
 }
 
+fn g_counter_delta_json(delta: g_counter.GCounter) -> Json {
+  json.string(json.to_string(g_counter.to_json(delta)))
+}
+
 fn sequence_delta_json(delta: sequence.Sequence(Json)) -> Json {
   json.string(json.to_string(sequence.to_json(delta, fn(value) { value })))
 }
@@ -1088,6 +1120,49 @@ pub fn pn_counter_operation_decoder() -> Decoder(PnCounterOperation) {
         pn_counter_kernel.Update(0, default_pn_counter_delta()),
         "PnCounterOp",
       )
+  }
+}
+
+/// Decode the `contents` of a sequenced `"op"` message into
+/// `#(address, GCounterOperation)`.
+pub fn decode_g_counter_envelope(
+  contents: Dynamic,
+) -> Result(#(String, GCounterOperation), List(decode.DecodeError)) {
+  decode.run(contents, g_counter_envelope_decoder())
+}
+
+pub fn g_counter_envelope_decoder() -> Decoder(#(String, GCounterOperation)) {
+  use address <- decode.field("address", decode.string)
+  use operation <- decode.field("contents", g_counter_operation_decoder())
+  decode.success(#(address, operation))
+}
+
+/// The grow-only counter accepts one operation type. The decoder rejects a
+/// negative intent amount, because the public API cannot produce one, and a
+/// fragment whose per-replica counts do not decode. It does not require the
+/// count of the fragment to equal the intent amount: the fragment is
+/// cumulative, and it thus carries the total of that replica.
+pub fn g_counter_operation_decoder() -> Decoder(GCounterOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
+    "gCounterIncrement" -> {
+      use amount <- decode.field("amount", non_negative_int_decoder())
+      use delta <- decode.field("delta", g_counter_delta_decoder())
+      decode.success(g_counter_kernel.Increment(amount, delta))
+    }
+    _ ->
+      decode.failure(
+        g_counter_kernel.Increment(0, default_g_counter_delta()),
+        "GCounterOp",
+      )
+  }
+}
+
+fn non_negative_int_decoder() -> Decoder(Int) {
+  use value <- decode.then(decode.int)
+  case value >= 0 {
+    True -> decode.success(value)
+    False -> decode.failure(0, "a non-negative integer")
   }
 }
 
@@ -1302,6 +1377,14 @@ fn pn_counter_delta_decoder() -> Decoder(pn_counter.PNCounter) {
   }
 }
 
+fn g_counter_delta_decoder() -> Decoder(g_counter.GCounter) {
+  use encoded <- decode.then(decode.string)
+  case g_counter.from_json(encoded) {
+    Ok(delta) -> decode.success(delta)
+    Error(_) -> decode.failure(default_g_counter_delta(), "GCounterDelta")
+  }
+}
+
 fn sequence_delta_decoder() -> Decoder(sequence.Sequence(Json)) {
   use encoded <- decode.then(decode.string)
   case json.parse(encoded, sequence_delta_shape_decoder()) {
@@ -1363,6 +1446,10 @@ fn text_delta_decoder() -> Decoder(text.Text) {
 
 fn default_pn_counter_delta() -> pn_counter.PNCounter {
   pn_counter.new(replica_id.new(""))
+}
+
+fn default_g_counter_delta() -> g_counter.GCounter {
+  g_counter.new(replica_id.new(""))
 }
 
 fn default_sequence_delta() -> sequence.Sequence(Json) {

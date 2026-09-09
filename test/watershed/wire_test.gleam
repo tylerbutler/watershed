@@ -16,6 +16,7 @@ import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 import gleam/string
 import startest/expect
 
@@ -31,6 +32,7 @@ import lattice_text/text
 import watershed/channel
 import watershed/claims_kernel
 import watershed/counter_kernel
+import watershed/g_counter_kernel
 import watershed/map_kernel.{Clear, Delete, Set}
 import watershed/or_map_kernel
 import watershed/ordered_collection_kernel
@@ -698,6 +700,47 @@ pub fn pn_counter_operation_increment_round_trip_test() -> Nil {
 
 pub fn pn_counter_operation_decrement_round_trip_test() -> Nil {
   round_trip_pn_counter_operation(a_pn_counter_operation(-4))
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// g-counter operation envelope round-trips
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn a_g_counter_operation(amount: Int) -> g_counter_kernel.GCounterOperation {
+  let assert Ok(#(_state, _events, operation, _message_id)) =
+    g_counter_kernel.increment(
+      g_counter_kernel.new(replica_id.new("gc-replica")),
+      amount,
+    )
+  operation
+}
+
+pub fn g_counter_operation_round_trip_test() -> Nil {
+  let operation = a_g_counter_operation(7)
+  let encoded =
+    wire_op.encode_g_counter_envelope("gc", operation) |> json.to_string
+  let decoded = parse(encoded, wire_op.g_counter_envelope_decoder())
+  decoded |> expect.to_equal(#("gc", operation))
+}
+
+pub fn g_counter_operation_rejects_a_negative_amount_test() -> Nil {
+  let operation = a_g_counter_operation(7)
+  let encoded =
+    wire_op.encode_g_counter_envelope("gc", operation)
+    |> json.to_string
+    |> string.replace("\"amount\":7", "\"amount\":-7")
+  json.parse(encoded, wire_op.g_counter_envelope_decoder())
+  |> result.is_error
+  |> expect.to_be_true()
+}
+
+pub fn g_counter_operation_rejects_a_missing_delta_test() -> Nil {
+  json.parse(
+    "{\"address\":\"gc\",\"type\":\"gCounterIncrement\",\"amount\":1}",
+    wire_op.g_counter_envelope_decoder(),
+  )
+  |> result.is_error
+  |> expect.to_be_true()
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

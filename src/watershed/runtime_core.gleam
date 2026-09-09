@@ -33,6 +33,7 @@ import watershed/claims_kernel
 import watershed/client_id
 import watershed/counter_kernel
 import watershed/directory_kernel
+import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/handle
 import watershed/json_ot
@@ -168,6 +169,10 @@ pub type CoreError {
   /// caller can retry. The document is not corrupt.
   DirectoryOperationFailed(address: String, detail: String)
   SequenceOperationFailed(address: String, detail: String)
+  /// The kernel refused a local grow-only counter edit, because the amount is
+  /// negative. This is incorrect use of the API, and the caller can retry. The
+  /// document is not corrupt, and no operation goes out.
+  GCounterOperationFailed(address: String, detail: String)
   /// The kernel refused a local text edit, because the insert index is out of
   /// bounds, or the delete range or replace range is invalid. This is
   /// incorrect use of the API, and the caller can retry. The document is not
@@ -1847,6 +1852,59 @@ pub fn pn_counter_update(
         tag_pn_counter_events(address, events),
         channel.PnCounterOperation(operation),
         channel.PnCounterMeta(message_id),
+      ))
+    }
+  }
+}
+
+/// Increment the grow-only counter at `address` optimistically. The amount
+/// must not be negative. A refused edit changes nothing and sends nothing.
+pub fn g_counter_increment(
+  core: Core,
+  address: String,
+  amount: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use located <- result.try(locate_g_counter(core, address))
+  case located {
+    Detached(kernel) -> {
+      use #(kernel, events, _operation, _message_id) <- result.try(
+        g_counter_kernel.increment(kernel, amount)
+        |> result.map_error(fn(error) {
+          GCounterOperationFailed(
+            address,
+            g_counter_kernel.edit_error_text(error),
+          )
+        }),
+      )
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.GCounterState(kernel)),
+          tag_g_counter_events(address, events),
+          [],
+        ),
+      )
+    }
+
+    Attached(kernel) -> {
+      use #(kernel, events, operation, message_id) <- result.try(
+        g_counter_kernel.increment(kernel, amount)
+        |> result.map_error(fn(error) {
+          GCounterOperationFailed(
+            address,
+            g_counter_kernel.edit_error_text(error),
+          )
+        }),
+      )
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.GCounterState(kernel),
+        tag_g_counter_events(address, events),
+        channel.GCounterOperation(operation),
+        channel.GCounterMeta(message_id),
       ))
     }
   }
@@ -3576,6 +3634,23 @@ fn locate_pn_counter(
   }
 }
 
+fn locate_g_counter(
+  core: Core,
+  address: String,
+) -> Result(Located(g_counter_kernel.GCounterState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.GCounterState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.GCounterState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.GCounterChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_pact_map(
   core: Core,
   address: String,
@@ -4017,6 +4092,13 @@ fn tag_pn_counter_events(
   list.map(events, fn(event) { #(address, channel.PnCounterEvent(event)) })
 }
 
+fn tag_g_counter_events(
+  address: String,
+  events: List(g_counter_kernel.GCounterEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.GCounterEvent(event)) })
+}
+
 fn tag_json_ot_events(
   address: String,
   events: List(json_ot_kernel.JsonOtEvent),
@@ -4155,6 +4237,16 @@ pub fn counter_value(core: Core, address: String) -> Result(Int, Nil) {
 pub fn pn_counter_value(core: Core, address: String) -> Result(Int, Nil) {
   case find_channel(core, address) {
     Ok(channel.PnCounterState(kernel)) -> Ok(pn_counter_kernel.value(kernel))
+    Ok(_) | Error(Nil) -> Error(Nil)
+  }
+}
+
+/// The current optimistic value of the grow-only counter. The result is
+/// `Error(Nil)` when the address does not exist, and when it does not name a
+/// GCounter channel.
+pub fn g_counter_value(core: Core, address: String) -> Result(Int, Nil) {
+  case find_channel(core, address) {
+    Ok(channel.GCounterState(kernel)) -> Ok(g_counter_kernel.value(kernel))
     Ok(_) | Error(Nil) -> Error(Nil)
   }
 }

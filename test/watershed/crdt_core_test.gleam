@@ -10,6 +10,7 @@ import watershed/channel
 import watershed/crdt_core
 import watershed/crdt_sim
 import watershed/crdt_wire
+import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/mv_register_kernel
 import watershed/or_map_kernel
@@ -152,6 +153,8 @@ fn render(state: channel.ChannelState) -> String {
   case state {
     channel.PnCounterState(kernel) ->
       int.to_string(pn_counter_kernel.value(kernel))
+    channel.GCounterState(kernel) ->
+      int.to_string(g_counter_kernel.value(kernel))
     channel.MvRegisterState(kernel) ->
       string.join(mv_register_kernel.values(kernel), ",")
     channel.OrSetState(kernel) -> string.join(or_set_kernel.values(kernel), ",")

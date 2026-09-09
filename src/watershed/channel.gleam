@@ -25,6 +25,7 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 
 import lattice_core/replica_id
+import lattice_counters/g_counter.{type GCounter}
 import lattice_counters/pn_counter.{type PNCounter}
 import lattice_maps/or_map.{type ORMap}
 import lattice_registers/mv_register.{type MVRegister}
@@ -36,6 +37,7 @@ import lattice_text/text.{type Text}
 import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/directory_kernel
+import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/handle
 import watershed/json_ot
@@ -63,6 +65,7 @@ pub type ChannelType {
   MapChannel
   CounterChannel
   PnCounterChannel
+  GCounterChannel
   MvRegisterChannel
   OrMapChannel
   OrSetChannel
@@ -86,6 +89,7 @@ pub type ChannelInit {
   InitMap
   InitCounter
   InitPnCounter
+  InitGCounter
   InitMvRegister
   InitOrMap(mode: or_map_kernel.OrMapMode)
   InitOrSet
@@ -108,6 +112,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     MapChannel -> wire.channel_type_map
     CounterChannel -> wire.channel_type_counter
     PnCounterChannel -> wire.channel_type_pn_counter
+    GCounterChannel -> wire.channel_type_g_counter
     MvRegisterChannel -> wire.channel_type_mv_register
     OrMapChannel -> wire.channel_type_or_map
     OrSetChannel -> wire.channel_type_or_set
@@ -131,6 +136,7 @@ pub fn string_to_type(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_map -> Ok(MapChannel)
     _ if raw == wire.channel_type_counter -> Ok(CounterChannel)
     _ if raw == wire.channel_type_pn_counter -> Ok(PnCounterChannel)
+    _ if raw == wire.channel_type_g_counter -> Ok(GCounterChannel)
     _ if raw == wire.channel_type_mv_register -> Ok(MvRegisterChannel)
     _ if raw == wire.channel_type_or_map -> Ok(OrMapChannel)
     _ if raw == wire.channel_type_or_set -> Ok(OrSetChannel)
@@ -157,6 +163,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitMap -> MapChannel
     InitCounter -> CounterChannel
     InitPnCounter -> PnCounterChannel
+    InitGCounter -> GCounterChannel
     InitMvRegister -> MvRegisterChannel
     InitOrMap(_) -> OrMapChannel
     InitOrSet -> OrSetChannel
@@ -180,6 +187,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
 pub fn supports_p2p(channel_type: ChannelType) -> Bool {
   case channel_type {
     PnCounterChannel
+    | GCounterChannel
     | MvRegisterChannel
     | OrMapChannel
     | OrSetChannel
@@ -205,6 +213,7 @@ pub type ChannelState {
   MapState(map_kernel.MapState)
   CounterState(counter_kernel.CounterState)
   PnCounterState(pn_counter_kernel.PnCounterState)
+  GCounterState(g_counter_kernel.GCounterState)
   MvRegisterState(mv_register_kernel.MvRegisterState)
   OrMapState(or_map_kernel.OrMapState)
   OrSetState(or_set_kernel.OrSetState)
@@ -228,6 +237,7 @@ pub type ChannelOperation {
   MapOperation(map_kernel.MapOperation)
   CounterOperation(counter_kernel.CounterOperation)
   PnCounterOperation(pn_counter_kernel.PnCounterOperation)
+  GCounterOperation(g_counter_kernel.GCounterOperation)
   MvRegisterOperation(mv_register_kernel.MvRegisterOperation)
   OrMapOperation(or_map_kernel.OrMapOperation)
   OrSetOperation(or_set_kernel.OrSetOperation)
@@ -263,6 +273,7 @@ pub type ChannelOperation {
 /// refuses one with `UnsupportedP2p`.
 pub type P2pEdit {
   PnCounterEdit(amount: Int)
+  GCounterIncrementEdit(amount: Int)
   MvRegisterEdit(value: String)
   OrMapIncrementEdit(key: String, amount: Int)
   OrMapSetRegisterEdit(key: String, value: String, timestamp: Int)
@@ -287,6 +298,7 @@ pub type ChannelEvent {
   MapEvent(map_kernel.MapEvent)
   CounterEvent(counter_kernel.CounterEvent)
   PnCounterEvent(pn_counter_kernel.PnCounterEvent)
+  GCounterEvent(g_counter_kernel.GCounterEvent)
   MvRegisterEvent(mv_register_kernel.MvRegisterEvent)
   OrMapEvent(or_map_kernel.OrMapEvent)
   OrSetEvent(or_set_kernel.OrSetEvent)
@@ -311,6 +323,7 @@ pub type Snapshot {
   MapSnapshot(entries: List(#(String, Json)))
   CounterSnapshot(value: Int)
   PnCounterSnapshot(state: PNCounter)
+  GCounterSnapshot(state: GCounter)
   MvRegisterSnapshot(state: MVRegister(String))
   OrMapSnapshot(mode: or_map_kernel.OrMapMode, state: ORMap)
   OrSetSnapshot(state: ORSet(String))
@@ -349,6 +362,7 @@ pub type LocalOperationMeta {
   NoMeta
   CounterMeta(message_id: Int)
   PnCounterMeta(message_id: Int)
+  GCounterMeta(message_id: Int)
   MvRegisterMeta(message_id: Int)
   OrMapMeta(message_id: Int)
   OrSetMeta(message_id: Int)
@@ -424,6 +438,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     MapState(_) -> MapChannel
     CounterState(_) -> CounterChannel
     PnCounterState(_) -> PnCounterChannel
+    GCounterState(_) -> GCounterChannel
     MvRegisterState(_) -> MvRegisterChannel
     OrMapState(_) -> OrMapChannel
     OrSetState(_) -> OrSetChannel
@@ -447,6 +462,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     MapSnapshot(_) -> MapChannel
     CounterSnapshot(_) -> CounterChannel
     PnCounterSnapshot(_) -> PnCounterChannel
+    GCounterSnapshot(_) -> GCounterChannel
     MvRegisterSnapshot(_) -> MvRegisterChannel
     OrMapSnapshot(_, _) -> OrMapChannel
     OrSetSnapshot(_) -> OrSetChannel
@@ -477,6 +493,7 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitCounter -> CounterState(counter_kernel.new())
     InitPnCounter ->
       PnCounterState(pn_counter_kernel.new(replica_id.new(replica)))
+    InitGCounter -> GCounterState(g_counter_kernel.new(replica_id.new(replica)))
     InitMvRegister ->
       MvRegisterState(mv_register_kernel.new(replica_id.new(replica)))
     InitOrMap(mode) ->
@@ -517,6 +534,13 @@ pub fn from_snapshot(
     PnCounterSnapshot(state) ->
       Ok(
         PnCounterState(pn_counter_kernel.from_sequenced(
+          state,
+          replica_id.new(replica),
+        )),
+      )
+    GCounterSnapshot(state) ->
+      Ok(
+        GCounterState(g_counter_kernel.from_sequenced(
           state,
           replica_id.new(replica),
         )),
@@ -596,6 +620,7 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
     MapState(kernel) -> MapSnapshot(map_kernel.sequenced_entries(kernel))
     CounterState(kernel) -> CounterSnapshot(counter_sequenced_value(kernel))
     PnCounterState(kernel) -> PnCounterSnapshot(kernel.sequenced)
+    GCounterState(kernel) -> GCounterSnapshot(kernel.sequenced)
     MvRegisterState(kernel) -> MvRegisterSnapshot(kernel.sequenced)
     OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.sequenced)
     OrSetState(kernel) -> OrSetSnapshot(kernel.sequenced)
@@ -641,6 +666,7 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
     MapState(kernel) -> MapSnapshot(map_kernel.entries(kernel))
     CounterState(kernel) -> CounterSnapshot(kernel.value)
     PnCounterState(kernel) -> PnCounterSnapshot(kernel.optimistic)
+    GCounterState(kernel) -> GCounterSnapshot(kernel.optimistic)
     MvRegisterState(kernel) -> MvRegisterSnapshot(kernel.optimistic)
     OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.optimistic)
     OrSetState(kernel) -> OrSetSnapshot(kernel.optimistic)
@@ -701,6 +727,7 @@ pub fn attach_state(
     MapState(_)
     | CounterState(_)
     | PnCounterState(_)
+    | GCounterState(_)
     | MvRegisterState(_)
     | RegisterCollectionState(_)
     | ClaimsState(_)
@@ -750,6 +777,10 @@ pub fn apply_remote(
     PnCounterState(kernel), PnCounterOperation(operation) -> {
       let #(kernel, events) = pn_counter_kernel.apply_remote(kernel, operation)
       Ok(#(PnCounterState(kernel), list.map(events, PnCounterEvent), []))
+    }
+    GCounterState(kernel), GCounterOperation(operation) -> {
+      let #(kernel, events) = g_counter_kernel.apply_remote(kernel, operation)
+      Ok(#(GCounterState(kernel), list.map(events, GCounterEvent), []))
     }
     MvRegisterState(kernel), MvRegisterOperation(operation) -> {
       let #(kernel, events) = mv_register_kernel.apply_remote(kernel, operation)
@@ -875,6 +906,7 @@ pub fn apply_remote(
     MapState(_), _
     | CounterState(_), _
     | PnCounterState(_), _
+    | GCounterState(_), _
     | MvRegisterState(_), _
     | OrMapState(_), _
     | OrSetState(_), _
@@ -965,6 +997,7 @@ pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
     MapState(_)
     | CounterState(_)
     | PnCounterState(_)
+    | GCounterState(_)
     | MvRegisterState(_)
     | OrMapState(_)
     | OrSetState(_)
@@ -1019,6 +1052,7 @@ pub fn on_leave(
     MapState(_)
     | CounterState(_)
     | PnCounterState(_)
+    | GCounterState(_)
     | MvRegisterState(_)
     | OrMapState(_)
     | OrSetState(_)
@@ -1098,6 +1132,8 @@ pub fn ack_local(
           Error(UnexpectedAck("counter ack is missing its local message id"))
         PnCounterMeta(_) ->
           Error(UnexpectedAck("counter ack has pn-counter metadata"))
+        GCounterMeta(_) ->
+          Error(UnexpectedAck("counter ack has g-counter metadata"))
         MvRegisterMeta(_) ->
           Error(UnexpectedAck("counter ack has mv-register metadata"))
         OrMapMeta(_) -> Error(UnexpectedAck("counter ack has or-map metadata"))
@@ -1132,6 +1168,8 @@ pub fn ack_local(
           Error(UnexpectedAck("pn-counter ack is missing its local message id"))
         CounterMeta(_) ->
           Error(UnexpectedAck("pn-counter ack has counter metadata"))
+        GCounterMeta(_) ->
+          Error(UnexpectedAck("pn-counter ack has g-counter metadata"))
         MvRegisterMeta(_) ->
           Error(UnexpectedAck("pn-counter ack has mv-register metadata"))
         OrMapMeta(_) ->
@@ -1148,6 +1186,36 @@ pub fn ack_local(
         SequenceMeta(_) ->
           Error(UnexpectedAck("pn-counter ack has sequence metadata"))
         TextMeta(_) -> Error(UnexpectedAck("pn-counter ack has text metadata"))
+      }
+    GCounterState(kernel), GCounterOperation(operation) ->
+      case local {
+        GCounterMeta(message_id) ->
+          case
+            g_counter_kernel.ack_local_with_message_id(
+              kernel,
+              operation,
+              message_id,
+            )
+          {
+            Ok(kernel) -> Ok(#(GCounterState(kernel), [], None))
+            Error(g_counter_kernel.UnexpectedAck(_, detail))
+            | Error(g_counter_kernel.UnexpectedRollback(_, detail)) ->
+              Error(UnexpectedAck(detail))
+          }
+        NoMeta
+        | CounterMeta(_)
+        | PnCounterMeta(_)
+        | GCounterMeta(_)
+        | MvRegisterMeta(_)
+        | OrMapMeta(_)
+        | OrSetMeta(_)
+        | GSetMeta(_)
+        | TwoPSetMeta(_)
+        | TaskManagerMeta(_)
+        | DirectoryMeta(_)
+        | SequenceMeta(_)
+        | TextMeta(_) ->
+          Error(UnexpectedAck("g-counter ack is missing its local message id"))
       }
     MvRegisterState(kernel), MvRegisterOperation(operation) ->
       case local {
@@ -1167,6 +1235,7 @@ pub fn ack_local(
         NoMeta
         | CounterMeta(_)
         | PnCounterMeta(_)
+        | GCounterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
         | GSetMeta(_)
@@ -1196,7 +1265,11 @@ pub fn ack_local(
             | Error(or_map_kernel.NegativeTally(detail)) ->
               Error(CorruptRemoteOperation(detail))
           }
-        NoMeta | CounterMeta(_) | PnCounterMeta(_) | MvRegisterMeta(_) ->
+        NoMeta
+        | CounterMeta(_)
+        | PnCounterMeta(_)
+        | GCounterMeta(_)
+        | MvRegisterMeta(_) ->
           Error(UnexpectedAck("or-map ack is missing its local message id"))
         OrSetMeta(_) -> Error(UnexpectedAck("or-map ack has or-set metadata"))
         GSetMeta(_) -> Error(UnexpectedAck("or-map ack has g-set metadata"))
@@ -1228,6 +1301,7 @@ pub fn ack_local(
         NoMeta
         | CounterMeta(_)
         | PnCounterMeta(_)
+        | GCounterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | GSetMeta(_)
@@ -1256,6 +1330,7 @@ pub fn ack_local(
         NoMeta
         | CounterMeta(_)
         | PnCounterMeta(_)
+        | GCounterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1284,6 +1359,7 @@ pub fn ack_local(
         NoMeta
         | CounterMeta(_)
         | PnCounterMeta(_)
+        | GCounterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1347,6 +1423,7 @@ pub fn ack_local(
         NoMeta
         | CounterMeta(_)
         | PnCounterMeta(_)
+        | GCounterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1391,6 +1468,7 @@ pub fn ack_local(
         NoMeta
         | CounterMeta(_)
         | PnCounterMeta(_)
+        | GCounterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1440,6 +1518,7 @@ pub fn ack_local(
         NoMeta
         | CounterMeta(_)
         | PnCounterMeta(_)
+        | GCounterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1480,6 +1559,7 @@ pub fn ack_local(
         NoMeta
         | CounterMeta(_)
         | PnCounterMeta(_)
+        | GCounterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1493,6 +1573,7 @@ pub fn ack_local(
     MapState(_), _
     | CounterState(_), _
     | PnCounterState(_), _
+    | GCounterState(_), _
     | MvRegisterState(_), _
     | OrMapState(_), _
     | OrSetState(_), _
@@ -1509,6 +1590,16 @@ pub fn ack_local(
     | RichTextState(_), _
     | TextState(_), _
     -> Error(wrong_channel_type(state, "local ack"))
+  }
+}
+
+/// A detail string for a person to read, for a grow-only counter edit that the
+/// kernel refused. The p2p path has no pending queue, so the caller sees this
+/// refusal as a `UnsupportedP2p` channel error.
+fn g_counter_edit_detail(error: g_counter_kernel.EditError) -> String {
+  case error {
+    g_counter_kernel.NegativeIncrement(amount) ->
+      "g-counter increment must not be negative, got " <> int.to_string(amount)
   }
 }
 
@@ -1570,6 +1661,16 @@ pub fn apply_p2p_local(
         PnCounterOperation(operation),
       ))
     }
+    GCounterState(kernel), GCounterIncrementEdit(amount) ->
+      case g_counter_kernel.p2p_increment(kernel, amount) {
+        Ok(#(kernel, events, operation)) ->
+          Ok(#(
+            GCounterState(kernel),
+            list.map(events, GCounterEvent),
+            GCounterOperation(operation),
+          ))
+        Error(error) -> Error(UnsupportedP2p(g_counter_edit_detail(error)))
+      }
     OrMapState(kernel), OrMapIncrementEdit(key, amount) ->
       case or_map_kernel.p2p_increment(kernel, key, amount) {
         Ok(#(kernel, events, operation)) ->
@@ -1724,6 +1825,7 @@ pub fn apply_p2p_local(
     MapState(_), _
     | CounterState(_), _
     | PnCounterState(_), _
+    | GCounterState(_), _
     | MvRegisterState(_), _
     | OrMapState(_), _
     | OrSetState(_), _
@@ -1803,6 +1905,10 @@ pub fn merge_p2p_snapshot(
       let #(kernel, events) = pn_counter_kernel.p2p_merge(kernel, other)
       Ok(#(PnCounterState(kernel), list.map(events, PnCounterEvent)))
     }
+    GCounterState(kernel), GCounterSnapshot(other) -> {
+      let #(kernel, events) = g_counter_kernel.p2p_merge(kernel, other)
+      Ok(#(GCounterState(kernel), list.map(events, GCounterEvent)))
+    }
     MvRegisterState(kernel), MvRegisterSnapshot(other) -> {
       let #(kernel, events) = mv_register_kernel.p2p_merge(kernel, other)
       Ok(#(MvRegisterState(kernel), list.map(events, MvRegisterEvent)))
@@ -1836,6 +1942,7 @@ pub fn merge_p2p_snapshot(
     MapState(_), _
     | CounterState(_), _
     | PnCounterState(_), _
+    | GCounterState(_), _
     | MvRegisterState(_), _
     | OrMapState(_), _
     | OrSetState(_), _
@@ -1905,6 +2012,7 @@ pub fn take_outbound(
     MapState(_)
     | CounterState(_)
     | PnCounterState(_)
+    | GCounterState(_)
     | MvRegisterState(_)
     | OrMapState(_)
     | OrSetState(_)
@@ -1940,6 +2048,9 @@ pub fn same_shape(ours: ChannelOperation, echoed: ChannelOperation) -> Bool {
     -> ours == echoed
     PnCounterOperation(pn_counter_kernel.Update(our_amount, our_delta)),
       PnCounterOperation(pn_counter_kernel.Update(echoed_amount, echoed_delta))
+    -> our_amount == echoed_amount && our_delta == echoed_delta
+    GCounterOperation(g_counter_kernel.Increment(our_amount, our_delta)),
+      GCounterOperation(g_counter_kernel.Increment(echoed_amount, echoed_delta))
     -> our_amount == echoed_amount && our_delta == echoed_delta
     MvRegisterOperation(ours), MvRegisterOperation(echoed) -> ours == echoed
     OrMapOperation(ours), OrMapOperation(echoed) ->
@@ -1977,6 +2088,7 @@ pub fn same_shape(ours: ChannelOperation, echoed: ChannelOperation) -> Bool {
     MapOperation(_), _
     | CounterOperation(_), _
     | PnCounterOperation(_), _
+    | GCounterOperation(_), _
     | MvRegisterOperation(_), _
     | OrMapOperation(_), _
     | OrSetOperation(_), _
@@ -2196,6 +2308,7 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     MapSnapshot(ours), MapSnapshot(echoed) -> same_entries(ours, echoed)
     CounterSnapshot(ours), CounterSnapshot(echoed) -> ours == echoed
     PnCounterSnapshot(ours), PnCounterSnapshot(echoed) -> ours == echoed
+    GCounterSnapshot(ours), GCounterSnapshot(echoed) -> ours == echoed
     MvRegisterSnapshot(ours), MvRegisterSnapshot(echoed) -> ours == echoed
     OrMapSnapshot(our_mode, ours), OrMapSnapshot(echoed_mode, echoed) ->
       our_mode == echoed_mode && ours == echoed
@@ -2229,6 +2342,7 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     MapSnapshot(_), _
     | CounterSnapshot(_), _
     | PnCounterSnapshot(_), _
+    | GCounterSnapshot(_), _
     | MvRegisterSnapshot(_), _
     | OrMapSnapshot(_, _), _
     | OrSetSnapshot(_), _
@@ -2277,6 +2391,7 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
       |> list.unique
     CounterState(_) -> []
     PnCounterState(_) -> []
+    GCounterState(_) -> []
     MvRegisterState(_) -> []
     OrMapState(kernel) ->
       case kernel.mode {
@@ -2360,6 +2475,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     MapSnapshot(entries) -> wire.encode_entries(entries)
     CounterSnapshot(value) -> json.int(value)
     PnCounterSnapshot(state) -> pn_counter.to_json(state)
+    GCounterSnapshot(state) -> g_counter.to_json(state)
     MvRegisterSnapshot(state) -> mv_register.to_json(state)
     OrMapSnapshot(_, state) -> or_map.to_json(state)
     OrSetSnapshot(state) -> or_set.to_json(state)
@@ -2416,6 +2532,7 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
     MapChannel -> decode.list(wire.entry_decoder()) |> decode.map(MapSnapshot)
     CounterChannel -> decode.int |> decode.map(CounterSnapshot)
     PnCounterChannel -> pn_counter_snapshot_decoder()
+    GCounterChannel -> g_counter_snapshot_decoder()
     MvRegisterChannel -> mv_register_snapshot_decoder()
     OrMapChannel -> or_map_snapshot_decoder()
     OrSetChannel -> or_set_snapshot_decoder()
@@ -2772,6 +2889,15 @@ fn pn_counter_snapshot_decoder() -> Decoder(Snapshot) {
   case pn_counter.from_json(encoded) {
     Ok(state) -> decode.success(PnCounterSnapshot(state))
     Error(_) -> decode.failure(MapSnapshot([]), "PnCounterSnapshot")
+  }
+}
+
+fn g_counter_snapshot_decoder() -> Decoder(Snapshot) {
+  use value <- decode.then(wire.json_value_decoder())
+  let encoded = json.to_string(value)
+  case g_counter.from_json(encoded) {
+    Ok(state) -> decode.success(GCounterSnapshot(state))
+    Error(_) -> decode.failure(MapSnapshot([]), "GCounterSnapshot")
   }
 }
 
