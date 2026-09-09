@@ -1,6 +1,7 @@
 import { parse } from "@astrojs/compiler";
-import { parseJavaScript } from "./javascript.mjs";
-import { rangeAt, compare } from "./symbols.mjs";
+import { extractJavaScript } from "./javascript.mjs";
+import { rangeAt } from "./symbols.mjs";
+import { core } from "./core.mjs";
 
 export async function parseAstro({ path, source }) {
   const parsed = await parse(source, { position: true });
@@ -46,8 +47,7 @@ export async function parseAstro({ path, source }) {
       continue;
     }
     const fragment = source.slice(region.start, region.end);
-    const result = parseJavaScript({ path, source: fragment, scriptKind: region.kind });
-    const baseBytes = Buffer.byteLength(source.slice(0, region.start));
+    const result = extractJavaScript({ path, source: fragment, scriptKind: region.kind });
     const originalRange = (range) => {
       const start = region.start + Buffer.from(fragment).subarray(0, range.start.byte).toString().length;
       const end = region.start + Buffer.from(fragment).subarray(0, range.end.byte).toString().length;
@@ -57,15 +57,8 @@ export async function parseAstro({ path, source }) {
     for (const symbol of result.symbols) {
       const container = [region.scope, ...symbol.container];
       const range = originalRange(symbol.range);
-      symbols.push({
-        ...symbol, container, range,
-        id: JSON.stringify([path, container, symbol.name, symbol.range.start.byte + baseBytes, symbol.range.end.byte + baseBytes]),
-        qualifiedName: `${path}::${[...container, symbol.name].join(".")}`,
-      });
+      symbols.push({ ...symbol, container, range });
     }
   }
-  return {
-    symbols: diagnostics.length ? [] : symbols.sort((a, b) => a.range.start.byte - b.range.start.byte || compare(a.name, b.name)),
-    diagnostics, skippedRegions,
-  };
+  return core().normalize_parse(path, { symbols, diagnostics, skippedRegions });
 }

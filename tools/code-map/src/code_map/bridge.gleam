@@ -1,8 +1,10 @@
 //// JavaScript API boundary. Core errors become JavaScript exceptions here.
 
+import code_map
 import code_map/codec
 import code_map/config
 import code_map/model
+import code_map/symbols
 import gleam/dynamic/decode
 import gleam/json
 import gleam/option.{None, Some}
@@ -76,4 +78,18 @@ pub fn decode_index(value: decode.Dynamic) -> model.Index {
 
 pub fn encode_index(value: model.Index) -> json.Json {
   codec.encode_index(value)
+}
+
+pub fn normalize_parse(path: String, value: decode.Dynamic) -> json.Json {
+  let #(raw, diagnostics, regions) =
+    decode.run(value, codec.raw_parse())
+    |> result.map_error(fn(_) { model.ParserError(path) })
+    |> for_javascript
+  symbols.normalize_parse(path, raw, diagnostics, regions)
+  |> for_javascript
+  |> codec.encode_parse
+}
+
+pub fn parse_gleam(path: String, source: String) -> json.Json {
+  code_map.extract(path, source) |> for_javascript |> codec.encode_parse
 }

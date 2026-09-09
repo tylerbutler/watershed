@@ -32,9 +32,20 @@ test("typed configuration preserves absent fields and rejects null and unknown f
   assert.deepEqual(core().normalize_config({ version: 1, excludeDirs: undefined }), {
     version: 1, excludeDirs: [], excludePaths: [],
   });
+
   for (const config of [
     { version: 1, excludePaths: null },
     { version: 1, excludeDirs: ["a", "a"] },
     { version: 1, unknown: true },
   ]) assert.throws(() => core().normalize_config(config), /config/i);
+});
+
+test("Gleam normalizes raw parser declarations and rejects malformed kinds", async () => {
+  const { core } = await import("../lib/core.mjs");
+  const file = baseline.index.files.find((f) => f.path === "src/a.ts");
+  const raw = { symbols: file.symbols.map(({ id, qualifiedName, ...symbol }) => symbol),
+    diagnostics: [], skippedRegions: [] };
+  assert.deepEqual(core().normalize_parse(file.path, raw).symbols, file.symbols);
+  raw.symbols[0].kind = "typo";
+  assert.throws(() => core().normalize_parse(file.path, raw), /parser/i);
 });

@@ -21,48 +21,16 @@ export const limits = [
 
 export function compare(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
 
-export function positionAtUtf16(source, offset) {
-  if (!Number.isInteger(offset) || offset < 0 || offset > source.length) {
-    throw new Error(`Invalid source offset: ${offset}`);
-  }
-  if (offset > 0 && offset < source.length
-      && /[\uD800-\uDBFF]/.test(source[offset - 1]) && /[\uDC00-\uDFFF]/.test(source[offset])) {
-    throw new Error("Offset is not on a Unicode boundary");
-  }
-  const prefix = source.slice(0, offset);
-  const lines = prefix.split("\n");
-  return { line: lines.length, column: [...lines.at(-1)].length + 1, byte: Buffer.byteLength(prefix) };
-}
+export { positionAtUtf16, positionAtByte, rangeAt } from "../src/code_map_ffi.mjs";
+import { source_span } from "../src/code_map_ffi.mjs";
 
-export function positionAtByte(source, byte) {
-  const bytes = Buffer.from(source);
-  if (!Number.isInteger(byte) || byte < 0 || byte > bytes.length) throw new Error(`Invalid byte offset: ${byte}`);
-  if (byte < bytes.length && (bytes[byte] & 0xc0) === 0x80) throw new Error("Offset is not on a Unicode boundary");
-  return positionAtUtf16(source, bytes.subarray(0, byte).toString().length);
-}
-
-export function rangeAt(source, start, end) {
-  if (end < start) throw new Error("Reversed source range");
-  return { start: positionAtUtf16(source, start), end: positionAtUtf16(source, end) };
-}
-
-export function makeSymbol(path, source, declaration) {
+export function rawSymbol(source, declaration) {
   const { name, container = [], kind, start, end, signatureEnd = end,
     visibility = "local", exported = false, target = null } = declaration;
-  if (typeof name !== "string" || !name || !kinds.includes(kind)
-      || !container.every((part) => typeof part === "string") || signatureEnd < start || signatureEnd > end) {
-    throw new Error(`Invalid parser declaration for ${path}`);
-  }
-  const range = rangeAt(source, start, end);
+  const [signature, from, to] = source_span(source, start, end, signatureEnd);
   return {
-    id: JSON.stringify([path, container, name, range.start.byte, range.end.byte]),
-    name, qualifiedName: `${path}::${[...container, name].join(".")}`,
-    container, kind, visibility, exported,
-    signature: source.slice(start, signatureEnd).trimEnd(), range, target,
+    name, container, kind, visibility, exported, signature, target,
+    range: { start: { line: from[0], column: from[1], byte: from[2] },
+      end: { line: to[0], column: to[1], byte: to[2] } },
   };
-}
-
-export function sortSymbols(symbols) {
-  return symbols.sort((a, b) => a.range.start.byte - b.range.start.byte
-    || compare(a.kind, b.kind) || compare(a.name, b.name));
 }

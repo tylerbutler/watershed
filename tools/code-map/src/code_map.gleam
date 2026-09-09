@@ -1,8 +1,9 @@
 //// Extracts named declarations without resolving imports or running source.
 
+import code_map/model
+import code_map/symbols
 import glance
 import gleam/int
-import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
@@ -277,12 +278,13 @@ fn expression(
   }
 }
 
-/// Encodes parser results for the JavaScript adapter.
-///
-/// Glexer positions on this target are UTF-16 offsets, not byte offsets.
-pub fn extract_json(source: String) -> String {
+/// Extracts symbols with original-source positions.
+pub fn extract(
+  path: String,
+  source: String,
+) -> Result(model.ParseResult, model.Error) {
   let #(declarations, diagnostics) = case parse(source) {
-    Ok(declarations) -> #(list.map(declarations, encode), [])
+    Ok(declarations) -> #(declarations, [])
     Error(error) -> {
       let #(message, offset) = case error {
         glance.UnexpectedEndOfInput -> #("Unexpected end of input", -1)
@@ -291,39 +293,42 @@ pub fn extract_json(source: String) -> String {
           position.byte_offset,
         )
       }
-      #([], [
-        json.object([
-          #("message", json.string(message)),
-          #("offset", json.int(offset)),
-        ]),
-      ])
+      let range = case offset < 0 {
+        True -> None
+        False -> Some(symbols.range_at(source, offset, offset))
+      }
+      #([], [model.Diagnostic(path, message, range)])
     }
   }
-  json.object([
-    #("version", json.int(1)),
-    #("offsetEncoding", json.string("utf16")),
-    #("declarations", json.array(declarations, fn(value) { value })),
-    #("diagnostics", json.array(diagnostics, fn(value) { value })),
-  ])
-  |> json.to_string
-}
-
-fn encode(d: Declaration) -> json.Json {
-  json.object([
-    #("name", json.string(d.name)),
-    #("container", json.array(d.container, json.string)),
-    #(
-      "kind",
-      json.string(case d.kind {
-        Function -> "function"
-        Type -> "type"
-        Constant -> "constant"
-      }),
-    ),
-    #("public", json.bool(d.publicity == glance.Public)),
-    #("start", json.int(d.location.start)),
-    #("end", json.int(d.location.end)),
-    #("signatureEnd", json.int(d.signature_end)),
-    #("target", json.nullable(d.target, json.string)),
-  ])
+  use raw <- result.try(
+    list.try_map(declarations, fn(d) {
+      use target <- result.try(case d.target {
+        None -> Ok(None)
+        Some("erlang") -> Ok(Some(model.ErlangTarget))
+        Some("javascript") -> Ok(Some(model.JavaScriptTarget))
+        Some(_) -> Error(model.ParserError("invalid Gleam target"))
+      })
+      let public = d.publicity == glance.Public
+      Ok(symbols.from_span(
+        source,
+        d.name,
+        d.container,
+        case d.kind {
+          Function -> model.Function
+          Type -> model.Type
+          Constant -> model.Constant
+        },
+        case public {
+          True -> model.Public
+          False -> model.Private
+        },
+        public,
+        target,
+        d.location.start,
+        d.location.end,
+        d.signature_end,
+      ))
+    }),
+  )
+  symbols.normalize_parse(path, raw, diagnostics, [])
 }

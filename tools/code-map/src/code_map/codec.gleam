@@ -2,6 +2,7 @@
 
 import code_map/config
 import code_map/model
+import code_map/symbols
 import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
@@ -119,13 +120,7 @@ pub fn kind() -> decode.Decoder(model.SymbolKind) {
 }
 
 pub fn kind_name(value: model.SymbolKind) -> String {
-  case value {
-    model.Function -> "function"
-    model.Method -> "method"
-    model.Class -> "class"
-    model.Type -> "type"
-    model.Constant -> "constant"
-  }
+  symbols.kind_name(value)
 }
 
 fn visibility() -> decode.Decoder(model.Visibility) {
@@ -452,5 +447,22 @@ pub fn encode_index(value: model.Index) -> json.Json {
     #("configHash", json.string(value.config_hash)),
     #("complete", json.bool(value.complete)),
     #("files", json.array(value.files, encode_file)),
+  ])
+}
+
+pub fn raw_parse() -> decode.Decoder(
+  #(List(model.RawSymbol), List(model.Diagnostic), List(model.SkippedRegion)),
+) {
+  use symbols <- decode.field("symbols", decode.list(raw_symbol()))
+  use diagnostics <- decode.field("diagnostics", decode.list(diagnostic()))
+  use regions <- decode.field("skippedRegions", decode.list(region()))
+  decode.success(#(symbols, diagnostics, regions))
+}
+
+pub fn encode_parse(value: model.ParseResult) -> json.Json {
+  json.object([
+    #("symbols", json.array(value.symbols, encode_symbol)),
+    #("diagnostics", json.array(value.diagnostics, encode_diagnostic)),
+    #("skippedRegions", json.array(value.skipped_regions, encode_region)),
   ])
 }

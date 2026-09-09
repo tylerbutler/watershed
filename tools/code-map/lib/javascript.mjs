@@ -1,8 +1,13 @@
 import ts from "typescript";
 import { extname } from "node:path";
-import { makeSymbol, rangeAt, sortSymbols } from "./symbols.mjs";
+import { rawSymbol, rangeAt } from "./symbols.mjs";
+import { core } from "./core.mjs";
 
-export function parseJavaScript({ path, source, scriptKind }) {
+export function parseJavaScript(input) {
+  return core().normalize_parse(input.path, extractJavaScript(input));
+}
+
+export function extractJavaScript({ path, source, scriptKind }) {
   const extension = scriptKind ?? extname(path).slice(1);
   const kind = extension === "tsx" ? ts.ScriptKind.TSX : extension === "jsx" ? ts.ScriptKind.JSX
     : ["ts", "mts", "cts"].includes(extension) ? ts.ScriptKind.TS : ts.ScriptKind.JS;
@@ -40,7 +45,7 @@ export function parseJavaScript({ path, source, scriptKind }) {
     // Include const/let only for the first declarator; each subsequent name still has its own range.
     const declarationStart = isVariable && declaration.parent.declarations[0] === declaration
       ? declaration.parent.getStart(file) : start;
-    symbols.push(makeSymbol(path, source, {
+    symbols.push(rawSymbol(source, {
       name, kind, container: scope, start: declarationStart, end: declaration.end,
       signatureEnd, visibility, exported,
     }));
@@ -123,5 +128,5 @@ export function parseJavaScript({ path, source, scriptKind }) {
     return node.getChildren(file).find((n) => n.kind === ts.SyntaxKind.OpenBraceToken)?.getStart(file) ?? node.end;
   }
   visit(file, []);
-  return { symbols: sortSymbols(symbols), diagnostics: [], skippedRegions: [] };
+  return { symbols, diagnostics: [], skippedRegions: [] };
 }
