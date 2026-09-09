@@ -8,17 +8,6 @@
  * range:Range, target:string|null}} SymbolEntry */
 /** @typedef {{symbols:SymbolEntry[], diagnostics:Diagnostic[], skippedRegions:SkippedRegion[]}} ParseResult */
 
-export const kinds = ["function", "method", "class", "type", "constant"];
-export const statuses = ["indexed", "unsupported", "excluded", "parse-error", "unreadable"];
-export const extensions = [".gleam", ".js", ".mjs", ".cjs", ".jsx", ".ts", ".mts", ".cts", ".tsx", ".astro"];
-export const limits = [
-  "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
-  "Named declarations and callable bindings; not unbound anonymous callbacks.",
-  "Gleam constructors are represented by their enclosing type.",
-  "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
-  "Other formats are inventoried but not parsed.",
-];
-
 export function compare(a, b) { return a < b ? -1 : a > b ? 1 : 0; }
 
 export { positionAtUtf16, positionAtByte, rangeAt } from "../src/code_map_ffi.mjs";

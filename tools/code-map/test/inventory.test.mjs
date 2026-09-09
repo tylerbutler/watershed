@@ -57,4 +57,7 @@ test("unreadable metadata retains the source language", async (t) => {
   const [file] = await discoverFiles(root, validateConfig({ version: 1 }));
   assert.equal(file.status, "unreadable");
   assert.equal(file.language, "typescript");
+  const [excluded] = await discoverFiles(root, validateConfig({ version: 1, excludePaths: ["a.ts"] }));
+  assert.equal(excluded.status, "unreadable");
+  assert.equal(excluded.reason, null);
 });

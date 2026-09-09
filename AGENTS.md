@@ -33,6 +33,10 @@ exclusions in root `code-map.json` and corpus assertions in
 `tools/code-map-watershed.test.mjs`, outside the tool. Run its focused suites
 with `just code-map-test`; `just deps` installs its isolated Node dependencies.
 
+Code-map policy belongs in its typed Gleam core (`tools/code-map/src/code_map/`).
+Keep JavaScript focused on Node I/O, compiler AST adapters, and native source
+offset operations. Preserve the plain-object JS API and versioned wire formats.
+
 ## Website code snippets
 
 Every code block on the site that quotes real source comes from

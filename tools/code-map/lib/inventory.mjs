@@ -28,10 +28,6 @@ export async function pathStat(root, path) {
   return stat;
 }
 
-export function beneath(path, prefix) {
-  return path === prefix || path.startsWith(`${prefix}/`);
-}
-
 export async function discoverFiles(root, config) {
   const paths = core().inventory_paths((await git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z"])).split("\0"));
   const configuration = core().decode_config(config);
@@ -57,6 +53,7 @@ export async function discoverFiles(root, config) {
       if (error.code === "ENOENT" || error.code === "ENOTDIR") continue;
       if (!["EACCES", "EPERM", "EIO"].includes(error.code)) throw error;
       file.status = "unreadable";
+      file.reason = null;
       file.diagnostics.push({ path, message: `Cannot read source: ${error.code}`, range: null });
     }
     files.push(file);

@@ -3,10 +3,6 @@ import { join } from "node:path";
 import { createHash } from "node:crypto";
 import { core } from "./core.mjs";
 
-export function relativePath(path) {
-  return core().relative_path(path);
-}
-
 export function validateConfig(input) {
   return core().normalize_config(input);
 }

@@ -48,6 +48,10 @@ test("a relocated tool indexes unrelated sources without their project toolchain
   const original = await refreshIndex(target);
   const moved = await movedLibrary.refreshIndex(target, { rebuild: true });
   assert.deepEqual(moved.files.map((f) => f.symbols.map((s) => s.id)), original.files.map((f) => f.symbols.map((s) => s.id)));
+  const query = movedLibrary.queryIndex(moved, { command: "find", query: "hello" });
+  assert.equal(query instanceof Promise, false);
+  assert.equal(query.total, 4);
+  assert.deepEqual(JSON.parse(JSON.stringify(query)), query);
   await fs.rename(join(relocated, "build"), join(relocated, "unbuilt"));
   const unbuilt = spawnSync(process.execPath, [
     join(relocated, "cli.mjs"), "--root", target, "overview", "--json",
@@ -55,6 +59,9 @@ test("a relocated tool indexes unrelated sources without their project toolchain
   assert.equal(unbuilt.status, 1);
   assert.equal(unbuilt.stdout, "");
   assert.match(unbuilt.stderr, /pnpm run build/);
+  const help = spawnSync(process.execPath, [join(relocated, "cli.mjs"), "--help"], { cwd, encoding: "utf8" });
+  assert.equal(help.status, 0, help.stderr);
+  assert.match(help.stdout, /Usage: code-map/);
 });
 
 test("library calls keep configuration and cached symbols isolated by target repository", async (t) => {

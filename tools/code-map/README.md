@@ -180,6 +180,17 @@ or exits the process. Only refresh reads and writes the target.
 
 ## Development and extraction
 
+The core is Gleam compiled to JavaScript. Modules under `src/code_map/` own the
+typed data model, wire validation, exclusions, symbol identity, queries, text
+rendering, and cache-reuse decisions. `src/code_map.gleam` handles Gleam syntax.
+Put new policy in this core rather than duplicating it in JavaScript.
+
+JavaScript retains the TypeScript/Astro AST adapters, Node filesystem/process
+operations, and the small source-coordinate helpers in `src/code_map_ffi.mjs`.
+The bridge exchanges native objects, not JSON strings containing whole indexes.
+`queryIndex` stays synchronous and returns plain JavaScript objects; refresh
+stays asynchronous. The version-1 cache and command formats are unchanged.
+
 `pnpm test` runs the Gleam suite and Node's built-in test runner. `pnpm run
 test:node` builds the helper and runs only the Node suites. Generic tests create
 their own Git repositories; they do not depend on a parent checkout.
@@ -188,3 +199,7 @@ The relocation test copies the runtime and its dependency tree outside the
 checkout, checks dependency symlinks, and indexes unrelated Gleam/JS/TS/Astro
 files. Consumer integrations should keep real-repository corpus assertions and
 repository-specific configuration outside this directory.
+
+`test/fixtures/contracts.json` captures synthetic pre-migration outputs. The
+contract suite compares full indexes, locations, views, and text against that
+fixture; do not regenerate it just to make a refactor pass.
