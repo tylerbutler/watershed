@@ -84,11 +84,13 @@ fn run() -> Nil {
     use empty <- promise.await(reconnect_with_nothing_missed())
     use offline <- promise.await(offline_edits_flush_on_go_online())
     use summary <- promise.await(a_policy_summarizes_without_being_asked())
+    use history <- promise.await(manual_summary_returns_published_version())
     report([
       #("reconnect_into_a_quiet_room", quiet),
       #("reconnect_with_nothing_missed", empty),
       #("offline_edits_flush_on_go_online", offline),
       #("a_policy_summarizes_without_being_asked", summary),
+      #("manual_summary_returns_published_version", history),
     ])
     promise.resolve(Nil)
   }
@@ -255,6 +257,32 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
     #("delivered", delivered),
     #("joined", joined),
     #("from_checkpoint", from_checkpoint),
+  ])
+}
+
+@target(javascript)
+fn manual_summary_returns_published_version() -> Promise(Bool) {
+  use #(_document_id, document_a, document_b, map_a, map_b) <- promise.await(
+    room_named("vh"),
+  )
+  watershed.stop_auto_summarize(document_a)
+  watershed.stop_auto_summarize(document_b)
+  use settled <- promise.await(settle(map_a, map_b))
+  watershed.set(map_a, "version", json.int(1))
+  use synced <- promise.await(
+    wait_until(fn() { watershed.is_synced(document_a) }),
+  )
+  use published <- promise.await(watershed.summarize(document_a))
+  use versions <- promise.await(watershed.get_versions(document_a, count: 1))
+  let published_version = case published, versions {
+    Ok(version_id), Ok([version]) ->
+      version.id == version_id && version.tree_id != version_id
+    _, _ -> False
+  }
+  finish("manual_summary_returns_published_version", document_a, document_b, [
+    #("settled", settled),
+    #("synced", synced),
+    #("published_version", published_version),
   ])
 }
 

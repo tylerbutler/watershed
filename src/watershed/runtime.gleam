@@ -218,6 +218,16 @@ type Phase {
 }
 
 @target(javascript)
+type PendingSummary {
+  PendingSummary(
+    tree_id: String,
+    client_sequence_number: Int,
+    proposal_sequence_number: Option(Int),
+    resolve: fn(Result(String, String)) -> Nil,
+  )
+}
+
+@target(javascript)
 type State {
   State(
     connect_message: ConnectMessage,
@@ -263,6 +273,7 @@ type State {
     /// Whether a summarization wake-up is scheduled already. Without this flag,
     /// a busy document would arm a new timer for every sequenced operation.
     summary_armed: Bool,
+    pending_summary: Option(PendingSummary),
     /// How the runtime schedules delayed work. In production it uses the real
     /// `setTimeout` function. The in-memory hub substitutes its logical clock,
     /// so `sluice_js.advance` drives the delay window of the policy, and not
@@ -369,6 +380,7 @@ pub fn start_with_transport(
       bootstrap: None,
       auto_summary: Some(summary_policy.policy()),
       summary_armed: False,
+      pending_summary: None,
       scheduler: transport_js.real_scheduler(),
     ))
 
@@ -1965,11 +1977,13 @@ pub fn close(runtime: Runtime) -> Nil {
       channel: None,
       claim_waiters: dict.new(),
       acquire_waiters: dict.new(),
+      pending_summary: None,
       bootstrap: None,
       bootstrap_generation: state.bootstrap_generation + 1,
     ),
   )
   abort_outcome_waiters(state)
+  abort_pending_summary(state)
   notify_session_lost(runtime.cell, state.phase)
   case state.channel {
     Some(channel) -> channel.close()
@@ -2060,7 +2074,7 @@ fn diagnostics_from_core(
     resubmit_checkpoint: checkpoint,
     synced: synced,
     operations_since_summary: runtime_core.operations_since_summary(core),
-    summary_pending: state.summary_armed,
+    summary_pending: state.summary_armed || state.pending_summary != None,
   )
 }
 
@@ -2122,8 +2136,8 @@ pub fn operations_since_summary(runtime: Runtime) -> Int {
 /// upload, and nothing more.
 fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
   let state = cell_get(cell)
-  case state.auto_summary, state.summary_armed {
-    Some(policy), False ->
+  case state.auto_summary, state.summary_armed, state.pending_summary {
+    Some(policy), False, None ->
       case runtime_core.wants_summary(core, policy) {
         False -> Nil
         True -> {
@@ -2136,7 +2150,7 @@ fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
           Nil
         }
       }
-    _, _ -> Nil
+    _, _, _ -> Nil
   }
 }
 
@@ -2147,8 +2161,8 @@ fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
 fn attempt_summary(cell: Cell(State)) -> Nil {
   let state = cell_get(cell)
   cell_set(cell, State(..state, summary_armed: False))
-  case state.phase, state.auto_summary {
-    Ready(core, None), Some(policy) ->
+  case state.phase, state.auto_summary, state.pending_summary {
+    Ready(core, None), Some(policy), None ->
       case runtime_core.wants_summary(core, policy) {
         False -> Nil
         True -> {
@@ -2159,11 +2173,12 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
           Nil
         }
       }
-    Ready(_, None), None
-    | Ready(_, Some(_)), _
-    | Connecting, _
-    | Reconnecting(_), _
-    | Failed(_), _
+    Ready(_, None), None, _
+    | Ready(_, None), Some(_), Some(_)
+    | Ready(_, Some(_)), _, _
+    | Connecting, _, _
+    | Reconnecting(_), _, _
+    | Failed(_), _, _
     -> Nil
   }
 }
@@ -2182,43 +2197,68 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
 pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
   let cell = runtime.cell
   let state = cell_get(cell)
-  case state.phase, state.channel {
-    Ready(core, None), Some(_) ->
-      case state.connect_message.token {
-        None -> promise.resolve(Error("summarize requires an auth token"))
-        Some(token) ->
-          case runtime_core.is_synced(core) {
-            False ->
-              promise.resolve(Error(
-                "summarize requires the client to be caught up; retry once "
-                <> "in-flight edits have been acknowledged",
-              ))
-            True ->
-              git_storage.upload_summary(
-                base_url: state.http_base_url,
-                tenant: state.connect_message.tenant_id,
-                token: token,
-                sequence_number: core.last_seen_sequence_number,
-                members: runtime_core.summary_members(core),
-                channels: runtime_core.summary_channels(core),
-              )
-              |> promise.map(fn(result) {
-                case result {
-                  Error(error) -> Error(git_storage.error_to_string(error))
-                  Ok(tree_sha) -> finish_summarize(cell, tree_sha)
+  case state.pending_summary {
+    Some(_) ->
+      promise.resolve(Error("a summary publication is already pending"))
+    None ->
+      case state.phase, state.channel {
+        Ready(core, None), Some(_) ->
+          case state.connect_message.token {
+            None -> promise.resolve(Error("summarize requires an auth token"))
+            Some(token) ->
+              case runtime_core.is_synced(core) {
+                False ->
+                  promise.resolve(Error(
+                    "summarize requires the client to be caught up; retry once "
+                    <> "in-flight edits have been acknowledged",
+                  ))
+                True -> {
+                  let #(published, resolve) = promise.start()
+                  cell_set(
+                    cell,
+                    State(
+                      ..state,
+                      pending_summary: Some(PendingSummary(
+                        "",
+                        -1,
+                        None,
+                        resolve,
+                      )),
+                    ),
+                  )
+                  let _ =
+                    git_storage.upload_summary(
+                      base_url: state.http_base_url,
+                      tenant: state.connect_message.tenant_id,
+                      token: token,
+                      sequence_number: core.last_seen_sequence_number,
+                      members: runtime_core.summary_members(core),
+                      channels: runtime_core.summary_channels(core),
+                    )
+                    |> promise.map(fn(result) {
+                      case result {
+                        Error(error) ->
+                          resolve_pending_summary(
+                            cell,
+                            Error(git_storage.error_to_string(error)),
+                          )
+                        Ok(tree_sha) -> finish_summarize(cell, tree_sha)
+                      }
+                    })
+                  published
                 }
-              })
+              }
           }
+        Ready(_, None), None
+        | Ready(_, Some(_)), _
+        | Connecting, _
+        | Reconnecting(_), _
+        | Failed(_), _
+        ->
+          promise.resolve(Error(
+            "summarize is only available once the connection is fully synced",
+          ))
       }
-    Ready(_, None), None
-    | Ready(_, Some(_)), _
-    | Connecting, _
-    | Reconnecting(_), _
-    | Failed(_), _
-    ->
-      promise.resolve(Error(
-        "summarize is only available once the connection is fully synced",
-      ))
   }
 }
 
@@ -2274,33 +2314,62 @@ pub fn load_version(
 /// operation from the current core. The client sequence number of that
 /// operation thus stays above the number of every edit that arrived during the
 /// asynchronous upload.
-fn finish_summarize(
-  cell: Cell(State),
-  tree_sha: String,
-) -> Result(String, String) {
+fn finish_summarize(cell: Cell(State), tree_sha: String) -> Nil {
   let state = cell_get(cell)
-  case state.phase, state.channel {
-    Ready(core, None), Some(channel) -> {
+  case state.phase, state.channel, state.pending_summary {
+    Ready(core, None), Some(channel), Some(pending) -> {
       let #(core, outbound) =
         runtime_core.build_summarize(
           core,
           handle: tree_sha,
           message: "watershed summary",
         )
+      cell_set(
+        cell,
+        State(
+          ..state,
+          phase: Ready(core, None),
+          pending_summary: Some(
+            PendingSummary(
+              ..pending,
+              tree_id: tree_sha,
+              client_sequence_number: outbound.client_sequence_number,
+            ),
+          ),
+        ),
+      )
       push_json(
         channel,
         "submitOp",
         socket.encode_submit_operation(core.client_id, [[outbound]]),
       )
-      cell_set(cell, State(..state, phase: Ready(core, None)))
-      Ok(tree_sha)
     }
-    Ready(_, None), None
-    | Ready(_, Some(_)), _
-    | Connecting, _
-    | Reconnecting(_), _
-    | Failed(_), _
-    -> Error("connection changed during summarize; retry")
+    Ready(_, None), Some(_), None -> Nil
+    Ready(_, None), None, _
+    | Ready(_, Some(_)), _, _
+    | Connecting, _, _
+    | Reconnecting(_), _, _
+    | Failed(_), _, _
+    ->
+      resolve_pending_summary(
+        cell,
+        Error("summary publication was interrupted"),
+      )
+  }
+}
+
+@target(javascript)
+fn resolve_pending_summary(
+  cell: Cell(State),
+  outcome: Result(String, String),
+) -> Nil {
+  let state = cell_get(cell)
+  case state.pending_summary {
+    None -> Nil
+    Some(pending) -> {
+      cell_set(cell, State(..state, pending_summary: None))
+      observe("summary publication", fn() { pending.resolve(outcome) })
+    }
   }
 }
 
@@ -2354,7 +2423,11 @@ fn on_close(cell: Cell(State)) -> Nil {
   case state.phase {
     // Preserve the core so kernel/pending/in-flight survive the reconnect.
     Ready(core, _) | Reconnecting(core) -> {
-      cell_set(cell, State(..state, phase: Reconnecting(core)))
+      cell_set(
+        cell,
+        State(..state, phase: Reconnecting(core), pending_summary: None),
+      )
+      abort_pending_summary(state)
       notify_session_lost(cell, state.phase)
     }
     // Not yet connected: Phoenix will retry the join, which re-fires on_join.
@@ -2721,8 +2794,10 @@ fn apply_received_operations(
   case state.phase {
     Ready(core, resubmit_at) ->
       case apply_operations(core, operations) {
-        Ok(#(core, events, resolutions, request_from, released)) -> {
+        Ok(#(core, events, resolutions, summary_events, request_from, released)) -> {
           let #(state, outcomes) = take_outcome_waiters(state, resolutions)
+          let #(state, summary_outcomes) =
+            take_summary_outcomes(state, summary_events)
           // Commit the new core before fan-out (see fan_out's contract).
           case resubmit_at {
             Some(checkpoint) -> {
@@ -2733,6 +2808,9 @@ fn apply_received_operations(
           }
           list.each(outcomes, fn(outcome) {
             observe("operation outcome", outcome)
+          })
+          list.each(summary_outcomes, fn(outcome) {
+            observe("summary publication", outcome)
           })
           fan_out(state.subscribers, events)
           use <- bool.guard(
@@ -2831,12 +2909,13 @@ fn apply_operations(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
+    List(runtime_core.SummaryEvent),
     Option(Int),
     List(wire.OutboundOperation),
   ),
   runtime_core.CoreError,
 ) {
-  do_apply_operations(core, operations, [], [], None, [])
+  do_apply_operations(core, operations, [], [], [], None, [])
 }
 
 @target(javascript)
@@ -2845,6 +2924,7 @@ fn do_apply_operations(
   operations: List(SequencedDocumentMessage),
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
+  summary_events: List(List(runtime_core.SummaryEvent)),
   request_from: Option(Int),
   released: List(wire.OutboundOperation),
 ) -> Result(
@@ -2852,6 +2932,7 @@ fn do_apply_operations(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
+    List(runtime_core.SummaryEvent),
     Option(Int),
     List(wire.OutboundOperation),
   ),
@@ -2863,6 +2944,7 @@ fn do_apply_operations(
         core,
         list.reverse(events) |> list.flatten,
         list.reverse(resolutions) |> list.flatten,
+        list.reverse(summary_events) |> list.flatten,
         request_from,
         released,
       ))
@@ -2874,12 +2956,57 @@ fn do_apply_operations(
             rest,
             [ingested.events, ..events],
             [ingested.resolutions, ..resolutions],
+            [ingested.summary_events, ..summary_events],
             option.or(request_from, ingested.request_operations_from),
             list.append(released, ingested.outbound),
           )
         Error(core_error) -> Error(core_error)
       }
   }
+}
+
+@target(javascript)
+fn take_summary_outcomes(
+  state: State,
+  events: List(runtime_core.SummaryEvent),
+) -> #(State, List(fn() -> Nil)) {
+  list.fold(events, #(state, []), fn(acc, event) {
+    let #(state, outcomes) = acc
+    case state.pending_summary, event {
+      Some(pending),
+        runtime_core.SummaryProposalSequenced(
+          _,
+          client_sequence_number,
+          sequence_number,
+        )
+        if client_sequence_number == pending.client_sequence_number
+      -> #(
+        State(
+          ..state,
+          pending_summary: Some(
+            PendingSummary(
+              ..pending,
+              proposal_sequence_number: Some(sequence_number),
+            ),
+          ),
+        ),
+        outcomes,
+      )
+      Some(pending), runtime_core.SummaryPublished(sequence_number, version_id)
+        if pending.proposal_sequence_number == Some(sequence_number)
+      -> #(State(..state, pending_summary: None), [
+        fn() { pending.resolve(Ok(version_id)) },
+        ..outcomes
+      ])
+      Some(pending), runtime_core.SummaryRejected(sequence_number, reason)
+        if pending.proposal_sequence_number == Some(sequence_number)
+      -> #(State(..state, pending_summary: None), [
+        fn() { pending.resolve(Error(reason)) },
+        ..outcomes
+      ])
+      _, _ -> #(state, outcomes)
+    }
+  })
 }
 
 @target(javascript)
@@ -2953,6 +3080,17 @@ fn take_outcome_waiters(
       }
     })
   #(state, list.reverse(callbacks))
+}
+
+@target(javascript)
+fn abort_pending_summary(state: State) -> Nil {
+  case state.pending_summary {
+    None -> Nil
+    Some(pending) ->
+      observe("summary publication", fn() {
+        pending.resolve(Error("summary publication was interrupted"))
+      })
+  }
 }
 
 @target(javascript)
@@ -3340,11 +3478,13 @@ fn fail(cell: Cell(State), reason: String) -> Nil {
       phase: Failed(reason),
       claim_waiters: dict.new(),
       acquire_waiters: dict.new(),
+      pending_summary: None,
       bootstrap: None,
       bootstrap_generation: state.bootstrap_generation + 1,
     ),
   )
   abort_outcome_waiters(state)
+  abort_pending_summary(state)
   fire_ready(cell, Error(reason))
   notify_session_lost(cell, state.phase)
 }
