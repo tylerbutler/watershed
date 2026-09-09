@@ -1,6 +1,8 @@
 //// JavaScript API boundary. Core errors become JavaScript exceptions here.
 
 import code_map
+import code_map/cache
+import code_map/cache_codec
 import code_map/codec
 import code_map/config
 import code_map/model
@@ -9,7 +11,7 @@ import code_map/query_codec
 import code_map/symbols
 import gleam/dynamic/decode
 import gleam/json
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
 import gleam/result
 
 pub fn decode_config(value: decode.Dynamic) -> model.Config {
@@ -126,5 +128,48 @@ pub fn cli_request(
     #("root", json.nullable(invocation.root, json.string)),
     #("json", json.bool(invocation.json)),
     #("rebuild", json.bool(invocation.rebuild)),
+  ])
+}
+
+pub fn decode_previous(value: decode.Dynamic) -> Option(model.Index) {
+  cache_codec.previous(value) |> for_javascript
+}
+
+pub fn prepare_refresh(
+  previous: Option(model.Index),
+  candidates: decode.Dynamic,
+  tool_hash: String,
+  config_hash: String,
+) -> cache.RefreshPlan {
+  cache.prepare(
+    previous,
+    cache_codec.candidates(candidates) |> for_javascript,
+    tool_hash,
+    config_hash,
+  )
+}
+
+pub fn parse_jobs(plan: cache.RefreshPlan) -> json.Json {
+  cache_codec.encode_jobs(plan)
+}
+
+pub fn finish_refresh(
+  plan: cache.RefreshPlan,
+  results: decode.Dynamic,
+) -> json.Json {
+  cache.finish(plan, cache_codec.results(results) |> for_javascript)
+  |> for_javascript
+  |> codec.encode_index
+}
+
+pub fn refresh_options(
+  root: decode.Dynamic,
+  options: decode.Dynamic,
+) -> json.Json {
+  let options = cache_codec.options(root, options) |> for_javascript
+  json.object([
+    #("root", json.string(options.root)),
+    #("rebuild", json.bool(options.rebuild)),
+    #("config", json.nullable(options.config, codec.encode_config)),
   ])
 }

@@ -64,3 +64,20 @@ test("Gleam queries remain synchronous and preserve every baseline view", async 
     { command: "files", path: null },
   ]) assert.throws(() => core().query_index(baseline.index, request));
 });
+
+test("typed refresh reuses successful files and rejects unexpected parser results", async () => {
+  const { core } = await import("../lib/core.mjs");
+  const prior = baseline.index;
+  const candidates = prior.files.map((file) => file.status === "indexed"
+    ? { ...file, status: "pending", symbols: [] } : file);
+  const previous = core().decode_previous(prior);
+  const plan = core().prepare_refresh(previous, candidates, prior.toolHash, prior.configHash);
+  assert.deepEqual(core().parse_jobs(plan), []);
+  assert.deepEqual(core().finish_refresh(plan, []), prior);
+  assert.throws(() => core().finish_refresh(plan, [{
+    path: "unexpected.ts", result: { symbols: [], diagnostics: [], skippedRegions: [] },
+  }]), /refresh/i);
+  const changed = core().prepare_refresh(previous, candidates, "f".repeat(64), prior.configHash);
+  assert.equal(core().parse_jobs(changed).length, 4);
+  assert.throws(() => core().finish_refresh(changed, []), /refresh/i);
+});
