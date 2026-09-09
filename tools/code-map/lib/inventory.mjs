@@ -3,8 +3,7 @@ import { join, extname } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { createHash } from "node:crypto";
-import { compare, extensions } from "./symbols.mjs";
-import { relativePath } from "./config.mjs";
+import { core } from "./core.mjs";
 
 const execute = promisify(execFile);
 
@@ -34,27 +33,17 @@ export function beneath(path, prefix) {
 }
 
 export async function discoverFiles(root, config) {
-  const paths = [...new Set((await git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z"]))
-    .split("\0").filter((path) => path && !beneath(path, ".code-map")))].sort(compare);
+  const paths = core().inventory_paths((await git(root, ["ls-files", "--cached", "--others", "--exclude-standard", "--deduplicate", "-z"])).split("\0"));
+  const configuration = core().decode_config(config);
   const files = [];
   for (const path of paths) {
-    if (!relativePath(path)) throw new Error(`Git returned an unsupported path: ${JSON.stringify(path)}`);
     const extension = extname(path).toLowerCase();
-    const language = extension === ".gleam" ? "gleam" : extension === ".astro" ? "astro"
-      : [".ts", ".mts", ".cts", ".tsx"].includes(extension) ? "typescript"
-      : extensions.includes(extension) ? "javascript" : null;
-    const file = { path, language, status: "pending", reason: null, hash: null, symbols: [], diagnostics: [], skippedRegions: [] };
-    const exclusion = config.excludePaths.find((prefix) => beneath(path, prefix))
-      ?? path.split("/").slice(0, -1).find((component) => config.excludeDirs.includes(component));
+    const file = { path, ...core().classify(configuration, path, extension, true, false),
+      hash: null, symbols: [], diagnostics: [], skippedRegions: [] };
     try {
       const stat = await pathStat(root, path);
-      if (!stat.isFile() || exclusion) {
-        file.status = "excluded";
-        file.reason = exclusion ? `Config exclusion: ${exclusion}` : stat.isSymbolicLink() ? "Symlink (not followed)" : "Not a regular file";
-      } else if (!language) {
-        file.status = "unsupported";
-        file.reason = `No parser for ${extension || "extensionless files"}`;
-      } else {
+      Object.assign(file, core().classify(configuration, path, extension, stat.isFile(), stat.isSymbolicLink()));
+      if (file.status === "pending") {
         const bytes = await fs.readFile(join(root, path));
         file.hash = createHash("sha256").update(bytes).digest("hex");
         try { file.source = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(bytes); }

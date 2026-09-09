@@ -1,29 +1,14 @@
 import fs from "node:fs/promises";
 import { join } from "node:path";
 import { createHash } from "node:crypto";
-import { compare } from "./symbols.mjs";
+import { core } from "./core.mjs";
 
 export function relativePath(path) {
-  return typeof path === "string" && path.length > 0 && !path.includes("\\")
-    && !path.includes("\0") && !/^[A-Za-z]:/.test(path)
-    && path.split("/").every((part) => part && part !== "." && part !== "..");
+  return core().relative_path(path);
 }
 
 export function validateConfig(input) {
-  if (!input || typeof input !== "object" || Array.isArray(input) || input.version !== 1
-      || Object.keys(input).some((k) => !["version", "excludeDirs", "excludePaths"].includes(k))) {
-    throw new Error("Invalid code-map config: expected version 1 and known fields");
-  }
-  const result = { version: 1, excludeDirs: [], excludePaths: [] };
-  for (const key of ["excludeDirs", "excludePaths"]) {
-    const entries = input[key] === undefined ? [] : input[key];
-    if (!Array.isArray(entries) || new Set(entries).size !== entries.length
-        || entries.some((entry) => !relativePath(entry) || (key === "excludeDirs" && entry.includes("/")))) {
-      throw new Error(`Invalid code-map config: ${key} must contain unique relative ${key === "excludeDirs" ? "directory names" : "paths"}`);
-    }
-    result[key] = [...entries].sort(compare);
-  }
-  return result;
+  return core().normalize_config(input);
 }
 
 export async function loadConfig(root) {

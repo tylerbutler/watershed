@@ -46,3 +46,15 @@ test("invalid UTF-8 is visible rather than parsed with replacement characters", 
   assert.equal(file.status, "unreadable");
   assert.match(file.diagnostics[0].message, /UTF-8/);
 });
+
+test("unreadable metadata retains the source language", async (t) => {
+  const root = await makeRepo(t, { "a.ts": "function a() {}" });
+  const original = fs.lstat;
+  t.mock.method(fs, "lstat", async (path, ...args) => {
+    if (path === join(root, "a.ts")) throw Object.assign(new Error("denied"), { code: "EACCES" });
+    return original(path, ...args);
+  });
+  const [file] = await discoverFiles(root, validateConfig({ version: 1 }));
+  assert.equal(file.status, "unreadable");
+  assert.equal(file.language, "typescript");
+});

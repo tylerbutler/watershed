@@ -26,3 +26,15 @@ test("typed cache boundary rejects unsafe positions and inconsistent identities"
     assert.throws(() => core().decode_index(index), /cache/i);
   }
 });
+
+test("typed configuration preserves absent fields and rejects null and unknown fields", async () => {
+  const { core } = await import("../lib/core.mjs");
+  assert.deepEqual(core().normalize_config({ version: 1, excludeDirs: undefined }), {
+    version: 1, excludeDirs: [], excludePaths: [],
+  });
+  for (const config of [
+    { version: 1, excludePaths: null },
+    { version: 1, excludeDirs: ["a", "a"] },
+    { version: 1, unknown: true },
+  ]) assert.throws(() => core().normalize_config(config), /config/i);
+});

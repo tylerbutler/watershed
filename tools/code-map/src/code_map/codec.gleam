@@ -2,6 +2,7 @@
 
 import code_map/config
 import code_map/model
+import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -9,6 +10,67 @@ import gleam/option.{None}
 import gleam/result
 import gleam/set
 import gleam/string
+
+@external(javascript, "../code_map_ffi.mjs", "is_undefined")
+fn is_undefined(value: decode.Dynamic) -> Bool
+
+pub fn undefined_default(
+  inner: decode.Decoder(a),
+  default: a,
+) -> decode.Decoder(a) {
+  use data <- decode.then(decode.dynamic)
+  case is_undefined(data) {
+    True -> decode.success(default)
+    False -> inner
+  }
+}
+
+pub fn known_fields(fields: List(String)) -> decode.Decoder(Nil) {
+  use object <- decode.then(decode.dict(decode.string, decode.dynamic))
+  case list.all(dict.keys(object), fn(key) { list.contains(fields, key) }) {
+    True -> decode.success(Nil)
+    False -> decode.failure(Nil, "known fields")
+  }
+}
+
+pub fn config() -> decode.Decoder(model.Config) {
+  use _ <- decode.then(known_fields(["version", "excludeDirs", "excludePaths"]))
+  use _ <- decode.field(
+    "version",
+    checked(decode.int, fn(v) { v == 1 }, "version 1"),
+  )
+  use dirs <- decode.optional_field(
+    "excludeDirs",
+    [],
+    undefined_default(decode.list(decode.string), []),
+  )
+  use paths <- decode.optional_field(
+    "excludePaths",
+    [],
+    undefined_default(decode.list(decode.string), []),
+  )
+  decode.success(model.Config(dirs, paths))
+}
+
+pub fn decode_config(
+  value: decode.Dynamic,
+) -> Result(model.Config, model.Error) {
+  use config <- result.try(
+    decode.run(value, config())
+    |> result.map_error(fn(_) {
+      model.ConfigError("expected version 1 and valid exclusion fields")
+    }),
+  )
+  config.validate(config)
+}
+
+pub fn encode_config(config: model.Config) -> json.Json {
+  json.object([
+    #("version", json.int(1)),
+    #("excludeDirs", json.array(config.exclude_dirs, json.string)),
+    #("excludePaths", json.array(config.exclude_paths, json.string)),
+  ])
+}
 
 pub fn checked(
   decoder: decode.Decoder(a),
