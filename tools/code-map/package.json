@@ -1,0 +1,19 @@
+{
+  "name": "code-map",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Syntax-backed file and declaration index for Git repositories",
+  "engines": { "node": ">=22" },
+  "bin": { "code-map": "./cli.mjs" },
+  "exports": "./lib/index.mjs",
+  "scripts": {
+    "build": "gleam build",
+    "test:node": "gleam build && node --test test/*.test.mjs",
+    "test": "gleam test && node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@astrojs/compiler": "4.0.0",
+    "typescript": "5.9.3"
+  }
+}

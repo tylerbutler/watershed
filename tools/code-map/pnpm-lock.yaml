@@ -1,0 +1,32 @@
+lockfileVersion: '9.0'
+
+settings:
+  autoInstallPeers: true
+  excludeLinksFromLockfile: false
+
+importers:
+
+  .:
+    dependencies:
+      '@astrojs/compiler':
+        specifier: 4.0.0
+        version: 4.0.0
+      typescript:
+        specifier: 5.9.3
+        version: 5.9.3
+
+packages:
+
+  '@astrojs/compiler@4.0.0':
+    resolution: {integrity: sha1-getdux0GZPlPzNwGacDCA+91Ino=, tarball: https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/@astrojs/compiler/-/compiler-4.0.0.tgz}
+
+  typescript@5.9.3:
+    resolution: {integrity: sha1-W09Z4VMQqxeiFvXWz1PuR27eZw8=, tarball: https://ms-feed-25.pkgs.visualstudio.com/1es-public/_packaging/npm-public/npm/registry/typescript/-/typescript-5.9.3.tgz}
+    engines: {node: '>=14.17'}
+    hasBin: true
+
+snapshots:
+
+  '@astrojs/compiler@4.0.0': {}
+
+  typescript@5.9.3: {}
