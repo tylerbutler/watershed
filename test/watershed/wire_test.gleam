@@ -273,6 +273,15 @@ pub fn decode_connected_message_with_flat_summary_fields_test() -> Nil {
   )
 }
 
+pub fn empty_flat_summary_fields_mean_no_summary_test() -> Nil {
+  let connected =
+    connected_summary_fixture(
+      "\"summaryHandle\": \"\", \"summarySequenceNumber\": 0",
+    )
+    |> parse(socket.connected_message_decoder())
+  connected.summary_context |> expect.to_equal(None)
+}
+
 pub fn nested_summary_context_wins_over_flat_fields_test() -> Nil {
   let connected =
     connected_summary_fixture(

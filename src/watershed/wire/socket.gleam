@@ -372,6 +372,7 @@ fn resolve_summary_context(
 ) -> Decoder(Option(SummaryContext)) {
   case nested, flat_handle, flat_sequence_number {
     Some(context), _, _ -> decode.success(Some(context))
+    None, Some(""), Some(0) -> decode.success(None)
     None, Some(handle), Some(sequence_number) ->
       decode.success(
         Some(SummaryContext(handle: handle, sequence_number: sequence_number)),
