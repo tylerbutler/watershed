@@ -3,9 +3,9 @@
 **Date:** 2026-08-09
 **Builds on:** `2026-08-09-consensus-replay-quorum-plan.md` (the replay-membership fix this depends on, and whose two open pieces are folded in here), `tylerbutler/levee#85` (the floodgate half).
 **Benchmark:** Fluid Framework's summarizer. Fluid elects a dedicated summarizer client and has the server prompt it; the design question below is how much of that we want.
-**Status:** SB1–SB4 and SB6–SB8 shipped. Automatic summaries are enabled by default on JavaScript and BEAM, with the existing 500-message threshold and 3000ms jitter window. The reconnect page, READMEs, and API docs describe the defaults, opt-out, tuning, and checkpoint boundary. SB5 remains unimplemented, but its original endpoint design is superseded by the coordinated Routerlicious-style commit-history plan in `../superpowers/plans/2026-09-09-summary-version-history.md`.
+**Status:** Complete. SB1–SB8 have shipped. JavaScript and BEAM enable automatic summaries by default with a 500-message threshold and a 3000ms jitter window. Both runtimes publish parent-linked commits, wait for `summaryAck`, list document history newest first, and load historical snapshots by commit ID.
 
-**Reconciled 2026-09-06, then completed SB6/SB8; SB5 revised 2026-09-09:** both runtimes now initialize `auto_summary: Some(summary_policy.policy())`. Live regressions exercise default checkpoint uploads and fresh-client bootstrap on both targets. Explicit tuning and opt-out remain available. Later research against Fluid Framework, Routerlicious, current Floodgate, and Silt rejected the proposed custom `/versions/:tenant/:document` endpoint. Floodgate already exposes Git commit history and a document summary ref. The remaining work is to make Watershed and Floodgate use that canonical publication model consistently.
+**Completed 2026-09-09:** Watershed uses Floodgate's Routerlicious-style commit history instead of the discarded custom `/versions/:tenant/:document` route. Floodgate validates the published parent, serializes competing proposals, recovers acknowledgements and refs, scopes history by document, and accepts Routerlicious tree entries that omit `mode`. Watershed commits `5fa1d4a` through `eca20db` implement bootstrap, history reads, lifecycle tracking, and acknowledgement waiters. Floodgate completes the server side through `af88942`.
 
 ## Why
 
@@ -34,7 +34,7 @@ The surprising part, and the reason this plan exists rather than a one-line tick
 | Checkpoint roster in the blob | ✅ blob v4, SB2 |
 | Load point matches the blob | ✅ SB1 |
 | Durable log with matched join/leave | ✅ floodgate `0b24bbd`, levee#85 closed |
-| `get_versions` / `load_version` | ⏳ planned against canonical commit history — see SB5 and the 2026-09-09 implementation plan |
+| `get_versions` / `load_version` | ✅ published commit history and historical snapshot loading, SB5 |
 
 *(Written when `summarize` had no caller in `src/`, `examples/`, `website/`, or any test outside the gated ones — so every document replayed from sequence number zero, paging through `fetch_deltas` past floodgate's 1000-op `initialMessages` cap. That is what SB3 closed. Floodgate still never asks for a summary: there is no summarizer election and no nack prompting one — it accepts summarize ops, stores what it is given, and broadcasts the op to the room.)*
 
@@ -204,22 +204,19 @@ The hazard is real, and wider on the JS target than this plan first assumed. On 
 
 Rather than reproduce it, the fix removes the possibility: the blob is self-describing, so the load point comes from the blob. The decision was extracted into a pure function precisely so it could be tested without a server.
 
-## What SB5 requires now
+## How SB5 shipped
 
-The first SB5 investigation correctly found that Watershed's custom `GET /versions/:tenant/:document` request had no server route. Its broader conclusion became stale as Floodgate's Routerlicious support evolved. Current Floodgate creates Git commit objects for accepted summaries, publishes `refs/heads/<document>`, and exposes `GET /repos/:tenant/commits?sha=<document>&count=<count>`. Silt walks that history through first parents.
+Watershed discarded the custom `GET /versions/:tenant/:document` design and uses Floodgate's Historian routes:
 
-Fluid Framework and Routerlicious make that commit/ref model canonical. SB5 must therefore remove the custom endpoint assumption rather than add the missing route. The remaining gaps are protocol and lifecycle gaps:
+- `summarize` uploads a staging tree, submits the current published commit as `head` and first parent, then waits for `summaryAck` or `summaryNack`.
+- A successful call returns the published commit ID. It does not return the uploaded tree ID.
+- `get_versions` reads `GET /repos/:tenant/commits?sha=<document>&count=<count>` and returns the first-parent history newest first.
+- `load_version` resolves a published commit to its tree and reads the `header` blob. It retries a supplied ID as a legacy tree only when commit lookup returns 404.
+- The blob's `sequence_number` remains the snapshot capture point.
+- Competing proposals produce one winner. A rejected client observes the winning head and can retry on top of it.
+- Floodgate recovers the published pointer and document ref after restart, so acknowledged commits stay discoverable.
 
-- Watershed treats an uploaded tree SHA as a public version handle, while Floodgate publishes a commit SHA.
-- Watershed sends `parents: []`, so concurrent or repeated proposals do not intentionally extend the published head.
-- Watershed resolves `summarize` after upload and submission instead of waiting for `summaryAck`; a rejected proposal can look successful.
-- The automatic policy advances on the summarize proposal instead of confirmed publication.
-- Floodgate accepts client-supplied parents without requiring the first parent to equal the current document head, so concurrent proposals can create siblings and make an accepted checkpoint unreachable from the ref.
-- Floodgate's durable pointer and summary ref need recovery rules that make every acknowledged publication discoverable after a crash.
-- Watershed's storage client must list commits, resolve commit to tree, and then load the `header` blob. `SummaryVersion.sequence_number` must go because the canonical commit response does not provide it; the loaded blob remains the authority for the snapshot capture point.
-- Watershed must decode the current Floodgate bootstrap fields as well as its existing nested compatibility shape.
-
-The detailed, task-by-task cross-repository plan is `../superpowers/plans/2026-09-09-summary-version-history.md`. Until it ships, `get_versions` is an unimplemented API against current Floodgate. `load_version` can read a known staged tree handle, but that is not published version-history semantics.
+The task-by-task execution record is `../superpowers/plans/2026-09-09-summary-version-history.md`.
 
 ## Found on the way: reconnect after a server restart — both fixed
 

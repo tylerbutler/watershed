@@ -53,8 +53,10 @@ default automatic-summary gaps are closed, including the summary docs (SB8).
 The MV-register channel is shipped across the sequenced JS/BEAM facades, the
 CRDT runtime, and Lustre, with source-backed website examples. See its
 [execution record](superpowers/plans/2026-09-07-mv-register-integration.md#review-checkpoints-and-execution-record).
-Summary version history remains planned. `GCounter` remains an unwired backlog
-idea; neither that nor RFC Room or BEAM component-host parity is closed by this work.
+Summary version history is shipped: both runtimes return published commit IDs,
+list document history, and load historical snapshots. `GCounter` remains an
+unwired backlog idea; neither that nor RFC Room or BEAM component-host parity is
+closed by this work.
 
 **Correction worth not re-learning:** an earlier version of this section claimed the `OrderedCollection` op surface and `complete_task` were missing from the facades. They were present on both. That came from grepping by prefix guess (`ordered_collection_*`, `task_*`), which misses `ordered_*` and `complete_task`. Audit by full `pub fn` inventory diff — the command is at the end of the parity plan, and `facade_parity_test.gleam` now enforces it mechanically.
 

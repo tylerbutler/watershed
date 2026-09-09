@@ -10,9 +10,27 @@
 
 **Spec:** `docs/plans/2026-08-09-summary-bootstrap-plan.md`, SB5 as revised on 2026-09-09.
 
-**Status:** Draft; implementation has not started.
+**Status:** Complete on 2026-09-09. Watershed and Floodgate expose commit-backed summary history on JavaScript and BEAM.
 
-**Planning baselines:** Watershed `f4eb13b48e8efbfe3bc13e104f2965308fb35e86`; Floodgate `98a05ccd7650a7cd62e250c08fa329b5a37be4fe`; Silt `7df0c9e60e6d4de94fadb3a351b32cac801cb69b`. Re-read the named code before editing because both repositories can move independently.
+**Planning baselines:** Watershed `f4eb13b48e8efbfe3bc13e104f2965308fb35e86`; Floodgate `98a05ccd7650a7cd62e250c08fa329b5a37be4fe`; Silt `7df0c9e60e6d4de94fadb3a351b32cac801cb69b`.
+
+## Execution record
+
+Watershed:
+
+- `5fa1d4a` decodes Floodgate bootstrap summary fields.
+- `4012ae2` reads published commit history and loads commit-backed snapshots.
+- `910d263` tracks proposals, acknowledgements, rejections, and the published head.
+- `e76b482` handles Floodgate's empty bootstrap sentinel.
+- `33913bf` waits for JavaScript publication acknowledgements.
+- `eca20db` waits for BEAM publication acknowledgements without blocking actor progress.
+
+Floodgate:
+
+- `4526619` through `fe654e8` add parent validation, serialized publication, recovery, document-scoped history, and restart coverage.
+- `af88942` accepts Routerlicious tree entries that omit `mode` when it reads a parent summary.
+
+Acceptance coverage proves newest-first history, count limits, historical loads, JavaScript commit IDs, and a competing BEAM summarizer retry from the winning head. The checklist below records the implementation procedure; its unchecked boxes are historical, not remaining work.
 
 ## Global Constraints
 
@@ -50,13 +68,13 @@ The proposal carries the staged tree plus the last published commit as its first
 ```json
 {
   "handle": "<uploaded tree sha>",
-  "head": "<uploaded tree sha>",
+  "head": "<current published commit sha>",
   "message": "watershed summary",
   "parents": ["<current published commit sha>"]
 }
 ```
 
-The first summary uses `parents: []`. Floodgate creates the commit; clients do not post commits or mutate the document ref directly.
+The first summary uses `head: ""` and `parents: []`. Floodgate creates the commit; clients do not post commits or mutate the document ref directly.
 
 ### Published version
 

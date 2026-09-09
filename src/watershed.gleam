@@ -3416,9 +3416,9 @@ pub fn diagnostics(document: Document(root)) -> Diagnostics {
 @target(javascript)
 /// Summarize the current confirmed state of the document to the storage of
 /// floodgate. A later client can then start from that snapshot, and it does not
-/// replay the full operation history. The promise resolves with the summary
-/// handle, which is a git tree SHA. The connection must be synchronized, and
-/// the token must carry the `summary:write` scope.
+/// replay the full operation history. The promise resolves after publication
+/// with the Git commit ID from `summaryAck`. The connection must be synchronized,
+/// and the token must carry the `summary:write` scope.
 pub fn summarize(document: Document(root)) -> Promise(Result(String, String)) {
   runtime.summarize(document.runtime)
 }
@@ -3467,9 +3467,9 @@ pub fn operations_since_summary(document: Document(root)) -> Int {
 }
 
 @target(javascript)
-/// List the stored summary versions of the document, newest first. This is the
-/// client half of the `getVersions` function of Fluid. Each `summarize` call
-/// stores one version, and a new connection starts from the newest one. The
+/// List the published summary commits of the document, newest first. This is
+/// the client half of the `getVersions` function of Fluid. Each successful
+/// `summarize` call publishes one version. A new connection starts from the newest one. The
 /// token must carry the `doc:read` scope.
 pub fn get_versions(
   document: Document(root),
@@ -3479,9 +3479,9 @@ pub fn get_versions(
 }
 
 @target(javascript)
-/// Read the confirmed state that a summary version captured, by the handle of
-/// that version. `get_versions` and the resolution of `summarize` both give a
-/// handle. The function returns the stored snapshot blob, which holds the
+/// Read the confirmed state that a published summary commit captured.
+/// `get_versions` and the resolution of `summarize` both give the commit ID.
+/// The function returns the stored snapshot blob, which holds the
 /// entries in insertion order with the sequence number that the writer captured
 /// them at. The read is at one point in time, and it does not change the live
 /// document.

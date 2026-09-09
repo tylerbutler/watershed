@@ -2130,9 +2130,9 @@ pub fn operations_since_summary(runtime: Runtime) -> Int {
 ///
 /// The delay keeps the cost of a room low. Every client crosses the threshold
 /// on the same operation. Each client then waits for a different interval,
-/// which comes from its id. The first summary that sequences advances
-/// `last_summary_sequence_number` on every client, and the rest of the room
-/// checks again on its wake-up and stops. A lost race costs one unnecessary
+/// which comes from its id. The first published summary advances
+/// `last_summary_sequence_number` on every client. The rest of the room checks
+/// again on its wake-up and stops. A lost race costs one unnecessary
 /// upload, and nothing more.
 fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
   let state = cell_get(cell)
@@ -2166,9 +2166,8 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
       case runtime_core.wants_summary(core, policy) {
         False -> Nil
         True -> {
-          // A summarize operation carries no ack, so there is nothing to
-          // reconcile on failure: the checkpoint did not move, and the next
-          // sequenced operation arms another attempt.
+          // Publication failure leaves the checkpoint unchanged. The next
+          // sequenced operation can arm another attempt.
           let _ = summarize(Runtime(cell: cell))
           Nil
         }
@@ -2186,12 +2185,11 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
 @target(javascript)
 /// Summarize the current confirmed state of the document to the storage of
 /// floodgate. A later client can then start from that snapshot, and it does not
-/// replay the full operation history. The promise resolves with the summary
-/// handle, which is a git tree SHA. The connection must be synchronized, and
+/// replay the full operation history. The promise resolves after `summaryAck`
+/// with the published Git commit ID. The connection must be synchronized, and
 /// the token must carry the `summary:write` scope.
 ///
-/// The upload is asynchronous, so the promise settles after the storage holds
-/// the blob and the runtime pushes the summarize operation. The sequence number
+/// The upload is asynchronous. The sequence number
 /// of that operation comes from the live core at push time, and not at the
 /// start of the upload, so a concurrent local edit cannot collide with it.
 pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
@@ -2286,9 +2284,9 @@ pub fn get_versions(
 }
 
 @target(javascript)
-/// Read the snapshot that a summary version captured, by the handle of that
-/// version. `get_versions` and the resolution of `summarize` both give a
-/// handle. The function does not change the live document. It reads the stored
+/// Read the snapshot that a published summary commit captured.
+/// `get_versions` and the resolution of `summarize` both give the commit ID.
+/// The function does not change the live document. It reads the stored
 /// blob at one point in time.
 pub fn load_version(
   runtime: Runtime,

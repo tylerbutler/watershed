@@ -304,6 +304,14 @@ pub fn summary_versions_test() -> Nil {
 }
 
 @target(erlang)
+pub fn competing_summaries_retry_from_the_winning_head_test() -> Nil {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_competing_summaries_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
 /// M7 exit criterion: a client stores a handle to a freshly created map, a
 /// peer resolves it, and both converge on edits to the *child* map.
 pub fn nested_map_converges_test() -> Nil {
@@ -993,6 +1001,65 @@ fn run_versions_test() -> Nil {
 }
 
 @target(erlang)
+fn run_competing_summaries_test() -> Nil {
+  let document_id = "watershed-race-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  watershed_beam.stop_auto_summarize(document_a)
+  watershed_beam.stop_auto_summarize(document_b)
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
+
+  watershed_beam.set(map_a, "base", json.int(1))
+  wait_until(50, fn() {
+    watershed_beam.get(map_b, "base") == Ok(json.int(1))
+    && watershed_beam.is_synced(document_a)
+    && watershed_beam.is_synced(document_b)
+  })
+  |> expect.to_be_true()
+  let assert Ok(base_id) = watershed_beam.summarize(document_a)
+
+  watershed_beam.set(map_b, "race", json.int(2))
+  wait_until(50, fn() {
+    watershed_beam.get(map_a, "race") == Ok(json.int(2))
+    && watershed_beam.is_synced(document_a)
+    && watershed_beam.is_synced(document_b)
+  })
+  |> expect.to_be_true()
+
+  let replies = process.new_subject()
+  let _ =
+    process.spawn(fn() {
+      process.send(replies, #("a", watershed_beam.summarize(document_a)))
+    })
+  let _ =
+    process.spawn(fn() {
+      process.send(replies, #("b", watershed_beam.summarize(document_b)))
+    })
+  let assert Ok(first) = process.receive(from: replies, within: 12_000)
+  let assert Ok(second) = process.receive(from: replies, within: 12_000)
+  let #(winning_id, loser) = case first, second {
+    #(_, Ok(version_id)), #(loser, Error(_)) -> #(version_id, loser)
+    #(loser, Error(_)), #(_, Ok(version_id)) -> #(version_id, loser)
+    _, _ -> panic as { "expected one summary acknowledgement and one rejection" }
+  }
+
+  let loser_document = case loser {
+    "a" -> document_a
+    _ -> document_b
+  }
+  let assert Ok(retry_id) =
+    wait_until_ok(50, fn() { watershed_beam.summarize(loser_document) })
+  let assert Ok(versions) =
+    watershed_beam.get_versions(loser_document, count: 10)
+  list.map(versions, fn(version) { version.id })
+  |> expect.to_equal([retry_id, winning_id, base_id])
+
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
+}
+
+@target(erlang)
 fn run_large_history_test() -> Nil {
   let document_id = "watershed-lh-" <> int.to_string(system_time(Second))
   let operation_count = 1050
@@ -1224,7 +1291,9 @@ fn run_peer_summary_visibility_test() -> Nil {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
-  watershed_beam.operations_since_summary(document_a) |> expect.to_equal(0)
+  // The acknowledgement follows the proposal by one sequence number. The
+  // published checkpoint records the proposal sequence number.
+  watershed_beam.operations_since_summary(document_a) |> expect.to_equal(1)
 
   // B never called `summarize` and never will — its checkpoint can only move
   // because the room was told. Compared against `drift_before`, since both

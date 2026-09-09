@@ -227,7 +227,10 @@ Tune `summary_policy.policy()` with `with_threshold` and
 it. Manual `summarize(document)` remains available, and
 `operations_since_summary` reports the message count. Uploads need floodgate
 summary storage and a token with `summary:write`, which `connect` includes by
-default.
+default. The call completes only after Floodgate publishes the checkpoint and
+returns its Git commit ID. `get_versions(document, count:)` lists those commits
+newest first. Pass an ID to `load_version(document, handle:)` to read that
+historical snapshot without changing the live document.
 
 A checkpoint captures confirmed channel state and membership at the blob's
 own sequence number. A later client loads it and replays subsequent messages,

@@ -364,7 +364,7 @@ pub type Msg {
   ResolveSequence(address: String, reply: Subject(Result(Nil, String)))
   ResolveText(address: String, reply: Subject(Result(Nil, String)))
   /// Summarize the current confirmed state to the storage of floodgate. On a
-  /// success the reply carries the summary handle, which is a git tree SHA.
+  /// success the reply carries the published Git commit ID.
   Summarize(reply: Subject(Result(String, String)))
   /// List the stored summary versions of the document, newest first.
   GetVersions(
@@ -801,7 +801,7 @@ pub fn text_anchor_from_json(
 
 @target(erlang)
 /// Summarize the current confirmed state to the storage of floodgate. On a
-/// success the function returns the summary handle, which is a git tree SHA.
+/// success the function returns the published Git commit ID from `summaryAck`.
 /// The connection must be fully synchronized, and the token must carry the
 /// `summary:write` scope.
 pub fn summarize(runtime: Subject(Msg)) -> Result(String, String) {
@@ -1011,9 +1011,9 @@ pub fn get_versions(
 }
 
 @target(erlang)
-/// Read the snapshot that a summary version captured, by the handle of that
-/// version. `get_versions` and the return value of `summarize` both give a
-/// handle. The function does not change the live document. It reads the stored
+/// Read the snapshot that a published summary commit captured.
+/// `get_versions` and the return value of `summarize` both give the commit ID.
+/// The function does not change the live document. It reads the stored
 /// blob at one point in time.
 pub fn load_version(
   runtime: Subject(Msg),
@@ -2974,9 +2974,9 @@ fn maybe_request_operations(
 ///
 /// The delay keeps the cost of a room low. Every client crosses the threshold
 /// on the same operation. Each client then waits for a different interval,
-/// which comes from its id. The first summary that sequences advances
-/// `last_summary_sequence_number` on every client, and the rest of the room
-/// checks again in `MaybeSummarize` and stops. A lost race costs one
+/// which comes from its id. The first published summary advances
+/// `last_summary_sequence_number` on every client. The rest of the room checks
+/// again in `MaybeSummarize` and stops. A lost race costs one
 /// unnecessary upload, and nothing more.
 fn arm_summary(state: State, core: runtime_core.Core) -> State {
   case state.auto_summary, state.summary_armed, state.pending_summary {

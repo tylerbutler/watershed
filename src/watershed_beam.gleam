@@ -3683,9 +3683,9 @@ pub fn client_id(document: Document(root)) -> Option(String) {
 @target(erlang)
 /// Summarize the current confirmed state of the document to the storage of
 /// floodgate. A later client can then start from that snapshot, and it does not
-/// replay the full operation history. The function returns the summary handle,
-/// which is a git tree SHA. The connection must be synchronized, and the token
-/// must carry the `summary:write` scope.
+/// replay the full operation history. The function returns after publication
+/// with the Git commit ID from `summaryAck`. The connection must be synchronized,
+/// and the token must carry the `summary:write` scope.
 pub fn summarize(document: Document(root)) -> Result(String, String) {
   runtime_beam.summarize(document.runtime)
 }
@@ -3742,9 +3742,9 @@ pub fn is_synced(document: Document(root)) -> Bool {
 }
 
 @target(erlang)
-/// List the stored summary versions of the document, newest first. This is the
-/// client half of the `getVersions` function of Fluid. Each `summarize` call
-/// stores one version, and a new connection starts from the newest one. The
+/// List the published summary commits of the document, newest first. This is
+/// the client half of the `getVersions` function of Fluid. Each successful
+/// `summarize` call publishes one version. A new connection starts from the newest one. The
 /// token must carry the `doc:read` scope.
 pub fn get_versions(
   document: Document(root),
@@ -3754,9 +3754,9 @@ pub fn get_versions(
 }
 
 @target(erlang)
-/// Read the confirmed state that a summary version captured, by the handle of
-/// that version. `get_versions` and the return value of `summarize` both give a
-/// handle. The function returns the stored snapshot blob, which holds the
+/// Read the confirmed state that a published summary commit captured.
+/// `get_versions` and the return value of `summarize` both give the commit ID.
+/// The function returns the stored snapshot blob, which holds the
 /// entries in insertion order with the sequence number that the writer captured
 /// them at. The read is at one point in time, and it does not change the live
 /// document.
