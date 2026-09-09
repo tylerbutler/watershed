@@ -1,0 +1,1142 @@
+{
+  "index": {
+    "version": 1,
+    "toolHash": "0000000000000000000000000000000000000000000000000000000000000000",
+    "configHash": "e35caa33de1a2c48a818db9e6ac0a9eb54a7ab74b20de6d4af92ece4b895ddc2",
+    "complete": true,
+    "files": [
+      {
+        "path": "code-map.json",
+        "language": null,
+        "status": "unsupported",
+        "reason": "No parser for .json",
+        "hash": null,
+        "symbols": [],
+        "diagnostics": [],
+        "skippedRegions": []
+      },
+      {
+        "path": "readme.md",
+        "language": null,
+        "status": "unsupported",
+        "reason": "No parser for .md",
+        "hash": null,
+        "symbols": [],
+        "diagnostics": [],
+        "skippedRegions": []
+      },
+      {
+        "path": "src/a.ts",
+        "language": "typescript",
+        "status": "indexed",
+        "reason": null,
+        "hash": "d5fa65636aed5741dae0ccf8e438979db9d37eeeea532aa6cfa7378093a8abad",
+        "symbols": [
+          {
+            "id": "[\"src/a.ts\",[],\"connect\",0,52]",
+            "name": "connect",
+            "qualifiedName": "src/a.ts::connect",
+            "container": [],
+            "kind": "function",
+            "visibility": "public",
+            "exported": true,
+            "signature": "export function connect(x: number = 1)",
+            "range": {
+              "start": {
+                "line": 1,
+                "column": 1,
+                "byte": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 53,
+                "byte": 52
+              }
+            },
+            "target": null
+          },
+          {
+            "id": "[\"src/a.ts\",[],\"connector\",53,76]",
+            "name": "connector",
+            "qualifiedName": "src/a.ts::connector",
+            "container": [],
+            "kind": "function",
+            "visibility": "local",
+            "exported": false,
+            "signature": "function connector()",
+            "range": {
+              "start": {
+                "line": 2,
+                "column": 1,
+                "byte": 53
+              },
+              "end": {
+                "line": 2,
+                "column": 24,
+                "byte": 76
+              }
+            },
+            "target": null
+          },
+          {
+            "id": "[\"src/a.ts\",[],\"disconnect\",77,101]",
+            "name": "disconnect",
+            "qualifiedName": "src/a.ts::disconnect",
+            "container": [],
+            "kind": "function",
+            "visibility": "local",
+            "exported": false,
+            "signature": "function disconnect()",
+            "range": {
+              "start": {
+                "line": 3,
+                "column": 1,
+                "byte": 77
+              },
+              "end": {
+                "line": 3,
+                "column": 25,
+                "byte": 101
+              }
+            },
+            "target": null
+          }
+        ],
+        "diagnostics": [],
+        "skippedRegions": []
+      },
+      {
+        "path": "src/b.gleam",
+        "language": "gleam",
+        "status": "indexed",
+        "reason": null,
+        "hash": "ea6f230971b1ced66d6e8e5751dded019ec34b7d9f7f0fb95ee70fe6d6c3584d",
+        "symbols": [
+          {
+            "id": "[\"src/b.gleam\",[],\"connect\",20,44]",
+            "name": "connect",
+            "qualifiedName": "src/b.gleam::connect",
+            "container": [],
+            "kind": "function",
+            "visibility": "public",
+            "exported": true,
+            "signature": "pub fn connect()",
+            "range": {
+              "start": {
+                "line": 2,
+                "column": 1,
+                "byte": 20
+              },
+              "end": {
+                "line": 2,
+                "column": 25,
+                "byte": 44
+              }
+            },
+            "target": "javascript"
+          },
+          {
+            "id": "[\"src/b.gleam\",[],\"private\",45,65]",
+            "name": "private",
+            "qualifiedName": "src/b.gleam::private",
+            "container": [],
+            "kind": "function",
+            "visibility": "private",
+            "exported": false,
+            "signature": "fn private()",
+            "range": {
+              "start": {
+                "line": 3,
+                "column": 1,
+                "byte": 45
+              },
+              "end": {
+                "line": 3,
+                "column": 21,
+                "byte": 65
+              }
+            },
+            "target": null
+          }
+        ],
+        "diagnostics": [],
+        "skippedRegions": []
+      },
+      {
+        "path": "src/c.astro",
+        "language": "astro",
+        "status": "indexed",
+        "reason": null,
+        "hash": "773b2cf100c89435af5c6aeef25e494a9721382b73b06a014659030b4070cddd",
+        "symbols": [
+          {
+            "id": "[\"src/c.astro\",[\"frontmatter\"],\"wave\",4,42]",
+            "name": "wave",
+            "qualifiedName": "src/c.astro::frontmatter.wave",
+            "container": [
+              "frontmatter"
+            ],
+            "kind": "function",
+            "visibility": "local",
+            "exported": false,
+            "signature": "function wave(n: number)",
+            "range": {
+              "start": {
+                "line": 2,
+                "column": 1,
+                "byte": 4
+              },
+              "end": {
+                "line": 2,
+                "column": 39,
+                "byte": 42
+              }
+            },
+            "target": null
+          },
+          {
+            "id": "[\"src/c.astro\",[\"script:1\"],\"boot\",55,73]",
+            "name": "boot",
+            "qualifiedName": "src/c.astro::script:1.boot",
+            "container": [
+              "script:1"
+            ],
+            "kind": "function",
+            "visibility": "local",
+            "exported": false,
+            "signature": "function boot()",
+            "range": {
+              "start": {
+                "line": 4,
+                "column": 9,
+                "byte": 55
+              },
+              "end": {
+                "line": 4,
+                "column": 27,
+                "byte": 73
+              }
+            },
+            "target": null
+          }
+        ],
+        "diagnostics": [],
+        "skippedRegions": []
+      },
+      {
+        "path": "src/é.ts",
+        "language": "typescript",
+        "status": "indexed",
+        "reason": null,
+        "hash": "2d73819d39be00ecdaf8dc8f993844d6318d3c635a157604323599516bcea52e",
+        "symbols": [
+          {
+            "id": "[\"src/é.ts\",[],\"unicode\",9,30]",
+            "name": "unicode",
+            "qualifiedName": "src/é.ts::unicode",
+            "container": [],
+            "kind": "function",
+            "visibility": "local",
+            "exported": false,
+            "signature": "function unicode()",
+            "range": {
+              "start": {
+                "line": 2,
+                "column": 1,
+                "byte": 9
+              },
+              "end": {
+                "line": 2,
+                "column": 22,
+                "byte": 30
+              }
+            },
+            "target": null
+          }
+        ],
+        "diagnostics": [],
+        "skippedRegions": []
+      },
+      {
+        "path": "vendor/a.ts",
+        "language": "typescript",
+        "status": "excluded",
+        "reason": "Config exclusion: vendor",
+        "hash": null,
+        "symbols": [],
+        "diagnostics": [],
+        "skippedRegions": []
+      }
+    ]
+  },
+  "views": [
+    {
+      "request": {},
+      "view": {
+        "version": 1,
+        "command": "overview",
+        "complete": true,
+        "coverage": {
+          "statuses": {
+            "indexed": 4,
+            "unsupported": 2,
+            "excluded": 1,
+            "parse-error": 0,
+            "unreadable": 0
+          },
+          "extensions": [
+            ".gleam",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".ts",
+            ".mts",
+            ".cts",
+            ".tsx",
+            ".astro"
+          ],
+          "limits": [
+            "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+            "Named declarations and callable bindings; not unbound anonymous callbacks.",
+            "Gleam constructors are represented by their enclosing type.",
+            "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+            "Other formats are inventoried but not parsed."
+          ],
+          "intrinsicExclusions": [
+            ".code-map"
+          ],
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0
+        },
+        "diagnostics": [],
+        "diagnosticsHasMore": false,
+        "totals": {
+          "files": 7,
+          "symbols": 8
+        },
+        "groups": [
+          {
+            "path": ".",
+            "files": 2,
+            "symbols": 0
+          },
+          {
+            "path": "src",
+            "files": 4,
+            "symbols": 8
+          },
+          {
+            "path": "vendor",
+            "files": 1,
+            "symbols": 0
+          }
+        ],
+        "groupsTotal": 3,
+        "groupsHasMore": false
+      },
+      "text": "7 files, 8 symbols\n\".\": 2 files, 0 symbols\n\"src\": 4 files, 8 symbols\n\"vendor\": 1 files, 0 symbols\nCoverage: indexed=4, unsupported=2, excluded=1, parse-error=0, unreadable=0\n"
+    },
+    {
+      "request": {
+        "command": "refresh"
+      },
+      "view": {
+        "version": 1,
+        "command": "refresh",
+        "complete": true,
+        "coverage": {
+          "statuses": {
+            "indexed": 4,
+            "unsupported": 2,
+            "excluded": 1,
+            "parse-error": 0,
+            "unreadable": 0
+          },
+          "extensions": [
+            ".gleam",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".ts",
+            ".mts",
+            ".cts",
+            ".tsx",
+            ".astro"
+          ],
+          "limits": [
+            "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+            "Named declarations and callable bindings; not unbound anonymous callbacks.",
+            "Gleam constructors are represented by their enclosing type.",
+            "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+            "Other formats are inventoried but not parsed."
+          ],
+          "intrinsicExclusions": [
+            ".code-map"
+          ],
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0
+        },
+        "diagnostics": [],
+        "diagnosticsHasMore": false,
+        "totals": {
+          "files": 7,
+          "symbols": 8
+        },
+        "groups": [
+          {
+            "path": ".",
+            "files": 2,
+            "symbols": 0
+          },
+          {
+            "path": "src",
+            "files": 4,
+            "symbols": 8
+          },
+          {
+            "path": "vendor",
+            "files": 1,
+            "symbols": 0
+          }
+        ],
+        "groupsTotal": 3,
+        "groupsHasMore": false
+      },
+      "text": "7 files, 8 symbols\n\".\": 2 files, 0 symbols\n\"src\": 4 files, 8 symbols\n\"vendor\": 1 files, 0 symbols\nCoverage: indexed=4, unsupported=2, excluded=1, parse-error=0, unreadable=0\n"
+    },
+    {
+      "request": {
+        "command": "files"
+      },
+      "view": {
+        "version": 1,
+        "command": "files",
+        "complete": true,
+        "coverage": {
+          "statuses": {
+            "indexed": 4,
+            "unsupported": 2,
+            "excluded": 1,
+            "parse-error": 0,
+            "unreadable": 0
+          },
+          "extensions": [
+            ".gleam",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".ts",
+            ".mts",
+            ".cts",
+            ".tsx",
+            ".astro"
+          ],
+          "limits": [
+            "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+            "Named declarations and callable bindings; not unbound anonymous callbacks.",
+            "Gleam constructors are represented by their enclosing type.",
+            "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+            "Other formats are inventoried but not parsed."
+          ],
+          "intrinsicExclusions": [
+            ".code-map"
+          ],
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0
+        },
+        "diagnostics": [],
+        "diagnosticsHasMore": false,
+        "items": [
+          {
+            "path": "code-map.json",
+            "language": null,
+            "status": "unsupported",
+            "reason": "No parser for .json",
+            "symbolCount": 0,
+            "diagnosticCount": 0,
+            "skippedRegionCount": 0
+          },
+          {
+            "path": "readme.md",
+            "language": null,
+            "status": "unsupported",
+            "reason": "No parser for .md",
+            "symbolCount": 0,
+            "diagnosticCount": 0,
+            "skippedRegionCount": 0
+          },
+          {
+            "path": "src/a.ts",
+            "language": "typescript",
+            "status": "indexed",
+            "reason": null,
+            "symbolCount": 3,
+            "diagnosticCount": 0,
+            "skippedRegionCount": 0
+          },
+          {
+            "path": "src/b.gleam",
+            "language": "gleam",
+            "status": "indexed",
+            "reason": null,
+            "symbolCount": 2,
+            "diagnosticCount": 0,
+            "skippedRegionCount": 0
+          },
+          {
+            "path": "src/c.astro",
+            "language": "astro",
+            "status": "indexed",
+            "reason": null,
+            "symbolCount": 2,
+            "diagnosticCount": 0,
+            "skippedRegionCount": 0
+          },
+          {
+            "path": "src/é.ts",
+            "language": "typescript",
+            "status": "indexed",
+            "reason": null,
+            "symbolCount": 1,
+            "diagnosticCount": 0,
+            "skippedRegionCount": 0
+          },
+          {
+            "path": "vendor/a.ts",
+            "language": "typescript",
+            "status": "excluded",
+            "reason": "Config exclusion: vendor",
+            "symbolCount": 0,
+            "diagnosticCount": 0,
+            "skippedRegionCount": 0
+          }
+        ],
+        "total": 7,
+        "limit": 50,
+        "offset": 0,
+        "hasMore": false
+      },
+      "text": "7 of 7 results (offset 0)\n\"code-map.json\": unsupported, 0 symbols (\"No parser for .json\")\n\"readme.md\": unsupported, 0 symbols (\"No parser for .md\")\n\"src/a.ts\": indexed, 3 symbols\n\"src/b.gleam\": indexed, 2 symbols\n\"src/c.astro\": indexed, 2 symbols\n\"src/é.ts\": indexed, 1 symbols\n\"vendor/a.ts\": excluded, 0 symbols (\"Config exclusion: vendor\")\nCoverage: indexed=4, unsupported=2, excluded=1, parse-error=0, unreadable=0\n"
+    },
+    {
+      "request": {
+        "command": "files",
+        "path": "src",
+        "limit": 2,
+        "offset": 1
+      },
+      "view": {
+        "version": 1,
+        "command": "files",
+        "complete": true,
+        "coverage": {
+          "statuses": {
+            "indexed": 4,
+            "unsupported": 2,
+            "excluded": 1,
+            "parse-error": 0,
+            "unreadable": 0
+          },
+          "extensions": [
+            ".gleam",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".ts",
+            ".mts",
+            ".cts",
+            ".tsx",
+            ".astro"
+          ],
+          "limits": [
+            "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+            "Named declarations and callable bindings; not unbound anonymous callbacks.",
+            "Gleam constructors are represented by their enclosing type.",
+            "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+            "Other formats are inventoried but not parsed."
+          ],
+          "intrinsicExclusions": [
+            ".code-map"
+          ],
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0
+        },
+        "diagnostics": [],
+        "diagnosticsHasMore": false,
+        "items": [
+          {
+            "path": "src/b.gleam",
+            "language": "gleam",
+            "status": "indexed",
+            "reason": null,
+            "symbolCount": 2,
+            "diagnosticCount": 0,
+            "skippedRegionCount": 0
+          },
+          {
+            "path": "src/c.astro",
+            "language": "astro",
+            "status": "indexed",
+            "reason": null,
+            "symbolCount": 2,
+            "diagnosticCount": 0,
+            "skippedRegionCount": 0
+          }
+        ],
+        "total": 4,
+        "limit": 2,
+        "offset": 1,
+        "hasMore": true
+      },
+      "text": "2 of 4 results (offset 1)\n\"src/b.gleam\": indexed, 2 symbols\n\"src/c.astro\": indexed, 2 symbols\nMore results: repeat with --offset 3\nCoverage: indexed=4, unsupported=2, excluded=1, parse-error=0, unreadable=0\n"
+    },
+    {
+      "request": {
+        "command": "file",
+        "path": "src/a.ts"
+      },
+      "view": {
+        "version": 1,
+        "command": "file",
+        "complete": true,
+        "coverage": {
+          "statuses": {
+            "indexed": 4,
+            "unsupported": 2,
+            "excluded": 1,
+            "parse-error": 0,
+            "unreadable": 0
+          },
+          "extensions": [
+            ".gleam",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".ts",
+            ".mts",
+            ".cts",
+            ".tsx",
+            ".astro"
+          ],
+          "limits": [
+            "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+            "Named declarations and callable bindings; not unbound anonymous callbacks.",
+            "Gleam constructors are represented by their enclosing type.",
+            "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+            "Other formats are inventoried but not parsed."
+          ],
+          "intrinsicExclusions": [
+            ".code-map"
+          ],
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0
+        },
+        "diagnostics": [],
+        "diagnosticsHasMore": false,
+        "file": {
+          "path": "src/a.ts",
+          "language": "typescript",
+          "status": "indexed",
+          "reason": null,
+          "symbolCount": 3,
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0,
+          "diagnostics": [],
+          "skippedRegions": []
+        },
+        "items": [
+          {
+            "path": "src/a.ts",
+            "id": "[\"src/a.ts\",[],\"connect\",0,52]",
+            "name": "connect",
+            "qualifiedName": "src/a.ts::connect",
+            "container": [],
+            "kind": "function",
+            "visibility": "public",
+            "exported": true,
+            "signature": "export function connect(x: number = 1)",
+            "range": {
+              "start": {
+                "line": 1,
+                "column": 1,
+                "byte": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 53,
+                "byte": 52
+              }
+            },
+            "target": null
+          },
+          {
+            "path": "src/a.ts",
+            "id": "[\"src/a.ts\",[],\"connector\",53,76]",
+            "name": "connector",
+            "qualifiedName": "src/a.ts::connector",
+            "container": [],
+            "kind": "function",
+            "visibility": "local",
+            "exported": false,
+            "signature": "function connector()",
+            "range": {
+              "start": {
+                "line": 2,
+                "column": 1,
+                "byte": 53
+              },
+              "end": {
+                "line": 2,
+                "column": 24,
+                "byte": 76
+              }
+            },
+            "target": null
+          },
+          {
+            "path": "src/a.ts",
+            "id": "[\"src/a.ts\",[],\"disconnect\",77,101]",
+            "name": "disconnect",
+            "qualifiedName": "src/a.ts::disconnect",
+            "container": [],
+            "kind": "function",
+            "visibility": "local",
+            "exported": false,
+            "signature": "function disconnect()",
+            "range": {
+              "start": {
+                "line": 3,
+                "column": 1,
+                "byte": 77
+              },
+              "end": {
+                "line": 3,
+                "column": 25,
+                "byte": 101
+              }
+            },
+            "target": null
+          }
+        ],
+        "total": 3,
+        "limit": 50,
+        "offset": 0,
+        "hasMore": false
+      },
+      "text": "\"src/a.ts\": indexed\n3 of 3 results (offset 0)\n\"src/a.ts\":1:1 function public \"export function connect(x: number = 1)\"\n\"src/a.ts\":2:1 function local \"function connector()\"\n\"src/a.ts\":3:1 function local \"function disconnect()\"\nCoverage: indexed=4, unsupported=2, excluded=1, parse-error=0, unreadable=0\n"
+    },
+    {
+      "request": {
+        "command": "file",
+        "path": "readme.md"
+      },
+      "view": {
+        "version": 1,
+        "command": "file",
+        "complete": true,
+        "coverage": {
+          "statuses": {
+            "indexed": 4,
+            "unsupported": 2,
+            "excluded": 1,
+            "parse-error": 0,
+            "unreadable": 0
+          },
+          "extensions": [
+            ".gleam",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".ts",
+            ".mts",
+            ".cts",
+            ".tsx",
+            ".astro"
+          ],
+          "limits": [
+            "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+            "Named declarations and callable bindings; not unbound anonymous callbacks.",
+            "Gleam constructors are represented by their enclosing type.",
+            "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+            "Other formats are inventoried but not parsed."
+          ],
+          "intrinsicExclusions": [
+            ".code-map"
+          ],
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0
+        },
+        "diagnostics": [],
+        "diagnosticsHasMore": false,
+        "file": {
+          "path": "readme.md",
+          "language": null,
+          "status": "unsupported",
+          "reason": "No parser for .md",
+          "symbolCount": 0,
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0,
+          "diagnostics": [],
+          "skippedRegions": []
+        },
+        "items": [],
+        "total": 0,
+        "limit": 50,
+        "offset": 0,
+        "hasMore": false
+      },
+      "text": "\"readme.md\": unsupported (\"No parser for .md\")\n0 of 0 results (offset 0)\nCoverage: indexed=4, unsupported=2, excluded=1, parse-error=0, unreadable=0\n"
+    },
+    {
+      "request": {
+        "command": "find",
+        "query": "CONNECT",
+        "path": "src",
+        "limit": 2
+      },
+      "view": {
+        "version": 1,
+        "command": "find",
+        "complete": true,
+        "coverage": {
+          "statuses": {
+            "indexed": 4,
+            "unsupported": 2,
+            "excluded": 1,
+            "parse-error": 0,
+            "unreadable": 0
+          },
+          "extensions": [
+            ".gleam",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".ts",
+            ".mts",
+            ".cts",
+            ".tsx",
+            ".astro"
+          ],
+          "limits": [
+            "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+            "Named declarations and callable bindings; not unbound anonymous callbacks.",
+            "Gleam constructors are represented by their enclosing type.",
+            "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+            "Other formats are inventoried but not parsed."
+          ],
+          "intrinsicExclusions": [
+            ".code-map"
+          ],
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0
+        },
+        "diagnostics": [],
+        "diagnosticsHasMore": false,
+        "items": [
+          {
+            "path": "src/a.ts",
+            "id": "[\"src/a.ts\",[],\"connect\",0,52]",
+            "name": "connect",
+            "qualifiedName": "src/a.ts::connect",
+            "container": [],
+            "kind": "function",
+            "visibility": "public",
+            "exported": true,
+            "signature": "export function connect(x: number = 1)",
+            "range": {
+              "start": {
+                "line": 1,
+                "column": 1,
+                "byte": 0
+              },
+              "end": {
+                "line": 1,
+                "column": 53,
+                "byte": 52
+              }
+            },
+            "target": null
+          },
+          {
+            "path": "src/b.gleam",
+            "id": "[\"src/b.gleam\",[],\"connect\",20,44]",
+            "name": "connect",
+            "qualifiedName": "src/b.gleam::connect",
+            "container": [],
+            "kind": "function",
+            "visibility": "public",
+            "exported": true,
+            "signature": "pub fn connect()",
+            "range": {
+              "start": {
+                "line": 2,
+                "column": 1,
+                "byte": 20
+              },
+              "end": {
+                "line": 2,
+                "column": 25,
+                "byte": 44
+              }
+            },
+            "target": "javascript"
+          }
+        ],
+        "total": 4,
+        "limit": 2,
+        "offset": 0,
+        "hasMore": true
+      },
+      "text": "2 of 4 results (offset 0)\n\"src/a.ts\":1:1 function public \"export function connect(x: number = 1)\"\n\"src/b.gleam\":2:1 function public \"pub fn connect()\"\nMore results: repeat with --offset 2\nCoverage: indexed=4, unsupported=2, excluded=1, parse-error=0, unreadable=0\n"
+    },
+    {
+      "request": {
+        "command": "find",
+        "query": "connect",
+        "offset": 2
+      },
+      "view": {
+        "version": 1,
+        "command": "find",
+        "complete": true,
+        "coverage": {
+          "statuses": {
+            "indexed": 4,
+            "unsupported": 2,
+            "excluded": 1,
+            "parse-error": 0,
+            "unreadable": 0
+          },
+          "extensions": [
+            ".gleam",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".ts",
+            ".mts",
+            ".cts",
+            ".tsx",
+            ".astro"
+          ],
+          "limits": [
+            "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+            "Named declarations and callable bindings; not unbound anonymous callbacks.",
+            "Gleam constructors are represented by their enclosing type.",
+            "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+            "Other formats are inventoried but not parsed."
+          ],
+          "intrinsicExclusions": [
+            ".code-map"
+          ],
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0
+        },
+        "diagnostics": [],
+        "diagnosticsHasMore": false,
+        "items": [
+          {
+            "path": "src/a.ts",
+            "id": "[\"src/a.ts\",[],\"connector\",53,76]",
+            "name": "connector",
+            "qualifiedName": "src/a.ts::connector",
+            "container": [],
+            "kind": "function",
+            "visibility": "local",
+            "exported": false,
+            "signature": "function connector()",
+            "range": {
+              "start": {
+                "line": 2,
+                "column": 1,
+                "byte": 53
+              },
+              "end": {
+                "line": 2,
+                "column": 24,
+                "byte": 76
+              }
+            },
+            "target": null
+          },
+          {
+            "path": "src/a.ts",
+            "id": "[\"src/a.ts\",[],\"disconnect\",77,101]",
+            "name": "disconnect",
+            "qualifiedName": "src/a.ts::disconnect",
+            "container": [],
+            "kind": "function",
+            "visibility": "local",
+            "exported": false,
+            "signature": "function disconnect()",
+            "range": {
+              "start": {
+                "line": 3,
+                "column": 1,
+                "byte": 77
+              },
+              "end": {
+                "line": 3,
+                "column": 25,
+                "byte": 101
+              }
+            },
+            "target": null
+          }
+        ],
+        "total": 4,
+        "limit": 50,
+        "offset": 2,
+        "hasMore": false
+      },
+      "text": "2 of 4 results (offset 2)\n\"src/a.ts\":2:1 function local \"function connector()\"\n\"src/a.ts\":3:1 function local \"function disconnect()\"\nCoverage: indexed=4, unsupported=2, excluded=1, parse-error=0, unreadable=0\n"
+    },
+    {
+      "request": {
+        "command": "find",
+        "query": "missing"
+      },
+      "view": {
+        "version": 1,
+        "command": "find",
+        "complete": true,
+        "coverage": {
+          "statuses": {
+            "indexed": 4,
+            "unsupported": 2,
+            "excluded": 1,
+            "parse-error": 0,
+            "unreadable": 0
+          },
+          "extensions": [
+            ".gleam",
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".jsx",
+            ".ts",
+            ".mts",
+            ".cts",
+            ".tsx",
+            ".astro"
+          ],
+          "limits": [
+            "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+            "Named declarations and callable bindings; not unbound anonymous callbacks.",
+            "Gleam constructors are represented by their enclosing type.",
+            "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+            "Other formats are inventoried but not parsed."
+          ],
+          "intrinsicExclusions": [
+            ".code-map"
+          ],
+          "diagnosticCount": 0,
+          "skippedRegionCount": 0
+        },
+        "diagnostics": [],
+        "diagnosticsHasMore": false,
+        "items": [],
+        "total": 0,
+        "limit": 50,
+        "offset": 0,
+        "hasMore": false
+      },
+      "text": "0 of 0 results (offset 0)\nCoverage: indexed=4, unsupported=2, excluded=1, parse-error=0, unreadable=0\n"
+    }
+  ],
+  "incomplete": {
+    "version": 1,
+    "command": "find",
+    "complete": false,
+    "coverage": {
+      "statuses": {
+        "indexed": 3,
+        "unsupported": 2,
+        "excluded": 1,
+        "parse-error": 1,
+        "unreadable": 0
+      },
+      "extensions": [
+        ".gleam",
+        ".js",
+        ".mjs",
+        ".cjs",
+        ".jsx",
+        ".ts",
+        ".mts",
+        ".cts",
+        ".tsx",
+        ".astro"
+      ],
+      "limits": [
+        "Syntax only; no inferred types, references, call graph, or runtime-generated methods.",
+        "Named declarations and callable bindings; not unbound anonymous callbacks.",
+        "Gleam constructors are represented by their enclosing type.",
+        "Astro frontmatter and executable scripts only; no template expressions, styles, event attributes, or external script contents.",
+        "Other formats are inventoried but not parsed."
+      ],
+      "intrinsicExclusions": [
+        ".code-map"
+      ],
+      "diagnosticCount": 1,
+      "skippedRegionCount": 0
+    },
+    "diagnostics": [
+      {
+        "path": "src/a.ts",
+        "message": "')' expected.",
+        "range": {
+          "start": {
+            "line": 1,
+            "column": 14,
+            "byte": 13
+          },
+          "end": {
+            "line": 1,
+            "column": 14,
+            "byte": 13
+          }
+        }
+      }
+    ],
+    "diagnosticsHasMore": false,
+    "items": [
+      {
+        "path": "src/b.gleam",
+        "id": "[\"src/b.gleam\",[],\"connect\",20,44]",
+        "name": "connect",
+        "qualifiedName": "src/b.gleam::connect",
+        "container": [],
+        "kind": "function",
+        "visibility": "public",
+        "exported": true,
+        "signature": "pub fn connect()",
+        "range": {
+          "start": {
+            "line": 2,
+            "column": 1,
+            "byte": 20
+          },
+          "end": {
+            "line": 2,
+            "column": 25,
+            "byte": 44
+          }
+        },
+        "target": "javascript"
+      }
+    ],
+    "total": 1,
+    "limit": 50,
+    "offset": 0,
+    "hasMore": false
+  },
+  "incompleteText": "1 of 1 results (offset 0)\n\"src/b.gleam\":2:1 function public \"pub fn connect()\"\nCoverage: indexed=3, unsupported=2, excluded=1, parse-error=1, unreadable=0\nINCOMPLETE: source errors; failed files have no current declarations.\n\"src/a.ts\": \"')' expected.\"\n"
+}
