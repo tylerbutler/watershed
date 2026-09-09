@@ -123,6 +123,9 @@ const connect_timeout_milliseconds = 10_000
 const heartbeat_interval_milliseconds = 30_000
 
 @target(erlang)
+const summary_timeout_milliseconds = 9000
+
+@target(erlang)
 /// The server nacks a submission of more than 100 operations. Split a resubmit
 /// into chunks to stay below that limit.
 const max_operations_per_submission = 100
@@ -199,6 +202,7 @@ pub type Msg {
   /// decision again against the core as it is at that moment, so a summary from
   /// a peer that arrives in the window makes this message do nothing.
   MaybeSummarize
+  SummaryTimedOut(client_sequence_number: Int)
   /// Install the automatic summarization policy, or clear it. A value of
   /// `None` turns the policy off.
   SetAutoSummary(policy: Option(summary_policy.Policy))
@@ -610,6 +614,16 @@ type Phase {
 }
 
 @target(erlang)
+type PendingSummary {
+  PendingSummary(
+    tree_id: String,
+    client_sequence_number: Int,
+    proposal_sequence_number: Option(Int),
+    reply: Option(Subject(Result(String, String))),
+  )
+}
+
+@target(erlang)
 type State {
   State(
     // `host`/`port` are retained for the REST summary API (git-storage), which
@@ -648,6 +662,7 @@ type State {
     /// flag, a busy document would arm a new timer for every sequenced
     /// operation.
     summary_armed: Bool,
+    pending_summary: Option(PendingSummary),
     self: Subject(Msg),
   )
 }
@@ -706,6 +721,7 @@ pub fn start_with_transport(
         acquire_waiters: dict.new(),
         auto_summary: Some(summary_policy.policy()),
         summary_armed: False,
+        pending_summary: None,
         self: self,
       )
     let _ = process.send_after(self, heartbeat_interval_milliseconds, Heartbeat)
@@ -1155,31 +1171,44 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
 
     MaybeSummarize -> {
       let state = State(..state, summary_armed: False)
-      case state.phase, state.channel, state.auto_summary {
-        Ready(core, None), Some(channel), Some(policy) ->
+      case
+        state.phase,
+        state.channel,
+        state.auto_summary,
+        state.pending_summary
+      {
+        Ready(core, None), Some(channel), Some(policy), None ->
           case runtime_core.wants_summary(core, policy) {
-            // A peer summarized while we waited, or a local edit went out.
-            // Either way the reason to summarize is gone.
             False -> actor.continue(state)
             True ->
-              case do_summarize(state, core, channel) {
-                Ok(#(core, _handle)) ->
-                  actor.continue(State(..state, phase: Ready(core, None)))
-                // A summarize operation carries no ack, so there is nothing to
-                // reconcile on failure: the checkpoint simply did not move,
-                // and the next sequenced operation arms another attempt.
+              case do_summarize(state, core, channel, None) {
+                Ok(#(core, pending)) ->
+                  actor.continue(track_pending_summary(state, core, pending))
                 Error(_reason) -> actor.continue(state)
               }
           }
-        Ready(_, None), Some(_), None
-        | Ready(_, None), None, _
-        | Ready(_, Some(_)), _, _
-        | Connecting(_), _, _
-        | Reconnecting(_), _, _
-        | Failed(_), _, _
+        Ready(_, None), Some(_), None, _
+        | Ready(_, None), None, _, _
+        | Ready(_, Some(_)), _, _, _
+        | Connecting(_), _, _, _
+        | Reconnecting(_), _, _, _
+        | Failed(_), _, _, _
+        | _, _, _, Some(_)
         -> actor.continue(state)
       }
     }
+
+    SummaryTimedOut(client_sequence_number) ->
+      case state.pending_summary {
+        Some(pending)
+          if pending.client_sequence_number == client_sequence_number
+        ->
+          actor.continue(resolve_pending_summary(
+            state,
+            Error("summary publication was interrupted"),
+          ))
+        None | Some(_) -> actor.continue(state)
+      }
 
     ChannelReady(channel) -> {
       let last_seen = case state.phase {
@@ -1877,6 +1906,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
 
     Shutdown -> {
       let state = abort_outcome_waiters(state)
+      let state = abort_pending_summary(state)
       case state.channel {
         Some(channel) -> channel.close()
         None -> Nil
@@ -2023,10 +2053,17 @@ fn handle_inbound(
     "op" ->
       case state.phase {
         Ready(core, resubmit_at) -> {
-          let #(core, events, resolutions, request_from, released) =
-            apply_operations(core, operation_message(payload))
+          let #(
+            core,
+            events,
+            resolutions,
+            summary_events,
+            request_from,
+            released,
+          ) = apply_operations(core, operation_message(payload))
           let state = resolve_claim_waiters(state, resolutions)
           let state = resolve_acquire_waiters(state, resolutions)
+          let state = apply_summary_events(state, summary_events)
           fan_out(state.subscribers, events)
           maybe_request_operations(state.channel, request_from)
           case resubmit_at {
@@ -2144,10 +2181,11 @@ fn apply_operations(
   runtime_core.Core,
   List(#(String, ChannelEvent)),
   List(#(String, Resolution)),
+  List(runtime_core.SummaryEvent),
   Option(Int),
   List(wire.OutboundOperation),
 ) {
-  do_apply_operations(core, operations, [], [], None, [])
+  do_apply_operations(core, operations, [], [], [], None, [])
 }
 
 @target(erlang)
@@ -2156,12 +2194,14 @@ fn do_apply_operations(
   operations: List(SequencedDocumentMessage),
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
+  summary_events: List(List(runtime_core.SummaryEvent)),
   request_from: Option(Int),
   released: List(wire.OutboundOperation),
 ) -> #(
   runtime_core.Core,
   List(#(String, ChannelEvent)),
   List(#(String, Resolution)),
+  List(runtime_core.SummaryEvent),
   Option(Int),
   List(wire.OutboundOperation),
 ) {
@@ -2170,6 +2210,7 @@ fn do_apply_operations(
       core,
       list.reverse(events) |> list.flatten,
       list.reverse(resolutions) |> list.flatten,
+      list.reverse(summary_events) |> list.flatten,
       request_from,
       released,
     )
@@ -2181,6 +2222,7 @@ fn do_apply_operations(
             rest,
             [ingested.events, ..events],
             [ingested.resolutions, ..resolutions],
+            [ingested.summary_events, ..summary_events],
             option.or(request_from, ingested.request_operations_from),
             list.append(released, ingested.outbound),
           )
@@ -2189,6 +2231,58 @@ fn do_apply_operations(
             "sequenced op processing failed: " <> string.inspect(core_error)
           }
       }
+  }
+}
+
+@target(erlang)
+fn apply_summary_events(
+  state: State,
+  events: List(runtime_core.SummaryEvent),
+) -> State {
+  list.fold(events, state, fn(state, event) {
+    case state.pending_summary, event {
+      Some(pending),
+        runtime_core.SummaryProposalSequenced(
+          _,
+          client_sequence_number,
+          sequence_number,
+        )
+        if client_sequence_number == pending.client_sequence_number
+      ->
+        State(
+          ..state,
+          pending_summary: Some(
+            PendingSummary(
+              ..pending,
+              proposal_sequence_number: Some(sequence_number),
+            ),
+          ),
+        )
+      Some(pending), runtime_core.SummaryPublished(sequence_number, version_id)
+        if pending.proposal_sequence_number == Some(sequence_number)
+      -> resolve_pending_summary(state, Ok(version_id))
+      Some(pending), runtime_core.SummaryRejected(sequence_number, reason)
+        if pending.proposal_sequence_number == Some(sequence_number)
+      -> resolve_pending_summary(state, Error(reason))
+      _, _ -> state
+    }
+  })
+}
+
+@target(erlang)
+fn resolve_pending_summary(
+  state: State,
+  outcome: Result(String, String),
+) -> State {
+  case state.pending_summary {
+    None -> state
+    Some(pending) -> {
+      case pending.reply {
+        Some(reply) -> process.send(reply, outcome)
+        None -> Nil
+      }
+      State(..state, pending_summary: None)
+    }
   }
 }
 
@@ -2329,6 +2423,11 @@ fn resolve_claim_waiters(
       }
     })
   State(..state, claim_waiters: claim_waiters)
+}
+
+@target(erlang)
+fn abort_pending_summary(state: State) -> State {
+  resolve_pending_summary(state, Error("summary publication was interrupted"))
 }
 
 @target(erlang)
@@ -2826,6 +2925,7 @@ fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
 fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
   connect_transport(state.transport, state.self)
   notify_session_lost(state)
+  let state = abort_pending_summary(state)
   State(..state, channel: None, phase: Reconnecting(core))
 }
 
@@ -2839,6 +2939,7 @@ fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
     None -> Nil
   }
   notify_session_lost(state)
+  let state = abort_pending_summary(state)
   State(..state, channel: None, phase: Reconnecting(core))
 }
 
@@ -2878,8 +2979,8 @@ fn maybe_request_operations(
 /// checks again in `MaybeSummarize` and stops. A lost race costs one
 /// unnecessary upload, and nothing more.
 fn arm_summary(state: State, core: runtime_core.Core) -> State {
-  case state.auto_summary, state.summary_armed {
-    Some(policy), False ->
+  case state.auto_summary, state.summary_armed, state.pending_summary {
+    Some(policy), False, None ->
       case runtime_core.wants_summary(core, policy) {
         False -> state
         True -> {
@@ -2892,7 +2993,7 @@ fn arm_summary(state: State, core: runtime_core.Core) -> State {
           State(..state, summary_armed: True)
         }
       }
-    _, _ -> state
+    _, _, _ -> state
   }
 }
 
@@ -2904,23 +3005,25 @@ fn handle_summarize(
   // Summarizing is only well-defined while fully synced with a live channel:
   // the confirmed state is stable and the summarize operation can go out
   // immediately.
-  case state.phase, state.channel {
-    Ready(core, None), Some(channel) ->
-      case do_summarize(state, core, channel) {
-        Ok(#(core, tree_sha)) -> {
-          process.send(reply, Ok(tree_sha))
-          actor.continue(State(..state, phase: Ready(core, None)))
-        }
+  case state.phase, state.channel, state.pending_summary {
+    Ready(core, None), Some(channel), None ->
+      case do_summarize(state, core, channel, Some(reply)) {
+        Ok(#(core, pending)) ->
+          actor.continue(track_pending_summary(state, core, pending))
         Error(reason) -> {
           process.send(reply, Error(reason))
           actor.continue(state)
         }
       }
-    Ready(_, None), None
-    | Ready(_, Some(_)), _
-    | Connecting(_), _
-    | Reconnecting(_), _
-    | Failed(_), _
+    Ready(_, None), Some(_), Some(_) -> {
+      process.send(reply, Error("a summary publication is already pending"))
+      actor.continue(state)
+    }
+    Ready(_, None), None, _
+    | Ready(_, Some(_)), _, _
+    | Connecting(_), _, _
+    | Reconnecting(_), _, _
+    | Failed(_), _, _
     -> {
       process.send(
         reply,
@@ -2933,13 +3036,13 @@ fn handle_summarize(
 
 @target(erlang)
 /// Upload the confirmed state as a summary blob. Then stamp the summarize
-/// operation that references that blob, and push it. The function returns the
-/// new core and the tree SHA.
+/// operation that references that blob, and push it.
 fn do_summarize(
   state: State,
   core: runtime_core.Core,
   channel: TransportHandle,
-) -> Result(#(runtime_core.Core, String), String) {
+  reply: Option(Subject(Result(String, String))),
+) -> Result(#(runtime_core.Core, PendingSummary), String) {
   use token <- result.try(option.to_result(
     state.connect_message.token,
     "summarize requires an auth token",
@@ -2974,7 +3077,30 @@ fn do_summarize(
     "submitOp",
     socket.encode_submit_operation(core.client_id, [[outbound]]),
   )
-  Ok(#(core, tree_sha))
+  Ok(#(
+    core,
+    PendingSummary(
+      tree_id: tree_sha,
+      client_sequence_number: outbound.client_sequence_number,
+      proposal_sequence_number: None,
+      reply: reply,
+    ),
+  ))
+}
+
+@target(erlang)
+fn track_pending_summary(
+  state: State,
+  core: runtime_core.Core,
+  pending: PendingSummary,
+) -> State {
+  let _ =
+    process.send_after(
+      state.self,
+      summary_timeout_milliseconds,
+      SummaryTimedOut(pending.client_sequence_number),
+    )
+  State(..state, phase: Ready(core, None), pending_summary: Some(pending))
 }
 
 @target(erlang)
@@ -3146,6 +3272,7 @@ fn fan_out(
 @target(erlang)
 fn fail(state: State, reason: String) -> State {
   let state = abort_outcome_waiters(state)
+  let state = abort_pending_summary(state)
   notify_waiters(state.phase, Error(reason))
   notify_session_lost(state)
   State(..state, phase: Failed(reason))
