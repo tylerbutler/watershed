@@ -35,7 +35,7 @@ Coverage across `examples/` and the website demos as of 2026-08-08, updated 2026
 | Website conflict-resolution demo | `MvRegister` (shared revision slate, with typed sequenced and CRDT samples) |
 | **No demo** | none |
 
-`PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively; `Claims` moved from "one site only" to "well demoed" with the release checklist's captain seat and compare-and-set take-over; `SharedDirectory` and `JsonOt` moved there with the JSON workspace's tree of folders and live documents. Every kind now has at least one example — the remaining gap is `SharedRichText` (getting its own proper Lustre example) and the unwired `GCounter` primitive noted under the clap counter below, which is a library gap rather than a demo gap.
+`PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively; `Claims` moved from "one site only" to "well demoed" with the release checklist's captain seat and compare-and-set take-over; `SharedDirectory` and `JsonOt` moved there with the JSON workspace's tree of folders and live documents. Every kind now has at least one example — the remaining gap is `SharedRichText` (getting its own proper Lustre example). `GCounter` is no longer the exception it was: `g_counter_kernel` now ships across both facades, the CRDT runtime, and Lustre, and the website's inspection-tally demo runs on it rather than on a hand-rolled lattice wrapper.
 
 ## Two corrections worth not re-learning
 
@@ -54,9 +54,9 @@ The MV-register channel is shipped across the sequenced JS/BEAM facades, the
 CRDT runtime, and Lustre, with source-backed website examples. See its
 [execution record](superpowers/plans/2026-09-07-mv-register-integration.md#review-checkpoints-and-execution-record).
 Summary version history is shipped: both runtimes return published commit IDs,
-list document history, and load historical snapshots. `GCounter` remains an
-unwired backlog idea; neither that nor RFC Room or BEAM component-host parity is
-closed by this work.
+list document history, and load historical snapshots. `GCounter` has since
+shipped on the same path; RFC Room and BEAM component-host parity are still
+open.
 
 **Correction worth not re-learning:** an earlier version of this section claimed the `OrderedCollection` op surface and `complete_task` were missing from the facades. They were present on both. That came from grepping by prefix guess (`ordered_collection_*`, `task_*`), which misses `ordered_*` and `complete_task`. Audit by full `pub fn` inventory diff — the command is at the end of the parity plan, and `facade_parity_test.gleam` now enforces it mechanically.
 
@@ -116,7 +116,7 @@ Medium-style claps. Trivially small, and the most direct possible stress test of
 
 Closed the `subscribe_pn_counter` demo gap: `PnCounter` was fully present on both facades but exercised by nothing in `examples/` until this shipped. The smoke test's headline assertion is concurrent, uncoordinated increments from two clients converging on the true sum with no lost update, surviving a forced reconnect.
 
-**`PnCounter`, not a grow-only counter.** `lattice_counters` (the vendored CRDT library) ships `g_counter.gleam`, but nothing in `src/watershed/` wires it up — there's no `g_counter_kernel.gleam`, no `GCounter` type on either facade, no schema `ChannelField` variant, no runtime dispatch. Claps only ever go up; the app calls `pn_counter_update` with positive amounts only and never exercises the decrement path, but the kernel underneath is the full P/N lattice. Wiring up a real `GCounter` kind is its own small plan, not a prerequisite for this one — see `docs/demo-ideas.md`'s own history below for that discussion.
+**`PnCounter`, not a grow-only counter.** Claps only ever go up, but this app calls `pn_counter_update` with positive amounts and never touches the decrement path, so the kernel underneath is the full P/N lattice. When it was written that was the only option: nothing in `src/watershed/` wired up `lattice_counters`' `g_counter.gleam`. A real `GCounter` kind has since shipped as its own small plan, so the clap counter could now be rebuilt on `g_counter_increment` and lose the decrement it never wanted.
 
 Not yet done: wiring the same widget onto the website's `counter-bug` page (broken-vs-correct side by side) — left as follow-on, low cost.
 

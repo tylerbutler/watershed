@@ -72,7 +72,7 @@ const counters: Structure[] = [
   {
     id: "gcounter",
     name: "GCounter",
-    module: "lattice_counters/g_counter",
+    module: "g_counter_kernel",
     kind: "CRDT",
     onHomepage: true,
     tagline: "A count-up-only counter that stays correct even if an update arrives twice.",

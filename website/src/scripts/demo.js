@@ -7,6 +7,7 @@
 // picker only changes which replica view is shown.
 import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
 import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
+import * as gCounterKernel from "../../../build/dev/javascript/watershed/watershed/g_counter_kernel.mjs";
 import * as mvKernel from "../../../build/dev/javascript/watershed/watershed/mv_register_kernel.mjs";
 import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as orSetKernel from "../../../build/dev/javascript/watershed/watershed/or_set_kernel.mjs";
@@ -98,14 +99,9 @@ function gCounterBaselineSummary() {
 }
 
 function gCounterStateFromSummary(summary, clientId) {
-  const parsed = gCounter.from_json(summary);
-  if (!parsed.isOk()) throw new Error("G-counter baseline summary failed to load");
-  const sequenced = gCounter.merge(gCounter.new$(replicaId.new$(`client-${clientId}`)), parsed[0]);
-  return { sequenced, optimistic: sequenced, pending: [], nextMessageId: 0 };
-}
-
-function gCounterReplayPending(sequenced, pending) {
-  return pending.reduce((acc, item) => gCounter.merge(acc, item.delta), sequenced);
+  const loaded = gCounterKernel.from_summary(summary, replicaId.new$(`client-${clientId}`));
+  if (!loaded.isOk()) throw new Error("G-counter baseline summary failed to load");
+  return loaded[0];
 }
 
 function orMapBaselineSummary() {
@@ -594,7 +590,9 @@ export function initDemo() {
   }
 
   function gCounterPendingTotal(state) {
-    return state.pending.reduce((sum, item) => sum + item.amount, 0);
+    return state.pending
+      .toArray()
+      .reduce((sum, item) => sum + item.amount, 0);
   }
 
   function gCounterCounts(state) {
@@ -611,13 +609,13 @@ export function initDemo() {
   }
 
   function renderGCounter(client) {
-    const pending = client.gcounter.pending;
+    const pendingCount = client.gcounter.pending.toArray().length;
     const valueEl = client.el.querySelector("[data-gcounter-value]");
-    valueEl.textContent = String(gCounter.value(client.gcounter.optimistic));
-    valueEl.classList.toggle("pending", pending.length > 0);
+    valueEl.textContent = String(gCounterKernel.value(client.gcounter));
+    valueEl.classList.toggle("pending", pendingCount > 0);
     const deltaEl = client.el.querySelector("[data-gcounter-delta]");
     deltaEl.textContent =
-      pending.length > 0
+      pendingCount > 0
         ? `Δ +${gCounterPendingTotal(client.gcounter)} unsequenced`
         : "";
     const counts = gCounterCounts(client.gcounter);
@@ -1036,7 +1034,7 @@ export function initDemo() {
         : activeDds === "pact"
           ? pactPending[client.id].size
         : activeDds === "gcounter"
-          ? client.gcounter.pending.length
+          ? client.gcounter.pending.toArray().length
         : activeDds === "orset"
           ? client.orset.pending.toArray().length
         : activeDds === "gset"
@@ -1075,7 +1073,7 @@ export function initDemo() {
     for (const client of Object.values(clients)) {
       total += client.map.pending.toArray().length;
       total += counterPending(client).count;
-      total += client.gcounter.pending.length;
+      total += client.gcounter.pending.toArray().length;
       total += client.pn.pending.toArray().length;
       total += client["mv-register"].pending.toArray().length;
       total += client.ormap.pending.toArray().length;
@@ -1294,17 +1292,14 @@ export function initDemo() {
         target.pn = next;
       }
     } else if (ddsId === "gcounter") {
-      const sequenced = gCounter.merge(target.gcounter.sequenced, op.delta);
-      const pending =
-        target.id === originId
-          ? target.gcounter.pending.filter((item) => item.messageId !== op.messageId)
-          : target.gcounter.pending;
-      target.gcounter = {
-        ...target.gcounter,
-        sequenced,
-        optimistic: gCounterReplayPending(sequenced, pending),
-        pending,
-      };
+      if (target.id === originId) {
+        const result = gCounterKernel.ack_local(target.gcounter, op);
+        if (result.isOk()) target.gcounter = result[0];
+        else console.error("unexpected ack", result[0]);
+      } else {
+        const [next] = gCounterKernel.apply_remote(target.gcounter, op);
+        target.gcounter = next;
+      }
     } else if (ddsId === "ormap") {
       if (target.id === originId) {
         const result = orMapKernel.ack_local(target.ormap, op);
@@ -1630,19 +1625,17 @@ export function initDemo() {
 
   function localGCounterIncrement(clientId, amount) {
     const client = clients[clientId];
-    const [optimistic, delta] = gCounter.increment_with_delta(
-      client.gcounter.optimistic,
-      amount,
-    );
-    const messageId = client.gcounter.nextMessageId;
-    client.gcounter = {
-      ...client.gcounter,
-      optimistic,
-      pending: [...client.gcounter.pending, { delta, amount, messageId }],
-      nextMessageId: messageId + 1,
-    };
+    // The kernel refuses a negative amount, which is the whole point of a
+    // grow-only counter. The demo never offers one, so a refusal is a bug here.
+    const applied = gCounterKernel.increment(client.gcounter, amount);
+    if (!applied.isOk()) {
+      console.error("g-counter refused an increment", applied[0]);
+      return;
+    }
+    const [next, _events, operation] = applied[0];
+    client.gcounter = next;
     fieldNotes.trackChange("gcounter", client.el, true, () => render(client));
-    submit(clientId, "gcounter", { delta, amount, messageId });
+    submit(clientId, "gcounter", operation);
   }
 
   function localMvSet(clientId, value) {
@@ -1982,7 +1975,7 @@ export function initDemo() {
   }
 
   function resetGCounter() {
-    const drift = gCounter.value(clients.a.gcounter.optimistic) - GCOUNTER_BASE;
+    const drift = gCounterKernel.value(clients.a.gcounter) - GCOUNTER_BASE;
     if (drift < 0) {
       localGCounterIncrement("a", 0 - drift);
     }
@@ -2063,12 +2056,8 @@ export function initDemo() {
           const [next] = gSetKernel.apply_remote(target.gset, op);
           target.gset = next;
         } else if (ddsId === "gcounter") {
-          const sequenced = gCounter.merge(target.gcounter.sequenced, op.delta);
-          target.gcounter = {
-            ...target.gcounter,
-            sequenced,
-            optimistic: gCounterReplayPending(sequenced, target.gcounter.pending),
-          };
+          const [next] = gCounterKernel.apply_remote(target.gcounter, op);
+          target.gcounter = next;
         } else if (ddsId === "twopset") {
           const [next] = twoPSetKernel.apply_remote(target.twopset, op);
           target.twopset = next;
