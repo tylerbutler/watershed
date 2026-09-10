@@ -82,6 +82,7 @@ import watershed/crdt_js.{
 }
 import watershed/g_counter_kernel
 import watershed/g_set_kernel
+import watershed/lww_register_kernel
 import watershed/mv_register_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
@@ -357,6 +358,16 @@ pub fn subscribe_g_counter(
   event event: fn(g_counter_kernel.GCounterEvent) -> msg,
 ) -> Effect(msg) {
   subscribe(crdt_js.subscribe_g_counter(handle, _), subscribed, event)
+}
+
+/// Subscribe to local and remote visible-value changes in a peer-to-peer LWW
+/// register.
+pub fn subscribe_lww_register(
+  handle: Handle(schema.LwwRegisterChannel),
+  subscribed subscribed: fn(Subscription) -> msg,
+  event event: fn(lww_register_kernel.LwwRegisterEvent) -> msg,
+) -> Effect(msg) {
+  subscribe(crdt_js.subscribe_lww_register(handle, _), subscribed, event)
 }
 
 /// Subscribe to changes in the peer-to-peer register alternatives.

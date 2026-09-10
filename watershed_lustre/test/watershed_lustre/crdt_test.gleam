@@ -27,6 +27,7 @@ import watershed/crdt_js.{
 }
 import watershed/g_counter_kernel
 import watershed/g_set_kernel
+import watershed/lww_register_kernel as lww
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/p2p.{type P2pError}
@@ -56,6 +57,12 @@ type Msg {
   TwoPhase(two_p_set_kernel.TwoPSetEvent)
   Observed(or_set_kernel.OrSetEvent)
   Outcome(Result(Nil, P2pError))
+}
+
+type LwwMsg {
+  LwwSubscribed(Subscription)
+  LwwChanged(lww.LwwRegisterEvent)
+  LwwOutcome(Result(Nil, P2pError))
 }
 
 // ── Harness ──────────────────────────────────────────────────────────────────
@@ -103,10 +110,10 @@ fn solo_document(
   ))
 }
 
-/// Perform an effect, routing every dispatched `Msg` into `sink` (prepended, so
+/// Perform an effect, routing every dispatched message into `sink` (prepended, so
 /// `messages` reverses it back to arrival order). The non-`dispatch` actions are
 /// unused by this module's effects.
-fn run(effect_to_run: Effect(Msg), sink: Cell(List(Msg))) -> Nil {
+fn run(effect_to_run: Effect(msg), sink: Cell(List(msg))) -> Nil {
   effect.perform(
     effect_to_run,
     fn(msg) {
@@ -121,11 +128,11 @@ fn run(effect_to_run: Effect(Msg), sink: Cell(List(Msg))) -> Nil {
   )
 }
 
-fn new_sink() -> Cell(List(Msg)) {
+fn new_sink() -> Cell(List(msg)) {
   transport_js.new_cell([])
 }
 
-fn messages(sink: Cell(List(Msg))) -> List(Msg) {
+fn messages(sink: Cell(List(msg))) -> List(msg) {
   list.reverse(transport_js.get_cell(sink))
 }
 
@@ -495,6 +502,150 @@ pub fn g_counter_subscribe_delivers_events_and_refuses_a_decrement_test() -> Pro
   let assert Error(_) = crdt_js.g_counter_increment(counter, -1)
   let assert Ok(5) = crdt_js.g_counter_value(counter)
 
+  promise.resolve(Nil)
+}
+
+pub fn lww_register_crdt_subscription_and_write_are_lazy_test() -> Promise(Nil) {
+  let assert Ok(document) = solo_document(p2p.lww_register_root())
+  let register = crdt_js.root(document)
+  let sink = new_sink()
+  let subscription =
+    crdt.subscribe_lww_register(register, LwwSubscribed, LwwChanged)
+  let assert [] = messages(sink)
+  let assert Ok(Nil) = crdt_js.lww_register_set(register, "before")
+  use _ <- promise.await(flush())
+  let assert [] = messages(sink)
+
+  run(subscription, sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwSubscribed(held)] = messages(sink)
+  transport_js.set_cell(sink, [])
+
+  let write =
+    crdt.perform(
+      fn() { crdt_js.lww_register_set(register, "after") },
+      LwwOutcome,
+    )
+  let assert Ok("before") = crdt_js.lww_register_value(register)
+  let assert [] = messages(sink)
+  run(write, sink)
+  let assert Ok("after") = crdt_js.lww_register_value(register)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwChanged(lww.Changed("before", "after")), LwwOutcome(Ok(Nil))] =
+    messages(sink)
+  run(crdt.unsubscribe(held), sink)
+  promise.resolve(Nil)
+}
+
+pub fn lww_register_same_value_write_dispatches_outcome_without_change_test() -> Promise(
+  Nil,
+) {
+  let assert Ok(document) = solo_document(p2p.lww_register_root())
+  let register = crdt_js.root(document)
+  let sink = new_sink()
+  let subscription =
+    crdt.subscribe_lww_register(register, LwwSubscribed, LwwChanged)
+  let assert [] = messages(sink)
+  run(subscription, sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwSubscribed(held)] = messages(sink)
+  transport_js.set_cell(sink, [])
+
+  run(
+    crdt.perform(
+      fn() { crdt_js.lww_register_set(register, "ready") },
+      LwwOutcome,
+    ),
+    sink,
+  )
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwChanged(lww.Changed("", "ready")), LwwOutcome(Ok(Nil))] =
+    messages(sink)
+  transport_js.set_cell(sink, [])
+
+  let write =
+    crdt.perform(
+      fn() { crdt_js.lww_register_set(register, "ready") },
+      LwwOutcome,
+    )
+  let assert [] = messages(sink)
+  run(write, sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwOutcome(Ok(Nil))] = messages(sink)
+  let assert Ok("ready") = crdt_js.lww_register_value(register)
+  run(crdt.unsubscribe(held), sink)
+  promise.resolve(Nil)
+}
+
+pub fn lww_register_unsubscribe_stops_later_events_test() -> Promise(Nil) {
+  let assert Ok(document) = solo_document(p2p.lww_register_root())
+  let register = crdt_js.root(document)
+  let sink = new_sink()
+  let subscription =
+    crdt.subscribe_lww_register(register, LwwSubscribed, LwwChanged)
+  let assert [] = messages(sink)
+  run(subscription, sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwSubscribed(held)] = messages(sink)
+  transport_js.set_cell(sink, [])
+
+  let unsubscribe = crdt.unsubscribe(held)
+  let assert [] = messages(sink)
+  run(
+    crdt.perform(
+      fn() { crdt_js.lww_register_set(register, "subscribed") },
+      LwwOutcome,
+    ),
+    sink,
+  )
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwChanged(lww.Changed("", "subscribed")), LwwOutcome(Ok(Nil))] =
+    messages(sink)
+  transport_js.set_cell(sink, [])
+
+  run(unsubscribe, sink)
+  let assert [] = messages(sink)
+  run(
+    crdt.perform(
+      fn() { crdt_js.lww_register_set(register, "unsubscribed") },
+      LwwOutcome,
+    ),
+    sink,
+  )
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwOutcome(Ok(Nil))] = messages(sink)
+  let assert Ok("unsubscribed") = crdt_js.lww_register_value(register)
+  promise.resolve(Nil)
+}
+
+pub fn lww_register_write_defers_error_outcome_test() -> Promise(Nil) {
+  let assert Ok(document) = solo_document(p2p.lww_register_root())
+  let lifecycle = new_sink()
+  attached(document, lifecycle)
+  use _ <- promise.await(flush())
+  run(crdt.close(find_connection(messages(lifecycle))), lifecycle)
+  let assert True = crdt_js.is_closed(document)
+
+  let register = crdt_js.root(document)
+  let sink = new_sink()
+  let write =
+    crdt.perform(
+      fn() { crdt_js.lww_register_set(register, "refused") },
+      LwwOutcome,
+    )
+  let assert [] = messages(sink)
+  run(write, sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwOutcome(Error(p2p.DocumentClosed))] = messages(sink)
   promise.resolve(Nil)
 }
 

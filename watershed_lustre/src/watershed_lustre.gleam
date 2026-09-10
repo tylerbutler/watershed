@@ -42,11 +42,11 @@ import watershed/summary_policy
 
 import watershed.{
   type Claims, type Document, type GCounter, type GSet, type JsonOt,
-  type MvRegister, type OrMap, type OrSet, type OrderedCollection, type PactMap,
-  type PnCounter, type RegisterCollection, type Ripple, type SharedCounter,
-  type SharedDirectory, type SharedMap, type SharedRichText, type SharedSequence,
-  type SharedText, type TaskManager, type TwoPSet, type TypedMap,
-  type WatershedConfig, WatershedConfig,
+  type LwwRegister, type MvRegister, type OrMap, type OrSet,
+  type OrderedCollection, type PactMap, type PnCounter, type RegisterCollection,
+  type Ripple, type SharedCounter, type SharedDirectory, type SharedMap,
+  type SharedRichText, type SharedSequence, type SharedText, type TaskManager,
+  type TwoPSet, type TypedMap, type WatershedConfig, WatershedConfig,
 }
 import watershed/claim_outcome_js
 import watershed/claims_kernel
@@ -55,6 +55,7 @@ import watershed/directory_kernel
 import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/json_ot_kernel
+import watershed/lww_register_kernel
 import watershed/map_kernel
 import watershed/mv_register_kernel
 import watershed/or_map_kernel.{type OrMapMode}
@@ -241,6 +242,19 @@ pub fn subscribe_two_p_set(
   use dispatch <- effect.from
   let _ =
     watershed.subscribe_two_p_set(two_p_set, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
+}
+
+/// Subscribe to local and remote visible-value changes in an LWW register.
+pub fn subscribe_lww_register(
+  register: LwwRegister,
+  to_msg to_msg: fn(lww_register_kernel.LwwRegisterEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  let _ =
+    watershed.subscribe_lww_register(register, fn(event) {
       queue_microtask(fn() { dispatch(to_msg(event)) })
     })
   Nil
@@ -738,6 +752,19 @@ pub fn ensure_g_counter(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   watershed.ensure_g_counter(document, typed_map, field, fn(result) {
+    queue_microtask(fn() { dispatch(to_msg(result)) })
+  })
+}
+
+/// Make sure that an LWW register exists under `field`.
+pub fn ensure_lww_register(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+  to_msg to_msg: fn(Result(LwwRegister, String)) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed.ensure_lww_register(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }
