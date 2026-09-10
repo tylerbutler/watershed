@@ -27,12 +27,14 @@ import spillway/types
 
 import lattice_core/replica_id
 import lattice_core/version_vector
+import lattice_registers/lww_register
 import lattice_sequence/sequence
 import lattice_text/text
 import watershed/channel
 import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/g_counter_kernel
+import watershed/lww_register_kernel
 import watershed/map_kernel.{Clear, Delete, Set}
 import watershed/or_map_kernel
 import watershed/ordered_collection_kernel
@@ -56,6 +58,91 @@ fn parse(text: String, decoder: decode.Decoder(t)) -> t {
     Ok(value) -> value
     Error(_) -> panic as { "fixture failed to decode: " <> text }
   }
+}
+
+pub fn lww_register_operation_round_trips_test() -> Nil {
+  let assert Ok(#(_, _, operation)) =
+    lww_register_kernel.p2p_set(
+      lww_register_kernel.new(replica_id.new("writer")),
+      "hello",
+      100,
+    )
+  let encoded = wire_op.encode_lww_register_envelope("cell", operation)
+  json.parse(json.to_string(encoded), wire_op.lww_register_envelope_decoder())
+  |> expect.to_equal(Ok(#("cell", operation)))
+  json.parse(
+    wire_op.encode_lww_register_operation(operation) |> json.to_string,
+    decode.field("type", decode.string, decode.success),
+  )
+  |> expect.to_equal(Ok("lwwRegisterSet"))
+}
+
+pub fn lww_register_wire_rejects_malformed_fragments_and_intent_test() -> Nil {
+  let valid =
+    "{\"type\":\"lww_register\",\"v\":2,\"state\":{\"value\":\"hello\",\"timestamp\":100,\"replica_id\":\"writer\"}}"
+  let malformed = [
+    "not json",
+    string.replace(valid, "\"v\":2", "\"v\":1"),
+    string.replace(valid, "\"v\":2", "\"v\":3"),
+    string.replace(valid, "lww_register", "mv_register"),
+    string.replace(valid, "\"timestamp\":100", "\"timestamp\":-1"),
+    string.replace(valid, "\"timestamp\":100", "\"timestamp\":9007199254740992"),
+    string.replace(valid, "\"timestamp\":100", "\"timestamp\":1.5"),
+    string.replace(valid, "\"timestamp\":100", "\"timestamp\":\"100\""),
+    string.replace(valid, "\"value\":\"hello\"", "\"value\":7"),
+    string.replace(valid, ",\"replica_id\":\"writer\"", ""),
+    string.replace(valid, "\"replica_id\":\"writer\"", "\"replica_id\":null"),
+    string.replace(valid, "\"replica_id\":\"writer\"", "\"replica_id\":\"\""),
+  ]
+  malformed
+  |> list.each(fn(delta) {
+    json.parse(
+      lww_write_json("lwwRegisterSet", "hello", 100, json.string(delta)),
+      wire_op.lww_register_operation_decoder(),
+    )
+    |> result.is_error
+    |> expect.to_be_true()
+    json.parse(delta, channel.snapshot_decoder(channel.LwwRegisterChannel))
+    |> result.is_error
+    |> expect.to_be_true()
+  })
+  [
+    lww_write_json("set", "hello", 100, json.string(valid)),
+    lww_write_json("lwwRegisterSet", "wrong", 100, json.string(valid)),
+    lww_write_json("lwwRegisterSet", "hello", 101, json.string(valid)),
+    lww_write_json("lwwRegisterSet", "hello", -1, json.string(valid)),
+    lww_write_json("lwwRegisterSet", "hello", 100, json.object([])),
+    "{\"type\":\"lwwRegisterSet\",\"value\":\"hello\",\"timestamp\":100}",
+    lww_write_json(
+      "lwwRegisterSet",
+      "",
+      0,
+      json.string(
+        lww_register.to_json(lww_register.new("", 0, replica_id.new("")))
+        |> json.to_string,
+      ),
+    ),
+  ]
+  |> list.each(fn(encoded) {
+    json.parse(encoded, wire_op.lww_register_operation_decoder())
+    |> result.is_error
+    |> expect.to_be_true()
+  })
+}
+
+fn lww_write_json(
+  tag: String,
+  value: String,
+  timestamp: Int,
+  delta: json.Json,
+) -> String {
+  json.object([
+    #("type", json.string(tag)),
+    #("value", json.string(value)),
+    #("timestamp", json.int(timestamp)),
+    #("delta", delta),
+  ])
+  |> json.to_string
 }
 
 fn test_client() -> types.Client {

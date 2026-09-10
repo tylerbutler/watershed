@@ -1556,6 +1556,7 @@ pub fn subscribe_counter(
 ) -> Subject(counter_kernel.CounterEvent) {
   use event <- subscribe_narrowed(counter.runtime, counter.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.CounterEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.PnCounterEvent(_)
@@ -1656,6 +1657,7 @@ pub fn subscribe_json_ot(
 ) -> Subject(json_ot_kernel.JsonOtEvent) {
   use event <- subscribe_narrowed(json_ot.runtime, json_ot.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.JsonOtEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -1762,6 +1764,7 @@ pub fn subscribe_rich_text(
 ) -> Subject(rich_text_kernel.RichTextEvent) {
   use event <- subscribe_narrowed(rich_text.runtime, rich_text.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.RichTextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -1887,6 +1890,7 @@ pub fn or_map_keys(or_map: OrMap) -> List(String) {
 pub fn subscribe_or_map(or_map: OrMap) -> Subject(or_map_kernel.OrMapEvent) {
   use event <- subscribe_narrowed(or_map.runtime, or_map.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.OrMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -1988,6 +1992,7 @@ pub fn or_set_values(or_set: OrSet) -> List(String) {
 pub fn subscribe_or_set(or_set: OrSet) -> Subject(or_set_kernel.OrSetEvent) {
   use event <- subscribe_narrowed(or_set.runtime, or_set.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.OrSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2148,6 +2153,7 @@ pub fn subscribe_sequence(
 ) -> Subject(sequence_kernel.SequenceEvent) {
   use event <- subscribe_narrowed(sequence.runtime, sequence.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.SequenceEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2377,6 +2383,7 @@ pub fn text_anchor_from_json(
 pub fn subscribe_text(text: SharedText) -> Subject(text_kernel.TextEvent) {
   use event <- subscribe_narrowed(text.runtime, text.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.TextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2509,6 +2516,7 @@ pub fn subscribe_register_collection(
 ) -> Subject(register_collection_kernel.RegisterEvent) {
   use event <- subscribe_narrowed(collection.runtime, collection.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.RegisterCollectionEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2603,6 +2611,7 @@ pub fn has_claim(claims: Claims, key: String) -> Bool {
 pub fn subscribe_claims(claims: Claims) -> Subject(claims_kernel.ClaimEvent) {
   use event <- subscribe_narrowed(claims.runtime, claims.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.ClaimsEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2709,6 +2718,7 @@ pub fn subscribe_task_manager(
 ) -> Subject(task_manager_kernel.TaskManagerEvent) {
   use event <- subscribe_narrowed(manager.runtime, manager.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.TaskManagerEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2811,6 +2821,7 @@ pub fn g_set_values(set: GSet) -> List(String) {
 pub fn subscribe_g_set(set: GSet) -> Subject(g_set_kernel.GSetEvent) {
   use event <- subscribe_narrowed(set.runtime, set.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.GSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2931,6 +2942,7 @@ pub fn subscribe_two_p_set(
 ) -> Subject(two_p_set_kernel.TwoPSetEvent) {
   use event <- subscribe_narrowed(set.runtime, set.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.TwoPSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3145,6 +3157,7 @@ pub fn subscribe_directory(
 ) -> Subject(directory_kernel.DirectoryEvent) {
   use event <- subscribe_narrowed(directory.runtime, directory.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.DirectoryEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3247,6 +3260,7 @@ pub fn subscribe_g_counter(
 ) -> Subject(g_counter_kernel.GCounterEvent) {
   use event <- subscribe_narrowed(g_counter.runtime, g_counter.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.GCounterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_)
     | channel.MvRegisterEvent(_)
@@ -3340,6 +3354,7 @@ pub fn subscribe_pn_counter(
 ) -> Subject(pn_counter_kernel.PnCounterEvent) {
   use event <- subscribe_narrowed(pn_counter.runtime, pn_counter.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.PnCounterEvent(inner) -> Some(inner)
     channel.MvRegisterEvent(_) -> None
     channel.GCounterEvent(_) -> None
@@ -3462,6 +3477,7 @@ pub fn subscribe_pact_map(
 ) -> Subject(pact_map_kernel.PactMapEvent) {
   use event <- subscribe_narrowed(pact_map.runtime, pact_map.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.PactMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3713,6 +3729,7 @@ pub fn subscribe_ordered_collection(
 ) -> Subject(ordered_collection_kernel.OrderedEvent) {
   use event <- subscribe_narrowed(collection.runtime, collection.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.OrderedCollectionEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -4003,6 +4020,7 @@ pub fn size(map: SharedMap) -> Int {
 pub fn subscribe(map: SharedMap) -> Subject(map_kernel.MapEvent) {
   use event <- subscribe_narrowed(map.runtime, map.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.MapEvent(inner) -> Some(inner)
     channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
@@ -4043,6 +4061,7 @@ fn field_change(
   event: ChannelEvent,
 ) -> Option(FieldChange(a)) {
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.MapEvent(map_kernel.ValueChanged(k, previous, value, local))
       if k == key
     ->
@@ -4271,6 +4290,7 @@ pub fn subscribe_mv_register(
 ) -> Subject(mv_register_kernel.MvRegisterEvent) {
   use event <- subscribe_narrowed(mv_register.runtime, mv_register.address)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.MvRegisterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_) -> None
     channel.GCounterEvent(_) -> None

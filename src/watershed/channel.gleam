@@ -23,11 +23,13 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 
 import lattice_core/replica_id
 import lattice_counters/g_counter.{type GCounter}
 import lattice_counters/pn_counter.{type PNCounter}
 import lattice_maps/or_map.{type ORMap}
+import lattice_registers/lww_register.{type LWWRegister}
 import lattice_registers/mv_register.{type MVRegister}
 import lattice_sequence/sequence.{type Sequence}
 import lattice_sets/g_set.{type GSet}
@@ -42,6 +44,8 @@ import watershed/g_set_kernel
 import watershed/handle
 import watershed/json_ot
 import watershed/json_ot_kernel
+import watershed/lww_clock
+import watershed/lww_register_kernel
 import watershed/map_kernel
 import watershed/mv_register_kernel
 import watershed/or_map_kernel
@@ -66,6 +70,7 @@ pub type ChannelType {
   CounterChannel
   PnCounterChannel
   GCounterChannel
+  LwwRegisterChannel
   MvRegisterChannel
   OrMapChannel
   OrSetChannel
@@ -90,6 +95,7 @@ pub type ChannelInit {
   InitCounter
   InitPnCounter
   InitGCounter
+  InitLwwRegister
   InitMvRegister
   InitOrMap(mode: or_map_kernel.OrMapMode)
   InitOrSet
@@ -113,6 +119,7 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     CounterChannel -> wire.channel_type_counter
     PnCounterChannel -> wire.channel_type_pn_counter
     GCounterChannel -> wire.channel_type_g_counter
+    LwwRegisterChannel -> wire.channel_type_lww_register
     MvRegisterChannel -> wire.channel_type_mv_register
     OrMapChannel -> wire.channel_type_or_map
     OrSetChannel -> wire.channel_type_or_set
@@ -137,6 +144,7 @@ pub fn string_to_type(raw: String) -> Result(ChannelType, Nil) {
     _ if raw == wire.channel_type_counter -> Ok(CounterChannel)
     _ if raw == wire.channel_type_pn_counter -> Ok(PnCounterChannel)
     _ if raw == wire.channel_type_g_counter -> Ok(GCounterChannel)
+    _ if raw == wire.channel_type_lww_register -> Ok(LwwRegisterChannel)
     _ if raw == wire.channel_type_mv_register -> Ok(MvRegisterChannel)
     _ if raw == wire.channel_type_or_map -> Ok(OrMapChannel)
     _ if raw == wire.channel_type_or_set -> Ok(OrSetChannel)
@@ -164,6 +172,7 @@ pub fn init_type(init: ChannelInit) -> ChannelType {
     InitCounter -> CounterChannel
     InitPnCounter -> PnCounterChannel
     InitGCounter -> GCounterChannel
+    InitLwwRegister -> LwwRegisterChannel
     InitMvRegister -> MvRegisterChannel
     InitOrMap(_) -> OrMapChannel
     InitOrSet -> OrSetChannel
@@ -188,6 +197,7 @@ pub fn supports_p2p(channel_type: ChannelType) -> Bool {
   case channel_type {
     PnCounterChannel
     | GCounterChannel
+    | LwwRegisterChannel
     | MvRegisterChannel
     | OrMapChannel
     | OrSetChannel
@@ -214,6 +224,7 @@ pub type ChannelState {
   CounterState(counter_kernel.CounterState)
   PnCounterState(pn_counter_kernel.PnCounterState)
   GCounterState(g_counter_kernel.GCounterState)
+  LwwRegisterState(lww_register_kernel.LwwRegisterState)
   MvRegisterState(mv_register_kernel.MvRegisterState)
   OrMapState(or_map_kernel.OrMapState)
   OrSetState(or_set_kernel.OrSetState)
@@ -238,6 +249,7 @@ pub type ChannelOperation {
   CounterOperation(counter_kernel.CounterOperation)
   PnCounterOperation(pn_counter_kernel.PnCounterOperation)
   GCounterOperation(g_counter_kernel.GCounterOperation)
+  LwwRegisterOperation(lww_register_kernel.LwwRegisterOperation)
   MvRegisterOperation(mv_register_kernel.MvRegisterOperation)
   OrMapOperation(or_map_kernel.OrMapOperation)
   OrSetOperation(or_set_kernel.OrSetOperation)
@@ -274,6 +286,7 @@ pub type ChannelOperation {
 pub type P2pEdit {
   PnCounterEdit(amount: Int)
   GCounterIncrementEdit(amount: Int)
+  LwwRegisterSetEdit(value: String, timestamp: Int)
   MvRegisterEdit(value: String)
   OrMapIncrementEdit(key: String, amount: Int)
   OrMapSetRegisterEdit(key: String, value: String, timestamp: Int)
@@ -299,6 +312,7 @@ pub type ChannelEvent {
   CounterEvent(counter_kernel.CounterEvent)
   PnCounterEvent(pn_counter_kernel.PnCounterEvent)
   GCounterEvent(g_counter_kernel.GCounterEvent)
+  LwwRegisterEvent(lww_register_kernel.LwwRegisterEvent)
   MvRegisterEvent(mv_register_kernel.MvRegisterEvent)
   OrMapEvent(or_map_kernel.OrMapEvent)
   OrSetEvent(or_set_kernel.OrSetEvent)
@@ -324,6 +338,7 @@ pub type Snapshot {
   CounterSnapshot(value: Int)
   PnCounterSnapshot(state: PNCounter)
   GCounterSnapshot(state: GCounter)
+  LwwRegisterSnapshot(state: LWWRegister(String))
   MvRegisterSnapshot(state: MVRegister(String))
   OrMapSnapshot(mode: or_map_kernel.OrMapMode, state: ORMap)
   OrSetSnapshot(state: ORSet(String))
@@ -363,6 +378,7 @@ pub type LocalOperationMeta {
   CounterMeta(message_id: Int)
   PnCounterMeta(message_id: Int)
   GCounterMeta(message_id: Int)
+  LwwRegisterMeta(message_id: Int)
   MvRegisterMeta(message_id: Int)
   OrMapMeta(message_id: Int)
   OrSetMeta(message_id: Int)
@@ -439,6 +455,7 @@ pub fn channel_type(state: ChannelState) -> ChannelType {
     CounterState(_) -> CounterChannel
     PnCounterState(_) -> PnCounterChannel
     GCounterState(_) -> GCounterChannel
+    LwwRegisterState(_) -> LwwRegisterChannel
     MvRegisterState(_) -> MvRegisterChannel
     OrMapState(_) -> OrMapChannel
     OrSetState(_) -> OrSetChannel
@@ -463,6 +480,7 @@ pub fn snapshot_type(snapshot: Snapshot) -> ChannelType {
     CounterSnapshot(_) -> CounterChannel
     PnCounterSnapshot(_) -> PnCounterChannel
     GCounterSnapshot(_) -> GCounterChannel
+    LwwRegisterSnapshot(_) -> LwwRegisterChannel
     MvRegisterSnapshot(_) -> MvRegisterChannel
     OrMapSnapshot(_, _) -> OrMapChannel
     OrSetSnapshot(_) -> OrSetChannel
@@ -494,6 +512,8 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
     InitPnCounter ->
       PnCounterState(pn_counter_kernel.new(replica_id.new(replica)))
     InitGCounter -> GCounterState(g_counter_kernel.new(replica_id.new(replica)))
+    InitLwwRegister ->
+      LwwRegisterState(lww_register_kernel.new(replica_id.new(replica)))
     InitMvRegister ->
       MvRegisterState(mv_register_kernel.new(replica_id.new(replica)))
     InitOrMap(mode) ->
@@ -520,9 +540,8 @@ pub fn new(init: ChannelInit, replica replica: String) -> ChannelState {
 /// `from_sequenced`. The contents of the snapshot become the confirmed state,
 /// and nothing is pending.
 ///
-/// The error arm reports an OR-map snapshot whose value mode does not agree
-/// with the mode that the snapshot names. Every other channel kind always
-/// succeeds.
+/// The error arm reports invalid snapshot metadata or an OR-map value mode
+/// that does not agree with the mode that the snapshot names.
 pub fn from_snapshot(
   snapshot: Snapshot,
   replica replica: String,
@@ -552,6 +571,10 @@ pub fn from_snapshot(
           replica_id.new(replica),
         )),
       )
+    LwwRegisterSnapshot(state) ->
+      lww_register_kernel.from_sequenced(state, replica_id.new(replica))
+      |> result.map(LwwRegisterState)
+      |> result.map_error(lww_register_error_detail)
     OrMapSnapshot(mode, state) ->
       case or_map_kernel.from_sequenced(state, mode, replica_id.new(replica)) {
         Ok(kernel) -> Ok(OrMapState(kernel))
@@ -621,6 +644,7 @@ pub fn snapshot(state: ChannelState) -> Snapshot {
     CounterState(kernel) -> CounterSnapshot(counter_sequenced_value(kernel))
     PnCounterState(kernel) -> PnCounterSnapshot(kernel.sequenced)
     GCounterState(kernel) -> GCounterSnapshot(kernel.sequenced)
+    LwwRegisterState(kernel) -> LwwRegisterSnapshot(kernel.sequenced)
     MvRegisterState(kernel) -> MvRegisterSnapshot(kernel.sequenced)
     OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.sequenced)
     OrSetState(kernel) -> OrSetSnapshot(kernel.sequenced)
@@ -667,6 +691,7 @@ pub fn attach_snapshot(state: ChannelState) -> Snapshot {
     CounterState(kernel) -> CounterSnapshot(kernel.value)
     PnCounterState(kernel) -> PnCounterSnapshot(kernel.optimistic)
     GCounterState(kernel) -> GCounterSnapshot(kernel.optimistic)
+    LwwRegisterState(kernel) -> LwwRegisterSnapshot(kernel.optimistic)
     MvRegisterState(kernel) -> MvRegisterSnapshot(kernel.optimistic)
     OrMapState(kernel) -> OrMapSnapshot(kernel.mode, kernel.optimistic)
     OrSetState(kernel) -> OrSetSnapshot(kernel.optimistic)
@@ -716,6 +741,15 @@ pub fn attach_state(
   replica replica: String,
 ) -> ChannelState {
   case state {
+    LwwRegisterState(kernel) ->
+      LwwRegisterState(
+        lww_register_kernel.LwwRegisterState(
+          ..kernel,
+          replica_id: replica_id.new(replica),
+          sequenced: kernel.optimistic,
+          pending: [],
+        ),
+      )
     OrMapState(kernel) -> OrMapState(or_map_kernel.promote_attach(kernel))
     OrSetState(kernel) -> OrSetState(or_set_kernel.promote_attach(kernel))
     GSetState(kernel) -> GSetState(g_set_kernel.promote_attach(kernel))
@@ -782,6 +816,15 @@ pub fn apply_remote(
       let #(kernel, events) = g_counter_kernel.apply_remote(kernel, operation)
       Ok(#(GCounterState(kernel), list.map(events, GCounterEvent), []))
     }
+    LwwRegisterState(kernel), LwwRegisterOperation(operation) ->
+      case lww_register_kernel.apply_remote(kernel, operation) {
+        Ok(#(kernel, events)) ->
+          Ok(
+            #(LwwRegisterState(kernel), list.map(events, LwwRegisterEvent), []),
+          )
+        Error(error) ->
+          Error(CorruptRemoteOperation(lww_register_error_detail(error)))
+      }
     MvRegisterState(kernel), MvRegisterOperation(operation) -> {
       let #(kernel, events) = mv_register_kernel.apply_remote(kernel, operation)
       Ok(#(MvRegisterState(kernel), list.map(events, MvRegisterEvent), []))
@@ -903,7 +946,8 @@ pub fn apply_remote(
       let #(kernel, events) = text_kernel.apply_remote(kernel, operation)
       Ok(#(TextState(kernel), list.map(events, TextEvent), []))
     }
-    MapState(_), _
+    LwwRegisterState(_), _
+    | MapState(_), _
     | CounterState(_), _
     | PnCounterState(_), _
     | GCounterState(_), _
@@ -998,6 +1042,7 @@ pub fn applies_own_on_sequence(state: ChannelState) -> Bool {
     | CounterState(_)
     | PnCounterState(_)
     | GCounterState(_)
+    | LwwRegisterState(_)
     | MvRegisterState(_)
     | OrMapState(_)
     | OrSetState(_)
@@ -1053,6 +1098,7 @@ pub fn on_leave(
     | CounterState(_)
     | PnCounterState(_)
     | GCounterState(_)
+    | LwwRegisterState(_)
     | MvRegisterState(_)
     | OrMapState(_)
     | OrSetState(_)
@@ -1134,6 +1180,8 @@ pub fn ack_local(
           Error(UnexpectedAck("counter ack has pn-counter metadata"))
         GCounterMeta(_) ->
           Error(UnexpectedAck("counter ack has g-counter metadata"))
+        LwwRegisterMeta(_) ->
+          Error(UnexpectedAck("counter ack has LWW register metadata"))
         MvRegisterMeta(_) ->
           Error(UnexpectedAck("counter ack has mv-register metadata"))
         OrMapMeta(_) -> Error(UnexpectedAck("counter ack has or-map metadata"))
@@ -1170,6 +1218,8 @@ pub fn ack_local(
           Error(UnexpectedAck("pn-counter ack has counter metadata"))
         GCounterMeta(_) ->
           Error(UnexpectedAck("pn-counter ack has g-counter metadata"))
+        LwwRegisterMeta(_) ->
+          Error(UnexpectedAck("pn-counter ack has LWW register metadata"))
         MvRegisterMeta(_) ->
           Error(UnexpectedAck("pn-counter ack has mv-register metadata"))
         OrMapMeta(_) ->
@@ -1205,7 +1255,7 @@ pub fn ack_local(
         NoMeta
         | CounterMeta(_)
         | PnCounterMeta(_)
-        | GCounterMeta(_)
+        | LwwRegisterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1216,6 +1266,35 @@ pub fn ack_local(
         | SequenceMeta(_)
         | TextMeta(_) ->
           Error(UnexpectedAck("g-counter ack is missing its local message id"))
+      }
+    LwwRegisterState(kernel), LwwRegisterOperation(operation) ->
+      case local {
+        LwwRegisterMeta(message_id) ->
+          lww_register_kernel.ack_local_with_message_id(
+            kernel,
+            operation,
+            message_id,
+          )
+          |> result.map(fn(kernel) { #(LwwRegisterState(kernel), [], None) })
+          |> result.map_error(fn(error) {
+            UnexpectedAck(lww_register_error_detail(error))
+          })
+        NoMeta
+        | CounterMeta(_)
+        | PnCounterMeta(_)
+        | GCounterMeta(_)
+        | MvRegisterMeta(_)
+        | OrMapMeta(_)
+        | OrSetMeta(_)
+        | GSetMeta(_)
+        | TwoPSetMeta(_)
+        | TaskManagerMeta(_)
+        | DirectoryMeta(_)
+        | SequenceMeta(_)
+        | TextMeta(_) ->
+          Error(UnexpectedAck(
+            "LWW register ack is missing its local message id",
+          ))
       }
     MvRegisterState(kernel), MvRegisterOperation(operation) ->
       case local {
@@ -1236,6 +1315,7 @@ pub fn ack_local(
         | CounterMeta(_)
         | PnCounterMeta(_)
         | GCounterMeta(_)
+        | LwwRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
         | GSetMeta(_)
@@ -1269,6 +1349,7 @@ pub fn ack_local(
         | CounterMeta(_)
         | PnCounterMeta(_)
         | GCounterMeta(_)
+        | LwwRegisterMeta(_)
         | MvRegisterMeta(_) ->
           Error(UnexpectedAck("or-map ack is missing its local message id"))
         OrSetMeta(_) -> Error(UnexpectedAck("or-map ack has or-set metadata"))
@@ -1302,6 +1383,7 @@ pub fn ack_local(
         | CounterMeta(_)
         | PnCounterMeta(_)
         | GCounterMeta(_)
+        | LwwRegisterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | GSetMeta(_)
@@ -1331,6 +1413,7 @@ pub fn ack_local(
         | CounterMeta(_)
         | PnCounterMeta(_)
         | GCounterMeta(_)
+        | LwwRegisterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1360,6 +1443,7 @@ pub fn ack_local(
         | CounterMeta(_)
         | PnCounterMeta(_)
         | GCounterMeta(_)
+        | LwwRegisterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1424,6 +1508,7 @@ pub fn ack_local(
         | CounterMeta(_)
         | PnCounterMeta(_)
         | GCounterMeta(_)
+        | LwwRegisterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1469,6 +1554,7 @@ pub fn ack_local(
         | CounterMeta(_)
         | PnCounterMeta(_)
         | GCounterMeta(_)
+        | LwwRegisterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1519,6 +1605,7 @@ pub fn ack_local(
         | CounterMeta(_)
         | PnCounterMeta(_)
         | GCounterMeta(_)
+        | LwwRegisterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1560,6 +1647,7 @@ pub fn ack_local(
         | CounterMeta(_)
         | PnCounterMeta(_)
         | GCounterMeta(_)
+        | LwwRegisterMeta(_)
         | MvRegisterMeta(_)
         | OrMapMeta(_)
         | OrSetMeta(_)
@@ -1570,7 +1658,8 @@ pub fn ack_local(
         | SequenceMeta(_) ->
           Error(UnexpectedAck("text ack is missing its local message id"))
       }
-    MapState(_), _
+    LwwRegisterState(_), _
+    | MapState(_), _
     | CounterState(_), _
     | PnCounterState(_), _
     | GCounterState(_), _
@@ -1600,6 +1689,21 @@ fn g_counter_edit_detail(error: g_counter_kernel.EditError) -> String {
   case error {
     g_counter_kernel.NegativeIncrement(amount) ->
       "g-counter increment must not be negative, got " <> int.to_string(amount)
+  }
+}
+
+/// Describe a register failure for the channel and runtime error paths.
+pub fn lww_register_error_detail(
+  error: lww_register_kernel.KernelError,
+) -> String {
+  case error {
+    lww_register_kernel.UnexpectedAck(_, detail)
+    | lww_register_kernel.UnexpectedRollback(_, detail)
+    | lww_register_kernel.InvalidState(detail) -> detail
+    lww_register_kernel.Clock(lww_clock.InvalidTimestamp(value)) ->
+      "invalid LWW timestamp: " <> int.to_string(value)
+    lww_register_kernel.Clock(lww_clock.ClockExhausted) -> "LWW clock exhausted"
+    lww_register_kernel.DecodeError(_) -> "invalid LWW register JSON"
   }
 }
 
@@ -1643,6 +1747,18 @@ pub fn apply_p2p_local(
   edit: P2pEdit,
 ) -> Result(#(ChannelState, List(ChannelEvent), ChannelOperation), ChannelError) {
   case state, edit {
+    LwwRegisterState(kernel), LwwRegisterSetEdit(value, timestamp) ->
+      lww_register_kernel.p2p_set(kernel, value, timestamp)
+      |> result.map(fn(result) {
+        #(
+          LwwRegisterState(result.0),
+          list.map(result.1, LwwRegisterEvent),
+          LwwRegisterOperation(result.2),
+        )
+      })
+      |> result.map_error(fn(error) {
+        UnsupportedP2p(lww_register_error_detail(error))
+      })
     MvRegisterState(kernel), MvRegisterEdit(value) -> {
       let #(kernel, events, operation) =
         mv_register_kernel.p2p_set(kernel, value)
@@ -1822,7 +1938,8 @@ pub fn apply_p2p_local(
         TextOperation(operation),
       ))
     }
-    MapState(_), _
+    LwwRegisterState(_), _
+    | MapState(_), _
     | CounterState(_), _
     | PnCounterState(_), _
     | GCounterState(_), _
@@ -1913,6 +2030,14 @@ pub fn merge_p2p_snapshot(
       let #(kernel, events) = mv_register_kernel.p2p_merge(kernel, other)
       Ok(#(MvRegisterState(kernel), list.map(events, MvRegisterEvent)))
     }
+    LwwRegisterState(kernel), LwwRegisterSnapshot(other) ->
+      lww_register_kernel.p2p_merge(kernel, other)
+      |> result.map(fn(pair) {
+        #(LwwRegisterState(pair.0), list.map(pair.1, LwwRegisterEvent))
+      })
+      |> result.map_error(fn(error) {
+        CorruptRemoteOperation(lww_register_error_detail(error))
+      })
     OrMapState(kernel), OrMapSnapshot(_, other) ->
       case or_map_kernel.p2p_merge(kernel, other) {
         Ok(#(kernel, events)) ->
@@ -1939,7 +2064,8 @@ pub fn merge_p2p_snapshot(
       let #(kernel, events) = text_kernel.p2p_merge(kernel, other)
       Ok(#(TextState(kernel), list.map(events, TextEvent)))
     }
-    MapState(_), _
+    LwwRegisterState(_), _
+    | MapState(_), _
     | CounterState(_), _
     | PnCounterState(_), _
     | GCounterState(_), _
@@ -2013,6 +2139,7 @@ pub fn take_outbound(
     | CounterState(_)
     | PnCounterState(_)
     | GCounterState(_)
+    | LwwRegisterState(_)
     | MvRegisterState(_)
     | OrMapState(_)
     | OrSetState(_)
@@ -2053,6 +2180,7 @@ pub fn same_shape(ours: ChannelOperation, echoed: ChannelOperation) -> Bool {
       GCounterOperation(g_counter_kernel.Increment(echoed_amount, echoed_delta))
     -> our_amount == echoed_amount && our_delta == echoed_delta
     MvRegisterOperation(ours), MvRegisterOperation(echoed) -> ours == echoed
+    LwwRegisterOperation(ours), LwwRegisterOperation(echoed) -> ours == echoed
     OrMapOperation(ours), OrMapOperation(echoed) ->
       same_or_map_shape(ours, echoed)
     OrSetOperation(ours), OrSetOperation(echoed) ->
@@ -2085,7 +2213,8 @@ pub fn same_shape(ours: ChannelOperation, echoed: ChannelOperation) -> Bool {
       ours.reference_sequence_number == echoed.reference_sequence_number
       && ours.delta == echoed.delta
     TextOperation(ours), TextOperation(echoed) -> same_text_shape(ours, echoed)
-    MapOperation(_), _
+    LwwRegisterOperation(_), _
+    | MapOperation(_), _
     | CounterOperation(_), _
     | PnCounterOperation(_), _
     | GCounterOperation(_), _
@@ -2310,6 +2439,7 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     PnCounterSnapshot(ours), PnCounterSnapshot(echoed) -> ours == echoed
     GCounterSnapshot(ours), GCounterSnapshot(echoed) -> ours == echoed
     MvRegisterSnapshot(ours), MvRegisterSnapshot(echoed) -> ours == echoed
+    LwwRegisterSnapshot(ours), LwwRegisterSnapshot(echoed) -> ours == echoed
     OrMapSnapshot(our_mode, ours), OrMapSnapshot(echoed_mode, echoed) ->
       our_mode == echoed_mode && ours == echoed
     OrSetSnapshot(ours), OrSetSnapshot(echoed) -> ours == echoed
@@ -2339,7 +2469,8 @@ pub fn same_snapshot(ours: Snapshot, echoed: Snapshot) -> Bool {
     RichTextSnapshot(ours), RichTextSnapshot(echoed) -> ours == echoed
     TextSummary(ours), TextSummary(echoed) ->
       same_json_value(text.to_json(ours), text.to_json(echoed))
-    MapSnapshot(_), _
+    LwwRegisterSnapshot(_), _
+    | MapSnapshot(_), _
     | CounterSnapshot(_), _
     | PnCounterSnapshot(_), _
     | GCounterSnapshot(_), _
@@ -2393,6 +2524,7 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
     PnCounterState(_) -> []
     GCounterState(_) -> []
     MvRegisterState(_) -> []
+    LwwRegisterState(_) -> []
     OrMapState(kernel) ->
       case kernel.mode {
         or_map_kernel.TallyMode -> []
@@ -2477,6 +2609,7 @@ pub fn encode_snapshot(snapshot: Snapshot) -> Json {
     PnCounterSnapshot(state) -> pn_counter.to_json(state)
     GCounterSnapshot(state) -> g_counter.to_json(state)
     MvRegisterSnapshot(state) -> mv_register.to_json(state)
+    LwwRegisterSnapshot(state) -> lww_register.to_json(state)
     OrMapSnapshot(_, state) -> or_map.to_json(state)
     OrSetSnapshot(state) -> or_set.to_json(state)
     GSetSnapshot(state) -> g_set.to_json(state)
@@ -2534,6 +2667,8 @@ pub fn snapshot_decoder(channel_type: ChannelType) -> Decoder(Snapshot) {
     PnCounterChannel -> pn_counter_snapshot_decoder()
     GCounterChannel -> g_counter_snapshot_decoder()
     MvRegisterChannel -> mv_register_snapshot_decoder()
+    LwwRegisterChannel ->
+      lww_register_decoder() |> decode.map(LwwRegisterSnapshot)
     OrMapChannel -> or_map_snapshot_decoder()
     OrSetChannel -> or_set_snapshot_decoder()
     GSetChannel -> g_set_snapshot_decoder()
@@ -2906,6 +3041,31 @@ fn mv_register_snapshot_decoder() -> Decoder(Snapshot) {
   case mv_register_kernel.decode_crdt(json.to_string(value)) {
     Ok(state) -> decode.success(MvRegisterSnapshot(state))
     Error(_) -> decode.failure(MapSnapshot([]), "MvRegisterSnapshot")
+  }
+}
+
+/// Decode the current register envelope without Lattice's legacy author
+/// default. Only the empty bottom state may have an empty author.
+pub fn lww_register_decoder() -> Decoder(LWWRegister(String)) {
+  use tag <- decode.field("type", decode.string)
+  use version <- decode.field("v", decode.int)
+  use value <- decode.then(decode.at(["state", "value"], decode.string))
+  use timestamp <- decode.then(decode.at(["state", "timestamp"], decode.int))
+  use author <- decode.then(decode.at(["state", "replica_id"], decode.string))
+  let valid =
+    tag == "lww_register"
+    && version == 2
+    && timestamp >= 0
+    && timestamp <= lww_clock.max_safe_timestamp
+    && { author != "" || { value == "" && timestamp == 0 } }
+  case valid {
+    True ->
+      decode.success(lww_register.new(value, timestamp, replica_id.new(author)))
+    False ->
+      decode.failure(
+        lww_register.new("", 0, replica_id.new("")),
+        "version 2 LWW register with a safe timestamp and winner author",
+      )
   }
 }
 

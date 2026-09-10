@@ -142,6 +142,74 @@ pub fn delta_round_trips_test() -> Nil {
   Nil
 }
 
+pub fn lww_register_delta_and_snapshot_round_trip_test() -> Nil {
+  let #(state, operation) =
+    authored(channel.InitLwwRegister, channel.LwwRegisterSetEdit("hello", 100))
+  round_trip(crdt_wire.Hello(
+    "watershed-lww-register-1",
+    channel.LwwRegisterChannel,
+  ))
+  round_trip(crdt_wire.Delta(
+    crdt_wire.MessageId(replica, 1),
+    "root",
+    channel.LwwRegisterChannel,
+    operation,
+  ))
+  round_trip(
+    crdt_wire.State([
+      crdt_wire.ChannelEntry(
+        crdt_wire.ChannelDescriptor("root", channel.LwwRegisterChannel, ""),
+        channel.snapshot(state),
+      ),
+    ]),
+  )
+  round_trip(
+    crdt_wire.ChannelAnnounce(crdt_wire.ChannelEntry(
+      crdt_wire.ChannelDescriptor(
+        "replica-a:1",
+        channel.LwwRegisterChannel,
+        replica,
+      ),
+      channel.snapshot(channel.new(channel.InitLwwRegister, replica: replica)),
+    )),
+  )
+  Nil
+}
+
+pub fn lww_register_malformed_wire_is_an_invalid_envelope_test() -> Nil {
+  let #(state, operation) =
+    authored(channel.InitLwwRegister, channel.LwwRegisterSetEdit("hello", 100))
+  let delta =
+    wrap(crdt_wire.Delta(
+      crdt_wire.MessageId(replica, 1),
+      "root",
+      channel.LwwRegisterChannel,
+      operation,
+    ))
+    |> crdt_wire.envelope_to_string
+  let assert Error(p2p.InvalidEnvelope(_, _)) =
+    crdt_wire.decode_envelope(
+      tamper(delta, "\"timestamp\":100", "\"timestamp\":101"),
+      limits(),
+    )
+  let snapshot =
+    wrap(
+      crdt_wire.State([
+        crdt_wire.ChannelEntry(
+          crdt_wire.ChannelDescriptor("root", channel.LwwRegisterChannel, ""),
+          channel.snapshot(state),
+        ),
+      ]),
+    )
+    |> crdt_wire.envelope_to_string
+  let assert Error(p2p.InvalidEnvelope(_, _)) =
+    crdt_wire.decode_envelope(
+      tamper(snapshot, "\"timestamp\":100", "\"timestamp\":-1"),
+      limits(),
+    )
+  Nil
+}
+
 pub fn state_request_round_trips_test() -> Nil {
   round_trip(crdt_wire.StateRequest)
   Nil

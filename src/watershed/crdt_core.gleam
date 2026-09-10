@@ -1230,6 +1230,7 @@ fn init_for(snapshot: Snapshot) -> Result(ChannelInit, P2pError) {
     channel.PnCounterSnapshot(_) -> Ok(channel.InitPnCounter)
     channel.GCounterSnapshot(_) -> Ok(channel.InitGCounter)
     channel.MvRegisterSnapshot(_) -> Ok(channel.InitMvRegister)
+    channel.LwwRegisterSnapshot(_) -> Ok(channel.InitLwwRegister)
     channel.OrMapSnapshot(mode, _) -> Ok(channel.InitOrMap(mode))
     channel.OrSetSnapshot(_) -> Ok(channel.InitOrSet)
     channel.GSetSnapshot(_) -> Ok(channel.InitGSet)

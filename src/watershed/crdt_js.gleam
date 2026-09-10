@@ -2973,6 +2973,7 @@ pub fn subscribe_pn_counter(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.PnCounterEvent(inner) -> Some(inner)
     channel.GCounterEvent(_) -> None
     channel.MvRegisterEvent(_) -> None
@@ -3002,6 +3003,7 @@ pub fn subscribe_or_map(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.OrMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3031,6 +3033,7 @@ pub fn subscribe_or_set(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.OrSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3060,6 +3063,7 @@ pub fn subscribe_g_set(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.GSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3089,6 +3093,7 @@ pub fn subscribe_two_p_set(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.TwoPSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3118,6 +3123,7 @@ pub fn subscribe_sequence(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.SequenceEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3147,6 +3153,7 @@ pub fn subscribe_text(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.TextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3368,6 +3375,7 @@ pub fn subscribe_mv_register(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.MvRegisterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_)
     | channel.GCounterEvent(_)
@@ -3411,7 +3419,8 @@ pub fn g_counter_value(
     channel.GCounterState(kernel) -> g_counter_kernel.value(kernel)
     channel.PnCounterState(_) -> 0
     channel.MvRegisterState(_) -> 0
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.OrMapState(_)
     | channel.OrSetState(_)
@@ -3439,6 +3448,7 @@ pub fn subscribe_g_counter(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
+    channel.LwwRegisterEvent(_) -> None
     channel.GCounterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_)
     | channel.MvRegisterEvent(_)
@@ -3497,7 +3507,8 @@ pub fn pn_counter_value(
     channel.PnCounterState(kernel) -> pn_counter_kernel.value(kernel)
     channel.GCounterState(_) -> 0
     channel.MvRegisterState(_) -> 0
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.OrMapState(_)
     | channel.OrSetState(_)
@@ -3558,7 +3569,8 @@ pub fn or_map_value(
   use state <- read(handle, channel.OrMapChannel)
   case state {
     channel.OrMapState(kernel) -> or_map_kernel.get(kernel, key)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)
@@ -3604,7 +3616,8 @@ pub fn or_map_entries(
   use state <- read(handle, channel.OrMapChannel)
   case state {
     channel.OrMapState(kernel) -> or_map_kernel.entries(kernel)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)
@@ -3651,7 +3664,8 @@ pub fn or_set_contains(
   use state <- read(handle, channel.OrSetChannel)
   case state {
     channel.OrSetState(kernel) -> or_set_kernel.contains(kernel, element)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)
@@ -3679,7 +3693,8 @@ pub fn or_set_values(
   use state <- read(handle, channel.OrSetChannel)
   case state {
     channel.OrSetState(kernel) -> or_set_kernel.values(kernel)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)
@@ -3718,7 +3733,8 @@ pub fn g_set_contains(
   use state <- read(handle, channel.GSetChannel)
   case state {
     channel.GSetState(kernel) -> g_set_kernel.contains(kernel, element)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)
@@ -3746,7 +3762,8 @@ pub fn g_set_values(
   use state <- read(handle, channel.GSetChannel)
   case state {
     channel.GSetState(kernel) -> g_set_kernel.values(kernel)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)
@@ -3793,7 +3810,8 @@ pub fn two_p_set_contains(
   use state <- read(handle, channel.TwoPSetChannel)
   case state {
     channel.TwoPSetState(kernel) -> two_p_set_kernel.contains(kernel, element)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)
@@ -3821,7 +3839,8 @@ pub fn two_p_set_values(
   use state <- read(handle, channel.TwoPSetChannel)
   case state {
     channel.TwoPSetState(kernel) -> two_p_set_kernel.values(kernel)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)
@@ -3886,7 +3905,8 @@ pub fn sequence_values(
   use state <- read(handle, channel.SequenceChannel)
   case state {
     channel.SequenceState(kernel) -> sequence_kernel.values(kernel)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)
@@ -3952,7 +3972,8 @@ pub fn text_value(
   use state <- read(handle, channel.TextChannel)
   case state {
     channel.TextState(kernel) -> text_kernel.value(kernel)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)
@@ -3981,7 +4002,8 @@ pub fn text_length(
   use state <- read(handle, channel.TextChannel)
   case state {
     channel.TextState(kernel) -> text_kernel.length(kernel)
-    channel.MapState(_)
+    channel.LwwRegisterState(_)
+    | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
     | channel.GCounterState(_)

@@ -38,6 +38,7 @@ import watershed/g_set_kernel
 import watershed/handle
 import watershed/json_ot
 import watershed/json_ot_kernel
+import watershed/lww_register_kernel
 import watershed/map_kernel
 import watershed/mv_register_kernel
 import watershed/or_map_kernel
@@ -173,6 +174,7 @@ pub type CoreError {
   /// negative. This is incorrect use of the API, and the caller can retry. The
   /// document is not corrupt, and no operation goes out.
   GCounterOperationFailed(address: String, detail: String)
+  LwwRegisterOperationFailed(address: String, detail: String)
   /// The kernel refused a local text edit, because the insert index is out of
   /// bounds, or the delete range or replace range is invalid. This is
   /// incorrect use of the API, and the caller can retry. The document is not
@@ -1907,6 +1909,64 @@ pub fn g_counter_increment(
         channel.GCounterMeta(message_id),
       ))
     }
+  }
+}
+
+/// Set the register optimistically. The timestamp is a wall-clock input;
+/// the kernel advances it past every timestamp that this writer has seen.
+pub fn lww_register_set(
+  core: Core,
+  address: String,
+  value: String,
+  timestamp: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use located <- result.try(locate_channel(core, address))
+  let state = case located {
+    Detached(state) | Attached(state) -> state
+  }
+  use kernel <- result.try(case state {
+    channel.LwwRegisterState(kernel) -> Ok(kernel)
+    other ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.LwwRegisterChannel,
+        actual: channel.channel_type(other),
+      ))
+  })
+  use #(kernel, events, operation, message_id) <- result.try(
+    lww_register_kernel.set(kernel, value, timestamp)
+    |> result.map_error(fn(error) {
+      LwwRegisterOperationFailed(
+        address,
+        channel.lww_register_error_detail(error),
+      )
+    }),
+  )
+  let state = channel.LwwRegisterState(kernel)
+  let events =
+    list.map(events, fn(event) { #(address, channel.LwwRegisterEvent(event)) })
+  case located {
+    Detached(_) -> Ok(#(put_detached_channel(core, address, state), events, []))
+    Attached(_) ->
+      Ok(stamp_attached(
+        core,
+        address,
+        state,
+        events,
+        channel.LwwRegisterOperation(operation),
+        channel.LwwRegisterMeta(message_id),
+      ))
+  }
+}
+
+pub fn lww_register_value(core: Core, address: String) -> Result(String, Nil) {
+  case find_channel(core, address) {
+    Ok(channel.LwwRegisterState(kernel)) ->
+      Ok(lww_register_kernel.value(kernel))
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 

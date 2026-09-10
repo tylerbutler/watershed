@@ -12,6 +12,7 @@ import watershed/crdt_sim
 import watershed/crdt_wire
 import watershed/g_counter_kernel
 import watershed/g_set_kernel
+import watershed/lww_register_kernel
 import watershed/mv_register_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
@@ -25,6 +26,127 @@ import watershed/two_p_set_kernel
 const room = "trip-planning"
 
 const compatibility = "watershed-crdt-1"
+
+fn lww_document(replica: String) -> crdt_core.Document {
+  let assert Ok(document) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: "watershed-lww-register-1",
+      replica: replica,
+      session: replica <> "-session",
+      root: channel.InitLwwRegister,
+    ))
+  document
+}
+
+pub fn lww_register_digest_preserves_winner_timestamp_and_author_test() -> Nil {
+  crdt_core.digest(lww_document("a"))
+  |> expect.to_equal(crdt_core.digest(lww_document("b")))
+  let assert Ok(#(a, _)) =
+    crdt_core.edit(
+      lww_document("a"),
+      root(),
+      channel.LwwRegisterSetEdit("same", 100),
+    )
+  let assert Ok(#(b, _)) =
+    crdt_core.edit(
+      lww_document("b"),
+      root(),
+      channel.LwwRegisterSetEdit("same", 100),
+    )
+  let assert Ok(#(later, outcome)) =
+    crdt_core.edit(a, root(), channel.LwwRegisterSetEdit("same", 101))
+  outcome.events |> expect.to_equal([])
+  list.length(outcome.broadcast) |> expect.to_equal(1)
+  crdt_core.digest(a) |> expect.to_not_equal(crdt_core.digest(b))
+  crdt_core.digest(a) |> expect.to_not_equal(crdt_core.digest(later))
+  let assert Ok(#(a, outcome)) =
+    crdt_core.receive(a, crdt_core.envelope(b, crdt_core.state_message(b)))
+  outcome.events |> expect.to_equal([])
+  crdt_core.digest(a) |> expect.to_equal(crdt_core.digest(b))
+  let assert Ok(#(b, outcome)) =
+    crdt_core.receive(
+      b,
+      crdt_core.envelope(later, crdt_core.state_message(later)),
+    )
+  outcome.events |> expect.to_equal([])
+  crdt_core.digest(b) |> expect.to_equal(crdt_core.digest(later))
+}
+
+pub fn lww_register_three_peer_anti_entropy_repairs_dropped_metadata_test() -> Nil {
+  let mesh =
+    crdt_sim.new()
+    |> crdt_sim.add("a", lww_document("a"))
+    |> crdt_sim.add("b", lww_document("b"))
+    |> crdt_sim.add("c", lww_document("c"))
+    |> crdt_sim.connect("a", "b")
+    |> crdt_sim.connect("b", "c")
+    |> crdt_sim.settle
+    |> crdt_sim.edit("a", root(), channel.LwwRegisterSetEdit("left", 100))
+    |> crdt_sim.edit("c", root(), channel.LwwRegisterSetEdit("right", 100))
+  let #(mesh, original) = crdt_sim.take_queue(mesh)
+  let mesh =
+    crdt_sim.enqueue(mesh, list.append(list.reverse(original), original))
+    |> crdt_sim.settle
+    |> crdt_sim.gossip_state
+    |> crdt_sim.gossip_state
+  converged(mesh)
+  view(crdt_sim.document(mesh, "b")) |> expect.to_equal([#(root(), "right")])
+  let before = crdt_core.digest(crdt_sim.document(mesh, "b"))
+  let mesh =
+    crdt_sim.edit(mesh, "a", root(), channel.LwwRegisterSetEdit("right", 0))
+  let #(mesh, _dropped) = crdt_sim.take_queue(mesh)
+  crdt_core.digest(crdt_sim.document(mesh, "a")) |> expect.to_not_equal(before)
+  let mesh = mesh |> crdt_sim.gossip_state |> crdt_sim.gossip_state
+  converged(mesh)
+  let mesh = mesh |> crdt_sim.enqueue(original) |> crdt_sim.settle
+  converged(mesh)
+  view(crdt_sim.document(mesh, "c")) |> expect.to_equal([#(root(), "right")])
+}
+
+pub fn lww_register_persistence_import_restores_clock_and_local_writer_test() -> Nil {
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      lww_document("z"),
+      root(),
+      channel.LwwRegisterSetEdit("saved", 100),
+    )
+  let assert Ok(#(source, created)) =
+    crdt_core.create_channel(source, channel.InitLwwRegister)
+  let assert [descriptor] = created.created
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      source,
+      descriptor.address,
+      channel.LwwRegisterSetEdit("child", 200),
+    )
+  let assert Ok(#(loaded, _)) =
+    crdt_core.import_snapshot(
+      lww_document("a"),
+      crdt_core.canonical_json(source),
+    )
+  crdt_core.digest(loaded) |> expect.to_equal(crdt_core.digest(source))
+  let assert Ok(#(loaded, _)) =
+    crdt_core.import_snapshot(loaded, crdt_core.canonical_json(source))
+  view(loaded)
+  |> expect.to_equal([#("root", "saved"), #(descriptor.address, "child")])
+  [#(root(), 101), #(descriptor.address, 201)]
+  |> list.each(fn(entry) {
+    let assert Ok(#(edited, outcome)) =
+      crdt_core.edit(loaded, entry.0, channel.LwwRegisterSetEdit("new", 0))
+    let assert [
+      crdt_wire.Delta(_, _, _, channel.LwwRegisterOperation(operation)),
+    ] = outcome.broadcast
+    let lww_register_kernel.Set(_, timestamp, _) = operation
+    timestamp |> expect.to_equal(entry.1)
+    let assert Ok(channel.LwwRegisterState(kernel)) =
+      crdt_core.channel_state(edited, entry.0)
+    lww_register_kernel.summary(kernel)
+    |> json.to_string
+    |> string.contains("\"replica_id\":\"a\"")
+    |> expect.to_be_true()
+  })
+}
 
 fn mv_document(replica: String) -> crdt_core.Document {
   let assert Ok(document) =
@@ -157,6 +279,7 @@ fn render(state: channel.ChannelState) -> String {
       int.to_string(g_counter_kernel.value(kernel))
     channel.MvRegisterState(kernel) ->
       string.join(mv_register_kernel.values(kernel), ",")
+    channel.LwwRegisterState(kernel) -> lww_register_kernel.value(kernel)
     channel.OrSetState(kernel) -> string.join(or_set_kernel.values(kernel), ",")
     channel.GSetState(kernel) -> string.join(g_set_kernel.values(kernel), ",")
     channel.TwoPSetState(kernel) ->

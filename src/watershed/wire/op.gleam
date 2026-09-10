@@ -34,6 +34,7 @@ import lattice_counters/g_counter
 import lattice_counters/pn_counter
 import lattice_maps/crdt
 import lattice_maps/or_map
+import lattice_registers/lww_register
 import lattice_registers/mv_register
 import lattice_sequence/sequence
 import lattice_sets/g_set
@@ -48,6 +49,7 @@ import watershed/g_counter_kernel.{type GCounterOperation}
 import watershed/g_set_kernel.{type GSetOperation}
 import watershed/json_ot
 import watershed/json_ot_kernel.{type JsonOtWireOperation, JsonOtWireOperation}
+import watershed/lww_register_kernel.{type LwwRegisterOperation}
 import watershed/map_kernel.{type MapOperation, Clear, Delete, Set}
 import watershed/mv_register_kernel.{type MvRegisterOperation}
 import watershed/or_map_kernel.{type OrMapOperation}
@@ -170,6 +172,8 @@ pub fn encode_channel_operation(operation: channel.ChannelOperation) -> Json {
       encode_g_counter_operation(operation)
     channel.MvRegisterOperation(operation) ->
       encode_mv_register_operation(operation)
+    channel.LwwRegisterOperation(operation) ->
+      encode_lww_register_operation(operation)
     channel.OrMapOperation(operation) -> encode_or_map_operation(operation)
     channel.OrSetOperation(operation) -> encode_or_set_operation(operation)
     channel.GSetOperation(operation) -> encode_g_set_operation(operation)
@@ -209,6 +213,9 @@ pub fn channel_operation_decoder(
       g_counter_operation_decoder() |> decode.map(channel.GCounterOperation)
     channel.MvRegisterChannel ->
       mv_register_operation_decoder() |> decode.map(channel.MvRegisterOperation)
+    channel.LwwRegisterChannel ->
+      lww_register_operation_decoder()
+      |> decode.map(channel.LwwRegisterOperation)
     channel.OrMapChannel ->
       or_map_operation_decoder() |> decode.map(channel.OrMapOperation)
     channel.OrSetChannel ->
@@ -336,6 +343,82 @@ pub fn encode_g_counter_operation(operation: GCounterOperation) -> Json {
         #("amount", json.int(amount)),
         #("delta", g_counter_delta_json(delta)),
       ])
+  }
+}
+
+pub fn encode_lww_register_envelope(
+  address: String,
+  operation: LwwRegisterOperation,
+) -> Json {
+  encode_channel_envelope(address, channel.LwwRegisterOperation(operation))
+}
+
+pub fn encode_lww_register_operation(operation: LwwRegisterOperation) -> Json {
+  let lww_register_kernel.Set(value, timestamp, delta) = operation
+  json.object([
+    #("type", json.string("lwwRegisterSet")),
+    #("value", json.string(value)),
+    #("timestamp", json.int(timestamp)),
+    #("delta", json.string(lww_register.to_json(delta) |> json.to_string)),
+  ])
+}
+
+pub fn decode_lww_register_envelope(
+  contents: Dynamic,
+) -> Result(#(String, LwwRegisterOperation), List(decode.DecodeError)) {
+  decode.run(contents, lww_register_envelope_decoder())
+}
+
+pub fn lww_register_envelope_decoder() -> Decoder(
+  #(String, LwwRegisterOperation),
+) {
+  use address <- decode.field("address", decode.string)
+  use operation <- decode.field("contents", lww_register_operation_decoder())
+  decode.success(#(address, operation))
+}
+
+pub fn lww_register_operation_decoder() -> Decoder(LwwRegisterOperation) {
+  use tag <- decode.field("type", decode.string)
+  use value <- decode.field("value", decode.string)
+  use timestamp <- decode.field("timestamp", decode.int)
+  use encoded <- decode.field("delta", decode.string)
+  case json.parse(encoded, channel.lww_register_decoder()) {
+    Ok(delta) -> {
+      let operation = lww_register_kernel.Set(value, timestamp, delta)
+      // Structural equality checks both intent fields without exposing the
+      // opaque register. A write cannot use the empty bottom author.
+      let metadata = {
+        use stamp <- decode.then(decode.at(["state", "timestamp"], decode.int))
+        use author <- decode.then(decode.at(
+          ["state", "replica_id"],
+          decode.string,
+        ))
+        decode.success(#(stamp, author))
+      }
+      case json.parse(encoded, metadata) {
+        Ok(#(stamp, author))
+          if tag == "lwwRegisterSet" && author != "" && timestamp == stamp
+        ->
+          case lww_register.value(delta) == value {
+            True -> decode.success(operation)
+            False -> decode.failure(operation, "matching LWW register value")
+          }
+        _ ->
+          decode.failure(
+            operation,
+            "matching LWW register timestamp and author",
+          )
+      }
+    }
+    Error(_) ->
+      decode.failure(
+        lww_register_kernel.Set(
+          value,
+          timestamp,
+          lww_register.new("", 0, replica_id.new("")),
+        ),
+        "LwwRegisterDelta",
+      )
   }
 }
 
