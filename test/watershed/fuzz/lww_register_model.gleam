@@ -107,11 +107,16 @@ fn apply_stashed(
 ) -> #(kernel.LwwRegisterState, LwwCommand) {
   let command = case command.timestamp, command.delta {
     None, None -> {
-      // Generated stashes have no captured operation. Prepare one once in a
-      // discarded state, then replay it through the real stash lifecycle.
-      let #(_, routed) = submit(state, command, meta)
-      let assert Some(prepared) = routed
-      prepared
+      // A generated stash uses its wall clock as the original timestamp.
+      // Reconstruct its delta without consulting the replay state.
+      let timestamp = command.wall_clock
+      let delta =
+        lww_register.new(
+          command.value,
+          timestamp,
+          replica_id.new(client_author(meta.client_id)),
+        )
+      LwwCommand(..command, timestamp: Some(timestamp), delta: Some(delta))
     }
     Some(_), Some(_) -> command
     _, _ -> panic as "stashed LWW-register command has incomplete metadata"

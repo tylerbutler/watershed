@@ -254,6 +254,13 @@ pub fn lww_register_causal_scripts_test() -> Nil {
     ),
     #(
       [
+        ClientOperation(1, write("new", 100)),
+        StashedOperation(1, write("old", 7)),
+      ],
+      Observation("new", 100, "client-1"),
+    ),
+    #(
+      [
         StashedOperation(1, replay),
         ClientOperation(1, write("after", 0)),
       ],
@@ -264,7 +271,7 @@ pub fn lww_register_causal_scripts_test() -> Nil {
         StashedOperation(1, write("", 0)),
         StashedOperation(1, write("", 0)),
       ],
-      Observation("", 2, "client-1"),
+      Observation("", 0, "client-1"),
     ),
     #(
       [
@@ -301,10 +308,44 @@ pub fn lww_register_causal_scripts_test() -> Nil {
   )
 }
 
+pub fn lww_register_generated_stash_preserves_captured_timestamp_test() -> Nil {
+  let model = lww_register_model.model()
+  let assert Some(apply_stashed) = model.capabilities.apply_stashed
+  [7, 0]
+  |> list.each(fn(captured_timestamp) {
+    let generated = write("old", captured_timestamp)
+    let #(state, _) =
+      model.submit(model.init(1), write("new", 100), SubmitMeta(1, 0))
+    state.last_seen |> expect.to_equal(100)
+
+    let #(state, routed) = apply_stashed(state, generated, SubmitMeta(1, 0))
+    routed.timestamp |> expect.to_equal(Some(captured_timestamp))
+    routed.wall_clock |> expect.to_equal(captured_timestamp)
+    routed.value |> expect.to_equal("old")
+    let assert Some(delta) = routed.delta
+    let assert Ok(original) =
+      kernel.from_sequenced(delta, replica_id.new("observer"))
+    model.observe(original)
+    |> expect.to_equal(Observation("old", captured_timestamp, "client-1"))
+    let assert Ok(pending) = list.last(state.pending)
+    pending.operation
+    |> expect.to_equal(kernel.Set("old", captured_timestamp, delta))
+    list.length(state.pending) |> expect.to_equal(2)
+    state.last_seen |> expect.to_equal(100)
+    model.observe(state)
+    |> expect.to_equal(Observation("new", 100, "client-1"))
+    json.parse(
+      model.operation_to_json(routed) |> json.to_string,
+      model.operation_decoder,
+    )
+    |> expect.to_equal(Ok(routed))
+  })
+}
+
 pub fn lww_register_stash_replays_the_original_command_test() -> Nil {
   let model = lww_register_model.model()
   let assert Some(apply_stashed) = model.capabilities.apply_stashed
-  let original = captured_write(model, 1, "old", 7)
+  let original = LwwCommand(..captured_write(model, 1, "old", 7), wall_clock: 0)
   let #(state, _) =
     model.submit(model.init(1), write("new", 100), SubmitMeta(1, 0))
   let #(state, replayed) = apply_stashed(state, original, SubmitMeta(1, 0))
@@ -319,6 +360,7 @@ pub fn lww_register_script_json_round_trip_test() -> Nil {
   let model = lww_register_model.model()
   let script = [
     StashedOperation(1, captured_write(model, 1, "old", 7)),
+    StashedOperation(1, write("generated", 3)),
     ClientOperation(2, write("new", 0)),
     Disconnect(1),
     Reconnect(1),
