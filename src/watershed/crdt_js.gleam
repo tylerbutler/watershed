@@ -3406,6 +3406,7 @@ pub fn lww_register_set(
   handle: Handle(schema.LwwRegisterChannel),
   value: String,
 ) -> Result(Nil, P2pError) {
+  use _ <- result.try(read(handle, channel.LwwRegisterChannel, fn(_) { Nil }))
   mutate(
     handle,
     channel.LwwRegisterSetEdit(value, transport_js.now_milliseconds()),

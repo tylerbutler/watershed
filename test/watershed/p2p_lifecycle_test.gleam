@@ -327,6 +327,20 @@ pub fn lww_register_wrong_kind_and_closed_document_fail_test() -> Nil {
       root: p2p.g_counter_root(),
       signaling: p2p_fake.signaling(world),
     ))
+  let statuses = transport_js.new_cell([])
+  let counter_connection =
+    crdt_js.attach_with_rtc(
+      counter_document,
+      on_ready: fn(_) { Nil },
+      on_status: fn(status) {
+        transport_js.set_cell(statuses, [
+          status,
+          ..transport_js.get_cell(statuses)
+        ])
+      },
+      rtc: p2p_fake.rtc(world, crdt_js.replica_id(counter_document)),
+    )
+  p2p_fake.settle(world)
   let mislabelled = mislabelled_lww_root(counter_document)
   let counter_digest = crdt_js.digest(counter_document)
   crdt_js.lww_register_value(mislabelled)
@@ -337,11 +351,30 @@ pub fn lww_register_wrong_kind_and_closed_document_fail_test() -> Nil {
       channel.GCounterChannel,
     )),
   )
-  let assert Error(p2p.InvalidEnvelope(_, _)) =
-    crdt_js.lww_register_set(mislabelled, "wrong kind")
+  transport_js.set_cell(statuses, [])
+  crdt_js.lww_register_set(mislabelled, "wrong kind")
+  |> expect.to_equal(
+    Error(p2p.ChannelTypeMismatch(
+      "root",
+      channel.LwwRegisterChannel,
+      channel.GCounterChannel,
+    )),
+  )
+  transport_js.get_cell(statuses)
+  |> expect.to_equal([
+    crdt_js.Failed(p2p.ChannelTypeMismatch(
+      "root",
+      channel.LwwRegisterChannel,
+      channel.GCounterChannel,
+    )),
+  ])
   crdt_js.digest(counter_document) |> expect.to_equal(counter_digest)
   crdt_js.g_counter_value(crdt_js.root(counter_document))
   |> expect.to_equal(Ok(0))
+  crdt_js.close(counter_connection)
+  crdt_js.lww_register_set(mislabelled, "closed wrong kind")
+  |> expect.to_equal(Error(p2p.DocumentClosed))
+  crdt_js.digest(counter_document) |> expect.to_equal(counter_digest)
   let document = lww_document(world, clock, "a")
   let root = crdt_js.root(document)
   let assert Ok(counter) =
