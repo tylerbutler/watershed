@@ -3,14 +3,373 @@ import gleam/list
 import gleam/string
 import startest/expect
 
+@target(javascript)
+import gleam/dynamic/decode
+@target(javascript)
+import gleam/result
 import watershed/channel
+@target(javascript)
+import watershed/crdt_js
+@target(javascript)
+import watershed/crdt_wire
 import watershed/g_set_kernel
+@target(javascript)
+import watershed/lww_register_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
+@target(javascript)
+import watershed/p2p
+@target(javascript)
+import watershed/p2p_fake
 import watershed/pn_counter_kernel
+@target(javascript)
+import watershed/relay_fake
+@target(javascript)
+import watershed/schema
 import watershed/sequence_kernel
 import watershed/text_kernel
+@target(javascript)
+import watershed/transport_js
 import watershed/two_p_set_kernel
+
+// The JavaScript caller can bypass the phantom type on this existing export.
+@target(javascript)
+@external(javascript, "./crdt_js.mjs", "root")
+fn mislabelled_lww_root(
+  document: crdt_js.CrdtDocument(schema.GCounterChannel),
+) -> crdt_js.Handle(schema.LwwRegisterChannel)
+
+@target(javascript)
+fn lww_config(
+  world: p2p_fake.World,
+  clock: relay_fake.Clock,
+  label: String,
+) -> crdt_js.Config(schema.LwwRegisterChannel) {
+  crdt_js.config(
+    room_id: "lww-lifecycle",
+    replica_label: label,
+    compatibility_tag: "lww-register/v1",
+    root: p2p.lww_register_root(),
+    signaling: p2p_fake.signaling(world),
+  )
+  |> crdt_js.with_scheduler(relay_fake.scheduler(clock))
+}
+
+@target(javascript)
+fn lww_document(
+  world: p2p_fake.World,
+  clock: relay_fake.Clock,
+  label: String,
+) -> crdt_js.CrdtDocument(schema.LwwRegisterChannel) {
+  let assert Ok(document) =
+    crdt_js.new_document(lww_config(world, clock, label))
+  document
+}
+
+@target(javascript)
+fn attach_lww(
+  world: p2p_fake.World,
+  document: crdt_js.CrdtDocument(schema.LwwRegisterChannel),
+) -> #(
+  crdt_js.CrdtConnection,
+  transport_js.Cell(List(Result(String, p2p.P2pError))),
+) {
+  let readies = transport_js.new_cell([])
+  let connection =
+    crdt_js.attach_with_rtc(
+      document,
+      on_ready: fn(outcome) {
+        let value =
+          result.try(outcome, fn(ready) {
+            crdt_js.lww_register_value(crdt_js.root(ready))
+          })
+        transport_js.set_cell(readies, [value, ..transport_js.get_cell(readies)])
+      },
+      on_status: fn(_) { Nil },
+      rtc: p2p_fake.rtc(world, crdt_js.replica_id(document)),
+    )
+  #(connection, readies)
+}
+
+@target(javascript)
+fn converge_lww(
+  world: p2p_fake.World,
+  clock: relay_fake.Clock,
+  documents: List(crdt_js.CrdtDocument(schema.LwwRegisterChannel)),
+  fuel: Int,
+) -> Nil {
+  p2p_fake.settle(world)
+  case list.map(documents, crdt_js.digest) |> list.unique, fuel {
+    [_], _ -> Nil
+    _, 0 -> panic as "LWW register peers did not converge"
+    _, _ -> {
+      relay_fake.advance(clock, crdt_js.default_anti_entropy_milliseconds)
+      converge_lww(world, clock, documents, fuel - 1)
+    }
+  }
+}
+
+@target(javascript)
+fn lww_metadata(
+  document: crdt_js.CrdtDocument(schema.LwwRegisterChannel),
+) -> #(Int, String) {
+  let assert Ok(snapshot) = crdt_js.export_snapshot(document)
+  let metadata = {
+    use timestamp <- decode.field("timestamp", decode.int)
+    use author <- decode.field("replica_id", decode.string)
+    decode.success(#(timestamp, author))
+  }
+  let assert Ok([metadata]) =
+    json.parse(
+      json.to_string(snapshot),
+      decode.at(
+        ["channels"],
+        decode.list(decode.at(["snapshot", "state"], metadata)),
+      ),
+    )
+  metadata
+}
+
+@target(javascript)
+pub fn lww_register_public_mesh_converges_concurrent_writes_test() -> Nil {
+  let world = p2p_fake.new_world()
+  let clock = relay_fake.new_clock()
+  let a = lww_document(world, clock, "a")
+  let b = lww_document(world, clock, "b")
+  let #(a_connection, a_readies) = attach_lww(world, a)
+  let #(b_connection, b_readies) = attach_lww(world, b)
+  p2p_fake.settle(world)
+  transport_js.get_cell(a_readies) |> expect.to_equal([Ok("")])
+  transport_js.get_cell(b_readies) |> expect.to_equal([Ok("")])
+
+  let before = transport_js.now_milliseconds()
+  let assert Ok(Nil) = crdt_js.lww_register_set(crdt_js.root(a), "left")
+  let assert Ok(Nil) = crdt_js.lww_register_set(crdt_js.root(b), "right")
+  crdt_js.lww_register_value(crdt_js.root(a)) |> expect.to_equal(Ok("left"))
+  crdt_js.lww_register_value(crdt_js.root(b)) |> expect.to_equal(Ok("right"))
+  { lww_metadata(a).0 >= before } |> expect.to_be_true()
+  { lww_metadata(b).0 >= before } |> expect.to_be_true()
+
+  converge_lww(world, clock, [a, b], 12)
+  let assert Ok(winner) = crdt_js.lww_register_value(crdt_js.root(a))
+  list.contains(["left", "right"], winner) |> expect.to_be_true()
+  crdt_js.lww_register_value(crdt_js.root(b)) |> expect.to_equal(Ok(winner))
+  lww_metadata(a) |> expect.to_equal(lww_metadata(b))
+  crdt_js.close(a_connection)
+  crdt_js.close(b_connection)
+}
+
+@target(javascript)
+pub fn lww_register_same_value_newer_metadata_crosses_three_peer_chain_test() -> Nil {
+  let world = p2p_fake.new_world()
+  let clock = relay_fake.new_clock()
+  let a = lww_document(world, clock, "a")
+  let b = lww_document(world, clock, "b")
+  let c = lww_document(world, clock, "c")
+  let #(a_connection, _) = attach_lww(world, a)
+  let #(b_connection, _) = attach_lww(world, b)
+  let #(c_connection, _) = attach_lww(world, c)
+  p2p_fake.settle(world)
+  p2p_fake.sever(world, crdt_js.replica_id(a), crdt_js.replica_id(c))
+  p2p_fake.settle(world)
+  let observations =
+    list.map([a, b, c], fn(document) {
+      let events = transport_js.new_cell([])
+      let subscription =
+        crdt_js.subscribe_lww_register(crdt_js.root(document), fn(event) {
+          transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
+        })
+      #(subscription, events)
+    })
+  let assert Ok(Nil) = crdt_js.lww_register_set(crdt_js.root(a), "ready")
+  converge_lww(world, clock, [a, b, c], 12)
+  let before = crdt_js.digest(a)
+  let timestamp = lww_metadata(a).0
+  let deltas =
+    p2p_fake.channel_payloads(world)
+    |> list.filter(fn(packet) {
+      let assert Ok(envelope) =
+        crdt_wire.decode_envelope(packet.2, crdt_wire.default_limits())
+      case envelope.message {
+        crdt_wire.Delta(..) -> True
+        _ -> False
+      }
+    })
+  deltas |> expect.to_not_equal([])
+
+  let assert Ok(Nil) = crdt_js.lww_register_set(crdt_js.root(a), "ready")
+  crdt_js.digest(a) |> expect.to_not_equal(before)
+  { lww_metadata(a).0 > timestamp } |> expect.to_be_true()
+  p2p_fake.settle(world)
+  crdt_js.digest(b) |> expect.to_equal(crdt_js.digest(a))
+  crdt_js.digest(c) |> expect.to_equal(before)
+  converge_lww(world, clock, [a, b, c], 12)
+  list.each(list.append(list.reverse(deltas), deltas), fn(packet) {
+    let rtc = p2p_fake.rtc(world, packet.0)
+    rtc.send(packet.1, packet.2) |> expect.to_be_true()
+  })
+  p2p_fake.settle(world)
+  list.each([a, b, c], fn(document) {
+    crdt_js.lww_register_value(crdt_js.root(document))
+    |> expect.to_equal(Ok("ready"))
+    crdt_js.digest(document) |> expect.to_not_equal(before)
+    lww_metadata(document) |> expect.to_equal(lww_metadata(a))
+  })
+  list.each(observations, fn(observation) {
+    transport_js.get_cell(observation.1)
+    |> expect.to_equal([lww_register_kernel.Changed("", "ready")])
+    crdt_js.unsubscribe(observation.0)
+  })
+  let assert Ok(Nil) = crdt_js.lww_register_set(crdt_js.root(a), "done")
+  converge_lww(world, clock, [a, b, c], 12)
+  list.each(observations, fn(observation) {
+    transport_js.get_cell(observation.1)
+    |> expect.to_equal([lww_register_kernel.Changed("", "ready")])
+  })
+  list.each([a_connection, b_connection, c_connection], crdt_js.close)
+}
+
+@target(javascript)
+pub fn lww_register_late_join_and_import_preserve_author_and_clock_test() -> Nil {
+  let world = p2p_fake.new_world()
+  let clock = relay_fake.new_clock()
+  let future = 8_000_000_000_000_000
+  { transport_js.now_milliseconds() < future } |> expect.to_be_true()
+  let snapshot =
+    json.object([
+      #("v", json.int(1)),
+      #("room", json.string("lww-lifecycle")),
+      #("compatibility", json.string("lww-register/v1")),
+      #("root", json.string("lwwRegister")),
+      #(
+        "channels",
+        json.array(
+          [
+            json.object([
+              #(
+                "descriptor",
+                json.object([
+                  #("address", json.string("root")),
+                  #("channelType", json.string("lwwRegister")),
+                  #("createdBy", json.string("")),
+                ]),
+              ),
+              #(
+                "snapshot",
+                json.object([
+                  #("type", json.string("lww_register")),
+                  #("v", json.int(2)),
+                  #(
+                    "state",
+                    json.object([
+                      #("value", json.string("saved")),
+                      #("timestamp", json.int(future)),
+                      #("replica_id", json.string("original-author")),
+                    ]),
+                  ),
+                ]),
+              ),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ])
+  let assert Ok(a) =
+    crdt_js.import_snapshot(lww_config(world, clock, "a"), snapshot)
+  lww_metadata(a) |> expect.to_equal(#(future, "original-author"))
+  let #(a_connection, _) = attach_lww(world, a)
+  p2p_fake.settle(world)
+
+  let late = lww_document(world, clock, "late")
+  let #(late_connection, readies) = attach_lww(world, late)
+  transport_js.get_cell(readies) |> expect.to_equal([])
+  converge_lww(world, clock, [a, late], 12)
+  transport_js.get_cell(readies) |> expect.to_equal([Ok("saved")])
+  lww_metadata(late) |> expect.to_equal(#(future, "original-author"))
+  let assert Ok(Nil) = crdt_js.lww_register_set(crdt_js.root(late), "joined")
+  lww_metadata(late)
+  |> expect.to_equal(#(future + 1, crdt_js.replica_id(late)))
+  converge_lww(world, clock, [a, late], 12)
+  crdt_js.lww_register_value(crdt_js.root(a)) |> expect.to_equal(Ok("joined"))
+
+  let assert Ok(exported) = crdt_js.export_snapshot(late)
+  let assert Ok(restored) =
+    crdt_js.import_snapshot(lww_config(world, clock, "restored"), exported)
+  crdt_js.digest(restored) |> expect.to_equal(crdt_js.digest(late))
+  lww_metadata(restored)
+  |> expect.to_equal(#(future + 1, crdt_js.replica_id(late)))
+  crdt_js.replica_id(restored) |> expect.to_not_equal(crdt_js.replica_id(late))
+  let assert Ok(Nil) =
+    crdt_js.lww_register_set(crdt_js.root(restored), "restored")
+  lww_metadata(restored)
+  |> expect.to_equal(#(future + 2, crdt_js.replica_id(restored)))
+  let #(restored_connection, _) = attach_lww(world, restored)
+  converge_lww(world, clock, [a, late, restored], 12)
+  list.each([a, late, restored], fn(document) {
+    crdt_js.lww_register_value(crdt_js.root(document))
+    |> expect.to_equal(Ok("restored"))
+    lww_metadata(document)
+    |> expect.to_equal(#(future + 2, crdt_js.replica_id(restored)))
+  })
+  list.each([a_connection, late_connection, restored_connection], crdt_js.close)
+}
+
+@target(javascript)
+pub fn lww_register_wrong_kind_and_closed_document_fail_test() -> Nil {
+  let world = p2p_fake.new_world()
+  let clock = relay_fake.new_clock()
+  let assert Ok(counter_document) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: "lww-wrong-kind",
+      replica_label: "counter",
+      compatibility_tag: "lww-register/v1",
+      root: p2p.g_counter_root(),
+      signaling: p2p_fake.signaling(world),
+    ))
+  let mislabelled = mislabelled_lww_root(counter_document)
+  let counter_digest = crdt_js.digest(counter_document)
+  crdt_js.lww_register_value(mislabelled)
+  |> expect.to_equal(
+    Error(p2p.ChannelTypeMismatch(
+      "root",
+      channel.LwwRegisterChannel,
+      channel.GCounterChannel,
+    )),
+  )
+  let assert Error(p2p.InvalidEnvelope(_, _)) =
+    crdt_js.lww_register_set(mislabelled, "wrong kind")
+  crdt_js.digest(counter_document) |> expect.to_equal(counter_digest)
+  crdt_js.g_counter_value(crdt_js.root(counter_document))
+  |> expect.to_equal(Ok(0))
+  let document = lww_document(world, clock, "a")
+  let root = crdt_js.root(document)
+  let assert Ok(counter) =
+    crdt_js.create_channel(document, p2p.g_counter_root())
+  let before = crdt_js.digest(document)
+  crdt_js.resolve_channel(
+    document,
+    p2p.lww_register_root(),
+    crdt_js.address(counter),
+  )
+  |> expect.to_equal(
+    Error(p2p.ChannelTypeMismatch(
+      crdt_js.address(counter),
+      channel.LwwRegisterChannel,
+      channel.GCounterChannel,
+    )),
+  )
+  crdt_js.digest(document) |> expect.to_equal(before)
+  crdt_js.g_counter_value(counter) |> expect.to_equal(Ok(0))
+  let #(connection, _) = attach_lww(world, document)
+  p2p_fake.settle(world)
+  let assert Ok(Nil) = crdt_js.lww_register_set(root, "open")
+  crdt_js.close(connection)
+  crdt_js.lww_register_value(root)
+  |> expect.to_equal(Error(p2p.DocumentClosed))
+  crdt_js.lww_register_set(root, "closed")
+  |> expect.to_equal(Error(p2p.DocumentClosed))
+}
 
 /// Deliver every operation in order via `apply_p2p_remote`, asserting each
 /// merge succeeds. Mirrors how a p2p peer folds a batch of remote operations

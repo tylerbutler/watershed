@@ -115,6 +115,8 @@ import watershed/g_set_kernel
 @target(javascript)
 import watershed/id
 @target(javascript)
+import watershed/lww_register_kernel
+@target(javascript)
 import watershed/mv_register_kernel
 @target(javascript)
 import watershed/or_map_kernel.{type OrMapValue}
@@ -3381,6 +3383,70 @@ pub fn subscribe_mv_register(
     | channel.GCounterEvent(_)
     | channel.MapEvent(_)
     | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+@target(javascript)
+/// Set the string with the runtime wall clock and the kernel logical clock.
+pub fn lww_register_set(
+  handle: Handle(schema.LwwRegisterChannel),
+  value: String,
+) -> Result(Nil, P2pError) {
+  mutate(
+    handle,
+    channel.LwwRegisterSetEdit(value, transport_js.now_milliseconds()),
+  )
+}
+
+@target(javascript)
+/// The current string of the last-writer-wins register.
+pub fn lww_register_value(
+  handle: Handle(schema.LwwRegisterChannel),
+) -> Result(String, P2pError) {
+  let value =
+    read(handle, channel.LwwRegisterChannel, fn(state) {
+      case state {
+        channel.LwwRegisterState(kernel) ->
+          Ok(lww_register_kernel.value(kernel))
+        other ->
+          Error(p2p.ChannelTypeMismatch(
+            handle.address,
+            channel.LwwRegisterChannel,
+            channel.channel_type(other),
+          ))
+      }
+    })
+  result.flatten(value)
+}
+
+@target(javascript)
+/// Register a callback for visible string changes, not metadata-only writes.
+pub fn subscribe_lww_register(
+  handle: Handle(schema.LwwRegisterChannel),
+  handler: fn(lww_register_kernel.LwwRegisterEvent) -> Nil,
+) -> Subscription {
+  use event <- subscribe_narrowed(handle, handler)
+  case event {
+    channel.LwwRegisterEvent(inner) -> Some(inner)
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)

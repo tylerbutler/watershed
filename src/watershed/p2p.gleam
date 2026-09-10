@@ -50,6 +50,11 @@ pub fn mv_register_root() -> CrdtKind(schema.MvRegisterChannel) {
   CrdtKind(channel.InitMvRegister)
 }
 
+/// The root kind for a peer-to-peer last-writer-wins register document.
+pub fn lww_register_root() -> CrdtKind(schema.LwwRegisterChannel) {
+  CrdtKind(channel.InitLwwRegister)
+}
+
 pub fn or_map_root(mode: OrMapMode) -> CrdtKind(schema.OrMapChannel) {
   CrdtKind(channel.InitOrMap(mode))
 }

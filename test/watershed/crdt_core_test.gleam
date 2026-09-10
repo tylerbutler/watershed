@@ -39,6 +39,68 @@ fn lww_document(replica: String) -> crdt_core.Document {
   document
 }
 
+pub fn lww_register_duplicate_and_reordered_delivery_is_idempotent_test() -> Nil {
+  let assert Ok(#(source, first)) =
+    crdt_core.edit(
+      lww_document("a"),
+      root(),
+      channel.LwwRegisterSetEdit("first", 100),
+    )
+  let assert Ok(#(source, second)) =
+    crdt_core.edit(source, root(), channel.LwwRegisterSetEdit("second", 101))
+  let assert [first] = first.broadcast
+  let assert [second] = second.broadcast
+  [
+    #([first, second], [
+      #(
+        root(),
+        channel.LwwRegisterEvent(lww_register_kernel.Changed("", "first")),
+      ),
+      #(
+        root(),
+        channel.LwwRegisterEvent(lww_register_kernel.Changed("first", "second")),
+      ),
+    ]),
+    #([second, first], [
+      #(
+        root(),
+        channel.LwwRegisterEvent(lww_register_kernel.Changed("", "second")),
+      ),
+    ]),
+  ]
+  |> list.each(fn(scenario) {
+    let #(received, events) =
+      list.fold(scenario.0, #(lww_document("b"), []), fn(acc, message) {
+        let assert Ok(#(document, outcome)) =
+          crdt_core.receive_encoded(acc.0, crdt_core.encode(source, message))
+        #(document, list.append(acc.1, outcome.events))
+      })
+    events |> expect.to_equal(scenario.1)
+    crdt_core.digest(received) |> expect.to_equal(crdt_core.digest(source))
+    list.each(scenario.0, fn(message) {
+      let assert crdt_wire.Delta(id, address, kind, operation) = message
+      // A new message ID also tests the merge without duplicate suppression.
+      let replay =
+        crdt_wire.Delta(
+          crdt_wire.MessageId(id.replica, id.counter + 10),
+          address,
+          kind,
+          operation,
+        )
+      list.each([message, replay], fn(duplicate) {
+        let assert Ok(#(document, outcome)) =
+          crdt_core.receive_encoded(
+            received,
+            crdt_core.encode(source, duplicate),
+          )
+        outcome.events |> expect.to_equal([])
+        crdt_core.digest(document) |> expect.to_equal(crdt_core.digest(source))
+        view(document) |> expect.to_equal([#(root(), "second")])
+      })
+    })
+  })
+}
+
 pub fn lww_register_digest_preserves_winner_timestamp_and_author_test() -> Nil {
   crdt_core.digest(lww_document("a"))
   |> expect.to_equal(crdt_core.digest(lww_document("b")))
