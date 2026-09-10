@@ -92,7 +92,7 @@ merge rule, optimistic behaviour, and what it is best for.
 
 | Family | Structures | Use it for |
 | --- | --- | --- |
-| Maps & cells | `SharedMap`, `OR-Map`, `SharedDirectory`, `MvRegister` | key/value state, nested folders, or a cell that keeps concurrent alternatives |
+| Maps & cells | `SharedMap`, `OR-Map`, `SharedDirectory`, `LWWRegister`, `MvRegister` | key/value state, nested folders, or a cell with one winner or concurrent alternatives |
 | Counters | `SharedCounter`, `G-Counter`, `PN Counter` | numbers many people add to at once |
 | Sets | `OR-Set`, `G-Set`, `2P-Set` | membership: re-addable, add-only, or permanent removal |
 | Sequences | `SharedSequence`, `SharedText` | ordered lists with `move`, and plain text many people type into |
@@ -134,6 +134,56 @@ Use `create_g_counter`, `ensure_g_counter`, `g_counter_increment`,
 `g_counter_value`, and `subscribe_g_counter` on either sequenced facade; typed
 fields use `schema.GCounterChannel`, and peer-to-peer documents get
 `p2p.g_counter_root()`.
+
+`LWWRegister` holds one string, initially `""`. Values are string-only in this
+release. Each write gets `max(wall_clock_ms, last_seen + 1)` from the runtime
+and kernel, so its logical clock advances even when the wall clock repeats or
+moves backward. Callers supply only the value. The greatest timestamp wins;
+the lexicographically greatest replica ID breaks a timestamp tie.
+
+```gleam
+let assert Ok(status) = watershed.create_lww_register(document)
+let assert Ok(Nil) = watershed.lww_register_set(status, "ready")
+watershed.lww_register_value(status)
+// Ok("ready")
+```
+
+Store the new register's handle in an attached map to replicate it. Typed fields
+use `schema.LwwRegisterChannel`, inferred here from `set_lww_register_field`:
+
+```gleam
+let root = watershed.typed(watershed.root(document))
+let status_field = schema.channel_field("status")
+watershed.set_lww_register_field(root, status_field, status)
+watershed.resolve_lww_register_field(document, root, status_field)
+// Ok(Some(status))
+```
+
+Use `ensure_lww_register` to adopt or create the field after synchronization:
+JavaScript takes a result callback, while `watershed_beam` waits and returns the
+result. Both sequenced facades expose the create, handle, resolve, set, read, and
+typed field operations above. `subscribe_lww_register` delivers
+`Changed(previous_value, value)` to a callback on JavaScript or a subject on the
+BEAM. Writing the current string still replicates newer metadata (timestamp and
+winning author), but emits no visible-value event. Writes return `Result` so
+callers can handle channel and clock errors.
+
+For a browser p2p document, use `root: p2p.lww_register_root()` in
+`crdt_js.config`, create it with `crdt_js.new_document`, and call `crdt_js.attach`
+to connect it to peers. Read and write its root through the CRDT API:
+
+```gleam
+let status = crdt_js.root(document)
+let assert Ok(Nil) = crdt_js.lww_register_set(status, "ready")
+crdt_js.lww_register_value(status)
+// Ok("ready")
+```
+
+Use `crdt_js.subscribe_lww_register` for visible changes; CRDT reads and writes
+return `Result(_, p2p.P2pError)`. Snapshots retain the winning timestamp and
+author, including metadata-only writes. `LWWRegister` is a single-value CRDT:
+the consensus register collection provides sequenced coordination across named
+registers, while an `LWWMap` selects a winner per key.
 
 `MvRegister` holds strings and returns a sorted list of alternatives, preservingduplicate text from independent concurrent writes. Use `create_mv_register`,
 `ensure_mv_register`, `mv_register_set`, `mv_register_values`, and

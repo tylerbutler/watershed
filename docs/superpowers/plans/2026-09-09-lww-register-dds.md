@@ -14,8 +14,12 @@ Sluice, the CRDT simulator, and Lustre.
 
 **Spec:** `docs/superpowers/specs/2026-09-09-lattice-dds-expansion-design.md`
 
-**Status:** Draft; implementation has not started. GCounter is the
-recommended first delivery, not a code dependency.
+**Status:** Complete. Tasks 1 and 2 shipped in `60d91ab` and `2a22e0a`.
+The [completion plan](2026-09-09-lww-register-completion.md) completed the
+remaining runtime APIs, relay coverage, Lustre effects, fuzz model, and
+documentation from Tasks 3 and 4. The website demo shipped as follow-up
+work in `5a30796`; no website work remains in this plan. The checklists
+below preserve the original implementation steps, not current progress.
 
 ## Global constraints
 
@@ -80,6 +84,8 @@ Merge/load paths that decode opaque timestamp metadata return `Result`
 with an explicit error; do not copy an infallible signature and unwrap it.
 
 ### Task 1: Implement clocks and the pure register lifecycle
+
+**Status:** Shipped in `60d91ab` (`feat: add LWWRegister kernel`).
 
 **Files:** Create the clock, kernel, and their test files. Read
 `src/watershed/or_map_kernel.gleam` for its fresh-writer construction and
@@ -153,6 +159,8 @@ pub fn local_write_uses_local_author_after_reload_test() -> Nil {
 
 ### Task 2: Add channel, codec, and digest integration
 
+**Status:** Shipped in `2a22e0a` (`feat: register LWWRegister channel`).
+
 **Files:** Modify `src/watershed/channel.gleam`,
 `src/watershed/wire.gleam`, `src/watershed/wire/op.gleam`,
 `src/watershed/runtime_core.gleam`, and `src/watershed/crdt_core.gleam`.
@@ -209,6 +217,9 @@ pub fn register_channel_contract_test() -> Nil {
 
 ### Task 3: Expose runtime and typed APIs
 
+**Status:** Completed through Tasks 1-4 of the
+[completion plan](2026-09-09-lww-register-completion.md).
+
 **Files:** Modify `src/watershed/runtime.gleam`,
 `src/watershed/runtime_beam.gleam`, `src/watershed.gleam`,
 `src/watershed_beam.gleam`, `src/watershed/schema.gleam`,
@@ -253,6 +264,9 @@ pub fn lww_register_root() -> CrdtKind(schema.LwwRegisterChannel) {
   `feat: expose LWWRegister runtime APIs`.
 
 ### Task 4: Add effects, a model, and user documentation
+
+**Status:** Completed through Tasks 5-7 of the
+[completion plan](2026-09-09-lww-register-completion.md).
 
 **Files:** Modify both Lustre effect modules, their existing subscription
 test suites, and `README.md`. Create the model and fuzz files listed above.
