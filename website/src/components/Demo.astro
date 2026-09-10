@@ -6,6 +6,7 @@ const gauges = [
 ];
 const counter = { key: "sandbags-placed", value: 120 };
 const gCounter = { key: "inspection-count", value: 18 };
+const lwwRegister = { value: "Survey datum", timestamp: 100, author: "survey-lww" };
 const pn = { key: "earthwork-balance", fill: 74, cut: 30 };
 const stockpiles = [
   { key: "spoil-north", value: 18 },
@@ -65,7 +66,7 @@ const pnFillSteps = [2, 6];
 // picker just decides which are reachable, matching DDSes sharing a container.
 const ALL_VIEWS = [
   "map", "counter", "gcounter", "pn", "ormap", "orset", "gset",
-  "twopset", "claims", "registers", "ordered", "tasks", "pact", "mv-register",
+  "twopset", "claims", "registers", "ordered", "tasks", "pact", "lww-register", "mv-register",
 ] as const;
 
 interface Props {
@@ -92,6 +93,7 @@ const PICKER_CELLS = [
   { value: "gcounter", label: "G-counter", kind: "CRDT" },
   { value: "pn", label: "PN counter", kind: "CRDT" },
   { value: "ormap", label: "OR-map", kind: "CRDT" },
+  { value: "lww-register", label: "LWW register", kind: "CRDT" },
   { value: "mv-register", label: "MV register", kind: "CRDT" },
   { value: "orset", label: "OR-set", kind: "CRDT" },
   { value: "gset", label: "G-set", kind: "CRDT" },
@@ -116,7 +118,7 @@ const PICKER_CELLS = [
         field-checked. This demo borrows that color code: pending edits are drawn
         in <strong class="k-pending">magenta</strong> and sequenced state in
         <strong class="k-seq">ink</strong>. All three clients run watershed's compiled
-        Gleam code in one ordered stream: map/G-counter/PN/OR-map/OR-set/G-set/2P-set/MV-register/claims/register
+        Gleam code in one ordered stream: map/LWW-register/G-counter/PN/OR-map/OR-set/G-set/2P-set/MV-register/claims/register
         kernels, TaskManager, plus the runtime counter channel.
       </p>
       <p class="demo-hint">
@@ -185,6 +187,11 @@ const PICKER_CELLS = [
       travels as a CRDT delta; merging is commutative and idempotent. Race
       it, resend it, deliver it twice: it counts exactly once, and the
       balance converges on fill&nbsp;−&nbsp;cut.
+    </p>
+    <p class="merge-rule" data-merge-rule="lww-register" hidden={initial !== "lww-register"}>
+      <strong>Merge rule: timestamp wins; author breaks a tie.</strong> Race two
+      equal-time revisions and every replica picks the same author, regardless
+      of which delta arrives first.
     </p>
     <p class="merge-rule" data-merge-rule="mv-register" hidden={initial !== "mv-register"}>
       <strong>Merge rule: keep concurrent alternatives.</strong> Two revisions
@@ -428,6 +435,24 @@ const PICKER_CELLS = [
                 </button>
               ))}
             </div>
+          </div>
+          <div
+            class="mv-register-panel dds-lww-register"
+            role="group"
+            aria-label={`LWW register replica on ${c.name}`}
+          >
+            <h3 class="annot">Field note</h3>
+            <p class="annot">Confirmed value</p>
+            <output class="mv-alternatives k-seq" data-lww-register-confirmed aria-live="polite">{lwwRegister.value}</output>
+            <p class="annot">Local view</p>
+            <output class="mv-alternatives" data-lww-register-value aria-live="polite">{lwwRegister.value}</output>
+            <output class="mv-hint" data-lww-register-winner aria-live="polite">timestamp {lwwRegister.timestamp} · {lwwRegister.author}</output>
+            <label class="annot" for={`lww-revision-${c.id}`}>Next field note</label>
+            <input id={`lww-revision-${c.id}`} data-lww-register-input value={c.id === "a" ? "raise crest" : c.id === "b" ? "arm pump" : "check datum"} disabled />
+            <div class="mv-actions">
+              <button type="button" data-lww-register-write disabled>Write note</button>
+            </div>
+            <p class="mv-hint">Race uses one timestamp for both writers. The author ID—not arrival order—breaks the tie.</p>
           </div>
           <div class="mv-register-panel dds-mv-register">
             <h3 class="annot">Revision slate</h3>
@@ -987,7 +1012,9 @@ const PICKER_CELLS = [
 
 <style>
   .rig:not([data-dds="mv-register"]) .dds-mv-register,
-  .rig[data-dds="mv-register"] .client > :is(table, .counter-panel) {
+  .rig:not([data-dds="lww-register"]) .dds-lww-register,
+  .rig[data-dds="mv-register"] .client > :is(table, .counter-panel, .dds-lww-register),
+  .rig[data-dds="lww-register"] .client > :is(table, .counter-panel, .dds-mv-register) {
     display: none;
   }
   .mv-register-panel {
@@ -1214,6 +1241,7 @@ const PICKER_CELLS = [
   .dds-picker label:has(input[value="orset"]) b,
   .dds-picker label:has(input[value="gset"]) b,
   .dds-picker label:has(input[value="twopset"]) b,
+  .dds-picker label:has(input[value="lww-register"]) b,
   .dds-picker label:has(input[value="mv-register"]) b {
     color: var(--waterline);
     background: var(--waterline-faint);

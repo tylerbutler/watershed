@@ -93,6 +93,11 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
   // changed are flashed. One selector set per structure — list every element
   // that carries a live value the user should watch converge.
   const CHANGE_TARGETS = {
+    "lww-register": [
+      "[data-lww-register-value]",
+      "[data-lww-register-confirmed]",
+      "[data-lww-register-winner]",
+    ],
     "mv-register": ["[data-mv-register-values]", "[data-mv-register-confirmed]"],
     map: [".dds-map tbody [data-value]"],
     counter: ["[data-counter-value]"],
@@ -179,6 +184,11 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
   // Each recipe draws 1–2 marks and sets the margin caption. The mark points at
   // *where on the sheet* the merge rule is visible; the caption names the rule.
   const RECIPES = {
+    "lww-register"() {
+      setNote(
+        "LWW register — the newest timestamp wins, and the author ID breaks an equal-time tie. Race two notes and watch every replica choose the same winner even when delivery order varies.",
+      );
+    },
     "mv-register"() {
       setNote(
         "MV register — the conflict is the answer, not a delivery failure. Race two revisions and every client keeps both. Resolve after reading them: an ordinary write replaces that observed history, while an unseen writer would still survive.",

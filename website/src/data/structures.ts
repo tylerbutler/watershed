@@ -201,6 +201,26 @@ const maps: Structure[] = [
     ],
   },
   {
+    id: "lww-register",
+    name: "LWWRegister",
+    module: "lww_register_kernel",
+    kind: "CRDT",
+    onHomepage: true,
+    tagline: "One shared string where the newest timestamp wins—and the author breaks a tie.",
+    rule: "the highest timestamp wins; equal timestamps break by replica ID, not arrival order",
+    optimistic: "your revision appears immediately while its timestamp waits to merge",
+    summary: "the winning value, timestamp, and author reload together",
+    how: [
+      "A last-writer-wins register stores one string plus the timestamp and replica ID that wrote it. Every replica merges by choosing the greater timestamp; if two writers use the same timestamp, the greater replica ID breaks the tie.",
+      "That makes delivery order irrelevant, but it also makes the clock part of the data. The demo races two equal-time revisions, then re-delivers the winning delta: every client keeps the same winner and the duplicate changes nothing.",
+    ],
+    useCases: [
+      "Offline settings where one deterministic winner is preferable to preserving every conflict",
+      "Small shared labels, modes, or status fields with trustworthy logical clocks",
+      "Cases where arrival order must not decide the winner",
+    ],
+  },
+  {
     id: "mv-register",
     name: "MvRegister",
     module: "mv_register_kernel",
@@ -492,8 +512,8 @@ export const categories: Category[] = [
     tagline: "Pick a winner, keep an edit, or keep the disagreement.",
     lede: [
       "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed's maps span that choice.",
-      "SharedMap resolves each key by server order, following the last-write-wins design used by Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete (correctness over simplicity when last-write-wins would drop data). SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
-      "MvRegister narrows that down to one string cell and refuses to pick a winner: concurrent revisions survive as alternatives. After reading the disagreement, an ordinary write replaces the revisions you've observed. An unseen writer still gets a say.",
+      "SharedMap resolves each key by server order, following the last-write-wins design used by Fluid Framework. LWWRegister chooses by timestamp and replica ID instead, so arrival order does not decide the winner. OR-map keeps causal dots per entry so a concurrent write survives a delete. SharedDirectory makes SharedMap recursive, with hierarchical identity that survives concurrent creation and delete-then-recreate.",
+      "MvRegister narrows the problem to one string cell and refuses to pick a winner: concurrent revisions survive as alternatives. After reading the disagreement, an ordinary write replaces the revisions you've observed. An unseen writer still gets a say.",
     ],
     structures: maps,
   },

@@ -1,5 +1,5 @@
 // Live convergence demo. The two "clients" here each own real watershed
-// state — map/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register kernels plus the runtime counter
+// state — map/LWW-register/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register kernels plus the runtime counter
 // channel, compiled with `gleam build --target javascript` — and talk through
 // a tiny in-page sequencer that stamps sequence numbers (SNs) and broadcasts
 // in order, the same protocol shape as a Fluid-compatible service. All
@@ -8,6 +8,7 @@
 import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
 import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
 import * as gCounterKernel from "../../../build/dev/javascript/watershed/watershed/g_counter_kernel.mjs";
+import * as lwwRegisterKernel from "../../../build/dev/javascript/watershed/watershed/lww_register_kernel.mjs";
 import * as mvKernel from "../../../build/dev/javascript/watershed/watershed/mv_register_kernel.mjs";
 import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as orSetKernel from "../../../build/dev/javascript/watershed/watershed/or_set_kernel.mjs";
@@ -34,6 +35,7 @@ import { createFlowLayer } from "./demo/flow-dots.ts";
 import { createLatencyControls } from "./demo/controls.ts";
 import { createOpLog } from "./demo/op-log.ts";
 import { createSequencer } from "./demo/sequencer.ts";
+import { lwwRaceTimestamp } from "./demo/lww-register.js";
 
 const GAUGES = ["mill-race", "kettle-run", "low-ford"];
 const INITIAL = [
@@ -85,6 +87,25 @@ function mvFromBaseline(baseline, id, epoch) {
     baseline, replicaId.new$(`client-${id}-mv-${epoch}`),
   );
   if (!loaded.isOk()) throw new Error("MV-register baseline summary failed to load");
+  return loaded[0];
+}
+
+function lwwRegisterBaselineSummary() {
+  const seeded = lwwRegisterKernel.p2p_set(
+    lwwRegisterKernel.new$(replicaId.new$("survey-lww")),
+    "Survey datum",
+    100,
+  );
+  if (!seeded.isOk()) throw new Error("LWW-register baseline write failed");
+  return json.to_string(lwwRegisterKernel.summary(seeded[0][0]));
+}
+
+function lwwRegisterFromBaseline(baseline, id, epoch) {
+  const loaded = lwwRegisterKernel.from_summary(
+    baseline,
+    replicaId.new$(`client-${id}-lww-${epoch}`),
+  );
+  if (!loaded.isOk()) throw new Error("LWW-register baseline summary failed to load");
   return loaded[0];
 }
 
@@ -322,6 +343,9 @@ function signed(n) {
 }
 
 function describeOp(ddsId, op) {
+  if (ddsId === "lww-register") {
+    return `write ${JSON.stringify(op.operation.value)} (t ${op.operation.timestamp})`;
+  }
   if (ddsId === "mv-register") return `revise ${JSON.stringify(op.operation.value)}`;
   if (ddsId === "counter") return `inc ${signed(op.increment_amount)}`;
   if (ddsId === "gcounter") return `inspect +${op.amount}`;
@@ -418,6 +442,7 @@ export function initDemo() {
   const gCounterBaseline = gCounterBaselineSummary();
   const pnBaseline = pnBaselineSummary();
   const mvBaseline = mvBaselineSummary(0);
+  const lwwRegisterBaseline = lwwRegisterBaselineSummary();
   const orMapBaseline = orMapBaselineSummary();
   const orSetBaseline = orSetBaselineSummary();
   const gSetBaseline = gSetBaselineSummary();
@@ -462,6 +487,7 @@ export function initDemo() {
       counterClientId: counterChannel.clientId,
       counterCore: counterChannel.core,
       pn: pnLoaded[0],
+      "lww-register": lwwRegisterFromBaseline(lwwRegisterBaseline, id, 0),
       "mv-register": mvFromBaseline(mvBaseline, id, 0),
       ormap: orMapLoaded[0],
       orset: orSetLoaded[0],
@@ -492,6 +518,7 @@ export function initDemo() {
   // Structures whose field notes flash the values that change (see tutorial.js
   // CHANGE_TARGETS). Kept in sync there; used to route the demo's op-flow hooks.
   const FIELD_FLASH = new Set([
+    "lww-register",
     "mv-register",
     "map",
     "counter",
@@ -538,6 +565,8 @@ export function initDemo() {
   const heldHops = []; // sequenced ops awaiting delivery to B (catch-up)
   const heldSubmits = []; // B's local ops parked while offline (resubmit)
   let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
+  let lastLwwRegister = null;
+  let lwwRegisterEpoch = 0;
   // Keep an early delta so replay after resolution proves it cannot resurrect.
   let lastMv = null;
   let mvEpoch = 0;
@@ -623,6 +652,20 @@ export function initDemo() {
       const cell = client.el.querySelector(`[data-gcounter-author="${id}"]`);
       if (cell) cell.textContent = String(readCount(count));
     }
+  }
+
+  function renderLwwRegister(client) {
+    const state = client["lww-register"];
+    const optimistic = client.el.querySelector("[data-lww-register-value]");
+    optimistic.textContent = lwwRegisterKernel.value(state);
+    optimistic.classList.toggle("k-pending", state.pending.toArray().length > 0);
+    client.el.querySelector("[data-lww-register-confirmed]").textContent =
+      lwwRegisterKernel.sequenced_value(state);
+    const winner = JSON.parse(
+      json.to_string(lwwRegisterKernel.summary(state)),
+    ).state;
+    client.el.querySelector("[data-lww-register-winner]").textContent =
+      `timestamp ${winner.timestamp} · ${winner.replica_id || "bottom"}`;
   }
 
   function renderMv(client) {
@@ -1033,6 +1076,8 @@ export function initDemo() {
           ? taskPendingKeys(client.taskmanager).size
         : activeDds === "pact"
           ? pactPending[client.id].size
+        : activeDds === "lww-register"
+          ? client["lww-register"].pending.toArray().length
         : activeDds === "gcounter"
           ? client.gcounter.pending.toArray().length
         : activeDds === "orset"
@@ -1051,6 +1096,7 @@ export function initDemo() {
   }
 
   function render(client) {
+    if (present.has("lww-register")) renderLwwRegister(client);
     if (present.has("mv-register")) renderMv(client);
     if (present.has("map")) renderMap(client);
     if (present.has("counter")) renderCounter(client);
@@ -1075,6 +1121,7 @@ export function initDemo() {
       total += counterPending(client).count;
       total += client.gcounter.pending.toArray().length;
       total += client.pn.pending.toArray().length;
+      total += client["lww-register"].pending.toArray().length;
       total += client["mv-register"].pending.toArray().length;
       total += client.ormap.pending.toArray().length;
       total += client.orset.pending.toArray().length;
@@ -1096,6 +1143,7 @@ export function initDemo() {
     return JSON.stringify([
       entries.map(({ tag, value }) => [tag.r, tag.c, value]).sort(),
       Object.entries(vclock).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0),
+      json.to_string(lwwRegisterKernel.summary(client["lww-register"])),
       mapSnapshot(client.map),
       counterValue(client),
       gCounterSnapshot(client.gcounter),
@@ -1272,6 +1320,21 @@ export function initDemo() {
         const [next] = mapKernel.apply_remote(target.map, op);
         target.map = next;
       }
+    } else if (ddsId === "lww-register") {
+      const result = target.id === originId
+        ? lwwRegisterKernel.ack_local_with_message_id(
+          target["lww-register"],
+          op.operation,
+          op.messageId,
+        )
+        : lwwRegisterKernel.apply_remote(
+          target["lww-register"],
+          op.operation,
+        );
+      if (!result.isOk()) throw new Error("Unexpected LWW-register delivery");
+      target["lww-register"] = result[0] instanceof Array
+        ? result[0][0]
+        : result[0];
     } else if (ddsId === "mv-register") {
       if (target.id === originId) {
         const result = mvKernel.ack_local_with_message_id(
@@ -1505,6 +1568,7 @@ export function initDemo() {
 
   function submit(originId, ddsId, op) {
     // The author captured this epoch before offline work could be parked.
+    if (ddsId === "lww-register" && op.epoch !== lwwRegisterEpoch) return;
     if (ddsId === "mv-register" && op.epoch !== mvEpoch) return;
     // Offline author: the edit already applied optimistically; the send parks
     // until the link is restored, then resubmits — like the runtime's own
@@ -1519,7 +1583,9 @@ export function initDemo() {
     // stamped, or it would commit on one replica and fail to ack on the
     // other. Each DDS that resets out of band carries its own epoch.
     const epochFor = () =>
-      ddsId === "mv-register"
+      ddsId === "lww-register"
+        ? lwwRegisterEpoch
+      : ddsId === "mv-register"
         ? mvEpoch
       : ddsId === "claims"
         ? claimsEpoch
@@ -1550,7 +1616,10 @@ export function initDemo() {
           ddsId,
           ddsId === "counter" ? { increment_amount: op.amount } : op,
         );
-        if (ddsId === "mv-register") {
+        if (ddsId === "lww-register") {
+          lastLwwRegister = { op, sn: stamped };
+          if (activeDds === "lww-register") replayBtn.disabled = false;
+        } else if (ddsId === "mv-register") {
           lastMv ??= { op, sn: stamped };
           if (activeDds === "mv-register") replayBtn.disabled = false;
         } else if (ddsId === "pn") {
@@ -1636,6 +1705,27 @@ export function initDemo() {
     client.gcounter = next;
     fieldNotes.trackChange("gcounter", client.el, true, () => render(client));
     submit(clientId, "gcounter", operation);
+  }
+
+  function localLwwSet(clientId, value, wallClock = Date.now()) {
+    const client = clients[clientId];
+    const result = lwwRegisterKernel.set(
+      client["lww-register"],
+      value,
+      wallClock,
+    );
+    if (!result.isOk()) {
+      console.error("LWW register refused a write", result[0]);
+      return;
+    }
+    const [next, _events, operation, messageId] = result[0];
+    client["lww-register"] = next;
+    fieldNotes.trackChange("lww-register", client.el, true, () => render(client));
+    submit(clientId, "lww-register", {
+      operation,
+      messageId,
+      epoch: lwwRegisterEpoch,
+    });
   }
 
   function localMvSet(clientId, value) {
@@ -1981,6 +2071,22 @@ export function initDemo() {
     }
   }
 
+  function resetLwwRegister() {
+    lwwRegisterEpoch += 1;
+    lastLwwRegister = null;
+    const baseline = lwwRegisterBaselineSummary();
+    for (const client of Object.values(clients)) {
+      client["lww-register"] = lwwRegisterFromBaseline(
+        baseline,
+        client.id,
+        lwwRegisterEpoch,
+      );
+      render(client);
+    }
+    replayBtn.disabled = true;
+    renderStatus();
+  }
+
   function resetMv() {
     mvEpoch += 1;
     lastMv = null;
@@ -2014,7 +2120,9 @@ export function initDemo() {
   function redeliverLastDelta() {
     const ddsId = activeDds;
     const last =
-      ddsId === "mv-register"
+      ddsId === "lww-register"
+        ? lastLwwRegister
+      : ddsId === "mv-register"
         ? lastMv
       : ddsId === "ormap"
         ? lastOrMap
@@ -2038,12 +2146,21 @@ export function initDemo() {
 
     sequencer.broadcast({
       label: describeOp(ddsId, op),
-      isStale: () => ddsId === "mv-register" && op.epoch !== mvEpoch,
+      isStale: () =>
+        (ddsId === "lww-register" && op.epoch !== lwwRegisterEpoch) ||
+        (ddsId === "mv-register" && op.epoch !== mvEpoch),
       onDeliver: (target) => {
         // Both replicas take the duplicate through `apply_remote` — even the
         // origin, whose acked delta is already merged. Idempotence makes
         // both a no-op.
-        if (ddsId === "mv-register") {
+        if (ddsId === "lww-register") {
+          const result = lwwRegisterKernel.apply_remote(
+            target["lww-register"],
+            op.operation,
+          );
+          if (!result.isOk()) throw new Error("Unexpected duplicate LWW-register op");
+          [target["lww-register"]] = result[0];
+        } else if (ddsId === "mv-register") {
           [target["mv-register"]] = mvKernel.apply_remote(target["mv-register"], op.operation);
         } else if (ddsId === "ormap") {
           const result = orMapKernel.apply_remote(target.ormap, op);
@@ -2082,6 +2199,13 @@ export function initDemo() {
   // ── wiring ────────────────────────────────────────────────────────────────
 
   for (const client of Object.values(clients)) {
+    client.el.querySelector("[data-lww-register-input]").addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        hasInteracted = true;
+        localLwwSet(client.id, event.target.value);
+      }
+    });
     client.el.querySelector("[data-mv-register-input]").addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -2090,6 +2214,14 @@ export function initDemo() {
       }
     });
     client.el.addEventListener("click", (event) => {
+      if (event.target.closest("[data-lww-register-write]")) {
+        hasInteracted = true;
+        localLwwSet(
+          client.id,
+          client.el.querySelector("[data-lww-register-input]").value,
+        );
+        return;
+      }
       if (event.target.closest("[data-mv-register-write], [data-mv-register-resolve]")) {
         hasInteracted = true;
         const value = event.target.closest("[data-mv-register-resolve]")
@@ -2253,6 +2385,7 @@ export function initDemo() {
   }
 
   const RACE_LABELS = {
+    "lww-register": "Race two equal-time notes",
     "mv-register": "Race two revisions",
     map: "Race a concurrent write",
     counter: "Race concurrent increments",
@@ -2269,6 +2402,7 @@ export function initDemo() {
     pact: "Race two pact proposals",
   };
   const RESET_LABELS = {
+    "lww-register": "Reload all LWW registers from the surveyed baseline and discard pending notes",
     "mv-register": "Reload all MV registers from a fresh baseline and discard pending revisions",
     map: "Reset all gauges to their surveyed baseline values",
     counter: "Reset the counter to its surveyed baseline value",
@@ -2294,6 +2428,7 @@ export function initDemo() {
     if (resetBtn) resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
     if (replayBtn) {
       replayBtn.hidden = ![
+        "lww-register",
         "mv-register",
         "gcounter",
         "pn",
@@ -2303,7 +2438,9 @@ export function initDemo() {
         "twopset",
       ].includes(activeDds);
       replayBtn.disabled =
-        activeDds === "mv-register"
+        activeDds === "lww-register"
+          ? !lastLwwRegister
+        : activeDds === "mv-register"
           ? !lastMv
         : activeDds === "gcounter"
           ? !lastGCounter
@@ -2359,7 +2496,14 @@ export function initDemo() {
 
   raceBtn.addEventListener("click", () => {
     hasInteracted = true;
-    if (activeDds === "mv-register") {
+    if (activeDds === "lww-register") {
+      const timestamp = lwwRaceTimestamp(Date.now(), [
+        clients.a["lww-register"],
+        clients.b["lww-register"],
+      ]);
+      localLwwSet("a", "raise crest", timestamp);
+      localLwwSet("b", "arm pump", timestamp);
+    } else if (activeDds === "mv-register") {
       localMvSet("a", "raise crest");
       localMvSet("b", "arm pump");
     } else if (activeDds === "map") {
@@ -2475,6 +2619,7 @@ export function initDemo() {
   replayBtn.addEventListener("click", () => {
     hasInteracted = true;
     if (
+      (activeDds === "lww-register" && lastLwwRegister) ||
       (activeDds === "mv-register" && lastMv) ||
       (activeDds === "ormap" && lastOrMap) ||
       (activeDds === "orset" && lastOrSet) ||
@@ -2490,7 +2635,9 @@ export function initDemo() {
   resetBtn.addEventListener("click", () => {
     hasInteracted = true;
     // Reset goes through the sequencer like any other edit.
-    if (activeDds === "mv-register") {
+    if (activeDds === "lww-register") {
+      resetLwwRegister();
+    } else if (activeDds === "mv-register") {
       resetMv();
     } else if (activeDds === "map") {
       // One set op per gauge that has drifted from its surveyed baseline.
