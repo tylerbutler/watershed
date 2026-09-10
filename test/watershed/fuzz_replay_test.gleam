@@ -16,15 +16,20 @@
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
+import gleam/option.{Some}
 import gleam/result
 import gleam/string
+import lattice_core/replica_id
+import lattice_registers/lww_register
 import simplifile
+import startest/expect
 import watershed/fuzz/claims_model
 import watershed/fuzz/counter_model
 import watershed/fuzz/directory_model
 import watershed/fuzz/g_counter_model
 import watershed/fuzz/kernel_fuzz.{type KernelModel}
 import watershed/fuzz/kernel_fuzz_test
+import watershed/fuzz/lww_register_model
 import watershed/fuzz/map_model
 import watershed/fuzz/or_map_model
 import watershed/fuzz/pn_counter_model
@@ -37,6 +42,10 @@ fn replay_fixture(path: String) -> Result(Nil, String) {
     simplifile.read(path)
     |> result.map_error(fn(_) { "could not read fixture " <> path }),
   )
+  replay_content(content, path)
+}
+
+fn replay_content(content: String, path: String) -> Result(Nil, String) {
   use model_name <- result.try(
     json.parse(content, decode.field("model", decode.string, decode.success))
     |> result.map_error(fn(_) {
@@ -48,6 +57,7 @@ fn replay_fixture(path: String) -> Result(Nil, String) {
     "map" -> replay_with(map_model.model(), content, path)
     "claims" -> replay_with(claims_model.model(), content, path)
     "g_counter" -> replay_with(g_counter_model.model(), content, path)
+    "lww_register" -> replay_with(lww_register_model.model(), content, path)
     "pn_counter" -> replay_with(pn_counter_model.model(), content, path)
     "or_map" -> replay_with(or_map_model.model(), content, path)
     "directory" -> replay_with(directory_model.model(), content, path)
@@ -101,6 +111,33 @@ fn replay_with(
         <> detail,
       )
   }
+}
+
+pub fn lww_register_failure_fixture_replays_test() -> Nil {
+  let model = lww_register_model.model()
+  let script = [
+    kernel_fuzz.StashedOperation(
+      1,
+      lww_register_model.LwwCommand(
+        "ready",
+        7,
+        Some(7),
+        Some(lww_register.new("ready", 7, replica_id.new("wrong-author"))),
+      ),
+    ),
+    kernel_fuzz.Synchronize,
+  ]
+  let assert Error(detail) = kernel_fuzz.try_run_script(model, 3, script)
+  let content =
+    json.object([
+      #("model", json.string("lww_register")),
+      #("client_count", json.int(3)),
+      #("detail", json.string(detail)),
+      #("script", kernel_fuzz.script_to_json(model.operation_to_json, script)),
+    ])
+    |> json.to_string
+  replay_content(content, "in-memory LWW-register fixture")
+  |> expect.to_equal(Ok(Nil))
 }
 
 pub fn replays_every_saved_failure_fixture_test() -> Nil {
