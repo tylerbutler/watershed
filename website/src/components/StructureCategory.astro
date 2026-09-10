@@ -21,9 +21,8 @@ const next =
   idx < categories.length - 1 ? categories[idx + 1] : categories[0];
 const familyOrdinal = `Family ${String(idx + 1).padStart(2, "0")}`;
 
-// Scope the shared live demo to this family's structures. Structures with a
-// dedicated demo page (e.g. SharedDirectory's tree) aren't views in the shared
-// gauge demo, so they're excluded here and link to their own demo instead.
+// One rig moves between the family's plates so switching descriptions does
+// not reset the kernels. Dedicated demos keep their separate-page links.
 const familyViews = category.structures
   .filter((s) => !s.demoHref)
   .map((s) => s.id);
@@ -63,33 +62,6 @@ const familyViews = category.structures
     </div>
   </header>
 
-  {
-    familyViews.length > 0 && (
-      <Demo
-        views={familyViews}
-        initial={familyViews[0]}
-        heading={`Watch ${category.name.toLowerCase()} converge`}
-        otJump={false}
-      >
-        <Fragment slot="intro">
-          <p>
-            The structures from this family that fit the shared gauge rig run
-            below on watershed's Gleam kernels. Structures with dedicated
-            interactions link to their own demos. Pending edits print in
-            <strong class="k-pending">magenta</strong>; once the sequencer stamps
-            an SN, every replica lands the same <strong class="k-seq">ink</strong>
-            state. The picker switches among the loaded views, which share one
-            ordered stream.
-          </p>
-          <p class="demo-hint">
-            Nudge a value, race a concurrent write, or switch on jitter
-            to watch each merge rule hold.
-          </p>
-        </Fragment>
-      </Demo>
-    )
-  }
-
   <main class="plates">
     {
       category.structures.map((s, i) => (
@@ -99,7 +71,7 @@ const familyViews = category.structures
           </div>
           <header class="plate-head">
             <div class="plate-name">
-              <h2>{s.name}</h2>
+              <h2 id={`${s.id}-title`}>{s.name}</h2>
               <span class="stamp" data-kind={s.kind}>
                 {s.kind}
               </span>
@@ -128,6 +100,22 @@ const familyViews = category.structures
               )
             }
           </header>
+
+          {!s.demoHref && (
+            <div class="plate-viewbar" data-structure-controls hidden>
+              <span class="annot" data-structure-view-label>Description</span>
+              <button
+                type="button"
+                class="plate-toggle"
+                data-structure-toggle={s.id}
+                aria-controls={`${s.id}-demo`}
+                aria-describedby={`${s.id}-title`}
+                aria-expanded="false"
+              >
+                Try demo
+              </button>
+            </div>
+          )}
 
           <div class="plate-body">
             <div class="plate-prose">
@@ -168,10 +156,43 @@ const familyViews = category.structures
               </div>
             </dl>
           </div>
+
+          {!s.demoHref && (
+            <Fragment>
+              <div
+                class="plate-live"
+                id={`${s.id}-demo`}
+                data-structure-demo
+                hidden
+              />
+              <div id={`${s.id}-after-demo`} tabindex="-1" />
+            </Fragment>
+          )}
         </article>
       ))
     }
   </main>
+
+  {familyViews.length > 0 && (
+    <div data-family-demo hidden>
+      <Demo
+        views={familyViews}
+        initial={familyViews[0]}
+        heading={`Live ${category.name.toLowerCase()} demo`}
+        otJump={false}
+        embedded
+      >
+        <Fragment slot="intro">
+          <p>
+            Try an edit on any client, race concurrent writes, or switch on
+            jitter. Pending edits print in <strong class="k-pending">magenta</strong>;
+            once the sequencer stamps an SN, every replica lands the same
+            <strong class="k-seq">ink</strong> state.
+          </p>
+        </Fragment>
+      </Demo>
+    </div>
+  )}
 
   <RelatedFieldNotes page={`/structures/${slug}`} />
 
@@ -197,6 +218,57 @@ const familyViews = category.structures
 <script>
   import { initReveals } from "../scripts/motion.js";
   initReveals();
+
+  const demo = document.querySelector<HTMLElement>("[data-family-demo] #demo");
+  if (demo) {
+    const rig = demo.querySelector<HTMLElement>("[data-demo-rig]");
+    const skip = demo.querySelector<HTMLAnchorElement>(".demo-skip");
+    if (!rig || !skip) throw new Error("Structure demo markup is incomplete");
+    let closeActiveDemo: (() => void) | undefined;
+
+    for (const button of document.querySelectorAll<HTMLButtonElement>("[data-structure-toggle]")) {
+      const id = button.dataset.structureToggle;
+      const plate = button.closest(".plate");
+      const controls = plate?.querySelector<HTMLElement>("[data-structure-controls]");
+      const label = plate?.querySelector<HTMLElement>("[data-structure-view-label]");
+      const description = plate?.querySelector<HTMLElement>(".plate-body");
+      const panel = plate?.querySelector<HTMLElement>("[data-structure-demo]");
+      const pick = demo.querySelector<HTMLInputElement>(`[data-dds-pick][value="${id}"]`);
+      if (!controls || !label || !description || !panel || !pick || !id) {
+        throw new Error(`Structure demo markup is incomplete for ${id}`);
+      }
+
+      const close = () => {
+        panel.hidden = true;
+        description.hidden = false;
+        button.setAttribute("aria-expanded", "false");
+        button.textContent = "Try demo";
+        label.textContent = "Description";
+      };
+
+      button.addEventListener("click", () => {
+        if (!panel.hidden) {
+          close();
+          return;
+        }
+        closeActiveDemo?.();
+        panel.append(demo);
+        panel.hidden = false;
+        description.hidden = true;
+        button.setAttribute("aria-expanded", "true");
+        button.textContent = "Back to description";
+        label.textContent = "Live demo";
+        skip.href = `#${id}-after-demo`;
+        // The dataset also records a selection made before the kernels load.
+        rig.dataset.dds = id;
+        pick.checked = true;
+        pick.dispatchEvent(new Event("change", { bubbles: true }));
+        closeActiveDemo = close;
+        button.scrollIntoView({ block: "nearest" });
+      });
+      controls.hidden = false;
+    }
+  }
 </script>
 
 <style>
@@ -420,6 +492,52 @@ const familyViews = category.structures
 
   .plate-demo:hover {
     color: var(--overprint-deep);
+  }
+
+  .plate-viewbar {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: var(--space-sm) var(--space-md);
+    margin-top: var(--space-md);
+    color: var(--muted);
+  }
+
+  .plate-toggle {
+    min-height: 2.75rem;
+    padding: var(--space-xs) var(--space-md);
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    color: var(--ink);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: 600;
+    cursor: pointer;
+  }
+
+  .plate-toggle:hover,
+  .plate-toggle[aria-expanded="true"] {
+    background: var(--ink);
+    color: var(--bg);
+  }
+
+  .plate-toggle:focus-visible {
+    outline: 2px solid var(--waterline);
+    outline-offset: 3px;
+  }
+
+  .plate-live {
+    margin-top: var(--space-lg);
+  }
+
+  .k-pending {
+    color: var(--overprint-deep);
+  }
+
+  .plate-viewbar[hidden],
+  .plate-body[hidden] {
+    display: none;
   }
 
   .plate-body {

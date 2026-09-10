@@ -61,9 +61,8 @@ const pnFillSteps = [2, 6];
 // ── instance configuration ────────────────────────────────────────────────
 // The demo hosts every kernel on one shared sequencer; `views` selects which
 // structures this instance offers in its picker. The homepage runs a focused
-// SharedMap proof (`views={["map"]}`); each /structures/* page scopes the
-// picker to its own family. All kernels still boot on every instance — the
-// picker just decides which are reachable, matching DDSes sharing a container.
+// SharedMap proof (`views={["map"]}`); each /structures/* page moves its rig
+// between plates and selects the matching view. All kernels stay live.
 const ALL_VIEWS = [
   "map", "counter", "gcounter", "pn", "ormap", "orset", "gset",
   "twopset", "claims", "registers", "ordered", "tasks", "pact", "lww-register", "mv-register",
@@ -75,6 +74,7 @@ interface Props {
   showPicker?: boolean;
   otJump?: boolean;
   heading?: string;
+  embedded?: boolean;
 }
 
 const {
@@ -83,6 +83,7 @@ const {
   showPicker = views.length > 1,
   otJump = views.includes("map"),
   heading = "Watch three clients converge",
+  embedded = false,
 } = Astro.props;
 
 const show = (value: string) => views.includes(value);
@@ -106,10 +107,10 @@ const PICKER_CELLS = [
 ].filter((cell) => show(cell.value));
 ---
 
-<section id="demo" class="demo" aria-labelledby="demo-title">
+<section id="demo" class:list={["demo", { "demo-embedded": embedded }]} aria-labelledby="demo-title">
   <a class="demo-skip" href="#after-demo">Skip past the interactive demo</a>
   <div class="demo-head">
-    <h2 id="demo-title">{heading}</h2>
+    <h2 id="demo-title" class:list={{ "visually-hidden": embedded }}>{heading}</h2>
     <div class="demo-head-grid">
     <div class="demo-intro">
     <slot name="intro">
@@ -134,7 +135,7 @@ const PICKER_CELLS = [
       </p>
     </slot>
     </div>
-    <ol class="demo-legend annot" aria-label="How an edit converges">
+    <ol class="demo-legend annot" aria-label="How an edit converges" hidden={embedded}>
       <li><span class="k-pending">1 · local edit</span> prints in magenta</li>
       <li><span class="k-flow">2 · the sequencer</span> stamps it with an SN</li>
       <li><span class="k-seq">3 · every client</span> lands the same ink state</li>
@@ -144,7 +145,7 @@ const PICKER_CELLS = [
 
   <div class="dds-switch">
     {showPicker && (
-      <fieldset class="dds-picker" data-dds-picker>
+      <fieldset class="dds-picker" data-dds-picker hidden={embedded}>
         <legend class="visually-hidden">Data structure shown in all clients</legend>
         {PICKER_CELLS.map((cell) => (
           <label>
@@ -1053,6 +1054,27 @@ const PICKER_CELLS = [
     position: relative;
     padding: var(--space-section) var(--content-pad);
     border-bottom: 1px solid var(--hairline);
+  }
+
+  .demo-embedded {
+    padding: 0;
+    border: 0;
+    container-type: inline-size;
+  }
+
+  .demo-embedded .demo-head-grid {
+    display: block;
+  }
+
+  .demo-embedded .demo-head p {
+    margin-top: 0;
+    font-size: var(--text-sm);
+    max-width: 62ch;
+  }
+
+  .demo-legend[hidden],
+  .dds-picker[hidden] {
+    display: none;
   }
 
   /* Keyboard escape hatch past the demo's ~30 tab stops; visible on focus. */
@@ -2366,6 +2388,29 @@ const PICKER_CELLS = [
 
     .op-log {
       max-height: 5.7rem;
+    }
+  }
+
+  @container (max-width: 52rem) {
+    .rig {
+      grid-template-areas: "a" "seq" "b" "c";
+      grid-template-columns: 1fr;
+    }
+
+    .rig .client[data-client="c"] {
+      justify-self: stretch;
+      width: auto;
+    }
+
+    .op-log {
+      max-height: 5.7rem;
+    }
+  }
+
+  @container (max-width: 24rem) {
+    .gauge-table th,
+    .gauge-table td {
+      padding-inline: var(--space-xs);
     }
   }
 

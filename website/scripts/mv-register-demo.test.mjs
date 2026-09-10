@@ -39,8 +39,8 @@ for (const path of ["/structures/maps", "/mv-register"]) {
       assert.equal(response.status(), 200);
       await page.waitForSelector('[data-mv-register-write]:not([disabled])', { timeout: 10_000 });
       if (path === "/structures/maps") {
-        await page.focus('[data-dds-pick][value="mv-register"]');
-        await page.keyboard.press("Space");
+        await page.focus('#mv-register [data-structure-toggle]');
+        await page.keyboard.press("Enter");
       }
       await page.$eval("[data-pace]", (input) => {
         input.value = input.max;
@@ -56,8 +56,11 @@ for (const path of ["/structures/maps", "/mv-register"]) {
       await settled(page, ["arm pump", "raise crest"]);
       assert.match(await page.$eval("[data-status]", (el) => el.textContent), /2 alternatives/);
       if (path === "/structures/maps") {
-        await page.click('[data-dds-pick][value="ormap"]');
-        await page.click('[data-dds-pick][value="mv-register"]');
+        await page.click('#mv-register [data-structure-toggle]');
+        await page.click('#mv-register [data-structure-toggle]');
+        await settled(page, ["arm pump", "raise crest"]);
+        await page.click('#ormap [data-structure-toggle]');
+        await page.click('#mv-register [data-structure-toggle]');
         await settled(page, ["arm pump", "raise crest"]);
       }
       await page.click(client("a", "[data-mv-register-resolve]"));
@@ -83,9 +86,7 @@ for (const path of ["/structures/maps", "/mv-register"]) {
       await page.click("[data-cut-link]");
       await settled(page, ["Survey datum"]);
       await page.focus(client("c", "[data-mv-register-input]"));
-      await page.keyboard.down("Control");
-      await page.keyboard.press("KeyA");
-      await page.keyboard.up("Control");
+      await page.$eval(client("c", "[data-mv-register-input]"), (input) => input.select());
       await page.keyboard.type("<b>literal text</b>");
       await page.keyboard.press("Enter");
       await settled(page, ["<b>literal text</b>"]);

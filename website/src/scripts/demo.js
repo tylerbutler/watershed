@@ -2470,6 +2470,7 @@ export function initDemo() {
   for (const pick of ddsPicks) {
     pick.addEventListener("change", () => {
       if (!pick.checked) return;
+      hasInteracted = true;
       activeDds = pick.value;
       applyActiveView();
     });

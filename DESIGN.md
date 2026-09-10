@@ -75,6 +75,10 @@ sections themselves get plain headings — no per-section eyebrows.
 
 - Panels and tables: 1px `--ink` borders, no border-radius, no shadows —
   everything sits flat on the sheet like printed linework.
+- Structure-family plates show their descriptions first. **Try demo** swaps
+  the description for the matching live view; **Back to description** restores
+  it. One shared rig moves between plates without resetting kernel state.
+  Structures with dedicated demo pages keep their links.
 - Architecture cross-section: keep target-specific facades/runtimes/transports
   in the left/right columns (`watershed_beam`/`runtime_beam`/`aquamarine` vs
   `watershed`/`runtime`/`transport_js`); keep `runtime_core`, `channel`,
