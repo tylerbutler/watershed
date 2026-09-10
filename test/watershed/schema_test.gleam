@@ -72,6 +72,12 @@ pub fn pn_counter_channel_field_test() -> Nil {
   schema.channel_field_key(tally) |> expect.to_equal("tally")
 }
 
+pub fn lww_register_channel_field_test() -> Nil {
+  let field: schema.ChannelField(Nil, schema.LwwRegisterChannel) =
+    schema.channel_field("status")
+  schema.channel_field_key(field) |> expect.to_equal("status")
+}
+
 pub fn pact_map_channel_field_test() -> Nil {
   let config: schema.ChannelField(Player, schema.PactMapChannel) =
     schema.channel_field("config")

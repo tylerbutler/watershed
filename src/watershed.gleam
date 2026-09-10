@@ -84,6 +84,8 @@ import watershed/json_ot
 @target(javascript)
 import watershed/json_ot_kernel
 @target(javascript)
+import watershed/lww_register_kernel
+@target(javascript)
 import watershed/map_kernel
 @target(javascript)
 import watershed/mv_register_kernel
@@ -202,6 +204,11 @@ pub opaque type PnCounter {
 @target(javascript)
 pub opaque type GCounter {
   GCounter(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type LwwRegister {
+  LwwRegister(runtime: runtime.Runtime, address: String)
 }
 
 @target(javascript)
@@ -898,6 +905,26 @@ pub fn resolve_g_counter_field(
 }
 
 @target(javascript)
+/// Store a register handle under a typed channel field.
+pub fn set_lww_register_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+  register: LwwRegister,
+) -> Nil {
+  put_channel_field(typed_map, field, lww_register_handle_of(register))
+}
+
+@target(javascript)
+/// Resolve the register referenced by a typed channel field.
+pub fn resolve_lww_register_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+) -> Result(Option(LwwRegister), String) {
+  get_channel_field(document, typed_map, field, resolve_lww_register)
+}
+
+@target(javascript)
 /// Store a handle to `pact_map` under a typed channel field.
 pub fn set_pact_map_field(
   typed_map: TypedMap(s),
@@ -1370,6 +1397,28 @@ pub fn ensure_g_counter(
       set_g_counter_field(typed_map, field, g_counter)
     },
     fn() { resolve_g_counter_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Wait for synchronization, then adopt the register under `field`.
+/// Create one if the field is empty.
+pub fn ensure_lww_register(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+  done: fn(Result(LwwRegister, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use register <- result.map(create_lww_register(document))
+      set_lww_register_field(typed_map, field, register)
+    },
+    fn() { resolve_lww_register_field(document, typed_map, field) },
     done,
   )
 }
@@ -2595,6 +2644,92 @@ pub fn subscribe_g_counter(
     | channel.MvRegisterEvent(_)
     | channel.MapEvent(_)
     | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+// Last-writer-wins registers
+
+@target(javascript)
+/// Create a detached string register with an empty initial value.
+/// The lifecycle is the same as for `create_map`.
+pub fn create_lww_register(
+  document: Document(root),
+) -> Result(LwwRegister, String) {
+  runtime.create_lww_register(document.runtime)
+  |> result.map(fn(address) {
+    LwwRegister(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// Encode the register address as a handle.
+pub fn lww_register_handle_of(register: LwwRegister) -> Json {
+  handle.encode_handle(register.address)
+}
+
+@target(javascript)
+/// Resolve a handle marker and its address. Reads and writes report a
+/// channel-kind mismatch.
+pub fn resolve_lww_register(
+  document: Document(root),
+  value: Json,
+) -> Result(LwwRegister, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        LwwRegister(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Set the value optimistically with a timestamp from the runtime.
+/// A same-value write replicates newer metadata without a change event.
+/// Return channel and clock failures to the caller.
+pub fn lww_register_set(
+  register: LwwRegister,
+  value: String,
+) -> Result(Nil, String) {
+  runtime.lww_register_set(register.runtime, register.address, value)
+}
+
+@target(javascript)
+/// Read the optimistic value. Return `Error(Nil)` if the address does not
+/// name an LWW-register channel.
+pub fn lww_register_value(register: LwwRegister) -> Result(String, Nil) {
+  runtime.lww_register_value(register.runtime, register.address)
+}
+
+@target(javascript)
+/// Register a callback for local and remote visible-value changes.
+pub fn subscribe_lww_register(
+  register: LwwRegister,
+  handler: fn(lww_register_kernel.LwwRegisterEvent) -> Nil,
+) -> SubscriptionToken {
+  use event <- subscribe_narrowed(register.runtime, register.address, handler)
+  case event {
+    channel.LwwRegisterEvent(inner) -> Some(inner)
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)

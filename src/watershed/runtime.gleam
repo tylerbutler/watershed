@@ -579,6 +579,34 @@ pub fn g_counter_value(runtime: Runtime, address: String) -> Result(Int, Nil) {
 }
 
 @target(javascript)
+/// Set the register with the runtime wall clock. Return channel and clock
+/// failures to the caller.
+pub fn lww_register_set(
+  runtime: Runtime,
+  address: String,
+  value: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.lww_register_set(
+      core,
+      address,
+      value,
+      transport_js.now_milliseconds(),
+    )
+  })
+}
+
+@target(javascript)
+/// Read the optimistic value. Return `Error(Nil)` if the address does not
+/// name an LWW-register channel.
+pub fn lww_register_value(
+  runtime: Runtime,
+  address: String,
+) -> Result(String, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.lww_register_value(_, address))
+}
+
+@target(javascript)
 /// Propose `value` for `key` in the PactMap at `address`. This write is a
 /// consensus write, and it is not optimistic. The value takes effect only after
 /// the `Set` operation sequences, and after the `Accept` operation that follows
@@ -1559,6 +1587,13 @@ pub fn create_pn_counter(runtime: Runtime) -> Result(String, String) {
 /// as for `create_map`.
 pub fn create_g_counter(runtime: Runtime) -> Result(String, String) {
   create_channel(runtime, channel.InitGCounter, "create_g_counter")
+}
+
+@target(javascript)
+/// Create a detached LWW-register channel. The lifecycle is the same as for
+/// `create_map`.
+pub fn create_lww_register(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitLwwRegister, "create_lww_register")
 }
 
 @target(javascript)

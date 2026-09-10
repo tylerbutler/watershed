@@ -129,6 +129,9 @@ pub type MapChannel
 
 pub type CounterChannel
 
+/// A string cell whose greatest timestamp and replica ID select one winner.
+pub type LwwRegisterChannel
+
 /// A string cell that retains concurrent alternatives.
 pub type MvRegisterChannel
 
