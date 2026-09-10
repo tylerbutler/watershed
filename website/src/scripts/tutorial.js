@@ -106,7 +106,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     orset: ["[data-orset-value]"],
     gset: ["[data-gset-value]"],
     twopset: ["[data-twopset-value]"],
-    ormap: ["[data-ormap-value]"],
+    ormap: ["[data-ormap-value]", "[data-ormap-members]", "[data-ormap-confirmed]"],
     claims: ["[data-holder]"],
     registers: ["[data-register-atomic]", "[data-register-lww]"],
     ordered: ["[data-ordered-queue]", "[data-ordered-jobs]"],
@@ -245,7 +245,9 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     // ledger before it is sequenced, so the value flashes magenta on edit.
     ormap() {
       setNote(
-        "OR-map — add-wins, observed-remove. Each stockpile has its own ledger: watch a value flash magenta the moment a client logs or strikes it, then ink as the op is sequenced and applied to each replica. Race a strike against a concurrent log and the row survives, every logged yard intact.",
+        rig.dataset.ormapValueMode === "set"
+          ? "OR-map string sets — watch members flash magenta locally, then ink as the sequencer confirms them. Independent additions merge; SharedMap would replace the whole array. Member removal clears observed tags, key removal clears observed members too, and an unseen add survives. An empty set still has a key. Old causal metadata stays behind to prevent resurrection."
+          : "OR-map — add-wins, observed-remove. Each stockpile has its own ledger: watch a value flash magenta the moment a client logs or strikes it, then ink as the op is sequenced and applied to each replica. Race a strike against a concurrent log and the row survives, every logged yard intact.",
       );
     },
     // Claims are non-optimistic (see renderClaims in demo.js): a filed claim

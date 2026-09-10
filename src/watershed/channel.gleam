@@ -49,6 +49,7 @@ import watershed/lww_register_kernel
 import watershed/map_kernel
 import watershed/mv_register_kernel
 import watershed/or_map_kernel
+import watershed/or_map_set_leaf
 import watershed/or_set_kernel
 import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
@@ -291,6 +292,8 @@ pub type P2pEdit {
   OrMapIncrementEdit(key: String, amount: Int)
   OrMapSetRegisterEdit(key: String, value: String, timestamp: Int)
   OrMapRemoveEdit(key: String)
+  OrMapAddMemberEdit(key: String, member: String)
+  OrMapRemoveMemberEdit(key: String, member: String)
   OrSetAddEdit(element: String)
   OrSetRemoveEdit(element: String)
   GSetAddEdit(element: String)
@@ -437,6 +440,7 @@ pub type ChannelError {
   /// not bad input.
   WrongChannelType(detail: String)
   CorruptRemoteOperation(detail: String)
+  OrMapOperationFailed(detail: String)
   /// A `P2pEdit` value or an operation does not match the kernel of the
   /// channel, or that kernel does not support ack-free p2p at all. See
   /// `supports_p2p`.
@@ -632,7 +636,9 @@ fn or_map_kernel_error_detail(error: or_map_kernel.KernelError) -> String {
     | or_map_kernel.UnexpectedRollback(detail)
     | or_map_kernel.ModeMismatch(detail)
     | or_map_kernel.CorruptDelta(detail)
-    | or_map_kernel.NegativeTally(detail) -> detail
+    | or_map_kernel.NegativeTally(detail)
+    | or_map_kernel.InvalidSetState(detail)
+    | or_map_kernel.CounterExhausted(detail) -> detail
   }
 }
 
@@ -833,6 +839,9 @@ pub fn apply_remote(
       case or_map_kernel.apply_remote(kernel, operation) {
         Ok(#(kernel, events)) ->
           Ok(#(OrMapState(kernel), list.map(events, OrMapEvent), []))
+        Error(or_map_kernel.InvalidSetState(detail))
+        | Error(or_map_kernel.CounterExhausted(detail)) ->
+          Error(OrMapOperationFailed(detail))
         Error(or_map_kernel.CorruptDelta(detail))
         | Error(or_map_kernel.ModeMismatch(detail))
         | Error(or_map_kernel.NegativeTally(detail)) ->
@@ -1337,6 +1346,9 @@ pub fn ack_local(
             )
           {
             Ok(kernel) -> Ok(#(OrMapState(kernel), [], None))
+            Error(or_map_kernel.InvalidSetState(detail))
+            | Error(or_map_kernel.CounterExhausted(detail)) ->
+              Error(OrMapOperationFailed(detail))
             Error(or_map_kernel.UnexpectedAck(detail))
             | Error(or_map_kernel.UnexpectedRollback(detail)) ->
               Error(UnexpectedAck(detail))
@@ -1807,6 +1819,26 @@ pub fn apply_p2p_local(
           ))
         Error(error) -> Error(or_map_p2p_error(error))
       }
+    OrMapState(kernel), OrMapAddMemberEdit(key, member) ->
+      case or_map_kernel.p2p_add_member(kernel, key, member) {
+        Ok(#(kernel, events, operation)) ->
+          Ok(#(
+            OrMapState(kernel),
+            list.map(events, OrMapEvent),
+            OrMapOperation(operation),
+          ))
+        Error(error) -> Error(or_map_p2p_error(error))
+      }
+    OrMapState(kernel), OrMapRemoveMemberEdit(key, member) ->
+      case or_map_kernel.p2p_remove_member(kernel, key, member) {
+        Ok(#(kernel, events, operation)) ->
+          Ok(#(
+            OrMapState(kernel),
+            list.map(events, OrMapEvent),
+            OrMapOperation(operation),
+          ))
+        Error(error) -> Error(or_map_p2p_error(error))
+      }
     OrMapState(kernel), OrMapRemoveEdit(key) ->
       case or_map_kernel.p2p_remove(kernel, key) {
         Ok(#(kernel, events, operation)) ->
@@ -2038,11 +2070,15 @@ pub fn merge_p2p_snapshot(
       |> result.map_error(fn(error) {
         CorruptRemoteOperation(lww_register_error_detail(error))
       })
-    OrMapState(kernel), OrMapSnapshot(_, other) ->
-      case or_map_kernel.p2p_merge(kernel, other) {
-        Ok(#(kernel, events)) ->
-          Ok(#(OrMapState(kernel), list.map(events, OrMapEvent)))
-        Error(error) -> Error(or_map_p2p_error(error))
+    OrMapState(kernel), OrMapSnapshot(mode, other) ->
+      case kernel.mode == mode {
+        False -> Error(UnsupportedP2p("OR-map snapshot mode mismatch"))
+        True ->
+          case or_map_kernel.p2p_merge(kernel, other) {
+            Ok(#(kernel, events)) ->
+              Ok(#(OrMapState(kernel), list.map(events, OrMapEvent)))
+            Error(error) -> Error(or_map_p2p_error(error))
+          }
       }
     OrSetState(kernel), OrSetSnapshot(other) -> {
       let #(kernel, events) = or_set_kernel.p2p_merge(kernel, other)
@@ -2095,6 +2131,8 @@ pub fn merge_p2p_snapshot(
 fn or_map_p2p_error(error: or_map_kernel.KernelError) -> ChannelError {
   case error {
     or_map_kernel.ModeMismatch(detail) -> UnsupportedP2p(detail)
+    or_map_kernel.InvalidSetState(detail)
+    | or_map_kernel.CounterExhausted(detail) -> OrMapOperationFailed(detail)
     or_map_kernel.CorruptDelta(detail) | or_map_kernel.NegativeTally(detail) ->
       CorruptRemoteOperation(detail)
     or_map_kernel.UnexpectedAck(detail)
@@ -2362,9 +2400,16 @@ fn same_or_map_shape(
     -> our_key == echoed_key && our_value == echoed_value && our_ts == echoed_ts
     or_map_kernel.Remove(our_key, _), or_map_kernel.Remove(echoed_key, _) ->
       our_key == echoed_key
+    or_map_kernel.AddMember(our_key, our_member, _),
+      or_map_kernel.AddMember(echoed_key, echoed_member, _)
+    | or_map_kernel.RemoveMember(our_key, our_member, _),
+      or_map_kernel.RemoveMember(echoed_key, echoed_member, _)
+    -> our_key == echoed_key && our_member == echoed_member
     or_map_kernel.Increment(_, _, _), _
     | or_map_kernel.SetRegister(_, _, _, _), _
     | or_map_kernel.Remove(_, _), _
+    | or_map_kernel.AddMember(_, _, _), _
+    | or_map_kernel.RemoveMember(_, _, _), _
     -> False
   }
 }
@@ -2527,7 +2572,7 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
     LwwRegisterState(_) -> []
     OrMapState(kernel) ->
       case kernel.mode {
-        or_map_kernel.TallyMode -> []
+        or_map_kernel.TallyMode | or_map_kernel.OrSetMode -> []
         or_map_kernel.RegisterMode ->
           list.flat_map(or_map_kernel.entries(kernel), fn(entry) {
             case entry.1 {
@@ -2536,7 +2581,7 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
                   Ok(value) -> handle.collect_handle_addresses(value)
                   Error(_) -> []
                 }
-              or_map_kernel.Tally(_) -> []
+              or_map_kernel.Tally(_) | or_map_kernel.SetMembers(_) -> []
             }
           })
           |> list.unique
@@ -2999,6 +3044,12 @@ fn or_map_snapshot_decoder() -> Decoder(Snapshot) {
   use value <- decode.then(wire.json_value_decoder())
   let encoded = json.to_string(value)
   case json.parse(encoded, decode.at(["state", "crdt_spec"], decode.string)) {
+    Ok("or_set") ->
+      case or_map_set_leaf.decode_state(encoded) {
+        Ok(state) ->
+          decode.success(OrMapSnapshot(or_map_kernel.OrSetMode, state))
+        Error(_) -> decode.failure(MapSnapshot([]), "ORMapSnapshot")
+      }
     Ok(spec) ->
       case or_map_kernel.spec_string_to_mode(spec), or_map.from_json(encoded) {
         Ok(mode), Ok(state) -> decode.success(OrMapSnapshot(mode, state))

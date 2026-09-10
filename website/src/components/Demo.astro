@@ -13,6 +13,7 @@ const stockpiles = [
   { key: "borrow-pit-7", value: -6 },
   { key: "wash-fill", value: 12 },
 ];
+const documents = ["inspection-brief", "spillway-plan", "pump-watch"];
 const markers = [
   { key: "north-stake", value: "marked" },
   { key: "sluice-tag", value: "marked" },
@@ -206,12 +207,64 @@ const PICKER_CELLS = [
       optimistically: a filed claim is invisible, even to you, until it
       round-trips as won or lost.
     </p>
-    <p class="merge-rule" data-merge-rule="ormap" hidden={initial !== "ormap"}>
-      <strong>Merge rule: add-wins, observed-remove.</strong> A strike only
-      removes stockpile entries the striker had seen. Race a strike against a
-      concurrent delivery and the row survives, with every logged yard.
-      Re-opening a struck pile brings its ledger back.
-    </p>
+    <div class="merge-rule" data-merge-rule="ormap" hidden={initial !== "ormap"}>
+      <p data-ormap-tally-note>
+        <strong>Merge rule: add-wins, observed-remove.</strong> A tally strike
+        hides the stockpile; re-opening brings its ledger back. Race a strike
+        against a concurrent delivery and the row survives with every logged yard.
+      </p>
+      <p data-ormap-set-note hidden>
+        <strong>Merge the members, not a replacement array.</strong> A and B can
+        add "draft" and "reviewed" to one document and keep both. Write those as
+        separate JSON arrays in SharedMap, in the same stream order, and the later
+        whole value replaces the earlier one: ["reviewed"].
+        Remove a member to clear its observed tags; remove a key to clear the
+        observed members as well. An unseen addition survives either race.
+        Removing the last member leaves an <em>empty set</em>, not a missing key.
+      </p>
+    </div>
+    {show("ormap") && (
+      <div class="ormap-controls" data-ormap-controls hidden={initial !== "ormap"}>
+        <label>
+          <span class="annot">Value mode for all three clients</span>
+          <select data-ormap-mode disabled>
+            <option value="tally">Tallies · stockpile ledger</option>
+            <option value="set">String sets · document checklist</option>
+          </select>
+        </label>
+        <p class="mv-hint">
+          This is an in-page sequenced demonstration, not a live mesh.
+          A production channel keeps one homogeneous mode: tallies, string
+          registers, or sets of strings. Switching here starts fresh OR-map
+          replicas only; it doesn't convert an existing channel.
+        </p>
+        <div data-ormap-scenarios hidden>
+          <label>
+            <span class="annot">Controlled set scenario</span>
+            <select data-ormap-set-race disabled>
+              <option value="union">Independent additions to one key</option>
+              <option value="member">Member removal vs fresh re-add</option>
+              <option value="key">Key removal vs unseen member</option>
+              <option value="readd">Remove key, re-add, replay old add</option>
+              <option value="empty">Last member and absent-member removals</option>
+            </select>
+          </label>
+          <p class="mv-hint">
+            Each scenario starts fresh OR-map replicas, then sends real edits
+            through the stream. Setup edits wait for all three clients before
+            the race. Try your own edits afterward, or cut B's link.
+          </p>
+          <p class="annot" data-ormap-race-status role="status">Ready to run.</p>
+          <p class="mv-hint">
+            Members print in sorted order. Quotes distinguish the empty string
+            from an empty set. Removed tags and key history stay in the causal
+            metadata, so re-delivering an old add can't revive what you removed.
+            Unlike the tally ledger, a removed set key starts with new members
+            when you add it again.
+          </p>
+        </div>
+      </div>
+    )}
     <p class="merge-rule" data-merge-rule="orset" hidden={initial !== "orset"}>
       <strong>Merge rule: add-wins, observed-remove.</strong> Clearing a marker
       removes only the add tags this replica had observed. Race a clear against
@@ -550,6 +603,33 @@ const PICKER_CELLS = [
               ))}
             </tbody>
           </table>
+          <div class="mv-register-panel ormap-set-panel dds-ormap" hidden role="group" aria-label={`OR-map string set replica on ${c.name}`}>
+            <h3 class="annot">Document checklist</h3>
+            <dl class="ormap-members">
+              {documents.map((key) => (
+                <div data-ormap-set-row={key}>
+                  <dt><code>{key}</code></dt>
+                  <dd>
+                    <span class="annot">Confirmed</span>
+                    <output class="mv-alternatives k-seq" data-ormap-confirmed aria-live="polite">missing</output>
+                    <span class="annot">Local view</span>
+                    <output class="mv-alternatives" data-ormap-members aria-live="polite">missing</output>
+                  </dd>
+                </div>
+              ))}
+            </dl>
+            <label class="annot" for={`ormap-key-${c.id}`}>Document key</label>
+            <select id={`ormap-key-${c.id}`} data-ormap-key disabled>
+              {documents.map((key) => <option value={key}>{key}</option>)}
+            </select>
+            <label class="annot" for={`ormap-member-${c.id}`}>String member</label>
+            <input id={`ormap-member-${c.id}`} data-ormap-set-input value={c.id === "a" ? "draft" : c.id === "b" ? "reviewed" : "handoff"} disabled />
+            <div class="mv-actions">
+              <button type="button" data-ormap-set-add disabled>Add member</button>
+              <button type="button" data-ormap-set-remove disabled>Remove member</button>
+              <button type="button" data-ormap-remove-key disabled>Remove key</button>
+            </div>
+          </div>
           <table class="gauge-table orset-table dds-orset">
             <caption class="visually-hidden">
               OR-set field marker roster replica on {c.name}
@@ -1012,6 +1092,51 @@ const PICKER_CELLS = [
 </script>
 
 <style>
+  .ormap-controls[hidden],
+  [data-ormap-scenarios][hidden],
+  [data-ormap-set-note][hidden],
+  [data-ormap-tally-note][hidden],
+  .dds-ormap[hidden],
+  .rig:not([data-dds="ormap"]) .ormap-set-panel {
+    display: none;
+  }
+  .ormap-controls {
+    margin-block: var(--space-sm);
+    max-inline-size: 70ch;
+  }
+  .ormap-controls label {
+    display: grid;
+    gap: var(--space-2xs);
+  }
+  .ormap-controls select,
+  .ormap-set-panel select {
+    max-inline-size: 100%;
+    min-inline-size: 0;
+    padding: var(--space-2xs);
+    font: inherit;
+    color: var(--ink);
+    background: var(--bg);
+    border: 1px solid var(--ink);
+  }
+  .ormap-members {
+    margin: 0;
+  }
+  .ormap-set-panel {
+    grid-template-columns: minmax(0, 1fr);
+    min-inline-size: 0;
+  }
+  .ormap-members > div {
+    padding-block: var(--space-xs);
+    border-bottom: 1px solid var(--hairline);
+  }
+  .ormap-members dd {
+    margin: 0;
+  }
+  .ormap-members .mv-alternatives {
+    display: block;
+    min-block-size: 0;
+    overflow-wrap: anywhere;
+  }
   .rig:not([data-dds="mv-register"]) .dds-mv-register,
   .rig:not([data-dds="lww-register"]) .dds-lww-register,
   .rig[data-dds="mv-register"] .client > :is(table, .counter-panel, .dds-lww-register),
@@ -2080,6 +2205,7 @@ const PICKER_CELLS = [
 
   .channel {
     display: flex;
+    min-width: 0;
     flex-direction: column;
     align-items: center;
     gap: var(--space-md);

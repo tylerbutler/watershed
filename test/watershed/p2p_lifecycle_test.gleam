@@ -40,6 +40,73 @@ fn mislabelled_lww_root(
 ) -> crdt_js.Handle(schema.LwwRegisterChannel)
 
 @target(javascript)
+@external(javascript, "./crdt_js.mjs", "root")
+fn mislabelled_or_map_root(
+  document: crdt_js.CrdtDocument(schema.GCounterChannel),
+) -> crdt_js.Handle(schema.OrMapChannel)
+
+@target(javascript)
+pub fn set_map_public_preflight_preserves_channel_and_closed_errors_test() -> Nil {
+  let world = p2p_fake.new_world()
+  let assert Ok(document) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: "set-map-wrong-kind",
+      replica_label: "counter",
+      compatibility_tag: "set-map/v1",
+      root: p2p.g_counter_root(),
+      signaling: p2p_fake.signaling(world),
+    ))
+  let statuses = transport_js.new_cell([])
+  let connection =
+    crdt_js.attach_with_rtc(
+      document,
+      on_ready: fn(_) { Nil },
+      on_status: fn(status) {
+        transport_js.set_cell(statuses, [
+          status,
+          ..transport_js.get_cell(statuses)
+        ])
+      },
+      rtc: p2p_fake.rtc(world, crdt_js.replica_id(document)),
+    )
+  p2p_fake.settle(world)
+  transport_js.set_cell(statuses, [])
+  let map = mislabelled_or_map_root(document)
+  let before = crdt_js.digest(document)
+  let mismatch =
+    p2p.ChannelTypeMismatch(
+      "root",
+      channel.OrMapChannel,
+      channel.GCounterChannel,
+    )
+  crdt_js.or_map_add_member(map, "doc", "draft")
+  |> expect.to_equal(Error(mismatch))
+  crdt_js.or_map_remove_member(map, "doc", "draft")
+  |> expect.to_equal(Error(mismatch))
+  crdt_js.or_map_remove_key(map, "doc") |> expect.to_equal(Error(mismatch))
+  crdt_js.or_map_value(map, "missing") |> expect.to_equal(Error(mismatch))
+  transport_js.get_cell(statuses)
+  |> expect.to_equal([
+    crdt_js.Failed(mismatch),
+    crdt_js.Failed(mismatch),
+    crdt_js.Failed(mismatch),
+    crdt_js.Failed(mismatch),
+  ])
+  crdt_js.digest(document) |> expect.to_equal(before)
+  crdt_js.g_counter_value(crdt_js.root(document)) |> expect.to_equal(Ok(0))
+  crdt_js.close(connection)
+  crdt_js.or_map_add_member(map, "doc", "draft")
+  |> expect.to_equal(Error(p2p.DocumentClosed))
+  crdt_js.or_map_remove_member(map, "doc", "draft")
+  |> expect.to_equal(Error(p2p.DocumentClosed))
+  crdt_js.or_map_remove_key(map, "doc")
+  |> expect.to_equal(Error(p2p.DocumentClosed))
+  crdt_js.or_map_value(map, "missing")
+  |> expect.to_equal(Error(p2p.DocumentClosed))
+  crdt_js.digest(document) |> expect.to_equal(before)
+}
+
+@target(javascript)
 fn lww_config(
   world: p2p_fake.World,
   clock: relay_fake.Clock,
@@ -446,7 +513,8 @@ fn expect_unsupported_p2p(result: Result(a, channel.ChannelError)) -> Nil {
     Ok(_)
     | Error(channel.UnexpectedAck(..))
     | Error(channel.WrongChannelType(..))
-    | Error(channel.CorruptRemoteOperation(..)) ->
+    | Error(channel.CorruptRemoteOperation(..))
+    | Error(channel.OrMapOperationFailed(..)) ->
       panic as "expected Error(channel.UnsupportedP2p(_))"
   }
 }

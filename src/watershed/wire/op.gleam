@@ -27,6 +27,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 
 import lattice_core/replica_id
 import lattice_core/version_vector
@@ -53,6 +54,7 @@ import watershed/lww_register_kernel.{type LwwRegisterOperation}
 import watershed/map_kernel.{type MapOperation, Clear, Delete, Set}
 import watershed/mv_register_kernel.{type MvRegisterOperation}
 import watershed/or_map_kernel.{type OrMapOperation}
+import watershed/or_map_set_leaf
 import watershed/or_set_kernel.{type OrSetOperation}
 import watershed/ordered_collection_kernel.{type OrderedOperation}
 import watershed/pact_map_kernel
@@ -488,6 +490,20 @@ pub fn encode_or_map_envelope(
 
 pub fn encode_or_map_operation(operation: OrMapOperation) -> Json {
   case operation {
+    or_map_kernel.AddMember(key, member, delta) ->
+      json.object([
+        #("type", json.string("orMapAddMember")),
+        #("key", json.string(key)),
+        #("member", json.string(member)),
+        #("delta", delta_json(delta)),
+      ])
+    or_map_kernel.RemoveMember(key, member, delta) ->
+      json.object([
+        #("type", json.string("orMapRemoveMember")),
+        #("key", json.string(key)),
+        #("member", json.string(member)),
+        #("delta", delta_json(delta)),
+      ])
     or_map_kernel.Increment(key, amount, delta) ->
       json.object([
         #("type", json.string("orMapIncrement")),
@@ -1256,7 +1272,10 @@ pub fn or_map_operation_decoder() -> Decoder(OrMapOperation) {
       use key <- decode.field("key", decode.string)
       use amount <- decode.field("amount", decode.int)
       use delta <- decode.field("delta", or_map_delta_decoder())
-      decode.success(or_map_kernel.Increment(key, amount, delta))
+      checked_or_map_operation(
+        or_map_kernel.Increment(key, amount, delta),
+        delta,
+      )
     }
 
     "orMapSet" -> {
@@ -1264,12 +1283,34 @@ pub fn or_map_operation_decoder() -> Decoder(OrMapOperation) {
       use value <- decode.field("value", decode.string)
       use timestamp <- decode.field("timestamp", decode.int)
       use delta <- decode.field("delta", or_map_delta_decoder())
-      decode.success(or_map_kernel.SetRegister(key, value, timestamp, delta))
+      checked_or_map_operation(
+        or_map_kernel.SetRegister(key, value, timestamp, delta),
+        delta,
+      )
     }
     "orMapRemove" -> {
       use key <- decode.field("key", decode.string)
       use delta <- decode.field("delta", or_map_delta_decoder())
-      decode.success(or_map_kernel.Remove(key, delta))
+      checked_or_map_operation(or_map_kernel.Remove(key, delta), delta)
+    }
+    "orMapAddMember" | "orMapRemoveMember" -> {
+      use key <- decode.field("key", decode.string)
+      use member <- decode.field("member", decode.string)
+      use encoded <- decode.field("delta", decode.string)
+      case or_map_set_leaf.decode_delta(encoded) {
+        Error(_) ->
+          decode.failure(
+            or_map_kernel.Remove("", default_or_map_delta()),
+            "ORMap set delta",
+          )
+        Ok(delta) -> {
+          let operation = case operation_type {
+            "orMapAddMember" -> or_map_kernel.AddMember(key, member, delta)
+            _ -> or_map_kernel.RemoveMember(key, member, delta)
+          }
+          validated_set_operation(operation)
+        }
+      }
     }
     _ ->
       decode.failure(
@@ -1409,9 +1450,40 @@ pub fn task_manager_operation_decoder() -> Decoder(TaskManagerOperation) {
 
 fn or_map_delta_decoder() -> Decoder(or_map.ORMapDelta) {
   use encoded <- decode.then(decode.string)
-  case or_map.delta_from_json(encoded) {
+  let decoded = case
+    json.parse(encoded, decode.at(["state", "crdt_spec"], decode.string))
+  {
+    Ok("or_set") ->
+      or_map_set_leaf.decode_delta(encoded) |> result.map_error(fn(_) { Nil })
+    _ -> or_map.delta_from_json(encoded) |> result.map_error(fn(_) { Nil })
+  }
+  case decoded {
     Ok(delta) -> decode.success(delta)
     Error(_) -> decode.failure(default_or_map_delta(), "ORMapDelta")
+  }
+}
+
+fn checked_or_map_operation(
+  operation: OrMapOperation,
+  delta: or_map.ORMapDelta,
+) -> Decoder(OrMapOperation) {
+  case
+    json.parse(
+      or_map.delta_to_json(delta) |> json.to_string,
+      decode.at(["state", "crdt_spec"], decode.string),
+    )
+  {
+    Ok("or_set") -> validated_set_operation(operation)
+    _ -> decode.success(operation)
+  }
+}
+
+fn validated_set_operation(
+  operation: OrMapOperation,
+) -> Decoder(OrMapOperation) {
+  case or_map_kernel.validate_operation(or_map_kernel.OrSetMode, operation) {
+    Ok(Nil) -> decode.success(operation)
+    Error(_) -> decode.failure(operation, "ORMap set operation intent")
   }
 }
 

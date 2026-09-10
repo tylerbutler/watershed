@@ -306,6 +306,23 @@ pub type Msg {
   IncrementOrMap(address: String, key: String, amount: Int)
   SetOrMapKey(address: String, key: String, value: String)
   RemoveOrMapKey(address: String, key: String)
+  AddOrMapMember(
+    address: String,
+    key: String,
+    member: String,
+    reply: Subject(Result(Nil, String)),
+  )
+  RemoveOrMapMember(
+    address: String,
+    key: String,
+    member: String,
+    reply: Subject(Result(Nil, String)),
+  )
+  RemoveOrMapKeyWithResult(
+    address: String,
+    key: String,
+    reply: Subject(Result(Nil, String)),
+  )
   AddOrSetElement(address: String, element: String)
   RemoveOrSetElement(address: String, element: String)
   AddGSetElement(address: String, element: String)
@@ -1386,6 +1403,29 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       })
     RemoveOrMapKey(address, key) ->
       edit(state, fn(core) { runtime_core.or_map_remove(core, address, key) })
+    AddOrMapMember(address, key, member, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.or_map_add_member(core, address, key, member) },
+        "OR-map member add",
+      )
+    RemoveOrMapMember(address, key, member, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) {
+          runtime_core.or_map_remove_member(core, address, key, member)
+        },
+        "OR-map member removal",
+      )
+    RemoveOrMapKeyWithResult(address, key, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) { runtime_core.or_map_remove(core, address, key) },
+        "OR-map key removal",
+      )
     AddOrSetElement(address, element) ->
       edit(state, fn(core) { runtime_core.or_set_add(core, address, element) })
     RemoveOrSetElement(address, element) ->

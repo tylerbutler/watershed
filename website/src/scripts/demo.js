@@ -355,13 +355,22 @@ function describeOp(ddsId, op) {
       : `cut −${-op.amount} yd³`;
   }
   if (ddsId === "ormap") {
-    if (op instanceof orMapKernel.Increment) {
-      return op.amount === 0
-        ? `re-open ${op.key}`
-        : `log ${signed(op.amount)} yd³ → ${op.key}`;
+    const { operation } = op;
+    if (operation instanceof orMapKernel.Increment) {
+      return operation.amount === 0
+        ? `re-open ${operation.key}`
+        : `log ${signed(operation.amount)} yd³ → ${operation.key}`;
     }
-    if (op instanceof orMapKernel.Remove) return `strike ${op.key}`;
-    return `set register ${op.key}`;
+    if (operation instanceof orMapKernel.AddMember) {
+      return `add member ${JSON.stringify(operation.member)} → ${operation.key}`;
+    }
+    if (operation instanceof orMapKernel.RemoveMember) {
+      return `remove member ${JSON.stringify(operation.member)} → ${operation.key}`;
+    }
+    if (operation instanceof orMapKernel.Remove) {
+      return `${op.mode === "set" ? "remove key" : "strike"} ${operation.key}`;
+    }
+    return `set register ${operation.key}`;
   }
   if (ddsId === "orset") {
     if (op instanceof orSetKernel.Add) return `mark ${op.element}`;
@@ -437,6 +446,9 @@ export function initDemo() {
   const linkNote = document.querySelector("[data-link-note]");
   const ddsPicks = document.querySelectorAll("[data-dds-pick]");
   const mergeRules = document.querySelectorAll("[data-merge-rule]");
+  const orMapModeSelect = document.querySelector("[data-ormap-mode]");
+  const orMapRaceSelect = document.querySelector("[data-ormap-set-race]");
+  const orMapRaceStatus = document.querySelector("[data-ormap-race-status]");
 
   const initial = toList(INITIAL.map(([k, v]) => [k, jsonInt(v)]));
   const gCounterBaseline = gCounterBaselineSummary();
@@ -508,7 +520,7 @@ export function initDemo() {
   // booted above — if anything threw, the section stays inert and Demo.astro's
   // catch shows the offline note instead of live-looking dead buttons.
   const demoSection = document.querySelector("#demo");
-  for (const el of demoSection.querySelectorAll("button, input")) {
+  for (const el of demoSection.querySelectorAll("button, input, select")) {
     el.disabled = false;
   }
   // Re-deliver stays dark until a CRDT delta has actually been sequenced.
@@ -572,6 +584,9 @@ export function initDemo() {
   let mvEpoch = 0;
   let lastGCounter = null; // the most recently *sequenced* G-counter delta
   let lastOrMap = null; // the most recently *sequenced* OR-map op
+  let orMapMode = "tally";
+  let orMapEpoch = 0;
+  let orMapRaceRunning = false;
   let lastOrSet = null; // the most recently *sequenced* OR-set op
   let lastGSet = null; // the most recently *sequenced* G-set op
   let lastTwoPSet = null; // the most recently *sequenced* 2P-set op
@@ -716,8 +731,30 @@ export function initDemo() {
   }
 
   function renderOrMap(client) {
-    const entries = orMapEntries(client.ormap);
     const pending = pendingOrMapKeys(client.ormap);
+    client.el.querySelector("table.dds-ormap").hidden = orMapMode !== "tally";
+    client.el.querySelector(".ormap-set-panel").hidden = orMapMode !== "set";
+    if (orMapMode === "set") {
+      const optimistic = new Map(orMapKernel.entries(client.ormap).toArray());
+      const confirmed = new Map(orMapKernel.sequenced_entries(client.ormap).toArray());
+      const memberText = (entries, key) => {
+        if (!entries.has(key)) return "missing";
+        const members = entries.get(key)[0].toArray();
+        return members.length === 0 ? "empty set" : JSON.stringify(members);
+      };
+      for (const row of client.el.querySelectorAll("[data-ormap-set-row]")) {
+        const key = row.dataset.ormapSetRow;
+        const local = row.querySelector("[data-ormap-members]");
+        local.textContent = memberText(optimistic, key);
+        local.classList.toggle("k-pending", pending.has(key));
+        row.querySelector("[data-ormap-confirmed]").textContent = memberText(confirmed, key);
+      }
+      for (const control of client.el.querySelectorAll(".ormap-set-panel button, .ormap-set-panel input, .ormap-set-panel select")) {
+        control.disabled = orMapRaceRunning;
+      }
+      return;
+    }
+    const entries = orMapEntries(client.ormap);
     for (const key of STOCKPILES) {
       const row = client.el.querySelector(`.dds-ormap tr[data-key="${key}"]`);
       const value = entries.get(key);
@@ -1161,6 +1198,10 @@ export function initDemo() {
   }
 
   function renderStatus() {
+    if (activeDds === "ormap" && orMapMode === "set") {
+      raceBtn.disabled = orMapRaceRunning || !linkUp || sequencer.inFlight > 0
+        || Object.values(clients).some((client) => client.ormap.pending.toArray().length > 0);
+    }
     const pending = pendingTotal();
     const inFlight = sequencer.inFlight;
     if (!linkUp) {
@@ -1207,7 +1248,7 @@ export function initDemo() {
     return orMapKernel
       .sequenced_entries(state)
       .toArray()
-      .map(([k, v]) => [k, v[0]]);
+      .map(([k, v]) => [k, v instanceof orMapKernel.SetMembers ? v[0].toArray() : v[0]]);
   }
 
   function orSetSnapshot(state) {
@@ -1365,13 +1406,13 @@ export function initDemo() {
       }
     } else if (ddsId === "ormap") {
       if (target.id === originId) {
-        const result = orMapKernel.ack_local(target.ormap, op);
-        if (result.isOk()) target.ormap = result[0];
-        else console.error("unexpected ack", result[0]);
+        const result = orMapKernel.ack_local_with_message_id(target.ormap, op.operation, op.messageId);
+        if (!result.isOk()) throw new Error("Unexpected OR-map acknowledgement");
+        target.ormap = result[0];
       } else {
-        const result = orMapKernel.apply_remote(target.ormap, op);
-        if (result.isOk()) target.ormap = result[0][0];
-        else console.error("unexpected remote OR-map op", result[0]);
+        const result = orMapKernel.apply_remote(target.ormap, op.operation);
+        if (!result.isOk()) throw new Error("Unexpected remote OR-map operation");
+        [target.ormap] = result[0];
       }
     } else if (ddsId === "orset") {
       if (target.id === originId) {
@@ -1566,15 +1607,16 @@ export function initDemo() {
     }
   }
 
-  function submit(originId, ddsId, op) {
+  function submit(originId, ddsId, op, onDelivered = () => {}) {
     // The author captured this epoch before offline work could be parked.
     if (ddsId === "lww-register" && op.epoch !== lwwRegisterEpoch) return;
     if (ddsId === "mv-register" && op.epoch !== mvEpoch) return;
+    if (ddsId === "ormap" && op.epoch !== orMapEpoch) return;
     // Offline author: the edit already applied optimistically; the send parks
     // until the link is restored, then resubmits — like the runtime's own
     // resubmit queue.
     if (originId === "b" && !linkUp) {
-      heldSubmits.push(() => submit(originId, ddsId, op));
+      heldSubmits.push(() => submit(originId, ddsId, op, onDelivered));
       renderStatus();
       return;
     }
@@ -1587,6 +1629,8 @@ export function initDemo() {
         ? lwwRegisterEpoch
       : ddsId === "mv-register"
         ? mvEpoch
+      : ddsId === "ormap"
+        ? orMapEpoch
       : ddsId === "claims"
         ? claimsEpoch
         : ddsId === "twopset"
@@ -1629,8 +1673,10 @@ export function initDemo() {
           lastGCounter = { op, sn: stamped };
           replayBtn.disabled = false;
         } else if (ddsId === "ormap") {
-          lastOrMap = { op, sn: stamped };
-          replayBtn.disabled = false;
+          // Set replay keeps the first add, including after removal/re-add.
+          if (orMapMode === "tally") lastOrMap = { op, sn: stamped };
+          else if (op.operation instanceof orMapKernel.AddMember) lastOrMap ??= { op, sn: stamped };
+          if (activeDds === "ormap") replayBtn.disabled = !lastOrMap;
         } else if (ddsId === "orset") {
           lastOrSet = { op, sn: stamped };
           replayBtn.disabled = false;
@@ -1658,6 +1704,7 @@ export function initDemo() {
         ) {
           fieldNotes.pulse();
         }
+        onDelivered(target);
       },
     });
   }
@@ -1747,24 +1794,26 @@ export function initDemo() {
   }
 
   function localOrMapLog(clientId, key, amount) {
-    const client = clients[clientId];
-    const result = orMapKernel.increment(client.ormap, key, amount);
-    if (!result.isOk()) {
-      console.error("unexpected OR-map increment refusal", result[0]);
-      return;
-    }
-    const [next, _events, op] = result[0];
-    client.ormap = next;
-    fieldNotes.trackChange("ormap", client.el, true, () => render(client));
-    submit(clientId, "ormap", op);
+    return localOrMapEdit(clientId, orMapKernel.increment, key, amount);
   }
 
   function localOrMapStrike(clientId, key) {
+    return localOrMapEdit(clientId, orMapKernel.remove, key);
+  }
+
+  function localOrMapEdit(clientId, mutate, ...args) {
     const client = clients[clientId];
-    const [next, _events, op] = orMapKernel.remove(client.ormap, key);
+    const result = mutate(client.ormap, ...args);
+    if (!result.isOk()) throw new Error(`OR-map edit failed: ${result[0].constructor.name}`);
+    const [next, _events, operation, messageId] = result[0];
     client.ormap = next;
     fieldNotes.trackChange("ormap", client.el, true, () => render(client));
-    submit(clientId, "ormap", op);
+    return new Promise((resolve) => {
+      let remaining = Object.keys(clients).length;
+      submit(clientId, "ormap", { operation, messageId, epoch: orMapEpoch, mode: orMapMode }, () => {
+        if (--remaining === 0) resolve();
+      });
+    });
   }
 
   function localOrSetAdd(clientId, element) {
@@ -2099,6 +2148,69 @@ export function initDemo() {
     renderStatus();
   }
 
+  function resetOrMap() {
+    orMapEpoch += 1;
+    lastOrMap = null;
+    orMapRaceRunning = false;
+    for (const client of Object.values(clients)) {
+      const writer = replicaId.new$(`client-${client.id}-ormap-${orMapEpoch}`);
+      if (orMapMode === "set") {
+        client.ormap = orMapKernel.new$(writer, new orMapKernel.OrSetMode());
+      } else {
+        const loaded = orMapKernel.from_summary(orMapBaseline, writer);
+        if (!loaded.isOk()) throw new Error("OR-map tally baseline failed to load");
+        client.ormap = loaded[0];
+      }
+      render(client);
+    }
+    if (orMapRaceStatus) orMapRaceStatus.textContent = "Fresh OR-map replicas. Ready to run.";
+    applyActiveView();
+  }
+
+  async function runOrMapSetRace() {
+    resetOrMap();
+    const epoch = orMapEpoch;
+    const scenario = orMapRaceSelect.value;
+    orMapRaceRunning = true;
+    orMapRaceStatus.textContent = "Running: setup and edits travel through the sequencer.";
+    for (const client of Object.values(clients)) render(client);
+    renderStatus();
+    const key = "inspection-brief";
+    const add = (id, member) => localOrMapEdit(id, orMapKernel.add_member, key, member);
+    const remove = (id, member) => localOrMapEdit(id, orMapKernel.remove_member, key, member);
+    if (scenario === "union") {
+      await Promise.all([add("a", "draft"), add("b", "reviewed")]);
+    } else {
+      await add("a", "draft");
+      if (epoch !== orMapEpoch) return;
+      if (scenario === "member") {
+        await Promise.all([remove("a", "draft"), add("b", "draft")]);
+      } else if (scenario === "key") {
+        await Promise.all([localOrMapStrike("a", key), add("b", "reviewed")]);
+      } else if (scenario === "readd") {
+        await localOrMapStrike("a", key);
+        if (epoch !== orMapEpoch) return;
+        await add("b", "handoff");
+        if (epoch !== orMapEpoch) return;
+        await redeliverLastDelta("ormap");
+      } else if (scenario === "empty") {
+        await remove("a", "draft");
+        if (epoch !== orMapEpoch) return;
+        await Promise.all([
+          remove("a", "absent"),
+          localOrMapEdit("b", orMapKernel.remove_member, "pump-watch", "absent"),
+        ]);
+      } else {
+        throw new Error(`Unknown OR-map scenario: ${scenario}`);
+      }
+    }
+    if (epoch !== orMapEpoch) return;
+    orMapRaceRunning = false;
+    orMapRaceStatus.textContent = "Complete. All three clients received the operations; try another edit.";
+    for (const client of Object.values(clients)) render(client);
+    renderStatus();
+  }
+
   function resetTwoPSet() {
     twoPSetEpoch += 1;
     lastTwoPSet = null;
@@ -2117,8 +2229,7 @@ export function initDemo() {
   // new SN is stamped — this is duplicate delivery, the failure mode resends
   // and stash replays produce — and the lattice absorbs it: merge is
   // idempotent, so nothing changes anywhere.
-  function redeliverLastDelta() {
-    const ddsId = activeDds;
+  function redeliverLastDelta(ddsId = activeDds) {
     const last =
       ddsId === "lww-register"
         ? lastLwwRegister
@@ -2144,61 +2255,75 @@ export function initDemo() {
       fieldNotes.flashLog();
     }
 
-    sequencer.broadcast({
-      label: describeOp(ddsId, op),
-      isStale: () =>
-        (ddsId === "lww-register" && op.epoch !== lwwRegisterEpoch) ||
-        (ddsId === "mv-register" && op.epoch !== mvEpoch),
-      onDeliver: (target) => {
-        // Both replicas take the duplicate through `apply_remote` — even the
-        // origin, whose acked delta is already merged. Idempotence makes
-        // both a no-op.
-        if (ddsId === "lww-register") {
-          const result = lwwRegisterKernel.apply_remote(
-            target["lww-register"],
-            op.operation,
-          );
-          if (!result.isOk()) throw new Error("Unexpected duplicate LWW-register op");
-          [target["lww-register"]] = result[0];
-        } else if (ddsId === "mv-register") {
-          [target["mv-register"]] = mvKernel.apply_remote(target["mv-register"], op.operation);
-        } else if (ddsId === "ormap") {
-          const result = orMapKernel.apply_remote(target.ormap, op);
-          if (result.isOk()) target.ormap = result[0][0];
-          else console.error("unexpected duplicate OR-map op", result[0]);
-        } else if (ddsId === "orset") {
-          const [next] = orSetKernel.apply_remote(target.orset, op);
-          target.orset = next;
-        } else if (ddsId === "gset") {
-          const [next] = gSetKernel.apply_remote(target.gset, op);
-          target.gset = next;
-        } else if (ddsId === "gcounter") {
-          const [next] = gCounterKernel.apply_remote(target.gcounter, op);
-          target.gcounter = next;
-        } else if (ddsId === "twopset") {
-          const [next] = twoPSetKernel.apply_remote(target.twopset, op);
-          target.twopset = next;
-        } else {
-          const [next] = pnKernel.apply_remote(target.pn, op);
-          target.pn = next;
-        }
-        render(target);
-        if (
-          fieldNotes.active &&
-          ddsId === activeDds &&
-          !FIELD_FLASH.has(ddsId) &&
-          target.id === "a"
-        ) {
-          fieldNotes.pulse();
-        }
-      },
+    const delivered = new Promise((resolve) => {
+      let remaining = Object.keys(clients).length;
+      sequencer.broadcast({
+        label: describeOp(ddsId, op),
+        isStale: () =>
+          (ddsId === "lww-register" && op.epoch !== lwwRegisterEpoch) ||
+          (ddsId === "mv-register" && op.epoch !== mvEpoch) ||
+          (ddsId === "ormap" && op.epoch !== orMapEpoch),
+        onDeliver: (target) => {
+          // Every replica takes duplicates through apply_remote, including
+          // the origin whose acknowledged delta is already merged.
+          if (ddsId === "lww-register") {
+            const result = lwwRegisterKernel.apply_remote(
+              target["lww-register"],
+              op.operation,
+            );
+            if (!result.isOk()) throw new Error("Unexpected duplicate LWW-register op");
+            [target["lww-register"]] = result[0];
+          } else if (ddsId === "mv-register") {
+            [target["mv-register"]] = mvKernel.apply_remote(target["mv-register"], op.operation);
+          } else if (ddsId === "ormap") {
+            const result = orMapKernel.apply_remote(target.ormap, op.operation);
+            if (!result.isOk()) throw new Error("Unexpected duplicate OR-map operation");
+            [target.ormap] = result[0];
+          } else if (ddsId === "orset") {
+            const [next] = orSetKernel.apply_remote(target.orset, op);
+            target.orset = next;
+          } else if (ddsId === "gset") {
+            const [next] = gSetKernel.apply_remote(target.gset, op);
+            target.gset = next;
+          } else if (ddsId === "gcounter") {
+            const [next] = gCounterKernel.apply_remote(target.gcounter, op);
+            target.gcounter = next;
+          } else if (ddsId === "twopset") {
+            const [next] = twoPSetKernel.apply_remote(target.twopset, op);
+            target.twopset = next;
+          } else {
+            const [next] = pnKernel.apply_remote(target.pn, op);
+            target.pn = next;
+          }
+          render(target);
+          if (
+            fieldNotes.active &&
+            ddsId === activeDds &&
+            !FIELD_FLASH.has(ddsId) &&
+            target.id === "a"
+          ) {
+            fieldNotes.pulse();
+          }
+          if (--remaining === 0) resolve();
+        },
+      });
     });
     renderStatus();
+    return delivered;
   }
 
   // ── wiring ────────────────────────────────────────────────────────────────
 
   for (const client of Object.values(clients)) {
+    const memberInput = client.el.querySelector("[data-ormap-set-input]");
+    const memberKey = client.el.querySelector("[data-ormap-key]");
+    memberInput.addEventListener("keydown", (event) => {
+      if (event.key === "Enter") {
+        event.preventDefault();
+        hasInteracted = true;
+        localOrMapEdit(client.id, orMapKernel.add_member, memberKey.value, memberInput.value);
+      }
+    });
     client.el.querySelector("[data-lww-register-input]").addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -2340,6 +2465,18 @@ export function initDemo() {
         );
         return;
       }
+      const memberButton = event.target.closest("[data-ormap-set-add], [data-ormap-set-remove], [data-ormap-remove-key]");
+      if (memberButton) {
+        hasInteracted = true;
+        if (memberButton.hasAttribute("data-ormap-remove-key")) {
+          localOrMapStrike(client.id, memberKey.value);
+        } else {
+          localOrMapEdit(client.id,
+            memberButton.hasAttribute("data-ormap-set-add") ? orMapKernel.add_member : orMapKernel.remove_member,
+            memberKey.value, memberInput.value);
+        }
+        return;
+      }
       const orMapStrikeBtn = event.target.closest("button[data-ormap-strike]");
       if (orMapStrikeBtn) {
         hasInteracted = true;
@@ -2421,10 +2558,20 @@ export function initDemo() {
 
   function applyActiveView() {
     rig.dataset.dds = activeDds;
+    rig.dataset.ormapValueMode = orMapMode;
+    const setMode = orMapMode === "set";
+    const orMapControls = document.querySelector("[data-ormap-controls]");
+    if (orMapControls) orMapControls.hidden = activeDds !== "ormap";
+    document.querySelector("[data-ormap-tally-note]").hidden = setMode;
+    document.querySelector("[data-ormap-set-note]").hidden = !setMode;
+    if (orMapRaceSelect) {
+      document.querySelector("[data-ormap-scenarios]").hidden = !setMode;
+    }
     for (const rule of mergeRules) {
       rule.hidden = rule.dataset.mergeRule !== activeDds;
     }
     if (raceBtn) raceBtn.textContent = RACE_LABELS[activeDds];
+    raceBtn.disabled = false;
     if (resetBtn) resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
     if (replayBtn) {
       replayBtn.hidden = ![
@@ -2453,6 +2600,15 @@ export function initDemo() {
           : activeDds === "twopset"
             ? !lastTwoPSet
             : !lastPn;
+      const replayOldAdd = activeDds === "ormap" && setMode;
+      replayBtn.textContent = replayOldAdd ? "Re-deliver first add" : "Re-deliver last delta";
+      replayBtn.setAttribute("aria-label", replayOldAdd
+        ? "Deliver the first sequenced member addition again to every replica"
+        : "Deliver the saved sequenced delta again to every replica");
+    }
+    if (activeDds === "ormap" && setMode) {
+      raceBtn.textContent = "Run set scenario";
+      resetBtn.setAttribute("aria-label", "Start fresh OR-map set replicas and discard pending set edits");
     }
     renderBadge(clients.a);
     renderBadge(clients.b);
@@ -2465,6 +2621,12 @@ export function initDemo() {
     rig,
     prefersReducedMotion: () => reducedMotion.matches,
     duration: controls.paced,
+  });
+
+  orMapModeSelect?.addEventListener("change", () => {
+    hasInteracted = true;
+    orMapMode = orMapModeSelect.value;
+    resetOrMap();
   });
 
   for (const pick of ddsPicks) {
@@ -2528,6 +2690,10 @@ export function initDemo() {
       localGCounterIncrement("a", 7);
       localGCounterIncrement("b", 3);
     } else if (activeDds === "ormap") {
+      if (orMapMode === "set") {
+        void runOrMapSetRace();
+        return;
+      }
       // A strikes what it has observed while B logs a delivery concurrently.
       // The strike cannot remove B's unseen dot, so the stockpile survives and
       // the retained tally includes every logged yard.
@@ -2655,6 +2821,10 @@ export function initDemo() {
     } else if (activeDds === "gcounter") {
       resetGCounter();
     } else if (activeDds === "ormap") {
+      if (orMapMode === "set") {
+        resetOrMap();
+        return;
+      }
       for (const [key, base] of ORMAP_BASELINE) {
         if (!orMapEntries(clients.a.ormap).has(key)) {
           localOrMapLog("a", key, 0);

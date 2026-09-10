@@ -65,6 +65,12 @@ type LwwMsg {
   LwwOutcome(Result(Nil, P2pError))
 }
 
+type SetMapMsg {
+  MapSubscribed(Subscription)
+  MapChanged(or_map_kernel.OrMapEvent)
+  MapOutcome(Result(Nil, P2pError))
+}
+
 // ── Harness ──────────────────────────────────────────────────────────────────
 
 /// A signaling adapter that admits the caller into an empty room and reports
@@ -502,6 +508,180 @@ pub fn g_counter_subscribe_delivers_events_and_refuses_a_decrement_test() -> Pro
   let assert Error(_) = crdt_js.g_counter_increment(counter, -1)
   let assert Ok(5) = crdt_js.g_counter_value(counter)
 
+  promise.resolve(Nil)
+}
+
+pub fn set_map_crdt_effects_are_lazy_and_members_are_sorted_test() -> Promise(
+  Nil,
+) {
+  let assert Ok(document) =
+    solo_document(p2p.or_map_root(or_map_kernel.OrSetMode))
+  let map = crdt_js.root(document)
+  let sink = new_sink()
+  let subscription = crdt.subscribe_or_map(map, MapSubscribed, MapChanged)
+  let assert Ok(Nil) = crdt_js.or_map_add_member(map, "doc", "draft")
+  use _ <- promise.await(flush())
+  let assert [] = messages(sink)
+  run(subscription, sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [MapSubscribed(held)] = messages(sink)
+  transport_js.set_cell(sink, [])
+  let add =
+    crdt.perform(
+      fn() { crdt_js.or_map_add_member(map, "doc", "approved") },
+      MapOutcome,
+    )
+  let assert Ok(Ok(or_map_kernel.SetMembers(["draft"]))) =
+    crdt_js.or_map_value(map, "doc")
+  let assert [] = messages(sink)
+  run(add, sink)
+  let assert Ok(Ok(or_map_kernel.SetMembers(["approved", "draft"]))) =
+    crdt_js.or_map_value(map, "doc")
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [
+    MapChanged(or_map_kernel.SetMembersUpdated("doc", ["approved", "draft"])),
+    MapOutcome(Ok(Nil)),
+  ] = messages(sink)
+  transport_js.set_cell(sink, [])
+  let before = crdt_js.digest(document)
+  run(add, sink)
+  assert crdt_js.digest(document) != before
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [MapOutcome(Ok(Nil))] = messages(sink)
+  run(crdt.unsubscribe(held), sink)
+  promise.resolve(Nil)
+}
+
+pub fn set_map_crdt_member_and_key_removal_keep_distinct_results_test() -> Promise(
+  Nil,
+) {
+  let assert Ok(document) =
+    solo_document(p2p.or_map_root(or_map_kernel.OrSetMode))
+  let map = crdt_js.root(document)
+  let sink = new_sink()
+  let assert Ok(Nil) = crdt_js.or_map_add_member(map, "doc", "draft")
+  run(crdt.subscribe_or_map(map, MapSubscribed, MapChanged), sink)
+  use _ <- promise.await(flush())
+  let assert [MapSubscribed(held)] = messages(sink)
+  transport_js.set_cell(sink, [])
+  let remove =
+    crdt.perform(
+      fn() { crdt_js.or_map_remove_member(map, "doc", "draft") },
+      MapOutcome,
+    )
+  let assert Ok(Ok(or_map_kernel.SetMembers(["draft"]))) =
+    crdt_js.or_map_value(map, "doc")
+  run(remove, sink)
+  let assert Ok(Ok(or_map_kernel.SetMembers([]))) =
+    crdt_js.or_map_value(map, "doc")
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [
+    MapChanged(or_map_kernel.SetMembersUpdated("doc", [])),
+    MapOutcome(Ok(Nil)),
+  ] = messages(sink)
+  transport_js.set_cell(sink, [])
+  let remove_key =
+    crdt.perform(fn() { crdt_js.or_map_remove_key(map, "doc") }, MapOutcome)
+  let assert Ok(Ok(or_map_kernel.SetMembers([]))) =
+    crdt_js.or_map_value(map, "doc")
+  run(remove_key, sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [MapChanged(or_map_kernel.KeyRemoved("doc")), MapOutcome(Ok(Nil))] =
+    messages(sink)
+  let assert Ok(Error(Nil)) = crdt_js.or_map_value(map, "doc")
+  transport_js.set_cell(sink, [])
+  let before = crdt_js.digest(document)
+  run(remove, sink)
+  run(remove_key, sink)
+  assert crdt_js.digest(document) == before
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [MapOutcome(Ok(Nil)), MapOutcome(Ok(Nil))] = messages(sink)
+  run(crdt.unsubscribe(held), sink)
+  promise.resolve(Nil)
+}
+
+pub fn set_map_crdt_cancellation_is_lazy_and_stops_events_test() -> Promise(Nil) {
+  let assert Ok(document) =
+    solo_document(p2p.or_map_root(or_map_kernel.OrSetMode))
+  let map = crdt_js.root(document)
+  let sink = new_sink()
+  run(crdt.subscribe_or_map(map, MapSubscribed, MapChanged), sink)
+  use _ <- promise.await(flush())
+  let assert [MapSubscribed(held)] = messages(sink)
+  transport_js.set_cell(sink, [])
+  let unsubscribe = crdt.unsubscribe(held)
+  run(
+    crdt.perform(
+      fn() { crdt_js.or_map_add_member(map, "doc", "draft") },
+      MapOutcome,
+    ),
+    sink,
+  )
+  use _ <- promise.await(flush())
+  let assert [
+    MapChanged(or_map_kernel.SetMembersUpdated("doc", ["draft"])),
+    MapOutcome(Ok(Nil)),
+  ] = messages(sink)
+  transport_js.set_cell(sink, [])
+  run(unsubscribe, sink)
+  run(
+    crdt.perform(fn() { crdt_js.or_map_remove_key(map, "doc") }, MapOutcome),
+    sink,
+  )
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [MapOutcome(Ok(Nil))] = messages(sink)
+  let assert Ok(Error(Nil)) = crdt_js.or_map_value(map, "doc")
+  promise.resolve(Nil)
+}
+
+pub fn set_map_crdt_perform_defers_mode_and_closed_document_errors_test() -> Promise(
+  Nil,
+) {
+  let assert Ok(document) =
+    solo_document(p2p.or_map_root(or_map_kernel.TallyMode))
+  let map = crdt_js.root(document)
+  let sink = new_sink()
+  let add =
+    crdt.perform(
+      fn() { crdt_js.or_map_add_member(map, "doc", "draft") },
+      MapOutcome,
+    )
+  let remove =
+    crdt.perform(
+      fn() { crdt_js.or_map_remove_member(map, "doc", "draft") },
+      MapOutcome,
+    )
+  run(add, sink)
+  run(remove, sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [MapOutcome(Error(_)), MapOutcome(Error(_))] = messages(sink)
+  let assert Ok([]) = crdt_js.or_map_entries(map)
+  let lifecycle = new_sink()
+  attached(document, lifecycle)
+  use _ <- promise.await(flush())
+  run(crdt.close(find_connection(messages(lifecycle))), lifecycle)
+  transport_js.set_cell(sink, [])
+  run(add, sink)
+  run(remove, sink)
+  run(
+    crdt.perform(fn() { crdt_js.or_map_remove_key(map, "doc") }, MapOutcome),
+    sink,
+  )
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [
+    MapOutcome(Error(p2p.DocumentClosed)),
+    MapOutcome(Error(p2p.DocumentClosed)),
+    MapOutcome(Error(p2p.DocumentClosed)),
+  ] = messages(sink)
   promise.resolve(Nil)
 }
 

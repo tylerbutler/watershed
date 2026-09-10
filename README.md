@@ -135,6 +135,67 @@ Use `create_g_counter`, `ensure_g_counter`, `g_counter_increment`,
 fields use `schema.GCounterChannel`, and peer-to-peer documents get
 `p2p.g_counter_root()`.
 
+An `OR-Map` chooses one value mode at creation: signed tallies (`TallyMode`),
+string registers (`RegisterMode`), or sets of strings (`OrSetMode`). Set mode
+fits things like tags per document: two people can add different tags to the
+same document without replacing each other's collection.
+
+```gleam
+let assert Ok(labels) =
+  watershed.create_or_map(document, or_map_kernel.OrSetMode)
+let assert Ok(Nil) =
+  watershed.or_map_add_member(labels, "inspection-brief", "reviewed")
+watershed.or_map_value(labels, "inspection-brief")
+// Ok(or_map_kernel.SetMembers(["reviewed"]))
+
+let assert Ok(Nil) =
+  watershed.or_map_remove_member(labels, "inspection-brief", "reviewed")
+watershed.or_map_value(labels, "inspection-brief")
+// Ok(or_map_kernel.SetMembers([]))
+
+let assert Ok(Nil) = watershed.or_map_remove_key(labels, "inspection-brief")
+watershed.or_map_value(labels, "inspection-brief")
+// Error(Nil)
+```
+
+Removing a member and removing its key are different edits. Removing the last
+member leaves a present, empty set; removing an absent member does nothing and
+does not create a key. Key removal clears the members its author observed.
+A concurrent, unseen member addition can keep the key alive, but a later
+re-add does not bring removed members back.
+
+| | SharedMap | OR-map in `OrSetMode` |
+| --- | --- | --- |
+| Values | JSON, including arrays | Sets of strings |
+| Concurrent edits to one key | The later server-sequenced write replaces the whole value | Member edits merge; unseen additions survive observed removals |
+| Reads | Insertion-order keys | Keys and members sorted in UTF-8 order |
+| Saved state | Visible values | Member tags, tombstones, removal history, and counter floors |
+
+Both sequenced facades expose `or_map_add_member`, `or_map_remove_member`, and
+`or_map_remove_key` as `Result(Nil, String)` operations. The last is a
+result-returning companion to the existing `or_map_remove`; legacy methods
+keep their signatures. Publish the handle with `set_or_map_field`, or use
+`ensure_or_map` with `OrSetMode` after synchronization. Typed fields use the
+existing `schema.OrMapChannel`.
+
+`or_map_entries` returns `SetMembers` values, and `subscribe_or_map` delivers
+`SetMembersUpdated(key, members)` or `KeyRemoved(key)`. Adding an already
+visible member still creates a fresh causal tag, so it can survive a
+concurrent removal, but it emits no duplicate visible-value event.
+
+For JS CRDT documents, configure `root: p2p.or_map_root(or_map_kernel.OrSetMode)`.
+The same three mutations return `Result(Nil, p2p.P2pError)` through `crdt_js`.
+Its `or_map_value` has an outer result for document/channel errors:
+`Ok(Error(Nil))` means a missing key, while `Ok(Ok(SetMembers([])))` means a
+present empty key. Lustre uses the existing `ensure_or_map`, subscriptions,
+and deferred `perform` effects; no separate set-map handle is needed.
+
+Set mode accepts empty strings as keys or members. It has no whole-set setter,
+clear, pruning, mixed value types, or nested-map support. Counter floors
+survive rollback and reload without restoring pending members. The
+[maps field guide](https://watershed.tylerbutler.com/structures/maps) includes
+the set-mode races beside the other maps.
+
 `LWWRegister` holds one string, initially `""`. Values are string-only in this
 release. Each write gets `max(wall_clock_ms, last_seen + 1)` from the runtime
 and kernel, so its logical clock advances even when the wall clock repeats or

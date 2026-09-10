@@ -82,6 +82,7 @@ main().then(
 async function main() {
   await lifecycle();
   await lwwLifecycle();
+  await setMapLifecycle();
   await socketLayer();
   await tornLogs();
   await corruptLogs();
@@ -249,6 +250,127 @@ async function lifecycle() {
   pump.stop();
   await relay.close();
   await signaling.close();
+}
+
+async function setMapLifecycle() {
+  const room = "set-map-documents";
+  const dataDir = tempDir();
+  const signaling = startSignalingServer({});
+  await signaling.listening;
+  const signalingUrl = "ws://127.0.0.1:" + signaling.port() + "/";
+  const world = harness.new_harness();
+  const pump = pumping(world);
+  const relayPort = await freePort();
+  const relayUrl = "ws://127.0.0.1:" + relayPort + "/";
+  const clients = [];
+  let relay;
+  try {
+    const alpha = harness.start_set_map(world, "auto", room, "alpha",
+      signalingUrl, relayUrl);
+    const beta = harness.start_set_map(world, "auto", room, "beta",
+      signalingUrl, relayUrl);
+    clients.push(alpha, beta);
+    const values = (client) => JSON.parse(harness.set_map_values(client));
+    const converged = (expected) => clients.every((client) =>
+      JSON.stringify(values(client)) === JSON.stringify(expected) &&
+      harness.set_map_digest(client) === harness.set_map_digest(alpha));
+    await until(() => clients.every((client) =>
+      harness.set_map_readiness(client).toArray().length === 1 &&
+      harness.set_map_peer_count(client) === 1),
+      "set-map: clients attach over the mesh while the relay is absent");
+    for (const client of clients) {
+      deep(harness.set_map_readiness(client).toArray(), ["ok"],
+        "set-map: readiness does not depend on the absent relay");
+    }
+    harness.set_map_add(alpha, "doc", "draft");
+    harness.set_map_add(beta, "empty", "temporary");
+    await until(() => converged({ doc: ["draft"], empty: ["temporary"] }),
+      "set-map: independent keys cross the mesh");
+    const stale = harness.set_map_snapshot(alpha);
+    harness.set_map_remove_member(beta, "empty", "temporary");
+    await until(() => converged({ doc: ["draft"], empty: [] }),
+      "set-map: removing the last member retains an empty key");
+
+    relay = startRelayServer({ dataDir, port: relayPort });
+    await relay.listening;
+    await until(() => clients.every(harness.set_map_is_primary),
+      "set-map: existing clients attach to the new relay", 20_000);
+    await until(() => relay.attested(room) === harness.set_map_digest(alpha) &&
+      relay.logSize(room) === 1 && converged({ doc: ["draft"], empty: [] }),
+      "set-map: populated and empty keys are checkpointed");
+    const before = harness.set_map_digest(alpha);
+    const eventCounts = clients.map(harness.set_map_event_count);
+    harness.set_map_add(alpha, "doc", "draft");
+    await until(() => converged({ doc: ["draft"], empty: [] }) &&
+      harness.set_map_digest(alpha) !== before && relay.logSize(room) === 2,
+      "set-map: a duplicate add propagates and is durable without a value change");
+    deep(clients.map(harness.set_map_event_count), eventCounts,
+      "set-map: metadata-only propagation emits no visible event");
+    const metadataDigest = harness.set_map_digest(alpha);
+    const metadataLines = relay.lines(room);
+
+    await relay.close();
+    relay = undefined;
+    await until(() => clients.every((client) => harness.set_map_path(client) === "p2p"),
+      "set-map: the first outage falls back to the mesh");
+    relay = startRelayServer({ dataDir, port: relayPort });
+    await relay.listening;
+    deep(relay.lines(room), metadataLines,
+      "set-map: checkpoint and metadata-only delta survive byte for byte");
+    await until(() => clients.every(harness.set_map_is_primary) &&
+      relay.attested(room) === metadataDigest,
+      "set-map: metadata replay is checkpointed after restart", 20_000);
+    deep(clients.map(harness.set_map_event_count), eventCounts,
+      "set-map: replay produces no duplicate visible events");
+
+    await relay.close();
+    relay = undefined;
+    await until(() => clients.every((client) => harness.set_map_path(client) === "p2p"),
+      "set-map: the second outage permits peer edits");
+    // Both edits are authored before the fake mesh pump delivers either one.
+    harness.set_map_remove_key(alpha, "doc");
+    harness.set_map_add(beta, "doc", "reviewed");
+    await until(() => converged({ doc: ["reviewed"], empty: [] }),
+      "set-map: an unobserved addition survives key removal without reviving draft");
+    harness.set_map_remove_key(beta, "doc");
+    await until(() => converged({ empty: [] }),
+      "set-map: observed key removal crosses the outage mesh");
+    harness.set_map_add(alpha, "doc", "handoff");
+    await until(() => converged({ doc: ["handoff"], empty: [] }),
+      "set-map: re-add does not revive removed members");
+    harness.set_map_merge(beta, stale);
+    await until(() => converged({ doc: ["handoff"], empty: [] }),
+      "set-map: stale additions do not revive members or refill an empty key");
+    const outageDigest = harness.set_map_digest(alpha);
+
+    relay = startRelayServer({ dataDir, port: relayPort });
+    await relay.listening;
+    is(relay.stats().roomsRecovered, 1, "set-map: the durable room was recovered");
+    await until(() => clients.every(harness.set_map_is_primary) &&
+      relay.attested(room) === outageDigest &&
+      converged({ doc: ["handoff"], empty: [] }),
+      "set-map: outage changes are resubmitted and checkpointed", 20_000);
+    const late = harness.start_set_map(world, "sequencedOnly", room, "late",
+      signalingUrl, relayUrl);
+    clients.push(late);
+    await until(() => harness.set_map_readiness(late).toArray().length === 1 &&
+      converged({ doc: ["handoff"], empty: [] }),
+      "set-map: a late client restores from the relay alone");
+    deep(harness.set_map_readiness(late).toArray(), ["ok"],
+      "set-map: the late client becomes ready");
+    is(harness.set_map_peer_count(late), 0, "set-map: the late client has no mesh peer");
+    harness.set_map_merge(late, stale);
+    deep(values(late), { doc: ["handoff"], empty: [] },
+      "set-map: restored tombstones reject stale additions under a new author");
+    harness.set_map_add(late, "doc", "late");
+    await until(() => converged({ doc: ["handoff", "late"], empty: [] }),
+      "set-map: the imported writer authors fresh member metadata");
+  } finally {
+    for (const client of clients) harness.set_map_close(client);
+    pump.stop();
+    if (relay) await relay.close();
+    await signaling.close();
+  }
 }
 
 async function lwwLifecycle() {

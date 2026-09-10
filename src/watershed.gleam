@@ -1730,7 +1730,7 @@ pub fn subscribe_counter(
 // ── OR-maps ──────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new OR-map channel, in tally mode or in register mode. The detached
+/// Create a new OR-map channel in tally, register, or string-set mode. The detached
 /// lifecycle is the same as for `create_map`.
 pub fn create_or_map(
   document: Document(root),
@@ -1778,6 +1778,35 @@ pub fn or_map_set_json(or_map: OrMap, key: String, value: Json) -> Nil {
 @target(javascript)
 pub fn or_map_remove(or_map: OrMap, key: String) -> Nil {
   runtime.or_map_remove(or_map.runtime, or_map.address, key)
+}
+
+@target(javascript)
+/// Add a string member in `OrSetMode`. An absent key becomes present.
+/// A duplicate add replicates a fresh tag without a visible-value event.
+pub fn or_map_add_member(
+  or_map: OrMap,
+  key: String,
+  member: String,
+) -> Result(Nil, String) {
+  runtime.or_map_add_member(or_map.runtime, or_map.address, key, member)
+}
+
+@target(javascript)
+/// Remove observed member tags in `OrSetMode`. An absent member is a no-op.
+/// Removing the last member keeps the key present with `SetMembers([])`.
+pub fn or_map_remove_member(
+  or_map: OrMap,
+  key: String,
+  member: String,
+) -> Result(Nil, String) {
+  runtime.or_map_remove_member(or_map.runtime, or_map.address, key, member)
+}
+
+@target(javascript)
+/// Remove a key and return edit failures. In `OrSetMode`, this also clears
+/// observed members. Concurrent unobserved additions survive.
+pub fn or_map_remove_key(or_map: OrMap, key: String) -> Result(Nil, String) {
+  runtime.or_map_remove_key(or_map.runtime, or_map.address, key)
 }
 
 @target(javascript)

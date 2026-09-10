@@ -921,6 +921,41 @@ pub fn or_map_remove(runtime: Runtime, address: String, key: String) -> Nil {
 }
 
 @target(javascript)
+pub fn or_map_add_member(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  member: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.or_map_add_member(core, address, key, member)
+  })
+}
+
+@target(javascript)
+pub fn or_map_remove_member(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  member: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.or_map_remove_member(core, address, key, member)
+  })
+}
+
+@target(javascript)
+pub fn or_map_remove_key(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.or_map_remove(core, address, key)
+  })
+}
+
+@target(javascript)
 pub fn or_map_value(
   runtime: Runtime,
   address: String,

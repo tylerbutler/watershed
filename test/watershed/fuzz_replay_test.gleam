@@ -21,6 +21,7 @@ import gleam/result
 import gleam/string
 import lattice_core/replica_id
 import lattice_registers/lww_register
+import qcheck
 import simplifile
 import startest/expect
 import watershed/fuzz/claims_model
@@ -32,8 +33,10 @@ import watershed/fuzz/kernel_fuzz_test
 import watershed/fuzz/lww_register_model
 import watershed/fuzz/map_model
 import watershed/fuzz/or_map_model
+import watershed/fuzz/or_map_set_model
 import watershed/fuzz/pn_counter_model
 import watershed/fuzz/text_model
+import watershed/or_map_set_fuzz_test
 
 /// Replays one fixture file, returning `Error` with a human-readable
 /// explanation on any decode problem or reproduction mismatch.
@@ -60,6 +63,7 @@ fn replay_content(content: String, path: String) -> Result(Nil, String) {
     "lww_register" -> replay_with(lww_register_model.model(), content, path)
     "pn_counter" -> replay_with(pn_counter_model.model(), content, path)
     "or_map" -> replay_with(or_map_model.model(), content, path)
+    "or_map_set" -> replay_with(or_map_set_model.model(), content, path)
     "directory" -> replay_with(directory_model.model(), content, path)
     "text" -> replay_with(text_model.model(), content, path)
     "toy-sum" ->
@@ -138,6 +142,64 @@ pub fn lww_register_failure_fixture_replays_test() -> Nil {
     |> json.to_string
   replay_content(content, "in-memory LWW-register fixture")
   |> expect.to_equal(Ok(Nil))
+}
+
+pub fn or_map_set_failure_fixture_replays_test() -> Nil {
+  let model = or_map_set_model.model()
+  let script = [
+    kernel_fuzz.StashedOperation(
+      1,
+      or_map_set_fuzz_test.shared_leaf_author_command(),
+    ),
+    kernel_fuzz.Synchronize,
+  ]
+  let assert Error(detail) = kernel_fuzz.try_run_script(model, 3, script)
+  let content =
+    json.object([
+      #("model", json.string(model.name)),
+      #("client_count", json.int(3)),
+      #("detail", json.string(detail)),
+      #("script", kernel_fuzz.script_to_json(model.operation_to_json, script)),
+    ])
+    |> json.to_string
+  replay_content(content, "in-memory set-map fixture")
+  |> expect.to_equal(Ok(Nil))
+}
+
+pub fn or_map_set_generated_failure_fixture_replays_test() -> Nil {
+  let model = or_map_set_model.model()
+  qcheck.run(
+    qcheck.default_config() |> qcheck.with_test_count(20),
+    model.gen_operation,
+    fn(original) {
+      let assert Some(context) = original.context
+      let faulty =
+        or_map_set_model.SetMapCommand(
+          ..original,
+          context: Some(
+            or_map_set_model.Context(..context, counter: context.counter + 1),
+          ),
+        )
+      let script = [
+        kernel_fuzz.StashedOperation(1, faulty),
+        kernel_fuzz.Synchronize,
+      ]
+      let assert Error(detail) = kernel_fuzz.try_run_script(model, 3, script)
+      let content =
+        json.object([
+          #("model", json.string(model.name)),
+          #("client_count", json.int(3)),
+          #("detail", json.string(detail)),
+          #(
+            "script",
+            kernel_fuzz.script_to_json(model.operation_to_json, script),
+          ),
+        ])
+        |> json.to_string
+      replay_content(content, "generated captured set-map fixture")
+      |> expect.to_equal(Ok(Nil))
+    },
+  )
 }
 
 pub fn replays_every_saved_failure_fixture_test() -> Nil {

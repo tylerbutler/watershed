@@ -12,6 +12,77 @@ import * as gCounterKernel from "../../../../build/dev/javascript/watershed/wate
 import * as lwwRegisterKernel from "../../../../build/dev/javascript/watershed/watershed/lww_register_kernel.mjs";
 import * as gCounter from "../../../../build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
 import { lwwRaceTimestamp } from "./lww-register.js";
+import * as orMap from "../../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
+import * as sharedMap from "../../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
+
+const ok = (result) => {
+  assert.ok(result.isOk(), `Kernel returned ${result[0]?.constructor.name}`);
+  return result[0];
+};
+
+test("ORMap member deltas union where SharedMap arrays replace in the same stream", () => {
+  const key = "inspection-brief";
+  const sets = ["a", "b", "c"].map((id) =>
+    orMap.new$(replica.new$(id), new orMap.OrSetMode()));
+  const maps = sets.map(() => sharedMap.new$());
+  const operations = ["draft", "reviewed"].map((member, author) => {
+    const [state, , operation, messageId] = ok(orMap.add_member(sets[author], key, member));
+    sets[author] = state;
+    const [map, , write] = sharedMap.set(
+      maps[author], key, json.array(toList([member]), json.string),
+    );
+    maps[author] = map;
+    return { author, operation, messageId, write };
+  });
+  assert.deepEqual(orMap.sequenced_entries(sets[0]).toArray(), []);
+  for (const { author, operation, messageId, write } of operations) {
+    for (let target = 0; target < 3; target++) {
+      sets[target] = target === author
+        ? ok(orMap.ack_local_with_message_id(sets[target], operation, messageId))
+        : ok(orMap.apply_remote(sets[target], operation))[0];
+      maps[target] = target === author
+        ? ok(sharedMap.ack_local(maps[target], write))
+        : sharedMap.apply_remote(maps[target], write)[0];
+    }
+  }
+  for (let target = 0; target < 3; target++) {
+    assert.deepEqual(ok(orMap.get(sets[target], key))[0].toArray(), ["draft", "reviewed"]);
+    assert.equal(json.to_string(sharedMap.get(maps[target], key)[0]), '["reviewed"]');
+    assert.equal(sets[target].pending.toArray().length, 0);
+  }
+  const beforeDuplicate = json.to_string(orMap.summary(sets[0]));
+  const [duplicateState, duplicateEvents, duplicate, duplicateId] =
+    ok(orMap.add_member(sets[0], key, "draft"));
+  assert.equal(duplicateEvents.toArray().length, 0);
+  assert.equal(orMap.ack_local_with_message_id(duplicateState, duplicate, duplicateId + 1).isOk(), false);
+  sets[0] = ok(orMap.ack_local_with_message_id(duplicateState, duplicate, duplicateId));
+  for (let target = 1; target < 3; target++) {
+    sets[target] = ok(orMap.apply_remote(sets[target], duplicate))[0];
+  }
+  assert.notEqual(json.to_string(orMap.summary(sets[0])), beforeDuplicate);
+  assert.deepEqual(ok(orMap.get(sets[0], key))[0].toArray(), ["draft", "reviewed"]);
+
+  const firstAdd = operations[0].operation;
+  function edit(mutate, ...args) {
+    const [state, , operation, messageId] = ok(mutate(sets[0], key, ...args));
+    sets[0] = ok(orMap.ack_local_with_message_id(state, operation, messageId));
+    for (let i = 1; i < 3; i++) sets[i] = ok(orMap.apply_remote(sets[i], operation))[0];
+  }
+  edit(orMap.remove);
+  assert.equal(orMap.get(sets[0], key).isOk(), false);
+  edit(orMap.add_member, "handoff");
+  for (let i = 0; i < 3; i++) {
+    sets[i] = ok(orMap.apply_remote(sets[i], firstAdd))[0];
+    assert.deepEqual(ok(orMap.get(sets[i], key))[0].toArray(), ["handoff"]);
+  }
+  edit(orMap.remove_member, "handoff");
+  edit(orMap.remove_member, "absent");
+  assert.deepEqual(ok(orMap.get(sets[0], key))[0].toArray(), []);
+  const [next, events, noop, id] = ok(orMap.remove_member(sets[0], "missing", "absent"));
+  assert.equal(events.toArray().length, 0);
+  sets[0] = ok(orMap.ack_local_with_message_id(next, noop, id));
+  assert.equal(orMap.get(sets[0], "missing").isOk(), false);
+});
 
 test("MV revision slate loads a baseline under independent writers", () => {
   const [baseline] = mv.p2p_set(mv.new$(replica.new$("survey")), "Survey datum");

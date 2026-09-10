@@ -1348,6 +1348,7 @@ fn combine(left: Outcome, right: Outcome) -> Outcome {
 fn channel_error_detail(error: channel.ChannelError) -> String {
   case error {
     channel.UnsupportedP2p(detail) -> detail
+    channel.OrMapOperationFailed(detail) -> detail
     channel.CorruptRemoteOperation(detail) -> detail
     channel.UnexpectedAck(detail) -> detail
     channel.WrongChannelType(detail) -> detail

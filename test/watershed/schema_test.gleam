@@ -4,6 +4,9 @@ import gleam/list
 import gleam/option.{type Option, None, Some}
 import startest/expect
 
+import watershed/channel
+import watershed/or_map_kernel
+import watershed/p2p
 import watershed/schema.{Invalid}
 
 // A schema tag: never constructed, only used as a phantom type parameter.
@@ -76,6 +79,23 @@ pub fn lww_register_channel_field_test() -> Nil {
   let field: schema.ChannelField(Nil, schema.LwwRegisterChannel) =
     schema.channel_field("status")
   schema.channel_field_key(field) |> expect.to_equal("status")
+}
+
+pub fn set_map_reuses_or_map_schema_and_root_kind_test() -> Nil {
+  let field: schema.ChannelField(Player, schema.OrMapChannel) =
+    schema.channel_field("documents")
+  schema.channel_field_key(field) |> expect.to_equal("documents")
+  let kind: p2p.CrdtKind(schema.OrMapChannel) =
+    p2p.or_map_root(or_map_kernel.OrSetMode)
+  p2p.kind_init(kind)
+  |> p2p.validate_create
+  |> expect.to_equal(Ok(channel.InitOrMap(or_map_kernel.OrSetMode)))
+  let state = channel.new(p2p.kind_init(kind), replica: "schema")
+  let assert Ok(#(state, _, _)) =
+    channel.apply_p2p_local(state, channel.OrMapAddMemberEdit("doc", "draft"))
+  let assert channel.OrMapState(kernel) = state
+  or_map_kernel.get(kernel, "doc")
+  |> expect.to_equal(Ok(or_map_kernel.SetMembers(["draft"])))
 }
 
 pub fn pact_map_channel_field_test() -> Nil {

@@ -248,14 +248,17 @@ const maps: Structure[] = [
     onHomepage: true,
     tagline: "A map where editing a key and deleting it at once won't lose the edit.",
     rule: "delete a key while someone else edits it, and the edit survives (the write wins)",
-    optimistic: "deleted rows stay readable until the delete is confirmed",
+    optimistic: "edits and removals show locally at once, with confirmed set members alongside",
     summary: "entries remember their edit history, not just the current value",
     how: [
       "An OR-map applies the OR-set's observed-remove semantics to keyed entries. Each entry records causal dots; removing a key only tombstones the dots it has observed, so a concurrent write to the same key survives a delete (add-wins).",
       "Values can themselves be additive tallies, which turns the map into a keyed CRDT ledger. In the demo it appears as a stockpile ledger where striking a row hides it and re-opening submits a +0 delta to surface the retained tally.",
+      "Switch the demo to string sets and each document gets a checklist. A adds draft while B adds reviewed: both members survive. Put those edits in SharedMap as separate JSON arrays instead and, in the same server order, only B's later whole array remains. A channel has one fixed, homogeneous mode: tallies, string registers, or sets of strings. The demo starts fresh OR-map replicas when you switch.",
+      "In set mode, removing a member clears its observed add tags; removing a key also clears its observed members. An unseen concurrent addition survives. Removing the last member keeps a present empty set, while removing an absent member creates nothing. Add a removed key again and only its new members appear, even after an old delta is replayed. Causal metadata stays behind to enforce those removals; this is different from the tally mode's retained ledger.",
     ],
     useCases: [
       "Keyed ledgers edited offline or concurrently (stockpiles, inventories, per-key counters)",
+      "Per-document string labels and checklists where concurrent member edits must merge",
       "Maps where deleting and concurrently updating a key must not lose the update",
       "A CRDT-correct alternative to SharedMap when last-write-wins would drop data",
     ],

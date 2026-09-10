@@ -1,7 +1,9 @@
+import gleam/dynamic/decode
 import gleam/int
 import gleam/io
 import gleam/json
 import gleam/list
+import gleam/result
 import gleam/string
 import lattice_sets/g_set.{type GSet}
 import startest/expect
@@ -22,10 +24,262 @@ import watershed/sequence_kernel
 import watershed/sha256
 import watershed/text_kernel
 import watershed/two_p_set_kernel
+import watershed/wire
 
 const room = "trip-planning"
 
 const compatibility = "watershed-crdt-1"
+
+fn set_map_document(replica: String) -> crdt_core.Document {
+  let assert Ok(document) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: compatibility,
+      replica: replica,
+      session: replica <> "-session",
+      root: channel.InitOrMap(or_map_kernel.OrSetMode),
+    ))
+  document
+}
+
+pub fn or_map_set_metadata_only_edits_replicate_and_change_digest_test() -> Nil {
+  crdt_core.digest(set_map_document("a"))
+  |> expect.to_equal(crdt_core.digest(set_map_document("b")))
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      set_map_document("a"),
+      root(),
+      channel.OrMapAddMemberEdit("doc", "draft"),
+    )
+  let assert Ok(#(duplicate, outcome)) =
+    crdt_core.edit(source, root(), channel.OrMapAddMemberEdit("doc", "draft"))
+  outcome.events |> expect.to_equal([])
+  list.length(outcome.broadcast) |> expect.to_equal(1)
+  crdt_core.digest(duplicate) |> expect.to_not_equal(crdt_core.digest(source))
+  let assert Ok(#(receiver, _)) =
+    crdt_core.receive(
+      set_map_document("b"),
+      crdt_core.envelope(source, crdt_core.state_message(source)),
+    )
+  crdt_core.digest(receiver) |> expect.to_equal(crdt_core.digest(source))
+  let assert [message] = outcome.broadcast
+  let assert Ok(#(receiver, outcome)) =
+    crdt_core.receive_encoded(receiver, crdt_core.encode(duplicate, message))
+  outcome.events |> expect.to_equal([])
+  crdt_core.digest(receiver) |> expect.to_equal(crdt_core.digest(duplicate))
+  let assert Ok(#(removed, _)) =
+    crdt_core.edit(
+      duplicate,
+      root(),
+      channel.OrMapRemoveMemberEdit("doc", "draft"),
+    )
+  let assert Ok(#(readded, _)) =
+    crdt_core.edit(removed, root(), channel.OrMapAddMemberEdit("doc", "draft"))
+  crdt_core.digest(readded) |> expect.to_not_equal(crdt_core.digest(duplicate))
+  let assert Ok(#(same, outcome)) =
+    crdt_core.edit(
+      readded,
+      root(),
+      channel.OrMapRemoveMemberEdit("doc", "absent"),
+    )
+  outcome.events |> expect.to_equal([])
+  crdt_core.digest(same) |> expect.to_equal(crdt_core.digest(readded))
+}
+
+pub fn or_map_set_digest_excludes_cursors_but_preserves_tombstones_and_bounds_test() -> Nil {
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      set_map_document("a"),
+      root(),
+      channel.OrMapAddMemberEdit("doc", "draft"),
+    )
+  let exported = crdt_core.canonical_json(source)
+  let cursors =
+    exported
+    |> string.replace("\"replica_id\":\"a\"", "\"replica_id\":\"loader\"")
+    |> string.replace(
+      "\\\"replica_id\\\":\\\"a\\\"",
+      "\\\"replica_id\\\":\\\"loader\\\"",
+    )
+    |> string.replace("\\\"counter\\\":1", "\\\"counter\\\":100")
+  cursors |> expect.to_not_equal(exported)
+  string.contains(cursors, "\\\"counter\\\":100") |> expect.to_be_true
+  let assert Ok(#(reloaded, _)) =
+    crdt_core.import_snapshot(set_map_document("loader"), cursors)
+  crdt_core.digest(reloaded) |> expect.to_equal(crdt_core.digest(source))
+  let assert crdt_wire.State([entry]) = crdt_core.state_message(source)
+  let raw = channel.encode_snapshot(entry.snapshot) |> json.to_string
+  let assert Ok([value]) =
+    json.parse(
+      raw,
+      decode.at(["state", "values"], decode.list(wire.json_value_decoder())),
+    )
+  let assert Ok(leaf) =
+    json.parse(
+      json.to_string(value),
+      decode.field("crdt", decode.string, decode.success),
+    )
+  let tombstone_leaf =
+    string.replace(
+      leaf,
+      "\"tombstones\":[]",
+      "\"tombstones\":[{\"r\":\"historical\",\"c\":1}]",
+    )
+  tombstone_leaf |> expect.to_not_equal(leaf)
+  let tombstones =
+    string.replace(
+      raw,
+      json.string(leaf) |> json.to_string,
+      json.string(tombstone_leaf) |> json.to_string,
+    )
+  let bounds =
+    string.replace(
+      raw,
+      "\"remove_bounds\":{}",
+      "\"remove_bounds\":{\"inactive\":{\"type\":\"version_vector\",\"v\":1,\"state\":{\"clocks\":{\"historical\":1}}}}",
+    )
+  list.each([tombstones, bounds], fn(changed) {
+    changed |> expect.to_not_equal(raw)
+    let assert Ok(snapshot) =
+      json.parse(changed, channel.snapshot_decoder(channel.OrMapChannel))
+    let message =
+      crdt_wire.State([crdt_wire.ChannelEntry(..entry, snapshot: snapshot)])
+    let assert Ok(#(other, _)) =
+      crdt_core.receive(
+        set_map_document("b"),
+        crdt_core.envelope(source, message),
+      )
+    let assert Ok(channel.OrMapState(state)) =
+      crdt_core.channel_state(other, root())
+    or_map_kernel.entries(state)
+    |> expect.to_equal([#("doc", or_map_kernel.SetMembers(["draft"]))])
+    crdt_core.digest(other) |> expect.to_not_equal(crdt_core.digest(source))
+  })
+}
+
+pub fn or_map_set_snapshot_import_preserves_empty_key_and_removed_leaf_history_test() -> Nil {
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      set_map_document("a"),
+      root(),
+      channel.OrMapAddMemberEdit("empty", "draft"),
+    )
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      source,
+      root(),
+      channel.OrMapRemoveMemberEdit("empty", "draft"),
+    )
+  let assert Ok(#(source, outcome)) =
+    crdt_core.edit(source, root(), channel.OrMapAddMemberEdit("removed", "old"))
+  let assert [old] = outcome.broadcast
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(source, root(), channel.OrMapRemoveEdit("removed"))
+  let assert Ok(#(restored, _)) =
+    crdt_core.import_snapshot(
+      set_map_document("b"),
+      crdt_core.canonical_json(source),
+    )
+  crdt_core.digest(restored) |> expect.to_equal(crdt_core.digest(source))
+  let assert Ok(channel.OrMapState(state)) =
+    crdt_core.channel_state(restored, root())
+  or_map_kernel.get(state, "empty")
+  |> expect.to_equal(Ok(or_map_kernel.SetMembers([])))
+  or_map_kernel.get(state, "removed") |> expect.to_equal(Error(Nil))
+  let assert Ok(#(restored, _)) =
+    crdt_core.edit(
+      restored,
+      root(),
+      channel.OrMapAddMemberEdit("removed", "new"),
+    )
+  let assert Ok(#(restored, outcome)) =
+    crdt_core.receive_encoded(restored, crdt_core.encode(source, old))
+  outcome.events |> expect.to_equal([])
+  let assert Ok(channel.OrMapState(state)) =
+    crdt_core.channel_state(restored, root())
+  or_map_kernel.entries(state)
+  |> expect.to_equal([
+    #("empty", or_map_kernel.SetMembers([])),
+    #("removed", or_map_kernel.SetMembers(["new"])),
+  ])
+}
+
+pub fn or_map_set_snapshot_checks_declared_mode_and_native_spec_test() -> Nil {
+  let set_state = channel.new(channel.InitOrMap(or_map_kernel.OrSetMode), "a")
+  let tally_state = channel.new(channel.InitOrMap(or_map_kernel.TallyMode), "a")
+  let register_state =
+    channel.new(channel.InitOrMap(or_map_kernel.RegisterMode), "a")
+  let assert channel.OrMapSnapshot(_, native_set) = channel.snapshot(set_state)
+  let assert channel.OrMapSnapshot(_, native_tally) =
+    channel.snapshot(tally_state)
+  let assert channel.OrMapSnapshot(_, native_register) =
+    channel.snapshot(register_state)
+  list.each(
+    [
+      #(set_state, channel.OrMapSnapshot(or_map_kernel.TallyMode, native_set)),
+      #(set_state, channel.OrMapSnapshot(or_map_kernel.OrSetMode, native_tally)),
+      #(
+        tally_state,
+        channel.OrMapSnapshot(or_map_kernel.OrSetMode, native_tally),
+      ),
+      #(
+        register_state,
+        channel.OrMapSnapshot(or_map_kernel.TallyMode, native_register),
+      ),
+    ],
+    fn(pair) {
+      channel.merge_p2p_snapshot(pair.0, pair.1)
+      |> result.is_error
+      |> expect.to_be_true
+      channel.from_snapshot(pair.1, "loader")
+      |> result.is_error
+      |> expect.to_be_true
+    },
+  )
+}
+
+pub fn or_map_set_three_peer_transport_preserves_remove_readd_and_replay_test() -> Nil {
+  let mesh =
+    crdt_sim.new()
+    |> crdt_sim.add("a", set_map_document("a"))
+    |> crdt_sim.add("b", set_map_document("b"))
+    |> crdt_sim.add("c", set_map_document("c"))
+    |> crdt_sim.connect("a", "b")
+    |> crdt_sim.connect("b", "c")
+    |> crdt_sim.settle
+    |> crdt_sim.edit("a", root(), channel.OrMapAddMemberEdit("doc", "draft"))
+  let #(mesh, old) = crdt_sim.take_queue(mesh)
+  let assert [packet] = old
+  let assert Ok(envelope) =
+    crdt_wire.decode_envelope(packet.raw, crdt_wire.default_limits())
+  let mesh =
+    mesh
+    |> crdt_sim.enqueue(old)
+    |> crdt_sim.settle
+    |> crdt_sim.send("b", "c", [envelope.message])
+    |> crdt_sim.settle
+  let assert Ok(channel.OrMapState(observed)) =
+    crdt_core.channel_state(crdt_sim.document(mesh, "c"), root())
+  or_map_kernel.get(observed, "doc")
+  |> expect.to_equal(Ok(or_map_kernel.SetMembers(["draft"])))
+  let mesh =
+    mesh
+    |> crdt_sim.edit("c", root(), channel.OrMapRemoveEdit("doc"))
+    |> crdt_sim.settle
+    |> crdt_sim.edit("b", root(), channel.OrMapAddMemberEdit("doc", "reviewed"))
+    |> crdt_sim.settle
+    |> crdt_sim.enqueue(old)
+    |> crdt_sim.settle
+    |> crdt_sim.gossip_state
+    |> crdt_sim.gossip_state
+  converged(mesh)
+  list.each(["a", "b", "c"], fn(replica) {
+    let assert Ok(channel.OrMapState(state)) =
+      crdt_core.channel_state(crdt_sim.document(mesh, replica), root())
+    or_map_kernel.entries(state)
+    |> expect.to_equal([#("doc", or_map_kernel.SetMembers(["reviewed"]))])
+  })
+}
 
 fn lww_document(replica: String) -> crdt_core.Document {
   let assert Ok(document) =
@@ -354,6 +608,8 @@ fn render(state: channel.ChannelState) -> String {
         <> case entry.1 {
           or_map_kernel.Tally(value) -> int.to_string(value)
           or_map_kernel.Register(value) -> value
+          or_map_kernel.SetMembers(members) ->
+            json.array(members, json.string) |> json.to_string
         }
       })
       |> string.join(",")

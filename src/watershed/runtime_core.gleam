@@ -164,6 +164,7 @@ pub type CoreError {
     actual: channel.ChannelType,
   )
   OrMapModeMismatch(address: String, detail: String)
+  OrMapOperationFailed(address: String, detail: String)
   TaskNotAssigned(address: String, task_id: String)
   /// The kernel refused a directory edit, because the path is unknown or the
   /// subdirectory name is invalid. This is incorrect use of the API, and the
@@ -1440,6 +1441,8 @@ fn apply_remote_channel(
           [],
         ),
       )
+    Error(channel.OrMapOperationFailed(detail)) ->
+      Error(OrMapOperationFailed(address, detail))
     Error(channel.UnexpectedAck(detail))
     | Error(channel.WrongChannelType(detail))
     | Error(channel.CorruptRemoteOperation(detail))
@@ -1605,6 +1608,8 @@ fn ack_own_operation(
                           [],
                         ),
                       )
+                    Error(channel.OrMapOperationFailed(detail)) ->
+                      Error(OrMapOperationFailed(address, detail))
                     Error(channel.UnexpectedAck(detail))
                     | Error(channel.WrongChannelType(detail))
                     | Error(channel.CorruptRemoteOperation(detail))
@@ -1625,6 +1630,8 @@ fn ack_own_operation(
                         tag_events(address, events),
                         tag_resolution(address, resolution),
                       ))
+                    Error(channel.OrMapOperationFailed(detail)) ->
+                      Error(OrMapOperationFailed(address, detail))
                     Error(channel.UnexpectedAck(detail))
                     | Error(channel.WrongChannelType(detail))
                     | Error(channel.CorruptRemoteOperation(detail))
@@ -2689,13 +2696,7 @@ pub fn or_map_increment(
               [],
             ),
           )
-        Error(or_map_kernel.ModeMismatch(detail)) ->
-          Error(OrMapModeMismatch(address, detail))
-        Error(or_map_kernel.UnexpectedAck(detail))
-        | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail))
-        | Error(or_map_kernel.NegativeTally(detail)) ->
-          Error(AckMismatch(detail))
+        Error(error) -> Error(or_map_kernel_error(address, error))
       }
     Ok(Attached(kernel)) ->
       case or_map_kernel.increment(kernel, key, amount) {
@@ -2708,13 +2709,7 @@ pub fn or_map_increment(
             channel.OrMapOperation(operation),
             channel.OrMapMeta(message_id),
           ))
-        Error(or_map_kernel.ModeMismatch(detail)) ->
-          Error(OrMapModeMismatch(address, detail))
-        Error(or_map_kernel.UnexpectedAck(detail))
-        | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail))
-        | Error(or_map_kernel.NegativeTally(detail)) ->
-          Error(AckMismatch(detail))
+        Error(error) -> Error(or_map_kernel_error(address, error))
       }
   }
 }
@@ -2741,13 +2736,7 @@ pub fn or_map_set(
               [],
             ),
           )
-        Error(or_map_kernel.ModeMismatch(detail)) ->
-          Error(OrMapModeMismatch(address, detail))
-        Error(or_map_kernel.UnexpectedAck(detail))
-        | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail))
-        | Error(or_map_kernel.NegativeTally(detail)) ->
-          Error(AckMismatch(detail))
+        Error(error) -> Error(or_map_kernel_error(address, error))
       }
     Ok(Attached(_)) -> {
       let #(core, attach_outbound) =
@@ -2771,15 +2760,78 @@ pub fn or_map_set(
             )
           Ok(#(core, events, list.append(attach_outbound, outbound)))
         }
-        Error(or_map_kernel.ModeMismatch(detail)) ->
-          Error(OrMapModeMismatch(address, detail))
-        Error(or_map_kernel.UnexpectedAck(detail))
-        | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail))
-        | Error(or_map_kernel.NegativeTally(detail)) ->
-          Error(AckMismatch(detail))
+        Error(error) -> Error(or_map_kernel_error(address, error))
       }
     }
+  }
+}
+
+pub fn or_map_add_member(
+  core: Core,
+  address: String,
+  key: String,
+  member: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  or_map_member_edit(core, address, or_map_kernel.add_member(_, key, member))
+}
+
+pub fn or_map_remove_member(
+  core: Core,
+  address: String,
+  key: String,
+  member: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  or_map_member_edit(core, address, or_map_kernel.remove_member(_, key, member))
+}
+
+fn or_map_member_edit(
+  core: Core,
+  address: String,
+  edit: fn(or_map_kernel.OrMapState) ->
+    Result(
+      #(
+        or_map_kernel.OrMapState,
+        List(or_map_kernel.OrMapEvent),
+        or_map_kernel.OrMapOperation,
+        Int,
+      ),
+      or_map_kernel.KernelError,
+    ),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use located <- result.try(locate_or_map(core, address))
+  let kernel = case located {
+    Detached(kernel) | Attached(kernel) -> kernel
+  }
+  use #(kernel, events, operation, message_id) <- result.try(
+    edit(kernel) |> result.map_error(or_map_kernel_error(address, _)),
+  )
+  case located {
+    Detached(_) ->
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.OrMapState(kernel)),
+          tag_or_map_events(address, events),
+          [],
+        ),
+      )
+    Attached(_) ->
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.OrMapState(kernel),
+        tag_or_map_events(address, events),
+        channel.OrMapOperation(operation),
+        channel.OrMapMeta(message_id),
+      ))
   }
 }
 
@@ -2823,14 +2875,17 @@ pub fn or_map_remove(
 }
 
 /// Convert an error of the or-map kernel into a `CoreError` value. A mode
-/// mismatch is incorrect use of the API. Every other error means the pending
-/// queue and the acks no longer agree.
+/// mismatch is incorrect use of the API. Set-state and clock failures retain
+/// the channel address. Legacy errors retain their existing mapping.
 fn or_map_kernel_error(
   address: String,
   error: or_map_kernel.KernelError,
 ) -> CoreError {
   case error {
     or_map_kernel.ModeMismatch(detail) -> OrMapModeMismatch(address, detail)
+    or_map_kernel.InvalidSetState(detail)
+    | or_map_kernel.CounterExhausted(detail) ->
+      OrMapOperationFailed(address, detail)
     or_map_kernel.UnexpectedAck(detail)
     | or_map_kernel.UnexpectedRollback(detail)
     | or_map_kernel.CorruptDelta(detail)

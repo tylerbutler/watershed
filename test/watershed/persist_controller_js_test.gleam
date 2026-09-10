@@ -14,6 +14,8 @@ import startest/expect
 @target(javascript)
 import watershed/crdt_js.{type Config, type CrdtDocument}
 @target(javascript)
+import watershed/or_map_kernel
+@target(javascript)
 import watershed/p2p
 @target(javascript)
 import watershed/p2p_fake
@@ -31,6 +33,65 @@ import watershed/transport_js
 const room = "persist-controller-room"
 
 const compatibility = "persist-controller-test/v1"
+
+@target(javascript)
+pub fn set_map_controller_saves_eventless_metadata_and_stops_test() -> Nil {
+  let assert Ok(document) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: room,
+      replica_label: "set-map-controller",
+      compatibility_tag: compatibility,
+      root: p2p.or_map_root(or_map_kernel.OrSetMode),
+      signaling: p2p_fake.signaling(p2p_fake.new_world()),
+    ))
+  let map = crdt_js.root(document)
+  crdt_js.or_map_add_member(map, "doc", "draft") |> expect.to_equal(Ok(Nil))
+  let assert Ok(initial) = crdt_js.export_snapshot(document)
+  let snapshots = transport_js.new_cell([])
+  let events = transport_js.new_cell([])
+  let subscription =
+    crdt_js.subscribe_or_map(map, fn(event) {
+      transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
+    })
+  let clock = relay_fake.new_clock()
+  let removed_listener = transport_js.new_cell(False)
+  let controller =
+    persist_controller_js.start_with_save(
+      document,
+      fn(_) { Nil },
+      relay_fake.scheduler(clock),
+      fn(_) { fn() { transport_js.set_cell(removed_listener, True) } },
+      fn(document, done) {
+        let assert Ok(snapshot) = crdt_js.export_snapshot(document)
+        transport_js.set_cell(snapshots, [
+          snapshot,
+          ..transport_js.get_cell(snapshots)
+        ])
+        done(Ok(crdt_js.digest(document)))
+      },
+    )
+  relay_fake.advance(clock, 500)
+  transport_js.get_cell(snapshots) |> expect.to_equal([initial])
+  let before = crdt_js.digest(document)
+  crdt_js.or_map_add_member(map, "doc", "draft") |> expect.to_equal(Ok(Nil))
+  crdt_js.digest(document) |> expect.to_not_equal(before)
+  transport_js.get_cell(events) |> expect.to_equal([])
+  let assert Ok(updated) = crdt_js.export_snapshot(document)
+  // No visible callback calls changed; the digest sweep must find the tag.
+  relay_fake.advance(clock, 5000)
+  transport_js.get_cell(snapshots) |> expect.to_equal([updated, initial])
+  crdt_js.or_map_remove_member(map, "missing", "draft")
+  |> expect.to_equal(Ok(Nil))
+  persist_controller_js.changed(controller)
+  relay_fake.advance(clock, 500)
+  transport_js.get_cell(snapshots) |> expect.to_equal([updated, initial])
+  persist_controller_js.stop(controller)
+  transport_js.get_cell(removed_listener) |> expect.to_be_true()
+  crdt_js.or_map_remove_key(map, "doc") |> expect.to_equal(Ok(Nil))
+  relay_fake.advance(clock, 10_000)
+  transport_js.get_cell(snapshots) |> expect.to_equal([updated, initial])
+  crdt_js.unsubscribe(subscription)
+}
 
 @target(javascript)
 type Attempt {

@@ -27,6 +27,7 @@ import spillway/types
 
 import lattice_core/replica_id
 import lattice_core/version_vector
+import lattice_maps/or_map
 import lattice_registers/lww_register
 import lattice_sequence/sequence
 import lattice_text/text
@@ -58,6 +59,239 @@ fn parse(text: String, decoder: decode.Decoder(t)) -> t {
     Ok(value) -> value
     Error(_) -> panic as { "fixture failed to decode: " <> text }
   }
+}
+
+pub fn or_map_member_operations_round_trip_and_validate_intent_test() -> Nil {
+  let state =
+    or_map_kernel.new(replica_id.new("writer"), or_map_kernel.OrSetMode)
+  let assert Ok(#(state, _, add)) =
+    or_map_kernel.p2p_add_member(state, "doc", "draft")
+  let assert Ok(#(state, _, remove_member)) =
+    or_map_kernel.p2p_remove_member(state, "doc", "draft")
+  let assert Ok(#(_, _, remove_key)) = or_map_kernel.p2p_remove(state, "doc")
+  list.each([add, remove_member, remove_key], fn(operation) {
+    let encoded = wire_op.encode_or_map_operation(operation) |> json.to_string
+    json.parse(encoded, wire_op.or_map_operation_decoder())
+    |> expect.to_equal(Ok(operation))
+    json.parse(
+      string.replace(encoded, "\"key\":\"doc\"", "\"key\":\"other\""),
+      wire_op.or_map_operation_decoder(),
+    )
+    |> result.is_error
+    |> expect.to_be_true
+  })
+  let encoded = wire_op.encode_or_map_operation(add) |> json.to_string
+  list.each(
+    [
+      string.replace(encoded, "\"member\":\"draft\"", "\"member\":\"other\""),
+      string.replace(encoded, "\"member\":\"draft\"", "\"member\":7"),
+      string.replace(encoded, "orMapAddMember", "orMapRemoveMember"),
+      string.replace(encoded, "orMapAddMember", "orMapRemove"),
+    ],
+    fn(raw) {
+      json.parse(raw, wire_op.or_map_operation_decoder())
+      |> result.is_error
+      |> expect.to_be_true
+    },
+  )
+}
+
+pub fn or_map_member_wire_rejects_wrong_spec_and_legacy_set_intent_test() -> Nil {
+  let state =
+    or_map_kernel.new(replica_id.new("writer"), or_map_kernel.TallyMode)
+  let assert Ok(#(_, _, or_map_kernel.Increment(_, _, delta))) =
+    or_map_kernel.p2p_increment(state, "doc", 1)
+  let invalid = or_map_kernel.AddMember("doc", "draft", delta)
+  json.parse(
+    wire_op.encode_or_map_operation(invalid) |> json.to_string,
+    wire_op.or_map_operation_decoder(),
+  )
+  |> result.is_error
+  |> expect.to_be_true
+  let state =
+    or_map_kernel.new(replica_id.new("writer"), or_map_kernel.OrSetMode)
+  let assert Ok(#(_, _, or_map_kernel.AddMember(_, _, delta))) =
+    or_map_kernel.p2p_add_member(state, "doc", "draft")
+  list.each(
+    [
+      or_map_kernel.Increment("doc", 1, delta),
+      or_map_kernel.SetRegister("doc", "draft", 1, delta),
+    ],
+    fn(operation) {
+      json.parse(
+        wire_op.encode_or_map_operation(operation) |> json.to_string,
+        wire_op.or_map_operation_decoder(),
+      )
+      |> result.is_error
+      |> expect.to_be_true
+    },
+  )
+  let raw_delta = json.to_string(or_map.delta_to_json(delta))
+  list.each(
+    [
+      string.replace(raw_delta, "\"v\":1", "\"v\":9"),
+      string.replace(raw_delta, "or_map_delta", "or_map"),
+    ],
+    fn(raw) {
+      let encoded =
+        json.object([
+          #("type", json.string("orMapAddMember")),
+          #("key", json.string("doc")),
+          #("member", json.string("draft")),
+          #("delta", json.string(raw)),
+        ])
+        |> json.to_string
+      json.parse(encoded, wire_op.or_map_operation_decoder())
+      |> result.is_error
+      |> expect.to_be_true
+    },
+  )
+}
+
+pub fn or_map_set_snapshot_raw_validation_precedes_native_decoding_test() -> Nil {
+  let state =
+    or_map_kernel.new(replica_id.new("writer"), or_map_kernel.OrSetMode)
+  let assert Ok(#(state, _, _)) =
+    or_map_kernel.p2p_add_member(state, "doc", "draft")
+  let raw = or_map.to_json(state.optimistic) |> json.to_string
+  let snapshot =
+    channel.OrMapSnapshot(or_map_kernel.OrSetMode, state.optimistic)
+  json.parse(raw, channel.snapshot_decoder(channel.OrMapChannel))
+  |> expect.to_equal(Ok(snapshot))
+  let assert Ok([entry]) =
+    json.parse(
+      raw,
+      decode.at(["state", "values"], decode.list(wire.json_value_decoder())),
+    )
+  let assert Ok(leaf) =
+    json.parse(
+      json.to_string(entry),
+      decode.field("crdt", decode.string, decode.success),
+    )
+  let encoded_leaf = json.string(leaf) |> json.to_string
+  let invalid_leaves = [
+    string.replace(leaf, "\"type\":\"or_set\"", "\"type\":\"g_set\""),
+    string.replace(leaf, "\"v\":2", "\"v\":99"),
+    string.replace(leaf, "\"counter\":1", "\"counter\":0"),
+    string.replace(leaf, "\"counter\":1", "\"counter\":9007199254740992"),
+    string.replace(leaf, "\"counter\":1", "\"counter\":\"1\""),
+    string.replace(leaf, "\"c\":1", "\"c\":0"),
+    string.replace(leaf, "\"c\":1", "\"c\":-1"),
+  ]
+  list.each(invalid_leaves, fn(invalid) {
+    invalid |> expect.to_not_equal(leaf)
+    let malformed =
+      string.replace(raw, encoded_leaf, json.string(invalid) |> json.to_string)
+    json.parse(malformed, channel.snapshot_decoder(channel.OrMapChannel))
+    |> result.is_error
+    |> expect.to_be_true
+  })
+  list.each(
+    [
+      string.replace(raw, "\"type\":\"or_map\"", "\"type\":\"or_map_delta\""),
+      string.replace(raw, "\"v\":2", "\"v\":99"),
+      string.replace(raw, "\"crdt_spec\":\"or_set\"", "\"crdt_spec\":7"),
+      string.replace(
+        raw,
+        "\"values\":[",
+        "\"values\":[" <> json.to_string(entry) <> ",",
+      ),
+      string.replace(raw, encoded_leaf, "7"),
+    ],
+    fn(malformed) {
+      malformed |> expect.to_not_equal(raw)
+      json.parse(malformed, channel.snapshot_decoder(channel.OrMapChannel))
+      |> result.is_error
+      |> expect.to_be_true
+    },
+  )
+}
+
+pub fn or_map_set_delta_raw_duplicate_keys_rejected_for_member_and_legacy_remove_test() -> Nil {
+  let state =
+    or_map_kernel.new(replica_id.new("writer"), or_map_kernel.OrSetMode)
+  let assert Ok(#(state, _, add)) =
+    or_map_kernel.p2p_add_member(state, "doc", "draft")
+  let assert Ok(#(_, _, remove_member)) =
+    or_map_kernel.p2p_remove_member(state, "doc", "draft")
+  let assert Ok(#(_, _, remove_key)) = or_map_kernel.p2p_remove(state, "doc")
+  list.each([add, remove_member, remove_key], fn(operation) {
+    let encoded = wire_op.encode_or_map_operation(operation) |> json.to_string
+    let assert Ok(delta) =
+      json.parse(encoded, decode.field("delta", decode.string, decode.success))
+    let assert Ok([value]) =
+      json.parse(
+        delta,
+        decode.at(
+          ["state", "value_deltas"],
+          decode.list(wire.json_value_decoder()),
+        ),
+      )
+    let duplicate =
+      string.replace(
+        delta,
+        "\"value_deltas\":[",
+        "\"value_deltas\":[" <> json.to_string(value) <> ",",
+      )
+    duplicate |> expect.to_not_equal(delta)
+    let malformed =
+      string.replace(
+        encoded,
+        json.string(delta) |> json.to_string,
+        json.string(duplicate) |> json.to_string,
+      )
+    json.parse(malformed, wire_op.or_map_operation_decoder())
+    |> result.is_error
+    |> expect.to_be_true
+  })
+}
+
+pub fn or_map_set_wire_accepts_leaf_with_other_members_history_test() -> Nil {
+  let state =
+    or_map_kernel.new(replica_id.new("writer"), or_map_kernel.OrSetMode)
+  let assert Ok(#(state, _, _)) =
+    or_map_kernel.p2p_add_member(state, "doc", "draft")
+  let assert Ok(#(state, _, operation)) =
+    or_map_kernel.p2p_add_member(state, "doc", "reviewed")
+  round_trip_or_map_operation(operation)
+  let assert Ok(#(_, _, operation)) =
+    or_map_kernel.p2p_remove_member(state, "doc", "draft")
+  round_trip_or_map_operation(operation)
+}
+
+pub fn or_map_member_shapes_include_key_member_and_operation_test() -> Nil {
+  let state =
+    or_map_kernel.new(replica_id.new("writer"), or_map_kernel.OrSetMode)
+  let assert Ok(#(_, _, or_map_kernel.AddMember(_, _, delta))) =
+    or_map_kernel.p2p_add_member(state, "doc", "draft")
+  let ours =
+    channel.OrMapOperation(or_map_kernel.AddMember("doc", "draft", delta))
+  channel.same_shape(ours, ours) |> expect.to_be_true
+  list.each(
+    [
+      or_map_kernel.AddMember("other", "draft", delta),
+      or_map_kernel.AddMember("doc", "other", delta),
+      or_map_kernel.RemoveMember("doc", "draft", delta),
+      or_map_kernel.Remove("doc", delta),
+    ],
+    fn(other) {
+      channel.same_shape(ours, channel.OrMapOperation(other))
+      |> expect.to_be_false
+    },
+  )
+  let ours =
+    channel.OrMapOperation(or_map_kernel.RemoveMember("doc", "draft", delta))
+  channel.same_shape(ours, ours) |> expect.to_be_true
+  list.each(
+    [
+      or_map_kernel.RemoveMember("other", "draft", delta),
+      or_map_kernel.RemoveMember("doc", "other", delta),
+    ],
+    fn(other) {
+      channel.same_shape(ours, channel.OrMapOperation(other))
+      |> expect.to_be_false
+    },
+  )
 }
 
 pub fn lww_register_operation_round_trips_test() -> Nil {

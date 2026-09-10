@@ -3629,6 +3629,41 @@ pub fn or_map_remove(
 }
 
 @target(javascript)
+/// Add a string member in `OrSetMode`. An absent key becomes present.
+/// A duplicate add replicates a fresh tag without a visible-value event.
+pub fn or_map_add_member(
+  handle: Handle(schema.OrMapChannel),
+  key key: String,
+  member member: String,
+) -> Result(Nil, P2pError) {
+  use _ <- result.try(read(handle, channel.OrMapChannel, fn(_) { Nil }))
+  mutate(handle, channel.OrMapAddMemberEdit(key, member))
+}
+
+@target(javascript)
+/// Remove observed member tags in `OrSetMode`. An absent member is a no-op.
+/// Removing the last member keeps the key present with `SetMembers([])`.
+pub fn or_map_remove_member(
+  handle: Handle(schema.OrMapChannel),
+  key key: String,
+  member member: String,
+) -> Result(Nil, P2pError) {
+  use _ <- result.try(read(handle, channel.OrMapChannel, fn(_) { Nil }))
+  mutate(handle, channel.OrMapRemoveMemberEdit(key, member))
+}
+
+@target(javascript)
+/// Remove a key. In `OrSetMode`, this also clears observed members.
+/// Concurrent unobserved additions survive.
+pub fn or_map_remove_key(
+  handle: Handle(schema.OrMapChannel),
+  key key: String,
+) -> Result(Nil, P2pError) {
+  use _ <- result.try(read(handle, channel.OrMapChannel, fn(_) { Nil }))
+  or_map_remove(handle, key)
+}
+
+@target(javascript)
 pub fn or_map_value(
   handle: Handle(schema.OrMapChannel),
   key key: String,
@@ -3671,6 +3706,11 @@ pub fn or_map_tally(
       Error(p2p.InvalidEnvelope(
         address(handle),
         "key " <> key <> " holds a register, not a tally",
+      ))
+    Ok(or_map_kernel.SetMembers(_)) ->
+      Error(p2p.InvalidEnvelope(
+        address(handle),
+        "key " <> key <> " holds a set, not a tally",
       ))
     Error(Nil) -> Ok(0)
   }

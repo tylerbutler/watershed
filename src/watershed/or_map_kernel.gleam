@@ -1,8 +1,9 @@
 //// A lattice-backed observed-remove map kernel.
 ////
-//// This kernel holds one `lattice_maps/or_map.ORMap` in one of two value
+//// This kernel holds one `lattice_maps/or_map.ORMap` in one of three value
 //// modes. The first mode holds signed tallies, which are PN-counter leaves.
 //// The second mode holds string registers, which are LWW-register leaves.
+//// The third mode holds observed-remove sets of strings.
 ////
 //// A local mutation calls `update_with_delta` or `remove_with_delta` to
 //// produce a sparse delta only. The kernel then advances the state by applying
@@ -16,21 +17,27 @@ import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/set
 import gleam/string
 import lattice_core/replica_id.{type ReplicaId}
 import lattice_counters/pn_counter.{type PNCounter}
 import lattice_maps/crdt
 import lattice_maps/or_map.{type ORMap, type ORMapDelta}
 import lattice_registers/lww_register
+import lattice_sets/or_set
+import watershed/canonical_json
+import watershed/or_map_set_leaf
 
 pub type OrMapMode {
   TallyMode
   RegisterMode
+  OrSetMode
 }
 
 pub type OrMapValue {
   Tally(Int)
   Register(String)
+  SetMembers(List(String))
 }
 
 pub type OrMapState {
@@ -66,6 +73,7 @@ pub type OrMapState {
     /// that fault. `p2p_merge` reads the timestamp of each merged register
     /// through `lww_register.to_json` and adds it to this clock.
     register_clock: Dict(String, Int),
+    set_clocks: or_map_set_leaf.Clocks,
     pending: List(PendingOperation),
     next_pending_message_id: Int,
   )
@@ -79,11 +87,14 @@ pub type OrMapOperation {
   Increment(key: String, amount: Int, delta: ORMapDelta)
   SetRegister(key: String, value: String, timestamp: Int, delta: ORMapDelta)
   Remove(key: String, delta: ORMapDelta)
+  AddMember(key: String, member: String, delta: ORMapDelta)
+  RemoveMember(key: String, member: String, delta: ORMapDelta)
 }
 
 pub type OrMapEvent {
   TallyUpdated(key: String, applied: Int, new_value: Int)
   RegisterUpdated(key: String, value: String)
+  SetMembersUpdated(key: String, members: List(String))
   KeyRemoved(key: String)
 }
 
@@ -92,6 +103,8 @@ pub type KernelError {
   UnexpectedRollback(detail: String)
   ModeMismatch(detail: String)
   CorruptDelta(detail: String)
+  InvalidSetState(detail: String)
+  CounterExhausted(detail: String)
   /// The own tally of this replica for one key moved below zero. Both halves
   /// of a PN-counter are grow-only, so a count below zero is a broken state.
   NegativeTally(detail: String)
@@ -101,6 +114,7 @@ pub fn mode_to_spec(mode: OrMapMode) -> crdt.CrdtSpec {
   case mode {
     TallyMode -> crdt.PnCounterSpec
     RegisterMode -> crdt.LwwRegisterSpec
+    OrSetMode -> crdt.OrSetSpec
   }
 }
 
@@ -108,6 +122,7 @@ pub fn spec_string_to_mode(spec: String) -> Result(OrMapMode, Nil) {
   case spec {
     "pn_counter" -> Ok(TallyMode)
     "lww_register" -> Ok(RegisterMode)
+    "or_set" -> Ok(OrSetMode)
     _ -> Error(Nil)
   }
 }
@@ -121,6 +136,7 @@ pub fn new(replica_id: ReplicaId, mode: OrMapMode) -> OrMapState {
     optimistic: empty,
     own_tallies: dict.new(),
     register_clock: dict.new(),
+    set_clocks: or_map_set_leaf.new_clocks(),
     pending: [],
     next_pending_message_id: 0,
   )
@@ -140,11 +156,11 @@ pub fn get(state: OrMapState, key: String) -> Result(OrMapValue, Nil) {
 }
 
 pub fn entries(state: OrMapState) -> List(#(String, OrMapValue)) {
-  map_entries(state.optimistic)
+  map_entries(state.optimistic, state.mode)
 }
 
 pub fn sequenced_entries(state: OrMapState) -> List(#(String, OrMapValue)) {
-  map_entries(state.sequenced)
+  map_entries(state.sequenced, state.mode)
 }
 
 pub fn increment(
@@ -153,7 +169,8 @@ pub fn increment(
   amount: Int,
 ) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
   case state.mode {
-    RegisterMode -> Error(ModeMismatch("increment requires TallyMode"))
+    RegisterMode | OrSetMode ->
+      Error(ModeMismatch("increment requires TallyMode"))
     TallyMode -> {
       let #(positive, negative) =
         dict.get(state.own_tallies, key) |> result.unwrap(#(0, 0))
@@ -205,7 +222,8 @@ pub fn set_register(
   timestamp: Int,
 ) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
   case state.mode {
-    TallyMode -> Error(ModeMismatch("set_register requires RegisterMode"))
+    TallyMode | OrSetMode ->
+      Error(ModeMismatch("set_register requires RegisterMode"))
     RegisterMode -> {
       let before = entries(state)
       let timestamp = stamp(state.register_clock, key, timestamp)
@@ -279,11 +297,24 @@ fn observe_operation(
 ) -> Dict(String, Int) {
   case operation {
     SetRegister(key, _, timestamp, _) -> observe(clock, key, timestamp)
-    Increment(_, _, _) | Remove(_, _) -> clock
+    Increment(_, _, _)
+    | Remove(_, _)
+    | AddMember(_, _, _)
+    | RemoveMember(_, _, _) -> clock
   }
 }
 
 pub fn remove(
+  state: OrMapState,
+  key: String,
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
+  case state.mode {
+    OrSetMode -> edit_set(state, key, or_map_set_leaf.RemoveKey, False)
+    TallyMode | RegisterMode -> remove_legacy(state, key)
+  }
+}
+
+fn remove_legacy(
   state: OrMapState,
   key: String,
 ) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
@@ -318,7 +349,8 @@ pub fn p2p_increment(
   amount: Int,
 ) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation), KernelError) {
   case state.mode {
-    RegisterMode -> Error(ModeMismatch("increment requires TallyMode"))
+    RegisterMode | OrSetMode ->
+      Error(ModeMismatch("increment requires TallyMode"))
     TallyMode -> {
       let #(positive, negative) =
         dict.get(state.own_tallies, key) |> result.unwrap(#(0, 0))
@@ -363,7 +395,8 @@ pub fn p2p_set_register(
   timestamp: Int,
 ) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation), KernelError) {
   case state.mode {
-    TallyMode -> Error(ModeMismatch("set_register requires RegisterMode"))
+    TallyMode | OrSetMode ->
+      Error(ModeMismatch("set_register requires RegisterMode"))
     RegisterMode -> {
       let before = entries(state)
       let timestamp = stamp(state.register_clock, key, timestamp)
@@ -393,6 +426,18 @@ pub fn p2p_remove(
   state: OrMapState,
   key: String,
 ) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation), KernelError) {
+  case state.mode {
+    OrSetMode ->
+      edit_set(state, key, or_map_set_leaf.RemoveKey, True)
+      |> result.map(fn(edit) { #(edit.0, edit.1, edit.2) })
+    TallyMode | RegisterMode -> p2p_remove_legacy(state, key)
+  }
+}
+
+fn p2p_remove_legacy(
+  state: OrMapState,
+  key: String,
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation), KernelError) {
   let before = entries(state)
   let #(_discarded, delta) = or_map.remove_with_delta(state.optimistic, key)
   use sequenced <- result.try(apply_delta(state.sequenced, delta))
@@ -401,6 +446,231 @@ pub fn p2p_remove(
   let new_state =
     OrMapState(..state, sequenced: sequenced, optimistic: optimistic)
   Ok(#(new_state, events_between(before, entries(new_state)), operation))
+}
+
+pub fn add_member(
+  state: OrMapState,
+  key: String,
+  member: String,
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
+  edit_set(state, key, or_map_set_leaf.AddMember(member), False)
+}
+
+pub fn remove_member(
+  state: OrMapState,
+  key: String,
+  member: String,
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
+  edit_set(state, key, or_map_set_leaf.RemoveMember(member), False)
+}
+
+pub fn p2p_add_member(
+  state: OrMapState,
+  key: String,
+  member: String,
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation), KernelError) {
+  edit_set(state, key, or_map_set_leaf.AddMember(member), True)
+  |> result.map(fn(edit) { #(edit.0, edit.1, edit.2) })
+}
+
+pub fn p2p_remove_member(
+  state: OrMapState,
+  key: String,
+  member: String,
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation), KernelError) {
+  edit_set(state, key, or_map_set_leaf.RemoveMember(member), True)
+  |> result.map(fn(edit) { #(edit.0, edit.1, edit.2) })
+}
+
+fn edit_set(
+  state: OrMapState,
+  key: String,
+  intent: or_map_set_leaf.Intent,
+  confirmed: Bool,
+) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
+  case state.mode {
+    TallyMode | RegisterMode ->
+      Error(ModeMismatch("member edits require OrSetMode"))
+    OrSetMode -> {
+      let before = entries(state)
+      use state <- result.try(retain_set_clocks(state))
+      use #(delta, clocks) <- result.try(
+        case intent {
+          or_map_set_leaf.AddMember(member) ->
+            or_map_set_leaf.add(
+              state.optimistic,
+              state.set_clocks,
+              state.replica_id,
+              key,
+              member,
+            )
+          or_map_set_leaf.RemoveMember(member) ->
+            or_map_set_leaf.remove_member(
+              state.optimistic,
+              state.set_clocks,
+              state.replica_id,
+              key,
+              member,
+            )
+          or_map_set_leaf.RemoveKey ->
+            or_map_set_leaf.remove_key(
+              state.optimistic,
+              state.set_clocks,
+              state.replica_id,
+              key,
+            )
+        }
+        |> result.map_error(set_error),
+      )
+      let operation = case intent {
+        or_map_set_leaf.AddMember(member) -> AddMember(key, member, delta)
+        or_map_set_leaf.RemoveMember(member) -> RemoveMember(key, member, delta)
+        or_map_set_leaf.RemoveKey -> Remove(key, delta)
+      }
+      use _ <- result.try(validate_operation(state.mode, operation))
+      // Reserve only the empty authoring seed in confirmed state.
+      use state <- result.try(retain_set_clocks(
+        OrMapState(..state, set_clocks: clocks),
+      ))
+      use optimistic <- result.try(apply_delta(state.optimistic, delta))
+      use sequenced <- result.try(case confirmed {
+        True -> apply_delta(state.sequenced, delta)
+        False -> Ok(state.sequenced)
+      })
+      let message_id = state.next_pending_message_id
+      let pending = case confirmed {
+        True -> state.pending
+        False ->
+          list.append(state.pending, [PendingOperation(operation, message_id)])
+      }
+      use new_state <- result.try(retain_set_clocks(
+        OrMapState(
+          ..state,
+          sequenced: sequenced,
+          optimistic: optimistic,
+          pending: pending,
+          next_pending_message_id: case confirmed {
+            True -> message_id
+            False -> message_id + 1
+          },
+        ),
+      ))
+      Ok(#(
+        new_state,
+        events_between(before, entries(new_state)),
+        operation,
+        message_id,
+      ))
+    }
+  }
+}
+
+/// Validate typed operations before native merges can normalize their state.
+@internal
+pub fn validate_operation(
+  mode: OrMapMode,
+  operation: OrMapOperation,
+) -> Result(Nil, KernelError) {
+  case mode, operation {
+    OrSetMode, AddMember(key, member, delta) ->
+      or_map_set_leaf.validate_intent(
+        delta,
+        key,
+        or_map_set_leaf.AddMember(member),
+      )
+      |> result.map_error(set_error)
+    OrSetMode, RemoveMember(key, member, delta) ->
+      or_map_set_leaf.validate_intent(
+        delta,
+        key,
+        or_map_set_leaf.RemoveMember(member),
+      )
+      |> result.map_error(set_error)
+    OrSetMode, Remove(key, delta) ->
+      or_map_set_leaf.validate_intent(delta, key, or_map_set_leaf.RemoveKey)
+      |> result.map_error(set_error)
+    TallyMode, Increment(_, _, _)
+    | RegisterMode, SetRegister(_, _, _, _)
+    | TallyMode, SetRegister(_, _, _, _)
+    | RegisterMode, Increment(_, _, _)
+    | TallyMode, Remove(_, _)
+    | RegisterMode, Remove(_, _)
+    -> Ok(Nil)
+    OrSetMode, Increment(_, _, _)
+    | OrSetMode, SetRegister(_, _, _, _)
+    | TallyMode, AddMember(_, _, _)
+    | RegisterMode, AddMember(_, _, _)
+    | TallyMode, RemoveMember(_, _, _)
+    | RegisterMode, RemoveMember(_, _, _)
+    -> Error(ModeMismatch("operation does not match the channel mode"))
+  }
+}
+
+fn set_error(error: or_map_set_leaf.LeafError) -> KernelError {
+  case error {
+    or_map_set_leaf.InvalidState(detail) -> InvalidSetState(detail)
+    or_map_set_leaf.CounterExhausted(detail) -> CounterExhausted(detail)
+  }
+}
+
+fn retain_set_clocks(state: OrMapState) -> Result(OrMapState, KernelError) {
+  case state.mode {
+    TallyMode | RegisterMode -> Ok(state)
+    OrSetMode -> {
+      use clocks <- result.try(
+        or_map_set_leaf.observe_state(state.set_clocks, state.sequenced)
+        |> result.map_error(set_error),
+      )
+      use clocks <- result.try(
+        or_map_set_leaf.observe_state(clocks, state.optimistic)
+        |> result.map_error(set_error),
+      )
+      use sequenced <- result.try(
+        or_map_set_leaf.retain_counter_floor(
+          state.sequenced,
+          clocks,
+          state.replica_id,
+        )
+        |> result.map_error(set_error),
+      )
+      use optimistic <- result.try(
+        or_map_set_leaf.retain_counter_floor(
+          state.optimistic,
+          clocks,
+          state.replica_id,
+        )
+        |> result.map_error(set_error),
+      )
+      Ok(
+        OrMapState(
+          ..state,
+          sequenced: sequenced,
+          optimistic: optimistic,
+          set_clocks: clocks,
+        ),
+      )
+    }
+  }
+}
+
+fn observe_set_operation(
+  state: OrMapState,
+  operation: OrMapOperation,
+) -> Result(OrMapState, KernelError) {
+  use _ <- result.try(validate_operation(state.mode, operation))
+  case state.mode {
+    TallyMode | RegisterMode -> Ok(state)
+    OrSetMode -> {
+      use clocks <- result.try(
+        or_map_set_leaf.observe_delta(
+          state.set_clocks,
+          operation_delta(operation),
+        )
+        |> result.map_error(set_error),
+      )
+      retain_set_clocks(OrMapState(..state, set_clocks: clocks))
+    }
+  }
 }
 
 /// Merge the full confirmed CRDT state of a peer into this state. This is the
@@ -421,12 +691,11 @@ pub fn p2p_merge(
   other: ORMap,
 ) -> Result(#(OrMapState, List(OrMapEvent)), KernelError) {
   let before = entries(state)
-  // `or_map.merge` compares the two maps' `crdt_spec` itself, and
-  // `state.sequenced` always carries the spec of `state.mode`, so its
-  // `TypeMismatch` *is* the mode check.
-  case or_map.merge(state.sequenced, other) {
-    Error(crdt.TypeMismatch(_, _)) ->
+  use state <- result.try(retain_set_clocks(state))
+  case merge_map(state.mode, state.sequenced, other) {
+    Error(ModeMismatch(_)) ->
       Error(ModeMismatch("merged value spec does not match the channel mode"))
+    Error(error) -> Error(error)
     Ok(sequenced) -> {
       use optimistic <- result.try(replay_pending(sequenced, state.pending))
       let new_state =
@@ -440,6 +709,7 @@ pub fn p2p_merge(
             optimistic,
           ),
         )
+      use new_state <- result.try(retain_set_clocks(new_state))
       Ok(#(new_state, events_between(before, entries(new_state))))
     }
   }
@@ -454,7 +724,7 @@ fn observe_registers(
   map: ORMap,
 ) -> Dict(String, Int) {
   case mode {
-    TallyMode -> clock
+    TallyMode | OrSetMode -> clock
     RegisterMode ->
       list.fold(or_map.keys(map), clock, fn(clock, key) {
         case or_map.get(map, key) {
@@ -495,6 +765,7 @@ pub fn apply_remote(
   operation: OrMapOperation,
 ) -> Result(#(OrMapState, List(OrMapEvent)), KernelError) {
   let before = entries(state)
+  use state <- result.try(observe_set_operation(state, operation))
   let delta = operation_delta(operation)
   use sequenced <- result.try(apply_delta(state.sequenced, delta))
   use optimistic <- result.try(replay_pending(sequenced, state.pending))
@@ -505,6 +776,7 @@ pub fn apply_remote(
       optimistic: optimistic,
       register_clock: observe_operation(state.register_clock, operation),
     )
+  use new_state <- result.try(retain_set_clocks(new_state))
   Ok(#(new_state, events_between(before, entries(new_state))))
 }
 
@@ -537,11 +809,14 @@ fn do_ack(
       }
       case pending_operation == operation && message_id_matches {
         True -> {
+          use state <- result.try(observe_set_operation(state, operation))
           use sequenced <- result.try(apply_delta(
             state.sequenced,
             operation_delta(operation),
           ))
-          Ok(OrMapState(..state, sequenced: sequenced, pending: rest))
+          retain_set_clocks(
+            OrMapState(..state, sequenced: sequenced, pending: rest),
+          )
         }
         False ->
           Error(UnexpectedAck(
@@ -576,6 +851,8 @@ pub fn rollback(
           ))
         True -> {
           let before = entries(state)
+          use _ <- result.try(validate_operation(state.mode, operation))
+          use state <- result.try(retain_set_clocks(state))
           let own_tallies = rollback_own_tallies(state.own_tallies, operation)
           use optimistic <- result.try(replay_pending(state.sequenced, rest))
           let new_state =
@@ -596,6 +873,7 @@ pub fn apply_stashed_operation(
   operation: OrMapOperation,
 ) -> Result(#(OrMapState, List(OrMapEvent), OrMapOperation, Int), KernelError) {
   let before = entries(state)
+  use state <- result.try(observe_set_operation(state, operation))
   let delta = operation_delta(operation)
   use optimistic <- result.try(apply_delta(state.optimistic, delta))
   let message_id = state.next_pending_message_id
@@ -608,6 +886,7 @@ pub fn apply_stashed_operation(
       ]),
       next_pending_message_id: message_id + 1,
     )
+  use new_state <- result.try(retain_set_clocks(new_state))
   Ok(#(
     new_state,
     events_between(before, entries(new_state)),
@@ -636,7 +915,27 @@ pub fn from_summary(
     spec_string_to_mode(spec)
     |> result.map_error(fn(_) { unsupported_spec_error(spec) }),
   )
-  use parsed <- result.try(or_map.from_json(summary_json))
+  use parsed <- result.try(case mode {
+    OrSetMode ->
+      or_map_set_leaf.decode_state(summary_json)
+      |> result.map_error(fn(error) { set_decode_error(set_error(error)) })
+    TallyMode | RegisterMode -> or_map.from_json(summary_json)
+  })
+  case mode {
+    OrSetMode ->
+      from_sequenced(parsed, mode, replica_id)
+      |> result.map_error(set_decode_error)
+    TallyMode | RegisterMode ->
+      from_legacy_summary(parsed, mode, replica_id, spec)
+  }
+}
+
+fn from_legacy_summary(
+  parsed: ORMap,
+  mode: OrMapMode,
+  replica_id: ReplicaId,
+  spec: String,
+) -> Result(OrMapState, json.DecodeError) {
   // The spec of `parsed` was read above, so this merge agrees by
   // construction. The error arm reports the same decode failure, so this
   // module never panics.
@@ -651,6 +950,7 @@ pub fn from_summary(
     optimistic: sequenced,
     own_tallies: dict.new(),
     register_clock: dict.new(),
+    set_clocks: or_map_set_leaf.new_clocks(),
     pending: [],
     next_pending_message_id: 0,
   ))
@@ -661,19 +961,17 @@ pub fn from_sequenced(
   mode: OrMapMode,
   replica_id: ReplicaId,
 ) -> Result(OrMapState, KernelError) {
-  // The merge's own `crdt_spec` comparison is the mode check; see
-  // `p2p_merge`.
-  case or_map.merge(or_map.new(replica_id, mode_to_spec(mode)), sequenced) {
-    Error(crdt.TypeMismatch(_, _)) ->
-      Error(ModeMismatch("summary value spec does not match requested mode"))
+  case merge_map(mode, or_map.new(replica_id, mode_to_spec(mode)), sequenced) {
+    Error(error) -> Error(error)
     Ok(rebranded) ->
-      Ok(OrMapState(
+      retain_set_clocks(OrMapState(
         replica_id: replica_id,
         mode: mode,
         sequenced: rebranded,
         optimistic: rebranded,
         own_tallies: dict.new(),
         register_clock: dict.new(),
+        set_clocks: or_map_set_leaf.new_clocks(),
         pending: [],
         next_pending_message_id: 0,
       ))
@@ -725,7 +1023,10 @@ fn rollback_own_tallies(
       }
       dict.insert(own_tallies, key, next)
     }
-    SetRegister(_, _, _, _) | Remove(_, _) -> own_tallies
+    SetRegister(_, _, _, _)
+    | Remove(_, _)
+    | AddMember(_, _, _)
+    | RemoveMember(_, _, _) -> own_tallies
   }
 }
 
@@ -734,14 +1035,79 @@ fn operation_delta(operation: OrMapOperation) -> ORMapDelta {
     Increment(_, _, delta) -> delta
     SetRegister(_, _, _, delta) -> delta
     Remove(_, delta) -> delta
+    AddMember(_, _, delta) | RemoveMember(_, _, delta) -> delta
   }
 }
 
 fn apply_delta(map: ORMap, delta: ORMapDelta) -> Result(ORMap, KernelError) {
+  use mode <- result.try(native_mode(map))
+  case mode {
+    OrSetMode -> {
+      use _ <- result.try(
+        or_map_set_leaf.validate_state(map) |> result.map_error(set_error),
+      )
+      use _ <- result.try(
+        or_map_set_leaf.decode_delta(
+          or_map.delta_to_json(delta) |> json.to_string,
+        )
+        |> result.map_error(set_error),
+      )
+      or_map_set_leaf.apply_delta(map, delta) |> result.map_error(set_error)
+    }
+    TallyMode | RegisterMode -> apply_legacy_delta(map, delta)
+  }
+}
+
+fn apply_legacy_delta(
+  map: ORMap,
+  delta: ORMapDelta,
+) -> Result(ORMap, KernelError) {
   case or_map.apply_delta(map, delta) {
     Ok(map) -> Ok(map)
     Error(crdt.TypeMismatch(expected, found)) ->
       Error(CorruptDelta("expected " <> expected <> " delta, found " <> found))
+  }
+}
+
+fn native_mode(map: ORMap) -> Result(OrMapMode, KernelError) {
+  use spec <- result.try(
+    json.parse(
+      or_map.to_json(map) |> json.to_string,
+      decode.at(["state", "crdt_spec"], decode.string),
+    )
+    |> result.replace_error(ModeMismatch("map has no value spec")),
+  )
+  spec_string_to_mode(spec)
+  |> result.replace_error(ModeMismatch("unsupported map value spec: " <> spec))
+}
+
+fn merge_map(
+  mode: OrMapMode,
+  left: ORMap,
+  right: ORMap,
+) -> Result(ORMap, KernelError) {
+  use left_mode <- result.try(native_mode(left))
+  use right_mode <- result.try(native_mode(right))
+  case left_mode == mode && right_mode == mode {
+    False ->
+      Error(ModeMismatch("summary value spec does not match requested mode"))
+    True ->
+      case mode {
+        OrSetMode -> {
+          use _ <- result.try(
+            or_map_set_leaf.validate_state(left) |> result.map_error(set_error),
+          )
+          use _ <- result.try(
+            or_map_set_leaf.validate_state(right) |> result.map_error(set_error),
+          )
+          or_map_set_leaf.merge(left, right) |> result.map_error(set_error)
+        }
+        TallyMode | RegisterMode ->
+          or_map.merge(left, right)
+          |> result.replace_error(ModeMismatch(
+            "merged value spec does not match the channel mode",
+          ))
+      }
   }
 }
 
@@ -764,7 +1130,14 @@ fn replay_pending(
   sequenced: ORMap,
   pending: List(PendingOperation),
 ) -> Result(ORMap, KernelError) {
+  use mode <- result.try(native_mode(sequenced))
+  use _ <- result.try(case mode {
+    OrSetMode ->
+      or_map_set_leaf.validate_state(sequenced) |> result.map_error(set_error)
+    TallyMode | RegisterMode -> Ok(Nil)
+  })
   list.try_fold(pending, sequenced, fn(acc, pending) {
+    use _ <- result.try(validate_operation(mode, pending.operation))
     apply_delta(acc, operation_delta(pending.operation))
   })
 }
@@ -774,13 +1147,16 @@ fn replay_pending(
 fn tally_of(state: OrMapState, key: String) -> Int {
   case get(state, key) {
     Ok(Tally(value)) -> value
-    Ok(Register(_)) | Error(Nil) -> 0
+    Ok(Register(_)) | Ok(SetMembers(_)) | Error(Nil) -> 0
   }
 }
 
-fn map_entries(map: ORMap) -> List(#(String, OrMapValue)) {
+fn map_entries(map: ORMap, mode: OrMapMode) -> List(#(String, OrMapValue)) {
   or_map.keys(map)
-  |> list.sort(by: string.compare)
+  |> list.sort(by: case mode {
+    OrSetMode -> canonical_json.compare
+    TallyMode | RegisterMode -> string.compare
+  })
   |> list.filter_map(fn(key) {
     case or_map.get(map, key) {
       Ok(value) ->
@@ -791,17 +1167,22 @@ fn map_entries(map: ORMap) -> List(#(String, OrMapValue)) {
 }
 
 /// Read a lattice value as a kernel value. The result is `Error(Nil)` for a
-/// lattice value that neither map mode holds. The value mode of the map keeps
+/// lattice value that no map mode holds. The value mode of the map keeps
 /// such a value out, so this arm reports a broken map instead of a panic.
 fn crdt_to_value(value: crdt.Crdt) -> Result(OrMapValue, Nil) {
   case value {
     crdt.CrdtPnCounter(counter) -> Ok(Tally(pn_counter.value(counter)))
     crdt.CrdtLwwRegister(register) -> Ok(Register(lww_register.value(register)))
+    crdt.CrdtOrSet(members) ->
+      Ok(SetMembers(
+        or_set.value(members)
+        |> set.to_list
+        |> list.sort(canonical_json.compare),
+      ))
     crdt.CrdtGCounter(_)
     | crdt.CrdtMvRegister(_)
     | crdt.CrdtGSet(_)
     | crdt.CrdtTwoPSet(_)
-    | crdt.CrdtOrSet(_)
     | crdt.CrdtVersionVector(_) -> Error(Nil)
   }
 }
@@ -810,13 +1191,24 @@ fn events_between(
   before: List(#(String, OrMapValue)),
   after: List(#(String, OrMapValue)),
 ) -> List(OrMapEvent) {
+  let compare = case
+    list.any(list.append(before, after), fn(entry) {
+      case entry.1 {
+        SetMembers(_) -> True
+        Tally(_) | Register(_) -> False
+      }
+    })
+  {
+    True -> canonical_json.compare
+    False -> string.compare
+  }
   let keys =
     list.append(
       list.map(before, fn(entry) { entry.0 }),
       list.map(after, fn(entry) { entry.0 }),
     )
     |> list.unique
-    |> list.sort(by: string.compare)
+    |> list.sort(by: compare)
 
   list.filter_map(keys, fn(key) {
     case entry_value(before, key), entry_value(after, key) {
@@ -824,6 +1216,12 @@ fn events_between(
       Ok(_), Error(Nil) -> Ok(KeyRemoved(key))
       Error(Nil), Ok(Tally(value)) -> Ok(TallyUpdated(key, value, value))
       Error(Nil), Ok(Register(value)) -> Ok(RegisterUpdated(key, value))
+      Error(Nil), Ok(SetMembers(members)) -> Ok(SetMembersUpdated(key, members))
+      Ok(SetMembers(old)), Ok(SetMembers(new)) ->
+        case old == new {
+          True -> Error(Nil)
+          False -> Ok(SetMembersUpdated(key, new))
+        }
       Ok(Tally(old)), Ok(Tally(new)) ->
         case old == new {
           True -> Error(Nil)
@@ -836,8 +1234,13 @@ fn events_between(
         }
       // One map holds one value mode, so a key never changes mode. The arm
       // reports no event, the same as an unchanged key.
-      Ok(Tally(_)), Ok(Register(_)) | Ok(Register(_)), Ok(Tally(_)) ->
-        Error(Nil)
+      Ok(Tally(_)), Ok(Register(_))
+      | Ok(Register(_)), Ok(Tally(_))
+      | Ok(Tally(_)), Ok(SetMembers(_))
+      | Ok(SetMembers(_)), Ok(Tally(_))
+      | Ok(Register(_)), Ok(SetMembers(_))
+      | Ok(SetMembers(_)), Ok(Register(_))
+      -> Error(Nil)
     }
   })
 }
@@ -868,9 +1271,19 @@ fn pop_last(
 fn unsupported_spec_error(spec: String) -> json.DecodeError {
   json.UnableToDecode([
     decode.DecodeError(
-      expected: "pn_counter or lww_register",
+      expected: "pn_counter, lww_register, or or_set",
       found: spec,
       path: ["state", "crdt_spec"],
+    ),
+  ])
+}
+
+fn set_decode_error(error: KernelError) -> json.DecodeError {
+  json.UnableToDecode([
+    decode.DecodeError(
+      expected: "valid OR-set map state",
+      found: string.inspect(error),
+      path: ["state"],
     ),
   ])
 }

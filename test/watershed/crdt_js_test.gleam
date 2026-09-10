@@ -74,6 +74,152 @@ const room = "trip-planning"
 const tag = "clap-counter/v1"
 
 @target(javascript)
+pub fn set_map_public_members_removal_and_mode_errors_test() -> Nil {
+  let world = p2p_fake.new_world()
+  let member =
+    spawn(
+      world,
+      p2p_fake.signaling(world),
+      "a",
+      p2p.or_map_root(or_map_kernel.OrSetMode),
+      tag,
+    )
+  let document = member.document
+  let map = crdt_js.root(document)
+  p2p_fake.settle(world)
+  let before = crdt_js.digest(document)
+  crdt_js.or_map_remove_member(map, "missing", "draft")
+  |> expect.to_equal(Ok(Nil))
+  crdt_js.or_map_remove_key(map, "missing") |> expect.to_equal(Ok(Nil))
+  crdt_js.or_map_value(map, "missing") |> expect.to_equal(Ok(Error(Nil)))
+  crdt_js.digest(document) |> expect.to_equal(before)
+  crdt_js.or_map_add_member(map, "doc", "draft") |> expect.to_equal(Ok(Nil))
+  let assert Ok(old_add) = crdt_js.export_snapshot(document)
+  crdt_js.or_map_remove_member(map, "doc", "draft")
+  |> expect.to_equal(Ok(Nil))
+  crdt_js.or_map_value(map, "doc")
+  |> expect.to_equal(Ok(Ok(or_map_kernel.SetMembers([]))))
+  let assert Ok(empty) = crdt_js.export_snapshot(document)
+  crdt_js.or_map_remove_key(map, "doc") |> expect.to_equal(Ok(Nil))
+  crdt_js.or_map_value(map, "doc") |> expect.to_equal(Ok(Error(Nil)))
+  crdt_js.or_map_add_member(map, "doc", "handoff") |> expect.to_equal(Ok(Nil))
+  let assert Ok(_) = crdt_js.merge_snapshot(document, old_add)
+  let assert Ok(_) = crdt_js.merge_snapshot(document, empty)
+  crdt_js.or_map_value(map, "doc")
+  |> expect.to_equal(Ok(Ok(or_map_kernel.SetMembers(["handoff"]))))
+  let assert Ok(resolved) =
+    crdt_js.resolve_channel(
+      document,
+      p2p.or_map_root(or_map_kernel.OrSetMode),
+      crdt_js.address(map),
+    )
+  crdt_js.or_map_value(resolved, "doc")
+  |> expect.to_equal(Ok(Ok(or_map_kernel.SetMembers(["handoff"]))))
+  let events = transport_js.new_cell([])
+  let subscription =
+    crdt_js.subscribe_or_map(map, fn(event) {
+      transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
+    })
+  let before = crdt_js.digest(document)
+  crdt_js.or_map_add_member(map, "doc", "handoff") |> expect.to_equal(Ok(Nil))
+  crdt_js.digest(document) |> expect.to_not_equal(before)
+  transport_js.get_cell(events) |> expect.to_equal([])
+  crdt_js.or_map_remove_member(map, "doc", "absent")
+  |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(events) |> expect.to_equal([])
+  let assert Ok(tally) =
+    crdt_js.create_channel(document, p2p.or_map_root(or_map_kernel.TallyMode))
+  let assert Error(_) = crdt_js.or_map_add_member(tally, "doc", "draft")
+  let assert Error(_) = crdt_js.or_map_remove_member(tally, "missing", "draft")
+  let assert Ok(register) =
+    crdt_js.create_channel(
+      document,
+      p2p.or_map_root(or_map_kernel.RegisterMode),
+    )
+  let assert Error(_) = crdt_js.or_map_add_member(register, "doc", "draft")
+  let assert Error(_) = crdt_js.or_map_remove_member(register, "doc", "draft")
+  let assert Error(_) = crdt_js.or_map_set(map, "doc", "wrong")
+  let assert Error(_) = crdt_js.or_map_increment(map, "doc", 1)
+  let assert Error(_) = crdt_js.or_map_tally(map, "doc")
+  crdt_js.unsubscribe(subscription)
+  crdt_js.or_map_remove_key(map, "doc") |> expect.to_equal(Ok(Nil))
+  transport_js.get_cell(events) |> expect.to_equal([])
+  crdt_js.close(member.connection)
+  crdt_js.or_map_value(map, "doc") |> expect.to_equal(Error(p2p.DocumentClosed))
+  crdt_js.or_map_add_member(map, "doc", "closed")
+  |> expect.to_equal(Error(p2p.DocumentClosed))
+  crdt_js.or_map_remove_member(map, "doc", "closed")
+  |> expect.to_equal(Error(p2p.DocumentClosed))
+  crdt_js.or_map_remove_key(map, "doc")
+  |> expect.to_equal(Error(p2p.DocumentClosed))
+}
+
+@target(javascript)
+pub fn set_map_mesh_fanout_repairs_eventless_add_and_key_removal_test() -> Nil {
+  let world = p2p_fake.new_world()
+  let clock = relay_fake.new_clock()
+  let signaling = p2p_fake.signaling(world)
+  let kind = p2p.or_map_root(or_map_kernel.OrSetMode)
+  let a = spawn_synced(world, signaling, "a", kind, tag, clock)
+  let b = spawn_synced(world, signaling, "b", kind, tag, clock)
+  let c = spawn_synced(world, signaling, "c", kind, tag, clock)
+  let documents = [a.document, b.document, c.document]
+  let interval = crdt_js.default_anti_entropy_milliseconds
+  p2p_fake.settle(world)
+  p2p_fake.sever(
+    world,
+    crdt_js.replica_id(a.document),
+    crdt_js.replica_id(c.document),
+  )
+  p2p_fake.settle(world)
+  let map_a = crdt_js.root(a.document)
+  let map_b = crdt_js.root(b.document)
+  let map_c = crdt_js.root(c.document)
+  let events = transport_js.new_cell([])
+  let subscription =
+    crdt_js.subscribe_or_map(map_c, fn(event) {
+      transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
+    })
+  crdt_js.or_map_add_member(map_a, "doc", "draft") |> expect.to_equal(Ok(Nil))
+  drive_convergence(world, clock, interval, documents, 12)
+  crdt_js.or_map_value(map_c, "doc")
+  |> expect.to_equal(Ok(Ok(or_map_kernel.SetMembers(["draft"]))))
+  let before = crdt_js.digest(c.document)
+  crdt_js.or_map_add_member(map_a, "doc", "draft") |> expect.to_equal(Ok(Nil))
+  p2p_fake.settle(world)
+  drive_convergence(world, clock, interval, documents, 12)
+  crdt_js.digest(c.document) |> expect.to_not_equal(before)
+  transport_js.get_cell(events)
+  |> expect.to_equal([or_map_kernel.SetMembersUpdated("doc", ["draft"])])
+  // C has observed the duplicate tag before it removes the whole key.
+  crdt_js.or_map_remove_key(map_c, "doc") |> expect.to_equal(Ok(Nil))
+  crdt_js.or_map_add_member(map_a, "doc", "reviewed")
+  |> expect.to_equal(Ok(Nil))
+  drive_convergence(world, clock, interval, documents, 12)
+  list.each([map_a, map_b, map_c], fn(map) {
+    crdt_js.or_map_value(map, "doc")
+    |> expect.to_equal(Ok(Ok(or_map_kernel.SetMembers(["reviewed"]))))
+  })
+  let assert Ok(stale) = crdt_js.export_snapshot(a.document)
+  crdt_js.or_map_remove_key(map_b, "doc") |> expect.to_equal(Ok(Nil))
+  drive_convergence(world, clock, interval, documents, 12)
+  crdt_js.or_map_add_member(map_c, "doc", "handoff") |> expect.to_equal(Ok(Nil))
+  drive_convergence(world, clock, interval, documents, 12)
+  let assert Ok(_) = crdt_js.merge_snapshot(a.document, stale)
+  drive_convergence(world, clock, interval, documents, 12)
+  list.each([map_a, map_b, map_c], fn(map) {
+    crdt_js.or_map_value(map, "doc")
+    |> expect.to_equal(Ok(Ok(or_map_kernel.SetMembers(["handoff"]))))
+  })
+  let late = spawn_synced(world, signaling, "late", kind, tag, clock)
+  drive_convergence(world, clock, interval, [late.document, ..documents], 12)
+  crdt_js.or_map_value(crdt_js.root(late.document), "doc")
+  |> expect.to_equal(Ok(Ok(or_map_kernel.SetMembers(["handoff"]))))
+  crdt_js.unsubscribe(subscription)
+  list.each([a, b, c, late], fn(member) { crdt_js.close(member.connection) })
+}
+
+@target(javascript)
 pub fn mv_register_mesh_repairs_dropped_and_eventless_writes_test() -> Nil {
   let world = p2p_fake.new_world()
   let clock = relay_fake.new_clock()

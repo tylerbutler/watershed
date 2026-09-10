@@ -379,7 +379,9 @@ pub fn subscribe_mv_register(
   subscribe(crdt_js.subscribe_mv_register(handle, _), subscribed, event)
 }
 
-/// Subscribe to a peer-to-peer OR-map.
+/// Subscribe to a peer-to-peer OR-map. In `OrSetMode`, `SetMembersUpdated`
+/// carries sorted members. A metadata-only add emits no visible-value event.
+/// Retain the delivered subscription for `unsubscribe`.
 pub fn subscribe_or_map(
   handle: Handle(schema.OrMapChannel),
   subscribed subscribed: fn(Subscription) -> msg,
@@ -467,6 +469,26 @@ pub fn unsubscribe(subscription: Subscription) -> Effect(msg) {
 /// crdt.perform(fn() { crdt_js.pn_counter_update(counter, 1) }, Clapped)
 /// crdt.perform(fn() { crdt_js.or_map_set(map, key: "k", value: "v") }, Wrote)
 /// ```
+///
+/// A string-set map uses the same handle and subscription with `OrSetMode`:
+///
+/// ```gleam
+/// crdt.perform(
+///   fn() { crdt_js.or_map_add_member(map, "inspection-brief", "reviewed") },
+///   Outcome,
+/// )
+/// crdt.perform(
+///   fn() { crdt_js.or_map_remove_member(map, "inspection-brief", "draft") },
+///   Outcome,
+/// )
+/// crdt.perform(
+///   fn() { crdt_js.or_map_remove_key(map, "inspection-brief") },
+///   Outcome,
+/// )
+/// ```
+///
+/// Removing the last member retains an empty key. Key removal also clears
+/// observed members. Concurrent unobserved additions survive.
 ///
 /// The function passes the `Result` value through without a change. An edit
 /// that the channel does not support, or that is invalid, stays an `Error`. It

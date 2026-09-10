@@ -2227,6 +2227,7 @@ fn is_register(value: Result(or_map_kernel.OrMapValue, Nil)) -> Bool {
   case value {
     Ok(Register(_)) -> True
     Ok(Tally(_)) -> False
+    Ok(or_map_kernel.SetMembers(_)) -> False
     Error(Nil) -> False
   }
 }

@@ -217,10 +217,46 @@ silent subscription does not imply unchanged replicated state.
 ## OR-map composition: what is missing
 
 The restriction is in Watershed's adapter, not a missing transport.
-`OrMapMode` has `TallyMode` and `RegisterMode`; `mode_to_spec` maps them
-to two Lattice `CrdtSpec` variants. Watershed also narrows edits, events,
-reads, operation codecs, snapshot mode decoding, and public APIs to those
-two cases.
+The original adapter exposed `TallyMode` and `RegisterMode`. The first
+composition follow-up adds `OrSetMode`, mapped to Lattice's existing
+`OrSetSpec`, with `SetMembers(List(String))` values. It reuses the OR-map
+channel, handles, roots, typed fields, and subscriptions.
+
+Set mode adds member-level add/remove operations. Removing an absent
+member is a no-op; removing the last member leaves an empty key. Removing
+a key clears its observed members and outer-key tags, while concurrent
+unseen additions survive. Re-add and stale replay must not restore removed
+members. This differs from SharedMap's whole-value replacement and from
+the existing tally mode's retained cumulative count.
+
+Both sequenced facades expose fallible `or_map_add_member`,
+`or_map_remove_member`, and `or_map_remove_key` methods. The last preserves
+the legacy `or_map_remove` signature by providing a result-returning
+companion. JS CRDT and the existing Lustre effects expose the same
+behavior. Member updates emit `SetMembersUpdated`; key removal emits
+`KeyRemoved`. Metadata-only changes replicate without a visible event.
+
+The internal `or_map_set_leaf` helper handles author rebasing, strict
+native codecs, safe per-key member/outer-key counter floors, and observed
+member clearing. Native mutation replacement state is not authoritative:
+the kernel applies the authored delta to its current state. Retained
+inactive leaves need the same validation and counter observation as active
+ones. Counter-only reservations in sequenced state survive rollback and
+same-writer reload without including pending tags or members.
+
+Released Lattice merge/apply paths discard `remove_bounds` inconsistently.
+For set mode, the helper retains the per-key version-vector join from both
+inputs, including history for active keys. Native Lattice still merges
+keys and members. Full-state merge, delta application, rebranding, replay,
+and clock-seed paths use this same correction. Canonical digests keep the
+removal history, tags, and tombstones; only authoring cursors are excluded.
+Tally/register modes remain unchanged, and pruning remains unsupported.
+
+The maps-family inline demo adds a set/tally control within the existing
+OR-map view. Changing that control starts fresh demo replicas, not a
+production mode conversion. It distinguishes missing keys from empty sets
+and demonstrates member races, key removal, replay, and SharedMap's
+whole-value behavior without adding a separate DDS.
 
 Lattice already supports GCounter, PNCounter, LWWRegister, MVRegister,
 GSet, TwoPSet, and ORSet leaves. Its OR-map selects one `CrdtSpec` for
@@ -245,9 +281,10 @@ not a prerequisite for using that Lattice leaf inside OR-map. Reuse kernel
 policy where it applies, but do not embed complete DDS kernels as OR-map
 values: that would duplicate pending queues and sequencing state.
 
-Keep this follow-up out of the three plans below. A later composition
-design can select concrete leaf modes without first building a generic
-heterogeneous-map abstraction.
+Set mode is independent of the three plans below; it does not complete or
+unblock LWWMap. Other leaf modes remain future composition work. Select
+them explicitly rather than building a generic heterogeneous-map
+abstraction.
 
 ## Delivery and acceptance
 

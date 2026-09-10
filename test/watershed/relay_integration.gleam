@@ -35,6 +35,8 @@ import watershed/crdt_signaling_js
 @target(javascript)
 import watershed/lww_register_kernel
 @target(javascript)
+import watershed/or_map_kernel
+@target(javascript)
 import watershed/p2p
 @target(javascript)
 import watershed/p2p_fake
@@ -436,5 +438,150 @@ pub fn lww_peer_count(client: LwwClient) -> Int {
 
 @target(javascript)
 pub fn lww_close(client: LwwClient) -> Nil {
+  crdt_js.close(client.connection)
+}
+
+@target(javascript)
+pub type SetMapClient {
+  SetMapClient(
+    document: CrdtDocument(schema.OrMapChannel),
+    connection: CrdtConnection,
+    readies: Cell(List(String)),
+    events: Cell(List(or_map_kernel.OrMapEvent)),
+  )
+}
+
+@target(javascript)
+pub fn start_set_map(
+  harness: Harness,
+  policy: String,
+  room: String,
+  label: String,
+  signaling_url: String,
+  relay_url: String,
+) -> SetMapClient {
+  let config =
+    crdt_js.config(
+      room_id: room,
+      replica_label: label,
+      compatibility_tag: "relay-set-map/v1",
+      root: p2p.or_map_root(or_map_kernel.OrSetMode),
+      signaling: crdt_signaling_js.websocket_signaling(
+        url: signaling_url,
+        on_failure: fn(detail) { panic as detail },
+      ),
+    )
+    |> crdt_js.with_transport_policy(case policy {
+      "sequencedOnly" -> SequencedOnly
+      "auto" -> Auto
+      _ -> panic as "unsupported set-map test policy"
+    })
+    |> crdt_js.with_sequencer(crdt_js.sequencer(relay_url))
+  let assert Ok(document) = crdt_js.new_document(config)
+  let readies = transport_js.new_cell([])
+  let events = transport_js.new_cell([])
+  let connection =
+    crdt_js.attach_with_rtc(
+      document,
+      on_ready: fn(outcome) {
+        push(readies, case outcome {
+          Ok(_) -> "ok"
+          Error(error) -> "error " <> crdt_js.describe_error(error)
+        })
+      },
+      on_status: fn(_) { Nil },
+      rtc: p2p_fake.rtc(harness.world, crdt_js.replica_id(document)),
+    )
+  let _ =
+    crdt_js.subscribe_or_map(crdt_js.root(document), fn(event) {
+      transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
+    })
+  SetMapClient(document:, connection:, readies:, events:)
+}
+
+@target(javascript)
+pub fn set_map_add(client: SetMapClient, key: String, member: String) -> Nil {
+  let assert Ok(Nil) =
+    crdt_js.or_map_add_member(crdt_js.root(client.document), key, member)
+  Nil
+}
+
+@target(javascript)
+pub fn set_map_remove_member(
+  client: SetMapClient,
+  key: String,
+  member: String,
+) -> Nil {
+  let assert Ok(Nil) =
+    crdt_js.or_map_remove_member(crdt_js.root(client.document), key, member)
+  Nil
+}
+
+@target(javascript)
+pub fn set_map_remove_key(client: SetMapClient, key: String) -> Nil {
+  let assert Ok(Nil) =
+    crdt_js.or_map_remove_key(crdt_js.root(client.document), key)
+  Nil
+}
+
+@target(javascript)
+pub fn set_map_values(client: SetMapClient) -> String {
+  let assert Ok(values) = crdt_js.or_map_entries(crdt_js.root(client.document))
+  values
+  |> list.map(fn(entry) {
+    let assert or_map_kernel.SetMembers(members) = entry.1
+    #(entry.0, json.array(members, json.string))
+  })
+  |> json.object
+  |> json.to_string
+}
+
+@target(javascript)
+pub fn set_map_snapshot(client: SetMapClient) -> json.Json {
+  let assert Ok(snapshot) = crdt_js.export_snapshot(client.document)
+  snapshot
+}
+
+@target(javascript)
+pub fn set_map_merge(client: SetMapClient, snapshot: json.Json) -> Nil {
+  let assert Ok(_) = crdt_js.merge_snapshot(client.document, snapshot)
+  Nil
+}
+
+@target(javascript)
+pub fn set_map_digest(client: SetMapClient) -> String {
+  crdt_js.digest(client.document)
+}
+
+@target(javascript)
+pub fn set_map_event_count(client: SetMapClient) -> Int {
+  transport_js.get_cell(client.events) |> list.length
+}
+
+@target(javascript)
+pub fn set_map_readiness(client: SetMapClient) -> List(String) {
+  entries(client.readies)
+}
+
+@target(javascript)
+pub fn set_map_is_primary(client: SetMapClient) -> Bool {
+  crdt_js.relay_is_primary(client.document)
+}
+
+@target(javascript)
+pub fn set_map_peer_count(client: SetMapClient) -> Int {
+  crdt_js.peer_count(client.document)
+}
+
+@target(javascript)
+pub fn set_map_path(client: SetMapClient) -> String {
+  case crdt_js.effective_path(client.document) {
+    PeerToPeer -> "p2p"
+    Sequenced -> "relay"
+  }
+}
+
+@target(javascript)
+pub fn set_map_close(client: SetMapClient) -> Nil {
   crdt_js.close(client.connection)
 }

@@ -107,7 +107,10 @@ fn expect_unexpected_ack(
     | Error(or_map_kernel.UnexpectedRollback(_))
     | Error(or_map_kernel.ModeMismatch(_))
     | Error(or_map_kernel.CorruptDelta(_))
-    | Error(or_map_kernel.NegativeTally(_)) -> panic as "expected UnexpectedAck"
+    | Error(or_map_kernel.NegativeTally(_))
+    | Error(or_map_kernel.InvalidSetState(_))
+    | Error(or_map_kernel.CounterExhausted(_)) ->
+      panic as "expected UnexpectedAck"
   }
 }
 
@@ -123,7 +126,9 @@ fn expect_unexpected_rollback(
     | Error(or_map_kernel.UnexpectedAck(_))
     | Error(or_map_kernel.ModeMismatch(_))
     | Error(or_map_kernel.CorruptDelta(_))
-    | Error(or_map_kernel.NegativeTally(_)) ->
+    | Error(or_map_kernel.NegativeTally(_))
+    | Error(or_map_kernel.InvalidSetState(_))
+    | Error(or_map_kernel.CounterExhausted(_)) ->
       panic as "expected UnexpectedRollback"
   }
 }
@@ -184,7 +189,10 @@ pub fn increment_mode_guard_test() -> Nil {
     | Error(or_map_kernel.UnexpectedAck(_))
     | Error(or_map_kernel.UnexpectedRollback(_))
     | Error(or_map_kernel.CorruptDelta(_))
-    | Error(or_map_kernel.NegativeTally(_)) -> panic as "expected ModeMismatch"
+    | Error(or_map_kernel.NegativeTally(_))
+    | Error(or_map_kernel.InvalidSetState(_))
+    | Error(or_map_kernel.CounterExhausted(_)) ->
+      panic as "expected ModeMismatch"
   }
 }
 
@@ -195,7 +203,10 @@ pub fn set_register_mode_guard_test() -> Nil {
     | Error(or_map_kernel.UnexpectedAck(_))
     | Error(or_map_kernel.UnexpectedRollback(_))
     | Error(or_map_kernel.CorruptDelta(_))
-    | Error(or_map_kernel.NegativeTally(_)) -> panic as "expected ModeMismatch"
+    | Error(or_map_kernel.NegativeTally(_))
+    | Error(or_map_kernel.InvalidSetState(_))
+    | Error(or_map_kernel.CounterExhausted(_)) ->
+      panic as "expected ModeMismatch"
   }
 }
 
@@ -493,8 +504,10 @@ pub fn the_clock_is_per_key_test() -> Nil {
   case quiet_operation {
     or_map_kernel.SetRegister(_, _, timestamp, _) ->
       timestamp |> expect.to_equal(1000)
-    or_map_kernel.Increment(..) | or_map_kernel.Remove(..) ->
-      panic as "expected a SetRegister op"
+    or_map_kernel.Increment(..)
+    | or_map_kernel.Remove(..)
+    | or_map_kernel.AddMember(..)
+    | or_map_kernel.RemoveMember(..) -> panic as "expected a SetRegister op"
   }
   expect_coherent(state)
 }

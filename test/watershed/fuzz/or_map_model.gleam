@@ -194,7 +194,9 @@ fn apply_remote(
     Error(or_map_kernel.UnexpectedRollback(detail)) -> Error(detail)
     Error(or_map_kernel.ModeMismatch(detail)) -> Error(detail)
     Error(or_map_kernel.CorruptDelta(detail)) -> Error(detail)
-    Error(or_map_kernel.NegativeTally(detail)) -> Error(detail)
+    Error(or_map_kernel.NegativeTally(detail))
+    | Error(or_map_kernel.InvalidSetState(detail))
+    | Error(or_map_kernel.CounterExhausted(detail)) -> Error(detail)
   }
 }
 
@@ -214,7 +216,9 @@ fn ack_local(
     Error(or_map_kernel.UnexpectedRollback(detail)) -> Error(detail)
     Error(or_map_kernel.ModeMismatch(detail)) -> Error(detail)
     Error(or_map_kernel.CorruptDelta(detail)) -> Error(detail)
-    Error(or_map_kernel.NegativeTally(detail)) -> Error(detail)
+    Error(or_map_kernel.NegativeTally(detail))
+    | Error(or_map_kernel.InvalidSetState(detail))
+    | Error(or_map_kernel.CounterExhausted(detail)) -> Error(detail)
   }
 }
 

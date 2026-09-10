@@ -20,6 +20,8 @@ import spillway/message
 import spillway/types
 
 import lattice_core/replica_id
+import lattice_maps/crdt
+import lattice_maps/or_map
 import lattice_sequence/sequence.{After, Before}
 import watershed/channel
 import watershed/claims_kernel
@@ -458,6 +460,7 @@ fn is_ack_mismatch(core_error: runtime_core.CoreError) -> Bool {
     | runtime_core.DuplicateAttach(..)
     | runtime_core.WrongChannelType(..)
     | runtime_core.OrMapModeMismatch(..)
+    | runtime_core.OrMapOperationFailed(..)
     | runtime_core.TaskNotAssigned(..)
     | runtime_core.DirectoryOperationFailed(..)
     | runtime_core.SequenceOperationFailed(..)
@@ -2575,6 +2578,197 @@ pub fn detached_or_map_increment_produces_no_outbound_test() -> Nil {
   |> expect.to_equal(Ok(or_map_kernel.Tally(3)))
 }
 
+pub fn or_map_set_detached_promotion_and_member_ack_test() -> Nil {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core =
+    runtime_core.create_detached(
+      core,
+      "sets",
+      channel.InitOrMap(or_map_kernel.OrSetMode),
+    )
+  let assert Ok(#(core, [], [])) =
+    runtime_core.or_map_remove_member(core, "sets", "missing", "draft")
+  runtime_core.or_map_value(core, "sets", "missing")
+  |> expect.to_equal(Error(Nil))
+  let assert Ok(#(core, events, [])) =
+    runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+  events
+  |> expect.to_equal([
+    #(
+      "sets",
+      channel.OrMapEvent(or_map_kernel.SetMembersUpdated("doc", ["draft"])),
+    ),
+  ])
+  let assert Ok(#(core, _, [attach, _])) =
+    runtime_core.set(core, "root", "sets", handle.encode_handle("sets"))
+  let assert DecodedAttach("sets", snapshot) = decode_outbound_contents(attach)
+  or_map_snapshot_entries(snapshot)
+  |> expect.to_equal([#("doc", or_map_kernel.SetMembers(["draft"]))])
+  let #(core, _) =
+    apply_tagged(
+      core,
+      or_map_attach_message(
+        client_id: our_client_id,
+        sequence_number: 2,
+        client_sequence_number: 1,
+        address: "sets",
+        snapshot: snapshot,
+      ),
+    )
+  let #(core, _) =
+    apply_tagged(
+      core,
+      channel_operation_message(
+        address: "root",
+        client_id: our_client_id,
+        sequence_number: 3,
+        client_sequence_number: 2,
+        operation: Set("sets", handle.encode_handle("sets")),
+      ),
+    )
+  let assert Ok(#(core, [], [duplicate])) =
+    runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+  duplicate.client_sequence_number |> expect.to_equal(3)
+  let assert DecodedChannelOperation("sets", channel.OrMapOperation(operation)) =
+    decode_outbound_contents(duplicate)
+  let assert #(core, []) =
+    apply_tagged(
+      core,
+      or_map_operation_message(
+        address: "sets",
+        client_id: our_client_id,
+        sequence_number: 4,
+        client_sequence_number: 3,
+        operation: operation,
+      ),
+    )
+  core.in_flight |> expect.to_equal([])
+  let assert Ok(#(core, events, [remove])) =
+    runtime_core.or_map_remove_member(core, "sets", "doc", "draft")
+  events
+  |> expect.to_equal([
+    #("sets", channel.OrMapEvent(or_map_kernel.SetMembersUpdated("doc", []))),
+  ])
+  let assert DecodedChannelOperation("sets", channel.OrMapOperation(operation)) =
+    decode_outbound_contents(remove)
+  let assert #(core, []) =
+    apply_tagged(
+      core,
+      or_map_operation_message(
+        address: "sets",
+        client_id: our_client_id,
+        sequence_number: 5,
+        client_sequence_number: 4,
+        operation: operation,
+      ),
+    )
+  core.in_flight |> expect.to_equal([])
+  runtime_core.or_map_value(core, "sets", "doc")
+  |> expect.to_equal(Ok(or_map_kernel.SetMembers([])))
+}
+
+pub fn or_map_member_edits_keep_wrong_mode_and_wrong_channel_errors_test() -> Nil {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core =
+    runtime_core.create_detached(
+      core,
+      "tally",
+      channel.InitOrMap(or_map_kernel.TallyMode),
+    )
+  let assert Error(runtime_core.OrMapModeMismatch(address: "tally", ..)) =
+    runtime_core.or_map_add_member(core, "tally", "doc", "draft")
+  let assert Error(runtime_core.OrMapModeMismatch(address: "tally", ..)) =
+    runtime_core.or_map_remove_member(core, "tally", "doc", "draft")
+  let assert Error(runtime_core.WrongChannelType(
+    address: "root",
+    expected: channel.OrMapChannel,
+    actual: channel.MapChannel,
+  )) = runtime_core.or_map_add_member(core, "root", "doc", "draft")
+  let assert Error(runtime_core.WrongChannelType(
+    address: "root",
+    expected: channel.OrMapChannel,
+    actual: channel.MapChannel,
+  )) = runtime_core.or_map_remove_member(core, "root", "doc", "draft")
+  Nil
+}
+
+pub fn or_map_member_clock_exhaustion_has_address_in_attached_and_detached_core_test() -> Nil {
+  let empty =
+    or_map_kernel.new(replica_id.new(our_client_id), or_map_kernel.OrSetMode)
+  let raw = or_map.to_json(empty.sequenced) |> json.to_string
+  let exhausted =
+    string.replace(raw, "\\\"counter\\\":0", "\\\"counter\\\":9007199254740991")
+  exhausted |> expect.to_not_equal(raw)
+  let assert Ok(kernel) =
+    or_map_kernel.from_summary(exhausted, replica_id.new(our_client_id))
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let detached =
+    runtime_core.Core(
+      ..core,
+      detached: dict.insert(core.detached, "sets", channel.OrMapState(kernel)),
+    )
+  let attached =
+    runtime_core.Core(
+      ..core,
+      channels: dict.insert(core.channels, "sets", channel.OrMapState(kernel)),
+    )
+  list.each([detached, attached], fn(core) {
+    let assert Error(runtime_core.OrMapOperationFailed(
+      address: "sets",
+      detail: detail,
+    )) = runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+    string.is_empty(detail) |> expect.to_be_false
+  })
+}
+
+pub fn or_map_invalid_set_state_error_survives_remote_and_ack_dispatch_test() -> Nil {
+  let empty =
+    or_map_kernel.new(replica_id.new(our_client_id), or_map_kernel.OrSetMode)
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core =
+    runtime_core.Core(
+      ..core,
+      channels: dict.insert(core.channels, "sets", channel.OrMapState(empty)),
+    )
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+  let assert DecodedChannelOperation("sets", channel.OrMapOperation(operation)) =
+    decode_outbound_contents(outbound)
+  list.each([#(core, other_client_id), #(pending, our_client_id)], fn(pair) {
+    let assert Ok(channel.OrMapState(kernel)) =
+      dict.get(pair.0.channels, "sets")
+    let corrupt =
+      or_map_kernel.OrMapState(
+        ..kernel,
+        sequenced: or_map.new(replica_id.new(our_client_id), crdt.PnCounterSpec),
+      )
+    let core =
+      runtime_core.Core(
+        ..pair.0,
+        channels: dict.insert(
+          pair.0.channels,
+          "sets",
+          channel.OrMapState(corrupt),
+        ),
+      )
+    let assert Error(runtime_core.OrMapOperationFailed(
+      address: "sets",
+      detail: detail,
+    )) =
+      runtime_core.handle_sequenced(
+        core,
+        or_map_operation_message(
+          address: "sets",
+          client_id: pair.1,
+          sequence_number: 2,
+          client_sequence_number: 1,
+          operation: operation,
+        ),
+      )
+    string.is_empty(detail) |> expect.to_be_false
+  })
+}
+
 pub fn or_map_attach_via_handle_then_operations_round_trip_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core =
@@ -2691,6 +2885,7 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.WrongChannelType(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
@@ -2717,6 +2912,7 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.WrongChannelType(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
@@ -2767,6 +2963,8 @@ pub fn or_map_register_set_attaches_handle_dependencies_test() -> Nil {
     or_map_kernel.SetRegister(..)
     | or_map_kernel.Increment(..)
     | or_map_kernel.Remove(..) -> panic as "expected register set op"
+    or_map_kernel.AddMember(..) | or_map_kernel.RemoveMember(..) ->
+      panic as "expected register set op"
   }
 }
 
@@ -2789,6 +2987,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.WrongChannelType(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
@@ -2807,6 +3006,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.UnknownChannel(..))
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
@@ -2825,6 +3025,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.UnknownChannel(..))
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
@@ -2849,6 +3050,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.WrongChannelType(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))

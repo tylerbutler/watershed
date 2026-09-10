@@ -30,6 +30,26 @@
 //// The edits and the reads stay on `watershed`, which has `set`, `get`,
 //// `entries`, and the other functions. This package wraps the callback-shaped
 //// surface only. JavaScript target only.
+////
+//// For string-set OR-maps, use `ensure_or_map` with `OrSetMode` and the
+//// existing `subscribe_or_map`. Defer fallible edits with the generic
+//// `watershed_lustre/crdt.perform` thunk. It preserves sequenced errors too.
+////
+//// ```gleam
+//// import watershed_lustre/crdt
+////
+//// crdt.perform(
+////   fn() { watershed.or_map_add_member(map, "inspection-brief", "reviewed") },
+////   Outcome,
+//// )
+//// crdt.perform(
+////   fn() { watershed.or_map_remove_key(map, "inspection-brief") },
+////   Outcome,
+//// )
+//// ```
+////
+//// Use the result-returning `or_map_remove_key`, not an `Ok` wrapper around
+//// legacy `or_map_remove`. A failed edit must remain an error.
 
 import gleam/javascript/promise
 import gleam/json.{type Json}
@@ -192,7 +212,8 @@ pub fn subscribe_counter(
   Nil
 }
 
-/// Subscribe to an OR-map channel.
+/// Subscribe to an OR-map channel. In `OrSetMode`, `SetMembersUpdated` carries
+/// sorted members. A metadata-only add emits no visible-value event.
 pub fn subscribe_or_map(
   or_map: OrMap,
   to_msg to_msg: fn(or_map_kernel.OrMapEvent) -> msg,
@@ -636,7 +657,8 @@ pub fn ensure_counter(
 }
 
 /// Make sure that an OR-map exists under `field`. If none exists, the effect
-/// creates one in `mode`.
+/// creates one in `mode`. Use `OrSetMode` for string-set values. An existing
+/// channel keeps its mode.
 pub fn ensure_or_map(
   document: Document(root),
   typed_map: TypedMap(s),

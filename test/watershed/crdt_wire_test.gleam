@@ -270,6 +270,14 @@ pub fn every_eligible_channel_type_round_trips_a_delta_test() -> Nil {
     #(channel.InitPnCounter, channel.PnCounterEdit(3)),
     #(channel.InitMvRegister, channel.MvRegisterEdit("x")),
     #(
+      channel.InitOrMap(or_map_kernel.OrSetMode),
+      channel.OrMapAddMemberEdit("doc", "draft"),
+    ),
+    #(
+      channel.InitOrMap(or_map_kernel.OrSetMode),
+      channel.OrMapRemoveMemberEdit("missing", "draft"),
+    ),
+    #(
       channel.InitOrMap(or_map_kernel.RegisterMode),
       channel.OrMapSetRegisterEdit("k", "v", 9),
     ),
