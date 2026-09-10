@@ -78,7 +78,7 @@ import spillway/types.{type SequencedDocumentMessage}
 import watershed/channel.{
   type ChannelEvent, type ChannelInit, type Resolution, AcquireResolved,
   ClaimResolved, InitClaims, InitCounter, InitDirectory, InitGCounter, InitGSet,
-  InitJsonOt, InitMap, InitMvRegister, InitOrMap, InitOrSet,
+  InitJsonOt, InitLwwRegister, InitMap, InitMvRegister, InitOrMap, InitOrSet,
   InitOrderedCollection, InitPactMap, InitPnCounter, InitRegisterCollection,
   InitRichText, InitSequence, InitTaskManager, InitText, InitTwoPSet,
   SequenceChannel, TextChannel,
@@ -227,6 +227,11 @@ pub type Msg {
     reply: Subject(Result(Nil, String)),
   )
   SetMvRegister(address: String, value: String)
+  SetLwwRegister(
+    address: String,
+    value: String,
+    reply: Subject(Result(Nil, String)),
+  )
   SetPactMap(address: String, key: String, value: Json)
   DeletePactMap(address: String, key: String)
   AddOrderedItem(address: String, value: Json)
@@ -344,6 +349,7 @@ pub type Msg {
   CreatePnCounter(reply: Subject(Result(String, String)))
   CreateGCounter(reply: Subject(Result(String, String)))
   CreateMvRegister(reply: Subject(Result(String, String)))
+  CreateLwwRegister(reply: Subject(Result(String, String)))
   /// Create a new detached PactMap channel, which is a consensus map. The
   /// lifecycle is the same as for `CreateMap`.
   CreatePactMap(reply: Subject(Result(String, String)))
@@ -397,6 +403,7 @@ pub type Msg {
     address: String,
     reply: Subject(Result(List(String), Nil)),
   )
+  GetLwwRegisterValue(address: String, reply: Subject(Result(String, Nil)))
   /// The accepted value of the PactMap for `key`. The reply is `Error(Nil)` when the
   /// value is pending, when the key is absent, and when the address does not
   /// name a PactMap channel.
@@ -1267,6 +1274,20 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       edit(state, fn(core) {
         runtime_core.mv_register_set(core, address, value)
       })
+    SetLwwRegister(address, value, reply) ->
+      edit_sequence_with_result(
+        state,
+        reply,
+        fn(core) {
+          runtime_core.lww_register_set(
+            core,
+            address,
+            value,
+            now_milliseconds(),
+          )
+        },
+        "LWW-register set",
+      )
     SetPactMap(address, key, value) ->
       edit(state, fn(core) {
         runtime_core.pact_map_set(core, address, key, value)
@@ -1411,6 +1432,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       create_channel(state, reply, InitGCounter, "create_g_counter")
     CreateMvRegister(reply) ->
       create_channel(state, reply, InitMvRegister, "create_mv_register")
+    CreateLwwRegister(reply) ->
+      create_channel(state, reply, InitLwwRegister, "create_lww_register")
     CreatePactMap(reply) ->
       create_channel(state, reply, InitPactMap, "create_pact_map")
     CreateOrderedCollection(reply) ->
@@ -1532,6 +1555,13 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(
         reply,
         read(state, Error(Nil), runtime_core.mv_register_values(_, address)),
+      )
+      actor.continue(state)
+    }
+    GetLwwRegisterValue(address, reply) -> {
+      process.send(
+        reply,
+        read(state, Error(Nil), runtime_core.lww_register_value(_, address)),
       )
       actor.continue(state)
     }

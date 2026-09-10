@@ -71,6 +71,8 @@ import watershed/json_ot
 @target(erlang)
 import watershed/json_ot_kernel
 @target(erlang)
+import watershed/lww_register_kernel
+@target(erlang)
 import watershed/map_kernel
 @target(erlang)
 import watershed/mv_register_kernel
@@ -192,6 +194,11 @@ pub opaque type PnCounter {
 @target(erlang)
 pub opaque type GCounter {
   GCounter(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type LwwRegister {
+  LwwRegister(runtime: Subject(runtime_beam.Msg), address: String)
 }
 
 @target(erlang)
@@ -4316,4 +4323,141 @@ pub fn subscribe_mv_register(
 @target(erlang)
 pub opaque type MvRegister {
   MvRegister(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+/// Create a detached string register. Store its handle in an attached
+/// container to replicate it.
+pub fn create_lww_register(
+  document: Document(root),
+) -> Result(LwwRegister, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: runtime_beam.CreateLwwRegister,
+  )
+  |> result.map(fn(address) {
+    LwwRegister(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn lww_register_handle_of(register: LwwRegister) -> Json {
+  handle.encode_handle(register.address)
+}
+
+@target(erlang)
+pub fn resolve_lww_register(
+  document: Document(root),
+  value: Json,
+) -> Result(LwwRegister, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_milliseconds,
+        sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        LwwRegister(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+pub fn set_lww_register_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+  register: LwwRegister,
+) -> Nil {
+  put_channel_field(typed_map, field, lww_register_handle_of(register))
+}
+
+@target(erlang)
+pub fn resolve_lww_register_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+) -> Result(Option(LwwRegister), String) {
+  get_channel_field(document, typed_map, field, resolve_lww_register)
+}
+
+@target(erlang)
+/// Adopt an existing register or create one. Wait for synchronization before
+/// reading the field and after creating a candidate.
+pub fn ensure_lww_register(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+) -> Result(LwwRegister, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use register <- result.map(create_lww_register(document))
+      set_lww_register_field(typed_map, field, register)
+    },
+    fn() { resolve_lww_register_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Write optimistically with the runtime clock. Clock and channel errors
+/// return to the caller. A same-value write replicates newer metadata without
+/// a visible-value event.
+pub fn lww_register_set(
+  register: LwwRegister,
+  value: String,
+) -> Result(Nil, String) {
+  process.call(
+    register.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.SetLwwRegister(register.address, value, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// Read the optimistic value. Return `Error(Nil)` for a channel-kind mismatch.
+pub fn lww_register_value(register: LwwRegister) -> Result(String, Nil) {
+  process.call(
+    register.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetLwwRegisterValue(register.address, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// Subscribe the calling process to local and remote visible-value changes.
+pub fn subscribe_lww_register(
+  register: LwwRegister,
+) -> Subject(lww_register_kernel.LwwRegisterEvent) {
+  use event <- subscribe_narrowed(register.runtime, register.address)
+  case event {
+    channel.LwwRegisterEvent(inner) -> Some(inner)
+    channel.MvRegisterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
 }
