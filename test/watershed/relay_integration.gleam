@@ -33,6 +33,8 @@ import watershed/crdt_js.{
 @target(javascript)
 import watershed/crdt_signaling_js
 @target(javascript)
+import watershed/lww_register_kernel
+@target(javascript)
 import watershed/p2p
 @target(javascript)
 import watershed/p2p_fake
@@ -309,4 +311,130 @@ pub fn saw(client: Client, prefix: String) -> Bool {
   list.any(entries(client.statuses), fn(entry) {
     string.starts_with(entry, prefix)
   })
+}
+
+@target(javascript)
+pub type LwwClient {
+  LwwClient(
+    document: CrdtDocument(schema.LwwRegisterChannel),
+    connection: CrdtConnection,
+    statuses: Cell(List(String)),
+    readies: Cell(List(String)),
+    events: Cell(List(String)),
+  )
+}
+
+@target(javascript)
+pub fn start_lww(
+  harness: Harness,
+  policy: String,
+  room: String,
+  label: String,
+  signaling_url: String,
+  relay_url: String,
+) -> LwwClient {
+  let signaling =
+    crdt_signaling_js.websocket_signaling(
+      url: signaling_url,
+      on_failure: fn(_detail) { Nil },
+    )
+  let base =
+    crdt_js.config(
+      room_id: room,
+      replica_label: label,
+      compatibility_tag: compatibility,
+      root: p2p.lww_register_root(),
+      signaling: signaling,
+    )
+    |> crdt_js.with_transport_policy(case policy {
+      "sequencedOnly" -> SequencedOnly
+      "p2pOnly" -> P2pOnly
+      _ -> Auto
+    })
+  let config = case relay_url {
+    "" -> base
+    url -> crdt_js.with_sequencer(base, crdt_js.sequencer(url))
+  }
+  let assert Ok(document) = crdt_js.new_document(config)
+  let statuses = transport_js.new_cell([])
+  let readies = transport_js.new_cell([])
+  let events = transport_js.new_cell([])
+  let connection =
+    crdt_js.attach_with_rtc(
+      document,
+      on_ready: fn(outcome) {
+        push(readies, case outcome {
+          Ok(_) -> "ok"
+          Error(error) -> "error " <> crdt_js.describe_error(error)
+        })
+      },
+      on_status: fn(status) { push(statuses, render(status)) },
+      rtc: p2p_fake.rtc(harness.world, crdt_js.replica_id(document)),
+    )
+  let _ =
+    crdt_js.subscribe_lww_register(crdt_js.root(document), fn(event) {
+      let lww_register_kernel.Changed(previous, value) = event
+      push(events, previous <> "->" <> value)
+    })
+  LwwClient(
+    document: document,
+    connection: connection,
+    statuses: statuses,
+    readies: readies,
+    events: events,
+  )
+}
+
+@target(javascript)
+pub fn lww_set(client: LwwClient, value: String) -> String {
+  case crdt_js.lww_register_set(crdt_js.root(client.document), value) {
+    Ok(Nil) -> ""
+    Error(error) -> crdt_js.describe_error(error)
+  }
+}
+
+@target(javascript)
+pub fn lww_value(client: LwwClient) -> String {
+  case crdt_js.lww_register_value(crdt_js.root(client.document)) {
+    Ok(value) -> value
+    Error(error) -> "error " <> crdt_js.describe_error(error)
+  }
+}
+
+@target(javascript)
+pub fn lww_digest(client: LwwClient) -> String {
+  crdt_js.digest(client.document)
+}
+
+@target(javascript)
+pub fn lww_events(client: LwwClient) -> List(String) {
+  entries(client.events)
+}
+
+@target(javascript)
+pub fn lww_readiness(client: LwwClient) -> List(String) {
+  entries(client.readies)
+}
+
+@target(javascript)
+pub fn lww_path(client: LwwClient) -> String {
+  case crdt_js.effective_path(client.document) {
+    PeerToPeer -> "p2p"
+    Sequenced -> "relay"
+  }
+}
+
+@target(javascript)
+pub fn lww_is_primary(client: LwwClient) -> Bool {
+  crdt_js.relay_is_primary(client.document)
+}
+
+@target(javascript)
+pub fn lww_peer_count(client: LwwClient) -> Int {
+  crdt_js.peer_count(client.document)
+}
+
+@target(javascript)
+pub fn lww_close(client: LwwClient) -> Nil {
+  crdt_js.close(client.connection)
 }

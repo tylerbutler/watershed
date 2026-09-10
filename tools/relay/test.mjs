@@ -7,7 +7,7 @@
 // back rather than being lost, that a late client sees everything, and that
 // the relay's diagnostic order never reaches a document.
 //
-// The whole gate is one scenario, run once:
+// The PN-counter lifecycle scenario:
 //
 //   1. create and edit a room with the relay process absent;
 //   2. start the relay; those same replicas attach, merge, become primary,
@@ -19,6 +19,9 @@
 //   7. attach a late client and find every copy equal;
 //   8. prove the relay's order never entered a snapshot or a digest;
 //   9. prove signaling carried no document frame.
+//
+// A separate LWWRegister room covers the same relay lifecycle, metadata-only
+// writes, idempotent replay, and a late client's first write after import.
 //
 // Every relay in here writes to a fresh directory under the system temp
 // directory, and every one of them is removed at the end — a log left over
@@ -78,6 +81,7 @@ main().then(
 
 async function main() {
   await lifecycle();
+  await lwwLifecycle();
   await socketLayer();
   await tornLogs();
   await corruptLogs();
@@ -242,6 +246,159 @@ async function lifecycle() {
   harness.close(late);
   await until(() => (signaling.stats().framesByTag.leave ?? 0) >= 1,
     "and a leave when a replica went away");
+  pump.stop();
+  await relay.close();
+  await signaling.close();
+}
+
+async function lwwLifecycle() {
+  const room = "lww-trip-status";
+  const dataDir = tempDir();
+  const signaling = startSignalingServer({});
+  await signaling.listening;
+  const signalingUrl = "ws://127.0.0.1:" + signaling.port() + "/";
+  const world = harness.new_harness();
+  const pump = pumping(world);
+  const relayPort = await freePort();
+  const relayUrl = "ws://127.0.0.1:" + relayPort + "/";
+  const alpha = harness.start_lww(world, "auto", room, "alpha",
+    signalingUrl, relayUrl);
+  const beta = harness.start_lww(world, "auto", room, "beta",
+    signalingUrl, relayUrl);
+  const clients = [alpha, beta];
+  const events = (client) => harness.lww_events(client).toArray();
+  const converged = (value) => clients.every((client) =>
+    harness.lww_value(client) === value &&
+      harness.lww_digest(client) === harness.lww_digest(alpha));
+
+  await until(() => clients.every((client) =>
+    harness.lww_readiness(client).toArray().length === 1 &&
+      harness.lww_peer_count(client) === 1),
+    "LWW: both clients are ready over the mesh with the relay absent");
+  for (const client of clients) {
+    deep(harness.lww_readiness(client).toArray(), ["ok"],
+      "LWW: Auto readiness does not wait for the absent relay");
+    is(harness.lww_path(client), "p2p", "LWW: the absent relay uses p2p");
+    is(harness.lww_value(client), "", "LWW: the register starts empty");
+  }
+  is(harness.lww_set(alpha, "first"), "", "LWW: the first p2p write succeeds");
+  await until(() => converged("first"), "LWW: the first write crosses the mesh");
+  is(harness.lww_set(beta, "confirmed"), "",
+    "LWW: the peer's next write succeeds");
+  await until(() => converged("confirmed"),
+    "LWW: the causally later write wins on both peers");
+  const confirmedEvents = ["->first", "first->confirmed"];
+
+  let relay = startRelayServer({ dataDir, port: relayPort });
+  await relay.listening;
+  await until(() => clients.every(harness.lww_is_primary),
+    "LWW: the existing clients attach when the relay appears", 20_000);
+  await until(() => relay.attested(room) === harness.lww_digest(alpha) &&
+    converged("confirmed") && relay.logSize(room) === 1,
+    "LWW: the confirmed value is checkpointed on disk");
+  for (const client of clients) {
+    is(harness.lww_path(client), "relay", "LWW: the relay is now primary");
+    deep(events(client), confirmedEvents,
+      "LWW: attaching and checkpointing do not repeat visible events");
+  }
+  const checkpointDigest = harness.lww_digest(alpha);
+  is(relay.lines(room).length > 0, true, "LWW: the checkpoint is on disk");
+
+  // A same-value write must reach the durable log and the other replica,
+  // even though neither subscriber should see a visible change.
+  is(harness.lww_set(alpha, "confirmed"), "",
+    "LWW: a metadata-only relay write succeeds");
+  await until(() => converged("confirmed") &&
+    harness.lww_digest(alpha) !== checkpointDigest && relay.logSize(room) === 2,
+    "LWW: newer metadata crosses the relay and is durable after the checkpoint");
+  const metadataDigest = harness.lww_digest(alpha);
+  const durableLines = relay.lines(room);
+  for (const client of clients) {
+    deep(events(client), confirmedEvents,
+      "LWW: a newer timestamp for the same value emits no event");
+  }
+
+  // Reconnect without any intervening write. Both clients have already
+  // applied the checkpoint and delta that the restarted relay will replay.
+  await relay.close();
+  await until(() => clients.every((client) => harness.lww_path(client) === "p2p"),
+    "LWW: the checkpoint reconnect falls back to p2p");
+  relay = startRelayServer({ dataDir, port: relayPort });
+  await relay.listening;
+  is(relay.stats().roomsRecovered, 1, "LWW: the checkpoint room recovers from disk");
+  deep(relay.lines(room), durableLines,
+    "LWW: the checkpoint and metadata delta survive byte for byte");
+  is(relay.logSize(room), 2, "LWW: the metadata delta also survives on disk");
+  await until(() => clients.every(harness.lww_is_primary) &&
+    relay.attested(room) === metadataDigest && converged("confirmed"),
+    "LWW: reconnect replays and checkpoints the same value and metadata", 20_000);
+  for (const client of clients) {
+    deep(events(client), confirmedEvents,
+      "LWW: replaying already-applied state is visibly idempotent");
+  }
+
+  await relay.close();
+  await until(() => clients.every((client) => harness.lww_path(client) === "p2p"),
+    "LWW: a second outage returns both clients to the mesh");
+  is(harness.lww_set(alpha, "offline-alpha"), "",
+    "LWW: alpha can write during the outage");
+  await until(() => converged("offline-alpha"),
+    "LWW: alpha's outage write reaches beta");
+  is(harness.lww_set(beta, "offline-beta"), "",
+    "LWW: beta can write during the outage");
+  await until(() => converged("offline-beta"),
+    "LWW: beta's causally later outage write wins");
+  const outageDigest = harness.lww_digest(alpha);
+  const outageEvents = [
+    ...confirmedEvents, "confirmed->offline-alpha", "offline-alpha->offline-beta",
+  ];
+  for (const client of clients) {
+    deep(events(client), outageEvents, "LWW: each outage value changes exactly once");
+  }
+
+  relay = startRelayServer({ dataDir, port: relayPort });
+  await relay.listening;
+  is(relay.stats().roomsRecovered, 1, "LWW: the outage restart recovers the room");
+  is(relay.attested(room), metadataDigest,
+    "LWW: disk still holds the pre-outage checkpoint before recovery");
+  await until(() => clients.every(harness.lww_is_primary) &&
+    relay.attested(room) === outageDigest && converged("offline-beta"),
+    "LWW: recovery preserves and checkpoints the outage writes", 20_000);
+  for (const client of clients) {
+    deep(events(client), outageEvents,
+      "LWW: recovery replay does not duplicate visible events");
+  }
+
+  const late = harness.start_lww(world, "sequencedOnly", room, "late",
+    signalingUrl, relayUrl);
+  clients.push(late);
+  await until(() => harness.lww_readiness(late).toArray().length === 1 &&
+    harness.lww_is_primary(late) && converged("offline-beta"),
+    "LWW: a late client imports the same value and digest from the relay");
+  deep(harness.lww_readiness(late).toArray(), ["ok"],
+    "LWW: the late client becomes ready on the relay alone");
+  is(harness.lww_peer_count(late), 0, "LWW: the late client has no mesh peers");
+  deep(events(late), ["->offline-beta"],
+    "LWW: the imported value produces one visible event");
+  for (const client of [alpha, beta]) {
+    deep(events(client), outageEvents,
+      "LWW: the late client's checkpoint does not repeat existing events");
+  }
+
+  is(harness.lww_set(late, "joined"), "",
+    "LWW: the late client's first local write after import succeeds");
+  await until(() => converged("joined"),
+    "LWW: the post-import write wins and all three digests converge");
+  is(harness.lww_digest(late) !== outageDigest, true,
+    "LWW: the post-import write advances replicated metadata");
+  for (const client of [alpha, beta]) {
+    deep(events(client), [...outageEvents, "offline-beta->joined"],
+      "LWW: the post-import write changes each existing peer exactly once");
+  }
+  deep(events(late), ["->offline-beta", "offline-beta->joined"],
+    "LWW: the late writer receives no duplicate event from its relay echo");
+
+  clients.forEach(harness.lww_close);
   pump.stop();
   await relay.close();
   await signaling.close();
