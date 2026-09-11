@@ -368,6 +368,7 @@ fn picture(pixels: watershed.OrMap) -> List(#(String, String)) {
     case entry.1 {
       or_map_kernel.Register(value) -> Ok(#(entry.0, value))
       or_map_kernel.Tally(_) -> Error(Nil)
+      or_map_kernel.SetMembers(_) -> Error(Nil)
       or_map_kernel.MvRegister(_) -> Error(Nil)
     }
   })

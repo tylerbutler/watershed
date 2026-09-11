@@ -619,6 +619,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
               Some(note.from_register(value).text)
             Error(_) -> None
             Ok(or_map_kernel.Tally(_)) -> None
+            Ok(or_map_kernel.SetMembers(_)) -> None
             Ok(or_map_kernel.MvRegister(_)) -> None
           }
         None -> None
@@ -659,6 +660,7 @@ fn update(model: Model, msg: Msg) -> #(Model, Effect(Msg)) {
             // race a delete in flight.
             Error(_) -> Nil
             Ok(or_map_kernel.Tally(_)) -> Nil
+            Ok(or_map_kernel.SetMembers(_)) -> Nil
             Ok(or_map_kernel.MvRegister(_)) -> Nil
           }
           #(snapshot(Model(..model, editing: None)), effect.none())
@@ -884,6 +886,7 @@ fn apply_card_drop(
               column.from_id(note.from_register(target_value).column)
             Error(_) -> Error(Nil)
             Ok(or_map_kernel.Tally(_)) -> Error(Nil)
+            Ok(or_map_kernel.SetMembers(_)) -> Error(Nil)
             Ok(or_map_kernel.MvRegister(_)) -> Error(Nil)
           }
         OnCard(_) -> Error(Nil)
@@ -916,6 +919,7 @@ fn apply_card_drop(
     // The note vanished (a peer deleted it) between render and drop.
     Error(_) -> model
     Ok(or_map_kernel.Tally(_)) -> model
+    Ok(or_map_kernel.SetMembers(_)) -> model
     Ok(or_map_kernel.MvRegister(_)) -> model
   }
 }
@@ -985,6 +989,7 @@ fn note_entries(notes: OrMap) -> List(#(String, Note)) {
     case entry.1 {
       or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))
       or_map_kernel.Tally(_) -> Error(Nil)
+      or_map_kernel.SetMembers(_) -> Error(Nil)
       or_map_kernel.MvRegister(_) -> Error(Nil)
     }
   })
@@ -996,6 +1001,7 @@ fn vote_entries(votes: OrMap) -> List(#(String, Int)) {
     case entry.1 {
       or_map_kernel.Tally(count) -> Ok(#(entry.0, count))
       or_map_kernel.Register(_) -> Error(Nil)
+      or_map_kernel.SetMembers(_) -> Error(Nil)
       or_map_kernel.MvRegister(_) -> Error(Nil)
     }
   })

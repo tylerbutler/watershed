@@ -224,6 +224,7 @@ fn apply_event(model: Model, event: or_map_kernel.OrMapEvent) -> Nil {
       }
     // Unreachable in `RegisterMode`; folded to nothing rather than crashed on.
     or_map_kernel.TallyUpdated(_, _, _) -> Nil
+    or_map_kernel.SetMembersUpdated(_, _) -> Nil
     or_map_kernel.MvRegisterUpdated(_, _) -> Nil
   }
 }
@@ -239,6 +240,7 @@ fn existing_cells(pixels: OrMap) -> List(#(Int, Int, Int)) {
           _, _ -> Error(Nil)
         }
       or_map_kernel.Tally(_) -> Error(Nil)
+      or_map_kernel.SetMembers(_) -> Error(Nil)
       or_map_kernel.MvRegister(_) -> Error(Nil)
     }
   })

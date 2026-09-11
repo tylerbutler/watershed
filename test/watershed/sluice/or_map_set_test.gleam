@@ -62,6 +62,7 @@ pub fn public_set_map_members_empty_keys_and_subscriptions_test() -> Nil {
     )
   watershed.or_map_value(map_b, "doc")
   |> expect.to_equal(Ok(or_map.SetMembers(["draft"])))
+  watershed.or_map_values(map_b, "doc") |> expect.to_equal(Error(Nil))
   let events_a = watershed.subscribe_or_map(map_a)
   let events_b = watershed.subscribe_or_map(map_b)
   watershed.or_map_add_member(map_b, "doc", "approved")

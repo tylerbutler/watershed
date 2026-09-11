@@ -1001,7 +1001,9 @@ fn ensure_tags(
             )
           }
       }
-    Ok(Ok(or_map_kernel.Tally(_))) | Ok(Ok(or_map_kernel.MvRegister(_))) -> #(
+    Ok(Ok(or_map_kernel.Tally(_)))
+    | Ok(Ok(or_map_kernel.SetMembers(_)))
+    | Ok(Ok(or_map_kernel.MvRegister(_))) -> #(
       note_system(model, "The stored tags channel address is corrupt."),
       False,
     )
@@ -1089,7 +1091,9 @@ fn ensure_order(
             )
           }
       }
-    Ok(Ok(or_map_kernel.Tally(_))) | Ok(Ok(or_map_kernel.MvRegister(_))) -> #(
+    Ok(Ok(or_map_kernel.Tally(_)))
+    | Ok(Ok(or_map_kernel.SetMembers(_)))
+    | Ok(Ok(or_map_kernel.MvRegister(_))) -> #(
       note_system(model, "The stored order channel address is corrupt."),
       False,
     )
@@ -1363,7 +1367,9 @@ fn try_open(model: Model, name: String) -> #(Model, Effect(Msg)) {
           ),
           effect.none(),
         )
-        Ok(Ok(or_map_kernel.Tally(_))) | Ok(Ok(or_map_kernel.MvRegister(_))) -> #(
+        Ok(Ok(or_map_kernel.Tally(_)))
+        | Ok(Ok(or_map_kernel.SetMembers(_)))
+        | Ok(Ok(or_map_kernel.MvRegister(_))) -> #(
           Model(
             ..model,
             pending_open: None,
@@ -1449,6 +1455,7 @@ fn read_notes(model: Model, root: Handle(OrMapChannel)) -> Model {
               True, _ -> Error(Nil)
               False, or_map_kernel.Register(_) -> Ok(entry.0)
               False, or_map_kernel.Tally(_) -> Error(Nil)
+              False, or_map_kernel.SetMembers(_) -> Error(Nil)
               False, or_map_kernel.MvRegister(_) -> Error(Nil)
             }
           }),

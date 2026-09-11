@@ -292,6 +292,7 @@ fn tally(votes: OrMap, id: String) -> Int {
     Ok(or_map_kernel.Tally(count)) -> count
     Error(_) -> 0
     Ok(or_map_kernel.Register(_)) -> 0
+    Ok(or_map_kernel.SetMembers(_)) -> 0
     Ok(or_map_kernel.MvRegister(_)) -> 0
   }
 }

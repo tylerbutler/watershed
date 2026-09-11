@@ -233,6 +233,7 @@ fn color_at(pixels: OrMap, x: Int, y: Int) -> Option(String) {
   case watershed.or_map_value(pixels, grid.encode(x, y)) {
     Ok(or_map_kernel.Register(value)) -> Some(value)
     Ok(or_map_kernel.Tally(_)) -> option.None
+    Ok(or_map_kernel.SetMembers(_)) -> option.None
     Ok(or_map_kernel.MvRegister(_)) -> option.None
     Error(_) -> option.None
   }

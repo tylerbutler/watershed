@@ -2038,8 +2038,10 @@ pub fn or_map_set_mv_register(
 pub fn or_map_values(or_map: OrMap, key: String) -> Result(List(String), Nil) {
   case or_map_value(or_map, key) {
     Ok(or_map_kernel.MvRegister(values)) -> Ok(values)
-    Ok(or_map_kernel.Tally(_)) | Ok(or_map_kernel.Register(_)) | Error(Nil) ->
-      Error(Nil)
+    Ok(or_map_kernel.Tally(_))
+    | Ok(or_map_kernel.Register(_))
+    | Ok(or_map_kernel.SetMembers(_))
+    | Error(Nil) -> Error(Nil)
   }
 }
 

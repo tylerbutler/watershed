@@ -191,6 +191,7 @@ fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
     Error(_)
     | Ok(Error(Nil))
     | Ok(Ok(or_map_kernel.Tally(_)))
+    | Ok(Ok(or_map_kernel.SetMembers(_)))
     | Ok(Ok(or_map_kernel.MvRegister(_))) -> {
       let assert Ok(tags) =
         crdt_js.create_channel(document, document_schema.tags_kind())
@@ -218,6 +219,7 @@ fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
     Error(_)
     | Ok(Error(Nil))
     | Ok(Ok(or_map_kernel.Tally(_)))
+    | Ok(Ok(or_map_kernel.SetMembers(_)))
     | Ok(Ok(or_map_kernel.MvRegister(_))) -> {
       let assert Ok(order) =
         crdt_js.create_channel(document, document_schema.order_kind())

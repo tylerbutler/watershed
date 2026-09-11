@@ -236,7 +236,9 @@ fn note_entries(notes: OrMap) -> Result(List(#(String, Note)), String) {
   |> list.try_map(fn(entry) {
     case entry.1 {
       or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))
-      or_map_kernel.Tally(_) | or_map_kernel.MvRegister(_) ->
+      or_map_kernel.Tally(_)
+      | or_map_kernel.SetMembers(_)
+      | or_map_kernel.MvRegister(_) ->
         Error("notes channel has wrong mode; expected RegisterMode")
     }
   })
@@ -250,7 +252,9 @@ fn vote_entries(votes: OrMap) -> Result(List(#(String, Int)), String) {
   |> list.try_map(fn(entry) {
     case entry.1 {
       or_map_kernel.Tally(count) -> Ok(#(entry.0, count))
-      or_map_kernel.Register(_) | or_map_kernel.MvRegister(_) ->
+      or_map_kernel.Register(_)
+      | or_map_kernel.SetMembers(_)
+      | or_map_kernel.MvRegister(_) ->
         Error("votes channel has wrong mode; expected TallyMode")
     }
   })
