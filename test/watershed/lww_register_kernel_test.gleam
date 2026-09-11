@@ -4,10 +4,20 @@ import gleam/result
 import lattice_core/replica_id
 import lattice_registers/lww_register
 import startest/expect
+import watershed/lww_clock
 import watershed/lww_register_kernel as kernel
 
 fn state(id: String) -> kernel.LwwRegisterState {
   kernel.new(replica_id.new(id))
+}
+
+pub fn unsafe_local_clock_returns_clock_error_test() -> Nil {
+  let original = state("a")
+  let unsafe = lww_clock.max_safe_timestamp + 1
+  kernel.set(original, "invalid", unsafe)
+  |> expect.to_equal(Error(kernel.Clock(lww_clock.InvalidTimestamp(unsafe))))
+  kernel.p2p_set(original, "invalid", unsafe)
+  |> expect.to_equal(Error(kernel.Clock(lww_clock.InvalidTimestamp(unsafe))))
 }
 
 pub fn local_write_uses_local_author_after_reload_test() -> Nil {

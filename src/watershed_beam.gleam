@@ -71,6 +71,8 @@ import watershed/json_ot
 @target(erlang)
 import watershed/json_ot_kernel
 @target(erlang)
+import watershed/lww_map_kernel
+@target(erlang)
 import watershed/lww_register_kernel
 @target(erlang)
 import watershed/map_kernel
@@ -199,6 +201,165 @@ pub opaque type GCounter {
 @target(erlang)
 pub opaque type LwwRegister {
   LwwRegister(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type LwwMap {
+  LwwMap(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+/// Create an empty detached map. Store its handle in an attached container
+/// to replicate it.
+pub fn create_lww_map(document: Document(root)) -> Result(LwwMap, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: runtime_beam.CreateLwwMap,
+  )
+  |> result.map(fn(address) { LwwMap(document.runtime, address) })
+}
+
+@target(erlang)
+pub fn lww_map_handle_of(map: LwwMap) -> Json {
+  handle.encode_handle(map.address)
+}
+
+@target(erlang)
+pub fn resolve_lww_map(
+  document: Document(root),
+  value: Json,
+) -> Result(LwwMap, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_milliseconds,
+        sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) { LwwMap(document.runtime, address) })
+  }
+}
+
+@target(erlang)
+pub fn set_lww_map_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+  map: LwwMap,
+) -> Nil {
+  put_channel_field(typed_map, field, lww_map_handle_of(map))
+}
+
+@target(erlang)
+pub fn resolve_lww_map_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+) -> Result(Option(LwwMap), String) {
+  get_channel_field(document, typed_map, field, resolve_lww_map)
+}
+
+@target(erlang)
+/// Wait for synchronization, then adopt the map or create one.
+pub fn ensure_lww_map(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+) -> Result(LwwMap, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use map <- result.map(create_lww_map(document))
+      set_lww_map_field(typed_map, field, map)
+    },
+    fn() { resolve_lww_map_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Set a string with the runtime clock. Return channel and clock errors.
+pub fn lww_map_set(
+  map: LwwMap,
+  key: String,
+  value: String,
+) -> Result(Nil, String) {
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.SetLwwMap(map.address, key, value, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// Retain a tombstone even if the key is absent.
+pub fn lww_map_remove(map: LwwMap, key: String) -> Result(Nil, String) {
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.RemoveLwwMap(map.address, key, reply) },
+  )
+}
+
+@target(erlang)
+pub fn lww_map_get(map: LwwMap, key: String) -> Result(String, Nil) {
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetLwwMap(map.address, key, reply) },
+  )
+}
+
+@target(erlang)
+/// Read visible entries in key order.
+pub fn lww_map_entries(map: LwwMap) -> List(#(String, String)) {
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetLwwMapEntries(map.address, reply) },
+  )
+}
+
+@target(erlang)
+pub fn lww_map_keys(map: LwwMap) -> List(String) {
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetLwwMapKeys(map.address, reply) },
+  )
+}
+
+@target(erlang)
+/// Subscribe the calling process to visible changes.
+pub fn subscribe_lww_map(map: LwwMap) -> Subject(lww_map_kernel.LwwMapEvent) {
+  use event <- subscribe_narrowed(map.runtime, map.address)
+  case event {
+    channel.LwwMapEvent(inner) -> Some(inner)
+    channel.LwwRegisterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
 }
 
 @target(erlang)
@@ -1563,7 +1724,7 @@ pub fn subscribe_counter(
 ) -> Subject(counter_kernel.CounterEvent) {
   use event <- subscribe_narrowed(counter.runtime, counter.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.CounterEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.PnCounterEvent(_)
@@ -1664,7 +1825,7 @@ pub fn subscribe_json_ot(
 ) -> Subject(json_ot_kernel.JsonOtEvent) {
   use event <- subscribe_narrowed(json_ot.runtime, json_ot.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.JsonOtEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -1771,7 +1932,7 @@ pub fn subscribe_rich_text(
 ) -> Subject(rich_text_kernel.RichTextEvent) {
   use event <- subscribe_narrowed(rich_text.runtime, rich_text.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.RichTextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -1860,6 +2021,29 @@ pub fn or_map_set_json(or_map: OrMap, key: String, value: Json) -> Nil {
 }
 
 @target(erlang)
+/// Replace the observed alternatives of an MV-register key.
+pub fn or_map_set_mv_register(
+  or_map: OrMap,
+  key: String,
+  value: String,
+) -> Nil {
+  process.send(
+    or_map.runtime,
+    runtime_beam.SetMvRegisterOrMapKey(or_map.address, key, value),
+  )
+}
+
+@target(erlang)
+/// Read MV-register alternatives. An absent key or another mode returns an error.
+pub fn or_map_values(or_map: OrMap, key: String) -> Result(List(String), Nil) {
+  case or_map_value(or_map, key) {
+    Ok(or_map_kernel.MvRegister(values)) -> Ok(values)
+    Ok(or_map_kernel.Tally(_)) | Ok(or_map_kernel.Register(_)) | Error(Nil) ->
+      Error(Nil)
+  }
+}
+
+@target(erlang)
 pub fn or_map_remove(or_map: OrMap, key: String) -> Nil {
   process.send(or_map.runtime, runtime_beam.RemoveOrMapKey(or_map.address, key))
 }
@@ -1944,7 +2128,7 @@ pub fn or_map_keys(or_map: OrMap) -> List(String) {
 pub fn subscribe_or_map(or_map: OrMap) -> Subject(or_map_kernel.OrMapEvent) {
   use event <- subscribe_narrowed(or_map.runtime, or_map.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2046,7 +2230,7 @@ pub fn or_set_values(or_set: OrSet) -> List(String) {
 pub fn subscribe_or_set(or_set: OrSet) -> Subject(or_set_kernel.OrSetEvent) {
   use event <- subscribe_narrowed(or_set.runtime, or_set.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2207,7 +2391,7 @@ pub fn subscribe_sequence(
 ) -> Subject(sequence_kernel.SequenceEvent) {
   use event <- subscribe_narrowed(sequence.runtime, sequence.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.SequenceEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2437,7 +2621,7 @@ pub fn text_anchor_from_json(
 pub fn subscribe_text(text: SharedText) -> Subject(text_kernel.TextEvent) {
   use event <- subscribe_narrowed(text.runtime, text.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2570,7 +2754,7 @@ pub fn subscribe_register_collection(
 ) -> Subject(register_collection_kernel.RegisterEvent) {
   use event <- subscribe_narrowed(collection.runtime, collection.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.RegisterCollectionEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2665,7 +2849,7 @@ pub fn has_claim(claims: Claims, key: String) -> Bool {
 pub fn subscribe_claims(claims: Claims) -> Subject(claims_kernel.ClaimEvent) {
   use event <- subscribe_narrowed(claims.runtime, claims.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.ClaimsEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2772,7 +2956,7 @@ pub fn subscribe_task_manager(
 ) -> Subject(task_manager_kernel.TaskManagerEvent) {
   use event <- subscribe_narrowed(manager.runtime, manager.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TaskManagerEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2875,7 +3059,7 @@ pub fn g_set_values(set: GSet) -> List(String) {
 pub fn subscribe_g_set(set: GSet) -> Subject(g_set_kernel.GSetEvent) {
   use event <- subscribe_narrowed(set.runtime, set.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.GSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2996,7 +3180,7 @@ pub fn subscribe_two_p_set(
 ) -> Subject(two_p_set_kernel.TwoPSetEvent) {
   use event <- subscribe_narrowed(set.runtime, set.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TwoPSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3211,7 +3395,7 @@ pub fn subscribe_directory(
 ) -> Subject(directory_kernel.DirectoryEvent) {
   use event <- subscribe_narrowed(directory.runtime, directory.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.DirectoryEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3314,7 +3498,7 @@ pub fn subscribe_g_counter(
 ) -> Subject(g_counter_kernel.GCounterEvent) {
   use event <- subscribe_narrowed(g_counter.runtime, g_counter.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.GCounterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_)
     | channel.MvRegisterEvent(_)
@@ -3408,7 +3592,7 @@ pub fn subscribe_pn_counter(
 ) -> Subject(pn_counter_kernel.PnCounterEvent) {
   use event <- subscribe_narrowed(pn_counter.runtime, pn_counter.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.PnCounterEvent(inner) -> Some(inner)
     channel.MvRegisterEvent(_) -> None
     channel.GCounterEvent(_) -> None
@@ -3531,7 +3715,7 @@ pub fn subscribe_pact_map(
 ) -> Subject(pact_map_kernel.PactMapEvent) {
   use event <- subscribe_narrowed(pact_map.runtime, pact_map.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.PactMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3783,7 +3967,7 @@ pub fn subscribe_ordered_collection(
 ) -> Subject(ordered_collection_kernel.OrderedEvent) {
   use event <- subscribe_narrowed(collection.runtime, collection.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrderedCollectionEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -4074,7 +4258,7 @@ pub fn size(map: SharedMap) -> Int {
 pub fn subscribe(map: SharedMap) -> Subject(map_kernel.MapEvent) {
   use event <- subscribe_narrowed(map.runtime, map.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MapEvent(inner) -> Some(inner)
     channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
@@ -4115,7 +4299,7 @@ fn field_change(
   event: ChannelEvent,
 ) -> Option(FieldChange(a)) {
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MapEvent(map_kernel.ValueChanged(k, previous, value, local))
       if k == key
     ->
@@ -4344,7 +4528,7 @@ pub fn subscribe_mv_register(
 ) -> Subject(mv_register_kernel.MvRegisterEvent) {
   use event <- subscribe_narrowed(mv_register.runtime, mv_register.address)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MvRegisterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_) -> None
     channel.GCounterEvent(_) -> None
@@ -4487,6 +4671,7 @@ pub fn subscribe_lww_register(
   use event <- subscribe_narrowed(register.runtime, register.address)
   case event {
     channel.LwwRegisterEvent(inner) -> Some(inner)
+    channel.LwwMapEvent(_) -> None
     channel.MvRegisterEvent(_)
     | channel.PnCounterEvent(_)
     | channel.GCounterEvent(_)

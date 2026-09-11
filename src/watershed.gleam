@@ -84,6 +84,8 @@ import watershed/json_ot
 @target(javascript)
 import watershed/json_ot_kernel
 @target(javascript)
+import watershed/lww_map_kernel
+@target(javascript)
 import watershed/lww_register_kernel
 @target(javascript)
 import watershed/map_kernel
@@ -209,6 +211,11 @@ pub opaque type GCounter {
 @target(javascript)
 pub opaque type LwwRegister {
   LwwRegister(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type LwwMap {
+  LwwMap(runtime: runtime.Runtime, address: String)
 }
 
 @target(javascript)
@@ -1704,7 +1711,7 @@ pub fn subscribe_counter(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(counter.runtime, counter.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.CounterEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.PnCounterEvent(_)
@@ -1730,8 +1737,8 @@ pub fn subscribe_counter(
 // ── OR-maps ──────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new OR-map channel in tally, register, or string-set mode. The detached
-/// lifecycle is the same as for `create_map`.
+/// Create an OR-map with tally, LWW-register, string-set, or MV-register values.
+/// The detached lifecycle is the same as for `create_map`.
 pub fn create_or_map(
   document: Document(root),
   mode: OrMapMode,
@@ -1773,6 +1780,22 @@ pub fn or_map_set(or_map: OrMap, key: String, value: String) -> Nil {
 @target(javascript)
 pub fn or_map_set_json(or_map: OrMap, key: String, value: Json) -> Nil {
   or_map_set(or_map, key, json.to_string(value))
+}
+
+@target(javascript)
+/// Replace the observed alternatives of an MV-register key.
+pub fn or_map_set_mv_register(
+  or_map: OrMap,
+  key: String,
+  value: String,
+) -> Nil {
+  runtime.or_map_set_mv_register(or_map.runtime, or_map.address, key, value)
+}
+
+@target(javascript)
+/// Read MV-register alternatives. An absent key or another mode returns an error.
+pub fn or_map_values(or_map: OrMap, key: String) -> Result(List(String), Nil) {
+  runtime.or_map_values(or_map.runtime, or_map.address, key)
 }
 
 @target(javascript)
@@ -1831,7 +1854,7 @@ pub fn subscribe_or_map(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(or_map.runtime, or_map.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -1910,7 +1933,7 @@ pub fn subscribe_or_set(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(or_set.runtime, or_set.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2030,7 +2053,7 @@ pub fn subscribe_sequence(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(sequence.runtime, sequence.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.SequenceEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2211,7 +2234,7 @@ pub fn subscribe_text(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(text.runtime, text.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2316,7 +2339,7 @@ pub fn subscribe_register_collection(
     handler,
   )
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.RegisterCollectionEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2404,7 +2427,7 @@ pub fn subscribe_claims(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(claims.runtime, claims.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.ClaimsEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2502,7 +2525,7 @@ pub fn subscribe_task_manager(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(manager.runtime, manager.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TaskManagerEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -2585,7 +2608,7 @@ pub fn subscribe_pn_counter(
     handler,
   )
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.PnCounterEvent(inner) -> Some(inner)
     channel.GCounterEvent(_) -> None
     channel.MvRegisterEvent(_) -> None
@@ -2667,12 +2690,144 @@ pub fn subscribe_g_counter(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(g_counter.runtime, g_counter.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.GCounterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_)
     | channel.MvRegisterEvent(_)
     | channel.MapEvent(_)
     | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+// Last-writer-wins maps
+
+@target(javascript)
+/// Create an empty detached map. Store its handle in an attached container
+/// to replicate it.
+pub fn create_lww_map(document: Document(root)) -> Result(LwwMap, String) {
+  runtime.create_lww_map(document.runtime)
+  |> result.map(fn(address) { LwwMap(document.runtime, address) })
+}
+
+@target(javascript)
+pub fn lww_map_handle_of(map: LwwMap) -> Json {
+  handle.encode_handle(map.address)
+}
+
+@target(javascript)
+pub fn resolve_lww_map(
+  document: Document(root),
+  value: Json,
+) -> Result(LwwMap, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) { LwwMap(document.runtime, address) })
+  }
+}
+
+@target(javascript)
+pub fn set_lww_map_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+  map: LwwMap,
+) -> Nil {
+  put_channel_field(typed_map, field, lww_map_handle_of(map))
+}
+
+@target(javascript)
+pub fn resolve_lww_map_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+) -> Result(Option(LwwMap), String) {
+  get_channel_field(document, typed_map, field, resolve_lww_map)
+}
+
+@target(javascript)
+/// Wait for synchronization, then adopt the map or create one.
+pub fn ensure_lww_map(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+  done: fn(Result(LwwMap, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use map <- result.map(create_lww_map(document))
+      set_lww_map_field(typed_map, field, map)
+    },
+    fn() { resolve_lww_map_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Set a string with the runtime clock. Return channel and clock errors.
+pub fn lww_map_set(
+  map: LwwMap,
+  key: String,
+  value: String,
+) -> Result(Nil, String) {
+  runtime.lww_map_set(map.runtime, map.address, key, value)
+}
+
+@target(javascript)
+/// Retain a tombstone even if the key is absent.
+pub fn lww_map_remove(map: LwwMap, key: String) -> Result(Nil, String) {
+  runtime.lww_map_remove(map.runtime, map.address, key)
+}
+
+@target(javascript)
+/// Read the optimistic value. Missing keys and wrong channel kinds return an error.
+pub fn lww_map_get(map: LwwMap, key: String) -> Result(String, Nil) {
+  runtime.lww_map_get(map.runtime, map.address, key)
+}
+
+@target(javascript)
+/// Read visible entries in key order.
+pub fn lww_map_entries(map: LwwMap) -> List(#(String, String)) {
+  runtime.lww_map_entries(map.runtime, map.address)
+}
+
+@target(javascript)
+pub fn lww_map_keys(map: LwwMap) -> List(String) {
+  runtime.lww_map_keys(map.runtime, map.address)
+}
+
+@target(javascript)
+/// Subscribe to visible changes. Metadata-only edits emit no event.
+pub fn subscribe_lww_map(
+  map: LwwMap,
+  handler: fn(lww_map_kernel.LwwMapEvent) -> Nil,
+) -> SubscriptionToken {
+  use event <- subscribe_narrowed(map.runtime, map.address, handler)
+  case event {
+    channel.LwwMapEvent(inner) -> Some(inner)
+    channel.LwwRegisterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2754,6 +2909,7 @@ pub fn subscribe_lww_register(
   use event <- subscribe_narrowed(register.runtime, register.address, handler)
   case event {
     channel.LwwRegisterEvent(inner) -> Some(inner)
+    channel.LwwMapEvent(_) -> None
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
@@ -2850,7 +3006,7 @@ pub fn subscribe_pact_map(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(pact_map.runtime, pact_map.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.PactMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3040,7 +3196,7 @@ pub fn subscribe_ordered_collection(
     handler,
   )
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrderedCollectionEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3123,7 +3279,7 @@ pub fn subscribe_json_ot(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(json_ot.runtime, json_ot.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.JsonOtEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3213,7 +3369,7 @@ pub fn subscribe_rich_text(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(rich_text.runtime, rich_text.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.RichTextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3297,7 +3453,7 @@ pub fn subscribe_g_set(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(set.runtime, set.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.GSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3393,7 +3549,7 @@ pub fn subscribe_two_p_set(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(set.runtime, set.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TwoPSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3570,7 +3726,7 @@ pub fn subscribe_directory(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(directory.runtime, directory.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.DirectoryEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3873,7 +4029,7 @@ pub fn subscribe(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(map.runtime, map.address, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MapEvent(inner) -> Some(inner)
     channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
@@ -3918,7 +4074,7 @@ fn field_change(
   event: ChannelEvent,
 ) -> Option(FieldChange(a)) {
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MapEvent(map_kernel.ValueChanged(k, previous, value, local))
       if k == key
     ->
@@ -4088,7 +4244,7 @@ pub fn subscribe_mv_register(
     handler,
   )
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MvRegisterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_) -> None
     channel.GCounterEvent(_) -> None

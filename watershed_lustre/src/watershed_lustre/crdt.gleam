@@ -82,6 +82,7 @@ import watershed/crdt_js.{
 }
 import watershed/g_counter_kernel
 import watershed/g_set_kernel
+import watershed/lww_map_kernel
 import watershed/lww_register_kernel
 import watershed/mv_register_kernel
 import watershed/or_map_kernel
@@ -360,6 +361,15 @@ pub fn subscribe_g_counter(
   subscribe(crdt_js.subscribe_g_counter(handle, _), subscribed, event)
 }
 
+/// Subscribe to visible map changes. Metadata-only edits emit no event.
+pub fn subscribe_lww_map(
+  handle: Handle(schema.LwwMapChannel),
+  subscribed subscribed: fn(Subscription) -> msg,
+  event event: fn(lww_map_kernel.LwwMapEvent) -> msg,
+) -> Effect(msg) {
+  subscribe(crdt_js.subscribe_lww_map(handle, _), subscribed, event)
+}
+
 /// Subscribe to local and remote visible-value changes in a peer-to-peer LWW
 /// register.
 pub fn subscribe_lww_register(
@@ -462,8 +472,8 @@ pub fn unsubscribe(subscription: Subscription) -> Effect(msg) {
 /// and the fan-out to the subscribers all happen in the effect phase, and not
 /// while `update` still runs.
 ///
-/// This function is the whole mutation surface. Compose it with the typed
-/// `crdt_js` edit directly. Do not look for a wrapper for each edit.
+/// Compose this function with a typed `crdt_js` edit.
+/// The `or_map_set_mv_register` convenience function uses this helper.
 ///
 /// ```gleam
 /// crdt.perform(fn() { crdt_js.pn_counter_update(counter, 1) }, Clapped)
@@ -500,6 +510,16 @@ pub fn perform(
   use dispatch <- effect.from
   let result = operation()
   queue_microtask(fn() { dispatch(outcome(result)) })
+}
+
+/// Replace observed alternatives in the effect phase and defer the result.
+pub fn or_map_set_mv_register(
+  handle: Handle(schema.OrMapChannel),
+  key: String,
+  value: String,
+  outcome outcome: fn(Result(Nil, P2pError)) -> msg,
+) -> Effect(msg) {
+  perform(fn() { crdt_js.or_map_set_mv_register(handle, key, value) }, outcome)
 }
 
 // ── Snapshots ────────────────────────────────────────────────────────────────

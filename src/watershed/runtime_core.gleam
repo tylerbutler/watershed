@@ -38,6 +38,7 @@ import watershed/g_set_kernel
 import watershed/handle
 import watershed/json_ot
 import watershed/json_ot_kernel
+import watershed/lww_map_kernel
 import watershed/lww_register_kernel
 import watershed/map_kernel
 import watershed/mv_register_kernel
@@ -176,6 +177,7 @@ pub type CoreError {
   /// document is not corrupt, and no operation goes out.
   GCounterOperationFailed(address: String, detail: String)
   LwwRegisterOperationFailed(address: String, detail: String)
+  LwwMapOperationFailed(address: String, detail: String)
   /// The kernel refused a local text edit, because the insert index is out of
   /// bounds, or the delete range or replace range is invalid. This is
   /// incorrect use of the API, and the caller can retry. The document is not
@@ -1977,6 +1979,113 @@ pub fn lww_register_value(core: Core, address: String) -> Result(String, Nil) {
   }
 }
 
+pub fn lww_map_set(
+  core: Core,
+  address: String,
+  key: String,
+  value: String,
+  timestamp: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  edit_lww_map(core, address, fn(kernel) {
+    lww_map_kernel.set(kernel, key, value, timestamp)
+  })
+}
+
+pub fn lww_map_remove(
+  core: Core,
+  address: String,
+  key: String,
+  timestamp: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  edit_lww_map(core, address, fn(kernel) {
+    lww_map_kernel.remove(kernel, key, timestamp)
+  })
+}
+
+fn edit_lww_map(
+  core: Core,
+  address: String,
+  edit: fn(lww_map_kernel.LwwMapState) ->
+    Result(
+      #(
+        lww_map_kernel.LwwMapState,
+        List(lww_map_kernel.LwwMapEvent),
+        lww_map_kernel.LwwMapOperation,
+        Int,
+      ),
+      lww_map_kernel.KernelError,
+    ),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use located <- result.try(locate_channel(core, address))
+  let state = case located {
+    Detached(state) | Attached(state) -> state
+  }
+  use kernel <- result.try(case state {
+    channel.LwwMapState(kernel) -> Ok(kernel)
+    other ->
+      Error(WrongChannelType(
+        address,
+        channel.LwwMapChannel,
+        channel.channel_type(other),
+      ))
+  })
+  use #(kernel, events, operation, message_id) <- result.try(
+    edit(kernel)
+    |> result.map_error(fn(error) {
+      LwwMapOperationFailed(address, channel.lww_map_error_detail(error))
+    }),
+  )
+  let state = channel.LwwMapState(kernel)
+  let events =
+    list.map(events, fn(event) { #(address, channel.LwwMapEvent(event)) })
+  case located {
+    Detached(_) -> Ok(#(put_detached_channel(core, address, state), events, []))
+    Attached(_) ->
+      Ok(stamp_attached(
+        core,
+        address,
+        state,
+        events,
+        channel.LwwMapOperation(operation),
+        channel.LwwMapMeta(message_id),
+      ))
+  }
+}
+
+pub fn lww_map_get(
+  core: Core,
+  address: String,
+  key: String,
+) -> Result(String, Nil) {
+  case find_channel(core, address) {
+    Ok(channel.LwwMapState(kernel)) -> lww_map_kernel.get(kernel, key)
+    Ok(_) | Error(Nil) -> Error(Nil)
+  }
+}
+
+pub fn lww_map_entries(core: Core, address: String) -> List(#(String, String)) {
+  case find_channel(core, address) {
+    Ok(channel.LwwMapState(kernel)) -> lww_map_kernel.entries(kernel)
+    Ok(_) | Error(Nil) -> []
+  }
+}
+
+pub fn lww_map_keys(core: Core, address: String) -> List(String) {
+  case find_channel(core, address) {
+    Ok(channel.LwwMapState(kernel)) -> lww_map_kernel.keys(kernel)
+    Ok(_) | Error(Nil) -> []
+  }
+}
+
 pub fn mv_register_set(
   core: Core,
   address: String,
@@ -2775,7 +2884,7 @@ pub fn or_map_add_member(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
-  or_map_member_edit(core, address, or_map_kernel.add_member(_, key, member))
+  edit_or_map(core, address, or_map_kernel.add_member(_, key, member))
 }
 
 pub fn or_map_remove_member(
@@ -2787,10 +2896,22 @@ pub fn or_map_remove_member(
   #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
   CoreError,
 ) {
-  or_map_member_edit(core, address, or_map_kernel.remove_member(_, key, member))
+  edit_or_map(core, address, or_map_kernel.remove_member(_, key, member))
 }
 
-fn or_map_member_edit(
+pub fn or_map_set_mv_register(
+  core: Core,
+  address: String,
+  key: String,
+  value: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  edit_or_map(core, address, or_map_kernel.set_mv_register(_, key, value))
+}
+
+fn edit_or_map(
   core: Core,
   address: String,
   edit: fn(or_map_kernel.OrMapState) ->
@@ -2814,21 +2935,16 @@ fn or_map_member_edit(
   use #(kernel, events, operation, message_id) <- result.try(
     edit(kernel) |> result.map_error(or_map_kernel_error(address, _)),
   )
+  let state = channel.OrMapState(kernel)
+  let events = tag_or_map_events(address, events)
   case located {
-    Detached(_) ->
-      Ok(
-        #(
-          put_detached_channel(core, address, channel.OrMapState(kernel)),
-          tag_or_map_events(address, events),
-          [],
-        ),
-      )
+    Detached(_) -> Ok(#(put_detached_channel(core, address, state), events, []))
     Attached(_) ->
       Ok(stamp_attached(
         core,
         address,
-        channel.OrMapState(kernel),
-        tag_or_map_events(address, events),
+        state,
+        events,
         channel.OrMapOperation(operation),
         channel.OrMapMeta(message_id),
       ))
@@ -4471,6 +4587,20 @@ pub fn or_map_value(
   case find_channel(core, address) {
     Ok(channel.OrMapState(kernel)) -> or_map_kernel.get(kernel, key)
     Ok(_) | Error(Nil) -> Error(Nil)
+  }
+}
+
+pub fn or_map_values(
+  core: Core,
+  address: String,
+  key: String,
+) -> Result(List(String), Nil) {
+  case or_map_value(core, address, key) {
+    Ok(or_map_kernel.MvRegister(values)) -> Ok(values)
+    Ok(or_map_kernel.Tally(_))
+    | Ok(or_map_kernel.Register(_))
+    | Ok(or_map_kernel.SetMembers(_))
+    | Error(Nil) -> Error(Nil)
   }
 }
 

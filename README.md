@@ -92,7 +92,7 @@ merge rule, optimistic behaviour, and what it is best for.
 
 | Family | Structures | Use it for |
 | --- | --- | --- |
-| Maps & cells | `SharedMap`, `OR-Map`, `SharedDirectory`, `LWWRegister`, `MvRegister` | key/value state, nested folders, or a cell with one winner or concurrent alternatives |
+| Maps & cells | `SharedMap`, `LWWMap`, `OR-Map`, `SharedDirectory`, `LWWRegister`, `MvRegister` | key/value state, nested folders, or a cell with one winner or concurrent alternatives |
 | Counters | `SharedCounter`, `G-Counter`, `PN Counter` | numbers many people add to at once |
 | Sets | `OR-Set`, `G-Set`, `2P-Set` | membership: re-addable, add-only, or permanent removal |
 | Sequences | `SharedSequence`, `SharedText` | ordered lists with `move`, and plain text many people type into |
@@ -136,9 +136,10 @@ fields use `schema.GCounterChannel`, and peer-to-peer documents get
 `p2p.g_counter_root()`.
 
 An `OR-Map` chooses one value mode at creation: signed tallies (`TallyMode`),
-string registers (`RegisterMode`), or sets of strings (`OrSetMode`). Set mode
-fits things like tags per document: two people can add different tags to the
-same document without replacing each other's collection.
+string registers (`RegisterMode`), sets of strings (`OrSetMode`), or concurrent
+string alternatives (`MvRegisterMode`). Set mode fits things like tags per
+document: two people can add different tags to the same document without
+replacing each other's collection.
 
 ```gleam
 let assert Ok(labels) =
@@ -245,6 +246,108 @@ return `Result(_, p2p.P2pError)`. Snapshots retain the winning timestamp and
 author, including metadata-only writes. `LWWRegister` is a single-value CRDT:
 the consensus register collection provides sequenced coordination across named
 registers, while an `LWWMap` selects a winner per key.
+
+### LWWMap or SharedMap?
+
+`LWWMap` stores strings under string keys. It uses a logical clock per key:
+each edit gets `max(wall_clock_ms, last_seen_for_key + 1)`. The highest
+timestamp wins, even if that edit arrives first. Equal timestamps resolve
+by value: a tombstone beats a string, and the lexicographically greater
+string wins between two values. Replica IDs do not break map ties.
+
+```gleam
+let assert Ok(settings) = watershed.create_lww_map(document)
+let root = watershed.typed(watershed.root(document))
+let settings_field = schema.channel_field("settings")
+watershed.set_lww_map_field(root, settings_field, settings)
+
+let assert Ok(Nil) = watershed.lww_map_set(settings, "gate", "open")
+watershed.lww_map_get(settings, "gate")
+// Ok("open")
+let assert Ok(Nil) = watershed.lww_map_remove(settings, "gate")
+watershed.lww_map_get(settings, "gate")
+// Error(Nil)
+let assert Ok(Nil) = watershed.lww_map_set(settings, "gate", "closed")
+```
+
+Both sequenced facades expose these functions, plus `ensure_lww_map`,
+`resolve_lww_map`, sorted `lww_map_entries`/`lww_map_keys`, and
+`subscribe_lww_map`. Typed fields use `schema.LwwMapChannel`. In a browser
+CRDT document, use `p2p.lww_map_root()` and the matching `crdt_js` functions.
+Its `lww_map_get` returns `Ok(Error(Nil))` for a missing key, while an outer
+`Error(P2pError)` means the read failed.
+
+| | SharedMap | LWWMap |
+|---|---|---|
+| Winner per key | Later server sequence number | Greater timestamp, then deterministic value/tombstone tie |
+| Values | JSON, including supported encoded handles | Strings |
+| Edits | Set, delete, clear | Set, remove |
+| Iteration | Insertion order | Sorted keys |
+| Summary | Confirmed entries and insertion order | Values, timestamps, and retained tombstones |
+| Runtime | Server-sequenced | Sequenced or JS CRDT mesh/relay |
+
+Choose SharedMap for server-ordered JSON state. Choose LWWMap for shared
+string settings that must merge without a server deciding the winner.
+Both discard the losing value at a conflicting key; neither merges fields
+inside a value or preserves the alternatives for a person to resolve.
+Clock skew can favor an ahead-of-time writer, so "last" is not a guarantee
+about which human edited most recently.
+
+A remove retains a timestamped tombstone, even for an absent key. Older
+writes cannot bring that key back, but a later write that observes the
+tombstone can restore it. This differs from OR-map's observed-remove
+add-wins rule: an LWWMap edit only beats a removal with a higher timestamp.
+There is no clear or pruning API. Reloads retain tombstones and restore
+per-key clocks; same-value writes and absent-key removals still replicate
+metadata without emitting a visible-change event. The
+[maps demo](https://watershed.tylerbutler.com/structures/maps#lww-map)
+shows timestamp order winning against server order.
+
+### OR-map modes
+
+An `OR-Map` has two merge layers. At the key layer, observed-remove is
+add-wins: a remove hides the key additions it has seen, but a concurrent
+addition keeps the key present. At the value layer, each key contains the
+same kind of leaf CRDT selected when the map is created.
+
+| Mode | Leaf at each key | Sequenced operations | Browser p2p |
+| --- | --- | --- | --- |
+| `TallyMode` | PN-counter | `watershed.or_map_increment`, `watershed.or_map_value` | `p2p.or_map_root(or_map_kernel.TallyMode)`, `crdt_js.or_map_increment` |
+| `RegisterMode` | LWW-register | `watershed.or_map_set`, `watershed.or_map_value` | `p2p.or_map_root(or_map_kernel.RegisterMode)`, `crdt_js.or_map_set` |
+| `OrSetMode` | OR-set of strings | `watershed.or_map_add_member`, `watershed.or_map_remove_member`, `watershed.or_map_remove_key`, `watershed.or_map_value` | `p2p.or_map_root(or_map_kernel.OrSetMode)`, matching `crdt_js` member and key operations |
+| `MvRegisterMode` | MV-register | `watershed.or_map_set_mv_register`, `watershed.or_map_values` | `p2p.or_map_root(or_map_kernel.MvRegisterMode)`, `crdt_js.or_map_set_mv_register`, `crdt_js.or_map_values` |
+
+**One OR-map instance is homogeneous.** It cannot mix PN-counter,
+LWW-register, OR-set, and MV-register leaves by key. Create separate OR-map channels
+when a document needs different leaf types. All four modes are available
+through the sequenced `watershed` and `watershed_beam` facades. Browser p2p
+uses `p2p.or_map_root(mode)` with the matching `crdt_js` functions; p2p is a
+JavaScript-target API, not a BEAM API.
+
+For an MV-register OR-map, `or_map_set_mv_register` writes one string and
+`or_map_values` reads the sorted concurrent alternatives:
+
+```gleam
+import watershed/or_map_kernel
+
+let assert Ok(map) =
+  watershed.create_or_map(document, or_map_kernel.MvRegisterMode)
+
+watershed.or_map_set_mv_register(map, "gate-mode", "raise crest")
+
+let assert Ok(values) = watershed.or_map_values(map, "gate-mode")
+// ["raise crest"]
+```
+
+Concurrent writes to the same key remain separate values. A later ordinary
+write replaces only the alternatives that writer has observed, so a client can
+resolve the values it has seen without deleting a write that arrived
+concurrently. This value-level behaviour is independent of the OR-map's
+key-level add-wins rule. `or_map_values` returns `Error(Nil)` for an absent key
+or for a map created in another mode. On p2p, `crdt_js.or_map_values` adds its
+outer `P2pError` result.
+
+### Concurrent alternatives
 
 `MvRegister` holds strings and returns a sorted list of alternatives, preservingduplicate text from independent concurrent writes. Use `create_mv_register`,
 `ensure_mv_register`, `mv_register_set`, `mv_register_values`, and

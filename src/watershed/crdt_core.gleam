@@ -977,9 +977,15 @@ fn projected(snapshot: Snapshot) -> JsonValue {
 /// would let two different winners produce the same hash.
 fn merge_relevant(value: JsonValue) -> JsonValue {
   case type_tag(value) {
+    "lww_map" ->
+      map_member(value, "state", fn(state) {
+        map_member(state, "entries", ordered)
+      })
     "mv_register" ->
       map_member(value, "state", fn(state) {
-        state |> without(["replica_id"]) |> map_member("entries", ordered)
+        state
+        |> without(["replica_id"])
+        |> map_member("entries", ordered_by_member(_, "tag"))
       })
     "pn_counter" ->
       map_member(value, "state", fn(state) {
@@ -1010,10 +1016,16 @@ fn merge_relevant(value: JsonValue) -> JsonValue {
       })
     "or_map" ->
       map_member(value, "state", fn(state) {
+        let mv_register_values = case state {
+          json_ot.VObject(members) ->
+            list.key_find(members, "crdt_spec")
+            == Ok(json_ot.VString("mv_register"))
+          _ -> False
+        }
         state
         |> without(["replica_id"])
         |> map_member("key_set", inner)
-        |> map_member("values", or_map_values)
+        |> map_member("values", or_map_values(_, mv_register_values))
       })
     _ -> value
   }
@@ -1023,11 +1035,17 @@ fn merge_relevant(value: JsonValue) -> JsonValue {
 /// of a pair is a nested CRDT envelope, as a string. The function projects each
 /// pair, and then it orders the array, because that array comes from a
 /// dictionary and the order of a dictionary is not part of the state.
-fn or_map_values(value: JsonValue) -> JsonValue {
+fn or_map_values(value: JsonValue, mv_register_values: Bool) -> JsonValue {
   case value {
-    json_ot.VArray(items) ->
-      json_ot.VArray(list.map(items, map_member(_, "crdt", inner)))
-      |> ordered
+    json_ot.VArray(items) -> {
+      let projected =
+        json_ot.VArray(list.map(items, map_member(_, "crdt", inner)))
+      // Keep the digest projection of the existing leaf modes unchanged.
+      case mv_register_values {
+        True -> ordered_by_member(projected, "key")
+        False -> ordered(projected)
+      }
+    }
     json_ot.VNull
     | json_ot.VBool(_)
     | json_ot.VNumber(_)
@@ -1144,6 +1162,29 @@ fn ordered(value: JsonValue) -> JsonValue {
   }
 }
 
+fn ordered_by_member(value: JsonValue, name: String) -> JsonValue {
+  case value {
+    json_ot.VArray(items) ->
+      items
+      |> list.map(fn(item) {
+        let key = case item {
+          json_ot.VObject(members) ->
+            case list.key_find(members, name) {
+              Ok(json_ot.VString(key)) -> key
+              Ok(member) -> canonical_json.to_string(member)
+              Error(Nil) -> canonical_json.to_string(item)
+            }
+          _ -> canonical_json.to_string(item)
+        }
+        #(key, item)
+      })
+      |> list.sort(fn(left, right) { canonical_json.compare(left.0, right.0) })
+      |> list.map(fn(pair) { pair.1 })
+      |> json_ot.VArray
+    _ -> value
+  }
+}
+
 /// Merge an exported snapshot back into the document. The function checks the
 /// size, the room, the protocol, the compatibility, and the root, before it
 /// touches one channel. The merge is a join, so the local channels and the
@@ -1231,6 +1272,7 @@ fn init_for(snapshot: Snapshot) -> Result(ChannelInit, P2pError) {
     channel.GCounterSnapshot(_) -> Ok(channel.InitGCounter)
     channel.MvRegisterSnapshot(_) -> Ok(channel.InitMvRegister)
     channel.LwwRegisterSnapshot(_) -> Ok(channel.InitLwwRegister)
+    channel.LwwMapSnapshot(_) -> Ok(channel.InitLwwMap)
     channel.OrMapSnapshot(mode, _) -> Ok(channel.InitOrMap(mode))
     channel.OrSetSnapshot(_) -> Ok(channel.InitOrSet)
     channel.GSetSnapshot(_) -> Ok(channel.InitGSet)

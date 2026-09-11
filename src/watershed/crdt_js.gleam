@@ -115,6 +115,8 @@ import watershed/g_set_kernel
 @target(javascript)
 import watershed/id
 @target(javascript)
+import watershed/lww_map_kernel
+@target(javascript)
 import watershed/lww_register_kernel
 @target(javascript)
 import watershed/mv_register_kernel
@@ -2975,7 +2977,7 @@ pub fn subscribe_pn_counter(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.PnCounterEvent(inner) -> Some(inner)
     channel.GCounterEvent(_) -> None
     channel.MvRegisterEvent(_) -> None
@@ -3005,7 +3007,7 @@ pub fn subscribe_or_map(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3035,7 +3037,7 @@ pub fn subscribe_or_set(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3065,7 +3067,7 @@ pub fn subscribe_g_set(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.GSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3095,7 +3097,7 @@ pub fn subscribe_two_p_set(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TwoPSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3125,7 +3127,7 @@ pub fn subscribe_sequence(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.SequenceEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3155,7 +3157,7 @@ pub fn subscribe_text(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
@@ -3377,7 +3379,7 @@ pub fn subscribe_mv_register(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MvRegisterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_)
     | channel.GCounterEvent(_)
@@ -3443,7 +3445,107 @@ pub fn subscribe_lww_register(
   use event <- subscribe_narrowed(handle, handler)
   case event {
     channel.LwwRegisterEvent(inner) -> Some(inner)
+    channel.LwwMapEvent(_) -> None
     channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+@target(javascript)
+/// Set a string with the runtime clock. Return handle and clock errors.
+pub fn lww_map_set(
+  handle: Handle(schema.LwwMapChannel),
+  key: String,
+  value: String,
+) -> Result(Nil, P2pError) {
+  use _ <- result.try(read(handle, channel.LwwMapChannel, fn(_) { Nil }))
+  mutate(
+    handle,
+    channel.LwwMapSetEdit(key, value, transport_js.now_milliseconds()),
+  )
+}
+
+@target(javascript)
+/// Retain a tombstone even if the key is absent.
+pub fn lww_map_remove(
+  handle: Handle(schema.LwwMapChannel),
+  key: String,
+) -> Result(Nil, P2pError) {
+  use _ <- result.try(read(handle, channel.LwwMapChannel, fn(_) { Nil }))
+  mutate(handle, channel.LwwMapRemoveEdit(key, transport_js.now_milliseconds()))
+}
+
+@target(javascript)
+/// A missing key is `Ok(Error(Nil))`. Document and handle failures are outer errors.
+pub fn lww_map_get(
+  handle: Handle(schema.LwwMapChannel),
+  key: String,
+) -> Result(Result(String, Nil), P2pError) {
+  read_lww_map(handle, fn(kernel) { lww_map_kernel.get(kernel, key) })
+}
+
+@target(javascript)
+/// Read visible entries in key order.
+pub fn lww_map_entries(
+  handle: Handle(schema.LwwMapChannel),
+) -> Result(List(#(String, String)), P2pError) {
+  read_lww_map(handle, lww_map_kernel.entries)
+}
+
+@target(javascript)
+pub fn lww_map_keys(
+  handle: Handle(schema.LwwMapChannel),
+) -> Result(List(String), P2pError) {
+  read_lww_map(handle, lww_map_kernel.keys)
+}
+
+@target(javascript)
+fn read_lww_map(
+  handle: Handle(schema.LwwMapChannel),
+  extract: fn(lww_map_kernel.LwwMapState) -> value,
+) -> Result(value, P2pError) {
+  read(handle, channel.LwwMapChannel, fn(state) {
+    case state {
+      channel.LwwMapState(kernel) -> Ok(extract(kernel))
+      other ->
+        Error(p2p.ChannelTypeMismatch(
+          handle.address,
+          channel.LwwMapChannel,
+          channel.channel_type(other),
+        ))
+    }
+  })
+  |> result.flatten
+}
+
+@target(javascript)
+/// Subscribe to visible changes. Metadata-only edits emit no event.
+pub fn subscribe_lww_map(
+  handle: Handle(schema.LwwMapChannel),
+  handler: fn(lww_map_kernel.LwwMapEvent) -> Nil,
+) -> Subscription {
+  use event <- subscribe_narrowed(handle, handler)
+  case event {
+    channel.LwwMapEvent(inner) -> Some(inner)
+    channel.LwwRegisterEvent(_)
+    | channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
     | channel.GCounterEvent(_)
@@ -3487,6 +3589,7 @@ pub fn g_counter_value(
     channel.PnCounterState(_) -> 0
     channel.MvRegisterState(_) -> 0
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.OrMapState(_)
@@ -3515,7 +3618,7 @@ pub fn subscribe_g_counter(
 ) -> Subscription {
   use event <- subscribe_narrowed(handle, handler)
   case event {
-    channel.LwwRegisterEvent(_) -> None
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.GCounterEvent(inner) -> Some(inner)
     channel.PnCounterEvent(_)
     | channel.MvRegisterEvent(_)
@@ -3575,6 +3678,7 @@ pub fn pn_counter_value(
     channel.GCounterState(_) -> 0
     channel.MvRegisterState(_) -> 0
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.OrMapState(_)
@@ -3618,6 +3722,32 @@ pub fn or_map_increment(
   amount amount: Int,
 ) -> Result(Nil, P2pError) {
   mutate(handle, channel.OrMapIncrementEdit(key, amount))
+}
+
+@target(javascript)
+/// Replace the observed alternatives of an MV-register key.
+pub fn or_map_set_mv_register(
+  handle: Handle(schema.OrMapChannel),
+  key key: String,
+  value value: String,
+) -> Result(Nil, P2pError) {
+  mutate(handle, channel.OrMapSetMvRegisterEdit(key, value))
+}
+
+@target(javascript)
+/// Read alternatives. An absent key or another value mode is an inner error.
+pub fn or_map_values(
+  handle: Handle(schema.OrMapChannel),
+  key key: String,
+) -> Result(Result(List(String), Nil), P2pError) {
+  use value <- result.map(or_map_value(handle, key))
+  case value {
+    Ok(or_map_kernel.MvRegister(values)) -> Ok(values)
+    Ok(or_map_kernel.Tally(_))
+    | Ok(or_map_kernel.Register(_))
+    | Ok(or_map_kernel.SetMembers(_))
+    | Error(Nil) -> Error(Nil)
+  }
 }
 
 @target(javascript)
@@ -3672,6 +3802,7 @@ pub fn or_map_value(
   case state {
     channel.OrMapState(kernel) -> or_map_kernel.get(kernel, key)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
@@ -3702,7 +3833,7 @@ pub fn or_map_tally(
   use value <- result.try(or_map_value(handle, key))
   case value {
     Ok(or_map_kernel.Tally(tally)) -> Ok(tally)
-    Ok(or_map_kernel.Register(_)) ->
+    Ok(or_map_kernel.Register(_)) | Ok(or_map_kernel.MvRegister(_)) ->
       Error(p2p.InvalidEnvelope(
         address(handle),
         "key " <> key <> " holds a register, not a tally",
@@ -3724,6 +3855,7 @@ pub fn or_map_entries(
   case state {
     channel.OrMapState(kernel) -> or_map_kernel.entries(kernel)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
@@ -3772,6 +3904,7 @@ pub fn or_set_contains(
   case state {
     channel.OrSetState(kernel) -> or_set_kernel.contains(kernel, element)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
@@ -3801,6 +3934,7 @@ pub fn or_set_values(
   case state {
     channel.OrSetState(kernel) -> or_set_kernel.values(kernel)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
@@ -3841,6 +3975,7 @@ pub fn g_set_contains(
   case state {
     channel.GSetState(kernel) -> g_set_kernel.contains(kernel, element)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
@@ -3870,6 +4005,7 @@ pub fn g_set_values(
   case state {
     channel.GSetState(kernel) -> g_set_kernel.values(kernel)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
@@ -3918,6 +4054,7 @@ pub fn two_p_set_contains(
   case state {
     channel.TwoPSetState(kernel) -> two_p_set_kernel.contains(kernel, element)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
@@ -3947,6 +4084,7 @@ pub fn two_p_set_values(
   case state {
     channel.TwoPSetState(kernel) -> two_p_set_kernel.values(kernel)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
@@ -4013,6 +4151,7 @@ pub fn sequence_values(
   case state {
     channel.SequenceState(kernel) -> sequence_kernel.values(kernel)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
@@ -4080,6 +4219,7 @@ pub fn text_value(
   case state {
     channel.TextState(kernel) -> text_kernel.value(kernel)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)
@@ -4110,6 +4250,7 @@ pub fn text_length(
   case state {
     channel.TextState(kernel) -> text_kernel.length(kernel)
     channel.LwwRegisterState(_)
+    | channel.LwwMapState(_)
     | channel.MapState(_)
     | channel.CounterState(_)
     | channel.PnCounterState(_)

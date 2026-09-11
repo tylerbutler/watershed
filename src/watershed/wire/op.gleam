@@ -34,6 +34,7 @@ import lattice_core/version_vector
 import lattice_counters/g_counter
 import lattice_counters/pn_counter
 import lattice_maps/crdt
+import lattice_maps/lww_map
 import lattice_maps/or_map
 import lattice_registers/lww_register
 import lattice_registers/mv_register
@@ -50,6 +51,7 @@ import watershed/g_counter_kernel.{type GCounterOperation}
 import watershed/g_set_kernel.{type GSetOperation}
 import watershed/json_ot
 import watershed/json_ot_kernel.{type JsonOtWireOperation, JsonOtWireOperation}
+import watershed/lww_map_kernel.{type LwwMapOperation}
 import watershed/lww_register_kernel.{type LwwRegisterOperation}
 import watershed/map_kernel.{type MapOperation, Clear, Delete, Set}
 import watershed/mv_register_kernel.{type MvRegisterOperation}
@@ -176,6 +178,7 @@ pub fn encode_channel_operation(operation: channel.ChannelOperation) -> Json {
       encode_mv_register_operation(operation)
     channel.LwwRegisterOperation(operation) ->
       encode_lww_register_operation(operation)
+    channel.LwwMapOperation(operation) -> encode_lww_map_operation(operation)
     channel.OrMapOperation(operation) -> encode_or_map_operation(operation)
     channel.OrSetOperation(operation) -> encode_or_set_operation(operation)
     channel.GSetOperation(operation) -> encode_g_set_operation(operation)
@@ -218,6 +221,9 @@ pub fn channel_operation_decoder(
     channel.LwwRegisterChannel ->
       lww_register_operation_decoder()
       |> decode.map(channel.LwwRegisterOperation)
+    channel.LwwMapChannel ->
+      lww_map_operation_decoder()
+      |> decode.map(channel.LwwMapOperation)
     channel.OrMapChannel ->
       or_map_operation_decoder() |> decode.map(channel.OrMapOperation)
     channel.OrSetChannel ->
@@ -353,6 +359,87 @@ pub fn encode_lww_register_envelope(
   operation: LwwRegisterOperation,
 ) -> Json {
   encode_channel_envelope(address, channel.LwwRegisterOperation(operation))
+}
+
+pub fn encode_lww_map_envelope(
+  address: String,
+  operation: LwwMapOperation,
+) -> Json {
+  encode_channel_envelope(address, channel.LwwMapOperation(operation))
+}
+
+pub fn encode_lww_map_operation(operation: LwwMapOperation) -> Json {
+  let #(tag, key, timestamp, delta, value) = case operation {
+    lww_map_kernel.Set(key, value, timestamp, delta) -> #(
+      "lwwMapSet",
+      key,
+      timestamp,
+      delta,
+      [#("value", json.string(value))],
+    )
+    lww_map_kernel.Remove(key, timestamp, delta) -> #(
+      "lwwMapRemove",
+      key,
+      timestamp,
+      delta,
+      [],
+    )
+  }
+  json.object(list.append(
+    [
+      #("type", json.string(tag)),
+      #("key", json.string(key)),
+      #("timestamp", json.int(timestamp)),
+      #("delta", json.string(lww_map.to_json(delta) |> json.to_string)),
+    ],
+    value,
+  ))
+}
+
+pub fn decode_lww_map_envelope(
+  contents: Dynamic,
+) -> Result(#(String, LwwMapOperation), List(decode.DecodeError)) {
+  decode.run(contents, lww_map_envelope_decoder())
+}
+
+pub fn lww_map_envelope_decoder() -> Decoder(#(String, LwwMapOperation)) {
+  use address <- decode.field("address", decode.string)
+  use operation <- decode.field("contents", lww_map_operation_decoder())
+  decode.success(#(address, operation))
+}
+
+pub fn lww_map_operation_decoder() -> Decoder(LwwMapOperation) {
+  use tag <- decode.field("type", decode.string)
+  use key <- decode.field("key", decode.string)
+  use timestamp <- decode.field("timestamp", decode.int)
+  use encoded <- decode.field("delta", decode.string)
+  case json.parse(encoded, lww_map_kernel.decoder()) {
+    Error(_) ->
+      decode.failure(
+        lww_map_kernel.Remove(key, timestamp, lww_map.new()),
+        "LwwMapDelta",
+      )
+    Ok(delta) -> {
+      use operation <- decode.then(case tag {
+        "lwwMapSet" -> {
+          use value <- decode.field("value", decode.string)
+          decode.success(lww_map_kernel.Set(key, value, timestamp, delta))
+        }
+        "lwwMapRemove" ->
+          decode.success(lww_map_kernel.Remove(key, timestamp, delta))
+        _ ->
+          decode.failure(
+            lww_map_kernel.Remove(key, timestamp, delta),
+            "lwwMapSet or lwwMapRemove",
+          )
+      })
+      case lww_map_kernel.validate_operation(operation) {
+        Ok(Nil) -> decode.success(operation)
+        Error(_) ->
+          decode.failure(operation, "matching single-key LWW map fragment")
+      }
+    }
+  }
 }
 
 pub fn encode_lww_register_operation(operation: LwwRegisterOperation) -> Json {
@@ -517,6 +604,13 @@ pub fn encode_or_map_operation(operation: OrMapOperation) -> Json {
         #("key", json.string(key)),
         #("value", json.string(value)),
         #("timestamp", json.int(timestamp)),
+        #("delta", delta_json(delta)),
+      ])
+    or_map_kernel.SetMvRegister(key, value, delta) ->
+      json.object([
+        #("type", json.string("orMapSetMvRegister")),
+        #("key", json.string(key)),
+        #("value", json.string(value)),
         #("delta", delta_json(delta)),
       ])
     or_map_kernel.Remove(key, delta) ->
@@ -1266,6 +1360,14 @@ fn non_negative_int_decoder() -> Decoder(Int) {
 }
 
 pub fn or_map_operation_decoder() -> Decoder(OrMapOperation) {
+  use operation <- decode.then(or_map_intent_decoder())
+  case or_map_kernel.validate_operation_intent(operation) {
+    Ok(Nil) -> decode.success(operation)
+    Error(_) -> decode.failure(operation, "OR-map intent matching its delta")
+  }
+}
+
+fn or_map_intent_decoder() -> Decoder(OrMapOperation) {
   use operation_type <- decode.field("type", decode.string)
   case operation_type {
     "orMapIncrement" -> {
@@ -1287,6 +1389,12 @@ pub fn or_map_operation_decoder() -> Decoder(OrMapOperation) {
         or_map_kernel.SetRegister(key, value, timestamp, delta),
         delta,
       )
+    }
+    "orMapSetMvRegister" -> {
+      use key <- decode.field("key", decode.string)
+      use value <- decode.field("value", decode.string)
+      use delta <- decode.field("delta", or_map_delta_decoder())
+      decode.success(or_map_kernel.SetMvRegister(key, value, delta))
     }
     "orMapRemove" -> {
       use key <- decode.field("key", decode.string)
@@ -1450,6 +1558,31 @@ pub fn task_manager_operation_decoder() -> Decoder(TaskManagerOperation) {
 
 fn or_map_delta_decoder() -> Decoder(or_map.ORMapDelta) {
   use encoded <- decode.then(decode.string)
+  // Validate nested tags before Lattice constructs dictionaries from them.
+  let metadata = {
+    use leaves <- decode.then(decode.at(
+      ["state", "value_deltas"],
+      decode.list(decode.field("crdt", decode.string, decode.success)),
+    ))
+    use _ <- decode.then(case leaves {
+      [] | [_] -> decode.success(Nil)
+      _ -> decode.failure(Nil, "at most one OR-map value delta")
+    })
+    use spec <- decode.then(decode.at(["state", "crdt_spec"], decode.string))
+    case spec {
+      "mv_register" -> {
+        case list.try_map(leaves, mv_register_kernel.decode_crdt) {
+          Ok(_) -> decode.success(Nil)
+          Error(_) -> decode.failure(Nil, "valid nested MV-register state")
+        }
+      }
+      _ -> decode.success(Nil)
+    }
+  }
+  use _ <- decode.then(case json.parse(encoded, metadata) {
+    Ok(_) -> decode.success(Nil)
+    Error(_) -> decode.failure(Nil, "ORMapDelta causal metadata")
+  })
   let decoded = case
     json.parse(encoded, decode.at(["state", "crdt_spec"], decode.string))
   {

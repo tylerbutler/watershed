@@ -65,7 +65,7 @@ const pnFillSteps = [2, 6];
 // SharedMap proof (`views={["map"]}`); each /structures/* page moves its rig
 // between plates and selects the matching view. All kernels stay live.
 const ALL_VIEWS = [
-  "map", "counter", "gcounter", "pn", "ormap", "orset", "gset",
+  "map", "lww-map", "counter", "gcounter", "pn", "ormap", "or-map-mv-register", "orset", "gset",
   "twopset", "claims", "registers", "ordered", "tasks", "pact", "lww-register", "mv-register",
 ] as const;
 
@@ -78,8 +78,12 @@ interface Props {
   embedded?: boolean;
 }
 
+const { views: requestedViews = ALL_VIEWS } = Astro.props;
+// OR-map offers two leaf-mode views, but remains one structure in the catalog.
+const views = requestedViews.includes("or-map-mv-register")
+  ? requestedViews
+  : requestedViews.flatMap((view) => view === "ormap" ? [view, "or-map-mv-register"] : [view]);
 const {
-  views = ALL_VIEWS,
   initial = views[0] ?? "map",
   showPicker = views.length > 1,
   otJump = views.includes("map"),
@@ -91,10 +95,12 @@ const show = (value: string) => views.includes(value);
 
 const PICKER_CELLS = [
   { value: "map", label: "Shared map", kind: "DDS" },
+  { value: "lww-map", label: "LWWMap", kind: "CRDT" },
   { value: "counter", label: "Shared counter", kind: "DDS" },
   { value: "gcounter", label: "G-counter", kind: "CRDT" },
   { value: "pn", label: "PN counter", kind: "CRDT" },
   { value: "ormap", label: "OR-map", kind: "CRDT" },
+  { value: "or-map-mv-register", label: "OR-map / MV registers", kind: "CRDT" },
   { value: "lww-register", label: "LWW register", kind: "CRDT" },
   { value: "mv-register", label: "MV register", kind: "CRDT" },
   { value: "orset", label: "OR-set", kind: "CRDT" },
@@ -120,7 +126,7 @@ const PICKER_CELLS = [
         field-checked. This demo borrows that color code: pending edits are drawn
         in <strong class="k-pending">magenta</strong> and sequenced state in
         <strong class="k-seq">ink</strong>. All three clients run watershed's compiled
-        Gleam code in one ordered stream: map/LWW-register/G-counter/PN/OR-map/OR-set/G-set/2P-set/MV-register/claims/register
+        Gleam code in one ordered stream: map/LWW-map/LWW-register/G-counter/PN/OR-map/OR-set/G-set/2P-set/MV-register/claims/register
         kernels, TaskManager, plus the runtime counter channel.
       </p>
       <p class="demo-hint">
@@ -172,7 +178,29 @@ const PICKER_CELLS = [
       <strong>Merge rule: last write wins.</strong> Race two writes to the
       same key and the op the sequencer stamps later overwrites the earlier
       one, identically on every replica.
+      {show("lww-map") && <span> Compare <a href="#lww-map">LWWMap</a>: its per-key timestamp can beat a later server SN.</span>}
     </p>
+    <div class="merge-rule" data-merge-rule="lww-map" hidden={initial !== "lww-map"}>
+      <p><strong>Merge rule: timestamp wins per key.</strong> A later SN needn't
+        win: race A's newer “open” against B's later-sequenced “closed”.
+        At equal time, “open” beats “closed” by string value; a tombstone beats
+        either. Unlike <a href="#map">SharedMap's server order</a>, arrival order
+        doesn't choose the value. Both maps discard losing concurrent values.</p>
+      <p>This is an <strong>in-page sequenced rig</strong>, not a live mesh.
+        The runtime supplies wall-clock time and advances it past the key's
+        observed timestamp. A fast clock can still win over a later human edit.
+        OR-map's concurrent add survives an observed remove; LWWMap removal wins
+        only at equal or greater time. LWWRegister breaks ties by author ID,
+        not string value.</p>
+      <label for="lww-map-race">Gate-setting race</label>
+      <select id="lww-map-race" data-lww-map-race disabled>
+        <option value="timestamp">Newer timestamp, earlier SN</option>
+        <option value="value-tie">Equal time: open beats closed</option>
+        <option value="remove-tie">Equal time: removal beats open</option>
+      </select>
+      <p>Reset reloads this survey and discards its queued edits. It's not a
+        clear or tombstone-pruning API.</p>
+    </div>
     <p class="merge-rule" data-merge-rule="counter" hidden={initial !== "counter"}>
       <strong>Merge rule: increments commute.</strong> Race two increments
       and both apply. The counter converges on the sum; nothing is
@@ -207,6 +235,18 @@ const PICKER_CELLS = [
       optimistically: a filed claim is invisible, even to you, until it
       round-trips as won or lost.
     </p>
+    {show("ormap") && show("or-map-mv-register") && (
+      <div class="ormap-controls" data-ormap-view-controls hidden={!["ormap", "or-map-mv-register"].includes(initial)}>
+        <label>
+          <span class="annot">OR-map instance</span>
+          <select data-ormap-view disabled>
+            <option value="ormap" selected={initial === "ormap"}>Ledger / string sets</option>
+            <option value="or-map-mv-register" selected={initial === "or-map-mv-register"}>MV registers · gate revisions</option>
+          </select>
+        </label>
+        <p class="mv-hint">These are separate OR-map instances. Switching views keeps their edits.</p>
+      </div>
+    )}
     <div class="merge-rule" data-merge-rule="ormap" hidden={initial !== "ormap"}>
       <p data-ormap-tally-note>
         <strong>Merge rule: add-wins, observed-remove.</strong> A tally strike
@@ -234,8 +274,8 @@ const PICKER_CELLS = [
         </label>
         <p class="mv-hint">
           This is an in-page sequenced demonstration, not a live mesh.
-          A production channel keeps one homogeneous mode: tallies, string
-          registers, or sets of strings. Switching here starts fresh OR-map
+          A production channel keeps one homogeneous mode: tallies, LWW
+          registers, MV registers, or sets of strings. Switching here starts fresh OR-map
           replicas only; it doesn't convert an existing channel.
         </p>
         <div data-ormap-scenarios hidden>
@@ -265,6 +305,21 @@ const PICKER_CELLS = [
         </div>
       </div>
     )}
+    <div class="merge-rule" data-merge-rule="or-map-mv-register" hidden={initial !== "or-map-mv-register"}>
+      <p><strong>Keep the key. Read the disagreement.</strong> The OR-map decides
+        whether a key survives: remove it while another client writes, and that
+        unseen write keeps the key alive. The MV register inside the key keeps
+        concurrent alternatives. Neither server order nor a timestamp picks one
+        for you.</p>
+      <p>Race two gate revisions, then try <strong>Resolve observed</strong>.
+        It combines the selected key's alternatives in one ordinary write,
+        replacing only what that client has seen. Cut B's link and write there
+        first: A's resolution can't erase B's unseen revision.</p>
+      <p>Each OR-map has one <strong>homogeneous leaf mode</strong>: all tallies,
+        all LWW registers, all MV registers, or all string sets. This view and the stockpile ledger
+        are separate instances of the same structure, not mixed values in one map.
+        Reset reloads this instance's survey and discards its queued edits.</p>
+    </div>
     <p class="merge-rule" data-merge-rule="orset" hidden={initial !== "orset"}>
       <strong>Merge rule: add-wins, observed-remove.</strong> Clearing a marker
       removes only the add tags this replica had observed. Race a clear against
@@ -490,6 +545,25 @@ const PICKER_CELLS = [
               ))}
             </div>
           </div>
+          <div class="mv-register-panel dds-lww-map" role="group" aria-label={`LWW map replica on ${c.name}`}>
+            <h3 class="annot">Gate settings</h3>
+            <p class="annot">Confirmed entries, sorted by key</p>
+            <output class="mv-alternatives k-seq" data-lww-map-confirmed aria-live="polite" aria-label={`Confirmed LWW map entries on ${c.name}`}>[["gate-mode","surveyed"]]</output>
+            <p class="annot">Local view</p>
+            <output class="mv-alternatives" data-lww-map-entries aria-live="polite" aria-label={`Local LWW map entries on ${c.name}`}>[["gate-mode","surveyed"]]</output>
+            <p class="annot">Confirmed timestamps and tombstones (null)</p>
+            <output class="mv-alternatives k-seq" data-lww-map-metadata aria-live="polite">{JSON.stringify([{ key: "gate-mode", value: "surveyed", timestamp: 100 }])}</output>
+            <label class="annot" for={`lww-map-key-${c.id}`}>Key (string)</label>
+            <input id={`lww-map-key-${c.id}`} data-lww-map-key value="gate-mode" disabled />
+            <label class="annot" for={`lww-map-value-${c.id}`}>Value (string)</label>
+            <input id={`lww-map-value-${c.id}`} data-lww-map-input value={c.id === "b" ? "closed" : "open"} disabled />
+            <div class="mv-actions">
+              <button type="button" data-lww-map-write aria-label={`Set the LWW map key on ${c.name}`} disabled>Set string</button>
+              <button type="button" data-lww-map-remove aria-label={`Remove the LWW map key on ${c.name}`} disabled>Remove key</button>
+            </div>
+            <p class="mv-hint">An empty string is still a value. Removal retains a
+              timestamped tombstone; a newer ordinary edit can restore the key.</p>
+          </div>
           <div
             class="mv-register-panel dds-lww-register"
             role="group"
@@ -497,9 +571,9 @@ const PICKER_CELLS = [
           >
             <h3 class="annot">Field note</h3>
             <p class="annot">Confirmed value</p>
-            <output class="mv-alternatives k-seq" data-lww-register-confirmed aria-live="polite">{lwwRegister.value}</output>
+            <output class="mv-alternatives k-seq" data-lww-register-confirmed aria-live="polite" aria-label={`Confirmed LWW register value on ${c.name}`}>{lwwRegister.value}</output>
             <p class="annot">Local view</p>
-            <output class="mv-alternatives" data-lww-register-value aria-live="polite">{lwwRegister.value}</output>
+            <output class="mv-alternatives" data-lww-register-value aria-live="polite" aria-label={`Local LWW register value on ${c.name}`}>{lwwRegister.value}</output>
             <output class="mv-hint" data-lww-register-winner aria-live="polite">timestamp {lwwRegister.timestamp} · {lwwRegister.author}</output>
             <label class="annot" for={`lww-revision-${c.id}`}>Next field note</label>
             <input id={`lww-revision-${c.id}`} data-lww-register-input value={c.id === "a" ? "raise crest" : c.id === "b" ? "arm pump" : "check datum"} disabled />
@@ -511,9 +585,9 @@ const PICKER_CELLS = [
           <div class="mv-register-panel dds-mv-register">
             <h3 class="annot">Revision slate</h3>
             <p class="annot">Confirmed alternatives</p>
-            <output class="mv-alternatives k-seq" data-mv-register-confirmed aria-live="polite">["Survey datum"]</output>
+            <output class="mv-alternatives k-seq" data-mv-register-confirmed aria-live="polite" aria-label={`Confirmed MV register alternatives on ${c.name}`}>["Survey datum"]</output>
             <p class="annot">Local view</p>
-            <output class="mv-alternatives" data-mv-register-values aria-live="polite">["Survey datum"]</output>
+            <output class="mv-alternatives" data-mv-register-values aria-live="polite" aria-label={`Local MV register alternatives on ${c.name}`}>["Survey datum"]</output>
             <label class="annot" for={`mv-revision-${c.id}`}>Next revision</label>
             <input id={`mv-revision-${c.id}`} data-mv-register-input value={c.id === "a" ? "raise crest" : c.id === "b" ? "arm pump" : "check datum"} disabled />
             <div class="mv-actions">
@@ -521,6 +595,30 @@ const PICKER_CELLS = [
               <button type="button" data-mv-register-resolve disabled>Resolve with both</button>
             </div>
             <p class="mv-hint">Resolve writes "raise crest + arm pump". Any new revision replaces only the history this client has seen.</p>
+          </div>
+          <div
+            class="mv-register-panel dds-or-map-mv-register"
+            role="group"
+            aria-label={`OR-map with MV registers on ${c.name}`}
+            data-or-map-mv-register-canonical-summary
+          >
+            <h3 class="annot">Gate revisions</h3>
+            <p class="annot">Confirmed entries, sorted by key and value</p>
+            <output class="mv-alternatives k-seq" data-or-map-mv-register-confirmed aria-live="polite" aria-label={`Confirmed OR-map MV register entries on ${c.name}`}>[["gate-mode",["surveyed"]]]</output>
+            <p class="annot">Local view</p>
+            <output class="mv-alternatives" data-or-map-mv-register-entries aria-live="polite" aria-label={`Local OR-map MV register entries on ${c.name}`}>[["gate-mode",["surveyed"]]]</output>
+            <label class="annot" for={`or-map-mv-key-${c.id}`}>Key (string)</label>
+            <input id={`or-map-mv-key-${c.id}`} data-or-map-mv-register-key value="gate-mode" disabled />
+            <label class="annot" for={`or-map-mv-revision-${c.id}`}>Next revision (string)</label>
+            <input id={`or-map-mv-revision-${c.id}`} data-or-map-mv-register-input value={c.id === "a" ? "raise crest" : c.id === "b" ? "arm pump" : "check datum"} disabled />
+            <div class="mv-actions">
+              <button type="button" data-or-map-mv-register-write aria-label={`Write an OR-map revision on ${c.name}`} disabled>Write revision</button>
+              <button type="button" data-or-map-mv-register-resolve aria-label={`Resolve observed OR-map alternatives on ${c.name}`} disabled>Resolve observed</button>
+              <button type="button" data-or-map-mv-register-remove aria-label={`Remove the OR-map key on ${c.name}`} disabled>Remove key</button>
+            </div>
+            <p class="mv-hint">Sorted doesn't mean preferred. Equal text from two
+              concurrent writers still counts as two alternatives; an empty
+              string is a revision, not a removal.</p>
           </div>
 
           <table class="gauge-table claims-table dds-claims">
@@ -1137,6 +1235,10 @@ const PICKER_CELLS = [
     min-block-size: 0;
     overflow-wrap: anywhere;
   }
+  .rig:not([data-dds="or-map-mv-register"]) .dds-or-map-mv-register,
+  .rig[data-dds="or-map-mv-register"] .client > :is(table, .counter-panel),
+  .rig:not([data-dds="lww-map"]) .dds-lww-map,
+  .rig[data-dds="lww-map"] .client > :is(table, .counter-panel, .dds-lww-register, .dds-mv-register),
   .rig:not([data-dds="mv-register"]) .dds-mv-register,
   .rig:not([data-dds="lww-register"]) .dds-lww-register,
   .rig[data-dds="mv-register"] .client > :is(table, .counter-panel, .dds-lww-register),
@@ -1174,6 +1276,15 @@ const PICKER_CELLS = [
   .mv-hint {
     font-size: 0.8rem;
     color: var(--muted);
+  }
+  [data-lww-map-race] {
+    max-width: 100%;
+    margin: 0.5rem;
+    padding: 0.5rem;
+    border: 1px solid var(--hairline);
+    background: var(--paper);
+    color: var(--ink);
+    font: inherit;
   }
   .demo {
     position: relative;
@@ -1388,6 +1499,7 @@ const PICKER_CELLS = [
   .dds-picker label:has(input[value="orset"]) b,
   .dds-picker label:has(input[value="gset"]) b,
   .dds-picker label:has(input[value="twopset"]) b,
+  .dds-picker label:has(input[value="lww-map"]) b,
   .dds-picker label:has(input[value="lww-register"]) b,
   .dds-picker label:has(input[value="mv-register"]) b {
     color: var(--waterline);

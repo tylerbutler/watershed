@@ -28,7 +28,7 @@ pub fn next(last_seen: Int, wall_clock: Int) -> Result(Int, ClockError) {
 }
 
 fn validate(value: Int) -> Result(Nil, ClockError) {
-  case value < 0 {
+  case value < 0 || value > max_safe_timestamp {
     True -> Error(InvalidTimestamp(value))
     False -> Ok(Nil)
   }

@@ -607,6 +607,67 @@ pub fn lww_register_value(
 }
 
 @target(javascript)
+pub fn create_lww_map(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitLwwMap, "create_lww_map")
+}
+
+@target(javascript)
+pub fn lww_map_set(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.lww_map_set(
+      core,
+      address,
+      key,
+      value,
+      transport_js.now_milliseconds(),
+    )
+  })
+}
+
+@target(javascript)
+pub fn lww_map_remove(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.lww_map_remove(
+      core,
+      address,
+      key,
+      transport_js.now_milliseconds(),
+    )
+  })
+}
+
+@target(javascript)
+pub fn lww_map_get(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Result(String, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.lww_map_get(_, address, key))
+}
+
+@target(javascript)
+pub fn lww_map_entries(
+  runtime: Runtime,
+  address: String,
+) -> List(#(String, String)) {
+  read(runtime.cell, [], runtime_core.lww_map_entries(_, address))
+}
+
+@target(javascript)
+pub fn lww_map_keys(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.lww_map_keys(_, address))
+}
+
+@target(javascript)
 /// Propose `value` for `key` in the PactMap at `address`. This write is a
 /// consensus write, and it is not optimistic. The value takes effect only after
 /// the `Set` operation sequences, and after the `Accept` operation that follows
@@ -933,6 +994,18 @@ pub fn or_map_add_member(
 }
 
 @target(javascript)
+pub fn or_map_set_mv_register(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.or_map_set_mv_register(core, address, key, value)
+  })
+}
+
+@target(javascript)
 pub fn or_map_remove_member(
   runtime: Runtime,
   address: String,
@@ -953,6 +1026,15 @@ pub fn or_map_remove_key(
   edit_sequence_with_result(runtime.cell, fn(core) {
     runtime_core.or_map_remove(core, address, key)
   })
+}
+
+@target(javascript)
+pub fn or_map_values(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Result(List(String), Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.or_map_values(_, address, key))
 }
 
 @target(javascript)

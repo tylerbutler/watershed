@@ -16,6 +16,8 @@
     "test:mv-register-demo": "node --test scripts/mv-register-demo.test.mjs",
     "test:ormap-demo": "node --test scripts/ormap-demo.test.mjs",
     "test:structure-demos": "node --test scripts/structure-demos.test.mjs",
+    "test:lww-map-demo": "node --test scripts/lww-map-demo.test.mjs",
+    "test:or-map-mv-register-demo": "node --test scripts/or-map-mv-register-demo.test.mjs",
     "test:snippet": "node --strip-types --test src/lib/snippet.test.ts",
     "test:snippet-manifest": "node --strip-types --test src/lib/snippet-manifest.test.ts",
     "test:practice-snippets": "node --strip-types --test src/data/practice-snippets.test.ts",

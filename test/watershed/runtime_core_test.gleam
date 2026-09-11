@@ -467,7 +467,8 @@ fn is_ack_mismatch(core_error: runtime_core.CoreError) -> Bool {
     | runtime_core.GCounterOperationFailed(..)
     | runtime_core.TextOperationFailed(..)
     | runtime_core.BadSummaryChannel(..)
-    | runtime_core.LwwRegisterOperationFailed(..) -> False
+    | runtime_core.LwwRegisterOperationFailed(..)
+    | runtime_core.LwwMapOperationFailed(..) -> False
   }
 }
 
@@ -2892,6 +2893,7 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected increment on RegisterMode to be rejected"
   }
@@ -2919,9 +2921,134 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected set on TallyMode to be rejected"
   }
+}
+
+fn ack_mv_or_map_outbound(
+  core: Core,
+  outbound: wire.OutboundOperation,
+) -> Core {
+  let #(core, events) =
+    apply_tagged(
+      core,
+      sequenced_message(
+        client_id: Some(core.client_id),
+        sequence_number: core.last_seen_sequence_number + 1,
+        client_sequence_number: outbound.client_sequence_number,
+        message_type: outbound.operation_type,
+        contents: json_to_dynamic(outbound.contents),
+      ),
+    )
+  events |> expect.to_equal([])
+  core
+}
+
+pub fn mv_or_map_runtime_submit_ack_resubmit_and_summary_test() -> Nil {
+  let core =
+    bootstrap([], 1)
+    |> runtime_core.create_detached(
+      "revisions",
+      channel.InitOrMap(or_map_kernel.MvRegisterMode),
+    )
+  let assert Ok(#(core, events, [])) =
+    runtime_core.or_map_set_mv_register(core, "revisions", "gate", "initial")
+  events
+  |> expect.to_equal([
+    #(
+      "revisions",
+      channel.OrMapEvent(or_map_kernel.MvRegisterUpdated("gate", ["initial"])),
+    ),
+  ])
+  let assert Ok(#(core, _, [attach, reference])) =
+    runtime_core.set(
+      core,
+      "root",
+      "revisions",
+      handle.encode_handle("revisions"),
+    )
+  let core =
+    core |> ack_mv_or_map_outbound(attach) |> ack_mv_or_map_outbound(reference)
+  let assert Ok(#(core, _, [outbound])) =
+    runtime_core.or_map_set_mv_register(core, "revisions", "gate", "local")
+  let assert Ok(#(_, _, remote)) =
+    or_map_kernel.p2p_set_mv_register(
+      or_map_kernel.new(replica_id.new("remote"), or_map_kernel.MvRegisterMode),
+      "gate",
+      "remote",
+    )
+  let #(core, events) =
+    apply_tagged(
+      core,
+      or_map_operation_message("revisions", other_client_id, 4, 1, remote),
+    )
+  events
+  |> expect.to_equal([
+    #(
+      "revisions",
+      channel.OrMapEvent(
+        or_map_kernel.MvRegisterUpdated("gate", ["local", "remote"]),
+      ),
+    ),
+  ])
+  let assert #(core, [resubmitted]) =
+    core
+    |> runtime_core.adopt_reconnect(reconnect_connected("new-client", 4))
+    |> runtime_core.resubmit
+  json.to_string(resubmitted.contents)
+  |> expect.to_equal(json.to_string(outbound.contents))
+  let core = ack_mv_or_map_outbound(core, resubmitted)
+  runtime_core.or_map_values(core, "revisions", "gate")
+  |> expect.to_equal(Ok(["local", "remote"]))
+  let assert Ok(blob) =
+    summary_blob.encode_channels(
+      core.last_seen_sequence_number,
+      runtime_core.summary_members(core),
+      runtime_core.summary_channels(core),
+    )
+    |> json.to_string
+    |> summary_blob.decode
+  let assert Ok(runtime_core.Complete(loaded)) =
+    runtime_core.bootstrap(
+      connected_message([], core.last_seen_sequence_number),
+      summary: Some(runtime_core.summary_from_blob(blob)),
+    )
+  runtime_core.or_map_values(loaded, "revisions", "gate")
+  |> expect.to_equal(Ok(["local", "remote"]))
+  let assert Ok(#(loaded, _, [resolution])) =
+    runtime_core.or_map_set_mv_register(loaded, "revisions", "gate", "resolved")
+  let loaded = ack_mv_or_map_outbound(loaded, resolution)
+  runtime_core.or_map_values(loaded, "revisions", "gate")
+  |> expect.to_equal(Ok(["resolved"]))
+}
+
+pub fn mv_or_map_runtime_typed_reads_and_mode_errors_test() -> Nil {
+  let core =
+    bootstrap([], 1)
+    |> runtime_core.create_detached(
+      "tally",
+      channel.InitOrMap(or_map_kernel.TallyMode),
+    )
+    |> runtime_core.create_detached(
+      "mv",
+      channel.InitOrMap(or_map_kernel.MvRegisterMode),
+    )
+  let assert Ok(#(core, _, [])) =
+    runtime_core.or_map_increment(core, "tally", "k", 1)
+  runtime_core.or_map_values(core, "tally", "k") |> expect.to_equal(Error(Nil))
+  runtime_core.or_map_values(core, "mv", "missing")
+  |> expect.to_equal(Error(Nil))
+  let assert Error(runtime_core.OrMapModeMismatch("tally", _)) =
+    runtime_core.or_map_set_mv_register(core, "tally", "k", "wrong")
+  let assert Error(runtime_core.OrMapModeMismatch("mv", _)) =
+    runtime_core.or_map_set(core, "mv", "k", "wrong", 0)
+  let assert Error(runtime_core.OrMapModeMismatch("mv", _)) =
+    runtime_core.or_map_increment(core, "mv", "k", 1)
+  let assert Error(runtime_core.UnknownChannel(..)) =
+    runtime_core.or_map_set_mv_register(core, "absent", "k", "wrong")
+  Nil
 }
 
 pub fn or_map_register_set_attaches_handle_dependencies_test() -> Nil {
@@ -2961,6 +3088,7 @@ pub fn or_map_register_set_attaches_handle_dependencies_test() -> Nil {
     or_map_kernel.SetRegister("child", value, 99, _) ->
       value |> expect.to_equal(encoded_handle)
     or_map_kernel.SetRegister(..)
+    | or_map_kernel.SetMvRegister(..)
     | or_map_kernel.Increment(..)
     | or_map_kernel.Remove(..) -> panic as "expected register set op"
     or_map_kernel.AddMember(..) | or_map_kernel.RemoveMember(..) ->
@@ -2994,6 +3122,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected set on a counter channel to be rejected"
   }
@@ -3013,6 +3142,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected delete on a counter channel to be rejected"
   }
@@ -3032,6 +3162,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected clear on a counter channel to be rejected"
   }
@@ -3057,6 +3188,7 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected increment on a map channel to be rejected"
   }

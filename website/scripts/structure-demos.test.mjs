@@ -7,7 +7,7 @@ const base = process.env.WATERSHED_WEBSITE_URL ?? "http://127.0.0.1:4321";
 const families = [
   ["counters", ["counter", "gcounter", "pn"]],
   ["sets", ["gset", "twopset", "orset"]],
-  ["maps", ["map", "lww-register", "mv-register", "ormap"]],
+  ["maps", ["map", "lww-map", "lww-register", "mv-register", "ormap"]],
   ["coordination", ["claims", "registers", "ordered", "tasks", "pact"]],
 ];
 

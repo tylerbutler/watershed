@@ -148,6 +148,7 @@ fn note_entries(notes: watershed.OrMap) -> List(#(String, Note)) {
     case entry.1 {
       or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))
       or_map_kernel.Tally(_) -> Error(Nil)
+      or_map_kernel.MvRegister(_) -> Error(Nil)
     }
   })
 }
@@ -158,6 +159,7 @@ fn vote_entries(votes: watershed.OrMap) -> List(#(String, Int)) {
     case entry.1 {
       or_map_kernel.Tally(count) -> Ok(#(entry.0, count))
       or_map_kernel.Register(_) -> Error(Nil)
+      or_map_kernel.MvRegister(_) -> Error(Nil)
     }
   })
 }
@@ -174,7 +176,9 @@ fn sequence_ids(sequence: watershed.SharedSequence) -> List(String) {
 fn tally(channels: Channels, id: String) -> Int {
   case watershed.or_map_value(channels.votes, id) {
     Ok(or_map_kernel.Tally(count)) -> count
-    _ -> 0
+    Error(_) -> 0
+    Ok(or_map_kernel.Register(_)) -> 0
+    Ok(or_map_kernel.MvRegister(_)) -> 0
   }
 }
 
@@ -245,7 +249,9 @@ fn move_note(channels: Channels, id: String, destination: Column) -> Nil {
         Note(..note.from_register(value), column: column.id(destination))
       watershed.or_map_set_json(channels.notes, id, note.to_json(moved))
     }
-    _ -> panic as "move_note: note not present"
+    Error(_) -> panic as "move_note: note not present"
+    Ok(or_map_kernel.Tally(_)) -> panic as "move_note: note not present"
+    Ok(or_map_kernel.MvRegister(_)) -> panic as "move_note: note not present"
   }
 }
 

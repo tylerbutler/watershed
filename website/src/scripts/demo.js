@@ -1,5 +1,5 @@
-// Live convergence demo. The two "clients" here each own real watershed
-// state — map/LWW-register/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register kernels plus the runtime counter
+// Live convergence demo. The three "clients" here each own real watershed
+// state — map/LWW-map/LWW-register/G-counter/PN/OR-map/OR-set/G-set/2P-set/claims/register kernels plus the runtime counter
 // channel, compiled with `gleam build --target javascript` — and talk through
 // a tiny in-page sequencer that stamps sequence numbers (SNs) and broadcasts
 // in order, the same protocol shape as a Fluid-compatible service. All
@@ -9,6 +9,7 @@ import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/ma
 import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
 import * as gCounterKernel from "../../../build/dev/javascript/watershed/watershed/g_counter_kernel.mjs";
 import * as lwwRegisterKernel from "../../../build/dev/javascript/watershed/watershed/lww_register_kernel.mjs";
+import * as lwwMapKernel from "../../../build/dev/javascript/watershed/watershed/lww_map_kernel.mjs";
 import * as mvKernel from "../../../build/dev/javascript/watershed/watershed/mv_register_kernel.mjs";
 import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as orSetKernel from "../../../build/dev/javascript/watershed/watershed/or_set_kernel.mjs";
@@ -109,6 +110,28 @@ function lwwRegisterFromBaseline(baseline, id, epoch) {
   return loaded[0];
 }
 
+function lwwMapBaselineSummary() {
+  const seeded = lwwMapKernel.p2p_set(
+    lwwMapKernel.new$(replicaId.new$("survey-lww-map")),
+    "gate-mode", "surveyed", 100,
+  );
+  if (!seeded.isOk()) throw new Error("LWWMap baseline write failed");
+  return json.to_string(lwwMapKernel.summary(seeded[0][0]));
+}
+
+function lwwMapFromSummary(summary, id, epoch) {
+  const loaded = lwwMapKernel.from_summary(
+    summary, replicaId.new$(`client-${id}-lww-map-${epoch}`),
+  );
+  if (!loaded.isOk()) throw new Error("LWWMap summary failed to load");
+  return loaded[0];
+}
+
+function lwwMapMetadata(state) {
+  return JSON.parse(json.to_string(lwwMapKernel.summary(state))).state.entries
+    .sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+}
+
 function gCounterBaselineSummary() {
   let base = gCounter.new$(replicaId.new$("survey-baseline"));
   for (const [id, amount] of Object.entries(GCOUNTER_BASE_BY_REPLICA)) {
@@ -139,6 +162,86 @@ function orMapBaselineSummary() {
     base = acked[0];
   }
   return json.to_string(orMapKernel.summary(base));
+}
+
+function orMapMvBaselineSummary(epoch) {
+  const seeded = orMapKernel.p2p_set_mv_register(
+    orMapKernel.new$(replicaId.new$(`survey-or-map-mv-${epoch}`), new orMapKernel.MvRegisterMode()),
+    "gate-mode", "surveyed",
+  );
+  if (!seeded.isOk()) throw new Error("OR-map MV-register baseline write failed", { cause: seeded[0] });
+  return json.to_string(orMapKernel.summary(seeded[0][0]));
+}
+
+function orMapMvFromBaseline(baseline, id, epoch) {
+  const loaded = orMapKernel.from_summary(
+    baseline, replicaId.new$(`client-${id}-or-map-mv-${epoch}`),
+  );
+  if (!loaded.isOk()) throw new Error("OR-map MV-register baseline failed to load", { cause: loaded[0] });
+  return loaded[0];
+}
+
+function orMapMvEntries(entries) {
+  return entries.toArray().map(([key, value]) => [key, value[0].toArray()]);
+}
+
+function canonicalMetadata(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map(canonicalMetadata)
+      .sort((a, b) => compareCanonical(JSON.stringify(a), JSON.stringify(b)));
+  }
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .filter(([key]) => key !== "replica_id" && key !== "counter")
+        .sort(([a], [b]) => compareCanonical(a, b))
+        .map(([key, nested]) => [key, canonicalMetadata(nested)]),
+    );
+  }
+  return value;
+}
+
+function compareCanonical(a, b) {
+  return a < b ? -1 : a > b ? 1 : 0;
+}
+
+function canonicalObject(value) {
+  if (Array.isArray(value)) return value.map(canonicalObject);
+  if (value !== null && typeof value === "object") {
+    return Object.fromEntries(
+      Object.entries(value)
+        .sort(([a], [b]) => compareCanonical(a, b))
+        .map(([key, nested]) => [key, canonicalObject(nested)]),
+    );
+  }
+  return value;
+}
+
+function canonicalEncodedJson(source) {
+  return JSON.stringify(canonicalMetadata(JSON.parse(source)));
+}
+
+function canonicalOrMapMvSummary(state) {
+  const summary = JSON.parse(json.to_string(orMapKernel.summary(state)));
+  const mapState = summary.state;
+  const replicatedMapState = Object.fromEntries(
+    Object.entries(mapState).filter(([key]) => key !== "replica_id"),
+  );
+  return JSON.stringify(canonicalObject({
+    ...summary,
+    state: {
+      ...replicatedMapState,
+      key_set: canonicalEncodedJson(mapState.key_set),
+      values: mapState.values
+        .map(({ key, crdt }) => ({
+          key,
+          crdt: canonicalEncodedJson(crdt),
+        }))
+        .sort((a, b) => compareCanonical(a.key, b.key) || compareCanonical(a.crdt, b.crdt)),
+      remove_bounds: canonicalMetadata(mapState.remove_bounds),
+    },
+  }));
 }
 
 function orSetBaselineSummary() {
@@ -343,6 +446,18 @@ function signed(n) {
 }
 
 function describeOp(ddsId, op) {
+  if (ddsId === "or-map-mv-register") {
+    return op.operation instanceof orMapKernel.Remove
+      ? `remove ${JSON.stringify(op.operation.key)}`
+      : `revise ${JSON.stringify(op.operation.key)} = ${JSON.stringify(op.operation.value)}`;
+  }
+  if (ddsId === "lww-map") {
+    const operation = op.operation;
+    const edit = operation instanceof lwwMapKernel.Remove
+      ? `remove ${JSON.stringify(operation.key)}`
+      : `set ${JSON.stringify(operation.key)} = ${JSON.stringify(operation.value)}`;
+    return `${edit} (t ${operation.timestamp})`;
+  }
   if (ddsId === "lww-register") {
     return `write ${JSON.stringify(op.operation.value)} (t ${op.operation.timestamp})`;
   }
@@ -446,6 +561,7 @@ export function initDemo() {
   const linkNote = document.querySelector("[data-link-note]");
   const ddsPicks = document.querySelectorAll("[data-dds-pick]");
   const mergeRules = document.querySelectorAll("[data-merge-rule]");
+  const orMapViewSelect = document.querySelector("[data-ormap-view]");
   const orMapModeSelect = document.querySelector("[data-ormap-mode]");
   const orMapRaceSelect = document.querySelector("[data-ormap-set-race]");
   const orMapRaceStatus = document.querySelector("[data-ormap-race-status]");
@@ -455,7 +571,9 @@ export function initDemo() {
   const pnBaseline = pnBaselineSummary();
   const mvBaseline = mvBaselineSummary(0);
   const lwwRegisterBaseline = lwwRegisterBaselineSummary();
+  const lwwMapBaseline = lwwMapBaselineSummary();
   const orMapBaseline = orMapBaselineSummary();
+  const orMapMvBaseline = orMapMvBaselineSummary(0);
   const orSetBaseline = orSetBaselineSummary();
   const gSetBaseline = gSetBaselineSummary();
   const twoPSetBaseline = twoPSetBaselineSummary();
@@ -500,8 +618,10 @@ export function initDemo() {
       counterCore: counterChannel.core,
       pn: pnLoaded[0],
       "lww-register": lwwRegisterFromBaseline(lwwRegisterBaseline, id, 0),
+      "lww-map": lwwMapFromSummary(lwwMapBaseline, id, 0),
       "mv-register": mvFromBaseline(mvBaseline, id, 0),
       ormap: orMapLoaded[0],
+      "or-map-mv-register": orMapMvFromBaseline(orMapMvBaseline, id, 0),
       orset: orSetLoaded[0],
       gset: gSetLoaded[0],
       twopset: twoPSetLoaded[0],
@@ -530,6 +650,7 @@ export function initDemo() {
   // Structures whose field notes flash the values that change (see tutorial.js
   // CHANGE_TARGETS). Kept in sync there; used to route the demo's op-flow hooks.
   const FIELD_FLASH = new Set([
+    "lww-map",
     "lww-register",
     "mv-register",
     "map",
@@ -540,6 +661,7 @@ export function initDemo() {
     "gset",
     "twopset",
     "ormap",
+    "or-map-mv-register",
     "claims",
     "registers",
     "ordered",
@@ -579,6 +701,8 @@ export function initDemo() {
   let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
   let lastLwwRegister = null;
   let lwwRegisterEpoch = 0;
+  let lastLwwMap = null;
+  let lwwMapEpoch = 0;
   // Keep an early delta so replay after resolution proves it cannot resurrect.
   let lastMv = null;
   let mvEpoch = 0;
@@ -587,6 +711,8 @@ export function initDemo() {
   let orMapMode = "tally";
   let orMapEpoch = 0;
   let orMapRaceRunning = false;
+  let lastOrMapMv = null; // retain the early op to replay after resolution
+  let orMapMvEpoch = 0;
   let lastOrSet = null; // the most recently *sequenced* OR-set op
   let lastGSet = null; // the most recently *sequenced* G-set op
   let lastTwoPSet = null; // the most recently *sequenced* 2P-set op
@@ -683,6 +809,20 @@ export function initDemo() {
       `timestamp ${winner.timestamp} · ${winner.replica_id || "bottom"}`;
   }
 
+  function renderLwwMap(client) {
+    const state = client["lww-map"];
+    const optimistic = client.el.querySelector("[data-lww-map-entries]");
+    optimistic.textContent = JSON.stringify(lwwMapKernel.entries(state).toArray());
+    optimistic.classList.toggle("k-pending", state.pending.toArray().length > 0);
+    const confirmed = lwwMapFromSummary(
+      json.to_string(lwwMapKernel.summary(state)), client.id, lwwMapEpoch,
+    );
+    client.el.querySelector("[data-lww-map-confirmed]").textContent =
+      JSON.stringify(lwwMapKernel.entries(confirmed).toArray());
+    client.el.querySelector("[data-lww-map-metadata]").textContent =
+      JSON.stringify(lwwMapMetadata(confirmed));
+  }
+
   function renderMv(client) {
     const state = client["mv-register"];
     const optimistic = client.el.querySelector("[data-mv-register-values]");
@@ -692,6 +832,24 @@ export function initDemo() {
       JSON.stringify(mvKernel.sequenced_values(state).toArray());
     client.el.querySelector("[data-mv-register-resolve]").disabled =
       mvKernel.values(state).toArray().length < 2;
+  }
+
+  function selectedOrMapMvValues(client) {
+    const key = client.el.querySelector("[data-or-map-mv-register-key]").value;
+    return orMapEntries(client["or-map-mv-register"]).get(key)?.toArray() ?? [];
+  }
+
+  function renderOrMapMv(client) {
+    const state = client["or-map-mv-register"];
+    const optimistic = client.el.querySelector("[data-or-map-mv-register-entries]");
+    optimistic.textContent = JSON.stringify(orMapMvEntries(orMapKernel.entries(state)));
+    optimistic.classList.toggle("k-pending", state.pending.toArray().length > 0);
+    client.el.querySelector("[data-or-map-mv-register-confirmed]").textContent =
+      JSON.stringify(orMapMvEntries(orMapKernel.sequenced_entries(state)));
+    client.el.querySelector("[data-or-map-mv-register-canonical-summary]")
+      .setAttribute("data-or-map-mv-register-canonical-summary", canonicalOrMapMvSummary(state));
+    client.el.querySelector("[data-or-map-mv-register-resolve]").disabled =
+      selectedOrMapMvValues(client).length < 2;
   }
 
   function renderPn(client) {
@@ -1133,6 +1291,7 @@ export function initDemo() {
   }
 
   function render(client) {
+    if (present.has("lww-map")) renderLwwMap(client);
     if (present.has("lww-register")) renderLwwRegister(client);
     if (present.has("mv-register")) renderMv(client);
     if (present.has("map")) renderMap(client);
@@ -1140,6 +1299,7 @@ export function initDemo() {
     if (present.has("gcounter")) renderGCounter(client);
     if (present.has("pn")) renderPn(client);
     if (present.has("ormap")) renderOrMap(client);
+    if (present.has("or-map-mv-register")) renderOrMapMv(client);
     if (present.has("orset")) renderOrSet(client);
     if (present.has("gset")) renderGSet(client);
     if (present.has("twopset")) renderTwoPSet(client);
@@ -1159,8 +1319,10 @@ export function initDemo() {
       total += client.gcounter.pending.toArray().length;
       total += client.pn.pending.toArray().length;
       total += client["lww-register"].pending.toArray().length;
+      total += client["lww-map"].pending.toArray().length;
       total += client["mv-register"].pending.toArray().length;
       total += client.ormap.pending.toArray().length;
+      total += client["or-map-mv-register"].pending.toArray().length;
       total += client.orset.pending.toArray().length;
       total += client.gset.pending.toArray().length;
       total += client.twopset.pending.toArray().length;
@@ -1181,11 +1343,13 @@ export function initDemo() {
       entries.map(({ tag, value }) => [tag.r, tag.c, value]).sort(),
       Object.entries(vclock).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0),
       json.to_string(lwwRegisterKernel.summary(client["lww-register"])),
+      lwwMapMetadata(client["lww-map"]),
       mapSnapshot(client.map),
       counterValue(client),
       gCounterSnapshot(client.gcounter),
       pnKernel.value(client.pn),
       orMapSnapshot(client.ormap),
+      canonicalOrMapMvSummary(client["or-map-mv-register"]),
       orSetSnapshot(client.orset),
       gSetSnapshot(client.gset),
       twoPSetSnapshot(client.twopset),
@@ -1361,6 +1525,18 @@ export function initDemo() {
         const [next] = mapKernel.apply_remote(target.map, op);
         target.map = next;
       }
+    } else if (ddsId === "lww-map") {
+      if (target.id === originId) {
+        const result = lwwMapKernel.ack_local_with_message_id(
+          target["lww-map"], op.operation, op.messageId,
+        );
+        if (!result.isOk()) throw new Error("Unexpected LWWMap acknowledgement");
+        target["lww-map"] = result[0];
+      } else {
+        const result = lwwMapKernel.apply_remote(target["lww-map"], op.operation);
+        if (!result.isOk()) throw new Error("Unexpected LWWMap delivery");
+        [target["lww-map"]] = result[0];
+      }
     } else if (ddsId === "lww-register") {
       const result = target.id === originId
         ? lwwRegisterKernel.ack_local_with_message_id(
@@ -1403,6 +1579,18 @@ export function initDemo() {
       } else {
         const [next] = gCounterKernel.apply_remote(target.gcounter, op);
         target.gcounter = next;
+      }
+    } else if (ddsId === "or-map-mv-register") {
+      if (target.id === originId) {
+        const result = orMapKernel.ack_local_with_message_id(
+          target[ddsId], op.operation, op.messageId,
+        );
+        if (!result.isOk()) throw new Error("Unexpected OR-map MV-register acknowledgement", { cause: result[0] });
+        target[ddsId] = result[0];
+      } else {
+        const result = orMapKernel.apply_remote(target[ddsId], op.operation);
+        if (!result.isOk()) throw new Error("Unexpected OR-map MV-register delivery", { cause: result[0] });
+        [target[ddsId]] = result[0];
       }
     } else if (ddsId === "ormap") {
       if (target.id === originId) {
@@ -1609,6 +1797,8 @@ export function initDemo() {
 
   function submit(originId, ddsId, op, onDelivered = () => {}) {
     // The author captured this epoch before offline work could be parked.
+    if (ddsId === "or-map-mv-register" && op.epoch !== orMapMvEpoch) return;
+    if (ddsId === "lww-map" && op.epoch !== lwwMapEpoch) return;
     if (ddsId === "lww-register" && op.epoch !== lwwRegisterEpoch) return;
     if (ddsId === "mv-register" && op.epoch !== mvEpoch) return;
     if (ddsId === "ormap" && op.epoch !== orMapEpoch) return;
@@ -1625,7 +1815,11 @@ export function initDemo() {
     // stamped, or it would commit on one replica and fail to ack on the
     // other. Each DDS that resets out of band carries its own epoch.
     const epochFor = () =>
-      ddsId === "lww-register"
+      ddsId === "or-map-mv-register"
+        ? orMapMvEpoch
+      : ddsId === "lww-map"
+        ? lwwMapEpoch
+      : ddsId === "lww-register"
         ? lwwRegisterEpoch
       : ddsId === "mv-register"
         ? mvEpoch
@@ -1660,7 +1854,13 @@ export function initDemo() {
           ddsId,
           ddsId === "counter" ? { increment_amount: op.amount } : op,
         );
-        if (ddsId === "lww-register") {
+        if (ddsId === "or-map-mv-register") {
+          lastOrMapMv ??= { op, sn: stamped };
+          if (activeDds === "or-map-mv-register") replayBtn.disabled = false;
+        } else if (ddsId === "lww-map") {
+          lastLwwMap = { op, sn: stamped };
+          if (activeDds === "lww-map") replayBtn.disabled = false;
+        } else if (ddsId === "lww-register") {
           lastLwwRegister = { op, sn: stamped };
           if (activeDds === "lww-register") replayBtn.disabled = false;
         } else if (ddsId === "mv-register") {
@@ -1775,12 +1975,36 @@ export function initDemo() {
     });
   }
 
+  function localLwwMapEdit(clientId, key, value, wallClock = Date.now()) {
+    const client = clients[clientId];
+    const result = value === null
+      ? lwwMapKernel.remove(client["lww-map"], key, wallClock)
+      : lwwMapKernel.set(client["lww-map"], key, value, wallClock);
+    if (!result.isOk()) throw new Error("LWWMap refused an edit", { cause: result[0] });
+    const [next, _events, operation, messageId] = result[0];
+    client["lww-map"] = next;
+    fieldNotes.trackChange("lww-map", client.el, true, () => render(client));
+    submit(clientId, "lww-map", { operation, messageId, epoch: lwwMapEpoch });
+  }
+
   function localMvSet(clientId, value) {
     const client = clients[clientId];
     const [next, _events, operation, messageId] = mvKernel.set(client["mv-register"], value);
     client["mv-register"] = next;
     fieldNotes.trackChange("mv-register", client.el, true, () => render(client));
     submit(clientId, "mv-register", { operation, messageId, epoch: mvEpoch });
+  }
+
+  function localOrMapMvEdit(clientId, key, value) {
+    const client = clients[clientId];
+    const result = value === null
+      ? orMapKernel.remove(client["or-map-mv-register"], key)
+      : orMapKernel.set_mv_register(client["or-map-mv-register"], key, value);
+    if (!result.isOk()) throw new Error("OR-map MV register refused an edit", { cause: result[0] });
+    const [next, _events, operation, messageId] = result[0];
+    client["or-map-mv-register"] = next;
+    fieldNotes.trackChange("or-map-mv-register", client.el, true, () => render(client));
+    submit(clientId, "or-map-mv-register", { operation, messageId, epoch: orMapMvEpoch });
   }
 
   function localPnUpdate(clientId, amount) {
@@ -2136,6 +2360,17 @@ export function initDemo() {
     renderStatus();
   }
 
+  function resetLwwMap() {
+    lwwMapEpoch += 1;
+    lastLwwMap = null;
+    for (const client of Object.values(clients)) {
+      client["lww-map"] = lwwMapFromSummary(lwwMapBaseline, client.id, lwwMapEpoch);
+      render(client);
+    }
+    replayBtn.disabled = true;
+    renderStatus();
+  }
+
   function resetMv() {
     mvEpoch += 1;
     lastMv = null;
@@ -2211,6 +2446,18 @@ export function initDemo() {
     renderStatus();
   }
 
+  function resetOrMapMv() {
+    orMapMvEpoch += 1;
+    lastOrMapMv = null;
+    const baseline = orMapMvBaselineSummary(orMapMvEpoch);
+    for (const client of Object.values(clients)) {
+      client["or-map-mv-register"] = orMapMvFromBaseline(baseline, client.id, orMapMvEpoch);
+      render(client);
+    }
+    replayBtn.disabled = true;
+    renderStatus();
+  }
+
   function resetTwoPSet() {
     twoPSetEpoch += 1;
     lastTwoPSet = null;
@@ -2231,7 +2478,11 @@ export function initDemo() {
   // idempotent, so nothing changes anywhere.
   function redeliverLastDelta(ddsId = activeDds) {
     const last =
-      ddsId === "lww-register"
+      ddsId === "or-map-mv-register"
+        ? lastOrMapMv
+      : ddsId === "lww-map"
+        ? lastLwwMap
+      : ddsId === "lww-register"
         ? lastLwwRegister
       : ddsId === "mv-register"
         ? lastMv
@@ -2260,13 +2511,23 @@ export function initDemo() {
       sequencer.broadcast({
         label: describeOp(ddsId, op),
         isStale: () =>
+          (ddsId === "or-map-mv-register" && op.epoch !== orMapMvEpoch) ||
+          (ddsId === "lww-map" && op.epoch !== lwwMapEpoch) ||
           (ddsId === "lww-register" && op.epoch !== lwwRegisterEpoch) ||
           (ddsId === "mv-register" && op.epoch !== mvEpoch) ||
           (ddsId === "ormap" && op.epoch !== orMapEpoch),
         onDeliver: (target) => {
           // Every replica takes duplicates through apply_remote, including
           // the origin whose acknowledged delta is already merged.
-          if (ddsId === "lww-register") {
+          if (ddsId === "or-map-mv-register") {
+            const result = orMapKernel.apply_remote(target[ddsId], op.operation);
+            if (!result.isOk()) throw new Error("Unexpected duplicate OR-map MV-register op", { cause: result[0] });
+            [target[ddsId]] = result[0];
+          } else if (ddsId === "lww-map") {
+            const result = lwwMapKernel.apply_remote(target["lww-map"], op.operation);
+            if (!result.isOk()) throw new Error("Unexpected duplicate LWWMap op");
+            [target["lww-map"]] = result[0];
+          } else if (ddsId === "lww-register") {
             const result = lwwRegisterKernel.apply_remote(
               target["lww-register"],
               op.operation,
@@ -2324,6 +2585,33 @@ export function initDemo() {
         localOrMapEdit(client.id, orMapKernel.add_member, memberKey.value, memberInput.value);
       }
     });
+    client.el.querySelector("[data-or-map-mv-register-key]").addEventListener("input", () => {
+      renderOrMapMv(client);
+    });
+    for (const input of client.el.querySelectorAll("[data-or-map-mv-register-key], [data-or-map-mv-register-input]")) {
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        hasInteracted = true;
+        localOrMapMvEdit(
+          client.id,
+          client.el.querySelector("[data-or-map-mv-register-key]").value,
+          client.el.querySelector("[data-or-map-mv-register-input]").value,
+        );
+      });
+    }
+    for (const input of client.el.querySelectorAll("[data-lww-map-key], [data-lww-map-input]")) {
+      input.addEventListener("keydown", (event) => {
+        if (event.key !== "Enter") return;
+        event.preventDefault();
+        hasInteracted = true;
+        localLwwMapEdit(
+          client.id,
+          client.el.querySelector("[data-lww-map-key]").value,
+          client.el.querySelector("[data-lww-map-input]").value,
+        );
+      });
+    }
     client.el.querySelector("[data-lww-register-input]").addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
@@ -2339,6 +2627,26 @@ export function initDemo() {
       }
     });
     client.el.addEventListener("click", (event) => {
+      if (event.target.closest("[data-or-map-mv-register-write], [data-or-map-mv-register-resolve], [data-or-map-mv-register-remove]")) {
+        hasInteracted = true;
+        const value = event.target.closest("[data-or-map-mv-register-remove]")
+          ? null
+          : event.target.closest("[data-or-map-mv-register-resolve]")
+            ? selectedOrMapMvValues(client).reverse().join(" + ")
+            : client.el.querySelector("[data-or-map-mv-register-input]").value;
+        localOrMapMvEdit(client.id, client.el.querySelector("[data-or-map-mv-register-key]").value, value);
+        return;
+      }
+      if (event.target.closest("[data-lww-map-write], [data-lww-map-remove]")) {
+        hasInteracted = true;
+        localLwwMapEdit(
+          client.id,
+          client.el.querySelector("[data-lww-map-key]").value,
+          event.target.closest("[data-lww-map-remove]")
+            ? null : client.el.querySelector("[data-lww-map-input]").value,
+        );
+        return;
+      }
       if (event.target.closest("[data-lww-register-write]")) {
         hasInteracted = true;
         localLwwSet(
@@ -2522,6 +2830,8 @@ export function initDemo() {
   }
 
   const RACE_LABELS = {
+    "or-map-mv-register": "Race two gate revisions",
+    "lww-map": "Race two gate settings",
     "lww-register": "Race two equal-time notes",
     "mv-register": "Race two revisions",
     map: "Race a concurrent write",
@@ -2539,6 +2849,8 @@ export function initDemo() {
     pact: "Race two pact proposals",
   };
   const RESET_LABELS = {
+    "or-map-mv-register": "Reload all MV-register OR-maps from the baseline and discard pending edits",
+    "lww-map": "Reload all LWW maps from the baseline and discard pending edits",
     "lww-register": "Reload all LWW registers from the surveyed baseline and discard pending notes",
     "mv-register": "Reload all MV registers from a fresh baseline and discard pending revisions",
     map: "Reset all gauges to their surveyed baseline values",
@@ -2559,6 +2871,12 @@ export function initDemo() {
   function applyActiveView() {
     rig.dataset.dds = activeDds;
     rig.dataset.ormapValueMode = orMapMode;
+    if (orMapViewSelect) {
+      document.querySelector("[data-ormap-view-controls]").hidden =
+        activeDds !== "ormap" && activeDds !== "or-map-mv-register";
+      orMapViewSelect.value = activeDds === "or-map-mv-register" ? activeDds : "ormap";
+    }
+    for (const pick of ddsPicks) pick.checked = pick.value === activeDds;
     const setMode = orMapMode === "set";
     const orMapControls = document.querySelector("[data-ormap-controls]");
     if (orMapControls) orMapControls.hidden = activeDds !== "ormap";
@@ -2575,6 +2893,8 @@ export function initDemo() {
     if (resetBtn) resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
     if (replayBtn) {
       replayBtn.hidden = ![
+        "or-map-mv-register",
+        "lww-map",
         "lww-register",
         "mv-register",
         "gcounter",
@@ -2585,7 +2905,11 @@ export function initDemo() {
         "twopset",
       ].includes(activeDds);
       replayBtn.disabled =
-        activeDds === "lww-register"
+        activeDds === "or-map-mv-register"
+          ? !lastOrMapMv
+        : activeDds === "lww-map"
+          ? !lastLwwMap
+        : activeDds === "lww-register"
           ? !lastLwwRegister
         : activeDds === "mv-register"
           ? !lastMv
@@ -2621,6 +2945,12 @@ export function initDemo() {
     rig,
     prefersReducedMotion: () => reducedMotion.matches,
     duration: controls.paced,
+  });
+
+  orMapViewSelect?.addEventListener("change", () => {
+    hasInteracted = true;
+    activeDds = orMapViewSelect.value;
+    applyActiveView();
   });
 
   orMapModeSelect?.addEventListener("change", () => {
@@ -2659,7 +2989,21 @@ export function initDemo() {
 
   raceBtn.addEventListener("click", () => {
     hasInteracted = true;
-    if (activeDds === "lww-register") {
+    if (activeDds === "or-map-mv-register") {
+      localOrMapMvEdit("a", "gate-mode", "raise crest");
+      localOrMapMvEdit("b", "gate-mode", "arm pump");
+    } else if (activeDds === "lww-map") {
+      // Issued clocks include pending edits and retained tombstones, on every client.
+      const timestamp = Math.max(Date.now(), ...Object.values(clients).map((client) => {
+        const seen = gdict.get(client["lww-map"].last_seen, "gate-mode");
+        return seen.isOk() ? seen[0] + 1 : 1;
+      }));
+      if (!Number.isSafeInteger(timestamp + 1)) throw new Error("LWWMap race clock exhausted");
+      const race = document.querySelector("[data-lww-map-race]").value;
+      localLwwMapEdit("a", "gate-mode", race === "remove-tie" ? null : "open",
+        timestamp + (race === "timestamp" ? 1 : 0));
+      localLwwMapEdit("b", "gate-mode", race === "remove-tie" ? "open" : "closed", timestamp);
+    } else if (activeDds === "lww-register") {
       const timestamp = lwwRaceTimestamp(Date.now(), [
         clients.a["lww-register"],
         clients.b["lww-register"],
@@ -2786,6 +3130,8 @@ export function initDemo() {
   replayBtn.addEventListener("click", () => {
     hasInteracted = true;
     if (
+      (activeDds === "or-map-mv-register" && lastOrMapMv) ||
+      (activeDds === "lww-map" && lastLwwMap) ||
       (activeDds === "lww-register" && lastLwwRegister) ||
       (activeDds === "mv-register" && lastMv) ||
       (activeDds === "ormap" && lastOrMap) ||
@@ -2801,8 +3147,12 @@ export function initDemo() {
 
   resetBtn.addEventListener("click", () => {
     hasInteracted = true;
-    // Reset goes through the sequencer like any other edit.
-    if (activeDds === "lww-register") {
+    // Timestamped structures reload a fresh survey rather than pruning history.
+    if (activeDds === "or-map-mv-register") {
+      resetOrMapMv();
+    } else if (activeDds === "lww-map") {
+      resetLwwMap();
+    } else if (activeDds === "lww-register") {
       resetLwwRegister();
     } else if (activeDds === "mv-register") {
       resetMv();

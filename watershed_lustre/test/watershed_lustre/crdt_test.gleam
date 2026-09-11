@@ -18,6 +18,7 @@
 
 import gleam/javascript/promise.{type Promise}
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/result
 
 import lustre/effect.{type Effect}
@@ -27,6 +28,7 @@ import watershed/crdt_js.{
 }
 import watershed/g_counter_kernel
 import watershed/g_set_kernel
+import watershed/lww_map_kernel as lww_map
 import watershed/lww_register_kernel as lww
 import watershed/or_map_kernel
 import watershed/or_set_kernel
@@ -69,6 +71,170 @@ type SetMapMsg {
   MapSubscribed(Subscription)
   MapChanged(or_map_kernel.OrMapEvent)
   MapOutcome(Result(Nil, P2pError))
+}
+
+type LwwMapMsg {
+  LwwMapSubscribed(Subscription)
+  LwwMapChanged(lww_map.LwwMapEvent)
+  LwwMapOutcome(Result(Nil, P2pError))
+}
+
+type OrMapMsg {
+  OrMapSubscribed(Subscription)
+  OrMapChanged(or_map_kernel.OrMapEvent)
+  OrMapOutcome(Result(Nil, P2pError))
+}
+
+pub fn mv_or_map_effect_defers_mutation_events_and_errors_test() -> Promise(Nil) {
+  let assert Ok(document) =
+    solo_document(p2p.or_map_root(or_map_kernel.MvRegisterMode))
+  let map = crdt_js.root(document)
+  let sink = new_sink()
+  run(crdt.subscribe_or_map(map, OrMapSubscribed, OrMapChanged), sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [OrMapSubscribed(held)] = messages(sink)
+  transport_js.set_cell(sink, [])
+  let write = crdt.or_map_set_mv_register(map, "gate", "open", OrMapOutcome)
+  let assert Ok(Error(Nil)) = crdt_js.or_map_values(map, "gate")
+  run(write, sink)
+  let assert Ok(Ok(["open"])) = crdt_js.or_map_values(map, "gate")
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [
+    OrMapChanged(or_map_kernel.MvRegisterUpdated("gate", ["open"])),
+    OrMapOutcome(Ok(Nil)),
+  ] = messages(sink)
+  let assert Ok(wrong) =
+    crdt_js.create_channel(
+      document,
+      p2p.or_map_root(or_map_kernel.RegisterMode),
+    )
+  transport_js.set_cell(sink, [])
+  run(crdt.or_map_set_mv_register(wrong, "gate", "wrong", OrMapOutcome), sink)
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [OrMapOutcome(Error(p2p.InvalidEnvelope(_, _)))] = messages(sink)
+  let assert Ok([]) = crdt_js.or_map_entries(wrong)
+  crdt_js.unsubscribe(held)
+  promise.resolve(Nil)
+}
+
+pub fn lww_map_effects_are_lazy_and_every_callback_is_deferred_test() -> Promise(
+  Nil,
+) {
+  let assert Ok(document) = solo_document(p2p.lww_map_root())
+  let map = crdt_js.root(document)
+  let sink = new_sink()
+  let calls = transport_js.new_cell(0)
+  let subscription =
+    crdt.subscribe_lww_map(
+      map,
+      fn(held) {
+        transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
+        LwwMapSubscribed(held)
+      },
+      fn(event) {
+        transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
+        LwwMapChanged(event)
+      },
+    )
+  let assert Ok(Nil) = crdt_js.lww_map_set(map, "k", "before")
+  use _ <- promise.await(flush())
+  let assert [] = messages(sink)
+  let assert 0 = transport_js.get_cell(calls)
+  run(subscription, sink)
+  let assert [] = messages(sink)
+  let assert 0 = transport_js.get_cell(calls)
+  use _ <- promise.await(flush())
+  let assert [LwwMapSubscribed(held)] = messages(sink)
+  let assert 1 = transport_js.get_cell(calls)
+  transport_js.set_cell(sink, [])
+  let write =
+    crdt.perform(fn() { crdt_js.lww_map_set(map, "k", "after") }, fn(outcome) {
+      transport_js.set_cell(calls, transport_js.get_cell(calls) + 1)
+      LwwMapOutcome(outcome)
+    })
+  let assert Ok(Ok("before")) = crdt_js.lww_map_get(map, "k")
+  run(write, sink)
+  let assert Ok(Ok("after")) = crdt_js.lww_map_get(map, "k")
+  let assert [] = messages(sink)
+  let assert 1 = transport_js.get_cell(calls)
+  use _ <- promise.await(flush())
+  let assert [
+    LwwMapChanged(lww_map.ValueChanged("k", Some("before"), Some("after"))),
+    LwwMapOutcome(Ok(Nil)),
+  ] = messages(sink)
+  let assert 3 = transport_js.get_cell(calls)
+  transport_js.set_cell(sink, [])
+  let before = crdt_js.digest(document)
+  let remove =
+    crdt.perform(fn() { crdt_js.lww_map_remove(map, "absent") }, LwwMapOutcome)
+  let assert True = before == crdt_js.digest(document)
+  run(remove, sink)
+  let assert True = before != crdt_js.digest(document)
+  run(
+    crdt.perform(fn() { crdt_js.lww_map_set(map, "k", "after") }, LwwMapOutcome),
+    sink,
+  )
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwMapOutcome(Ok(Nil)), LwwMapOutcome(Ok(Nil))] = messages(sink)
+  transport_js.set_cell(sink, [])
+  let cancel = crdt.unsubscribe(held)
+  run(
+    crdt.perform(fn() { crdt_js.lww_map_remove(map, "k") }, LwwMapOutcome),
+    sink,
+  )
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [
+    LwwMapChanged(lww_map.ValueChanged("k", Some("after"), None)),
+    LwwMapOutcome(Ok(Nil)),
+  ] = messages(sink)
+  transport_js.set_cell(sink, [])
+  run(cancel, sink)
+  run(
+    crdt.perform(
+      fn() { crdt_js.lww_map_set(map, "k", "unsubscribed") },
+      LwwMapOutcome,
+    ),
+    sink,
+  )
+  let assert [] = messages(sink)
+  use _ <- promise.await(flush())
+  let assert [LwwMapOutcome(Ok(Nil))] = messages(sink)
+  promise.resolve(Nil)
+}
+
+pub fn lww_map_mutation_error_callbacks_are_deferred_test() -> Promise(Nil) {
+  let assert Ok(document) = solo_document(p2p.lww_map_root())
+  let lifecycle = new_sink()
+  attached(document, lifecycle)
+  use _ <- promise.await(flush())
+  run(crdt.close(find_connection(messages(lifecycle))), lifecycle)
+  let map = crdt_js.root(document)
+  let sink = new_sink()
+  let callbacks = transport_js.new_cell(0)
+  let outcome = fn(value) {
+    transport_js.set_cell(callbacks, transport_js.get_cell(callbacks) + 1)
+    LwwMapOutcome(value)
+  }
+  let write =
+    crdt.perform(fn() { crdt_js.lww_map_set(map, "k", "refused") }, outcome)
+  let remove = crdt.perform(fn() { crdt_js.lww_map_remove(map, "k") }, outcome)
+  let assert 0 = transport_js.get_cell(callbacks)
+  run(write, sink)
+  run(remove, sink)
+  let assert [] = messages(sink)
+  let assert 0 = transport_js.get_cell(callbacks)
+  use _ <- promise.await(flush())
+  let assert [
+    LwwMapOutcome(Error(p2p.DocumentClosed)),
+    LwwMapOutcome(Error(p2p.DocumentClosed)),
+  ] = messages(sink)
+  let assert 2 = transport_js.get_cell(callbacks)
+  promise.resolve(Nil)
 }
 
 // ── Harness ──────────────────────────────────────────────────────────────────
@@ -534,6 +700,7 @@ pub fn set_map_crdt_effects_are_lazy_and_members_are_sorted_test() -> Promise(
     )
   let assert Ok(Ok(or_map_kernel.SetMembers(["draft"]))) =
     crdt_js.or_map_value(map, "doc")
+  let assert Ok(Error(Nil)) = crdt_js.or_map_values(map, "doc")
   let assert [] = messages(sink)
   run(add, sink)
   let assert Ok(Ok(or_map_kernel.SetMembers(["approved", "draft"]))) =

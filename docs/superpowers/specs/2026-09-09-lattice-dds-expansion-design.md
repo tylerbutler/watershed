@@ -1,6 +1,13 @@
 # GCounter, LWWRegister, and LWWMap DDS Design
 
-**Status:** Draft for review. This document authorizes no implementation.
+**Status:** Approved for implementation. LWWMap release is blocked by the
+cross-target Unicode tie discrepancy recorded in its
+[implementation plan](../plans/2026-09-09-lww-map-dds.md).
+
+**Scope update (2026-09-10):** LWWMap delivery includes website integration,
+a demo in the maps family, and a comparison with SharedMap. This extends
+the original library-only scope for LWWMap; it does not reopen the shipped
+GCounter or LWWRegister plans.
 
 ## Goal and scope
 
@@ -66,7 +73,8 @@ these three DDSs could ship.
 - Keep register values and map keys/values as `String` in this release.
 - Do not expose LWW-map tombstone pruning or accept pruned map states.
 - Keep new mutation errors observable through `Result`; do not use fire-and-forget APIs for fallible edits.
-- Do not change website copy in these implementation plans.
+- Include LWWMap website copy and its shared maps-family demo as specified
+  below. Keep unrelated website copy and the other two plans unchanged.
 
 ### LWW-map dependency contract
 
@@ -75,9 +83,13 @@ comments describe a left-biased tie rule, but `choose_winner` uses a
 deterministic rule: tombstones beat values; between two values, the
 lexicographically greater string wins. The published
 [`lattice_maps-v1.1.0` source](https://github.com/tylerbutler/lattice/blob/lattice_maps-v1.1.0/packages/lattice_maps/src/lattice_maps/lww_map.gleam)
-confirms that implementation. No dependency upgrade is required.
-Add focused equal-timestamp regression tests rather than relying on the
-stale comments. Do not reproduce Lattice's merge algorithm in Watershed.
+confirms that implementation. However, the value comparison is not
+target-independent for all Unicode strings: equal-time U+E000/U+10000
+writes select different winners on JavaScript and Erlang. The published
+1.1.2 release also retains this defect. Add focused equal-timestamp
+regressions, including this pair with one common expected winner on both
+targets. A corrected upstream release is required before shipping under
+this design. Do not reproduce Lattice's merge algorithm in Watershed.
 
 LWW-map has no native `set_with_delta` API in that release. Produce a
 single-key fragment with `set(new(), ...)` or `remove(new(), ...)`, then
@@ -214,6 +226,45 @@ protocol for pruning. Never reduce a digest to visible map entries.
 Cover metadata-only changes in anti-entropy and persistence tests. A
 silent subscription does not imply unchanged replicated state.
 
+## LWWMap website integration
+
+Add LWWMap beside SharedMap and OR-map on `/structures/maps`, using the
+existing three-client `Demo.astro` rig and compiled Watershed kernel.
+Register `lww-map` in the structure catalog and demo picker. Include its
+homepage field sheet and update the maps-family introduction, merge-rule
+caption, and field notes. Keep the homepage's live SharedMap demo focused
+on SharedMap. No standalone demo page or new demo framework is required.
+
+Show string edits, key removal and restoration, pending and confirmed
+entries, and the winning per-key timestamps and tombstones. Use the
+existing race, replay, delay/jitter, cut-link, and reset controls. Label the
+rig as an in-page sequenced demonstration of a CRDT kernel, not as a live
+mesh connection.
+
+The default race must demonstrate a higher-timestamp write winning even
+though the sequencer stamps it before a lower-timestamp write. Also offer
+equal-time set/set and remove/set races: the lexicographically greater
+string wins the former; the tombstone wins the latter. Replaying the
+losing write must not restore a deleted key. A new write after observing
+the tombstone must restore it with a higher timestamp. Browser coverage
+must exercise these interactions, view switching, reconnect, and reset
+with queued operations.
+
+Explain what "last" means for each map: SharedMap uses server sequence
+order; LWWMap uses per-key timestamps and deterministic ties, independent
+of delivery order. Compare JSON values with strings, set/delete/clear
+with set/remove, insertion order with sorted keys, and visible-entry
+summaries with retained timestamp/tombstone metadata. Explain clock skew
+and the per-key logical clock; do not promise that wall-clock timestamps
+identify the last human action.
+
+Both maps choose a whole value for a conflicting key. LWWMap does not
+preserve concurrent alternatives or merge fields inside a value. Its
+equal-time remove-wins rule differs from OR-map's observed-remove
+add-wins rule, and its value-based tie differs from LWWRegister's
+replica-ID tie. Keep these distinctions in the website copy and README.
+The LWWMap plan's website task defines the comparison and acceptance cases.
+
 ## OR-map composition: what is missing
 
 The restriction is in Watershed's adapter, not a missing transport.
@@ -291,6 +342,8 @@ abstraction.
 Implement GCounter first to establish the registration pattern, then
 LWWRegister and its clock helper, then LWWMap.
 Each plan includes its own complete integration and regression coverage.
+LWWMap also requires the maps-family demo and comparison above before it
+can be marked shipped.
 
 - [GCounter plan](../plans/2026-09-09-g-counter-dds.md)
 - [LWWRegister plan](../plans/2026-09-09-lww-register-dds.md)

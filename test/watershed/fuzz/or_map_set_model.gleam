@@ -322,8 +322,9 @@ fn delta(operation: kernel.OrMapOperation) -> ORMapDelta {
     kernel.AddMember(_, _, delta)
     | kernel.RemoveMember(_, _, delta)
     | kernel.Remove(_, delta) -> delta
-    kernel.Increment(_, _, _) | kernel.SetRegister(_, _, _, _) ->
-      panic as "Unexpected non-set operation."
+    kernel.Increment(_, _, _)
+    | kernel.SetRegister(_, _, _, _)
+    | kernel.SetMvRegister(_, _, _) -> panic as "Unexpected non-set operation."
   }
 }
 

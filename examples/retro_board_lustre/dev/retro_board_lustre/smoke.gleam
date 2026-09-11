@@ -290,7 +290,9 @@ fn add_card(
 fn tally(votes: OrMap, id: String) -> Int {
   case watershed.or_map_value(votes, id) {
     Ok(or_map_kernel.Tally(count)) -> count
-    _ -> 0
+    Error(_) -> 0
+    Ok(or_map_kernel.Register(_)) -> 0
+    Ok(or_map_kernel.MvRegister(_)) -> 0
   }
 }
 

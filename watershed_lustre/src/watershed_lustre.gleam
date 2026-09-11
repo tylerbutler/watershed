@@ -27,9 +27,9 @@
 //// watershed_lustre.subscribe(watershed.root(document), fn(_) { MapChanged })
 //// ```
 ////
-//// The edits and the reads stay on `watershed`, which has `set`, `get`,
-//// `entries`, and the other functions. This package wraps the callback-shaped
-//// surface only. JavaScript target only.
+//// Read live values through `watershed`. Most edits also use that module.
+//// `or_map_set_mv_register` provides an effect for an MV-register OR-map write.
+//// JavaScript target only.
 ////
 //// For string-set OR-maps, use `ensure_or_map` with `OrSetMode` and the
 //// existing `subscribe_or_map`. Defer fallible edits with the generic
@@ -61,7 +61,7 @@ import watershed/presence_js
 import watershed/summary_policy
 
 import watershed.{
-  type Claims, type Document, type GCounter, type GSet, type JsonOt,
+  type Claims, type Document, type GCounter, type GSet, type JsonOt, type LwwMap,
   type LwwRegister, type MvRegister, type OrMap, type OrSet,
   type OrderedCollection, type PactMap, type PnCounter, type RegisterCollection,
   type Ripple, type SharedCounter, type SharedDirectory, type SharedMap,
@@ -75,6 +75,7 @@ import watershed/directory_kernel
 import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/json_ot_kernel
+import watershed/lww_map_kernel
 import watershed/lww_register_kernel
 import watershed/map_kernel
 import watershed/mv_register_kernel
@@ -226,6 +227,17 @@ pub fn subscribe_or_map(
   Nil
 }
 
+/// Replace observed alternatives when Lustre performs the effect.
+/// A subscription delivers the resulting event in a microtask.
+pub fn or_map_set_mv_register(
+  or_map: OrMap,
+  key: String,
+  value: String,
+) -> Effect(msg) {
+  use _dispatch <- effect.from
+  watershed.or_map_set_mv_register(or_map, key, value)
+}
+
 /// Subscribe to an OR-set channel.
 pub fn subscribe_or_set(
   or_set: OrSet,
@@ -263,6 +275,19 @@ pub fn subscribe_two_p_set(
   use dispatch <- effect.from
   let _ =
     watershed.subscribe_two_p_set(two_p_set, fn(event) {
+      queue_microtask(fn() { dispatch(to_msg(event)) })
+    })
+  Nil
+}
+
+/// Subscribe to visible map changes. Metadata-only edits emit no event.
+pub fn subscribe_lww_map(
+  map: LwwMap,
+  to_msg to_msg: fn(lww_map_kernel.LwwMapEvent) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  let _ =
+    watershed.subscribe_lww_map(map, fn(event) {
       queue_microtask(fn() { dispatch(to_msg(event)) })
     })
   Nil
@@ -774,6 +799,19 @@ pub fn ensure_g_counter(
 ) -> Effect(msg) {
   use dispatch <- effect.from
   watershed.ensure_g_counter(document, typed_map, field, fn(result) {
+    queue_microtask(fn() { dispatch(to_msg(result)) })
+  })
+}
+
+/// Adopt or create an LWW map when the effect runs.
+pub fn ensure_lww_map(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+  to_msg to_msg: fn(Result(LwwMap, String)) -> msg,
+) -> Effect(msg) {
+  use dispatch <- effect.from
+  watershed.ensure_lww_map(document, typed_map, field, fn(result) {
     queue_microtask(fn() { dispatch(to_msg(result)) })
   })
 }

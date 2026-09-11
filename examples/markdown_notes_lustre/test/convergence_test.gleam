@@ -119,7 +119,10 @@ fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
         )
       tags
     }
-    _ -> {
+    Error(_)
+    | Ok(Error(Nil))
+    | Ok(Ok(or_map_kernel.Tally(_)))
+    | Ok(Ok(or_map_kernel.MvRegister(_))) -> {
       let assert Ok(tags) =
         crdt_js.create_channel(document, document_schema.tags_kind())
       let assert Ok(Nil) =
@@ -143,7 +146,10 @@ fn bootstrap(document: CrdtDocument(OrMapChannel)) -> Channels {
         )
       order
     }
-    _ -> {
+    Error(_)
+    | Ok(Error(Nil))
+    | Ok(Ok(or_map_kernel.Tally(_)))
+    | Ok(Ok(or_map_kernel.MvRegister(_))) -> {
       let assert Ok(order) =
         crdt_js.create_channel(document, document_schema.order_kind())
       let assert Ok(Nil) =
@@ -228,6 +234,7 @@ fn note_names_unsorted(channels: Channels) -> List(String) {
       True, _ -> Error(Nil)
       False, or_map_kernel.Register(_) -> Ok(entry.0)
       False, or_map_kernel.Tally(_) -> Error(Nil)
+      False, or_map_kernel.MvRegister(_) -> Error(Nil)
     }
   })
 }

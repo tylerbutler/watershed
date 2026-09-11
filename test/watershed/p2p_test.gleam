@@ -15,6 +15,9 @@ fn channel_cases() -> List(#(channel.ChannelType, Bool)) {
     #(channel.MapChannel, False),
     #(channel.CounterChannel, False),
     #(channel.PnCounterChannel, True),
+    #(channel.GCounterChannel, True),
+    #(channel.LwwRegisterChannel, True),
+    #(channel.LwwMapChannel, True),
     #(channel.MvRegisterChannel, True),
     #(channel.OrMapChannel, True),
     #(channel.OrSetChannel, True),
@@ -47,8 +50,14 @@ fn unsupported_types() -> List(channel.ChannelType) {
 fn supported_inits() -> List(channel.ChannelInit) {
   [
     channel.InitPnCounter,
+    channel.InitGCounter,
+    channel.InitLwwRegister,
+    channel.InitLwwMap,
     channel.InitMvRegister,
+    channel.InitOrMap(or_map_kernel.TallyMode),
     channel.InitOrMap(or_map_kernel.RegisterMode),
+    channel.InitOrMap(or_map_kernel.OrSetMode),
+    channel.InitOrMap(or_map_kernel.MvRegisterMode),
     channel.InitOrSet,
     channel.InitGSet,
     channel.InitTwoPSet,
@@ -58,6 +67,11 @@ fn supported_inits() -> List(channel.ChannelInit) {
 }
 
 pub fn every_channel_has_an_explicit_p2p_eligibility_test() -> Nil {
+  channel_cases() |> list.length |> expect.to_equal(21)
+  channel_cases()
+  |> list.filter(fn(entry) { entry.1 })
+  |> list.length
+  |> expect.to_equal(11)
   channel_cases()
   |> list.each(fn(entry) {
     let #(channel_type, supported) = entry
@@ -68,8 +82,14 @@ pub fn every_channel_has_an_explicit_p2p_eligibility_test() -> Nil {
 pub fn typed_root_constructors_cover_every_eligible_kind_test() -> Nil {
   [
     p2p.pn_counter_root() |> p2p.kind_type,
+    p2p.g_counter_root() |> p2p.kind_type,
+    p2p.lww_register_root() |> p2p.kind_type,
+    p2p.lww_map_root() |> p2p.kind_type,
     p2p.mv_register_root() |> p2p.kind_type,
+    p2p.or_map_root(or_map_kernel.TallyMode) |> p2p.kind_type,
     p2p.or_map_root(or_map_kernel.RegisterMode) |> p2p.kind_type,
+    p2p.or_map_root(or_map_kernel.OrSetMode) |> p2p.kind_type,
+    p2p.or_map_root(or_map_kernel.MvRegisterMode) |> p2p.kind_type,
     p2p.or_set_root() |> p2p.kind_type,
     p2p.g_set_root() |> p2p.kind_type,
     p2p.two_p_set_root() |> p2p.kind_type,
@@ -78,7 +98,13 @@ pub fn typed_root_constructors_cover_every_eligible_kind_test() -> Nil {
   ]
   |> expect.to_equal([
     channel.PnCounterChannel,
+    channel.GCounterChannel,
+    channel.LwwRegisterChannel,
+    channel.LwwMapChannel,
     channel.MvRegisterChannel,
+    channel.OrMapChannel,
+    channel.OrMapChannel,
+    channel.OrMapChannel,
     channel.OrMapChannel,
     channel.OrSetChannel,
     channel.GSetChannel,

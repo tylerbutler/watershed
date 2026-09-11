@@ -14,6 +14,7 @@ import * as gCounter from "../../../../build/dev/javascript/lattice_counters/lat
 import { lwwRaceTimestamp } from "./lww-register.js";
 import * as orMap from "../../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as sharedMap from "../../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
+import * as lwwMapKernel from "../../../../build/dev/javascript/watershed/watershed/lww_map_kernel.mjs";
 
 const ok = (result) => {
   assert.ok(result.isOk(), `Kernel returned ${result[0]?.constructor.name}`);
@@ -82,6 +83,40 @@ test("ORMap member deltas union where SharedMap arrays replace in the same strea
   assert.equal(events.toArray().length, 0);
   sets[0] = ok(orMap.ack_local_with_message_id(next, noop, id));
   assert.equal(orMap.get(sets[0], "missing").isOk(), false);
+});
+
+test("LWWMap uses timestamps while SharedMap uses stream order", () => {
+  const newer = lwwMapKernel.p2p_set(
+    lwwMapKernel.new$(replica.new$("a")), "gate-mode", "open", 1_001,
+  );
+  const older = lwwMapKernel.p2p_set(
+    lwwMapKernel.new$(replica.new$("b")), "gate-mode", "closed", 1_000,
+  );
+  assert.ok(newer.isOk());
+  assert.ok(older.isOk());
+  const writes = [
+    [newer[0][2], new sharedMap.Set("gate-mode", json.string("open"))],
+    [older[0][2], new sharedMap.Set("gate-mode", json.string("closed"))],
+  ];
+  for (const order of [writes, [...writes].reverse()]) {
+    let lww = lwwMapKernel.new$(replica.new$("observer"));
+    let shared = sharedMap.new$();
+    for (const [fragment, operation] of order) {
+      const applied = lwwMapKernel.apply_remote(lww, fragment);
+      assert.ok(applied.isOk());
+      [lww] = applied[0];
+      [shared] = sharedMap.apply_remote(shared, operation);
+    }
+    assert.equal(lwwMapKernel.get(lww, "gate-mode")[0], "open");
+    assert.equal(
+      json.to_string(sharedMap.get(shared, "gate-mode")[0]),
+      json.to_string(order.at(-1)[1].value),
+    );
+    const before = json.to_string(lwwMapKernel.summary(lww));
+    const replayed = lwwMapKernel.apply_remote(lww, older[0][2]);
+    assert.ok(replayed.isOk());
+    assert.equal(json.to_string(lwwMapKernel.summary(replayed[0][0])), before);
+  }
 });
 
 test("MV revision slate loads a baseline under independent writers", () => {

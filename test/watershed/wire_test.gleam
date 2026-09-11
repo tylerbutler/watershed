@@ -27,6 +27,7 @@ import spillway/types
 
 import lattice_core/replica_id
 import lattice_core/version_vector
+import lattice_maps/lww_map
 import lattice_maps/or_map
 import lattice_registers/lww_register
 import lattice_sequence/sequence
@@ -35,6 +36,7 @@ import watershed/channel
 import watershed/claims_kernel
 import watershed/counter_kernel
 import watershed/g_counter_kernel
+import watershed/lww_map_kernel
 import watershed/lww_register_kernel
 import watershed/map_kernel.{Clear, Delete, Set}
 import watershed/or_map_kernel
@@ -377,6 +379,92 @@ fn lww_write_json(
     #("delta", delta),
   ])
   |> json.to_string
+}
+
+pub fn lww_map_wire_round_trips_and_rejects_mismatched_fragments_test() -> Nil {
+  let set =
+    lww_map_kernel.Set("k", "", 10, lww_map.set(lww_map.new(), "k", "", 10))
+  let remove =
+    lww_map_kernel.Remove("k", 11, lww_map.remove(lww_map.new(), "k", 11))
+  [#(set, "lwwMapSet"), #(remove, "lwwMapRemove")]
+  |> list.each(fn(pair) {
+    let encoded =
+      wire_op.encode_lww_map_envelope("map", pair.0) |> json.to_string
+    json.parse(encoded, wire_op.lww_map_envelope_decoder())
+    |> expect.to_equal(Ok(#("map", pair.0)))
+    json.parse(
+      wire_op.encode_lww_map_operation(pair.0) |> json.to_string,
+      decode.field("type", decode.string, decode.success),
+    )
+    |> expect.to_equal(Ok(pair.1))
+  })
+  [
+    lww_map_kernel.Set("wrong", "", 10, lww_map.set(lww_map.new(), "k", "", 10)),
+    lww_map_kernel.Set(
+      "k",
+      "wrong",
+      10,
+      lww_map.set(lww_map.new(), "k", "", 10),
+    ),
+    lww_map_kernel.Set("k", "", 11, lww_map.set(lww_map.new(), "k", "", 10)),
+    lww_map_kernel.Set("k", "", 10, lww_map.remove(lww_map.new(), "k", 10)),
+    lww_map_kernel.Remove("k", 10, lww_map.set(lww_map.new(), "k", "", 10)),
+    lww_map_kernel.Remove("k", 10, lww_map.new()),
+    lww_map_kernel.Remove(
+      "k",
+      10,
+      lww_map.remove(lww_map.new(), "k", 10) |> lww_map.remove("extra", 10),
+    ),
+  ]
+  |> list.each(fn(operation) {
+    let assert Error(_) =
+      json.parse(
+        wire_op.encode_lww_map_operation(operation) |> json.to_string,
+        wire_op.lww_map_operation_decoder(),
+      )
+    Nil
+  })
+  let valid =
+    "{\"type\":\"lww_map\",\"v\":2,\"state\":{\"entries\":[{\"key\":\"k\",\"value\":null,\"timestamp\":10}],\"pruned_timestamp\":0}}"
+  [
+    "not json",
+    string.replace(valid, "\"v\":2", "\"v\":3"),
+    string.replace(valid, "lww_map", "or_map"),
+    string.replace(valid, "\"timestamp\":10", "\"timestamp\":0"),
+    string.replace(valid, "\"timestamp\":10", "\"timestamp\":9007199254740992"),
+    string.replace(valid, "\"timestamp\":10", "\"timestamp\":1.5"),
+    string.replace(valid, "\"value\":null", "\"value\":42"),
+    string.replace(valid, "\"pruned_timestamp\":0", "\"pruned_timestamp\":1"),
+    string.replace(valid, "\"v\":2", "\"v\":1")
+      |> string.replace("\"pruned_timestamp\":0", "\"pruned_timestamp\":1"),
+    string.replace(valid, "\"pruned_timestamp\":0", "\"pruned_timestamp\":null"),
+    string.replace(
+      valid,
+      "{\"key\":\"k\",\"value\":null,\"timestamp\":10}",
+      "{\"key\":\"k\",\"value\":null,\"timestamp\":10},{\"key\":\"k\",\"value\":\"v\",\"timestamp\":11}",
+    ),
+  ]
+  |> list.each(fn(delta) {
+    let raw =
+      json.object([
+        #("type", json.string("lwwMapRemove")),
+        #("key", json.string("k")),
+        #("timestamp", json.int(10)),
+        #("delta", json.string(delta)),
+      ])
+      |> json.to_string
+    let assert Error(_) = json.parse(raw, wire_op.lww_map_operation_decoder())
+    let assert Error(_) =
+      json.parse(delta, channel.snapshot_decoder(channel.LwwMapChannel))
+    Nil
+  })
+  let encoded = wire_op.encode_lww_map_operation(set) |> json.to_string
+  let assert Error(_) =
+    json.parse(
+      string.replace(encoded, "lwwMapSet", "set"),
+      wire_op.lww_map_operation_decoder(),
+    )
+  Nil
 }
 
 fn test_client() -> types.Client {
@@ -1825,6 +1913,153 @@ pub fn or_map_increment_operation_round_trip_test() -> Nil {
 
 pub fn or_map_register_operation_round_trip_test() -> Nil {
   round_trip_or_map_operation(sample_register_operation())
+}
+
+fn sample_mv_or_map_operation() -> or_map_kernel.OrMapOperation {
+  let assert Ok(#(_, _, operation, _)) =
+    or_map_kernel.set_mv_register(
+      or_map_kernel.new(replica_id.new("writer"), or_map_kernel.MvRegisterMode),
+      "gate",
+      "open",
+    )
+  operation
+}
+
+pub fn or_map_mv_register_operation_round_trip_test() -> Nil {
+  let operation = sample_mv_or_map_operation()
+  round_trip_or_map_operation(operation)
+  json.parse(
+    wire_op.encode_or_map_operation(operation) |> json.to_string,
+    decode.field("type", decode.string, decode.success),
+  )
+  |> expect.to_equal(Ok("orMapSetMvRegister"))
+}
+
+fn mv_or_map_write(key: String, value: json.Json, delta: String) -> String {
+  json.object([
+    #("type", json.string("orMapSetMvRegister")),
+    #("key", json.string(key)),
+    #("value", value),
+    #("delta", json.string(delta)),
+  ])
+  |> json.to_string
+}
+
+pub fn or_map_mv_register_rejects_mismatched_intent_test() -> Nil {
+  let assert or_map_kernel.SetMvRegister(_, _, delta) =
+    sample_mv_or_map_operation()
+  let encoded = or_map.delta_to_json(delta) |> json.to_string
+  let assert or_map_kernel.Increment(_, _, tally_delta) =
+    sample_tally_operation()
+  [
+    mv_or_map_write("gate", json.int(7), encoded),
+    mv_or_map_write("other", json.string("open"), encoded),
+    mv_or_map_write("gate", json.string("closed"), encoded),
+    mv_or_map_write(
+      "gate",
+      json.string("open"),
+      or_map.delta_to_json(tally_delta) |> json.to_string,
+    ),
+  ]
+  |> list.each(fn(raw) {
+    json.parse(raw, wire_op.or_map_operation_decoder())
+    |> result.is_error
+    |> expect.to_be_true()
+  })
+}
+
+pub fn or_map_mv_register_intent_rejects_hidden_changes_test() -> Nil {
+  let assert or_map_kernel.SetMvRegister(_, _, delta) =
+    sample_mv_or_map_operation()
+  let encoded = or_map.delta_to_json(delta) |> json.to_string
+  let assert Ok([leaf]) =
+    json.parse(
+      encoded,
+      decode.at(
+        ["state", "value_deltas"],
+        decode.list(decode.field("crdt", decode.string, decode.success)),
+      ),
+    )
+  list.each(["gate", "hidden"], fn(key) {
+    let extra =
+      json.object([#("key", json.string(key)), #("crdt", json.string(leaf))])
+      |> json.to_string
+    let forged =
+      string.replace(
+        encoded,
+        "\"value_deltas\":[",
+        "\"value_deltas\":[" <> extra <> ",",
+      )
+    json.parse(
+      mv_or_map_write("gate", json.string("open"), forged),
+      wire_op.or_map_operation_decoder(),
+    )
+    |> result.is_error
+    |> expect.to_be_true()
+  })
+  let assert Ok(#(other, _, _)) =
+    or_map_kernel.p2p_set_mv_register(
+      or_map_kernel.new(replica_id.new("other"), or_map_kernel.MvRegisterMode),
+      "hidden",
+      "value",
+    )
+  let assert Ok(#(_, _, or_map_kernel.Remove(_, removed))) =
+    or_map_kernel.p2p_remove(other, "hidden")
+  let assert Ok(forged) = or_map.merge_deltas(delta, removed)
+  json.parse(
+    mv_or_map_write(
+      "gate",
+      json.string("open"),
+      or_map.delta_to_json(forged) |> json.to_string,
+    ),
+    wire_op.or_map_operation_decoder(),
+  )
+  |> result.is_error
+  |> expect.to_be_true()
+}
+
+pub fn or_map_mv_register_rejects_corrupt_nested_causal_state_test() -> Nil {
+  let assert or_map_kernel.SetMvRegister(_, _, delta) =
+    sample_mv_or_map_operation()
+  let encoded = or_map.delta_to_json(delta) |> json.to_string
+  let assert Ok([leaf]) =
+    json.parse(
+      encoded,
+      decode.at(
+        ["state", "value_deltas"],
+        decode.list(decode.field("crdt", decode.string, decode.success)),
+      ),
+    )
+  let entry = "{\"tag\":{\"r\":\"writer\",\"c\":1},\"value\":\"open\"}"
+  [
+    string.replace(leaf, entry, entry <> "," <> entry),
+    string.replace(leaf, "\"writer\":1", "\"writer\":-1"),
+  ]
+  |> list.each(fn(corrupt) {
+    { corrupt == leaf } |> expect.to_be_false()
+    let corrupt_delta =
+      string.replace(
+        encoded,
+        json.string(leaf) |> json.to_string,
+        json.string(corrupt) |> json.to_string,
+      )
+    json.parse(
+      mv_or_map_write("gate", json.string("open"), corrupt_delta),
+      wire_op.or_map_operation_decoder(),
+    )
+    |> result.is_error
+    |> expect.to_be_true()
+    let snapshot =
+      corrupt_delta
+      |> string.replace("or_map_delta", "or_map")
+      |> string.replace("\"v\":1", "\"v\":2")
+      |> string.replace("key_set_delta", "key_set")
+      |> string.replace("value_deltas", "values")
+      |> string.replace("remove_bounds_delta", "remove_bounds")
+    json.parse(snapshot, channel.snapshot_decoder(channel.OrMapChannel))
+    |> result.is_error
+    |> expect.to_be_true()
+  })
 }
 
 pub fn or_map_remove_operation_round_trip_test() -> Nil {

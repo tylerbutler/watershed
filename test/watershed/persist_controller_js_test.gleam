@@ -7,10 +7,16 @@
 //// JavaScript target only.
 
 @target(javascript)
+import gleam/json
+@target(javascript)
 import gleam/list
 @target(javascript)
 import startest/expect
 
+@target(javascript)
+import watershed/channel
+@target(javascript)
+import watershed/crdt_core
 @target(javascript)
 import watershed/crdt_js.{type Config, type CrdtDocument}
 @target(javascript)
@@ -29,6 +35,8 @@ import watershed/relay_fake
 import watershed/schema.{type GSetChannel}
 @target(javascript)
 import watershed/transport_js
+@target(javascript)
+import watershed/wire
 
 const room = "persist-controller-room"
 
@@ -283,4 +291,53 @@ pub fn pagehide_during_an_active_save_skips_a_redundant_followup_test() -> Nil {
   attempts(deferred) |> expect.to_equal([["only"]])
   pending_count(deferred) |> expect.to_equal(0)
   statuses(harness) |> expect.to_equal(["saving", "saved"])
+}
+
+@target(javascript)
+pub fn lww_map_metadata_only_remote_merge_is_saved_by_digest_sweep_test() -> Nil {
+  let document = new_document()
+  let assert Ok(source) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: compatibility,
+      replica: "source",
+      session: "source-session",
+      root: channel.InitGSet,
+    ))
+  let assert Ok(#(source, created)) =
+    crdt_core.create_channel(source, channel.InitLwwMap)
+  let assert [descriptor] = created.created
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      source,
+      descriptor.address,
+      channel.LwwMapRemoveEdit("gone", 100),
+    )
+  let assert Ok(snapshot) =
+    json.parse(crdt_core.canonical_json(source), wire.json_value_decoder())
+  let assert Ok(_) = crdt_js.merge_snapshot(document, snapshot)
+  let deferred = deferred_save()
+  let harness = start_harness(document, deferred)
+  relay_fake.advance(harness.clock, 500)
+  release_saved(deferred)
+  let before = crdt_js.digest(document)
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      source,
+      descriptor.address,
+      channel.LwwMapRemoveEdit("gone", 200),
+    )
+  let assert Ok(snapshot) =
+    json.parse(crdt_core.canonical_json(source), wire.json_value_decoder())
+  let assert Ok(outcome) = crdt_js.merge_snapshot(document, snapshot)
+  outcome.events |> expect.to_equal([])
+  crdt_js.digest(document) |> expect.to_not_equal(before)
+  // No event calls `changed`; the periodic digest sweep must find this edit.
+  relay_fake.advance(harness.clock, 5000)
+  attempts(deferred) |> expect.to_equal([[], []])
+  let DeferredSave(pending:, ..) = deferred
+  let assert [Pending(digest:, ..)] = transport_js.get_cell(pending)
+  digest |> expect.to_equal(crdt_js.digest(document))
+  release_saved(deferred)
+  persist_controller_js.stop(harness.controller)
 }

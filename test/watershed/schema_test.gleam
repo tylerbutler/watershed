@@ -98,6 +98,12 @@ pub fn set_map_reuses_or_map_schema_and_root_kind_test() -> Nil {
   |> expect.to_equal(Ok(or_map_kernel.SetMembers(["draft"])))
 }
 
+pub fn lww_map_channel_field_test() -> Nil {
+  let field: schema.ChannelField(Player, schema.LwwMapChannel) =
+    schema.channel_field("settings")
+  schema.channel_field_key(field) |> expect.to_equal("settings")
+}
+
 pub fn pact_map_channel_field_test() -> Nil {
   let config: schema.ChannelField(Player, schema.PactMapChannel) =
     schema.channel_field("config")

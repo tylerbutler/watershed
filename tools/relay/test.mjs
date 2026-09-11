@@ -80,9 +80,11 @@ main().then(
 );
 
 async function main() {
+  await mvOrMapLifecycle();
   await lifecycle();
   await lwwLifecycle();
   await setMapLifecycle();
+  await lwwMapLifecycle();
   await socketLayer();
   await tornLogs();
   await corruptLogs();
@@ -102,6 +104,80 @@ async function main() {
 }
 
 // ── the gate ────────────────────────────────────────────────────────────────
+
+async function mvOrMapLifecycle() {
+  const room = "mv-or-map-revisions";
+  const dataDir = tempDir();
+  const signaling = startSignalingServer({});
+  await signaling.listening;
+  const signalingUrl = "ws://127.0.0.1:" + signaling.port() + "/";
+  const world = harness.new_harness();
+  const pump = pumping(world);
+  const relayPort = await freePort();
+  const relayUrl = "ws://127.0.0.1:" + relayPort + "/";
+  const clients = [];
+  let relay;
+  try {
+    const a = harness.start(world, "auto", room, "a", signalingUrl, relayUrl);
+    const b = harness.start(world, "auto", room, "b", signalingUrl, relayUrl);
+    clients.push(a, b);
+    await until(() => clients.every((client) =>
+      harness.readiness(client).toArray().length === 1 &&
+      harness.peer_count(client) === 1), "MV ORMap: peers join without a relay");
+    const address = harness.create_mv_or_map(a);
+    await until(() => JSON.parse(harness.snapshot(b)).channels.some((entry) =>
+      entry.descriptor.address === address), "MV ORMap: channel reaches the peer");
+    const values = (client) => harness.mv_or_map_values(client, address, "gate");
+    is(harness.mv_or_map_set(a, address, "gate", "open"), "", "MV ORMap: first write");
+    is(harness.mv_or_map_set(b, address, "gate", "closed"), "", "MV ORMap: concurrent write");
+    await until(() => clients.every((client) => values(client) === '["closed","open"]'),
+      "MV ORMap: concurrent values survive");
+    const unresolved = harness.snapshot(b);
+    const unresolvedDigest = harness.digest(a);
+    relay = startRelayServer({ dataDir, port: relayPort });
+    await relay.listening;
+    await until(() => clients.every(harness.is_primary) &&
+      relay.attested(room) === unresolvedDigest,
+      "MV ORMap: attachment checkpoints unresolved alternatives", 20_000);
+    is(harness.mv_or_map_set(a, address, "gate", "open"), "", "MV ORMap: resolve");
+    await until(() => clients.every((client) => values(client) === '["open"]') &&
+      relay.logSize(room) >= 2, "MV ORMap: resolution is durable");
+    const resolvedDigest = harness.digest(a);
+    await relay.close();
+    await until(() => clients.every((client) => harness.path(client) === "p2p"),
+      "MV ORMap: outage returns to the mesh");
+    is(harness.mv_or_map_set(b, address, "gate", "outage"), "", "MV ORMap: outage write");
+    await until(() => clients.every((client) => values(client) === '["outage"]'),
+      "MV ORMap: outage edit converges");
+    relay = startRelayServer({ dataDir, port: relayPort });
+    await relay.listening;
+    await until(() => clients.every(harness.is_primary) &&
+      relay.attested(room) === harness.digest(a),
+      "MV ORMap: restart reconciles outage history", 20_000);
+    is(harness.digest(a) !== resolvedDigest, true, "MV ORMap: resolution advances causal state");
+    const late = harness.start(world, "sequencedOnly", room, "late", signalingUrl, relayUrl);
+    clients.push(late);
+    await until(() => harness.readiness(late).toArray().length === 1 &&
+      harness.is_primary(late) && harness.digest(late) === harness.digest(a),
+      "MV ORMap: relay-only late join imports the complete state");
+    deep(harness.readiness(late).toArray(), ["ok"], "MV ORMap: late readiness succeeds");
+    is(harness.peer_count(late), 0, "MV ORMap: late join does not use the mesh");
+    is(values(late), '["outage"]', "MV ORMap: retired alternatives stay retired");
+    is(harness.merge_snapshot(late, unresolved), "", "MV ORMap: old snapshot can be replayed");
+    is(values(late), '["outage"]', "MV ORMap: old alternatives do not return");
+    const before = harness.digest(late);
+    is(harness.mv_or_map_set(late, address, "gate", "outage"), "",
+      "MV ORMap: same-text write succeeds after import");
+    await until(() => harness.digest(late) !== before &&
+      clients.every((client) => harness.digest(client) === harness.digest(late)),
+      "MV ORMap: eventless causal write forwards through the relay");
+  } finally {
+    clients.forEach(harness.close);
+    pump.stop();
+    if (relay) await relay.close();
+    await signaling.close();
+  }
+}
 
 async function lifecycle() {
   const room = "trip-planning";
@@ -524,6 +600,126 @@ async function lwwLifecycle() {
   pump.stop();
   await relay.close();
   await signaling.close();
+}
+
+async function lwwMapLifecycle() {
+  const room = "lww-map-settings";
+  const dataDir = tempDir();
+  const signaling = startSignalingServer({});
+  await signaling.listening;
+  const signalingUrl = "ws://127.0.0.1:" + signaling.port() + "/";
+  const world = harness.new_harness();
+  const pump = pumping(world);
+  const relayPort = await freePort();
+  const relayUrl = "ws://127.0.0.1:" + relayPort + "/";
+  const alpha = harness.start_lww_map(world, "auto", room, "alpha",
+    signalingUrl, relayUrl);
+  const beta = harness.start_lww_map(world, "auto", room, "beta",
+    signalingUrl, relayUrl);
+  const clients = [alpha, beta];
+  const entries = (client) => JSON.parse(harness.lww_map_entries(client));
+  const events = (client) => harness.lww_map_events(client).toArray();
+  const metadata = (client) =>
+    JSON.parse(harness.lww_map_snapshot(client)).channels
+      .find((entry) => entry.descriptor.address === "root").snapshot.state;
+  const converged = () => clients.every((client) =>
+    harness.lww_map_digest(client) === harness.lww_map_digest(alpha));
+  let relay;
+  try {
+    await until(() => clients.every((client) =>
+      harness.lww_map_readiness(client).toArray().length === 1 &&
+        harness.lww_map_peer_count(client) === 1),
+      "LWWMap: both clients are ready over the mesh with the relay absent");
+    for (const client of clients) {
+      deep(harness.lww_map_readiness(client).toArray(), ["ok"],
+        "LWWMap: readiness does not wait for the relay");
+    }
+    is(harness.lww_map_set(alpha, "status", "ready"), "",
+      "LWWMap: a public mesh write succeeds");
+    await until(() => converged() && entries(beta).status === "ready",
+      "LWWMap: the write crosses the mesh");
+
+    relay = startRelayServer({ dataDir, port: relayPort });
+    await relay.listening;
+    await until(() => clients.every(harness.lww_map_is_primary) &&
+      relay.attested(room) === harness.lww_map_digest(alpha) &&
+      relay.logSize(room) === 1,
+      "LWWMap: attachment checkpoints the existing map", 20_000);
+    const visibleEvents = events(alpha);
+    deep(events(beta), visibleEvents, "LWWMap: peers observe the same visible edit");
+    const checkpointDigest = harness.lww_map_digest(alpha);
+    is(harness.lww_map_remove(alpha, "absent"), "",
+      "LWWMap: removal of an absent key succeeds");
+    await until(() => converged() &&
+      harness.lww_map_digest(alpha) !== checkpointDigest && relay.logSize(room) === 2,
+      "LWWMap: a metadata-only tombstone is durable after the checkpoint");
+    const tombstone = metadata(alpha).entries.find((entry) => entry.key === "absent");
+    is(tombstone.value, null, "LWWMap: the absent key has a retained tombstone");
+    is(tombstone.timestamp > 0, true, "LWWMap: the tombstone has a clock");
+    for (const client of clients) {
+      deep(events(client), visibleEvents, "LWWMap: metadata-only removal emits no event");
+      deep(entries(client), { status: "ready" }, "LWWMap: the visible map is unchanged");
+    }
+    const retainedDigest = harness.lww_map_digest(alpha);
+    const durableLines = relay.lines(room);
+    await relay.close();
+    await until(() => clients.every((client) => harness.lww_map_path(client) === "p2p"),
+      "LWWMap: loss of the relay returns to the mesh");
+    relay = startRelayServer({ dataDir, port: relayPort });
+    await relay.listening;
+    deep(relay.lines(room), durableLines, "LWWMap: disk retains checkpoint and tombstone delta");
+    await until(() => clients.every(harness.lww_map_is_primary) &&
+      relay.attested(room) === retainedDigest && converged(),
+      "LWWMap: restart replays the same retained metadata", 20_000);
+    for (const client of clients) {
+      deep(events(client), visibleEvents, "LWWMap: replay emits no duplicate change");
+    }
+
+    await relay.close();
+    await until(() => clients.every((client) => harness.lww_map_path(client) === "p2p"),
+      "LWWMap: a second outage returns to the mesh");
+    is(harness.lww_map_remove(beta, "status"), "", "LWWMap: visible removal works offline");
+    await until(() => converged() && Object.keys(entries(alpha)).length === 0,
+      "LWWMap: the outage removal reaches both peers");
+    is(harness.lww_map_set(alpha, "independent", "kept"), "",
+      "LWWMap: another key can be written during the outage");
+    await until(converged, "LWWMap: the independent outage edit converges");
+    const outageDigest = harness.lww_map_digest(alpha);
+    const outageEvents = events(alpha);
+    relay = startRelayServer({ dataDir, port: relayPort });
+    await relay.listening;
+    await until(() => clients.every(harness.lww_map_is_primary) &&
+      relay.attested(room) === outageDigest && converged(),
+      "LWWMap: recovery checkpoints the outage edits", 20_000);
+
+    const late = harness.start_lww_map(world, "sequencedOnly", room, "late",
+      signalingUrl, relayUrl);
+    clients.push(late);
+    await until(() => harness.lww_map_readiness(late).toArray().length === 1 &&
+      harness.lww_map_is_primary(late) && converged(),
+      "LWWMap: the late client imports the full checkpoint");
+    deep(harness.lww_map_readiness(late).toArray(), ["ok"],
+      "LWWMap: late readiness succeeds on the relay alone");
+    is(harness.lww_map_peer_count(late), 0, "LWWMap: the late client has no mesh peers");
+    deep(entries(late), { independent: "kept" }, "LWWMap: removed keys stay absent on import");
+    deep(metadata(late), metadata(alpha), "LWWMap: imported timestamps and tombstones match");
+    const oldTime = metadata(late).entries.find((entry) => entry.key === "absent").timestamp;
+    is(harness.lww_map_set(late, "absent", "restored"), "",
+      "LWWMap: the late client can restore a removed key");
+    await until(() => converged() && entries(alpha).absent === "restored",
+      "LWWMap: the restoration converges across relay and mesh");
+    is(metadata(late).entries.find((entry) => entry.key === "absent").timestamp > oldTime,
+      true, "LWWMap: restoration advances beyond the retained tombstone");
+    for (const client of [alpha, beta]) {
+      is(events(client).length, outageEvents.length + 1,
+        "LWWMap: recovery and relay echoes do not repeat visible events");
+    }
+  } finally {
+    clients.forEach(harness.lww_map_close);
+    pump.stop();
+    if (relay) await relay.close();
+    await signaling.close();
+  }
 }
 
 // ── the socket layer ────────────────────────────────────────────────────────

@@ -93,6 +93,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
   // changed are flashed. One selector set per structure — list every element
   // that carries a live value the user should watch converge.
   const CHANGE_TARGETS = {
+    "lww-map": ["[data-lww-map-entries]", "[data-lww-map-confirmed]", "[data-lww-map-metadata]"],
     "lww-register": [
       "[data-lww-register-value]",
       "[data-lww-register-confirmed]",
@@ -107,6 +108,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     gset: ["[data-gset-value]"],
     twopset: ["[data-twopset-value]"],
     ormap: ["[data-ormap-value]", "[data-ormap-members]", "[data-ormap-confirmed]"],
+    "or-map-mv-register": ["[data-or-map-mv-register-entries]", "[data-or-map-mv-register-confirmed]"],
     claims: ["[data-holder]"],
     registers: ["[data-register-atomic]", "[data-register-lww]"],
     ordered: ["[data-ordered-queue]", "[data-ordered-jobs]"],
@@ -184,6 +186,11 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
   // Each recipe draws 1–2 marks and sets the margin caption. The mark points at
   // *where on the sheet* the merge rule is visible; the caption names the rule.
   const RECIPES = {
+    "lww-map"() {
+      setNote(
+        "LWWMap — follow the timestamps beside the SNs in this in-page sequenced rig, not a live mesh. A's newer open beats B's later-sequenced closed; SharedMap would follow server order. Equal-time strings break by value, not LWWRegister's author ID. Equal-time removal retains a tombstone, unlike OR-map's concurrent add-wins. Replay the losing write, then restore the key with a newer edit. A fast clock can still outrank a later human action; losing concurrent values don't survive.",
+      );
+    },
     "lww-register"() {
       setNote(
         "LWW register — the newest timestamp wins, and the author ID breaks an equal-time tie. Race two notes and watch every replica choose the same winner even when delivery order varies.",
@@ -199,7 +206,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
     // the cell flashes magenta on a local edit, ink when a remote write lands.
     map() {
       setNote(
-        "Shared map — one key, last write wins. Each cell holds a whole value: watch a cell flash magenta the moment a client edits it, then ink when a remote write overwrites it outright. It is replaced, never merged.",
+        "Shared map — one key, last in server order wins, unlike LWWMap's per-key timestamp order. Each cell holds a whole JSON value: watch a cell flash magenta the moment a client edits it, then ink when a remote write overwrites it outright. It is replaced, never merged.",
       );
     },
     // Counters are event-driven (see CHANGE_TARGETS): no static marks. Every
@@ -248,6 +255,11 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
         rig.dataset.ormapValueMode === "set"
           ? "OR-map string sets — watch members flash magenta locally, then ink as the sequencer confirms them. Independent additions merge; SharedMap would replace the whole array. Member removal clears observed tags, key removal clears observed members too, and an unseen add survives. An empty set still has a key. Old causal metadata stays behind to prevent resurrection."
           : "OR-map — add-wins, observed-remove. Each stockpile has its own ledger: watch a value flash magenta the moment a client logs or strikes it, then ink as the op is sequenced and applied to each replica. Race a strike against a concurrent log and the row survives, every logged yard intact.",
+      );
+    },
+    "or-map-mv-register"() {
+      setNote(
+        "OR-map MV registers — the key survives an unseen concurrent write, and the register keeps the disagreement inside it. Race two revisions, then resolve what you've seen. An offline writer still gets a say; replaying an observed revision doesn't bring it back.",
       );
     },
     // Claims are non-optimistic (see renderClaims in demo.js): a filed claim

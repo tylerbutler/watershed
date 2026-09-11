@@ -2,13 +2,15 @@ import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
+import gleam/string
 import lattice_core/replica_id
 import lattice_maps/crdt
 import lattice_maps/or_map
 import startest/expect
 import watershed/or_map_kernel.{
-  Increment, KeyRemoved, Register, RegisterMode, RegisterUpdated, Remove, Tally,
-  TallyMode, TallyUpdated,
+  Increment, KeyRemoved, MvRegister, MvRegisterMode, MvRegisterUpdated, Register,
+  RegisterMode, RegisterUpdated, Remove, SetMvRegister, Tally, TallyMode,
+  TallyUpdated,
 }
 
 fn replica(name: String) -> replica_id.ReplicaId {
@@ -283,6 +285,66 @@ pub fn rollback_validates_newest_pending_metadata_test() -> Nil {
   expect_unexpected_rollback(or_map_kernel.rollback(state, op2, id2 + 1))
 }
 
+fn expect_rollback_preserves_key_tags(mode: or_map_kernel.OrMapMode) -> Nil {
+  let write = case mode {
+    TallyMode -> fn(state, key) { increment(state, key, 1) }
+    RegisterMode -> fn(state, key) { set_register(state, key, "value", 1) }
+    or_map_kernel.OrSetMode -> fn(state, key) {
+      let assert Ok(submitted) = or_map_kernel.add_member(state, key, "value")
+      submitted
+    }
+    MvRegisterMode -> fn(state, key) { write_mv(state, key, "value") }
+  }
+  let expected = case mode {
+    TallyMode -> Tally(1)
+    RegisterMode -> Register("value")
+    or_map_kernel.OrSetMode -> or_map_kernel.SetMembers(["value"])
+    MvRegisterMode -> MvRegister(["value"])
+  }
+  let #(state, _, first, message_id) =
+    write(or_map_kernel.new(replica("author"), mode), "a")
+  let #(state, _) = rollback(state, first, message_id)
+  or_map_kernel.entries(state) |> expect.to_equal([])
+  expect_coherent(state)
+  let #(state, _, second, _) = write(state, "b")
+  let assert Ok(#(state, _, replayed, _)) =
+    or_map_kernel.apply_stashed_operation(state, first)
+  replayed |> expect.to_equal(first)
+  let #(state, events, removed, _) = remove(state, "a")
+  or_map_kernel.entries(state) |> expect.to_equal([#("b", expected)])
+  events |> expect.to_equal([KeyRemoved("a")])
+  let state = ack(ack(ack(state, second), replayed), removed)
+  expect_coherent(state)
+
+  [[first, second, removed], [removed, second, first, removed]]
+  |> list.each(fn(operations) {
+    let peer =
+      list.fold(
+        operations,
+        or_map_kernel.new(replica("peer"), mode),
+        fn(peer, operation) { remote(peer, operation).0 },
+      )
+    or_map_kernel.entries(peer) |> expect.to_equal([#("b", expected)])
+    expect_coherent(peer)
+  })
+}
+
+pub fn mv_rollback_preserves_key_tags_test() -> Nil {
+  expect_rollback_preserves_key_tags(MvRegisterMode)
+}
+
+pub fn tally_rollback_preserves_key_tags_test() -> Nil {
+  expect_rollback_preserves_key_tags(TallyMode)
+}
+
+pub fn register_rollback_preserves_key_tags_test() -> Nil {
+  expect_rollback_preserves_key_tags(RegisterMode)
+}
+
+pub fn set_rollback_preserves_key_tags_test() -> Nil {
+  expect_rollback_preserves_key_tags(or_map_kernel.OrSetMode)
+}
+
 pub fn remove_of_present_key_hides_it_test() -> Nil {
   let #(state, _, operation, _) = increment(new_tally("a"), "spoil", 4)
   let state = ack(state, operation)
@@ -507,7 +569,302 @@ pub fn the_clock_is_per_key_test() -> Nil {
     or_map_kernel.Increment(..)
     | or_map_kernel.Remove(..)
     | or_map_kernel.AddMember(..)
+    | or_map_kernel.SetMvRegister(..)
     | or_map_kernel.RemoveMember(..) -> panic as "expected a SetRegister op"
   }
   expect_coherent(state)
+}
+
+fn new_mv(name: String) -> or_map_kernel.OrMapState {
+  or_map_kernel.new(replica(name), MvRegisterMode)
+}
+
+fn write_mv(
+  state: or_map_kernel.OrMapState,
+  key: String,
+  value: String,
+) -> #(
+  or_map_kernel.OrMapState,
+  List(or_map_kernel.OrMapEvent),
+  or_map_kernel.OrMapOperation,
+  Int,
+) {
+  let assert Ok(result) = or_map_kernel.set_mv_register(state, key, value)
+  result
+}
+
+pub fn mv_write_is_optimistic_and_summary_excludes_pending_test() -> Nil {
+  let empty = new_mv("a")
+  or_map_kernel.entries(empty) |> expect.to_equal([])
+  let #(state, events, operation, id) = write_mv(empty, "gate", "open")
+  or_map_kernel.entries(state)
+  |> expect.to_equal([#("gate", MvRegister(["open"]))])
+  or_map_kernel.sequenced_entries(state) |> expect.to_equal([])
+  events |> expect.to_equal([MvRegisterUpdated("gate", ["open"])])
+  id |> expect.to_equal(0)
+  let assert SetMvRegister("gate", "open", _) = operation
+  let assert Ok(loaded) =
+    or_map_kernel.from_summary(
+      or_map_kernel.summary(state) |> json.to_string,
+      replica("b"),
+    )
+  loaded.mode |> expect.to_equal(MvRegisterMode)
+  or_map_kernel.entries(loaded) |> expect.to_equal([])
+  expect_coherent(state)
+}
+
+pub fn mv_concurrent_writes_converge_and_resolution_replaces_both_test() -> Nil {
+  let #(a, _, first, _) = write_mv(new_mv("a"), "gate", "z")
+  let #(b, _, second, _) = write_mv(new_mv("b"), "gate", "a")
+  let #(a, events) = remote(ack(a, first), second)
+  let #(b, _) = remote(ack(b, second), first)
+  or_map_kernel.get(a, "gate") |> expect.to_equal(Ok(MvRegister(["a", "z"])))
+  or_map_kernel.entries(b) |> expect.to_equal(or_map_kernel.entries(a))
+  events |> expect.to_equal([MvRegisterUpdated("gate", ["a", "z"])])
+  let #(a, events, resolved, _) = write_mv(a, "gate", "chosen")
+  let #(b, _) = remote(b, resolved)
+  or_map_kernel.get(a, "gate") |> expect.to_equal(Ok(MvRegister(["chosen"])))
+  or_map_kernel.entries(b) |> expect.to_equal(or_map_kernel.entries(a))
+  events |> expect.to_equal([MvRegisterUpdated("gate", ["chosen"])])
+  expect_coherent(a)
+  expect_coherent(b)
+}
+
+pub fn mv_concurrent_equal_text_keeps_both_tags_test() -> Nil {
+  let #(a, _, first, _) = write_mv(new_mv("a"), "gate", "same")
+  let #(_, _, second, _) = write_mv(new_mv("b"), "gate", "same")
+  let #(a, _) = remote(a, second)
+  let a = ack(a, first)
+  or_map_kernel.get(a, "gate")
+  |> expect.to_equal(Ok(MvRegister(["same", "same"])))
+  let #(a, events) = remote(a, second)
+  events |> expect.to_equal([])
+  or_map_kernel.get(a, "gate")
+  |> expect.to_equal(Ok(MvRegister(["same", "same"])))
+  expect_coherent(a)
+}
+
+pub fn mv_mutations_enforce_homogeneous_mode_test() -> Nil {
+  let assert Error(or_map_kernel.ModeMismatch(_)) =
+    or_map_kernel.increment(new_mv("a"), "gate", 1)
+  let assert Error(or_map_kernel.ModeMismatch(_)) =
+    or_map_kernel.set_register(new_mv("a"), "gate", "x", 1)
+  let assert Error(or_map_kernel.ModeMismatch(_)) =
+    or_map_kernel.p2p_increment(new_mv("a"), "gate", 1)
+  let assert Error(or_map_kernel.ModeMismatch(_)) =
+    or_map_kernel.p2p_set_register(new_mv("a"), "gate", "x", 1)
+  [new_tally("a"), new_register("a")]
+  |> list.each(fn(state) {
+    let assert Error(or_map_kernel.ModeMismatch(_)) =
+      or_map_kernel.set_mv_register(state, "gate", "x")
+    let assert Error(or_map_kernel.ModeMismatch(_)) =
+      or_map_kernel.p2p_set_mv_register(state, "gate", "x")
+    Nil
+  })
+}
+
+pub fn mv_remove_and_concurrent_write_is_add_wins_test() -> Nil {
+  let #(a, _, seed, _) = write_mv(new_mv("a"), "gate", "old")
+  let a = ack(a, seed)
+  let #(b, _) = remote(new_mv("b"), seed)
+  let #(a, _, removed, _) = remove(a, "gate")
+  let #(b, _, written, _) = write_mv(b, "gate", "concurrent")
+  let #(a, _) = remote(ack(a, removed), written)
+  let #(b, _) = remote(ack(b, written), removed)
+  or_map_kernel.get(a, "gate")
+  |> expect.to_equal(Ok(MvRegister(["concurrent"])))
+  or_map_kernel.entries(b) |> expect.to_equal(or_map_kernel.entries(a))
+  expect_coherent(a)
+  expect_coherent(b)
+}
+
+pub fn mv_remove_readd_does_not_resurrect_old_values_test() -> Nil {
+  let #(a, _, first, _) = write_mv(new_mv("a"), "gate", "old")
+  let a = ack(a, first)
+  let #(a, _, removed, _) = remove(a, "gate")
+  let a = ack(a, removed)
+  let #(a, _, fresh, _) = write_mv(a, "gate", "fresh")
+  let a = ack(a, fresh)
+  let peer =
+    list.fold([fresh, removed, first, first], new_mv("b"), fn(state, op) {
+      remote(state, op).0
+    })
+  or_map_kernel.get(a, "gate") |> expect.to_equal(Ok(MvRegister(["fresh"])))
+  or_map_kernel.entries(peer) |> expect.to_equal(or_map_kernel.entries(a))
+  expect_coherent(peer)
+}
+
+pub fn mv_ack_is_fifo_and_rollback_is_lifo_without_tag_reuse_test() -> Nil {
+  let #(a, _, first, first_id) = write_mv(new_mv("a"), "gate", "one")
+  let #(a, _, second, second_id) = write_mv(a, "gate", "two")
+  expect_unexpected_ack(or_map_kernel.ack_local(a, second))
+  expect_unexpected_ack(or_map_kernel.ack_local_with_message_id(
+    a,
+    first,
+    second_id,
+  ))
+  expect_unexpected_rollback(or_map_kernel.rollback(a, first, first_id))
+  let #(a, events) = rollback(a, second, second_id)
+  events |> expect.to_equal([MvRegisterUpdated("gate", ["one"])])
+  let a = ack(a, first)
+  let #(a, _, third, _) = write_mv(a, "gate", "three")
+  let #(a, _) = remote(a, second)
+  or_map_kernel.get(a, "gate") |> expect.to_equal(Ok(MvRegister(["three"])))
+  let #(peer, _) = remote(new_mv("b"), second)
+  let #(peer, _) = remote(peer, third)
+  or_map_kernel.get(peer, "gate") |> expect.to_equal(Ok(MvRegister(["three"])))
+  expect_coherent(a)
+}
+
+pub fn mv_stash_replays_original_delta_and_advances_author_clock_test() -> Nil {
+  let #(_, _, stashed, _) = write_mv(new_mv("a"), "gate", "offline")
+  let #(_, _, concurrent, _) = write_mv(new_mv("b"), "gate", "remote")
+  let #(a, _) = remote(new_mv("a"), concurrent)
+  let assert Ok(#(a, _, replayed, _)) =
+    or_map_kernel.apply_stashed_operation(a, stashed)
+  replayed |> expect.to_equal(stashed)
+  or_map_kernel.get(a, "gate")
+  |> expect.to_equal(Ok(MvRegister(["offline", "remote"])))
+  let a = ack(a, replayed)
+  let #(a, _, _, _) = write_mv(a, "gate", "resolved")
+  let #(a, _) = remote(a, stashed)
+  or_map_kernel.get(a, "gate") |> expect.to_equal(Ok(MvRegister(["resolved"])))
+  expect_coherent(a)
+}
+
+pub fn mv_restart_and_full_merge_preserve_retired_history_test() -> Nil {
+  let #(a, _, old, _) = write_mv(new_mv("a"), "gate", "old")
+  let a = ack(a, old)
+  let #(a, _, current, _) = write_mv(a, "gate", "current")
+  let a = ack(a, current)
+  let assert Ok(loaded) =
+    or_map_kernel.from_summary(
+      or_map_kernel.summary(a) |> json.to_string,
+      replica("a"),
+    )
+  let assert Ok(attached) =
+    or_map_kernel.from_sequenced(a.sequenced, MvRegisterMode, replica("b"))
+  let assert Ok(#(merged, _)) =
+    or_map_kernel.p2p_merge(new_mv("c"), a.sequenced)
+  [loaded, attached, merged]
+  |> list.each(fn(state) {
+    let #(state, events) = remote(state, old)
+    events |> expect.to_equal([])
+    or_map_kernel.get(state, "gate")
+    |> expect.to_equal(Ok(MvRegister(["current"])))
+    let #(state, _, next, _) = write_mv(state, "gate", "next")
+    let #(peer, _) = remote(a, next)
+    or_map_kernel.get(peer, "gate") |> expect.to_equal(Ok(MvRegister(["next"])))
+    expect_coherent(state)
+  })
+}
+
+pub fn mv_removed_leaf_history_survives_restart_and_attach_test() -> Nil {
+  let #(a, _, old, _) = write_mv(new_mv("a"), "gate", "old")
+  let a = ack(a, old)
+  let #(a, _, removed, _) = remove(a, "gate")
+  let a = ack(a, removed)
+  let assert Ok(loaded) =
+    or_map_kernel.from_summary(
+      or_map_kernel.summary(a) |> json.to_string,
+      replica("a"),
+    )
+  let assert Ok(attached) =
+    or_map_kernel.from_sequenced(a.sequenced, MvRegisterMode, replica("b"))
+  let assert Ok(#(merged, _)) =
+    or_map_kernel.p2p_merge(new_mv("c"), a.sequenced)
+  [loaded, attached, merged]
+  |> list.each(fn(state) {
+    let #(state, _, next, _) = write_mv(state, "gate", "fresh")
+    let #(state, _) = remote(state, old)
+    or_map_kernel.get(state, "gate")
+    |> expect.to_equal(Ok(MvRegister(["fresh"])))
+    let #(peer, _) = remote(a, next)
+    or_map_kernel.get(peer, "gate")
+    |> expect.to_equal(Ok(MvRegister(["fresh"])))
+    expect_coherent(state)
+  })
+}
+
+pub fn mv_p2p_writes_are_confirmed_and_locally_branded_test() -> Nil {
+  let assert Ok(#(a, events, first)) =
+    or_map_kernel.p2p_set_mv_register(new_mv("a"), "gate", "one")
+  events |> expect.to_equal([MvRegisterUpdated("gate", ["one"])])
+  a.pending |> expect.to_equal([])
+  a.next_pending_message_id |> expect.to_equal(0)
+  let assert Ok(#(b, _)) = or_map_kernel.p2p_merge(new_mv("b"), a.sequenced)
+  let assert Ok(#(a, _, second)) =
+    or_map_kernel.p2p_set_mv_register(a, "gate", "two")
+  let assert Ok(#(b, _, third)) =
+    or_map_kernel.p2p_set_mv_register(b, "gate", "three")
+  let #(a, _) = remote(a, third)
+  let #(b, _) = remote(b, second)
+  let #(b, _) = remote(b, first)
+  or_map_kernel.get(a, "gate")
+  |> expect.to_equal(Ok(MvRegister(["three", "two"])))
+  or_map_kernel.entries(b) |> expect.to_equal(or_map_kernel.entries(a))
+  expect_coherent(a)
+  expect_coherent(b)
+}
+
+pub fn mv_summary_rejects_duplicate_tags_and_negative_counters_test() -> Nil {
+  let #(state, _, operation, _) = write_mv(new_mv("a"), "gate", "one")
+  let source = or_map_kernel.summary(ack(state, operation)) |> json.to_string
+  let assert Ok(values) =
+    json.parse(
+      source,
+      decode.at(
+        ["state", "values"],
+        decode.list({
+          use leaf <- decode.field("crdt", decode.string)
+          decode.success(leaf)
+        }),
+      ),
+    )
+  let assert [leaf] = values
+  let invalid_leaves = [
+    "{\"type\":\"mv_register\",\"v\":1,\"state\":{\"replica_id\":\"a\",\"entries\":[{\"tag\":{\"r\":\"a\",\"c\":1},\"value\":\"one\"},{\"tag\":{\"r\":\"a\",\"c\":1},\"value\":\"other\"}],\"vclock\":{\"a\":1}}}",
+    "{\"type\":\"mv_register\",\"v\":1,\"state\":{\"replica_id\":\"a\",\"entries\":[],\"vclock\":{\"a\":-1}}}",
+  ]
+  invalid_leaves
+  |> list.each(fn(invalid) {
+    let corrupted =
+      string.replace(
+        source,
+        json.string(leaf) |> json.to_string,
+        json.string(invalid) |> json.to_string,
+      )
+    or_map_kernel.from_summary(corrupted, replica("b"))
+    |> expect.to_be_error()
+  })
+}
+
+pub fn mv_full_merge_rejects_negative_clock_before_join_test() -> Nil {
+  let #(state, _, operation, _) = write_mv(new_mv("a"), "gate", "one")
+  let state = ack(state, operation)
+  let source = or_map_kernel.summary(state) |> json.to_string
+  let assert Ok(values) =
+    json.parse(
+      source,
+      decode.at(
+        ["state", "values"],
+        decode.list({
+          use leaf <- decode.field("crdt", decode.string)
+          decode.success(leaf)
+        }),
+      ),
+    )
+  let assert [leaf] = values
+  let invalid =
+    "{\"type\":\"mv_register\",\"v\":1,\"state\":{\"replica_id\":\"a\",\"entries\":[],\"vclock\":{\"a\":-1}}}"
+  let corrupted =
+    string.replace(
+      source,
+      json.string(leaf) |> json.to_string,
+      json.string(invalid) |> json.to_string,
+    )
+  let assert Ok(incoming) = or_map.from_json(corrupted)
+  let assert Error(or_map_kernel.CorruptDelta(_)) =
+    or_map_kernel.p2p_merge(state, incoming)
+  Nil
 }

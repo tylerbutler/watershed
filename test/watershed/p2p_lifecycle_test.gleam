@@ -107,6 +107,156 @@ pub fn set_map_public_preflight_preserves_channel_and_closed_errors_test() -> Ni
 }
 
 @target(javascript)
+@external(javascript, "./crdt_js.mjs", "root")
+fn mislabelled_lww_map_root(
+  document: crdt_js.CrdtDocument(schema.GCounterChannel),
+) -> crdt_js.Handle(schema.LwwMapChannel)
+
+@target(javascript)
+fn lww_map_config(
+  world: p2p_fake.World,
+  label: String,
+) -> crdt_js.Config(schema.LwwMapChannel) {
+  crdt_js.config(
+    room_id: "lww-map-lifecycle",
+    replica_label: label,
+    compatibility_tag: "lww-map/v1",
+    root: p2p.lww_map_root(),
+    signaling: p2p_fake.signaling(world),
+  )
+}
+
+@target(javascript)
+fn lww_map_snapshot(timestamp: Int, watermark: Int) -> json.Json {
+  json.object([
+    #("v", json.int(1)),
+    #("room", json.string("lww-map-lifecycle")),
+    #("compatibility", json.string("lww-map/v1")),
+    #("root", json.string("lwwMap")),
+    #(
+      "channels",
+      json.array(
+        [
+          json.object([
+            #(
+              "descriptor",
+              json.object([
+                #("address", json.string("root")),
+                #("channelType", json.string("lwwMap")),
+                #("createdBy", json.string("")),
+              ]),
+            ),
+            #(
+              "snapshot",
+              json.object([
+                #("type", json.string("lww_map")),
+                #("v", json.int(2)),
+                #(
+                  "state",
+                  json.object([
+                    #("pruned_timestamp", json.int(watermark)),
+                    #(
+                      "entries",
+                      json.array(
+                        [
+                          json.object([
+                            #("key", json.string("status")),
+                            #("value", json.null()),
+                            #("timestamp", json.int(timestamp)),
+                          ]),
+                        ],
+                        fn(value) { value },
+                      ),
+                    ),
+                  ]),
+                ),
+              ]),
+            ),
+          ]),
+        ],
+        fn(value) { value },
+      ),
+    ),
+  ])
+}
+
+@target(javascript)
+pub fn lww_map_import_restores_clock_and_surfaces_clock_and_state_errors_test() -> Nil {
+  let world = p2p_fake.new_world()
+  let future = 8_000_000_000_000_000
+  let assert Ok(document) =
+    crdt_js.import_snapshot(
+      lww_map_config(world, "restored"),
+      lww_map_snapshot(future, 0),
+    )
+  let root = crdt_js.root(document)
+  crdt_js.lww_map_get(root, "status") |> expect.to_equal(Ok(Error(Nil)))
+  crdt_js.lww_map_set(root, "status", "restored") |> expect.to_equal(Ok(Nil))
+  crdt_js.lww_map_get(root, "status") |> expect.to_equal(Ok(Ok("restored")))
+  let assert Ok(exported) = crdt_js.export_snapshot(document)
+  let assert Ok([times]) =
+    json.parse(
+      json.to_string(exported),
+      decode.at(
+        ["channels"],
+        decode.list(decode.at(
+          ["snapshot", "state", "entries"],
+          decode.list(decode.at(["timestamp"], decode.int)),
+        )),
+      ),
+    )
+  times |> expect.to_equal([future + 1])
+  let assert Ok(exhausted) =
+    crdt_js.import_snapshot(
+      lww_map_config(world, "exhausted"),
+      lww_map_snapshot(9_007_199_254_740_991, 0),
+    )
+  let before = crdt_js.digest(exhausted)
+  crdt_js.lww_map_set(crdt_js.root(exhausted), "status", "refused")
+  |> result.is_error
+  |> expect.to_be_true()
+  crdt_js.lww_map_remove(crdt_js.root(exhausted), "status")
+  |> result.is_error
+  |> expect.to_be_true()
+  crdt_js.digest(exhausted) |> expect.to_equal(before)
+  crdt_js.import_snapshot(
+    lww_map_config(world, "invalid"),
+    lww_map_snapshot(future, 1),
+  )
+  |> result.is_error
+  |> expect.to_be_true()
+}
+
+@target(javascript)
+pub fn lww_map_wrong_kind_errors_do_not_look_like_missing_keys_test() -> Nil {
+  let world = p2p_fake.new_world()
+  let assert Ok(counter) =
+    crdt_js.new_document(crdt_js.config(
+      "lww-map-wrong-kind",
+      "a",
+      "lww-map/v1",
+      p2p.g_counter_root(),
+      p2p_fake.signaling(world),
+    ))
+  let map = mislabelled_lww_map_root(counter)
+  let mismatch =
+    p2p.ChannelTypeMismatch(
+      "root",
+      channel.LwwMapChannel,
+      channel.GCounterChannel,
+    )
+  let before = crdt_js.digest(counter)
+  crdt_js.lww_map_get(map, "missing") |> expect.to_equal(Error(mismatch))
+  crdt_js.lww_map_entries(map) |> expect.to_equal(Error(mismatch))
+  crdt_js.lww_map_keys(map) |> expect.to_equal(Error(mismatch))
+  crdt_js.lww_map_set(map, "k", "v") |> expect.to_equal(Error(mismatch))
+  crdt_js.lww_map_remove(map, "k") |> expect.to_equal(Error(mismatch))
+  crdt_js.resolve_channel(counter, p2p.lww_map_root(), "root")
+  |> expect.to_equal(Error(mismatch))
+  crdt_js.digest(counter) |> expect.to_equal(before)
+}
+
+@target(javascript)
 fn lww_config(
   world: p2p_fake.World,
   clock: relay_fake.Clock,
@@ -787,6 +937,7 @@ pub fn text_empty_edit_still_commits_an_operation_test() -> Nil {
     | channel.PnCounterOperation(..)
     | channel.GCounterOperation(..)
     | channel.LwwRegisterOperation(..)
+    | channel.LwwMapOperation(..)
     | channel.MvRegisterOperation(..)
     | channel.OrMapOperation(..)
     | channel.OrSetOperation(..)

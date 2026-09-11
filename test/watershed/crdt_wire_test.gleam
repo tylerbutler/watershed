@@ -142,6 +142,43 @@ pub fn delta_round_trips_test() -> Nil {
   Nil
 }
 
+pub fn lww_map_delta_and_snapshot_round_trip_test() -> Nil {
+  let #(state, operation) =
+    authored(channel.InitLwwMap, channel.LwwMapRemoveEdit("absent", 100))
+  round_trip(crdt_wire.Hello("watershed-lww-map-1", channel.LwwMapChannel))
+  round_trip(crdt_wire.Delta(
+    crdt_wire.MessageId(replica, 1),
+    "root",
+    channel.LwwMapChannel,
+    operation,
+  ))
+  round_trip(
+    crdt_wire.State([
+      crdt_wire.ChannelEntry(
+        crdt_wire.ChannelDescriptor("root", channel.LwwMapChannel, ""),
+        channel.snapshot(state),
+      ),
+    ]),
+  )
+  let raw =
+    crdt_wire.envelope_to_string(
+      wrap(
+        crdt_wire.State([
+          crdt_wire.ChannelEntry(
+            crdt_wire.ChannelDescriptor("root", channel.LwwMapChannel, ""),
+            channel.snapshot(state),
+          ),
+        ]),
+      ),
+    )
+  let assert Error(_) =
+    crdt_wire.decode_envelope(
+      tamper(raw, "\"pruned_timestamp\":0", "\"pruned_timestamp\":1"),
+      limits(),
+    )
+  Nil
+}
+
 pub fn lww_register_delta_and_snapshot_round_trip_test() -> Nil {
   let #(state, operation) =
     authored(channel.InitLwwRegister, channel.LwwRegisterSetEdit("hello", 100))
@@ -268,7 +305,14 @@ pub fn rejection_round_trips_test() -> Nil {
 pub fn every_eligible_channel_type_round_trips_a_delta_test() -> Nil {
   [
     #(channel.InitPnCounter, channel.PnCounterEdit(3)),
+    #(channel.InitGCounter, channel.GCounterIncrementEdit(3)),
+    #(channel.InitLwwRegister, channel.LwwRegisterSetEdit("x", 9)),
+    #(channel.InitLwwMap, channel.LwwMapSetEdit("k", "v", 9)),
     #(channel.InitMvRegister, channel.MvRegisterEdit("x")),
+    #(
+      channel.InitOrMap(or_map_kernel.TallyMode),
+      channel.OrMapIncrementEdit("k", 3),
+    ),
     #(
       channel.InitOrMap(or_map_kernel.OrSetMode),
       channel.OrMapAddMemberEdit("doc", "draft"),
@@ -276,6 +320,10 @@ pub fn every_eligible_channel_type_round_trips_a_delta_test() -> Nil {
     #(
       channel.InitOrMap(or_map_kernel.OrSetMode),
       channel.OrMapRemoveMemberEdit("missing", "draft"),
+    ),
+    #(
+      channel.InitOrMap(or_map_kernel.MvRegisterMode),
+      channel.OrMapSetMvRegisterEdit("k", "v"),
     ),
     #(
       channel.InitOrMap(or_map_kernel.RegisterMode),

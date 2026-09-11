@@ -30,6 +30,7 @@ import watershed/fuzz/directory_model
 import watershed/fuzz/g_counter_model
 import watershed/fuzz/kernel_fuzz.{type KernelModel}
 import watershed/fuzz/kernel_fuzz_test
+import watershed/fuzz/lww_map_model
 import watershed/fuzz/lww_register_model
 import watershed/fuzz/map_model
 import watershed/fuzz/or_map_model
@@ -60,6 +61,7 @@ fn replay_content(content: String, path: String) -> Result(Nil, String) {
     "map" -> replay_with(map_model.model(), content, path)
     "claims" -> replay_with(claims_model.model(), content, path)
     "g_counter" -> replay_with(g_counter_model.model(), content, path)
+    "lww_map" -> replay_with(lww_map_model.model(), content, path)
     "lww_register" -> replay_with(lww_register_model.model(), content, path)
     "pn_counter" -> replay_with(pn_counter_model.model(), content, path)
     "or_map" -> replay_with(or_map_model.model(), content, path)
@@ -200,6 +202,14 @@ pub fn or_map_set_generated_failure_fixture_replays_test() -> Nil {
       |> expect.to_equal(Ok(Nil))
     },
   )
+}
+
+pub fn lww_map_fixed_fixture_is_recognized_test() -> Nil {
+  let content =
+    "{\"model\":\"lww_map\",\"client_count\":3,\"detail\":\"old failure\",\"script\":[]}"
+  let assert Error(detail) =
+    replay_content(content, "in-memory LWW-map fixture")
+  string.contains(detail, "no longer fails") |> expect.to_be_true()
 }
 
 pub fn replays_every_saved_failure_fixture_test() -> Nil {
