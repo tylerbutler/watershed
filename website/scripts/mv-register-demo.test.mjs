@@ -22,7 +22,7 @@ async function write(page, id, text) {
   await page.click(client(id, "[data-mv-register-write]"));
 }
 
-for (const path of ["/structures/maps", "/mv-register"]) {
+for (const path of ["/structures/registers", "/mv-register"]) {
   test(`MV register race, resolution, replay and reset on ${path}`, { timeout: 90_000 }, async () => {
     const executablePath = findBrowser();
     assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
@@ -38,7 +38,7 @@ for (const path of ["/structures/maps", "/mv-register"]) {
       const response = await page.goto(new URL(path, base).href);
       assert.equal(response.status(), 200);
       await page.waitForSelector('[data-mv-register-write]:not([disabled])', { timeout: 10_000 });
-      if (path === "/structures/maps") {
+      if (path === "/structures/registers") {
         await page.focus('#mv-register [data-structure-toggle]');
         await page.keyboard.press("Enter");
       }
@@ -55,11 +55,8 @@ for (const path of ["/structures/maps", "/mv-register"]) {
       );
       await settled(page, ["arm pump", "raise crest"]);
       assert.match(await page.$eval("[data-status]", (el) => el.textContent), /2 alternatives/);
-      if (path === "/structures/maps") {
+      if (path === "/structures/registers") {
         await page.click('#mv-register [data-structure-toggle]');
-        await page.click('#mv-register [data-structure-toggle]');
-        await settled(page, ["arm pump", "raise crest"]);
-        await page.click('#ormap [data-structure-toggle]');
         await page.click('#mv-register [data-structure-toggle]');
         await settled(page, ["arm pump", "raise crest"]);
       }

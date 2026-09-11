@@ -10,7 +10,7 @@ import { standaloneSnippets } from "../data/standalone-snippets.ts";
   description="Race two revisions, keep both, then resolve what you've read. A live multi-value register running watershed's compiled Gleam kernel."
 >
   <header class="mv-hero">
-    <p class="annot"><a href="/structures/maps">Maps &amp; cells</a> / Revision slate</p>
+    <p class="annot"><a href="/structures/registers">Registers</a> / Revision slate</p>
     <h1>Converged.<br />Still <em>two answers.</em></h1>
     <p>
       A last-write-wins cell would discard one revision. This one keeps the
@@ -81,13 +81,14 @@ import { standaloneSnippets } from "../data/standalone-snippets.ts";
       </p>
       <SnippetBlock snippet={standaloneSnippets["mv-register-concurrent-resolution"]} />
       <p>
-        Compare the <a href="/structures/maps#mv-register">maps field sheet</a>
-        with <a href="/structures/coordination#registers">RegisterCollection</a>,
-        which maintains atomic and last-write-wins views using server sequence
+        Return to the <a href="/structures/registers#mv-register">MvRegister field
+        sheet</a>, or compare <a
+          href="/structures/registers#registers">RegisterCollection</a
+        >, which maintains atomic and last-write-wins views using server sequence
         numbers, and <a href="/structures/coordination#pact">PactMap</a>, which
         waits for a frozen quorum's protocol acknowledgements. None of those
-        acknowledgements means a person approved a revision. Here, the
-        application decides when and how to offer a resolving write.
+        acknowledgements means a person approved a revision. Here, the application
+        decides when and how to offer a resolving write.
       </p>
     </section>
   </main>

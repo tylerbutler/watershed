@@ -7,8 +7,9 @@ const base = process.env.WATERSHED_WEBSITE_URL ?? "http://127.0.0.1:4321";
 const families = [
   ["counters", ["counter", "gcounter", "pn"]],
   ["sets", ["gset", "twopset", "orset"]],
-  ["maps", ["map", "lww-map", "lww-register", "mv-register", "ormap"]],
-  ["coordination", ["claims", "registers", "ordered", "tasks", "pact"]],
+  ["maps", ["map", "lww-map", "ormap"]],
+  ["registers", ["lww-register", "mv-register", "registers"]],
+  ["coordination", ["claims", "ordered", "tasks", "pact"]],
 ];
 
 for (const width of [1440, 1100, 390]) {
@@ -65,7 +66,7 @@ test("descriptions and dedicated demo links work without JavaScript", async () =
   try {
     const page = await browser.newPage();
     await page.setJavaScriptEnabled(false);
-    for (const family of ["counters", "maps", "sequences", "transforms"]) {
+    for (const family of ["counters", "maps", "registers", "sequences", "transforms"]) {
       await page.goto(new URL(`/structures/${family}`, base).href);
       assert.equal(await page.$$eval(".plate-body", (bodies) => bodies.every((body) => body.checkVisibility())), true);
       assert.equal(await page.$$eval("[data-structure-toggle]", (buttons) => buttons.some((button) => button.checkVisibility())), false);

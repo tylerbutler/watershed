@@ -225,46 +225,6 @@ const maps: Structure[] = [
     ],
   },
   {
-    id: "lww-register",
-    name: "LWWRegister",
-    module: "lww_register_kernel",
-    kind: "CRDT",
-    onHomepage: true,
-    tagline: "One shared string where the newest timestamp wins—and the author breaks a tie.",
-    rule: "the highest timestamp wins; equal timestamps break by replica ID, not arrival order",
-    optimistic: "your revision appears immediately while its timestamp waits to merge",
-    summary: "the winning value, timestamp, and author reload together",
-    how: [
-      "A last-writer-wins register stores one string plus the timestamp and replica ID that wrote it. Every replica merges by choosing the greater timestamp; if two writers use the same timestamp, the greater replica ID breaks the tie.",
-      "That makes delivery order irrelevant, but it also makes the clock part of the data. The demo races two equal-time revisions, then re-delivers the winning delta: every client keeps the same winner and the duplicate changes nothing.",
-    ],
-    useCases: [
-      "Offline settings where one deterministic winner is preferable to preserving every conflict",
-      "Small shared labels, modes, or status fields with trustworthy logical clocks",
-      "Cases where arrival order must not decide the winner",
-    ],
-  },
-  {
-    id: "mv-register",
-    name: "MvRegister",
-    module: "mv_register_kernel",
-    kind: "CRDT",
-    onHomepage: true,
-    tagline: "One cell, several answers: concurrent revisions stay until someone resolves them.",
-    rule: "keep concurrent writes; a new write replaces only the history its author has seen",
-    optimistic: "your revision appears in magenta while the confirmed alternatives stay in ink",
-    summary: "tagged alternatives and the full causal clock survive reload, including retired history",
-    how: [
-      "Last-write-wins picks a winner. A multi-value register keeps the disagreement: two offline authors can write different revisions and every replica converges on both. The returned list is sorted for display, not ranked by time or preference.",
-      "Resolution is an ordinary write after reading the alternatives. It replaces those observed revisions, not an unseen third writer. Equal text from concurrent authors still occupies two entries; an empty string is a value, not deletion.",
-    ],
-    useCases: [
-      "Offline settings where silently dropping a revision would be a mistake",
-      "Review workflows that ask a person to combine concurrent answers",
-      "One shared string with an explicit conflict-resolution step",
-    ],
-  },
-  {
     id: "ormap",
     name: "OrMap",
     module: "or_map_kernel",
@@ -308,6 +268,70 @@ const maps: Structure[] = [
       "Nested, collaboratively-edited state: document trees, project/site hierarchies, scene graphs",
       "Studying hierarchical identity and server-ordered folder collaboration",
       "Anywhere a flat map's keys want structure (folders of readings, grouped settings)",
+    ],
+  },
+];
+
+const registers: Structure[] = [
+  {
+    id: "lww-register",
+    name: "LWWRegister",
+    module: "lww_register_kernel",
+    kind: "CRDT",
+    onHomepage: true,
+    tagline: "One shared string where the newest timestamp wins—and the author breaks a tie.",
+    rule: "the highest timestamp wins; equal timestamps break by replica ID, not arrival order",
+    optimistic: "your revision appears immediately while its timestamp waits to merge",
+    summary: "the winning value, timestamp, and author reload together",
+    how: [
+      "A last-writer-wins register stores one string plus the timestamp and replica ID that wrote it. Every replica merges by choosing the greater timestamp; if two writers use the same timestamp, the greater replica ID breaks the tie.",
+      "That makes delivery order irrelevant, but it also makes the clock part of the data. The demo races two equal-time revisions, then re-delivers the winning delta: every client keeps the same winner and the duplicate changes nothing.",
+    ],
+    useCases: [
+      "Offline settings where one deterministic winner is preferable to preserving every conflict",
+      "Small shared labels, modes, or status fields with trustworthy logical clocks",
+      "Cases where arrival order must not decide the winner",
+    ],
+  },
+  {
+    id: "mv-register",
+    name: "MvRegister",
+    module: "mv_register_kernel",
+    kind: "CRDT",
+    onHomepage: true,
+    tagline: "One cell, several answers: concurrent revisions stay until someone resolves them.",
+    rule: "keep concurrent writes; a new write replaces only the history its author has seen",
+    optimistic: "your revision appears in magenta while the confirmed alternatives stay in ink",
+    summary: "tagged alternatives and the full causal clock survive reload, including retired history",
+    how: [
+      "Last-write-wins picks a winner. A multi-value register keeps the disagreement: two offline authors can write different revisions and every replica converges on both. The returned list is sorted for display, not ranked by time or preference.",
+      "Resolution is an ordinary write after reading the alternatives. It replaces those observed revisions, not an unseen third writer. Equal text from concurrent authors still occupies two entries; an empty string is a value, not deletion.",
+    ],
+    useCases: [
+      "Offline settings where silently dropping a revision would be a mistake",
+      "Review workflows that ask a person to combine concurrent answers",
+      "One shared string with an explicit conflict-resolution step",
+    ],
+  },
+  {
+    id: "registers",
+    name: "RegisterCollection",
+    module: "register_collection_kernel",
+    kind: "DDS",
+    onHomepage: true,
+    tagline: "Single-value cells you can read as first-writer-wins or most-recent-wins.",
+    rule: "read the first uncontested write, or the most recent one (your choice, per read)",
+    optimistic:
+      "writes stay hidden until confirmed, then settle as the winner or a kept version",
+    summary: "every competing version is kept, so either read rule still works later",
+    how: [
+      "A register holds a single value with two read strategies. An atomic read resolves the first non-concurrent writer (a consensus-flavored pick). A last-write-wins read returns the most recent version by sequence number.",
+      "Concurrent versions are retained with their sequence numbers, so either policy can be applied at read time. Writes stay invisible until sequenced, then resolve as atomic winners or as retained versions.",
+    ],
+    useCases: [
+      "Single-value cells that need a choice of conflict policy per read",
+      "Config or setpoint values where you sometimes want first-writer, sometimes latest",
+      "A coordination building block where retained versions matter",
     ],
   },
 ];
@@ -431,27 +455,6 @@ const coordination: Structure[] = [
     ],
   },
   {
-    id: "registers",
-    name: "RegisterCollection",
-    module: "register_collection_kernel",
-    kind: "DDS",
-    onHomepage: true,
-    tagline: "Single-value cells you can read as first-writer-wins or most-recent-wins.",
-    rule: "read the first uncontested write, or the most recent one (your choice, per read)",
-    optimistic:
-      "writes stay hidden until confirmed, then settle as the winner or a kept version",
-    summary: "every competing version is kept, so either read rule still works later",
-    how: [
-      "A register holds a single value with two read strategies. An atomic read resolves the first non-concurrent writer (a consensus-flavored pick). A last-write-wins read returns the most recent version by sequence number.",
-      "Concurrent versions are retained with their sequence numbers, so either policy can be applied at read time. Writes stay invisible until sequenced, then resolve as atomic winners or as retained versions.",
-    ],
-    useCases: [
-      "Single-value cells that need a choice of conflict policy per read",
-      "Config or setpoint values where you sometimes want first-writer, sometimes latest",
-      "A coordination building block where retained versions matter",
-    ],
-  },
-  {
     id: "ordered",
     name: "OrderedCollection",
     module: "ordered_collection_kernel",
@@ -538,13 +541,22 @@ export const categories: Category[] = [
   {
     slug: "maps",
     name: "Maps",
-    tagline: "Pick a winner, keep an edit, or keep the disagreement.",
+    tagline: "Keyed state that picks a winner, keeps an edit, or grows into a tree.",
     lede: [
       "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed's maps span that choice.",
-      "SharedMap resolves JSON and encoded-handle values by server order, following the last-write-wins design used by Fluid Framework. LWWMap chooses each string key's winner by timestamp instead: a newer timestamp can beat a later server SN, and removal keeps a timestamped tombstone. LWWRegister chooses one string by timestamp and replica ID. OR-map keeps causal dots per entry so a concurrent write survives a delete. SharedDirectory makes SharedMap recursive, with hierarchical identity that survives concurrent creation and delete-then-recreate.",
-      "MvRegister narrows the problem to one string cell and refuses to pick a winner: concurrent revisions survive as alternatives. After reading the disagreement, an ordinary write replaces the revisions you've observed. An unseen writer still gets a say.",
+      "SharedMap resolves JSON and encoded-handle values by server order, following the last-write-wins design used by Fluid Framework. LWWMap lets each string key's timestamp outrank a later server SN, and keeps removals as tombstones. OR-map keeps causal dots per entry so a concurrent write survives a delete. SharedDirectory makes SharedMap recursive, with hierarchical identity that survives concurrent creation and delete-then-recreate.",
     ],
     structures: maps,
+  },
+  {
+    slug: "registers",
+    name: "Registers",
+    tagline: "One shared value, and three different answers to a race.",
+    lede: [
+      "A register is the smallest place collaboration can still go wrong: one cell, two writers, and no neutral meaning of “last.” The interesting part isn't storage. It's the rule that decides what survives.",
+      "LWWRegister trusts timestamp and replica identity to select one winner without caring about delivery order. MvRegister refuses the forced choice and keeps concurrent answers until a writer who has seen them resolves them. RegisterCollection keeps every server-sequenced version so each read can choose the first uncontested write or the latest one.",
+    ],
+    structures: registers,
   },
   {
     slug: "sequences",
@@ -562,7 +574,7 @@ export const categories: Category[] = [
     tagline: "Deciding who owns what, and agreeing before acting.",
     lede: [
       "The last family arbitrates decisions rather than merging values: who holds a resource, who runs a task, what everyone has agreed to. Reads here are often non-optimistic, because showing an outcome you might lose is worse than showing nothing.",
-      "They ascend from first-writer-wins ownership through versioned registers, FIFO queues, and task failover to a quorum-consensus map that will not commit a value until every required client signs off.",
+      "They ascend from first-writer-wins ownership through FIFO queues and task failover to a quorum-consensus map that won't commit a value until every required client signs off.",
     ],
     structures: coordination,
   },
