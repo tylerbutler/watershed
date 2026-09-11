@@ -28,8 +28,8 @@ import gleam/result
 import lattice_core/replica_id
 import lattice_counters/g_counter.{type GCounter}
 import lattice_counters/pn_counter.{type PNCounter}
-import lattice_maps/lww_map.{type LWWMap}
-import lattice_maps/or_map.{type ORMap}
+import lattice_maps/lww_map
+import lattice_maps/or_map
 import lattice_registers/lww_register.{type LWWRegister}
 import lattice_registers/mv_register.{type MVRegister}
 import lattice_sequence/sequence.{type Sequence}
@@ -51,7 +51,6 @@ import watershed/lww_register_kernel
 import watershed/map_kernel
 import watershed/mv_register_kernel
 import watershed/or_map_kernel
-import watershed/or_map_set_leaf
 import watershed/or_set_kernel
 import watershed/ordered_collection_kernel
 import watershed/pact_map_kernel
@@ -356,9 +355,9 @@ pub type Snapshot {
   PnCounterSnapshot(state: PNCounter)
   GCounterSnapshot(state: GCounter)
   LwwRegisterSnapshot(state: LWWRegister(String))
-  LwwMapSnapshot(state: LWWMap)
+  LwwMapSnapshot(state: lww_map_kernel.LWWMap)
   MvRegisterSnapshot(state: MVRegister(String))
-  OrMapSnapshot(mode: or_map_kernel.OrMapMode, state: ORMap)
+  OrMapSnapshot(mode: or_map_kernel.OrMapMode, state: or_map_kernel.ORMap)
   OrSetSnapshot(state: ORSet(String))
   GSetSnapshot(state: GSet(String))
   TwoPSetSnapshot(state: TwoPSet(String))
@@ -3204,22 +3203,16 @@ fn versioned_decoder() -> Decoder(register_collection_kernel.VersionedValue) {
 fn or_map_snapshot_decoder() -> Decoder(Snapshot) {
   use value <- decode.then(wire.json_value_decoder())
   let encoded = json.to_string(value)
-  case json.parse(encoded, decode.at(["state", "crdt_spec"], decode.string)) {
-    Ok("or_set") ->
-      case or_map_set_leaf.decode_state(encoded) {
-        Ok(state) ->
-          decode.success(OrMapSnapshot(or_map_kernel.OrSetMode, state))
-        Error(_) -> decode.failure(MapSnapshot([]), "ORMapSnapshot")
-      }
-    Ok(_) ->
-      case or_map_kernel.from_summary(encoded, replica_id.new("")) {
-        Ok(kernel) ->
-          case or_map.from_json(encoded) {
-            Ok(state) -> decode.success(OrMapSnapshot(kernel.mode, state))
-            Error(_) -> decode.failure(MapSnapshot([]), "ORMapSnapshot")
-          }
-        Error(_) -> decode.failure(MapSnapshot([]), "ORMapSnapshot")
-      }
+  use author <- decode.then(
+    case
+      json.parse(encoded, decode.at(["state", "replica_id"], decode.string))
+    {
+      Ok(author) -> decode.success(author)
+      Error(_) -> decode.failure("", "ORMapSnapshot")
+    },
+  )
+  case or_map_kernel.from_summary(encoded, replica_id.new(author)) {
+    Ok(kernel) -> decode.success(OrMapSnapshot(kernel.mode, kernel.sequenced))
     Error(_) -> decode.failure(MapSnapshot([]), "ORMapSnapshot")
   }
 }

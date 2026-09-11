@@ -7,10 +7,17 @@ import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import lattice_core/replica_id.{type ReplicaId}
-import lattice_maps/lww_map.{type LWWMap}
+import lattice_maps/crdt
+import lattice_maps/lww_map
+import lattice_registers/lww_register
 import watershed/canonical_json
+import watershed/json_ot
 import watershed/lww_clock
+
+pub type LWWMap =
+  lww_map.LWWMap(String)
 
 pub type LwwMapState {
   LwwMapState(
@@ -50,11 +57,27 @@ pub type KernelError {
 }
 
 pub fn new(replica_id: ReplicaId) -> LwwMapState {
-  LwwMapState(replica_id, lww_map.new(), lww_map.new(), [], 0, dict.new())
+  let map = new_map(replica_id)
+  LwwMapState(replica_id, map, map, [], 0, dict.new())
+}
+
+fn new_map(replica: ReplicaId) -> LWWMap {
+  lww_map.new(replica, crdt.LwwRegisterSpec(""))
+}
+
+fn string_value(value: crdt.Crdt(String)) -> Result(String, Nil) {
+  case value {
+    crdt.CrdtLwwRegister(register) -> Ok(lww_register.value(register))
+    _ -> Error(Nil)
+  }
+}
+
+fn merge_error(error: crdt.MergeError) -> KernelError {
+  InvalidState("Invalid LWW map operation: " <> string.inspect(error))
 }
 
 pub fn get(state: LwwMapState, key: String) -> Result(String, Nil) {
-  lww_map.get(state.optimistic, key)
+  lww_map.get(state.optimistic, key) |> result.try(string_value)
 }
 
 pub fn entries(state: LwwMapState) -> List(#(String, String)) {
@@ -73,7 +96,9 @@ fn map_entries(map: LWWMap) -> List(#(String, String)) {
   lww_map.keys(map)
   |> list.sort(canonical_json.compare)
   |> list.filter_map(fn(key) {
-    lww_map.get(map, key) |> result.map(fn(value) { #(key, value) })
+    lww_map.get(map, key)
+    |> result.try(string_value)
+    |> result.map(fn(value) { #(key, value) })
   })
 }
 
@@ -103,60 +128,78 @@ fn metadata_decoder() -> decode.Decoder(List(#(String, Option(String), Int))) {
     entries |> list.map(fn(entry) { entry.0 }) |> list.unique |> list.length
   case
     tag == "lww_map"
-    && { version == 1 || version == 2 }
+    && { version == 1 || version == 2 || version == 3 }
     && watermark == 0
     && distinct == list.length(entries)
     && list.all(entries, fn(entry) {
       entry.2 > 0 && entry.2 <= lww_clock.max_safe_timestamp
     })
   {
-    True -> decode.success(entries)
+    True ->
+      case version {
+        3 -> {
+          let decoded =
+            list.try_map(entries, fn(entry) {
+              case entry.1 {
+                None -> Ok(entry)
+                Some(encoded) -> {
+                  use child <- result.try(
+                    crdt.from_json(encoded) |> result.replace_error(Nil),
+                  )
+                  use value <- result.try(string_value(child))
+                  Ok(#(entry.0, Some(value), entry.2))
+                }
+              }
+            })
+          case decoded {
+            Ok(entries) -> decode.success(entries)
+            Error(Nil) -> decode.failure([], "String LWW register children")
+          }
+        }
+        _ -> decode.success(entries)
+      }
     False ->
       decode.failure(
         [],
-        "unpruned LWW map v1/v2 with distinct keys and positive safe timestamps",
+        "unpruned LWW map with distinct keys and positive safe timestamps",
       )
   }
 }
 
 /// Validate raw entries before Lattice converts them to a dictionary.
-/// A v1 envelope may omit the watermark, but cannot supply a nonzero one.
+/// Legacy v1/v2 snapshots are imported with their original String tie keys.
+/// Modern writes use writer identity to break ties and emit v3 snapshots.
 pub fn decoder() -> decode.Decoder(LWWMap) {
-  use entries <- decode.then(metadata_decoder())
-  let encoded =
-    json.object([
-      #("type", json.string("lww_map")),
-      #("v", json.int(2)),
-      #(
-        "state",
-        json.object([
-          #("pruned_timestamp", json.int(0)),
-          #(
-            "entries",
-            json.array(entries, fn(entry) {
-              json.object([
-                #("key", json.string(entry.0)),
-                #("value", case entry.1 {
-                  None -> json.null()
-                  Some(value) -> json.string(value)
-                }),
-                #("timestamp", json.int(entry.2)),
-              ])
-            }),
-          ),
-        ]),
-      ),
-    ])
-    |> json.to_string
-  case lww_map.from_json(encoded) {
-    Ok(map) -> decode.success(map)
-    Error(_) -> decode.failure(lww_map.new(), "LWW map")
+  use _ <- decode.then(metadata_decoder())
+  use version <- decode.field("v", decode.int)
+  use payload <- decode.then(json_ot.decoder())
+  let encoded = json_ot.to_json(payload) |> json.to_string
+  let decoded = case version {
+    1 | 2 ->
+      lww_map.import_legacy(
+        encoded,
+        crdt.LwwRegisterSpec(""),
+        replica_id.new(""),
+      )
+    _ -> lww_map.from_json(encoded)
+  }
+  case decoded {
+    Ok(map) ->
+      case lww_map.spec(map) == crdt.LwwRegisterSpec("") {
+        True -> decode.success(map)
+        False -> decode.failure(map, "String LWW map with empty default")
+      }
+    Error(_) -> decode.failure(new_map(replica_id.new("")), "LWW map")
   }
 }
 
 fn metadata(
   map: LWWMap,
 ) -> Result(List(#(String, Option(String), Int)), KernelError) {
+  use _ <- result.try(case lww_map.spec(map) == crdt.LwwRegisterSpec("") {
+    True -> Ok(Nil)
+    False -> Error(InvalidState("Expected String LWW map with empty default."))
+  })
   case lww_map.pruned_timestamp(map) {
     0 ->
       json.parse(lww_map.to_json(map) |> json.to_string, metadata_decoder())
@@ -236,7 +279,7 @@ pub fn set(
   KernelError,
 ) {
   use timestamp <- result.try(next_timestamp(state, key, wall_clock))
-  let delta = lww_map.set(lww_map.new(), key, value, timestamp)
+  use delta <- result.try(set_delta(state.replica_id, key, value, timestamp))
   apply_stashed_operation(state, Set(key, value, timestamp, delta))
 }
 
@@ -249,7 +292,10 @@ pub fn remove(
   KernelError,
 ) {
   use timestamp <- result.try(next_timestamp(state, key, wall_clock))
-  let delta = lww_map.remove(lww_map.new(), key, timestamp)
+  use delta <- result.try(
+    lww_map.remove(new_map(state.replica_id), key, timestamp)
+    |> result.map_error(merge_error),
+  )
   apply_stashed_operation(state, Remove(key, timestamp, delta))
 }
 
@@ -260,7 +306,7 @@ pub fn p2p_set(
   wall_clock: Int,
 ) -> Result(#(LwwMapState, List(LwwMapEvent), LwwMapOperation), KernelError) {
   use timestamp <- result.try(next_timestamp(state, key, wall_clock))
-  let delta = lww_map.set(lww_map.new(), key, value, timestamp)
+  use delta <- result.try(set_delta(state.replica_id, key, value, timestamp))
   use #(state, events) <- result.try(p2p_merge(state, delta))
   Ok(#(state, events, Set(key, value, timestamp, delta)))
 }
@@ -271,9 +317,27 @@ pub fn p2p_remove(
   wall_clock: Int,
 ) -> Result(#(LwwMapState, List(LwwMapEvent), LwwMapOperation), KernelError) {
   use timestamp <- result.try(next_timestamp(state, key, wall_clock))
-  let delta = lww_map.remove(lww_map.new(), key, timestamp)
+  use delta <- result.try(
+    lww_map.remove(new_map(state.replica_id), key, timestamp)
+    |> result.map_error(merge_error),
+  )
   use #(state, events) <- result.try(p2p_merge(state, delta))
   Ok(#(state, events, Remove(key, timestamp, delta)))
+}
+
+fn set_delta(
+  replica: ReplicaId,
+  key: String,
+  value: String,
+  timestamp: Int,
+) -> Result(LWWMap, KernelError) {
+  lww_map.set(
+    new_map(replica),
+    key,
+    crdt.CrdtLwwRegister(lww_register.new(value, timestamp, replica)),
+    timestamp,
+  )
+  |> result.map_error(merge_error)
 }
 
 pub fn apply_stashed_operation(
@@ -286,11 +350,14 @@ pub fn apply_stashed_operation(
   use Nil <- result.try(validate_operation(operation))
   let delta = operation_delta(operation)
   use state <- result.try(observe(state, delta))
+  use optimistic <- result.try(
+    lww_map.merge(state.optimistic, delta) |> result.map_error(merge_error),
+  )
   let message_id = state.next_pending_message_id
   let next =
     LwwMapState(
       ..state,
-      optimistic: lww_map.merge(state.optimistic, delta),
+      optimistic: optimistic,
       pending: list.append(state.pending, [PendingOp(operation, message_id)]),
       next_pending_message_id: message_id + 1,
     )
@@ -310,12 +377,13 @@ pub fn p2p_merge(
   other: LWWMap,
 ) -> Result(#(LwwMapState, List(LwwMapEvent)), KernelError) {
   use state <- result.try(observe(state, other))
-  let next =
-    LwwMapState(
-      ..state,
-      sequenced: lww_map.merge(state.sequenced, other),
-      optimistic: lww_map.merge(state.optimistic, other),
-    )
+  use sequenced <- result.try(
+    lww_map.merge(state.sequenced, other) |> result.map_error(merge_error),
+  )
+  use optimistic <- result.try(
+    lww_map.merge(state.optimistic, other) |> result.map_error(merge_error),
+  )
+  let next = LwwMapState(..state, sequenced: sequenced, optimistic: optimistic)
   Ok(#(next, events_between(state, next)))
 }
 
@@ -356,13 +424,11 @@ fn do_ack(
           use Nil <- result.try(validate_operation(operation))
           let delta = operation_delta(operation)
           use state <- result.try(observe(state, delta))
-          Ok(
-            LwwMapState(
-              ..state,
-              sequenced: lww_map.merge(state.sequenced, delta),
-              pending: rest,
-            ),
+          use sequenced <- result.try(
+            lww_map.merge(state.sequenced, delta)
+            |> result.map_error(merge_error),
           )
+          Ok(LwwMapState(..state, sequenced: sequenced, pending: rest))
         }
       }
     }
@@ -385,21 +451,22 @@ pub fn rollback(
           ))
         True -> {
           let pending = list.reverse(rest)
+          use optimistic <- result.try(replay(state.sequenced, pending))
           let next =
-            LwwMapState(
-              ..state,
-              pending: pending,
-              optimistic: replay(state.sequenced, pending),
-            )
+            LwwMapState(..state, pending: pending, optimistic: optimistic)
           Ok(#(next, events_between(state, next)))
         }
       }
   }
 }
 
-fn replay(sequenced: LWWMap, pending: List(PendingOp)) -> LWWMap {
-  list.fold(pending, sequenced, fn(map, pending) {
+fn replay(
+  sequenced: LWWMap,
+  pending: List(PendingOp),
+) -> Result(LWWMap, KernelError) {
+  list.try_fold(pending, sequenced, fn(map, pending) {
     lww_map.merge(map, operation_delta(pending.operation))
+    |> result.map_error(merge_error)
   })
 }
 
@@ -425,11 +492,15 @@ pub fn from_sequenced(
   map: LWWMap,
   replica_id: ReplicaId,
 ) -> Result(LwwMapState, KernelError) {
+  let map = lww_map.bind(map, replica_id)
   observe(LwwMapState(..new(replica_id), sequenced: map, optimistic: map), map)
 }
 
 pub fn check_cache_coherence(state: LwwMapState) -> Result(Nil, String) {
-  case replay(state.sequenced, state.pending) == state.optimistic {
+  use optimistic <- result.try(
+    replay(state.sequenced, state.pending) |> result.map_error(string.inspect),
+  )
+  case optimistic == state.optimistic {
     True -> Ok(Nil)
     False ->
       Error("optimistic LWWMap cache does not match sequenced plus pending")

@@ -4,7 +4,9 @@ import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import lattice_core/replica_id
+import lattice_maps/crdt
 import lattice_maps/lww_map
+import lattice_registers/lww_register
 import signet/types as token
 import spillway/message
 import spillway/types
@@ -122,7 +124,14 @@ pub fn lww_map_channel_snapshot_and_attach_contract_test() -> Nil {
   channel.handle_addresses(wrapped) |> expect.to_equal([])
   channel.applies_own_on_sequence(wrapped) |> expect.to_be_false()
   channel.on_leave(wrapped, 1, 1) |> expect.to_equal(#(wrapped, []))
-  let unsafe = channel.LwwMapSnapshot(lww_map.set(lww_map.new(), "bad", "v", 0))
+  // Modern writes reject zero timestamps. Import the invalid legacy fixture.
+  let assert Ok(unsafe) =
+    lww_map.import_legacy(
+      "{\"type\":\"lww_map\",\"v\":2,\"state\":{\"entries\":[{\"key\":\"bad\",\"value\":\"v\",\"timestamp\":0}],\"pruned_timestamp\":0}}",
+      crdt.LwwRegisterSpec(""),
+      replica_id.new("a"),
+    )
+  let unsafe = channel.LwwMapSnapshot(unsafe)
   let assert Error(_) = channel.from_snapshot(unsafe, replica: "a")
   let assert Error(_) = channel.merge_p2p_snapshot(state, unsafe)
   let assert Error(channel.UnsupportedP2p(_)) =
@@ -149,13 +158,15 @@ pub fn lww_map_ack_metadata_and_operation_matching_test() -> Nil {
   let assert Ok(#(channel.LwwMapState(acked), [], None)) =
     channel.ack_local(state, operation, channel.LwwMapMeta(message_id), meta)
   kernel.sequenced_entries(acked) |> expect.to_equal([#("k", "v")])
-  let different =
-    channel.LwwMapOperation(kernel.Set(
+  let replica = replica_id.new("a")
+  let assert Ok(delta) =
+    lww_map.set(
+      lww_map.new(replica, crdt.LwwRegisterSpec("")),
       "k",
-      "v",
+      crdt.CrdtLwwRegister(lww_register.new("v", 11, replica)),
       11,
-      lww_map.set(lww_map.new(), "k", "v", 11),
-    ))
+    )
+  let different = channel.LwwMapOperation(kernel.Set("k", "v", 11, delta))
   channel.same_shape(operation, operation) |> expect.to_be_true()
   channel.same_shape(operation, different) |> expect.to_be_false()
   let assert Ok(#(remote, _, [])) =

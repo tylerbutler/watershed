@@ -1,3 +1,4 @@
+import gleam/dynamic/decode
 import gleam/json
 import gleam/option.{None, Some}
 import lattice_core/replica_id
@@ -370,18 +371,64 @@ pub fn summary_round_trips_and_rebrands_test() -> Nil {
   let #(state, _, _) = must_insert(state, 1, "pending")
   let raw = json.to_string(text_kernel.summary(state))
 
+  json.parse(raw, decode.at(["v"], decode.int))
+  |> expect.to_equal(Ok(2))
   let assert Ok(loaded) = text_kernel.from_summary(raw, replica_id.new("c"))
   text_kernel.value(loaded) |> expect.to_equal("a")
   text_kernel.sequenced_value(loaded) |> expect.to_equal("a")
   loaded.replica_id |> expect.to_equal(replica_id.new("c"))
   loaded.pending |> expect.to_equal([])
   loaded.next_pending_message_id |> expect.to_equal(0)
+  json.parse(
+    json.to_string(text_kernel.summary(loaded)),
+    decode.at(["state", "self_id"], replica_id.decoder()),
+  )
+  |> expect.to_equal(Ok(replica_id.new("c")))
 
   let #(loaded, operation_c, message_id_c) = must_insert(loaded, 1, "c")
   message_id_c |> expect.to_equal(0)
   ack(loaded, operation_c)
   |> text_kernel.sequenced_value
   |> expect.to_equal("ac")
+}
+
+pub fn p2p_edits_and_merge_preserve_receiving_identity_test() -> Nil {
+  let assert Ok(#(alice, _, _)) = text_kernel.p2p_insert(new_a(), 0, "abc")
+  let #(bob, _) = text_kernel.p2p_merge(new_b(), alice.sequenced)
+  let assert Ok(#(bob, _, _)) = text_kernel.p2p_delete_range(bob, 1, 2)
+  let assert Ok(#(bob, _, _)) = text_kernel.p2p_replace_range(bob, 1, 2, "B")
+  let #(bob, events, _) = text_kernel.p2p_append(bob, "!")
+  events |> expect.to_equal([text_kernel.TextChanged("aB!")])
+  bob.pending |> expect.to_equal([])
+  text_kernel.sequenced_value(bob) |> expect.to_equal("aB!")
+  text_kernel.check_cache_coherence(bob) |> expect.to_equal(Ok(Nil))
+  json.parse(
+    json.to_string(text_kernel.summary(bob)),
+    decode.at(["state", "self_id"], replica_id.decoder()),
+  )
+  |> expect.to_equal(Ok(replica_id.new("b")))
+
+  let #(alice, _, _) = text_kernel.p2p_append(alice, "?")
+  let #(alice, _) = text_kernel.p2p_merge(alice, bob.sequenced)
+  let #(bob, _) = text_kernel.p2p_merge(bob, alice.sequenced)
+  text_kernel.value(alice) |> expect.to_equal(text_kernel.value(bob))
+  text_kernel.length(alice) |> expect.to_equal(4)
+  text_kernel.check_cache_coherence(alice) |> expect.to_equal(Ok(Nil))
+  text_kernel.check_cache_coherence(bob) |> expect.to_equal(Ok(Nil))
+}
+
+pub fn p2p_empty_edits_and_bounds_preserve_public_behavior_test() -> Nil {
+  let #(state, events, operation) = text_kernel.p2p_append(new_a(), "")
+  state |> expect.to_equal(new_a())
+  events |> expect.to_equal([])
+  let assert text_kernel.Append("", _) = operation
+
+  text_kernel.p2p_insert(state, 1, "")
+  |> expect.to_equal(Error(text_kernel.InsertOutOfBounds(1, 0)))
+  text_kernel.p2p_delete_range(state, 0, 1)
+  |> expect.to_equal(Error(text_kernel.DeleteRangeOutOfBounds(0, 1, 0)))
+  text_kernel.p2p_replace_range(state, 0, 1, "")
+  |> expect.to_equal(Error(text_kernel.ReplaceRangeOutOfBounds(0, 1, 0)))
 }
 
 pub fn apply_stashed_operation_registers_pending_and_acks_by_message_id_test() -> Nil {

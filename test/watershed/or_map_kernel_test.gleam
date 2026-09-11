@@ -7,6 +7,7 @@ import lattice_core/replica_id
 import lattice_maps/crdt
 import lattice_maps/or_map
 import startest/expect
+import watershed/channel
 import watershed/or_map_kernel.{
   Increment, KeyRemoved, MvRegister, MvRegisterMode, MvRegisterUpdated, Register,
   RegisterMode, RegisterUpdated, Remove, SetMvRegister, Tally, TallyMode,
@@ -142,10 +143,10 @@ fn summary_counts(
 ) -> dict.Dict(String, Int) {
   let decoder =
     decode.at(
-      ["state", "values"],
+      ["state", "entries"],
       decode.list({
         use key <- decode.field("key", decode.string)
-        use crdt <- decode.field("crdt", decode.string)
+        use crdt <- decode.field("value", decode.string)
         decode.success(#(key, crdt))
       }),
     )
@@ -443,6 +444,7 @@ pub fn summary_round_trip_rebrands_under_loader_identity_test() -> Nil {
   let summary_json = json.to_string(or_map_kernel.summary(state))
   let assert Ok(loaded) = or_map_kernel.from_summary(summary_json, replica("c"))
   or_map_kernel.entries(loaded) |> expect.to_equal([#("spoil", Tally(7))])
+  or_map.replica_id(loaded.sequenced) |> expect.to_equal(replica("c"))
   loaded.pending |> expect.to_equal([])
 
   let #(loaded, _, operation_c, _) = increment(loaded, "spoil", 1)
@@ -483,6 +485,7 @@ pub fn from_sequenced_rebrands_existing_map_test() -> Nil {
   let state = ack(state, operation)
   let assert Ok(loaded) =
     or_map_kernel.from_sequenced(state.sequenced, TallyMode, replica("c"))
+  or_map.replica_id(loaded.sequenced) |> expect.to_equal(replica("c"))
   let #(loaded, _, operation_c, _) = increment(loaded, "spoil", 1)
   let loaded = ack(loaded, operation_c)
   summary_counts(loaded, "spoil", "positive")
@@ -814,9 +817,9 @@ pub fn mv_summary_rejects_duplicate_tags_and_negative_counters_test() -> Nil {
     json.parse(
       source,
       decode.at(
-        ["state", "values"],
+        ["state", "entries"],
         decode.list({
-          use leaf <- decode.field("crdt", decode.string)
+          use leaf <- decode.field("value", decode.string)
           decode.success(leaf)
         }),
       ),
@@ -834,6 +837,7 @@ pub fn mv_summary_rejects_duplicate_tags_and_negative_counters_test() -> Nil {
         json.string(leaf) |> json.to_string,
         json.string(invalid) |> json.to_string,
       )
+    corrupted |> expect.to_not_equal(source)
     or_map_kernel.from_summary(corrupted, replica("b"))
     |> expect.to_be_error()
   })
@@ -847,9 +851,9 @@ pub fn mv_full_merge_rejects_negative_clock_before_join_test() -> Nil {
     json.parse(
       source,
       decode.at(
-        ["state", "values"],
+        ["state", "entries"],
         decode.list({
-          use leaf <- decode.field("crdt", decode.string)
+          use leaf <- decode.field("value", decode.string)
           decode.success(leaf)
         }),
       ),
@@ -863,8 +867,15 @@ pub fn mv_full_merge_rejects_negative_clock_before_join_test() -> Nil {
       json.string(leaf) |> json.to_string,
       json.string(invalid) |> json.to_string,
     )
-  let assert Ok(incoming) = or_map.from_json(corrupted)
-  let assert Error(or_map_kernel.CorruptDelta(_)) =
-    or_map_kernel.p2p_merge(state, incoming)
-  Nil
+  corrupted |> expect.to_not_equal(source)
+  // The native decoder now rejects this clock before a typed map can reach a join.
+  or_map.from_json(corrupted) |> expect.to_be_error()
+  json.parse(corrupted, channel.snapshot_decoder(channel.OrMapChannel))
+  |> expect.to_be_error()
+  let assert Ok(snapshot) =
+    json.parse(source, channel.snapshot_decoder(channel.OrMapChannel))
+  let assert Ok(#(unchanged, events)) =
+    channel.merge_p2p_snapshot(channel.OrMapState(state), snapshot)
+  unchanged |> expect.to_equal(channel.OrMapState(state))
+  events |> expect.to_equal([])
 }

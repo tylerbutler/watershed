@@ -1,9 +1,10 @@
 import gleam/dynamic/decode
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/result
+import gleam/string
 import lattice_core/replica_id
-import lattice_core/version_vector
 import lattice_maps/crdt
 import lattice_maps/or_map
 import lattice_sets/or_set
@@ -290,36 +291,31 @@ pub fn native_inactive_live_leaf_import_does_not_revive_members_test() -> Nil {
 }
 
 fn seed_json(counter: Int) -> String {
-  let key_set =
-    json.object([
-      #("type", json.string("or_set")),
-      #("v", json.int(2)),
-      #(
-        "state",
-        json.object([
-          #("replica_id", json.string("a")),
-          #("counter", json.int(counter)),
-          #("entries", json.object([])),
-          #("tombstones", json.array([], json.string)),
-          #("pruned", version_vector.to_json(version_vector.new())),
-        ]),
-      ),
-    ])
-  json.object([
-    #("type", json.string("or_map")),
-    #("v", json.int(2)),
-    #(
-      "state",
-      json.object([
-        #("replica_id", json.string("a")),
-        #("crdt_spec", json.string("or_set")),
-        #("key_set", json.string(json.to_string(key_set))),
-        #("values", json.array([], json.string)),
-        #("remove_bounds", json.object([])),
-      ]),
-    ),
-  ])
+  or_map.new(replica_id.new("a"), crdt.OrSetSpec)
+  |> or_map.to_json
   |> json.to_string
+  |> string.replace("\"clock\":0", "\"clock\":" <> int.to_string(counter))
+}
+
+fn native_with_leaf_clock(counter: Int) -> #(kernel.ORMap, kernel.ORMapDelta) {
+  let author = replica_id.new("a")
+  let assert Ok(leaf) =
+    or_set.new(author)
+    |> or_set.add("absent")
+    |> or_set.remove("absent")
+    |> or_set.to_json
+    |> json.to_string
+    |> string.replace("\"counter\":1", "\"counter\":" <> int.to_string(counter))
+    |> or_set.from_json
+  // Native bind raises a negative counter to zero, still below the retained
+  // removal tag. The snapshot and the original delta must both be rejected.
+  let assert Ok(pair) =
+    or_map.update_with_delta(
+      or_map.new(author, crdt.OrSetSpec),
+      "absent",
+      fn(_) { crdt.CrdtOrSet(leaf) },
+    )
+  pair
 }
 
 pub fn counter_exhaustion_is_fallible_but_noop_removal_is_allowed_test() -> Nil {
@@ -339,9 +335,11 @@ pub fn counter_exhaustion_is_fallible_but_noop_removal_is_allowed_test() -> Nil 
 
 pub fn unsafe_typed_snapshots_rejected_before_native_merge_test() -> Nil {
   list.each([-1, 9_007_199_254_740_992], fn(counter) {
-    let encoded = seed_json(counter)
+    kernel.from_summary(seed_json(counter), replica_id.new("b"))
+    |> expect.to_be_error()
+    let #(native, _) = native_with_leaf_clock(counter)
+    let encoded = or_map.to_json(native) |> json.to_string
     let assert Error(_) = kernel.from_summary(encoded, replica_id.new("b"))
-    let assert Ok(native) = or_map.from_json(encoded)
     let assert Error(kernel.InvalidSetState(_)) =
       kernel.from_sequenced(native, kernel.OrSetMode, replica_id.new("b"))
     let assert Error(kernel.InvalidSetState(_)) =
@@ -358,19 +356,17 @@ pub fn unsafe_typed_snapshots_rejected_before_native_merge_test() -> Nil {
 pub fn issued_clock_seed_contains_no_pending_leaf_and_survives_reload_test() -> Nil {
   let assert Ok(#(state, _, operation, message_id)) =
     kernel.add_member(fresh("a"), "doc", "member")
-  let assert Ok(values) =
+  let assert Ok(entries) =
     json.parse(
       kernel.summary(state) |> json.to_string,
-      decode.at(["state", "values"], decode.list(decode.dynamic)),
+      decode.at(["state", "entries"], decode.list(decode.dynamic)),
     )
-  values |> expect.to_equal([])
-  let assert Ok(key_set) =
-    json.parse(
-      kernel.summary(state) |> json.to_string,
-      decode.at(["state", "key_set"], decode.string),
-    )
+  entries |> expect.to_equal([])
   let assert Ok(counter) =
-    json.parse(key_set, decode.at(["state", "counter"], decode.int))
+    json.parse(
+      kernel.summary(state) |> json.to_string,
+      decode.at(["state", "clock"], decode.int),
+    )
   { counter > 0 } |> expect.to_be_true
   let assert Ok(#(state, _)) = kernel.rollback(state, operation, message_id)
   let assert Ok(state) =
@@ -379,13 +375,11 @@ pub fn issued_clock_seed_contains_no_pending_leaf_and_survives_reload_test() -> 
       replica_id.new("a"),
     )
   let assert Ok(#(state, _, _)) = kernel.p2p_add_member(state, "other", "fresh")
-  let assert Ok(key_set) =
+  let assert Ok(next_counter) =
     json.parse(
       kernel.summary(state) |> json.to_string,
-      decode.at(["state", "key_set"], decode.string),
+      decode.at(["state", "clock"], decode.int),
     )
-  let assert Ok(next_counter) =
-    json.parse(key_set, decode.at(["state", "counter"], decode.int))
   { next_counter > counter } |> expect.to_be_true
   coherent(state)
 }
@@ -446,45 +440,33 @@ pub fn stashed_delta_keeps_original_writer_and_observed_clock_floor_test() -> Ni
       decode.at(["state", "replica_id"], decode.string),
     )
   author |> expect.to_equal("b")
-  let assert Ok(key_set) =
+  let assert Ok(counter) =
     json.parse(
       kernel.summary(restored) |> json.to_string,
-      decode.at(["state", "key_set"], decode.string),
+      decode.at(["state", "clock"], decode.int),
     )
-  let assert Ok(counter) =
-    json.parse(key_set, decode.at(["state", "counter"], decode.int))
   { counter > 101 } |> expect.to_be_true
   coherent(restored)
 }
 
 pub fn typed_unsafe_delta_rejected_even_for_noop_intent_test() -> Nil {
-  let assert Ok(key_set) =
-    json.parse(seed_json(-1), decode.at(["state", "key_set"], decode.string))
-  let assert Ok(delta) =
-    json.object([
-      #("type", json.string("or_map_delta")),
-      #("v", json.int(1)),
-      #(
-        "state",
-        json.object([
-          #("replica_id", json.string("a")),
-          #("crdt_spec", json.string("or_set")),
-          #("key_set_delta", json.string(key_set)),
-          #("value_deltas", json.array([], json.string)),
-          #("remove_bounds_delta", json.object([])),
-        ]),
-      ),
-    ])
-    |> json.to_string
-    |> or_map.delta_from_json
-  let operation = kernel.RemoveMember("absent", "absent", delta)
-  let assert Error(kernel.InvalidSetState(_)) =
-    kernel.validate_operation(kernel.OrSetMode, operation)
-  let assert Error(kernel.InvalidSetState(_)) =
-    kernel.apply_remote(fresh("b"), operation)
-  let assert Error(kernel.InvalidSetState(_)) =
-    kernel.apply_stashed_operation(fresh("b"), operation)
-  Nil
+  let #(_, safe_delta) = native_with_leaf_clock(1)
+  kernel.validate_operation(
+    kernel.OrSetMode,
+    kernel.RemoveMember("absent", "absent", safe_delta),
+  )
+  |> expect.to_equal(Ok(Nil))
+  list.each([-1, 9_007_199_254_740_992], fn(counter) {
+    let #(_, delta) = native_with_leaf_clock(counter)
+    let operation = kernel.RemoveMember("absent", "absent", delta)
+    let assert Error(kernel.InvalidSetState(_)) =
+      kernel.validate_operation(kernel.OrSetMode, operation)
+    let assert Error(kernel.InvalidSetState(_)) =
+      kernel.apply_remote(fresh("b"), operation)
+    let assert Error(kernel.InvalidSetState(_)) =
+      kernel.apply_stashed_operation(fresh("b"), operation)
+    Nil
+  })
 }
 
 pub fn set_key_readd_does_not_revive_members_test() -> Nil {

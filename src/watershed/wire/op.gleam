@@ -416,7 +416,11 @@ pub fn lww_map_operation_decoder() -> Decoder(LwwMapOperation) {
   case json.parse(encoded, lww_map_kernel.decoder()) {
     Error(_) ->
       decode.failure(
-        lww_map_kernel.Remove(key, timestamp, lww_map.new()),
+        lww_map_kernel.Remove(
+          key,
+          timestamp,
+          lww_map.new(replica_id.new(""), crdt.LwwRegisterSpec("")),
+        ),
         "LwwMapDelta",
       )
     Ok(delta) -> {
@@ -1198,7 +1202,7 @@ pub fn encode_text_operation(operation: TextOperation) -> Json {
   }
 }
 
-fn delta_json(delta: or_map.ORMapDelta) -> Json {
+fn delta_json(delta: or_map_kernel.ORMapDelta) -> Json {
   json.string(json.to_string(or_map.delta_to_json(delta)))
 }
 
@@ -1556,39 +1560,13 @@ pub fn task_manager_operation_decoder() -> Decoder(TaskManagerOperation) {
   }
 }
 
-fn or_map_delta_decoder() -> Decoder(or_map.ORMapDelta) {
+fn or_map_delta_decoder() -> Decoder(or_map_kernel.ORMapDelta) {
   use encoded <- decode.then(decode.string)
-  // Validate nested tags before Lattice constructs dictionaries from them.
-  let metadata = {
-    use leaves <- decode.then(decode.at(
-      ["state", "value_deltas"],
-      decode.list(decode.field("crdt", decode.string, decode.success)),
-    ))
-    use _ <- decode.then(case leaves {
-      [] | [_] -> decode.success(Nil)
-      _ -> decode.failure(Nil, "at most one OR-map value delta")
-    })
-    use spec <- decode.then(decode.at(["state", "crdt_spec"], decode.string))
-    case spec {
-      "mv_register" -> {
-        case list.try_map(leaves, mv_register_kernel.decode_crdt) {
-          Ok(_) -> decode.success(Nil)
-          Error(_) -> decode.failure(Nil, "valid nested MV-register state")
-        }
-      }
-      _ -> decode.success(Nil)
-    }
-  }
-  use _ <- decode.then(case json.parse(encoded, metadata) {
-    Ok(_) -> decode.success(Nil)
-    Error(_) -> decode.failure(Nil, "ORMapDelta causal metadata")
-  })
-  let decoded = case
-    json.parse(encoded, decode.at(["state", "crdt_spec"], decode.string))
-  {
+  let decoded = case or_map_spec_name(encoded) {
     Ok("or_set") ->
       or_map_set_leaf.decode_delta(encoded) |> result.map_error(fn(_) { Nil })
-    _ -> or_map.delta_from_json(encoded) |> result.map_error(fn(_) { Nil })
+    Ok(_) -> or_map.delta_from_json(encoded) |> result.map_error(fn(_) { Nil })
+    Error(_) -> Error(Nil)
   }
   case decoded {
     Ok(delta) -> decode.success(delta)
@@ -1596,16 +1574,23 @@ fn or_map_delta_decoder() -> Decoder(or_map.ORMapDelta) {
   }
 }
 
+fn or_map_spec_name(encoded: String) -> Result(String, Nil) {
+  use spec <- result.try(
+    json.parse(encoded, decode.at(["state", "spec"], decode.string))
+    |> result.map_error(fn(_) { Nil }),
+  )
+  json.parse(spec, {
+    use name <- decode.field("type", decode.string)
+    decode.success(name)
+  })
+  |> result.map_error(fn(_) { Nil })
+}
+
 fn checked_or_map_operation(
   operation: OrMapOperation,
-  delta: or_map.ORMapDelta,
+  delta: or_map_kernel.ORMapDelta,
 ) -> Decoder(OrMapOperation) {
-  case
-    json.parse(
-      or_map.delta_to_json(delta) |> json.to_string,
-      decode.at(["state", "crdt_spec"], decode.string),
-    )
-  {
+  case or_map_spec_name(or_map.delta_to_json(delta) |> json.to_string) {
     Ok("or_set") -> validated_set_operation(operation)
     _ -> decode.success(operation)
   }
@@ -1620,7 +1605,7 @@ fn validated_set_operation(
   }
 }
 
-fn default_or_map_delta() -> or_map.ORMapDelta {
+fn default_or_map_delta() -> or_map_kernel.ORMapDelta {
   or_map.new(replica_id.new(""), crdt.PnCounterSpec)
   |> or_map.empty_delta
 }

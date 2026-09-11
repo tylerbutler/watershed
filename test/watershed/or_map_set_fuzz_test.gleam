@@ -1,10 +1,13 @@
+import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import lattice_core/replica_id
+import lattice_maps/crdt
 import lattice_maps/or_map
+import lattice_sets/or_set
 import qcheck
 import startest/expect
 import watershed/fuzz/kernel_fuzz.{
@@ -12,6 +15,7 @@ import watershed/fuzz/kernel_fuzz.{
   Deliver, Disconnect, KernelModel, OperationEntry, Reconnect, RollbackOperation,
   Sequence, SequencedMeta, StashedOperation, SubmitMeta, Synchronize,
 }
+import watershed/fuzz/or_map_metadata
 import watershed/fuzz/or_map_set_model.{
   type Dot, type Intent, type Observation, type SetMapCommand,
   type SetObservation, type State, AddMember, Context, Observation, RemoveKey,
@@ -26,6 +30,10 @@ type Model =
 
 fn edit(intent: Intent, key: String, member: String) -> SetMapCommand {
   SetMapCommand(intent, key, member, None, None)
+}
+
+fn key_dot(author: String, key: String, counter: Int) -> Dot {
+  #(or_map_metadata.membership_author(author, key, #(0, None)), counter)
 }
 
 pub fn generated_stash_fixture_contains_original_payload_test() -> Nil {
@@ -75,8 +83,10 @@ pub fn converges_and_matches_oracle_test() -> Nil {
 
 pub fn independent_oracle_retracts_only_observed_dots_test() -> Nil {
   let old = #("client-1", 1)
-  let removal = #("client-1", 2)
   let concurrent = #("client-2", 2)
+  let old_key = key_dot("client-1", "doc", 1)
+  let removal = key_dot("client-1", "doc", 2)
+  let concurrent_key = key_dot("client-2", "doc", 2)
   let entries = [
     OperationEntry(
       1,
@@ -84,7 +94,7 @@ pub fn independent_oracle_retracts_only_observed_dots_test() -> Nil {
         AddMember,
         "doc",
         "old",
-        Some(Context(0, "client-1", 1, [], None, [])),
+        Some(Context(0, "client-1", 1, [], None, [], #(0, None))),
         None,
       ),
       [],
@@ -100,9 +110,10 @@ pub fn independent_oracle_retracts_only_observed_dots_test() -> Nil {
             1,
             "client-1",
             2,
-            [old],
+            [old_key],
             Some(SetObservation([#("old", [old])], [])),
             [],
+            #(0, None),
           ),
         ),
         None,
@@ -120,9 +131,10 @@ pub fn independent_oracle_retracts_only_observed_dots_test() -> Nil {
             1,
             "client-2",
             2,
-            [old],
+            [old_key],
             Some(SetObservation([#("old", [old])], [])),
             [],
+            #(0, None),
           ),
         ),
         None,
@@ -132,10 +144,11 @@ pub fn independent_oracle_retracts_only_observed_dots_test() -> Nil {
   ]
   let expected =
     Observation(
-      SetObservation([#("doc", [concurrent])], [old, removal]),
+      SetObservation([#("doc", [concurrent_key])], [old_key, removal]),
       [#("doc", SetObservation([#("new", [concurrent])], [old]))],
-      [#("doc", [#("client-1", 2)])],
+      [#("doc", [removal])],
       [#("doc", ["new"])],
+      [#("doc", #(0, None))],
     )
   entries
   |> list.permutations
@@ -270,7 +283,9 @@ pub fn missing_empty_duplicate_and_noop_events_test() -> Nil {
   duplicate_view.visible |> expect.to_equal(first_view.visible)
   expect.to_be_false(duplicate_view == first_view)
   duplicate_view.keys.entries
-  |> expect.to_equal([#("", [#("client-1", 1), #("client-1", 2)])])
+  |> expect.to_equal([
+    #("", [key_dot("client-1", "", 1), key_dot("client-1", "", 2)]),
+  ])
 
   let #(empty, _) = submitted(model, duplicate, RemoveMember, "", "")
   let empty_view = model.observe(empty)
@@ -315,7 +330,7 @@ pub fn delayed_remove_stash_keeps_original_observation_test() -> Nil {
   let #(_, removal) = submitted(model, original_state, RemoveKey, "doc", "")
   let assert Some(context) = removal.context
   context.reference_sequence_number |> expect.to_equal(0)
-  context.key_dots |> expect.to_equal([#("client-1", 1)])
+  context.key_dots |> expect.to_equal([key_dot("client-1", "doc", 1)])
 
   let receiver = delivered(model, model.init(2), old)
   let #(receiver, update) = submitted(model, receiver, AddMember, "doc", "new")
@@ -349,7 +364,7 @@ pub fn out_of_order_and_duplicate_delivery_matches_dot_oracle_test() -> Nil {
     operations
     |> list.map(fn(command) { OperationEntry(1, command, []) })
     |> or_map_set_model.oracle
-  expected.visible |> expect.to_equal([#("doc", ["concurrent", "readded"])])
+  expected.visible |> expect.to_equal([#("doc", ["readded"])])
   operations
   |> list.permutations
   |> list.each(fn(ordered) {
@@ -435,7 +450,7 @@ pub fn rollback_empty_checkpoint_reload_does_not_reuse_either_dot_test() -> Nil 
   let assert Some(context) = command.context
   context.counter |> expect.to_equal(2)
   model.observe(fresh).keys.entries
-  |> expect.to_equal([#("absent", [#("client-1", 2)])])
+  |> expect.to_equal([#("absent", [key_dot("client-1", "absent", 2)])])
   model.observe(fresh).members
   |> expect.to_equal([
     #("absent", SetObservation([#("new", [#("client-1", 2)])], [])),
@@ -450,7 +465,7 @@ pub fn operation_round_trip_preserves_all_captured_metadata_test() -> Nil {
   let #(state, remove_key) = submitted(model, state, RemoveKey, "", "")
   let #(_, readd) = submitted(model, state, AddMember, "", "new")
   let assert Some(context) = readd.context
-  context.removal_bound |> expect.to_equal([#("client-1", 3)])
+  context.removal_bound |> expect.to_equal([key_dot("client-1", "", 3)])
   context.members
   |> expect.to_equal(Some(SetObservation([], [#("client-1", 1)])))
   [
@@ -508,7 +523,7 @@ fn dot_json(dot: Dot) -> json.Json {
 fn set_json(state: SetObservation, author: String, counter: Int) -> json.Json {
   json.object([
     #("type", json.string("or_set")),
-    #("v", json.int(2)),
+    #("v", json.int(3)),
     #(
       "state",
       json.object([
@@ -516,11 +531,12 @@ fn set_json(state: SetObservation, author: String, counter: Int) -> json.Json {
         #("counter", json.int(counter)),
         #(
           "entries",
-          json.object(
-            list.map(state.entries, fn(pair) {
-              #(pair.0, json.array(pair.1, dot_json))
-            }),
-          ),
+          json.array(state.entries, fn(pair) {
+            json.object([
+              #("value", json.string(pair.0)),
+              #("tags", json.array(pair.1, dot_json)),
+            ])
+          }),
         ),
         #("tombstones", json.array(state.tombstones, dot_json)),
         #("pruned", vector_json([])),
@@ -547,51 +563,68 @@ fn native_json(
     #(
       "v",
       json.int(case is_delta {
-        True -> 1
-        False -> 2
+        True -> 2
+        False -> 3
       }),
     ),
     #(
       "state",
       json.object([
         #("replica_id", json.string(author)),
-        #("crdt_spec", json.string("or_set")),
         #(
-          case is_delta {
-            True -> "key_set_delta"
-            False -> "key_set"
-          },
-          set_json(observation.keys, author, counter)
+          "spec",
+          crdt.spec_to_json_with(crdt.OrSetSpec, json.string)
             |> json.to_string
             |> json.string,
         ),
+        #("clock", json.int(counter)),
         #(
-          case is_delta {
-            True -> "value_deltas"
-            False -> "values"
-          },
-          json.array(observation.members, fn(pair) {
+          "entries",
+          json.array(observation.generations, fn(pair) {
+            let key = pair.0
+            let bounds =
+              result.unwrap(list.key_find(observation.bounds, key), [])
+            let membership =
+              SetObservation(
+                list.filter(observation.keys.entries, fn(entry) {
+                  entry.0 == key
+                }),
+                list.filter(observation.keys.tombstones, fn(dot) {
+                  dot.1 <= result.unwrap(list.key_find(bounds, dot.0), 0)
+                }),
+              )
+            let leaf = case list.key_find(observation.members, key) {
+              Error(Nil) -> json.null()
+              Ok(leaf) -> {
+                let leaf = set_json(leaf, author, counter) |> json.to_string
+                case is_delta {
+                  False -> json.string(leaf)
+                  True -> {
+                    let assert Ok(leaf) =
+                      or_set.from_json_with(leaf, decode.string)
+                    crdt.delta_to_json(crdt.StateDelta(crdt.CrdtOrSet(leaf)))
+                    |> json.to_string
+                    |> json.string
+                  }
+                }
+              }
+            }
             json.object([
-              #("key", json.string(pair.0)),
+              #("key", json.string(key)),
+              #("generation", or_map_metadata.generation_json(pair.1)),
               #(
-                "crdt",
-                set_json(pair.1, author, counter)
+                "membership",
+                set_json(
+                  membership,
+                  or_map_metadata.membership_author(author, key, pair.1),
+                  counter,
+                )
                   |> json.to_string
                   |> json.string,
               ),
+              #("value", leaf),
             ])
           }),
-        ),
-        #(
-          case is_delta {
-            True -> "remove_bounds_delta"
-            False -> "remove_bounds"
-          },
-          json.object(
-            list.map(observation.bounds, fn(pair) {
-              #(pair.0, vector_json(pair.1))
-            }),
-          ),
         ),
       ]),
     ),
@@ -674,7 +707,7 @@ pub fn rollback_counter_rewind_is_detected_without_visible_change_test() -> Nil 
   expect_fault(buggy, script, "Counter floor rewound")
 }
 
-pub fn reload_dropped_tombstones_and_bounds_are_detected_test() -> Nil {
+pub fn reload_dropped_tombstones_and_generations_are_detected_test() -> Nil {
   let model = or_map_set_model.model()
   let assert Some(load) = model.capabilities.load_from_synced
   let prefix = [
@@ -686,7 +719,12 @@ pub fn reload_dropped_tombstones_and_bounds_are_detected_test() -> Nil {
     let script =
       list.append(prefix, list.append(readd, [Synchronize, AddClient]))
     kernel_fuzz.try_run_script(model, 3, script) |> expect.to_equal(Ok(Nil))
-    [0, 1, 2]
+    // A fresh generation replaces the old membership tombstones.
+    let faults = case readd {
+      [] -> [0, 1, 2]
+      _ -> [1, 2]
+    }
+    faults
     |> list.each(fn(fault) {
       let buggy =
         KernelModel(
@@ -709,7 +747,7 @@ pub fn reload_dropped_tombstones_and_bounds_are_detected_test() -> Nil {
                       #(pair.0, SetObservation(..pair.1, tombstones: []))
                     }),
                   )
-                _ -> Observation(..observation, bounds: [])
+                _ -> Observation(..observation, generations: [])
               }
               replace_native(state, changed, state.floor)
             }),
@@ -728,6 +766,7 @@ pub fn inactive_imported_members_are_observed_and_cleared_on_readd_test() -> Nil
       [#("doc", SetObservation([#("old", [#("client-1", 1)])], []))],
       [#("doc", [#("client-1", 1)])],
       [],
+      [#("doc", #(0, None))],
     )
   let assert Ok(actual) =
     kernel.from_summary(
@@ -800,6 +839,7 @@ pub fn absent_member_removal_creating_key_is_detected_test() -> Nil {
         [#("missing", SetObservation([], [#("client-1", 1)]))],
         [],
         [#("missing", [])],
+        [#("missing", #(0, None))],
       ),
       "client-1",
       3,

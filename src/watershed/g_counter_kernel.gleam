@@ -120,7 +120,7 @@ pub fn increment(
   #(GCounterState, List(GCounterEvent), GCounterOperation, Int),
   EditError,
 ) {
-  case g_counter.try_increment_with_delta(state.optimistic, amount) {
+  case g_counter.increment_with_delta(state.optimistic, amount) {
     Error(g_counter.NegativeDelta(delta)) -> Error(NegativeIncrement(delta))
     Ok(#(optimistic, delta)) -> {
       let before = g_counter.value(state.optimistic)
@@ -151,7 +151,7 @@ pub fn p2p_increment(
   state: GCounterState,
   amount: Int,
 ) -> Result(#(GCounterState, List(GCounterEvent), GCounterOperation), EditError) {
-  case g_counter.try_increment_with_delta(state.optimistic, amount) {
+  case g_counter.increment_with_delta(state.optimistic, amount) {
     Error(g_counter.NegativeDelta(delta)) -> Error(NegativeIncrement(delta))
     Ok(#(_optimistic, delta)) -> {
       let before = g_counter.value(state.optimistic)

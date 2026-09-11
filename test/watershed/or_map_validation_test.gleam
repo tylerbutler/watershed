@@ -8,6 +8,7 @@ import lattice_maps/or_map
 import startest/expect
 import watershed/channel
 import watershed/or_map_kernel as kernel
+import watershed/or_map_set_leaf
 import watershed/wire/op
 
 fn new(mode: kernel.OrMapMode) -> kernel.OrMapState {
@@ -31,7 +32,7 @@ fn writes() -> List(#(kernel.OrMapState, kernel.OrMapOperation)) {
   list.append(sparse_writes(), [#(members, add)])
 }
 
-fn delta(operation: kernel.OrMapOperation) -> or_map.ORMapDelta {
+fn delta(operation: kernel.OrMapOperation) -> kernel.ORMapDelta {
   case operation {
     kernel.Increment(_, _, delta)
     | kernel.SetRegister(_, _, _, delta)
@@ -44,7 +45,7 @@ fn delta(operation: kernel.OrMapOperation) -> or_map.ORMapDelta {
 
 fn with_delta(
   operation: kernel.OrMapOperation,
-  delta: or_map.ORMapDelta,
+  delta: kernel.ORMapDelta,
 ) -> kernel.OrMapOperation {
   case operation {
     kernel.Increment(key, amount, _) -> kernel.Increment(key, amount, delta)
@@ -225,29 +226,82 @@ fn replace_nested(
   operation: kernel.OrMapOperation,
   field: String,
   transform: fn(String) -> String,
-) -> kernel.OrMapOperation {
+) -> String {
   let source = or_map.delta_to_json(delta(operation)) |> json.to_string
-  let decoder = case field {
-    "key_set_delta" -> decode.at(["state", field], decode.string)
-    _ ->
+  let assert Ok([encoded]) =
+    json.parse(
+      source,
       decode.at(
-        ["state", "value_deltas"],
-        decode.list(decode.field("crdt", decode.string, decode.success)),
+        ["state", "entries"],
+        decode.list(decode.field(field, decode.string, decode.success)),
+      ),
+    )
+  let transformed = case field {
+    "value" -> {
+      let assert Ok(leaf) =
+        json.parse(encoded, decode.at(["state", "payload"], decode.string))
+      let corrupted_leaf = transform(leaf)
+      corrupted_leaf |> expect.to_not_equal(leaf)
+      string.replace(
+        encoded,
+        json.string(leaf) |> json.to_string,
+        json.string(corrupted_leaf) |> json.to_string,
       )
-      |> decode.map(fn(leaves) {
-        let assert [leaf] = leaves
-        leaf
-      })
+    }
+    _ -> transform(encoded)
   }
-  let assert Ok(encoded) = json.parse(source, decoder)
+  transformed |> expect.to_not_equal(encoded)
   let corrupted =
     string.replace(
       source,
       json.string(encoded) |> json.to_string,
-      json.string(transform(encoded)) |> json.to_string,
+      json.string(transformed) |> json.to_string,
     )
-  let assert Ok(delta) = or_map.delta_from_json(corrupted)
-  with_delta(operation, delta)
+  corrupted |> expect.to_not_equal(source)
+  corrupted
+}
+
+fn expect_nested_rejected(
+  state: kernel.OrMapState,
+  operation: kernel.OrMapOperation,
+  field: String,
+  transform: fn(String) -> String,
+) -> Nil {
+  expect_delta_rejected(
+    state,
+    operation,
+    replace_nested(operation, field, transform),
+  )
+}
+
+fn expect_delta_rejected(
+  state: kernel.OrMapState,
+  operation: kernel.OrMapOperation,
+  corrupted: String,
+) -> Nil {
+  let source = or_map.delta_to_json(delta(operation)) |> json.to_string
+  corrupted |> expect.to_not_equal(source)
+  let encoded = op.encode_or_map_operation(operation) |> json.to_string
+  json.parse(encoded, op.or_map_operation_decoder())
+  |> expect.to_equal(Ok(operation))
+  let malformed =
+    string.replace(
+      encoded,
+      json.string(source) |> json.to_string,
+      json.string(corrupted) |> json.to_string,
+    )
+  malformed |> expect.to_not_equal(encoded)
+  json.parse(malformed, op.or_map_operation_decoder()) |> expect.to_be_error()
+  // Validate set metadata before the native decoder raises allocation floors.
+  let decoded = case state.mode {
+    kernel.OrSetMode ->
+      or_map_set_leaf.decode_delta(corrupted) |> result.map_error(fn(_) { Nil })
+    _ -> or_map.delta_from_json(corrupted) |> result.map_error(fn(_) { Nil })
+  }
+  case decoded {
+    Error(_) -> Nil
+    Ok(delta) -> expect_rejected(state, with_delta(operation, delta))
+  }
 }
 
 pub fn malformed_key_tags_and_pruning_are_rejected_before_apply_test() -> Nil {
@@ -261,7 +315,7 @@ pub fn malformed_key_tags_and_pruning_are_rejected_before_apply_test() -> Nil {
       },
     ]
     |> list.each(fn(corrupt) {
-      expect_rejected(pair.0, replace_nested(pair.1, "key_set_delta", corrupt))
+      expect_nested_rejected(pair.0, pair.1, "membership", corrupt)
     })
   })
 }
@@ -293,25 +347,25 @@ pub fn mv_write_requires_the_new_authored_entry_not_just_visible_text_test() -> 
     fn(source) { string.replace(source, "\"author\"", "\"other\"") },
   ]
   |> list.each(fn(corrupt) {
-    expect_rejected(state, replace_nested(operation, "crdt", corrupt))
+    expect_nested_rejected(state, operation, "value", corrupt)
   })
 }
 
 pub fn write_leaf_author_must_match_key_author_test() -> Nil {
   sparse_writes()
   |> list.each(fn(pair) {
-    expect_rejected(
-      pair.0,
-      replace_nested(pair.1, "key_set_delta", fn(source) {
-        string.replace(source, "\"r\":\"author\"", "\"r\":\"other\"")
-      }),
-    )
-    expect_rejected(
-      pair.0,
-      replace_nested(pair.1, "crdt", fn(source) {
-        string.replace(source, "\"author\"", "\"other\"")
-      }),
-    )
+    expect_nested_rejected(pair.0, pair.1, "membership", fn(source) {
+      let assert Ok(author) =
+        json.parse(source, decode.at(["state", "replica_id"], decode.string))
+      string.replace(
+        source,
+        "\"r\":" <> json.to_string(json.string(author)),
+        "\"r\":\"other\"",
+      )
+    })
+    expect_nested_rejected(pair.0, pair.1, "value", fn(source) {
+      string.replace(source, "\"author\"", "\"other\"")
+    })
   })
 }
 
@@ -319,24 +373,37 @@ pub fn removal_requires_matching_bounds_and_positive_tombstones_test() -> Nil {
   sparse_writes()
   |> list.each(fn(pair) {
     let assert Ok(#(_, _, removed, _)) = kernel.remove(pair.0, "gate")
-    expect_rejected(
-      pair.0,
-      replace_nested(removed, "key_set_delta", fn(source) {
-        string.replace(source, "\"c\":1", "\"c\":0")
-      }),
-    )
-    expect_rejected(
-      pair.0,
-      replace_nested(removed, "key_set_delta", fn(source) {
-        string.replace(source, "\"c\":1", "\"c\":2")
-      }),
-    )
-    expect_rejected(
-      pair.0,
-      replace_nested(removed, "key_set_delta", fn(source) {
+    expect_nested_rejected(pair.0, removed, "membership", fn(source) {
+      string.replace(source, "\"c\":1", "\"c\":0")
+    })
+    let unbounded =
+      or_map.delta_to_json(delta(removed))
+      |> json.to_string
+      |> string.replace(
+        "\"generation\":{\"clock\":0,\"creator\":null}",
+        "\"generation\":{\"clock\":1,\"creator\":\"author\"}",
+      )
+    expect_delta_rejected(pair.0, removed, unbounded)
+    expect_nested_rejected(pair.0, removed, "membership", fn(source) {
+      string.replace(source, "\"counter\":1", "\"counter\":-1")
+    })
+    // Native allocation floors rise to retained tags without changing them.
+    let lowered =
+      replace_nested(removed, "membership", fn(source) {
         string.replace(source, "\"counter\":1", "\"counter\":0")
-      }),
-    )
+      })
+    or_map.delta_from_json(lowered) |> expect.to_equal(Ok(delta(removed)))
+    let changed_tag =
+      replace_nested(removed, "membership", fn(source) {
+        string.replace(source, "\"c\":1", "\"c\":2")
+      })
+    let assert Ok(changed_tag) = or_map.delta_from_json(changed_tag)
+    let assert Ok(#(retained, [])) =
+      kernel.apply_remote(pair.0, with_delta(removed, changed_tag))
+    kernel.entries(retained) |> expect.to_equal(kernel.entries(pair.0))
+    kernel.check_cache_coherence(retained) |> expect.to_equal(Ok(Nil))
+    let assert Ok(#(removed_state, _)) = kernel.apply_remote(retained, removed)
+    kernel.get(removed_state, "gate") |> expect.to_be_error()
   })
 }
 
@@ -350,20 +417,14 @@ pub fn set_removal_requires_bounded_key_and_leaf_tombstones_test() -> Nil {
     fn(source) { string.replace(source, "\"counter\":2", "\"counter\":0") },
   ]
   |> list.each(fn(corrupt) {
-    expect_rejected(state, replace_nested(removed, "key_set_delta", corrupt))
+    expect_nested_rejected(state, removed, "membership", corrupt)
   })
-  expect_rejected(
-    state,
-    replace_nested(removed, "crdt", fn(source) {
-      string.replace(source, "\"c\":1", "\"c\":0")
-    }),
-  )
-  let source =
-    or_map.delta_to_json(delta(removed))
-    |> json.to_string
-    |> string.replace("\"author\":2", "\"author\":0")
-  let assert Ok(unbounded) = or_map.delta_from_json(source)
-  expect_rejected(state, with_delta(removed, unbounded))
+  expect_nested_rejected(state, removed, "value", fn(source) {
+    string.replace(source, "\"c\":1", "\"c\":0")
+  })
+  expect_nested_rejected(state, removed, "value", fn(source) {
+    string.replace(source, "\"counter\":1", "\"counter\":0")
+  })
 }
 
 pub fn set_history_survives_wire_and_both_channel_paths_test() -> Nil {
@@ -421,16 +482,53 @@ pub fn removal_cannot_relabel_tombstones_for_another_known_key_test() -> Nil {
     let source =
       or_map.delta_to_json(delta(removed))
       |> json.to_string
-      |> string.replace("\"gate\"", "\"other\"")
-    let assert Ok(relabeled) = or_map.delta_from_json(source)
+    let relabeled =
+      string.replace(source, "\"key\":\"gate\"", "\"key\":\"other\"")
+    relabeled |> expect.to_not_equal(source)
+    let assert Ok(relabeled) = or_map.delta_from_json(relabeled)
     let forged = kernel.Remove("other", relabeled)
     [pair.0, state]
     |> list.each(fn(state) {
-      expect_rejected(state, forged)
-      kernel.apply_stashed_operation(state, forged) |> expect.to_be_error()
+      let mismatched = kernel.Remove("other", delta(removed))
+      expect_rejected(state, mismatched)
+      kernel.apply_stashed_operation(state, mismatched) |> expect.to_be_error()
       let matching_pending =
-        kernel.OrMapState(..state, pending: [kernel.PendingOperation(forged, 0)])
-      kernel.ack_local(matching_pending, forged) |> expect.to_be_error()
+        kernel.OrMapState(..state, pending: [
+          kernel.PendingOperation(mismatched, 0),
+        ])
+      kernel.ack_local(matching_pending, mismatched) |> expect.to_be_error()
+
+      let assert Ok(#(_, _, other)) = case state.mode {
+        kernel.TallyMode -> kernel.p2p_increment(new(state.mode), "other", 7)
+        kernel.RegisterMode ->
+          kernel.p2p_set_register(new(state.mode), "other", "closed", 20)
+        kernel.MvRegisterMode ->
+          kernel.p2p_set_mv_register(new(state.mode), "other", "closed")
+        kernel.OrSetMode -> panic as "Expected a sparse write."
+      }
+      let assert Ok(#(state, _)) = kernel.apply_remote(state, other)
+      // Relabeled entries cannot move tombstones out of their per-key context.
+      let assert Ok(#(direct, [])) = kernel.apply_remote(state, forged)
+      let assert Ok(#(stashed, [], replayed, id)) =
+        kernel.apply_stashed_operation(state, forged)
+      let matching_pending =
+        kernel.OrMapState(..stashed, pending: [
+          kernel.PendingOperation(replayed, id),
+          ..state.pending
+        ])
+      let assert Ok(acked) =
+        kernel.ack_local_with_message_id(matching_pending, replayed, id)
+      list.each([direct, stashed, acked], fn(retained) {
+        kernel.entries(retained) |> expect.to_equal(kernel.entries(state))
+        kernel.sequenced_entries(retained)
+        |> expect.to_equal(kernel.sequenced_entries(state))
+        kernel.check_cache_coherence(retained) |> expect.to_equal(Ok(Nil))
+        let assert Ok(#(removed_state, _)) =
+          kernel.apply_remote(retained, removed)
+        kernel.get(removed_state, "gate") |> expect.to_be_error()
+        kernel.get(removed_state, "other")
+        |> expect.to_equal(kernel.get(state, "other"))
+      })
     })
   })
 }

@@ -1,7 +1,6 @@
-//// Native OR-map compatibility for the set mode.
+//// Native OR-map compatibility for the String set mode.
 ////
-//// Keep removal bounds as a monotone per-key version-vector join. Native
-//// merges can discard these bounds. Keep history for active keys too.
+//// Generation floors retain removal history in lattice_maps 2.0.
 //// Pruning is not supported in this mode.
 
 import gleam/dict.{type Dict}
@@ -9,14 +8,22 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/json
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set
 import gleam/string
 import lattice_core/replica_id.{type ReplicaId}
-import lattice_core/version_vector.{type VersionVector}
+import lattice_core/version_vector
 import lattice_maps/crdt
-import lattice_maps/or_map.{type ORMap, type ORMapDelta}
+import lattice_maps/or_map
 import lattice_sets/or_set.{type ORSet}
+import watershed/json_ot
+
+type ORMap =
+  or_map.ORMap(String)
+
+type ORMapDelta =
+  or_map.ORMapDelta(String)
 
 const safe_counter = 9_007_199_254_740_991
 
@@ -39,120 +46,96 @@ pub type LeafError {
 }
 
 type Snapshot {
-  Snapshot(
-    author: String,
-    spec: String,
-    key_set: String,
-    values: List(#(String, String)),
+  Snapshot(author: String, spec: String, clock: Int, entries: List(Entry))
+}
+
+type Entry {
+  Entry(
+    key: String,
+    generation: json_ot.JsonValue,
+    membership: String,
+    value: Option(String),
   )
 }
 
-/// Merge native state without discarding removal history.
+/// Native generation floors preserve removal history.
 @internal
 pub fn merge(left: ORMap, right: ORMap) -> Result(ORMap, LeafError) {
-  use left_bounds <- result.try(read_bounds(
-    or_map.to_json(left),
-    "remove_bounds",
-  ))
-  use right_bounds <- result.try(read_bounds(
-    or_map.to_json(right),
-    "remove_bounds",
-  ))
-  use merged <- result.try(
-    or_map.merge(left, right) |> result.map_error(merge_error),
-  )
-  restore_bounds(
-    merged,
-    dict.combine(left_bounds, right_bounds, version_vector.merge),
-  )
+  or_map.merge(left, right) |> result.map_error(merge_error)
 }
 
 /// Apply a native delta without discarding removal history.
 @internal
 pub fn apply_delta(map: ORMap, delta: ORMapDelta) -> Result(ORMap, LeafError) {
-  use map_bounds <- result.try(read_bounds(or_map.to_json(map), "remove_bounds"))
-  use delta_bounds <- result.try(read_bounds(
-    or_map.delta_to_json(delta),
-    "remove_bounds_delta",
-  ))
-  use applied <- result.try(
-    or_map.apply_delta(map, delta) |> result.map_error(merge_error),
-  )
-  restore_bounds(
-    applied,
-    dict.combine(map_bounds, delta_bounds, version_vector.merge),
-  )
+  or_map.apply_delta(map, delta) |> result.map_error(merge_error)
 }
 
-fn read_bounds(
-  encoded: json.Json,
-  field: String,
-) -> Result(Dict(String, VersionVector), LeafError) {
-  json.parse(
-    json.to_string(encoded),
-    decode.at(
-      ["state", field],
-      decode.dict(decode.string, version_vector.decoder()),
-    ),
-  )
-  |> result.map_error(codec_error)
-}
-
-fn restore_bounds(
-  map: ORMap,
-  bounds: Dict(String, VersionVector),
-) -> Result(ORMap, LeafError) {
-  let value_decoder = {
+fn snapshot_decoder() -> decode.Decoder(Snapshot) {
+  let entry_decoder = {
     use key <- decode.field("key", decode.string)
-    use value <- decode.field("crdt", decode.string)
-    decode.success(#(key, value))
+    use generation <- decode.field("generation", json_ot.decoder())
+    use membership <- decode.field("membership", decode.string)
+    use value <- decode.field("value", decode.optional(decode.string))
+    decode.success(Entry(key, generation, membership, value))
   }
-  let snapshot_decoder =
-    decode.at(["state"], {
-      use author <- decode.field("replica_id", decode.string)
-      use spec <- decode.field("crdt_spec", decode.string)
-      use key_set <- decode.field("key_set", decode.string)
-      use values <- decode.field("values", decode.list(value_decoder))
-      decode.success(Snapshot(author, spec, key_set, values))
-    })
-  use snapshot <- result.try(
-    json.parse(or_map.to_json(map) |> json.to_string, snapshot_decoder)
-    |> result.map_error(codec_error),
-  )
-  // Preserve the native key and leaf payloads, including inactive leaves.
+  decode.at(["state"], {
+    use author <- decode.field("replica_id", decode.string)
+    use spec <- decode.field("spec", decode.string)
+    use clock <- decode.field("clock", decode.int)
+    use entries <- decode.field("entries", decode.list(entry_decoder))
+    decode.success(Snapshot(author, spec, clock, entries))
+  })
+}
+
+fn encode_snapshot(snapshot: Snapshot, delta: Bool) -> String {
   json.object([
-    #("type", json.string("or_map")),
-    #("v", json.int(2)),
+    #(
+      "type",
+      json.string(case delta {
+        True -> "or_map_delta"
+        False -> "or_map"
+      }),
+    ),
+    #(
+      "v",
+      json.int(case delta {
+        True -> 2
+        False -> 3
+      }),
+    ),
     #(
       "state",
       json.object([
         #("replica_id", json.string(snapshot.author)),
-        #("crdt_spec", json.string(snapshot.spec)),
-        #("key_set", json.string(snapshot.key_set)),
+        #("spec", json.string(snapshot.spec)),
+        #("clock", json.int(snapshot.clock)),
         #(
-          "values",
-          json.array(snapshot.values, fn(pair) {
+          "entries",
+          json.array(snapshot.entries, fn(entry) {
             json.object([
-              #("key", json.string(pair.0)),
-              #("crdt", json.string(pair.1)),
+              #("key", json.string(entry.key)),
+              #("generation", json_ot.to_json(entry.generation)),
+              #("membership", json.string(entry.membership)),
+              #("value", case entry.value {
+                None -> json.null()
+                Some(value) -> json.string(value)
+              }),
             ])
           }),
-        ),
-        #(
-          "remove_bounds",
-          json.dict(bounds, fn(key) { key }, version_vector.to_json),
         ),
       ]),
     ),
   ])
   |> json.to_string
-  |> or_map.from_json
-  |> result.map_error(codec_error)
 }
 
 fn merge_error(error: crdt.MergeError) -> LeafError {
-  let crdt.TypeMismatch(expected, found) = error
-  InvalidState("Expected " <> expected <> ", found " <> found <> ".")
+  case error {
+    crdt.TypeMismatch(expected, found) ->
+      InvalidState("Expected " <> expected <> ", found " <> found <> ".")
+    _ ->
+      InvalidState("Invalid native OR-map operation: " <> string.inspect(error))
+  }
 }
 
 fn codec_error(error: json.DecodeError) -> LeafError {
@@ -174,7 +157,10 @@ type SetMetadata {
 
 type MapMetadata {
   MapMetadata(
-    keys: SetMetadata,
+    counter: Int,
+    key_entries: Dict(String, List(#(String, Int))),
+    key_tombstones: List(#(String, Int)),
+    mentioned_keys: List(String),
     values: Dict(String, SetMetadata),
     bounds: Dict(String, VectorMetadata),
   )
@@ -222,10 +208,23 @@ fn read_set(encoded: String) -> Result(SetMetadata, LeafError) {
     use state <- decode.field("state", {
       use _author <- decode.field("replica_id", decode.string)
       use counter <- decode.field("counter", decode.int)
-      use entries <- decode.field(
-        "entries",
-        decode.dict(decode.string, decode.list(tag_decoder)),
-      )
+      use entries <- decode.field("entries", case version {
+        3 -> {
+          use entries <- decode.then(
+            decode.list({
+              use value <- decode.field("value", decode.string)
+              use tags <- decode.field("tags", decode.list(tag_decoder))
+              decode.success(#(value, tags))
+            }),
+          )
+          let unique = dict.from_list(entries)
+          case dict.size(unique) == list.length(entries) {
+            True -> decode.success(unique)
+            False -> decode.failure(unique, "distinct OR-set members")
+          }
+        }
+        _ -> decode.dict(decode.string, decode.list(tag_decoder))
+      })
       use tombstones <- decode.optional_field(
         "tombstones",
         [],
@@ -244,8 +243,8 @@ fn read_set(encoded: String) -> Result(SetMetadata, LeafError) {
     json.parse(encoded, decoder) |> result.map_error(codec_error),
   )
   use _ <- result.try(require(
-    type_tag == "or_set" && { version == 1 || version == 2 },
-    "Expected OR-set v1 or v2.",
+    type_tag == "or_set" && { version == 1 || version == 2 || version == 3 },
+    "Expected OR-set v1, v2, or v3.",
   ))
   use _ <- result.try(validate_vector(pruned))
   use _ <- result.try(require(
@@ -285,21 +284,16 @@ fn read_set(encoded: String) -> Result(SetMetadata, LeafError) {
     }),
   )
   use native <- result.try(
-    or_set.from_json(encoded) |> result.map_error(codec_error),
+    case version {
+      3 -> or_set.from_json_with(encoded, decode.string)
+      _ -> or_set.from_json(encoded)
+    }
+    |> result.map_error(codec_error),
   )
   Ok(SetMetadata(native, counter, entries, tombstones))
 }
 
-fn read_map(encoded: String, delta: Bool) -> Result(MapMetadata, LeafError) {
-  let #(expected_type, key_field, value_field, bound_field) = case delta {
-    True -> #(
-      "or_map_delta",
-      "key_set_delta",
-      "value_deltas",
-      "remove_bounds_delta",
-    )
-    False -> #("or_map", "key_set", "values", "remove_bounds")
-  }
+fn read_legacy_map(encoded: String) -> Result(MapMetadata, LeafError) {
   let value_decoder = {
     use key <- decode.field("key", decode.string)
     use value <- decode.field("crdt", decode.string)
@@ -311,10 +305,10 @@ fn read_map(encoded: String, delta: Bool) -> Result(MapMetadata, LeafError) {
     use state <- decode.field("state", {
       use _author <- decode.field("replica_id", decode.string)
       use spec <- decode.field("crdt_spec", decode.string)
-      use keys <- decode.field(key_field, decode.string)
-      use values <- decode.field(value_field, decode.list(value_decoder))
+      use keys <- decode.field("key_set", decode.string)
+      use values <- decode.field("values", decode.list(value_decoder))
       use bounds <- decode.optional_field(
-        bound_field,
+        "remove_bounds",
         dict.new(),
         decode.dict(decode.string, vector_decoder()),
       )
@@ -326,7 +320,7 @@ fn read_map(encoded: String, delta: Bool) -> Result(MapMetadata, LeafError) {
     json.parse(encoded, decoder) |> result.map_error(codec_error),
   )
   use _ <- result.try(require(
-    type_tag == expected_type && { version == 1 || { !delta && version == 2 } },
+    type_tag == "or_map" && { version == 1 || version == 2 },
     "Invalid OR-map envelope type or version.",
   ))
   use _ <- result.try(require(spec == "or_set", "Expected or_set value spec."))
@@ -348,14 +342,152 @@ fn read_map(encoded: String, delta: Bool) -> Result(MapMetadata, LeafError) {
     list.all(dict.keys(keys.entries), fn(key) { dict.has_key(values, key) }),
     "An active OR-map key has no set value.",
   ))
-  Ok(MapMetadata(keys, values, bounds))
+  Ok(MapMetadata(
+    keys.counter,
+    keys.entries,
+    keys.tombstones,
+    list.append(
+      dict.keys(keys.entries),
+      list.append(value_keys, dict.keys(bounds)),
+    ),
+    values,
+    bounds,
+  ))
 }
 
-/// Validate raw lists before the native decoder constructs dictionaries.
+fn read_map(encoded: String, delta: Bool) -> Result(MapMetadata, LeafError) {
+  // Validate the native envelope, schema, generations, and unique keys first.
+  use _ <- result.try(
+    case delta {
+      True -> or_map.delta_from_json(encoded) |> result.replace(Nil)
+      False -> or_map.from_json(encoded) |> result.replace(Nil)
+    }
+    |> result.map_error(codec_error),
+  )
+  use snapshot <- result.try(
+    json.parse(encoded, snapshot_decoder()) |> result.map_error(codec_error),
+  )
+  use spec <- result.try(
+    crdt.spec_from_json_with(snapshot.spec, decode.string)
+    |> result.map_error(codec_error),
+  )
+  use _ <- result.try(require(
+    spec == crdt.OrSetSpec,
+    "Expected or_set value spec.",
+  ))
+  use memberships <- result.try(
+    list.try_map(snapshot.entries, fn(entry) {
+      use membership <- result.try(read_set(entry.membership))
+      Ok(#(entry.key, membership))
+    }),
+  )
+  // Membership contexts are per key. Joining their native sets would let
+  // an imported key's tombstones remove another key's live membership.
+  let counter =
+    list.fold(memberships, snapshot.clock, fn(counter, pair) {
+      int.max(counter, pair.1.counter)
+    })
+  let key_entries =
+    list.fold(memberships, dict.new(), fn(entries, pair) {
+      dict.combine(entries, pair.1.entries, list.append)
+    })
+  let key_tombstones =
+    list.flat_map(memberships, fn(pair) { pair.1.tombstones })
+  use values <- result.try(
+    list.try_fold(snapshot.entries, dict.new(), fn(values, entry) {
+      case entry.value {
+        None -> Ok(values)
+        Some(encoded) -> {
+          use child <- result.try(case delta {
+            False -> Ok(encoded)
+            True -> {
+              use change <- result.try(
+                crdt.delta_from_json_with(encoded, decode.string)
+                |> result.map_error(codec_error),
+              )
+              case change {
+                crdt.StateDelta(crdt.CrdtOrSet(_)) -> {
+                  json.parse(
+                    encoded,
+                    decode.at(["state", "payload"], decode.string),
+                  )
+                  |> result.map_error(codec_error)
+                }
+                _ ->
+                  Error(InvalidState("Expected a complete OR-set leaf delta."))
+              }
+            }
+          })
+          use leaf <- result.try(read_set(child))
+          Ok(dict.insert(values, entry.key, leaf))
+        }
+      }
+    }),
+  )
+  let bounds =
+    memberships
+    |> list.filter_map(fn(pair) {
+      case list.is_empty(pair.1.tombstones) {
+        True -> Error(Nil)
+        False ->
+          Ok(#(
+            pair.0,
+            VectorMetadata(
+              "version_vector",
+              1,
+              list.fold(pair.1.tombstones, dict.new(), fn(clocks, dot) {
+                dict.insert(
+                  clocks,
+                  dot.0,
+                  int.max(result.unwrap(dict.get(clocks, dot.0), 0), dot.1),
+                )
+              }),
+            ),
+          ))
+      }
+    })
+    |> dict.from_list
+  Ok(MapMetadata(
+    counter,
+    key_entries,
+    key_tombstones,
+    list.map(snapshot.entries, fn(entry) { entry.key }),
+    values,
+    bounds,
+  ))
+}
+
+/// Import legacy baselines or decode modern snapshots with strict metadata.
+/// Legacy deltas are not valid modern replication messages.
 @internal
 pub fn decode_state(encoded: String) -> Result(ORMap, LeafError) {
-  use _ <- result.try(read_map(encoded, False))
-  or_map.from_json(encoded) |> result.map_error(codec_error)
+  use version <- result.try(
+    json.parse(encoded, {
+      use version <- decode.field("v", decode.int)
+      decode.success(version)
+    })
+    |> result.map_error(codec_error),
+  )
+  case version {
+    1 | 2 -> {
+      use metadata <- result.try(read_legacy_map(encoded))
+      use author <- result.try(
+        json.parse(encoded, decode.at(["state", "replica_id"], decode.string))
+        |> result.map_error(codec_error),
+      )
+      let replica = replica_id.new(author)
+      use map <- result.try(
+        or_map.import_legacy(encoded, crdt.OrSetSpec, decode.string, replica)
+        |> result.map_error(codec_error),
+      )
+      use clocks <- result.try(observe_metadata(new_clocks(), metadata))
+      retain_counter_floor(map, clocks, replica)
+    }
+    _ -> {
+      use _ <- result.try(read_map(encoded, False))
+      or_map.from_json(encoded) |> result.map_error(codec_error)
+    }
+  }
 }
 
 @internal
@@ -381,19 +513,15 @@ pub fn validate_intent(
     or_map.delta_to_json(delta) |> json.to_string,
     True,
   ))
-  let mentioned_keys =
-    list.append(
-      dict.keys(metadata.keys.entries),
-      list.append(dict.keys(metadata.values), dict.keys(metadata.bounds)),
-    )
+  let mentioned_keys = metadata.mentioned_keys
   use _ <- result.try(require(
     list.all(mentioned_keys, fn(mentioned) { mentioned == key }),
     "OR-map delta concerns a different key.",
   ))
   let empty =
     list.is_empty(mentioned_keys)
-    && list.is_empty(metadata.keys.tombstones)
-    && metadata.keys.counter == 0
+    && list.is_empty(metadata.key_tombstones)
+    && metadata.counter == 0
   case intent, empty {
     RemoveMember(_), True | RemoveKey, True -> Ok(Nil)
     AddMember(_), _ | RemoveMember(_), False | RemoveKey, False -> {
@@ -406,8 +534,8 @@ pub fn validate_intent(
       case intent {
         AddMember(member) | RemoveMember(member) -> {
           use _ <- result.try(require(
-            dict.has_key(metadata.keys.entries, key)
-              && list.is_empty(metadata.keys.tombstones)
+            dict.has_key(metadata.key_entries, key)
+              && list.is_empty(metadata.key_tombstones)
               && dict.size(metadata.bounds) == 0,
             "Member operation must update only its declared key.",
           ))
@@ -434,10 +562,10 @@ pub fn validate_intent(
             )),
           )
           require(
-            dict.size(metadata.keys.entries) == 0
-              && !list.is_empty(metadata.keys.tombstones)
+            dict.size(metadata.key_entries) == 0
+              && !list.is_empty(metadata.key_tombstones)
               && dict.size(leaf.entries) == 0
-              && list.all(metadata.keys.tombstones, fn(dot) {
+              && list.all(metadata.key_tombstones, fn(dot) {
               dot.1 <= result.unwrap(dict.get(bound.clocks, dot.0), 0)
             }),
             "Key removal must clear observed members and bound removed key tags.",
@@ -490,7 +618,7 @@ fn observe_metadata(
     |> list.flat_map(fn(bound) { dict.values(bound.clocks) })
     |> list.fold(0, int.max)
   checked_clocks(Clocks(
-    int.max(clocks.key_counter, int.max(metadata.keys.counter, bounds)),
+    int.max(clocks.key_counter, int.max(metadata.counter, bounds)),
     members,
   ))
 }
@@ -541,31 +669,20 @@ pub fn retain_counter_floor(
   replica: ReplicaId,
 ) -> Result(ORMap, LeafError) {
   use clocks <- result.try(observe_state(clocks, map))
-  use seed <- result.try(
-    json.object([
-      #("type", json.string("or_map")),
-      #("v", json.int(2)),
-      #(
-        "state",
-        json.object([
-          #("replica_id", json.string(replica_id.to_string(replica))),
-          #("crdt_spec", json.string("or_set")),
-          #(
-            "key_set",
-            json.string(
-              seed_json(replica, clocks.key_counter) |> json.to_string,
-            ),
-          ),
-          #("values", json.array([], json.string)),
-          #("remove_bounds", json.object([])),
-        ]),
-      ),
-    ])
-    |> json.to_string
-    |> or_map.from_json
+  use snapshot <- result.try(
+    json.parse(or_map.to_json(map) |> json.to_string, snapshot_decoder())
     |> result.map_error(codec_error),
   )
-  merge(seed, map)
+  encode_snapshot(
+    Snapshot(
+      ..snapshot,
+      author: replica_id.to_string(replica),
+      clock: clocks.key_counter,
+    ),
+    False,
+  )
+  |> or_map.from_json
+  |> result.map_error(codec_error)
 }
 
 fn writable_leaf(
@@ -584,7 +701,7 @@ fn writable_leaf(
     Ok(retained) -> or_set.merge(seed, retained.native)
     Error(Nil) -> seed
   }
-  Ok(case dict.has_key(metadata.keys.entries, key) {
+  Ok(case dict.has_key(metadata.key_entries, key) {
     True -> leaf
     False -> or_set.remove_where(leaf, fn(_) { True })
   })
@@ -607,8 +724,54 @@ fn update_leaf(
     or_map.update_with_delta(working, key, fn(_) { crdt.CrdtOrSet(leaf) })
     |> result.map_error(merge_error),
   )
+  use delta <- result.try(reserve_membership(delta, clocks.key_counter))
   use clocks <- result.try(observe_delta(clocks, delta))
   Ok(#(delta, clocks))
+}
+
+// A rolled-back add must not reuse its membership tag, even for a new key.
+fn reserve_membership(
+  delta: ORMapDelta,
+  floor: Int,
+) -> Result(ORMapDelta, LeafError) {
+  use snapshot <- result.try(
+    json.parse(
+      or_map.delta_to_json(delta) |> json.to_string,
+      snapshot_decoder(),
+    )
+    |> result.map_error(codec_error),
+  )
+  use entries <- result.try(
+    list.try_map(snapshot.entries, fn(entry) {
+      use author <- result.try(
+        json.parse(
+          entry.membership,
+          decode.at(["state", "replica_id"], decode.string),
+        )
+        |> result.map_error(codec_error),
+      )
+      use seed <- result.try(
+        seed_json(replica_id.new(author), floor)
+        |> json.to_string
+        |> or_set.from_json
+        |> result.map_error(codec_error),
+      )
+      let membership = or_set.add(seed, entry.key)
+      Ok(
+        Entry(
+          ..entry,
+          membership: or_set.to_json_with(membership, json.string)
+            |> json.to_string,
+        ),
+      )
+    }),
+  )
+  encode_snapshot(
+    Snapshot(..snapshot, clock: floor + 1, entries: entries),
+    True,
+  )
+  |> or_map.delta_from_json
+  |> result.map_error(codec_error)
 }
 
 @internal
@@ -645,7 +808,7 @@ pub fn remove_member(
   use observed <- result.try(observe_metadata(clocks, metadata))
   let present = case dict.get(metadata.values, key) {
     Ok(leaf) ->
-      dict.has_key(metadata.keys.entries, key)
+      dict.has_key(metadata.key_entries, key)
       && or_set.contains(leaf.native, member)
     Error(Nil) -> False
   }
@@ -672,17 +835,22 @@ pub fn remove_key(
     False,
   ))
   use observed <- result.try(observe_metadata(clocks, metadata))
-  case dict.has_key(metadata.keys.entries, key) {
+  case dict.has_key(metadata.key_entries, key) {
     False -> Ok(#(or_map.empty_delta(map), clocks))
     True -> {
       use _ <- result.try(require_increment(observed))
       use working <- result.try(retain_counter_floor(map, observed, replica))
       use leaf <- result.try(writable_leaf(metadata, observed, replica, key))
       let cleared = or_set.remove_where(leaf, fn(_) { True })
-      use #(cleared_map, clear_delta) <- result.try(
+      use #(_, clear_delta) <- result.try(
         or_map.update_with_delta(working, key, fn(_) { crdt.CrdtOrSet(cleared) })
         |> result.map_error(merge_error),
       )
+      use clear_delta <- result.try(reserve_membership(
+        clear_delta,
+        observed.key_counter,
+      ))
+      use cleared_map <- result.try(apply_delta(working, clear_delta))
       let #(_, key_delta) = or_map.remove_with_delta(cleared_map, key)
       use delta <- result.try(
         or_map.merge_deltas(clear_delta, key_delta)

@@ -131,7 +131,7 @@ pub fn insert(
   #(SequenceState, List(SequenceEvent), SequenceOperation, Int),
   EditError,
 ) {
-  case sequence.try_insert_with_delta(state.optimistic, index, value) {
+  case sequence.insert_with_delta(state.optimistic, index, value) {
     Ok(#(optimistic, delta)) ->
       Ok(finish_local(state, optimistic, Insert(index, value, delta)))
     Error(sequence.IndexOutOfBounds(index, length)) ->
@@ -146,7 +146,7 @@ pub fn delete(
   #(SequenceState, List(SequenceEvent), SequenceOperation, Int),
   EditError,
 ) {
-  case sequence.try_delete_with_delta(state.optimistic, index) {
+  case sequence.delete_with_delta(state.optimistic, index) {
     Ok(#(optimistic, delta)) ->
       Ok(finish_local(state, optimistic, Delete(index, delta)))
     Error(sequence.DeleteIndexOutOfBounds(index, length)) ->
@@ -162,7 +162,7 @@ pub fn move(
   #(SequenceState, List(SequenceEvent), SequenceOperation, Int),
   EditError,
 ) {
-  case sequence.try_move_with_delta(state.optimistic, from_index, to_index) {
+  case sequence.move_with_delta(state.optimistic, from_index, to_index) {
     Ok(#(optimistic, delta)) ->
       Ok(finish_local(state, optimistic, Move(from_index, to_index, delta)))
     Error(sequence.MoveFromIndexOutOfBounds(index, length)) ->
@@ -180,15 +180,16 @@ pub fn replace(
   #(SequenceState, List(SequenceEvent), SequenceOperation, Int),
   EditError,
 ) {
-  case sequence.try_delete_with_delta(state.optimistic, index) {
+  case sequence.delete_with_delta(state.optimistic, index) {
     Error(sequence.DeleteIndexOutOfBounds(index, length)) ->
       Error(ReplaceOutOfBounds(index, length))
     Ok(#(after_delete, delete_delta)) ->
-      case sequence.try_insert_with_delta(after_delete, index, value) {
+      case sequence.insert_with_delta(after_delete, index, value) {
         Error(sequence.IndexOutOfBounds(_, length)) ->
           Error(ReplaceOutOfBounds(index, length))
         Ok(#(optimistic, insert_delta)) -> {
-          let delta = sequence.merge(delete_delta, insert_delta)
+          let delta =
+            sequence.merge(delete_delta, insert_delta, state.replica_id)
           Ok(finish_local(state, optimistic, Replace(index, value, delta)))
         }
       }
@@ -206,8 +207,8 @@ pub fn p2p_merge(
   other: Sequence(Json),
 ) -> #(SequenceState, List(SequenceEvent)) {
   let before = values(state)
-  let sequenced = sequence.merge(state.sequenced, other)
-  let optimistic = replay_pending(sequenced, state.pending)
+  let sequenced = sequence.merge(state.sequenced, other, state.replica_id)
+  let optimistic = replay_pending(sequenced, state.pending, state.replica_id)
   let state =
     SequenceState(..state, sequenced: sequenced, optimistic: optimistic)
   #(state, changed_event(before, values(state)))
@@ -218,8 +219,13 @@ pub fn apply_remote(
   operation: SequenceOperation,
 ) -> #(SequenceState, List(SequenceEvent)) {
   let before = values(state)
-  let sequenced = sequence.merge(state.sequenced, operation_delta(operation))
-  let optimistic = replay_pending(sequenced, state.pending)
+  let sequenced =
+    sequence.merge(
+      state.sequenced,
+      operation_delta(operation),
+      state.replica_id,
+    )
+  let optimistic = replay_pending(sequenced, state.pending, state.replica_id)
   let state =
     SequenceState(..state, sequenced: sequenced, optimistic: optimistic)
   #(state, changed_event(before, values(state)))
@@ -237,8 +243,8 @@ fn commit_p2p(
   let state =
     SequenceState(
       ..state,
-      sequenced: sequence.merge(state.sequenced, delta),
-      optimistic: sequence.merge(state.optimistic, delta),
+      sequenced: sequence.merge(state.sequenced, delta, state.replica_id),
+      optimistic: sequence.merge(state.optimistic, delta, state.replica_id),
     )
   #(state, changed_event(before, values(state)), operation)
 }
@@ -251,7 +257,7 @@ pub fn p2p_insert(
   index: Int,
   value: Json,
 ) -> Result(#(SequenceState, List(SequenceEvent), SequenceOperation), EditError) {
-  case sequence.try_insert_with_delta(state.optimistic, index, value) {
+  case sequence.insert_with_delta(state.optimistic, index, value) {
     Ok(#(_, delta)) -> Ok(commit_p2p(state, Insert(index, value, delta)))
     Error(sequence.IndexOutOfBounds(index, length)) ->
       Error(InsertOutOfBounds(index, length))
@@ -263,7 +269,7 @@ pub fn p2p_delete(
   state: SequenceState,
   index: Int,
 ) -> Result(#(SequenceState, List(SequenceEvent), SequenceOperation), EditError) {
-  case sequence.try_delete_with_delta(state.optimistic, index) {
+  case sequence.delete_with_delta(state.optimistic, index) {
     Ok(#(_, delta)) -> Ok(commit_p2p(state, Delete(index, delta)))
     Error(sequence.DeleteIndexOutOfBounds(index, length)) ->
       Error(DeleteOutOfBounds(index, length))
@@ -276,7 +282,7 @@ pub fn p2p_move(
   from_index: Int,
   to_index: Int,
 ) -> Result(#(SequenceState, List(SequenceEvent), SequenceOperation), EditError) {
-  case sequence.try_move_with_delta(state.optimistic, from_index, to_index) {
+  case sequence.move_with_delta(state.optimistic, from_index, to_index) {
     Ok(#(_, delta)) -> Ok(commit_p2p(state, Move(from_index, to_index, delta)))
     Error(sequence.MoveFromIndexOutOfBounds(index, length)) ->
       Error(MoveFromOutOfBounds(index, length))
@@ -291,15 +297,16 @@ pub fn p2p_replace(
   index: Int,
   value: Json,
 ) -> Result(#(SequenceState, List(SequenceEvent), SequenceOperation), EditError) {
-  case sequence.try_delete_with_delta(state.optimistic, index) {
+  case sequence.delete_with_delta(state.optimistic, index) {
     Error(sequence.DeleteIndexOutOfBounds(index, length)) ->
       Error(ReplaceOutOfBounds(index, length))
     Ok(#(after_delete, delete_delta)) ->
-      case sequence.try_insert_with_delta(after_delete, index, value) {
+      case sequence.insert_with_delta(after_delete, index, value) {
         Error(sequence.IndexOutOfBounds(_, length)) ->
           Error(ReplaceOutOfBounds(index, length))
         Ok(#(_, insert_delta)) -> {
-          let delta = sequence.merge(delete_delta, insert_delta)
+          let delta =
+            sequence.merge(delete_delta, insert_delta, state.replica_id)
           Ok(commit_p2p(state, Replace(index, value, delta)))
         }
       }
@@ -341,6 +348,7 @@ fn do_ack(
               sequenced: sequence.merge(
                 state.sequenced,
                 operation_delta(operation),
+                state.replica_id,
               ),
               pending: rest,
             ),
@@ -370,7 +378,8 @@ pub fn rollback(
           ))
         True -> {
           let before = values(state)
-          let optimistic = replay_pending(state.sequenced, rest)
+          let optimistic =
+            replay_pending(state.sequenced, rest, state.replica_id)
           let state =
             SequenceState(..state, optimistic: optimistic, pending: rest)
           Ok(#(state, changed_event(before, values(state))))
@@ -383,7 +392,12 @@ pub fn apply_stashed_operation(
   state: SequenceState,
   operation: SequenceOperation,
 ) -> #(SequenceState, List(SequenceEvent), SequenceOperation, Int) {
-  let optimistic = sequence.merge(state.optimistic, operation_delta(operation))
+  let optimistic =
+    sequence.merge(
+      state.optimistic,
+      operation_delta(operation),
+      state.replica_id,
+    )
   finish_local(state, optimistic, operation)
 }
 
@@ -409,7 +423,7 @@ pub fn from_sequenced(
   sequenced: Sequence(Json),
   replica_id: ReplicaId,
 ) -> SequenceState {
-  let rebranded = sequence.merge(sequence.new(replica_id), sequenced)
+  let rebranded = sequence.bind(sequenced, replica_id)
   SequenceState(
     replica_id: replica_id,
     sequenced: rebranded,
@@ -420,7 +434,10 @@ pub fn from_sequenced(
 }
 
 pub fn check_cache_coherence(state: SequenceState) -> Result(Nil, String) {
-  case replay_pending(state.sequenced, state.pending) == state.optimistic {
+  case
+    replay_pending(state.sequenced, state.pending, state.replica_id)
+    == state.optimistic
+  {
     True -> Ok(Nil)
     False -> Error("optimistic cache diverged from sequenced + pending")
   }
@@ -468,9 +485,10 @@ fn operation_delta(operation: SequenceOperation) -> Sequence(Json) {
 fn replay_pending(
   sequenced: Sequence(Json),
   pending: List(PendingOperation),
+  replica_id: ReplicaId,
 ) -> Sequence(Json) {
   list.fold(pending, sequenced, fn(acc, pending) {
-    sequence.merge(acc, operation_delta(pending.operation))
+    sequence.merge(acc, operation_delta(pending.operation), replica_id)
   })
 }
 

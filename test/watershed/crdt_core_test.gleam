@@ -1,6 +1,5 @@
 import gleam/dynamic/decode
 import gleam/int
-import gleam/io
 import gleam/json
 import gleam/list
 import gleam/result
@@ -25,7 +24,6 @@ import watershed/sequence_kernel
 import watershed/sha256
 import watershed/text_kernel
 import watershed/two_p_set_kernel
-import watershed/wire
 
 const room = "trip-planning"
 
@@ -87,75 +85,168 @@ pub fn or_map_set_metadata_only_edits_replicate_and_change_digest_test() -> Nil 
   crdt_core.digest(same) |> expect.to_equal(crdt_core.digest(readded))
 }
 
-pub fn or_map_set_digest_excludes_cursors_but_preserves_tombstones_and_bounds_test() -> Nil {
+pub fn or_map_set_digest_excludes_cursors_but_preserves_tombstones_and_generations_test() -> Nil {
   let assert Ok(#(source, _)) =
     crdt_core.edit(
       set_map_document("a"),
       root(),
       channel.OrMapAddMemberEdit("doc", "draft"),
     )
-  let exported = crdt_core.canonical_json(source)
-  let cursors =
-    exported
-    |> string.replace("\"replica_id\":\"a\"", "\"replica_id\":\"loader\"")
-    |> string.replace(
-      "\\\"replica_id\\\":\\\"a\\\"",
-      "\\\"replica_id\\\":\\\"loader\\\"",
-    )
-    |> string.replace("\\\"counter\\\":1", "\\\"counter\\\":100")
-  cursors |> expect.to_not_equal(exported)
-  string.contains(cursors, "\\\"counter\\\":100") |> expect.to_be_true
-  let assert Ok(#(reloaded, _)) =
-    crdt_core.import_snapshot(set_map_document("loader"), cursors)
-  crdt_core.digest(reloaded) |> expect.to_equal(crdt_core.digest(source))
   let assert crdt_wire.State([entry]) = crdt_core.state_message(source)
   let raw = channel.encode_snapshot(entry.snapshot) |> json.to_string
-  let assert Ok([value]) =
+  let assert Ok([#(membership, leaf)]) =
     json.parse(
       raw,
-      decode.at(["state", "values"], decode.list(wire.json_value_decoder())),
+      decode.at(
+        ["state", "entries"],
+        decode.list({
+          use membership <- decode.field("membership", decode.string)
+          use leaf <- decode.field("value", decode.string)
+          decode.success(#(membership, leaf))
+        }),
+      ),
     )
-  let assert Ok(leaf) =
-    json.parse(
-      json.to_string(value),
-      decode.field("crdt", decode.string, decode.success),
-    )
-  let tombstone_leaf =
-    string.replace(
-      leaf,
-      "\"tombstones\":[]",
-      "\"tombstones\":[{\"r\":\"historical\",\"c\":1}]",
-    )
-  tombstone_leaf |> expect.to_not_equal(leaf)
-  let tombstones =
+  let cursors = [
+    string.replace(raw, "\"replica_id\":\"a\"", "\"replica_id\":\"loader\""),
+    string.replace(raw, "\"clock\":1", "\"clock\":100"),
+    ..list.flat_map([membership, leaf], fn(nested) {
+      let assert Ok(replica) =
+        json.parse(nested, decode.at(["state", "replica_id"], decode.string))
+      [
+        replace_embedded(
+          raw,
+          nested,
+          string.replace(
+            nested,
+            "\"replica_id\":" <> { json.string(replica) |> json.to_string },
+            "\"replica_id\":\"loader\"",
+          ),
+        ),
+        replace_embedded(
+          raw,
+          nested,
+          string.replace(nested, "\"counter\":1", "\"counter\":100"),
+        ),
+      ]
+    })
+  ]
+  list.each(cursors, fn(changed) {
+    let other = load_root_snapshot(source, set_map_document("b"), changed)
+    crdt_core.digest_canonical_json(other)
+    |> expect.to_equal(crdt_core.digest_canonical_json(source))
+    crdt_core.digest(other) |> expect.to_equal(crdt_core.digest(source))
+  })
+  let history = [
     string.replace(
       raw,
-      json.string(leaf) |> json.to_string,
-      json.string(tombstone_leaf) |> json.to_string,
-    )
-  let bounds =
-    string.replace(
-      raw,
-      "\"remove_bounds\":{}",
-      "\"remove_bounds\":{\"inactive\":{\"type\":\"version_vector\",\"v\":1,\"state\":{\"clocks\":{\"historical\":1}}}}",
-    )
-  list.each([tombstones, bounds], fn(changed) {
-    changed |> expect.to_not_equal(raw)
-    let assert Ok(snapshot) =
-      json.parse(changed, channel.snapshot_decoder(channel.OrMapChannel))
-    let message =
-      crdt_wire.State([crdt_wire.ChannelEntry(..entry, snapshot: snapshot)])
-    let assert Ok(#(other, _)) =
-      crdt_core.receive(
-        set_map_document("b"),
-        crdt_core.envelope(source, message),
+      "\"generation\":{\"clock\":0,\"creator\":null}",
+      "\"generation\":{\"clock\":1,\"creator\":\"historical\"}",
+    ),
+    ..list.map([membership, leaf], fn(nested) {
+      replace_embedded(
+        raw,
+        nested,
+        string.replace(
+          nested,
+          "\"tombstones\":[]",
+          "\"tombstones\":[{\"r\":\"historical\",\"c\":1}]",
+        ),
       )
+    })
+  ]
+  list.each(history, fn(changed) {
+    let other = load_root_snapshot(source, set_map_document("b"), changed)
     let assert Ok(channel.OrMapState(state)) =
       crdt_core.channel_state(other, root())
     or_map_kernel.entries(state)
     |> expect.to_equal([#("doc", or_map_kernel.SetMembers(["draft"]))])
     crdt_core.digest(other) |> expect.to_not_equal(crdt_core.digest(source))
   })
+}
+
+fn replace_embedded(raw: String, before: String, after: String) -> String {
+  after |> expect.to_not_equal(before)
+  string.replace(
+    raw,
+    json.string(before) |> json.to_string,
+    json.string(after) |> json.to_string,
+  )
+}
+
+fn load_root_snapshot(
+  source: crdt_core.Document,
+  target: crdt_core.Document,
+  raw: String,
+) -> crdt_core.Document {
+  let assert crdt_wire.State([entry]) = crdt_core.state_message(source)
+  raw
+  |> expect.to_not_equal(
+    channel.encode_snapshot(entry.snapshot) |> json.to_string,
+  )
+  let assert Ok(snapshot) =
+    json.parse(raw, channel.snapshot_decoder(entry.descriptor.channel_type))
+  merge_into(target, source, [
+    crdt_wire.ChannelEntry(..entry, snapshot: snapshot),
+  ])
+}
+
+pub fn or_map_set_digest_orders_v3_entries_and_tags_test() -> Nil {
+  let source =
+    [#("z", "last"), #("a", "first"), #("z", "first"), #("z", "last")]
+    |> list.append(list.repeat(#("z", "last"), 8))
+    |> list.fold(set_map_document("a"), fn(document, edit) {
+      let assert Ok(#(document, _)) =
+        crdt_core.edit(
+          document,
+          root(),
+          channel.OrMapAddMemberEdit(edit.0, edit.1),
+        )
+      document
+    })
+  let assert Ok(#(other, _)) =
+    crdt_core.import_snapshot(
+      set_map_document("b"),
+      crdt_core.canonical_json(source),
+    )
+  crdt_core.digest_canonical_json(other)
+  |> expect.to_equal(crdt_core.digest_canonical_json(source))
+  let assert Ok([leaves]) =
+    json.parse(
+      crdt_core.digest_canonical_json(source),
+      decode.at(
+        ["channels"],
+        decode.list(decode.at(
+          ["state", "state", "entries"],
+          decode.list({
+            use key <- decode.field("key", decode.string)
+            use leaf <- decode.field("value", decode.string)
+            decode.success(#(key, leaf))
+          }),
+        )),
+      ),
+    )
+  list.map(leaves, fn(leaf) { leaf.0 }) |> expect.to_equal(["a", "z"])
+  let assert Ok(z) = list.key_find(leaves, "z")
+  let assert Ok(members) =
+    json.parse(
+      z,
+      decode.at(
+        ["state", "entries"],
+        decode.list({
+          use value <- decode.field("value", decode.string)
+          use tags <- decode.field(
+            "tags",
+            decode.list(decode.field("c", decode.int, decode.success)),
+          )
+          decode.success(#(value, tags))
+        }),
+      ),
+    )
+  members
+  |> expect.to_equal([
+    #("first", [3]),
+    #("last", [1, 10, 11, 12, 4, 5, 6, 7, 8, 9]),
+  ])
 }
 
 pub fn or_map_set_snapshot_import_preserves_empty_key_and_removed_leaf_history_test() -> Nil {
@@ -496,10 +587,17 @@ pub fn lww_map_digest_sorts_entries_and_retains_invisible_metadata_test() -> Nil
     )
   let assert Ok(#(b, _)) =
     crdt_core.edit(b, root(), channel.LwwMapSetEdit("z", "last", 100))
+  view(a) |> expect.to_equal(view(b))
+  crdt_core.digest(a) |> expect.to_not_equal(crdt_core.digest(b))
+  let assert Ok(#(b, _)) =
+    crdt_core.import_snapshot(
+      lww_map_document("b"),
+      crdt_core.canonical_json(a),
+    )
   crdt_core.digest(a) |> expect.to_equal(crdt_core.digest(b))
   crdt_core.digest_canonical_json(a)
   |> string.contains(
-    "\"entries\":[{\"key\":\"a\",\"timestamp\":10,\"value\":null},{\"key\":\"z\",\"timestamp\":100,\"value\":\"last\"}]",
+    "\"entries\":[{\"key\":\"a\",\"provenance\":{\"kind\":\"modern\",\"writer\":\"a\"},\"timestamp\":10,\"value\":null},{\"key\":\"z\"",
   )
   |> expect.to_be_true()
   let assert Ok(#(later, outcome)) =
@@ -511,6 +609,22 @@ pub fn lww_map_digest_sorts_entries_and_retains_invisible_metadata_test() -> Nil
     crdt_core.edit(a, root(), channel.LwwMapSetEdit("z", "last", 101))
   outcome.events |> expect.to_equal([])
   crdt_core.digest(a) |> expect.to_not_equal(crdt_core.digest(same_value))
+  let assert crdt_wire.State([entry]) = crdt_core.state_message(a)
+  let raw = channel.encode_snapshot(entry.snapshot) |> json.to_string
+  [
+    string.replace(raw, "\"writer\":\"a\"", "\"writer\":\"historical\""),
+    string.replace(
+      raw,
+      "\\\"replica_id\\\":\\\"a\\\"",
+      "\\\"replica_id\\\":\\\"historical\\\"",
+    ),
+    string.replace(raw, "\\\"timestamp\\\":100", "\\\"timestamp\\\":101"),
+  ]
+  |> list.each(fn(changed) {
+    let other = load_root_snapshot(a, lww_map_document("b"), changed)
+    view(other) |> expect.to_equal(view(a))
+    crdt_core.digest(other) |> expect.to_not_equal(crdt_core.digest(a))
+  })
 }
 
 pub fn lww_map_three_peer_chain_propagates_eventless_tombstones_test() -> Nil {
@@ -1522,12 +1636,12 @@ pub fn each_channel_type_pins_its_digest_projection_test() -> Nil {
     #(
       channel.InitOrMap(or_map_kernel.TallyMode),
       channel.OrMapIncrementEdit("votes", 2),
-      "ed14587690180b1ab5bd13772f4c6aba53a2f6ccd78af483cf7ec935539f08ee",
+      "d62d9186146628bb720cf9d5512a7632e7bb76f2e57392710a32ade3e5ab5601",
     ),
     #(
       channel.InitOrMap(or_map_kernel.RegisterMode),
       channel.OrMapSetRegisterEdit("city", "Oslo", 9),
-      "8fe2a610d6f37fea15d031a73ffb04283b8c12b1c5faa35138c45b5ef63136f6",
+      "98b9d3914637f460f3acc50bbd688d7fb317c4dbd1987fd0ef143b2f2e419111",
     ),
     #(
       channel.InitOrSet,
@@ -1547,12 +1661,12 @@ pub fn each_channel_type_pins_its_digest_projection_test() -> Nil {
     #(
       channel.InitSequence,
       channel.SequenceInsertEdit(0, json.string("fig")),
-      "6cb5a3c8e7fda40061b830f39c67364c58b00ade4bcc4e5133ebeeae7eecaac1",
+      "ad55fec128e4480bd00e4f59c304ab31a733e0c6d966194c85befb3d856bf941",
     ),
     #(
       channel.InitText,
       channel.TextAppendEdit("fig"),
-      "4256362bbb48fd0daefbb607c294d5e7a3f81a33cacceca900c2127bc7c1a461",
+      "e0a11ff2a67086a673e7063ca7195dabd6118603f67d9a8614a46dbbbcc6a034",
     ),
   ]
   |> list.each(fn(fixture) {
@@ -1576,7 +1690,7 @@ pub fn a_pinned_document_digest_is_identical_on_every_target_test() -> Nil {
 
   crdt_core.digest(document)
   |> expect.to_equal(
-    "29a2003f235159dc130cd16720289e99b2c6bed079755b87279a1533846b93df",
+    "6282f124d7a1bcf4574bf6dca4d305ad26b266e9890a64228d462aa6a1fe23c5",
   )
 
   // What the hash is made of, spelled out: one canonical form per value,

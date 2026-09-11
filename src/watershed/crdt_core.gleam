@@ -979,7 +979,14 @@ fn merge_relevant(value: JsonValue) -> JsonValue {
   case type_tag(value) {
     "lww_map" ->
       map_member(value, "state", fn(state) {
-        map_member(state, "entries", ordered)
+        state
+        |> without(["replica_id"])
+        |> map_member("spec", inner)
+        |> map_member("entries", fn(entries) {
+          entries
+          |> map_each(map_member(_, "value", inner))
+          |> ordered_by_member("key")
+        })
       })
     "mv_register" ->
       map_member(value, "state", fn(state) {
@@ -998,7 +1005,15 @@ fn merge_relevant(value: JsonValue) -> JsonValue {
       map_member(value, "state", fn(state) {
         state
         |> without(["replica_id", "counter"])
-        |> map_member("entries", map_each(_, ordered))
+        |> map_member("entries", fn(entries) {
+          case entries {
+            json_ot.VArray(_) ->
+              entries
+              |> map_each(map_member(_, "tags", ordered))
+              |> ordered_by_member("value")
+            _ -> map_each(entries, ordered)
+          }
+        })
         |> map_member("tombstones", ordered)
       })
     "g_set" -> map_member(value, "state", map_member(_, "elements", ordered))
@@ -1016,41 +1031,20 @@ fn merge_relevant(value: JsonValue) -> JsonValue {
       })
     "or_map" ->
       map_member(value, "state", fn(state) {
-        let mv_register_values = case state {
-          json_ot.VObject(members) ->
-            list.key_find(members, "crdt_spec")
-            == Ok(json_ot.VString("mv_register"))
-          _ -> False
-        }
         state
-        |> without(["replica_id"])
-        |> map_member("key_set", inner)
-        |> map_member("values", or_map_values(_, mv_register_values))
+        |> without(["replica_id", "clock"])
+        |> map_member("spec", inner)
+        |> map_member("entries", fn(entries) {
+          entries
+          |> map_each(fn(entry) {
+            entry
+            |> map_member("membership", inner)
+            |> map_member("value", inner)
+          })
+          |> ordered_by_member("key")
+        })
       })
     _ -> value
-  }
-}
-
-/// The values of an OR-map: an array of `{key, crdt}` pairs. The `crdt` field
-/// of a pair is a nested CRDT envelope, as a string. The function projects each
-/// pair, and then it orders the array, because that array comes from a
-/// dictionary and the order of a dictionary is not part of the state.
-fn or_map_values(value: JsonValue, mv_register_values: Bool) -> JsonValue {
-  case value {
-    json_ot.VArray(items) -> {
-      let projected =
-        json_ot.VArray(list.map(items, map_member(_, "crdt", inner)))
-      // Keep the digest projection of the existing leaf modes unchanged.
-      case mv_register_values {
-        True -> ordered_by_member(projected, "key")
-        False -> ordered(projected)
-      }
-    }
-    json_ot.VNull
-    | json_ot.VBool(_)
-    | json_ot.VNumber(_)
-    | json_ot.VString(_)
-    | json_ot.VObject(_) -> value
   }
 }
 
@@ -1122,6 +1116,7 @@ fn map_each(
   transform: fn(JsonValue) -> JsonValue,
 ) -> JsonValue {
   case value {
+    json_ot.VArray(items) -> json_ot.VArray(list.map(items, transform))
     json_ot.VObject(members) ->
       json_ot.VObject(
         list.map(members, fn(member) { #(member.0, transform(member.1)) }),
@@ -1129,8 +1124,7 @@ fn map_each(
     json_ot.VNull
     | json_ot.VBool(_)
     | json_ot.VNumber(_)
-    | json_ot.VString(_)
-    | json_ot.VArray(_) -> value
+    | json_ot.VString(_) -> value
   }
 }
 

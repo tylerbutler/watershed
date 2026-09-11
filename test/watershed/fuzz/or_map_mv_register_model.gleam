@@ -9,15 +9,20 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/string
 import lattice_core/replica_id
-import lattice_maps/or_map.{type ORMapDelta}
+import lattice_maps/or_map
 import qcheck
 import watershed/fuzz/kernel_fuzz.{
   type KernelModel, type LogEntry, Capabilities, KernelModel,
 }
+import watershed/fuzz/or_map_metadata.{type Generation}
 import watershed/or_map_kernel as kernel
+
+type ORMapDelta =
+  or_map.ORMapDelta(String)
 
 pub type OrMapMvCommand {
   CommandWrite(key: String, value: String, delta: Option(ORMapDelta))
@@ -32,7 +37,13 @@ type Dot =
   #(String, Int)
 
 type Write {
-  Write(key: String, value: String, dot: Dot, observed: Dict(String, Int))
+  Write(
+    key: String,
+    value: String,
+    dot: Dot,
+    observed: Dict(String, Int),
+    generation: Generation,
+  )
 }
 
 fn replica(id: Int) -> replica_id.ReplicaId {
@@ -119,17 +130,11 @@ fn tag_decoder() -> decode.Decoder(Dot) {
 
 fn value_writes(command: OrMapMvCommand) -> List(Write) {
   let assert Some(delta) = command.delta
-  let decoder =
-    decode.at(
-      ["state", "value_deltas"],
-      decode.list({
-        use key <- decode.field("key", decode.string)
-        use encoded <- decode.field("crdt", decode.string)
-        decode.success(#(key, encoded))
-      }),
-    )
   let assert Ok(leaves) =
-    json.parse(or_map.delta_to_json(delta) |> json.to_string, decoder)
+    json.parse(
+      or_map.delta_to_json(delta) |> json.to_string,
+      or_map_metadata.entries_decoder(),
+    )
   list.flat_map(leaves, fn(leaf) {
     let leaf_decoder =
       decode.at(["state"], {
@@ -147,11 +152,13 @@ fn value_writes(command: OrMapMvCommand) -> List(Write) {
         )
         decode.success(
           list.map(entries, fn(entry) {
-            Write(leaf.0, entry.1, entry.0, observed)
+            Write(leaf.key, entry.1, entry.0, observed, leaf.generation)
           }),
         )
       })
-    let assert Ok(writes) = json.parse(leaf.1, leaf_decoder)
+    let assert Some(encoded) = leaf.value
+    let assert Ok(writes) =
+      json.parse(or_map_metadata.leaf(encoded), leaf_decoder)
     writes
   })
 }
@@ -160,25 +167,57 @@ fn oracle(
   log: List(LogEntry(OrMapMvCommand)),
 ) -> List(#(String, List(String))) {
   let operations = kernel_fuzz.log_operations(log)
+  let generations =
+    list.fold(operations, dict.new(), fn(generations, operation) {
+      let assert Some(delta) = operation.1.delta
+      let assert Ok(entries) =
+        json.parse(
+          or_map.delta_to_json(delta) |> json.to_string,
+          or_map_metadata.entries_decoder(),
+        )
+      list.fold(entries, generations, fn(generations, entry) {
+        let current =
+          result.unwrap(dict.get(generations, entry.key), #(0, None))
+        case or_map_metadata.compare(entry.generation, current) {
+          order.Gt -> dict.insert(generations, entry.key, entry.generation)
+          order.Eq | order.Lt -> generations
+        }
+      })
+    })
   let dots =
     operations
     |> list.index_map(fn(entry, index) { #(index + 1, entry) })
     |> list.fold(dict.new(), fn(dots, entry) {
       let #(sequence_number, #(author, command)) = entry
       let existing = dict.get(dots, command.key) |> result.unwrap([])
-      case command {
-        CommandWrite(key, _, _) ->
-          dict.insert(dots, key, [#(author, sequence_number), ..existing])
-        CommandRemove(key, reference_sequence_number, _) -> {
-          let remaining =
-            list.filter(existing, fn(dot) {
-              dot.1 > reference_sequence_number && dot.0 != author
-            })
-          case remaining {
-            [] -> dict.delete(dots, key)
-            _ -> dict.insert(dots, key, remaining)
+      let assert Some(delta) = command.delta
+      let assert Ok(entries) =
+        json.parse(
+          or_map.delta_to_json(delta) |> json.to_string,
+          or_map_metadata.entries_decoder(),
+        )
+      let selected =
+        list.any(entries, fn(entry) {
+          entry.generation
+          == result.unwrap(dict.get(generations, entry.key), #(0, None))
+        })
+      case selected {
+        False -> dots
+        True ->
+          case command {
+            CommandWrite(key, _, _) ->
+              dict.insert(dots, key, [#(author, sequence_number), ..existing])
+            CommandRemove(key, reference_sequence_number, _) -> {
+              let remaining =
+                list.filter(existing, fn(dot) {
+                  dot.1 > reference_sequence_number && dot.0 != author
+                })
+              case remaining {
+                [] -> dict.delete(dots, key)
+                _ -> dict.insert(dots, key, remaining)
+              }
+            }
           }
-        }
       }
     })
   let writes =
@@ -190,6 +229,10 @@ fn oracle(
       }
     })
     |> list.unique
+    |> list.filter(fn(write) {
+      write.generation
+      == result.unwrap(dict.get(generations, write.key), #(0, None))
+    })
   dict.keys(dots)
   |> list.sort(string.compare)
   |> list.map(fn(key) {

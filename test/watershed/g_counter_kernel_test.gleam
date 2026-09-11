@@ -142,7 +142,7 @@ pub fn ack_rejects_the_wrong_amount_test() -> Nil {
 pub fn ack_rejects_the_wrong_fragment_test() -> Nil {
   let #(state, _, operation, _) = increment(new_a(), 2)
   let kernel.Increment(amount, _) = operation
-  let foreign = g_counter.increment(g_counter.new(replica("z")), 2)
+  let assert Ok(foreign) = g_counter.increment(g_counter.new(replica("z")), 2)
   let assert Error(kernel.UnexpectedAck(_, _)) =
     kernel.ack_local(state, kernel.Increment(amount, foreign))
   Nil

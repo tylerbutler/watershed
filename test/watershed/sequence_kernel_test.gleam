@@ -1,6 +1,7 @@
 import gleam/dynamic/decode
 import gleam/json
 import lattice_core/replica_id
+import lattice_sequence/sequence
 import startest/expect
 import watershed/sequence_kernel
 
@@ -149,6 +150,17 @@ pub fn invalid_indexes_return_edit_errors_test() -> Nil {
   sequence_kernel.replace(new_a(), 0, json.null())
   |> expect.to_equal(Error(sequence_kernel.ReplaceOutOfBounds(0, 0)))
 
+  sequence_kernel.p2p_insert(new_a(), 1, json.null())
+  |> expect.to_equal(Error(sequence_kernel.InsertOutOfBounds(1, 0)))
+  sequence_kernel.p2p_delete(new_a(), 0)
+  |> expect.to_equal(Error(sequence_kernel.DeleteOutOfBounds(0, 0)))
+  sequence_kernel.p2p_move(new_a(), 0, 0)
+  |> expect.to_equal(Error(sequence_kernel.MoveFromOutOfBounds(0, 0)))
+  sequence_kernel.p2p_move(move_state, 0, 1)
+  |> expect.to_equal(Error(sequence_kernel.MoveToOutOfBounds(1, 0)))
+  sequence_kernel.p2p_replace(new_a(), 0, json.null())
+  |> expect.to_equal(Error(sequence_kernel.ReplaceOutOfBounds(0, 0)))
+
   sequence_kernel.edit_error_detail(sequence_kernel.InsertOutOfBounds(1, 0))
   |> expect.to_equal("insert index 1 outside 0..0")
   sequence_kernel.edit_error_detail(sequence_kernel.DeleteOutOfBounds(0, 0))
@@ -267,6 +279,7 @@ pub fn summary_round_trips_and_rebrands_test() -> Nil {
   let assert Ok(#(state, _, _, _)) =
     sequence_kernel.insert(state, 1, json.string("pending"))
   let raw = json.to_string(sequence_kernel.summary(state))
+  json.parse(raw, decode.at(["v"], decode.int)) |> expect.to_equal(Ok(2))
   let assert Ok(loaded) = sequence_kernel.from_summary(raw, replica_id.new("c"))
   sequence_kernel.values(loaded) |> expect.to_equal([json.string("a")])
   sequence_kernel.sequenced_values(loaded)
@@ -354,4 +367,61 @@ pub fn concurrent_inserts_and_replace_delete_move_converge_test() -> Nil {
     sequence_kernel.apply_remote(ack(state_b, move_b), replace_a)
   sequence_kernel.values(state_a)
   |> expect.to_equal(sequence_kernel.values(state_b))
+}
+
+pub fn moved_summary_load_preserves_order_and_edit_identity_test() -> Nil {
+  let assert Ok(#(state, _, _)) =
+    sequence_kernel.p2p_insert(new_a(), 0, json.string("a"))
+  let assert Ok(#(state, _, _)) =
+    sequence_kernel.p2p_insert(state, 1, json.string("b"))
+  let assert Ok(#(state, _, _)) = sequence_kernel.p2p_move(state, 1, 0)
+  let assert Ok(loaded) =
+    sequence_kernel.from_summary(
+      json.to_string(sequence_kernel.summary(state)),
+      replica_id.new("c"),
+    )
+  sequence_kernel.values(loaded)
+  |> expect.to_equal([json.string("b"), json.string("a")])
+  sequence.replica_id(loaded.sequenced)
+  |> expect.to_equal(replica_id.new("c"))
+  let assert Ok(#(loaded, _, _)) =
+    sequence_kernel.p2p_replace(loaded, 1, json.string("c"))
+  let assert Ok(#(loaded, _, _)) = sequence_kernel.p2p_delete(loaded, 0)
+  sequence_kernel.sequenced_values(loaded)
+  |> expect.to_equal([json.string("c")])
+  loaded.pending |> expect.to_equal([])
+  sequence_kernel.check_cache_coherence(loaded) |> expect.to_equal(Ok(Nil))
+}
+
+pub fn p2p_merge_preserves_receiver_identity_and_pending_edits_test() -> Nil {
+  let assert Ok(#(state_a, _, _)) =
+    sequence_kernel.p2p_insert(new_a(), 0, json.string("a"))
+  let assert Ok(#(state_b, _, pending, message_id)) =
+    sequence_kernel.insert(
+      sequence_kernel.new(replica_id.new("b")),
+      0,
+      json.string("b"),
+    )
+  let #(state_b, _) = sequence_kernel.p2p_merge(state_b, state_a.sequenced)
+  sequence.replica_id(state_b.sequenced)
+  |> expect.to_equal(replica_id.new("b"))
+  sequence.replica_id(state_b.optimistic)
+  |> expect.to_equal(replica_id.new("b"))
+  sequence_kernel.values(state_b)
+  |> expect.to_equal([json.string("a"), json.string("b")])
+  sequence_kernel.check_cache_coherence(state_b) |> expect.to_equal(Ok(Nil))
+  let assert Ok(#(state_b, _)) =
+    sequence_kernel.rollback(state_b, pending, message_id)
+  let assert Ok(#(state_b, _, _)) =
+    sequence_kernel.p2p_insert(state_b, 1, json.string("B"))
+  let assert Ok(#(state_a, _, _)) =
+    sequence_kernel.p2p_insert(state_a, 1, json.string("A"))
+  let #(merged_a, _) = sequence_kernel.p2p_merge(state_a, state_b.sequenced)
+  let #(merged_b, _) = sequence_kernel.p2p_merge(state_b, state_a.sequenced)
+  sequence_kernel.values(merged_a)
+  |> expect.to_equal([json.string("a"), json.string("A"), json.string("B")])
+  sequence_kernel.values(merged_b)
+  |> expect.to_equal(sequence_kernel.values(merged_a))
+  let #(_, events) = sequence_kernel.p2p_merge(merged_b, merged_a.sequenced)
+  events |> expect.to_equal([])
 }

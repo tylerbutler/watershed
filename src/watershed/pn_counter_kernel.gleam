@@ -386,10 +386,11 @@ pub fn from_sequenced(
 /// splits the sign here, so the grow-only halves of the counter each receive a
 /// magnitude of zero or more.
 fn signed_delta(counter: PNCounter, amount: Int) -> #(PNCounter, PNCounter) {
-  case amount >= 0 {
+  let assert Ok(delta) = case amount >= 0 {
     True -> pn_counter.increment_with_delta(counter, amount)
     False -> pn_counter.decrement_with_delta(counter, 0 - amount)
   }
+  delta
 }
 
 fn pop_last(

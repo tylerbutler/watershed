@@ -2698,7 +2698,7 @@ pub fn or_map_member_clock_exhaustion_has_address_in_attached_and_detached_core_
     or_map_kernel.new(replica_id.new(our_client_id), or_map_kernel.OrSetMode)
   let raw = or_map.to_json(empty.sequenced) |> json.to_string
   let exhausted =
-    string.replace(raw, "\\\"counter\\\":0", "\\\"counter\\\":9007199254740991")
+    string.replace(raw, "\"clock\":0", "\"clock\":9007199254740991")
   exhausted |> expect.to_not_equal(raw)
   let assert Ok(kernel) =
     or_map_kernel.from_summary(exhausted, replica_id.new(our_client_id))

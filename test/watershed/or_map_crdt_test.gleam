@@ -39,10 +39,10 @@ fn projected_leaves(document: core.Document) -> List(#(String, String)) {
       decode.at(
         ["channels"],
         decode.list(decode.at(
-          ["state", "state", "values"],
+          ["state", "state", "entries"],
           decode.list({
             use key <- decode.field("key", decode.string)
-            use leaf <- decode.field("crdt", decode.string)
+            use leaf <- decode.field("value", decode.string)
             decode.success(#(key, leaf))
           }),
         )),

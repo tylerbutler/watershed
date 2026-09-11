@@ -12,10 +12,8 @@
 //// reference_sequence_number)` iff `dot.sequence_number >
 //// reference_sequence_number && dot.author != remover`.
 ////
-//// Tallies never reset when a key is removed: the kernel's `own_tallies`
-//// ledger makes every routed delta carry that replica's cumulative PN-counter
-//// value for the key, so full sync observes the sum of all sequenced increment
-//// amounts for each key, hidden only while no live dots remain.
+//// Each write carries its author's cumulative tally. Generation floors select
+//// which writes can contribute after a removal and re-add.
 
 import gleam/dict.{type Dict}
 import gleam/dynamic/decode
@@ -23,16 +21,19 @@ import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/string
 import lattice_core/replica_id.{type ReplicaId}
-import lattice_maps/or_map.{type ORMapDelta}
+import lattice_maps/or_map
 import qcheck
 import watershed/fuzz/kernel_fuzz.{
   type KernelModel, type LogEntry, Capabilities, KernelModel,
 }
+import watershed/fuzz/or_map_metadata.{type Generation}
 import watershed/or_map_kernel.{
-  type OrMapState, Increment, PendingOperation, Remove, TallyMode,
+  type ORMapDelta, type OrMapState, Increment, PendingOperation, Remove,
+  TallyMode,
 }
 
 pub type OrMapCommand {
@@ -45,7 +46,12 @@ pub type OrMapCommand {
 }
 
 type OracleState {
-  OracleState(dots: Dict(String, List(#(Int, Int))), tallies: Dict(String, Int))
+  OracleState(
+    dots: Dict(String, List(#(Int, Int))),
+    tallies: Dict(#(String, Int), Int),
+    own: Dict(#(String, Int), Int),
+    generations: Dict(String, Generation),
+  )
 }
 
 fn client_replica_id(id: Int) -> ReplicaId {
@@ -259,18 +265,6 @@ fn add_dot(
   dict.insert(dots, key, list.append(existing, [dot]))
 }
 
-fn add_tally(
-  tallies: Dict(String, Int),
-  key: String,
-  amount: Int,
-) -> Dict(String, Int) {
-  dict.insert(
-    tallies,
-    key,
-    { dict.get(tallies, key) |> result.unwrap(0) } + amount,
-  )
-}
-
 fn remove_observed_dots(
   dots: Dict(String, List(#(Int, Int))),
   key: String,
@@ -294,22 +288,77 @@ fn apply_oracle_operation(
   entry: #(Int, #(Int, OrMapCommand)),
 ) -> OracleState {
   let #(sequence_number, #(author, command)) = entry
-  case command {
+  let state = case command {
     CommandIncrement(key, amount, _) ->
       OracleState(
-        dots: add_dot(state.dots, key, #(author, sequence_number)),
-        tallies: add_tally(state.tallies, key, amount),
-      )
-    CommandRemove(key, reference_sequence_number, _) ->
-      OracleState(
         ..state,
-        dots: remove_observed_dots(
-          state.dots,
-          key,
-          author,
-          reference_sequence_number,
+        own: dict.insert(
+          state.own,
+          #(key, author),
+          result.unwrap(dict.get(state.own, #(key, author)), 0) + amount,
         ),
       )
+    CommandRemove(..) -> state
+  }
+  let assert Some(delta) = command.delta
+  let assert Ok(entries) =
+    json.parse(
+      or_map.delta_to_json(delta) |> json.to_string,
+      or_map_metadata.entries_decoder(),
+    )
+  case entries {
+    [] -> state
+    [entry] -> {
+      let previous = dict.get(state.generations, command.key)
+      let comparison = case previous {
+        Error(Nil) -> order.Gt
+        Ok(generation) -> or_map_metadata.compare(entry.generation, generation)
+      }
+      case comparison {
+        order.Lt -> state
+        order.Eq | order.Gt -> {
+          let state = case comparison {
+            order.Gt ->
+              OracleState(
+                ..state,
+                dots: dict.delete(state.dots, command.key),
+                tallies: dict.filter(state.tallies, fn(key, _) {
+                  key.0 != command.key
+                }),
+                generations: dict.insert(
+                  state.generations,
+                  command.key,
+                  entry.generation,
+                ),
+              )
+            order.Eq | order.Lt -> state
+          }
+          case command {
+            CommandIncrement(key, _, _) ->
+              OracleState(
+                ..state,
+                dots: add_dot(state.dots, key, #(author, sequence_number)),
+                tallies: dict.insert(
+                  state.tallies,
+                  #(key, author),
+                  result.unwrap(dict.get(state.own, #(key, author)), 0),
+                ),
+              )
+            CommandRemove(key, reference_sequence_number, _) ->
+              OracleState(
+                ..state,
+                dots: remove_observed_dots(
+                  state.dots,
+                  key,
+                  author,
+                  reference_sequence_number,
+                ),
+              )
+          }
+        }
+      }
+    }
+    _ -> panic as "Expected a single-key OR-map delta."
   }
 }
 
@@ -318,7 +367,7 @@ pub fn oracle(entries: List(LogEntry(OrMapCommand))) -> List(#(String, Int)) {
     kernel_fuzz.log_operations(entries)
     |> list.index_map(fn(entry, i) { #(i + 1, entry) })
     |> list.fold(
-      OracleState(dots: dict.new(), tallies: dict.new()),
+      OracleState(dict.new(), dict.new(), dict.new(), dict.new()),
       apply_oracle_operation,
     )
 
@@ -327,7 +376,15 @@ pub fn oracle(entries: List(LogEntry(OrMapCommand))) -> List(#(String, Int)) {
   |> list.filter_map(fn(key) {
     case dict.get(state.dots, key) {
       Ok([_, ..]) ->
-        Ok(#(key, dict.get(state.tallies, key) |> result.unwrap(0)))
+        Ok(#(
+          key,
+          dict.fold(state.tallies, 0, fn(total, entry, value) {
+            case entry.0 == key {
+              True -> total + value
+              False -> total
+            }
+          }),
+        ))
       _ -> Error(Nil)
     }
   })

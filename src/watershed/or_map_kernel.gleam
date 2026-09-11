@@ -24,13 +24,19 @@ import lattice_core/replica_id.{type ReplicaId}
 import lattice_core/version_vector
 import lattice_counters/pn_counter.{type PNCounter}
 import lattice_maps/crdt
-import lattice_maps/or_map.{type ORMap, type ORMapDelta}
+import lattice_maps/or_map
 import lattice_registers/lww_register
 import lattice_registers/mv_register.{type MVRegister}
 import lattice_sets/or_set
 import watershed/canonical_json
 import watershed/mv_register_kernel
 import watershed/or_map_set_leaf
+
+pub type ORMap =
+  or_map.ORMap(String)
+
+pub type ORMapDelta =
+  or_map.ORMapDelta(String)
 
 pub type OrMapMode {
   TallyMode
@@ -123,10 +129,10 @@ pub type KernelError {
   NegativeTally(detail: String)
 }
 
-pub fn mode_to_spec(mode: OrMapMode) -> crdt.CrdtSpec {
+pub fn mode_to_spec(mode: OrMapMode) -> crdt.CrdtSpec(String) {
   case mode {
     TallyMode -> crdt.PnCounterSpec
-    RegisterMode -> crdt.LwwRegisterSpec
+    RegisterMode -> crdt.LwwRegisterSpec("")
     OrSetMode -> crdt.OrSetSpec
     MvRegisterMode -> crdt.MvRegisterSpec
   }
@@ -278,7 +284,7 @@ pub fn set_register(
 /// The timestamp for a local register write. The result is the wall clock,
 /// unless this replica has already seen that instant or a later one for this
 /// key. In that condition the result is one tick after the newest timestamp
-/// that it has seen.
+/// that it has seen. The result is also above the configured default at zero.
 ///
 /// This is the complete fix for a lost second write in the same millisecond.
 /// You cannot make that fix by changing the more-than comparison of
@@ -287,6 +293,8 @@ pub fn set_register(
 /// writes from different replicas that are truly concurrent. Only the *stamping*
 /// side knows that these two writes are ordered.
 fn stamp(clock: Dict(String, Int), key: String, wall_clock: Int) -> Int {
+  // The configured register default participates in merges at timestamp zero.
+  let wall_clock = int.max(1, wall_clock)
   case dict.get(clock, key) {
     Ok(seen) if seen >= wall_clock -> seen + 1
     Ok(_) -> wall_clock
@@ -881,6 +889,10 @@ fn observe_registers(
           | Ok(crdt.CrdtTwoPSet(_))
           | Ok(crdt.CrdtOrSet(_))
           | Ok(crdt.CrdtVersionVector(_))
+          | Ok(crdt.CrdtSequence(_))
+          | Ok(crdt.CrdtText(_))
+          | Ok(crdt.CrdtOrMap(_))
+          | Ok(crdt.CrdtLwwMap(_))
           | Error(Nil) -> clock
         }
       })
@@ -1068,10 +1080,21 @@ pub fn from_summary(
   summary_json: String,
   replica_id: ReplicaId,
 ) -> Result(OrMapState, json.DecodeError) {
-  use spec <- result.try(json.parse(
+  use version <- result.try(json.parse(
     summary_json,
-    decode.at(["state", "crdt_spec"], decode.string),
+    decode.at(["v"], decode.int),
   ))
+  use spec <- result.try(case version {
+    1 | 2 ->
+      json.parse(summary_json, decode.at(["state", "crdt_spec"], decode.string))
+    _ -> {
+      use map <- result.try(or_map.from_json(summary_json))
+      use mode <- result.try(
+        native_mode(map) |> result.map_error(set_decode_error),
+      )
+      Ok(crdt.spec_name(mode_to_spec(mode)))
+    }
+  })
   use mode <- result.try(
     spec_string_to_mode(spec)
     |> result.map_error(fn(_) { unsupported_spec_error(spec) }),
@@ -1084,7 +1107,17 @@ pub fn from_summary(
     OrSetMode ->
       or_map_set_leaf.decode_state(summary_json)
       |> result.map_error(fn(error) { set_decode_error(set_error(error)) })
-    TallyMode | RegisterMode | MvRegisterMode -> or_map.from_json(summary_json)
+    TallyMode | RegisterMode | MvRegisterMode ->
+      case version {
+        1 | 2 ->
+          or_map.import_legacy(
+            summary_json,
+            mode_to_spec(mode),
+            decode.string,
+            replica_id,
+          )
+        _ -> or_map.from_json(summary_json)
+      }
   })
   case mode {
     OrSetMode ->
@@ -1170,23 +1203,40 @@ fn decode_mv_registers(
   source: String,
   replica_id: ReplicaId,
 ) -> Result(Dict(String, MVRegister(String)), json.DecodeError) {
-  let decoder =
-    decode.at(
-      ["state", "values"],
-      decode.list({
-        use key <- decode.field("key", decode.string)
-        use encoded <- decode.field("crdt", decode.string)
-        decode.success(#(key, encoded))
-      }),
-    )
+  use version <- result.try(json.parse(source, decode.at(["v"], decode.int)))
+  let decoder = case version {
+    1 | 2 ->
+      decode.at(
+        ["state", "values"],
+        decode.list({
+          use key <- decode.field("key", decode.string)
+          use encoded <- decode.field("crdt", decode.string)
+          decode.success(#(key, Some(encoded)))
+        }),
+      )
+    _ ->
+      decode.at(
+        ["state", "entries"],
+        decode.list({
+          use key <- decode.field("key", decode.string)
+          use encoded <- decode.field("value", decode.optional(decode.string))
+          decode.success(#(key, encoded))
+        }),
+      )
+  }
   use leaves <- result.try(json.parse(source, decoder))
   list.try_fold(leaves, dict.new(), fn(registers, leaf) {
-    use register <- result.try(mv_register_kernel.decode_crdt(leaf.1))
-    Ok(dict.insert(
-      registers,
-      leaf.0,
-      mv_register.merge(mv_register.new(replica_id), register),
-    ))
+    case leaf.1 {
+      None -> Ok(registers)
+      Some(encoded) -> {
+        use register <- result.try(mv_register_kernel.decode_crdt(encoded))
+        Ok(dict.insert(
+          registers,
+          leaf.0,
+          mv_register.merge(mv_register.new(replica_id), register),
+        ))
+      }
+    }
   })
 }
 
@@ -1218,12 +1268,12 @@ fn own_tally_counter(
 ) -> Result(PNCounter, KernelError) {
   use counter <- result.try(
     pn_counter.new(replica_id)
-    |> pn_counter.try_increment(positive)
+    |> pn_counter.increment(positive)
     |> result.replace_error(NegativeTally(
       "positive tally is " <> int.to_string(positive),
     )),
   )
-  pn_counter.try_decrement(counter, negative)
+  pn_counter.decrement(counter, negative)
   |> result.replace_error(NegativeTally(
     "negative tally is " <> int.to_string(negative),
   ))
@@ -1281,10 +1331,16 @@ fn key_delta_decoder() -> decode.Decoder(KeyDelta) {
   decode.at(["state"], {
     use author <- decode.field("replica_id", decode.string)
     use counter <- decode.field("counter", decode.int)
-    use entries <- decode.field(
-      "entries",
-      decode.dict(decode.string, decode.list(tag_decoder())),
-    )
+    use entries <- decode.field("entries", {
+      use entries <- decode.then(
+        decode.list({
+          use key <- decode.field("value", decode.string)
+          use tags <- decode.field("tags", decode.list(tag_decoder()))
+          decode.success(#(key, tags))
+        }),
+      )
+      decode.success(dict.from_list(entries))
+    })
     use tombstones <- decode.field("tombstones", decode.list(tag_decoder()))
     use pruned <- decode.field("pruned", version_vector.decoder())
     decode.success(KeyDelta(author, counter, entries, tombstones, pruned))
@@ -1300,14 +1356,15 @@ pub fn validate_operation_intent(
   use spec <- result.try(
     json.parse(
       operation_delta(operation) |> or_map.delta_to_json |> json.to_string,
-      decode.at(["state", "crdt_spec"], decode.string),
+      decode.at(["state", "spec"], decode.string),
     )
     |> result.map_error(fn(error) { CorruptDelta(string.inspect(error)) }),
   )
-  use mode <- result.try(
-    spec_string_to_mode(spec)
-    |> result.replace_error(ModeMismatch("unsupported delta value spec")),
+  use spec <- result.try(
+    crdt.spec_from_json_with(spec, decode.string)
+    |> result.map_error(fn(error) { CorruptDelta(string.inspect(error)) }),
   )
+  use mode <- result.try(spec_to_mode(spec))
   validate_operation(mode, operation)
 }
 
@@ -1317,69 +1374,72 @@ fn validated_key_delta(
   let metadata =
     decode.at(["state"], {
       use author <- decode.field("replica_id", decode.string)
-      use spec <- decode.field("crdt_spec", decode.string)
-      use keys <- decode.field("key_set_delta", decode.string)
-      use leaves <- decode.field(
-        "value_deltas",
+      use spec <- decode.field("spec", decode.string)
+      use entries <- decode.field(
+        "entries",
         decode.list({
           use key <- decode.field("key", decode.string)
-          use leaf <- decode.field("crdt", decode.string)
-          decode.success(#(key, leaf))
+          use membership <- decode.field("membership", decode.string)
+          use leaf <- decode.field("value", decode.optional(decode.string))
+          decode.success(#(key, membership, leaf))
         }),
       )
-      use bounds <- decode.field(
-        "remove_bounds_delta",
-        decode.dict(decode.string, version_vector.decoder()),
-      )
-      decode.success(#(author, spec, keys, leaves, bounds))
+      decode.success(#(author, spec, entries))
     })
-  use #(author, spec, encoded_keys, leaves, bounds) <- result.try(
+  use #(author, encoded_spec, entries) <- result.try(
     json.parse(
       operation_delta(operation) |> or_map.delta_to_json |> json.to_string,
       metadata,
     )
     |> result.map_error(fn(error) { CorruptDelta(string.inspect(error)) }),
   )
-  use keys <- result.try(
-    json.parse(encoded_keys, key_delta_decoder())
+  use spec <- result.try(
+    crdt.spec_from_json_with(encoded_spec, decode.string)
     |> result.map_error(fn(error) { CorruptDelta(string.inspect(error)) }),
   )
-  let valid =
-    keys.author == author
-    && keys.counter >= 0
-    && version_vector.is_empty(keys.pruned)
-    && result.is_ok(spec_string_to_mode(spec))
-    && case
-      operation,
-      leaves,
-      dict.to_list(keys.entries),
-      dict.to_list(bounds)
-    {
-      Remove(_, _), [], [], [] -> keys.tombstones == []
-      Remove(key, _), [], [], [#(removed_key, bound)] -> {
-        let expected_bound =
-          list.fold(keys.tombstones, version_vector.new(), fn(bound, tag) {
-            version_vector.set_max(bound, replica_id.new(tag.0), tag.1)
-          })
-        key == removed_key
-        && keys.tombstones != []
+  use _ <- result.try(spec_to_mode(spec))
+  case entries, operation {
+    [], Remove(_, _) ->
+      Ok(KeyDelta(author, 0, dict.new(), [], version_vector.new()))
+    [#(key, membership, leaf)], _ -> {
+      use keys <- result.try(
+        json.parse(membership, key_delta_decoder())
+        |> result.map_error(fn(error) { CorruptDelta(string.inspect(error)) }),
+      )
+      let valid =
+        keys.counter >= 0
+        && version_vector.is_empty(keys.pruned)
         && list.all(keys.tombstones, fn(tag) {
           tag.1 > 0 && tag.1 <= keys.counter
         })
-        && bound == expected_bound
+        && case operation, leaf, dict.to_list(keys.entries) {
+          Remove(intent_key, _), None, [] -> key == intent_key
+          _, Some(encoded), [#(added_key, [#(tag_author, counter)])] ->
+            key == added_key
+            && tag_author == keys.author
+            && counter > 0
+            && counter == keys.counter
+            && keys.tombstones == []
+            && case crdt.delta_from_json(encoded) {
+              Ok(crdt.StateDelta(value)) ->
+                write_matches(
+                  operation,
+                  crdt.spec_name(spec),
+                  author,
+                  key,
+                  crdt.to_json(value) |> json.to_string,
+                )
+              Ok(crdt.NoChange(_)) | Ok(crdt.OrMapChange(_)) | Error(_) -> False
+            }
+          _, _, _ -> False
+        }
+      case valid {
+        True -> Ok(keys)
+        False ->
+          Error(CorruptDelta("operation intent does not match its delta"))
       }
-      _, [#(key, leaf)], [#(added_key, [#(tag_author, counter)])], [] ->
-        key == added_key
-        && tag_author == author
-        && counter > 0
-        && counter == keys.counter
-        && keys.tombstones == []
-        && write_matches(operation, spec, author, key, leaf)
-      _, _, _, _ -> False
     }
-  case valid {
-    True -> Ok(keys)
-    False -> Error(CorruptDelta("operation intent does not match its delta"))
+    _, _ -> Error(CorruptDelta("operation intent does not match its delta"))
   }
 }
 
@@ -1480,13 +1540,6 @@ fn apply_operation(
 ) -> Result(ORMap, KernelError) {
   use mode <- result.try(native_mode(map))
   use _ <- result.try(validate_operation(mode, operation))
-  use _ <- result.try(case mode {
-    OrSetMode -> Ok(Nil)
-    TallyMode | RegisterMode | MvRegisterMode -> {
-      use keys <- result.try(validated_key_delta(operation))
-      validate_key_target(map, operation, keys)
-    }
-  })
   apply_delta(map, operation_delta(operation))
 }
 
@@ -1494,57 +1547,8 @@ fn validate_state_operation(
   state: OrMapState,
   operation: OrMapOperation,
 ) -> Result(Nil, KernelError) {
-  use _ <- result.try(validate_operation(state.mode, operation))
-  case state.mode {
-    OrSetMode -> Ok(Nil)
-    TallyMode | RegisterMode | MvRegisterMode -> {
-      use keys <- result.try(validated_key_delta(operation))
-      list.try_fold(
-        [state.sequenced, state.optimistic, state.authored],
-        Nil,
-        fn(_, map) { validate_key_target(map, operation, keys) },
-      )
-    }
-  }
-}
-
-fn validate_key_target(
-  map: ORMap,
-  operation: OrMapOperation,
-  keys: KeyDelta,
-) -> Result(Nil, KernelError) {
-  case operation {
-    Remove(key, _) -> {
-      // Tombstones have no key labels. Reject a claim that retires a tag
-      // known to belong to another key, without requiring the removed add
-      // to have arrived before its removal.
-      use encoded <- result.try(
-        json.parse(
-          or_map.to_json(map) |> json.to_string,
-          decode.at(["state", "key_set"], decode.string),
-        )
-        |> result.map_error(fn(error) { CorruptDelta(string.inspect(error)) }),
-      )
-      use current <- result.try(
-        json.parse(encoded, key_delta_decoder())
-        |> result.map_error(fn(error) { CorruptDelta(string.inspect(error)) }),
-      )
-      case
-        list.all(dict.to_list(current.entries), fn(entry) {
-          entry.0 == key
-          || list.all(entry.1, fn(tag) { !list.contains(keys.tombstones, tag) })
-        })
-      {
-        True -> Ok(Nil)
-        False -> Error(CorruptDelta("removal targets a different key"))
-      }
-    }
-    Increment(_, _, _)
-    | SetRegister(_, _, _, _)
-    | SetMvRegister(_, _, _)
-    | AddMember(_, _, _)
-    | RemoveMember(_, _, _) -> Ok(Nil)
-  }
+  // Native membership is scoped to the entry key and generation.
+  validate_operation(state.mode, operation)
 }
 
 fn apply_delta(map: ORMap, delta: ORMapDelta) -> Result(ORMap, KernelError) {
@@ -1574,19 +1578,30 @@ fn apply_legacy_delta(
     Ok(map) -> Ok(map)
     Error(crdt.TypeMismatch(expected, found)) ->
       Error(CorruptDelta("expected " <> expected <> " delta, found " <> found))
+    Error(error) -> Error(composition_error(error))
   }
 }
 
 fn native_mode(map: ORMap) -> Result(OrMapMode, KernelError) {
-  use spec <- result.try(
-    json.parse(
-      or_map.to_json(map) |> json.to_string,
-      decode.at(["state", "crdt_spec"], decode.string),
-    )
-    |> result.replace_error(ModeMismatch("map has no value spec")),
-  )
-  spec_string_to_mode(spec)
-  |> result.replace_error(ModeMismatch("unsupported map value spec: " <> spec))
+  spec_to_mode(or_map.spec(map))
+}
+
+fn spec_to_mode(spec: crdt.CrdtSpec(String)) -> Result(OrMapMode, KernelError) {
+  case spec {
+    crdt.PnCounterSpec -> Ok(TallyMode)
+    crdt.LwwRegisterSpec("") -> Ok(RegisterMode)
+    crdt.OrSetSpec -> Ok(OrSetMode)
+    crdt.MvRegisterSpec -> Ok(MvRegisterMode)
+    crdt.GCounterSpec
+    | crdt.LwwRegisterSpec(_)
+    | crdt.GSetSpec
+    | crdt.TwoPSetSpec
+    | crdt.SequenceSpec
+    | crdt.TextSpec
+    | crdt.OrMapSpec(_)
+    | crdt.LwwMapSpec(_) ->
+      Error(ModeMismatch("unsupported map value spec: " <> string.inspect(spec)))
+  }
 }
 
 fn merge_map(
@@ -1624,7 +1639,7 @@ fn merge_map(
 fn update_with_delta(
   state: OrMapState,
   key: String,
-  value: crdt.Crdt,
+  value: crdt.Crdt(String),
 ) -> Result(#(ORMap, ORMapDelta), KernelError) {
   use map <- result.try(
     or_map.merge(state.authored, state.optimistic)
@@ -1634,6 +1649,24 @@ fn update_with_delta(
     Ok(pair) -> Ok(pair)
     Error(crdt.TypeMismatch(expected, found)) ->
       Error(ModeMismatch("expected " <> expected <> " value, found " <> found))
+    Error(error) -> Error(composition_error(error))
+  }
+}
+
+fn composition_error(error: crdt.MergeError) -> KernelError {
+  case error {
+    crdt.ClockExhausted(key) ->
+      CounterExhausted("OR-map clock exhausted: " <> key)
+    crdt.AtKey(key, cause) ->
+      case composition_error(cause) {
+        CounterExhausted(detail) -> CounterExhausted(key <> ": " <> detail)
+        other -> CorruptDelta(key <> ": " <> string.inspect(other))
+      }
+    crdt.TypeMismatch(_, _)
+    | crdt.SchemaMismatch
+    | crdt.TimestampNotAdvanced(_, _, _)
+    | crdt.ConflictingWrite(_, _)
+    | crdt.InvalidTimestamp(_, _) -> CorruptDelta(string.inspect(error))
   }
 }
 
@@ -1679,7 +1712,7 @@ fn map_entries(map: ORMap, mode: OrMapMode) -> List(#(String, OrMapValue)) {
 /// Read a lattice value as a kernel value. The result is `Error(Nil)` for a
 /// lattice value that no map mode holds. The value mode of the map keeps
 /// such a value out, so this arm reports a broken map instead of a panic.
-fn crdt_to_value(value: crdt.Crdt) -> Result(OrMapValue, Nil) {
+fn crdt_to_value(value: crdt.Crdt(String)) -> Result(OrMapValue, Nil) {
   case value {
     crdt.CrdtPnCounter(counter) -> Ok(Tally(pn_counter.value(counter)))
     crdt.CrdtLwwRegister(register) -> Ok(Register(lww_register.value(register)))
@@ -1694,7 +1727,11 @@ fn crdt_to_value(value: crdt.Crdt) -> Result(OrMapValue, Nil) {
     crdt.CrdtGCounter(_)
     | crdt.CrdtGSet(_)
     | crdt.CrdtTwoPSet(_)
-    | crdt.CrdtVersionVector(_) -> Error(Nil)
+    | crdt.CrdtVersionVector(_)
+    | crdt.CrdtSequence(_)
+    | crdt.CrdtText(_)
+    | crdt.CrdtOrMap(_)
+    | crdt.CrdtLwwMap(_) -> Error(Nil)
   }
 }
 

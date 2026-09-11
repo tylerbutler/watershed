@@ -5,7 +5,9 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/string
 import lattice_core/replica_id
+import lattice_maps/crdt
 import lattice_maps/lww_map
+import lattice_registers/lww_register
 import startest/expect
 import watershed/fuzz/kernel_fuzz.{
   type Command, type KernelModel, AddClient, Capabilities, ClientOperation,
@@ -88,6 +90,70 @@ pub fn lww_map_oracle_unicode_order_is_target_independent_test() -> Nil {
     OperationEntry(2, MapCommand("k", Some("\u{10000}"), 0, Some(10), None), [])
   oracle([a, b]) |> expect.to_equal([#("k", Some("\u{10000}"), 10)])
   oracle([b, a]) |> expect.to_equal([#("k", Some("\u{10000}"), 10)])
+}
+
+pub fn lww_map_modern_ties_use_writer_not_payload_order_test() -> Nil {
+  let model = lww_map_model.model()
+  let script = [
+    ClientOperation(1, edit("k", Some("\u{10000}"), 7)),
+    ClientOperation(2, edit("k", Some("\u{e000}"), 7)),
+    Synchronize,
+  ]
+  expect_script(model, script, [#("k", Some("\u{e000}"), 7)])
+  let assert Some(oracle) = model.capabilities.oracle
+  oracle([
+    OperationEntry(9, MapCommand("k", Some("a"), 0, Some(7), None), []),
+    OperationEntry(10, MapCommand("k", Some("z"), 0, Some(7), None), []),
+  ])
+  |> expect.to_equal([#("k", Some("a"), 7)])
+}
+
+pub fn lww_map_legacy_ties_survive_import_and_modern_writes_test() -> Nil {
+  let model = lww_map_model.model()
+  let legacy = fn(value) {
+    let encoded =
+      json.object([
+        #("type", json.string("lww_map")),
+        #("v", json.int(1)),
+        #(
+          "state",
+          json.object([
+            #(
+              "entries",
+              json.array([value], fn(value) {
+                json.object([
+                  #("key", json.string("k")),
+                  #("value", json.string(value)),
+                  #("timestamp", json.int(7)),
+                ])
+              }),
+            ),
+          ]),
+        ),
+      ])
+      |> json.to_string
+    let assert Ok(delta) = json.parse(encoded, kernel.decoder())
+    MapCommand("k", Some(value), 7, Some(7), Some(delta))
+  }
+  let a = legacy("a")
+  let z = legacy("z")
+  [a, z]
+  |> list.permutations
+  |> list.each(fn(commands) {
+    expect_script(
+      model,
+      list.map(commands, fn(command) { StashedOperation(1, command) }),
+      [#("k", Some("z"), 7)],
+    )
+  })
+  expect_script(
+    model,
+    [
+      StashedOperation(1, z),
+      ClientOperation(2, edit("k", Some("a"), 7)),
+    ],
+    [#("k", Some("a"), 7)],
+  )
 }
 
 pub fn lww_map_generated_convergence_test() -> Nil {
@@ -245,7 +311,7 @@ pub fn lww_map_left_biased_merge_fault_is_detected_test() -> Nil {
     ClientOperation(2, edit("k", Some("closed"), 7)),
     Synchronize,
   ]
-  expect_script(model, script, [#("k", Some("open"), 7)])
+  expect_script(model, script, [#("k", Some("closed"), 7)])
   let assert Error(detail) = kernel_fuzz.try_run_script(buggy, 3, script)
   string.contains(detail, "convergence violated") |> expect.to_be_true()
 }
@@ -258,14 +324,31 @@ pub fn lww_map_dropped_tombstone_on_reload_is_detected_test() -> Nil {
       capabilities: Capabilities(
         ..model.capabilities,
         load_from_synced: Some(fn(state, _) {
+          let replica = replica_id.new("reloaded")
           let visible =
             model.observe(state)
-            |> list.fold(lww_map.new(), fn(map, entry) {
-              case entry.1 {
-                None -> map
-                Some(value) -> lww_map.set(map, entry.0, value, entry.2)
-              }
-            })
+            |> list.fold(
+              lww_map.new(replica, crdt.LwwRegisterSpec("")),
+              fn(map, entry) {
+                case entry.1 {
+                  None -> map
+                  Some(value) -> {
+                    let assert Ok(map) =
+                      lww_map.set(
+                        map,
+                        entry.0,
+                        crdt.CrdtLwwRegister(lww_register.new(
+                          value,
+                          entry.2,
+                          replica,
+                        )),
+                        entry.2,
+                      )
+                    map
+                  }
+                }
+              },
+            )
           let assert Ok(loaded) =
             kernel.from_sequenced(visible, replica_id.new("reloaded"))
           loaded

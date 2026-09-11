@@ -15,14 +15,18 @@ import gleam/order
 import gleam/result
 import gleam/string
 import lattice_core/replica_id
-import lattice_maps/or_map.{type ORMapDelta}
+import lattice_maps/or_map
 import qcheck
 import watershed/canonical_json
 import watershed/fuzz/kernel_fuzz.{
   type KernelModel, type LogEntry, Capabilities, KernelModel,
 }
+import watershed/fuzz/or_map_metadata.{type Generation}
 import watershed/or_map_kernel as kernel
 import watershed/or_map_set_leaf
+
+type ORMapDelta =
+  or_map.ORMapDelta(String)
 
 pub type Dot =
   #(String, Int)
@@ -37,6 +41,7 @@ pub type Observation {
     members: List(#(String, SetObservation)),
     bounds: List(#(String, List(#(String, Int)))),
     visible: List(#(String, List(String))),
+    generations: List(#(String, Generation)),
   )
 }
 
@@ -54,6 +59,7 @@ pub type Context {
     key_dots: List(Dot),
     members: Option(SetObservation),
     removal_bound: List(#(String, Int)),
+    generation: Generation,
   )
 }
 
@@ -68,7 +74,7 @@ pub type SetMapCommand {
 }
 
 pub fn empty_observation() -> Observation {
-  Observation(SetObservation([], []), [], [], [])
+  Observation(SetObservation([], []), [], [], [], [])
 }
 
 fn compare_dot(left: Dot, right: Dot) -> order.Order {
@@ -153,7 +159,44 @@ fn visible(observation: Observation) -> List(#(String, List(String))) {
   })
 }
 
+fn key_observation(state: Observation, key: String) -> Observation {
+  let bounds = get(state.bounds, key, [])
+  Observation(
+    SetObservation(
+      list.filter(state.keys.entries, fn(pair) { pair.0 == key }),
+      list.filter(state.keys.tombstones, fn(dot) {
+        dot.1 <= get(bounds, dot.0, 0)
+      }),
+    ),
+    list.filter(state.members, fn(pair) { pair.0 == key }),
+    list.filter(state.bounds, fn(pair) { pair.0 == key }),
+    [],
+    list.filter(state.generations, fn(pair) { pair.0 == key }),
+  )
+}
+
 fn join(left: Observation, right: Observation) -> Observation {
+  list.append(left.generations, right.generations)
+  |> list.map(fn(pair) { pair.0 })
+  |> list.unique
+  |> list.fold(empty_observation(), fn(joined, key) {
+    let a = key_observation(left, key)
+    let b = key_observation(right, key)
+    let selected = case
+      or_map_metadata.compare(
+        get(left.generations, key, #(0, None)),
+        get(right.generations, key, #(0, None)),
+      )
+    {
+      order.Gt -> a
+      order.Lt -> b
+      order.Eq -> join_same_generation(a, b)
+    }
+    join_same_generation(joined, selected)
+  })
+}
+
+fn join_same_generation(left: Observation, right: Observation) -> Observation {
   let joined =
     Observation(
       join_set(left.keys, right.keys),
@@ -172,6 +215,9 @@ fn join(left: Observation, right: Observation) -> Observation {
         |> dict.to_list
         |> sorted_pairs,
       [],
+      list.append(left.generations, right.generations)
+        |> list.unique
+        |> sorted_pairs,
     )
   Observation(..joined, visible: visible(joined))
 }
@@ -197,6 +243,14 @@ pub fn contribution(command: SetMapCommand) -> Observation {
     False -> empty_observation()
     True -> {
       let dot = #(context.author, context.counter)
+      let key_dot = #(
+        or_map_metadata.membership_author(
+          context.author,
+          command.key,
+          context.generation,
+        ),
+        context.counter,
+      )
       let leaf = option.unwrap(context.members, SetObservation([], []))
       let leaf = case context.key_dots {
         [] -> retract(leaf, live_dots(leaf))
@@ -204,23 +258,26 @@ pub fn contribution(command: SetMapCommand) -> Observation {
       }
       let #(keys, leaf, bounds) = case command.intent {
         AddMember -> #(
-          SetObservation([#(command.key, [dot])], []),
+          SetObservation([#(command.key, [key_dot])], []),
           join_set(leaf, SetObservation([#(command.member, [dot])], [])),
           [],
         )
         RemoveMember -> #(
-          SetObservation([#(command.key, [dot])], []),
+          SetObservation([#(command.key, [key_dot])], []),
           retract(leaf, get(leaf.entries, command.member, [])),
           [],
         )
         RemoveKey -> {
-          let removed_keys = dots([dot, ..context.key_dots])
+          let removed_keys = dots([key_dot, ..context.key_dots])
           #(SetObservation([], removed_keys), retract(leaf, live_dots(leaf)), [
             #(command.key, bound(removed_keys)),
           ])
         }
       }
-      let observation = Observation(keys, [#(command.key, leaf)], bounds, [])
+      let observation =
+        Observation(keys, [#(command.key, leaf)], bounds, [], [
+          #(command.key, context.generation),
+        ])
       Observation(..observation, visible: visible(observation))
     }
   }
@@ -271,14 +328,23 @@ fn capture(
         |> dict.get(command.key)
         |> option.from_result,
       get(observation.bounds, command.key, []),
+      get(observation.generations, command.key, #(0, None)),
     )
   let counter = case changes(command, context) {
     True -> state.floor + 1
     False -> state.floor
   }
+  let generation = case command.intent, context.key_dots {
+    AddMember, [] ->
+      case list.key_find(observation.generations, command.key) {
+        Ok(_) -> #(counter, Some(state.author))
+        Error(Nil) -> #(0, None)
+      }
+    _, _ -> context.generation
+  }
   SetMapCommand(
     ..command,
-    context: Some(Context(..context, counter: counter)),
+    context: Some(Context(..context, counter: counter, generation: generation)),
     delta: None,
   )
 }
@@ -457,7 +523,16 @@ fn native_set_decoder() -> decode.Decoder(#(SetObservation, Int)) {
       "pruned",
       decode.at(["state", "clocks"], decode.dict(decode.string, decode.int)),
     )
-    use observation <- decode.then(set_decoder())
+    use entries <- decode.field(
+      "entries",
+      decode.list({
+        use value <- decode.field("value", decode.string)
+        use tags <- decode.field("tags", decode.list(dot_decoder()))
+        decode.success(#(value, dots(tags)))
+      }),
+    )
+    use tombstones <- decode.field("tombstones", decode.list(dot_decoder()))
+    let observation = SetObservation(sorted_pairs(entries), dots(tombstones))
     case dict.size(pruned) {
       0 -> decode.success(#(observation, counter))
       _ -> decode.failure(#(observation, counter), "Unpruned set metadata")
@@ -466,59 +541,58 @@ fn native_set_decoder() -> decode.Decoder(#(SetObservation, Int)) {
 }
 
 fn native_observation(
-  map: or_map.ORMap,
+  map: or_map.ORMap(String),
 ) -> Result(#(Observation, Int, Dict(String, Int)), String) {
-  let decoder =
-    decode.at(["state"], {
-      use keys <- decode.field("key_set", decode.string)
-      use members <- decode.field(
-        "values",
-        decode.list({
-          use key <- decode.field("key", decode.string)
-          use leaf <- decode.field("crdt", decode.string)
-          decode.success(#(key, leaf))
-        }),
-      )
-      use bounds <- decode.field(
-        "remove_bounds",
-        decode.dict(
-          decode.string,
-          decode.at(["state", "clocks"], decode.dict(decode.string, decode.int)),
-        ),
-      )
-      decode.success(#(keys, members, bounds))
-    })
-  use #(keys, members, bounds) <- result.try(
-    json.parse(or_map.to_json(map) |> json.to_string, decoder)
+  let encoded = or_map.to_json(map) |> json.to_string
+  use entries <- result.try(
+    json.parse(encoded, or_map_metadata.entries_decoder())
     |> result.map_error(string.inspect),
   )
-  use #(keys, counter) <- result.try(
-    json.parse(keys, native_set_decoder()) |> result.map_error(string.inspect),
+  use counter <- result.try(
+    json.parse(encoded, decode.at(["state", "clock"], decode.int))
+    |> result.map_error(string.inspect),
   )
-  use members <- result.try(
-    list.try_map(members, fn(pair) {
-      json.parse(pair.1, native_set_decoder())
-      |> result.map(fn(leaf) { #(pair.0, leaf) })
-      |> result.map_error(string.inspect)
-    }),
+  list.try_fold(
+    entries,
+    #(empty_observation(), counter, dict.new()),
+    fn(acc, entry) {
+      use #(membership, key_counter) <- result.try(
+        json.parse(entry.membership, native_set_decoder())
+        |> result.map_error(string.inspect),
+      )
+      use leaf <- result.try(case entry.value {
+        None -> Ok(None)
+        Some(encoded) ->
+          json.parse(encoded, native_set_decoder())
+          |> result.map(Some)
+          |> result.map_error(string.inspect)
+      })
+      let observation =
+        Observation(
+          membership,
+          case leaf {
+            None -> []
+            Some(leaf) -> [#(entry.key, leaf.0)]
+          },
+          case membership.tombstones {
+            [] -> []
+            removed -> [#(entry.key, bound(removed))]
+          },
+          [],
+          [#(entry.key, entry.generation)],
+        )
+      Ok(
+        #(
+          join_same_generation(acc.0, observation),
+          int.max(acc.1, key_counter),
+          case leaf {
+            None -> acc.2
+            Some(leaf) -> dict.insert(acc.2, entry.key, leaf.1)
+          },
+        ),
+      )
+    },
   )
-  let observation =
-    Observation(
-      keys,
-      members |> list.map(fn(pair) { #(pair.0, pair.1.0) }) |> sorted_pairs,
-      bounds
-        |> dict.to_list
-        |> sorted_pairs
-        |> list.map(fn(pair) {
-          #(pair.0, pair.1 |> dict.to_list |> sorted_pairs)
-        }),
-      [],
-    )
-  Ok(#(
-    Observation(..observation, visible: visible(observation)),
-    counter,
-    members |> list.map(fn(pair) { #(pair.0, pair.1.1) }) |> dict.from_list,
-  ))
 }
 
 pub fn observe(state: State) -> Observation {
@@ -633,6 +707,7 @@ fn context_to_json(context: Context) -> json.Json {
         list.map(context.removal_bound, fn(pair) { #(pair.0, json.int(pair.1)) }),
       ),
     ),
+    #("generation", or_map_metadata.generation_json(context.generation)),
   ])
 }
 
@@ -646,6 +721,10 @@ fn context_decoder() -> decode.Decoder(Context) {
     "removal_bound",
     decode.dict(decode.string, decode.int),
   )
+  use generation <- decode.field(
+    "generation",
+    or_map_metadata.generation_decoder(),
+  )
   decode.success(Context(
     reference,
     author,
@@ -653,6 +732,7 @@ fn context_decoder() -> decode.Decoder(Context) {
     keys,
     members,
     bounds |> dict.to_list |> sorted_pairs,
+    generation,
   ))
 }
 

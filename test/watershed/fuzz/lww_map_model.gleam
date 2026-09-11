@@ -1,5 +1,5 @@
 //// The oracle selects per-key winners from intent and routed timestamps.
-//// It does not read deltas or call Lattice merge.
+//// It reads only captured write provenance from deltas and never calls merge.
 
 import gleam/dict
 import gleam/dynamic/decode
@@ -11,7 +11,9 @@ import gleam/order
 import gleam/result
 import gleam/string
 import lattice_core/replica_id
-import lattice_maps/lww_map.{type LWWMap}
+import lattice_maps/crdt
+import lattice_maps/lww_map
+import lattice_registers/lww_register
 import qcheck
 import watershed/canonical_json
 import watershed/fuzz/kernel_fuzz.{
@@ -25,12 +27,17 @@ pub type MapCommand {
     value: Option(String),
     wall_clock: Int,
     timestamp: Option(Int),
-    delta: Option(LWWMap),
+    delta: Option(kernel.LWWMap),
   )
 }
 
 pub type Observation =
   List(#(String, Option(String), Int))
+
+type WriteIdentity {
+  Legacy
+  Modern(writer: String)
+}
 
 fn operation(command: MapCommand) -> kernel.LwwMapOperation {
   let assert Some(timestamp) = command.timestamp
@@ -67,13 +74,24 @@ fn observe(state: kernel.LwwMapState) -> Observation {
     )
   let assert Ok(entries) =
     json.parse(lww_map.to_json(state.optimistic) |> json.to_string, decoder)
-  list.sort(entries, fn(a, b) { canonical_json.compare(a.0, b.0) })
+  entries
+  |> list.map(fn(entry) {
+    let value = case entry.1 {
+      None -> None
+      Some(encoded) -> {
+        let assert Ok(crdt.CrdtLwwRegister(register)) = crdt.from_json(encoded)
+        Some(lww_register.value(register))
+      }
+    }
+    #(entry.0, value, entry.2)
+  })
+  |> list.sort(fn(a, b) { canonical_json.compare(a.0, b.0) })
 }
 
 fn winner(
-  previous: #(Option(String), Int),
-  incoming: #(Option(String), Int),
-) -> #(Option(String), Int) {
+  previous: #(Option(String), Int, WriteIdentity),
+  incoming: #(Option(String), Int, WriteIdentity),
+) -> #(Option(String), Int, WriteIdentity) {
   case int.compare(incoming.1, previous.1) {
     order.Gt -> incoming
     order.Lt -> previous
@@ -81,21 +99,56 @@ fn winner(
       case previous.0, incoming.0 {
         None, _ -> previous
         _, None -> incoming
-        Some(a), Some(b) ->
-          case canonical_json.compare(a, b) {
+        Some(a), Some(b) -> {
+          let compared = case previous.2, incoming.2 {
+            Legacy, Legacy -> canonical_json.compare(a, b)
+            Legacy, Modern(_) -> order.Lt
+            Modern(_), Legacy -> order.Gt
+            Modern(a), Modern(b) -> canonical_json.compare(a, b)
+          }
+          case compared {
             order.Lt -> incoming
             order.Eq | order.Gt -> previous
           }
+        }
       }
+  }
+}
+
+fn identity(command: MapCommand, author: Int) -> WriteIdentity {
+  case command.delta {
+    None -> Modern("client-" <> int.to_string(author))
+    Some(delta) -> {
+      let decoder =
+        decode.at(
+          ["state", "entries"],
+          decode.list(
+            decode.at(["provenance"], {
+              use kind <- decode.field("kind", decode.string)
+              case kind {
+                "legacy" -> decode.success(Legacy)
+                "modern" -> {
+                  use writer <- decode.field("writer", decode.string)
+                  decode.success(Modern(writer))
+                }
+                _ -> decode.failure(Legacy, "write provenance")
+              }
+            }),
+          ),
+        )
+      let assert Ok([identity]) =
+        json.parse(lww_map.to_json(delta) |> json.to_string, decoder)
+      identity
+    }
   }
 }
 
 fn oracle(entries: List(LogEntry(MapCommand))) -> Observation {
   kernel_fuzz.log_operations(entries)
   |> list.fold(dict.new(), fn(winners, entry) {
-    let #(_, command) = entry
+    let #(author, command) = entry
     let assert Some(timestamp) = command.timestamp
-    let incoming = #(command.value, timestamp)
+    let incoming = #(command.value, timestamp, identity(command, author))
     let next = case dict.get(winners, command.key) {
       Error(Nil) -> incoming
       Ok(previous) -> winner(previous, incoming)
@@ -139,9 +192,18 @@ fn apply_stashed(
     None, None -> {
       // Model an original write from an empty clock, not the replay clock.
       let timestamp = int.max(1, command.wall_clock)
-      let delta = case command.value {
-        Some(value) -> lww_map.set(lww_map.new(), command.key, value, timestamp)
-        None -> lww_map.remove(lww_map.new(), command.key, timestamp)
+      // Distinct captured intents cannot reuse a modern immutable write ID.
+      let replica = replica_id.new("stash:" <> json.to_string(encode(command)))
+      let map = lww_map.new(replica, crdt.LwwRegisterSpec(""))
+      let assert Ok(delta) = case command.value {
+        Some(value) ->
+          lww_map.set(
+            map,
+            command.key,
+            crdt.CrdtLwwRegister(lww_register.new(value, timestamp, replica)),
+            timestamp,
+          )
+        None -> lww_map.remove(map, command.key, timestamp)
       }
       MapCommand(..command, timestamp: Some(timestamp), delta: Some(delta))
     }

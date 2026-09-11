@@ -27,6 +27,7 @@ import spillway/types
 
 import lattice_core/replica_id
 import lattice_core/version_vector
+import lattice_maps/crdt
 import lattice_maps/lww_map
 import lattice_maps/or_map
 import lattice_registers/lww_register
@@ -131,10 +132,11 @@ pub fn or_map_member_wire_rejects_wrong_spec_and_legacy_set_intent_test() -> Nil
   let raw_delta = json.to_string(or_map.delta_to_json(delta))
   list.each(
     [
-      string.replace(raw_delta, "\"v\":1", "\"v\":9"),
+      string.replace(raw_delta, "\"v\":2", "\"v\":9"),
       string.replace(raw_delta, "or_map_delta", "or_map"),
     ],
     fn(raw) {
+      raw |> expect.to_not_equal(raw_delta)
       let encoded =
         json.object([
           #("type", json.string("orMapAddMember")),
@@ -163,17 +165,17 @@ pub fn or_map_set_snapshot_raw_validation_precedes_native_decoding_test() -> Nil
   let assert Ok([entry]) =
     json.parse(
       raw,
-      decode.at(["state", "values"], decode.list(wire.json_value_decoder())),
+      decode.at(["state", "entries"], decode.list(wire.json_value_decoder())),
     )
   let assert Ok(leaf) =
     json.parse(
       json.to_string(entry),
-      decode.field("crdt", decode.string, decode.success),
+      decode.field("value", decode.string, decode.success),
     )
   let encoded_leaf = json.string(leaf) |> json.to_string
   let invalid_leaves = [
     string.replace(leaf, "\"type\":\"or_set\"", "\"type\":\"g_set\""),
-    string.replace(leaf, "\"v\":2", "\"v\":99"),
+    string.replace(leaf, "\"v\":3", "\"v\":99"),
     string.replace(leaf, "\"counter\":1", "\"counter\":0"),
     string.replace(leaf, "\"counter\":1", "\"counter\":9007199254740992"),
     string.replace(leaf, "\"counter\":1", "\"counter\":\"1\""),
@@ -188,15 +190,25 @@ pub fn or_map_set_snapshot_raw_validation_precedes_native_decoding_test() -> Nil
     |> result.is_error
     |> expect.to_be_true
   })
+  let assert Ok(spec) =
+    json.parse(raw, decode.at(["state", "spec"], decode.string))
   list.each(
     [
       string.replace(raw, "\"type\":\"or_map\"", "\"type\":\"or_map_delta\""),
-      string.replace(raw, "\"v\":2", "\"v\":99"),
-      string.replace(raw, "\"crdt_spec\":\"or_set\"", "\"crdt_spec\":7"),
+      string.replace(raw, "\"v\":3", "\"v\":99"),
+      string.replace(raw, json.to_string(json.string(spec)), "7"),
       string.replace(
         raw,
-        "\"values\":[",
-        "\"values\":[" <> json.to_string(entry) <> ",",
+        json.to_string(json.string(spec)),
+        crdt.spec_to_json_with(crdt.GSetSpec, json.string)
+          |> json.to_string
+          |> json.string
+          |> json.to_string,
+      ),
+      string.replace(
+        raw,
+        "\"entries\":[",
+        "\"entries\":[" <> json.to_string(entry) <> ",",
       ),
       string.replace(raw, encoded_leaf, "7"),
     ],
@@ -224,16 +236,13 @@ pub fn or_map_set_delta_raw_duplicate_keys_rejected_for_member_and_legacy_remove
     let assert Ok([value]) =
       json.parse(
         delta,
-        decode.at(
-          ["state", "value_deltas"],
-          decode.list(wire.json_value_decoder()),
-        ),
+        decode.at(["state", "entries"], decode.list(wire.json_value_decoder())),
       )
     let duplicate =
       string.replace(
         delta,
-        "\"value_deltas\":[",
-        "\"value_deltas\":[" <> json.to_string(value) <> ",",
+        "\"entries\":[",
+        "\"entries\":[" <> json.to_string(value) <> ",",
       )
     duplicate |> expect.to_not_equal(delta)
     let malformed =
@@ -382,10 +391,18 @@ fn lww_write_json(
 }
 
 pub fn lww_map_wire_round_trips_and_rejects_mismatched_fragments_test() -> Nil {
-  let set =
-    lww_map_kernel.Set("k", "", 10, lww_map.set(lww_map.new(), "k", "", 10))
-  let remove =
-    lww_map_kernel.Remove("k", 11, lww_map.remove(lww_map.new(), "k", 11))
+  let replica = replica_id.new("writer")
+  let empty = lww_map.new(replica, crdt.LwwRegisterSpec(""))
+  let assert Ok(set_delta) =
+    lww_map.set(
+      empty,
+      "k",
+      crdt.CrdtLwwRegister(lww_register.new("", 10, replica)),
+      10,
+    )
+  let assert Ok(remove_delta) = lww_map.remove(empty, "k", 11)
+  let set = lww_map_kernel.Set("k", "", 10, set_delta)
+  let remove = lww_map_kernel.Remove("k", 11, remove_delta)
   [#(set, "lwwMapSet"), #(remove, "lwwMapRemove")]
   |> list.each(fn(pair) {
     let encoded =
@@ -398,23 +415,16 @@ pub fn lww_map_wire_round_trips_and_rejects_mismatched_fragments_test() -> Nil {
     )
     |> expect.to_equal(Ok(pair.1))
   })
+  let assert Ok(tombstone) = lww_map.remove(empty, "k", 10)
+  let assert Ok(extra_tombstone) = lww_map.remove(tombstone, "extra", 10)
   [
-    lww_map_kernel.Set("wrong", "", 10, lww_map.set(lww_map.new(), "k", "", 10)),
-    lww_map_kernel.Set(
-      "k",
-      "wrong",
-      10,
-      lww_map.set(lww_map.new(), "k", "", 10),
-    ),
-    lww_map_kernel.Set("k", "", 11, lww_map.set(lww_map.new(), "k", "", 10)),
-    lww_map_kernel.Set("k", "", 10, lww_map.remove(lww_map.new(), "k", 10)),
-    lww_map_kernel.Remove("k", 10, lww_map.set(lww_map.new(), "k", "", 10)),
-    lww_map_kernel.Remove("k", 10, lww_map.new()),
-    lww_map_kernel.Remove(
-      "k",
-      10,
-      lww_map.remove(lww_map.new(), "k", 10) |> lww_map.remove("extra", 10),
-    ),
+    lww_map_kernel.Set("wrong", "", 10, set_delta),
+    lww_map_kernel.Set("k", "wrong", 10, set_delta),
+    lww_map_kernel.Set("k", "", 11, set_delta),
+    lww_map_kernel.Set("k", "", 10, tombstone),
+    lww_map_kernel.Remove("k", 10, set_delta),
+    lww_map_kernel.Remove("k", 10, empty),
+    lww_map_kernel.Remove("k", 10, extra_tombstone),
   ]
   |> list.each(fn(operation) {
     let assert Error(_) =
@@ -1972,32 +1982,24 @@ pub fn or_map_mv_register_intent_rejects_hidden_changes_test() -> Nil {
   let assert or_map_kernel.SetMvRegister(_, _, delta) =
     sample_mv_or_map_operation()
   let encoded = or_map.delta_to_json(delta) |> json.to_string
-  let assert Ok([leaf]) =
+  let assert Ok([entry]) =
     json.parse(
       encoded,
-      decode.at(
-        ["state", "value_deltas"],
-        decode.list(decode.field("crdt", decode.string, decode.success)),
-      ),
+      decode.at(["state", "entries"], decode.list(wire.json_value_decoder())),
     )
-  list.each(["gate", "hidden"], fn(key) {
-    let extra =
-      json.object([#("key", json.string(key)), #("crdt", json.string(leaf))])
-      |> json.to_string
-    let forged =
-      string.replace(
-        encoded,
-        "\"value_deltas\":[",
-        "\"value_deltas\":[" <> extra <> ",",
-      )
-    json.parse(
-      mv_or_map_write("gate", json.string("open"), forged),
-      wire_op.or_map_operation_decoder(),
+  let duplicate =
+    string.replace(
+      encoded,
+      "\"entries\":[",
+      "\"entries\":[" <> json.to_string(entry) <> ",",
     )
-    |> result.is_error
-    |> expect.to_be_true()
-  })
-  let assert Ok(#(other, _, _)) =
+  duplicate |> expect.to_not_equal(encoded)
+  json.parse(
+    mv_or_map_write("gate", json.string("open"), duplicate),
+    wire_op.or_map_operation_decoder(),
+  )
+  |> expect.to_be_error()
+  let assert Ok(#(other, _, or_map_kernel.SetMvRegister(_, _, hidden))) =
     or_map_kernel.p2p_set_mv_register(
       or_map_kernel.new(replica_id.new("other"), or_map_kernel.MvRegisterMode),
       "hidden",
@@ -2005,58 +2007,87 @@ pub fn or_map_mv_register_intent_rejects_hidden_changes_test() -> Nil {
     )
   let assert Ok(#(_, _, or_map_kernel.Remove(_, removed))) =
     or_map_kernel.p2p_remove(other, "hidden")
-  let assert Ok(forged) = or_map.merge_deltas(delta, removed)
-  json.parse(
-    mv_or_map_write(
-      "gate",
-      json.string("open"),
-      or_map.delta_to_json(forged) |> json.to_string,
-    ),
-    wire_op.or_map_operation_decoder(),
-  )
-  |> result.is_error
-  |> expect.to_be_true()
+  list.each([hidden, removed], fn(extra) {
+    let assert Ok(forged) = or_map.merge_deltas(delta, extra)
+    let forged = or_map.delta_to_json(forged) |> json.to_string
+    or_map.delta_from_json(forged) |> expect.to_be_ok()
+    json.parse(
+      mv_or_map_write("gate", json.string("open"), forged),
+      wire_op.or_map_operation_decoder(),
+    )
+    |> expect.to_be_error()
+  })
 }
 
 pub fn or_map_mv_register_rejects_corrupt_nested_causal_state_test() -> Nil {
-  let assert or_map_kernel.SetMvRegister(_, _, delta) =
-    sample_mv_or_map_operation()
+  let assert Ok(#(state, _, or_map_kernel.SetMvRegister(_, _, delta))) =
+    or_map_kernel.p2p_set_mv_register(
+      or_map_kernel.new(replica_id.new("writer"), or_map_kernel.MvRegisterMode),
+      "gate",
+      "open",
+    )
   let encoded = or_map.delta_to_json(delta) |> json.to_string
-  let assert Ok([leaf]) =
+  let snapshot = or_map.to_json(state.optimistic) |> json.to_string
+  json.parse(snapshot, channel.snapshot_decoder(channel.OrMapChannel))
+  |> expect.to_equal(
+    Ok(channel.OrMapSnapshot(or_map_kernel.MvRegisterMode, state.optimistic)),
+  )
+  let assert Ok([change]) =
     json.parse(
       encoded,
       decode.at(
-        ["state", "value_deltas"],
-        decode.list(decode.field("crdt", decode.string, decode.success)),
+        ["state", "entries"],
+        decode.list(decode.field("value", decode.string, decode.success)),
+      ),
+    )
+  let assert Ok(leaf) =
+    json.parse(change, decode.at(["state", "payload"], decode.string))
+  let assert Ok([snapshot_leaf]) =
+    json.parse(
+      snapshot,
+      decode.at(
+        ["state", "entries"],
+        decode.list(decode.field("value", decode.string, decode.success)),
       ),
     )
   let entry = "{\"tag\":{\"r\":\"writer\",\"c\":1},\"value\":\"open\"}"
   [
-    string.replace(leaf, entry, entry <> "," <> entry),
-    string.replace(leaf, "\"writer\":1", "\"writer\":-1"),
+    fn(leaf) { string.replace(leaf, entry, entry <> "," <> entry) },
+    fn(leaf) { string.replace(leaf, "\"writer\":1", "\"writer\":-1") },
   ]
   |> list.each(fn(corrupt) {
-    { corrupt == leaf } |> expect.to_be_false()
+    let corrupted_leaf = corrupt(leaf)
+    corrupted_leaf |> expect.to_not_equal(leaf)
+    let corrupt_change =
+      string.replace(
+        change,
+        json.string(leaf) |> json.to_string,
+        json.string(corrupted_leaf) |> json.to_string,
+      )
+    corrupt_change |> expect.to_not_equal(change)
     let corrupt_delta =
       string.replace(
         encoded,
-        json.string(leaf) |> json.to_string,
-        json.string(corrupt) |> json.to_string,
+        json.string(change) |> json.to_string,
+        json.string(corrupt_change) |> json.to_string,
       )
+    corrupt_delta |> expect.to_not_equal(encoded)
     json.parse(
       mv_or_map_write("gate", json.string("open"), corrupt_delta),
       wire_op.or_map_operation_decoder(),
     )
     |> result.is_error
     |> expect.to_be_true()
-    let snapshot =
-      corrupt_delta
-      |> string.replace("or_map_delta", "or_map")
-      |> string.replace("\"v\":1", "\"v\":2")
-      |> string.replace("key_set_delta", "key_set")
-      |> string.replace("value_deltas", "values")
-      |> string.replace("remove_bounds_delta", "remove_bounds")
-    json.parse(snapshot, channel.snapshot_decoder(channel.OrMapChannel))
+    let corrupted_leaf = corrupt(snapshot_leaf)
+    corrupted_leaf |> expect.to_not_equal(snapshot_leaf)
+    let corrupt_snapshot =
+      string.replace(
+        snapshot,
+        json.string(snapshot_leaf) |> json.to_string,
+        json.string(corrupted_leaf) |> json.to_string,
+      )
+    corrupt_snapshot |> expect.to_not_equal(snapshot)
+    json.parse(corrupt_snapshot, channel.snapshot_decoder(channel.OrMapChannel))
     |> result.is_error
     |> expect.to_be_true()
   })
