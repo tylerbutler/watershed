@@ -166,7 +166,7 @@ test("demo counter core boots from the baseline summary", () => {
 
 // Keep the shared demo connected to the compiled LWW-register kernel rather
 // than a JavaScript copy of its merge rule.
-test("shared demo wires the compiled LWW register kernel", () => {
+test("shared demo wires the compiled LWW register and map kernels", () => {
   const source = readFileSync(
     new URL("../demo.js", import.meta.url),
     "utf8",
@@ -174,6 +174,13 @@ test("shared demo wires the compiled LWW register kernel", () => {
   assert.match(source, /lww_register_kernel\.mjs/);
   assert.match(source, /localLwwSet/);
   assert.match(source, /ddsId === "lww-register"/);
+  assert.match(source, /lww_map_kernel\.mjs/);
+  assert.match(source, /ddsId === "lww-map"/);
+  const component = readFileSync(
+    new URL("../../components/Demo.astro", import.meta.url),
+    "utf8",
+  );
+  assert.match(component, /writer-tie/);
 });
 
 test("LWW register field notes converge by timestamp and author", () => {
@@ -285,7 +292,7 @@ test("G-counter inspection tallies race and survive a duplicate", () => {
   let base = gCounter.new$(replica.new$("survey-baseline"));
   for (const id of ["a", "b"]) {
     const seed = gCounter.new$(replica.new$(`client-${id}`));
-    base = gCounter.merge(base, gCounter.increment(seed, 9));
+    base = gCounter.merge(base, ok(gCounter.increment(seed, 9)));
   }
   const summary = json.to_string(gCounter.to_json(base));
 

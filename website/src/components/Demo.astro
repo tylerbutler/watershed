@@ -183,19 +183,19 @@ const PICKER_CELLS = [
     <div class="merge-rule" data-merge-rule="lww-map" hidden={initial !== "lww-map"}>
       <p><strong>Merge rule: timestamp wins per key.</strong> A later SN needn't
         win: race A's newer “open” against B's later-sequenced “closed”.
-        At equal time, “open” beats “closed” by string value; a tombstone beats
-        either. Unlike <a href="#map">SharedMap's server order</a>, arrival order
-        doesn't choose the value. Both maps discard losing concurrent values.</p>
+        At equal time, B's writer ID makes “closed” beat A's “open”; a tombstone
+        beats either. Unlike <a href="#map">SharedMap's server order</a>, arrival
+        order doesn't choose the value. Both maps discard losing concurrent values.</p>
       <p>This is an <strong>in-page sequenced rig</strong>, not a live mesh.
         The runtime supplies wall-clock time and advances it past the key's
         observed timestamp. A fast clock can still win over a later human edit.
         OR-map's concurrent add survives an observed remove; LWWMap removal wins
-        only at equal or greater time. LWWRegister breaks ties by author ID,
-        not string value.</p>
+        only at equal or greater time. LWWMap and LWWRegister both use author
+        identity to settle equal-time writes.</p>
       <label for="lww-map-race">Gate-setting race</label>
       <select id="lww-map-race" data-lww-map-race disabled>
         <option value="timestamp">Newer timestamp, earlier SN</option>
-        <option value="value-tie">Equal time: open beats closed</option>
+        <option value="writer-tie">Equal time: B's writer ID wins</option>
         <option value="remove-tie">Equal time: removal beats open</option>
       </select>
       <p>Reset reloads this survey and discards its queued edits. It's not a

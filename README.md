@@ -251,9 +251,9 @@ registers, while an `LWWMap` selects a winner per key.
 
 `LWWMap` stores strings under string keys. It uses a logical clock per key:
 each edit gets `max(wall_clock_ms, last_seen_for_key + 1)`. The highest
-timestamp wins, even if that edit arrives first. Equal timestamps resolve
-by value: a tombstone beats a string, and the lexicographically greater
-string wins between two values. Replica IDs do not break map ties.
+timestamp wins, even if that edit arrives first. At equal timestamps, a
+tombstone beats a string. Two active writes resolve by writer ID in UTF-8
+byte order, independent of arrival order. Only v3 summaries are accepted.
 
 ```gleam
 let assert Ok(settings) = watershed.create_lww_map(document)
@@ -279,7 +279,7 @@ Its `lww_map_get` returns `Ok(Error(Nil))` for a missing key, while an outer
 
 | | SharedMap | LWWMap |
 |---|---|---|
-| Winner per key | Later server sequence number | Greater timestamp, then deterministic value/tombstone tie |
+| Winner per key | Later server sequence number | Greater timestamp, then tombstone or writer-ID tie |
 | Values | JSON, including supported encoded handles | Strings |
 | Edits | Set, delete, clear | Set, remove |
 | Iteration | Insertion order | Sorted keys |

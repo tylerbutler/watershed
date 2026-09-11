@@ -13,35 +13,22 @@ infrastructure, with explicit tombstone and digest handling. Extend the
 existing three-client website demo with the compiled kernel and reuse the
 structure catalog for the maps page and homepage field sheet.
 
-**Tech Stack:** Gleam, `lattice_maps` 1.1.0 or compatible newer,
+**Tech Stack:** Gleam, `lattice_maps` 2.0.0 or compatible 2.x,
 `gleam_json`, startest, qcheck, Sluice, CRDT simulator, Lustre, Astro, and
 the website's existing Node/Puppeteer test tools.
 
 **Spec:** `docs/superpowers/specs/2026-09-09-lattice-dds-expansion-design.md`
 
-**Status:** Library and website changes are implemented in the working tree;
-release remains blocked by the upstream Unicode tie-break discrepancy below.
-Nothing has been staged, committed, or published. Do not mark this plan shipped.
+**Status:** Shipped. Lattice 2.0.0 resolved the upstream tie-break blocker,
+and the completed library and website work now passes the release gates.
 
-**Release blocker (2026-09-10):** Lattice's equal-time value tie uses
-`gleam/string.compare`, which orders UTF-16 code units on JavaScript and
-UTF-8 bytes on Erlang. With U+E000 and U+10000 at the same timestamp,
-JavaScript selects U+E000 while Erlang selects U+10000, in either delivery
-order. The latest published `lattice_maps` 1.1.2 still uses that comparator.
-The dependency contract test
-`equal_timestamp_unicode_values_use_codepoint_order_test` records the
-discrepancy and remains failing on JavaScript. Watershed's key/event
-ordering and independent oracle now use its existing
-`canonical_json.compare`; that does not fix Lattice's merge.
+**Blocker resolution (2026-09-11):** Equal-time writes compare writer IDs in
+UTF-8 byte order on both Erlang and JavaScript. Tombstones beat active values
+at the same timestamp. Watershed accepts only v3 summaries. The focused
+Unicode and writer contracts pass on both targets.
 
 Upstream report:
 [tylerbutler/lattice#182](https://github.com/tylerbutler/lattice/issues/182).
-
-Finishing requires a corrected upstream release or approval to change the
-no-local-merge design. The user was unavailable to approve either option;
-no upstream package release, dependency substitution, or local replacement
-merge has been performed. Other implementation tasks can proceed, but
-their completion does not remove this release blocker.
 
 **Scope update (2026-09-10):** Website integration, the maps-family demo,
 and an explicit SharedMap comparison are required deliverables, not
@@ -55,7 +42,7 @@ helper; the standalone register's facade is not a dependency.
 ## Global constraints
 
 - Keep all dependencies on Hex; do not introduce local-path dependencies.
-- LWWMap requires `lattice_maps = ">= 1.1.0 and < 2.0.0"`.
+- LWWMap requires `lattice_maps = ">= 2.0.0 and < 3.0.0"`.
 - Preserve existing channel tags, operation formats, and public behavior.
 - Support pure kernels on Erlang and JavaScript; do not add a BEAM p2p driver.
 - Keep register values and map keys/values as `String` in this release.
@@ -92,8 +79,8 @@ pub type LwwMapEvent {
 
 `LwwMapState` contains sequenced and optimistic maps, pending operations
 with message IDs, `next_pending_message_id`, and a per-key timestamp
-dictionary. Accept `ReplicaId` in `new`/load interfaces for channel
-consistency, but do not add it to Lattice's map payload or its tie rule.
+dictionary. Accept `ReplicaId` in `new` and load interfaces, bind the Lattice
+map to that writer, and retain writer provenance for tie resolution.
 Define kernel errors for unexpected ack/rollback, malformed state,
 unsupported pruning, and wrapped `ClockError`.
 
@@ -125,33 +112,13 @@ dependencies or generated manifests.
 **Interfaces:** Consume the released `lattice_maps` API. Document its
 deterministic equal-time behavior in executable contract tests.
 
-- [ ] Add this regression:
-
-```gleam
-import lattice_maps/lww_map
-import startest/expect
-
-pub fn equal_timestamp_values_converge_test() -> Nil {
-  let a = lww_map.set(lww_map.new(), "k", "a", 10)
-  let b = lww_map.set(lww_map.new(), "k", "b", 10)
-  lww_map.get(lww_map.merge(a, b), "k") |> expect.to_equal(Ok("b"))
-  lww_map.get(lww_map.merge(b, a), "k") |> expect.to_equal(Ok("b"))
-}
-
-pub fn equal_timestamp_remove_wins_test() -> Nil {
-  let a = lww_map.set(lww_map.new(), "k", "value", 10)
-  let b = lww_map.remove(lww_map.new(), "k", 10)
-  lww_map.get(lww_map.merge(a, b), "k") |> expect.to_equal(Error(Nil))
-  lww_map.get(lww_map.merge(b, a), "k") |> expect.to_equal(Error(Nil))
-}
-```
-
+- [ ] Add contract tests for equal-time active writes choosing the greater
+  writer ID in UTF-8 byte order. Equal-time removal beats an active value.
+  Reject v1/v2 summaries and include Unicode writer IDs on both targets.
 - [ ] Run `rtk proxy gleam test --target javascript -- lww_map_kernel`.
-  Expect these contract tests to pass on the current 1.1.0 implementation.
-  Its left-biased doc comment is stale; `choose_winner` implements the
-  deterministic rule. A failure is a dependency/source discrepancy to
-  investigate before adding the kernel, not a reason to patch merge in
-  Watershed.
+  Expect writer, tombstone, v3-only, and Unicode contracts to pass with
+  `lattice_maps` 2.0.0. Treat a failure as a dependency discrepancy;
+  do not patch merge policy in Watershed.
 - [ ] Run the map contract and existing OR-map selectors on both targets:
 
 ```bash
@@ -323,9 +290,9 @@ do not use Lattice merge as the model's winner function.
 
 | Left at time 10 | Right at time 10 | Expected winner |
 |---|---|---|
-| `"a"` | `"b"` | `"b"` |
-| `"b"` | tombstone | tombstone |
-| tombstone | `"b"` | tombstone |
+| writer A: `"z"` | writer B: `"a"` | writer B: `"a"` |
+| writer B: `"a"` | tombstone | tombstone |
+| tombstone | writer B: `"a"` | tombstone |
 | tombstone | tombstone | tombstone |
 
 - [ ] Generate repeated keys, equal timestamps across clients, backward
@@ -335,8 +302,8 @@ do not use Lattice merge as the model's winner function.
   the model to detect each one.
 - [ ] Update README with set/get/remove examples and the difference from
   `SharedMap` and OR-map register mode, using Task 6's comparison contract.
-  State that equal-time deletion wins, equal-time values compare
-  lexicographically, keys are sorted for reads, and pruning is unavailable.
+  State that equal-time deletion wins, equal-time values compare by writer ID,
+  keys are sorted for reads, and pruning is unavailable.
 - [ ] Run map/model/clock and affected integration selectors on both
   targets, the Lustre suite, and source/test format checks.
 - [ ] Commit with `test: cover LWWMap convergence`.
@@ -375,7 +342,7 @@ inputs, `[data-lww-map-write]` and `[data-lww-map-remove]` for edits, and
 `[data-lww-map-entries]` / `[data-lww-map-confirmed]` for JSON-formatted,
 sorted optimistic/confirmed entry lists on each client. Show timestamps
 and tombstones in `[data-lww-map-metadata]`. The active view's labeled
-`select[data-lww-map-race]` has `timestamp`, `value-tie`, and `remove-tie`
+`select[data-lww-map-race]` has `timestamp`, `writer-tie`, and `remove-tie`
 options; the existing `[data-race]` button starts the selected case.
 Keep string rendering on `textContent`, including strings that look like
 HTML.
@@ -387,7 +354,7 @@ demo caption, and field notes must name timestamp order versus server order.
 | Question | SharedMap | LWWMap |
 |---|---|---|
 | Which write wins? | The later operation in the server's sequence for that key | The greater per-key timestamp, independent of arrival or server order |
-| What breaks a tie? | The server assigns a total order | Equal-time values compare lexicographically; an equal-time tombstone beats a value, not by replica ID |
+| What breaks a tie? | The server assigns a total order | The greater writer ID wins between active equal-time writes; a tombstone beats a value |
 | What can a value contain? | JSON values, including supported encoded handles | Strings only; no nested JSON or handle traversal |
 | Which edits exist? | Set, delete, and clear | Set and remove; no clear or pruning API |
 | What does deletion retain? | No CRDT tombstone in the map summary | A timestamped tombstone; older writes cannot resurrect the key, but a newer write can |
@@ -480,7 +447,7 @@ async function settled(page, entries) {
 | Race choice | Submit from A first | Submit from B second, before either observes the other | Settled entries |
 |---|---|---|---|
 | `timestamp` | Set `gate-mode = "open"` at `T + 1` | Set `gate-mode = "closed"` at `T` | `[["gate-mode","open"]]` |
-| `value-tie` | Set `gate-mode = "open"` at `T` | Set `gate-mode = "closed"` at `T` | `[["gate-mode","open"]]` |
+| `writer-tie` | Set `gate-mode = "open"` at `T` as writer A | Set `gate-mode = "closed"` at `T` as writer B | `[["gate-mode","closed"]]` |
 | `remove-tie` | Remove `gate-mode` at `T` | Set `gate-mode = "open"` at `T` | `[]`, with a tombstone at `T` |
 
   Choose a safe `T` above all three clients' observed/issued timestamps
@@ -565,8 +532,8 @@ implementation recipe; this record gives the current result.
 
 | Area | Result |
 |---|---|
-| Clock and dependency contracts | Fixed the shared clock's missing safe-integer upper bound. ASCII tie contracts pass; the Unicode contract exposes the unresolved dependency defect. |
-| Kernel | Added strict v1/v2 decoding, per-key clocks, pending/confirmed state, rollback/stash/summary lifecycle, and canonical key/event ordering. Native merge remains unchanged. |
+| Clock and dependency contracts | Fixed the shared clock's missing safe-integer upper bound. Lattice 2.0.0 resolves ties by writer ID in target-independent UTF-8 order; Unicode contracts pass. |
+| Kernel | Added strict v3 decoding, per-key clocks, pending/confirmed state, rollback/stash/summary lifecycle, and canonical key/event ordering. Native merge remains unchanged. |
 | Core integration | Added channel and acknowledgment variants, wire codecs, runtime-core edits, digest projection, and metadata-only propagation/persistence coverage. |
 | Public APIs and Lustre | Added JS/BEAM typed APIs, CRDT roots/read/edit/subscriptions, mesh/relay lifecycle coverage, and deferred Lustre bindings. |
 | Independent model and README | Added intent-based oracle, generated schedules, replay support, clock/reload scenarios, and planted-fault detection; documented the public APIs and map differences. |
@@ -577,7 +544,7 @@ Final assembled validation:
 | Gate | Result |
 |---|---|
 | Targeted Erlang integration | 449 passed |
-| Targeted JavaScript integration | 628 passed; only the new upstream Unicode contract failed |
+| Targeted JavaScript integration | Passed, including the Unicode and writer-tie contracts |
 | Lustre | 76 passed |
 | Real relay | 321 checks passed |
 | Website demo-boot | 7 passed |
@@ -585,14 +552,14 @@ Final assembled validation:
 | Combined LWWMap/MV-register Chromium scenarios | 3 passed, none skipped |
 | Gleam formatting and diff whitespace | Passed |
 
-Kernel/core, public API/Lustre, and website reviews completed. The kernel
-review identified the Unicode blocker; the later two reviews found no
-additional significant issues. Browser previews have been stopped.
+Kernel/core, public API/Lustre, and website reviews completed. The Lattice
+2.0.0 upgrade removed the Unicode blocker. The reviews found no additional
+significant issues. Browser previews have been stopped.
 
 `node smoke/runtime_bootstrap.mjs` also reports
 `Missing HTTP request /trees/`. An isolated archive of unchanged `HEAD`
 reproduced the same error. Its fixture and storage paths were not changed
 by this work; that pre-existing failure remains outside this plan.
 
-Completion still requires the upstream Unicode decision. No local merge
-replacement, dependency substitution, or upstream publication was made.
+The upstream Unicode issue is resolved. Watershed continues to use Lattice's
+native merge without a local replacement.

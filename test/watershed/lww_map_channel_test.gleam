@@ -124,16 +124,6 @@ pub fn lww_map_channel_snapshot_and_attach_contract_test() -> Nil {
   channel.handle_addresses(wrapped) |> expect.to_equal([])
   channel.applies_own_on_sequence(wrapped) |> expect.to_be_false()
   channel.on_leave(wrapped, 1, 1) |> expect.to_equal(#(wrapped, []))
-  // Modern writes reject zero timestamps. Import the invalid legacy fixture.
-  let assert Ok(unsafe) =
-    lww_map.import_legacy(
-      "{\"type\":\"lww_map\",\"v\":2,\"state\":{\"entries\":[{\"key\":\"bad\",\"value\":\"v\",\"timestamp\":0}],\"pruned_timestamp\":0}}",
-      crdt.LwwRegisterSpec(""),
-      replica_id.new("a"),
-    )
-  let unsafe = channel.LwwMapSnapshot(unsafe)
-  let assert Error(_) = channel.from_snapshot(unsafe, replica: "a")
-  let assert Error(_) = channel.merge_p2p_snapshot(state, unsafe)
   let assert Error(channel.UnsupportedP2p(_)) =
     channel.apply_p2p_local(state, channel.LwwRegisterSetEdit("wrong", 1))
   Nil

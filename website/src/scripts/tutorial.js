@@ -188,7 +188,7 @@ export function createFieldNotes({ rig, prefersReducedMotion, duration }) {
   const RECIPES = {
     "lww-map"() {
       setNote(
-        "LWWMap — follow the timestamps beside the SNs in this in-page sequenced rig, not a live mesh. A's newer open beats B's later-sequenced closed; SharedMap would follow server order. Equal-time strings break by value, not LWWRegister's author ID. Equal-time removal retains a tombstone, unlike OR-map's concurrent add-wins. Replay the losing write, then restore the key with a newer edit. A fast clock can still outrank a later human action; losing concurrent values don't survive.",
+        "LWWMap — follow the timestamps beside the SNs in this in-page sequenced rig, not a live mesh. A's newer open beats B's later-sequenced closed; SharedMap would follow server order. At equal time, B's writer ID beats A's, while a removal beats either value. OR-map's concurrent add still survives an observed remove. Replay the losing write, then restore the key with a newer edit. A fast clock can outrank a later human action; losing concurrent values don't survive.",
       );
     },
     "lww-register"() {

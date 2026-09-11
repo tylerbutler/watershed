@@ -51,14 +51,14 @@ fn expect_script(
 
 pub fn lww_map_oracle_uses_intent_not_lattice_merge_test() -> Nil {
   let assert Some(oracle) = lww_map_model.model().capabilities.oracle
-  let a = OperationEntry(1, MapCommand("k", Some("a"), 0, Some(10), None), [])
-  let b = OperationEntry(2, MapCommand("k", Some("b"), 0, Some(10), None), [])
+  let a = OperationEntry(1, MapCommand("k", Some("z"), 0, Some(10), None), [])
+  let b = OperationEntry(2, MapCommand("k", Some("a"), 0, Some(10), None), [])
   let removed = OperationEntry(1, MapCommand("k", None, 0, Some(10), None), [])
   oracle([]) |> expect.to_equal([])
   [a, b]
   |> list.permutations
   |> list.each(fn(entries) {
-    oracle(entries) |> expect.to_equal([#("k", Some("b"), 10)])
+    oracle(entries) |> expect.to_equal([#("k", Some("a"), 10)])
   })
   [a, b, removed, removed]
   |> list.permutations
@@ -92,7 +92,7 @@ pub fn lww_map_oracle_unicode_order_is_target_independent_test() -> Nil {
   oracle([b, a]) |> expect.to_equal([#("k", Some("\u{10000}"), 10)])
 }
 
-pub fn lww_map_modern_ties_use_writer_not_payload_order_test() -> Nil {
+pub fn lww_map_ties_use_writer_not_payload_order_test() -> Nil {
   let model = lww_map_model.model()
   let script = [
     ClientOperation(1, edit("k", Some("\u{10000}"), 7)),
@@ -106,54 +106,6 @@ pub fn lww_map_modern_ties_use_writer_not_payload_order_test() -> Nil {
     OperationEntry(10, MapCommand("k", Some("z"), 0, Some(7), None), []),
   ])
   |> expect.to_equal([#("k", Some("a"), 7)])
-}
-
-pub fn lww_map_legacy_ties_survive_import_and_modern_writes_test() -> Nil {
-  let model = lww_map_model.model()
-  let legacy = fn(value) {
-    let encoded =
-      json.object([
-        #("type", json.string("lww_map")),
-        #("v", json.int(1)),
-        #(
-          "state",
-          json.object([
-            #(
-              "entries",
-              json.array([value], fn(value) {
-                json.object([
-                  #("key", json.string("k")),
-                  #("value", json.string(value)),
-                  #("timestamp", json.int(7)),
-                ])
-              }),
-            ),
-          ]),
-        ),
-      ])
-      |> json.to_string
-    let assert Ok(delta) = json.parse(encoded, kernel.decoder())
-    MapCommand("k", Some(value), 7, Some(7), Some(delta))
-  }
-  let a = legacy("a")
-  let z = legacy("z")
-  [a, z]
-  |> list.permutations
-  |> list.each(fn(commands) {
-    expect_script(
-      model,
-      list.map(commands, fn(command) { StashedOperation(1, command) }),
-      [#("k", Some("z"), 7)],
-    )
-  })
-  expect_script(
-    model,
-    [
-      StashedOperation(1, z),
-      ClientOperation(2, edit("k", Some("a"), 7)),
-    ],
-    [#("k", Some("a"), 7)],
-  )
 }
 
 pub fn lww_map_generated_convergence_test() -> Nil {

@@ -150,10 +150,17 @@ fn lww_map_snapshot(timestamp: Int, watermark: Int) -> json.Json {
               "snapshot",
               json.object([
                 #("type", json.string("lww_map")),
-                #("v", json.int(2)),
+                #("v", json.int(3)),
                 #(
                   "state",
                   json.object([
+                    #("replica_id", json.string("snapshot-writer")),
+                    #(
+                      "spec",
+                      json.string(
+                        "{\"type\":\"lww_register\",\"initial\":\"\"}",
+                      ),
+                    ),
                     #("pruned_timestamp", json.int(watermark)),
                     #(
                       "entries",
@@ -161,8 +168,15 @@ fn lww_map_snapshot(timestamp: Int, watermark: Int) -> json.Json {
                         [
                           json.object([
                             #("key", json.string("status")),
-                            #("value", json.null()),
                             #("timestamp", json.int(timestamp)),
+                            #(
+                              "provenance",
+                              json.object([
+                                #("kind", json.string("modern")),
+                                #("writer", json.string("snapshot-writer")),
+                              ]),
+                            ),
+                            #("value", json.null()),
                           ]),
                         ],
                         fn(value) { value },

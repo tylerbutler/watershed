@@ -9,41 +9,24 @@ import startest/expect
 import watershed/lww_clock
 import watershed/lww_map_kernel as kernel
 
-fn legacy_map(
+fn map_fragment(
   key: String,
   value: Option(String),
   timestamp: Int,
+  writer: String,
 ) -> kernel.LWWMap {
-  let encoded =
-    json.object([
-      #("type", json.string("lww_map")),
-      #("v", json.int(2)),
-      #(
-        "state",
-        json.object([
-          #("pruned_timestamp", json.int(0)),
-          #(
-            "entries",
-            json.array([#(key, value, timestamp)], fn(entry) {
-              json.object([
-                #("key", json.string(entry.0)),
-                #("value", case entry.1 {
-                  None -> json.null()
-                  Some(value) -> json.string(value)
-                }),
-                #("timestamp", json.int(entry.2)),
-              ])
-            }),
-          ),
-        ]),
-      ),
-    ])
-  let assert Ok(map) =
-    lww_map.import_legacy(
-      json.to_string(encoded),
-      crdt.LwwRegisterSpec(""),
-      replica_id.new("a"),
-    )
+  let writer = replica_id.new(writer)
+  let map = lww_map.new(writer, crdt.LwwRegisterSpec(""))
+  let assert Ok(map) = case value {
+    Some(value) ->
+      lww_map.set(
+        map,
+        key,
+        crdt.CrdtLwwRegister(lww_register.new(value, timestamp, writer)),
+        timestamp,
+      )
+    None -> lww_map.remove(map, key, timestamp)
+  }
   map
 }
 
@@ -56,22 +39,6 @@ fn merged_value(
     Ok(crdt.CrdtLwwRegister(register)) -> Ok(lww_register.value(register))
     _ -> Error(Nil)
   }
-}
-
-pub fn equal_timestamp_values_converge_test() -> Nil {
-  let a = legacy_map("k", Some("a"), 10)
-  let b = legacy_map("k", Some("b"), 10)
-  merged_value(a, b) |> expect.to_equal(Ok("b"))
-  merged_value(b, a) |> expect.to_equal(Ok("b"))
-}
-
-pub fn equal_timestamp_unicode_values_use_codepoint_order_test() -> Nil {
-  let a = legacy_map("k", Some("\u{e000}"), 10)
-  let b = legacy_map("k", Some("\u{10000}"), 10)
-  merged_value(a, b)
-  |> expect.to_equal(Ok("\u{10000}"))
-  merged_value(b, a)
-  |> expect.to_equal(Ok("\u{10000}"))
 }
 
 pub fn unicode_key_order_is_target_independent_test() -> Nil {
@@ -91,8 +58,8 @@ pub fn unicode_key_order_is_target_independent_test() -> Nil {
 }
 
 pub fn equal_timestamp_remove_wins_test() -> Nil {
-  let a = legacy_map("k", Some("value"), 10)
-  let b = legacy_map("k", None, 10)
+  let a = map_fragment("k", Some("value"), 10, "a")
+  let b = map_fragment("k", None, 10, "b")
   merged_value(a, b) |> expect.to_equal(Error(Nil))
   merged_value(b, a) |> expect.to_equal(Error(Nil))
   let assert Ok(merged) = lww_map.merge(a, b)
@@ -118,7 +85,7 @@ pub fn edits_sort_keys_and_retain_absent_removals_test() -> Nil {
 }
 
 pub fn reload_observes_tombstone_time_test() -> Nil {
-  let removed = legacy_map("k", None, 100)
+  let removed = map_fragment("k", None, 100, "a")
   let assert Ok(state) =
     kernel.from_summary(
       json.to_string(lww_map.to_json(removed)),
@@ -166,9 +133,9 @@ pub fn ack_rollback_replay_and_summary_preserve_clocks_test() -> Nil {
 
 pub fn remote_and_full_merges_converge_and_observe_losing_metadata_test() -> Nil {
   let initial = kernel.new(replica_id.new("a"))
-  let a = kernel.Set("k", "a", 10, legacy_map("k", Some("a"), 10))
-  let b = kernel.Set("k", "b", 10, legacy_map("k", Some("b"), 10))
-  let remove = kernel.Remove("k", 10, legacy_map("k", None, 10))
+  let a = kernel.Set("k", "a", 10, map_fragment("k", Some("a"), 10, "a"))
+  let b = kernel.Set("k", "b", 10, map_fragment("k", Some("b"), 10, "b"))
+  let remove = kernel.Remove("k", 10, map_fragment("k", None, 10, "c"))
   let merge = fn(operations) {
     list.fold(operations, initial, fn(state, operation) {
       let assert Ok(#(state, _)) = kernel.apply_remote(state, operation)
@@ -195,7 +162,7 @@ pub fn rollback_keeps_observed_clocks_and_stash_never_restamps_test() -> Nil {
   let initial = kernel.new(replica_id.new("a"))
   let assert Ok(#(state, _, local, message_id)) =
     kernel.set(initial, "k", "local", 100)
-  let remote = kernel.Remove("k", 200, legacy_map("k", None, 200))
+  let remote = kernel.Remove("k", 200, map_fragment("k", None, 200, "b"))
   let assert Ok(#(state, _)) = kernel.apply_remote(state, remote)
   let assert Ok(#(state, [])) = kernel.rollback(state, local, message_id)
   let assert Ok(#(state, [], original, id)) =
@@ -213,9 +180,9 @@ pub fn full_merge_events_are_sorted_and_cache_check_detects_corruption_test() ->
   let initial = kernel.new(replica_id.new("a"))
   let assert Ok(map) =
     [
-      legacy_map("z", Some("last"), 1),
-      legacy_map("a", Some("first"), 1),
-      legacy_map("hidden", None, 100),
+      map_fragment("z", Some("last"), 1, "z"),
+      map_fragment("a", Some("first"), 1, "a"),
+      map_fragment("hidden", None, 100, "hidden"),
     ]
     |> list.try_fold(initial.sequenced, lww_map.merge)
   let assert Ok(#(state, events)) = kernel.p2p_merge(initial, map)
@@ -236,12 +203,10 @@ pub fn full_merge_events_are_sorted_and_cache_check_detects_corruption_test() ->
   Nil
 }
 
-pub fn strict_decoder_accepts_v1_and_rejects_invalid_metadata_test() -> Nil {
-  let valid =
-    "{\"type\":\"lww_map\",\"v\":1,\"state\":{\"entries\":[{\"key\":\"k\",\"value\":null,\"timestamp\":1}]}}"
-  let assert Ok(map) = json.parse(valid, kernel.decoder())
-  lww_map.tombstone_count(map) |> expect.to_equal(1)
+pub fn strict_decoder_rejects_old_versions_and_invalid_metadata_test() -> Nil {
   [
+    "{\"type\":\"lww_map\",\"v\":1,\"state\":{\"entries\":[{\"key\":\"k\",\"value\":null,\"timestamp\":1}]}}",
+    "{\"type\":\"lww_map\",\"v\":2,\"state\":{\"entries\":[],\"pruned_timestamp\":0}}",
     "{\"type\":\"wrong\",\"v\":2,\"state\":{\"entries\":[],\"pruned_timestamp\":0}}",
     "{\"type\":\"lww_map\",\"v\":3,\"state\":{\"entries\":[],\"pruned_timestamp\":0}}",
     "{\"type\":\"lww_map\",\"v\":2,\"state\":{\"entries\":[]}}",
@@ -266,7 +231,6 @@ pub fn strict_decoder_accepts_v1_and_rejects_invalid_metadata_test() -> Nil {
 pub fn native_snapshots_and_operations_cannot_bypass_validation_test() -> Nil {
   let initial = kernel.new(replica_id.new("a"))
   [
-    legacy_map("k", Some("v"), 0),
     lww_map.prune(initial.sequenced, 1),
     lww_map.new(replica_id.new("a"), crdt.OrSetSpec),
     lww_map.new(replica_id.new("a"), crdt.LwwRegisterSpec("wrong default")),
@@ -276,7 +240,8 @@ pub fn native_snapshots_and_operations_cannot_bypass_validation_test() -> Nil {
     let assert Error(_) = kernel.p2p_merge(initial, invalid)
     Nil
   })
-  let invalid = kernel.Set("wrong", "v", 1, legacy_map("k", Some("v"), 1))
+  let invalid =
+    kernel.Set("wrong", "v", 1, map_fragment("k", Some("v"), 1, "a"))
   let assert Error(_) = kernel.apply_remote(initial, invalid)
   let assert Error(_) = kernel.apply_stashed_operation(initial, invalid)
   let assert Error(kernel.Clock(lww_clock.InvalidTimestamp(-1))) =
@@ -288,7 +253,7 @@ pub fn native_snapshots_and_operations_cannot_bypass_validation_test() -> Nil {
   Nil
 }
 
-pub fn modern_writes_round_trip_rebind_and_use_writer_ties_test() -> Nil {
+pub fn writes_round_trip_rebind_and_use_writer_ties_test() -> Nil {
   let assert Ok(#(a, _, _)) =
     kernel.p2p_set(kernel.new(replica_id.new("a")), "k", "z", 10)
   let assert Ok(#(b, _, _)) =
@@ -313,7 +278,7 @@ pub fn modern_writes_round_trip_rebind_and_use_writer_ties_test() -> Nil {
   decoded |> expect.to_equal(loaded.sequenced)
 }
 
-pub fn conflicting_modern_write_returns_error_without_changing_state_test() -> Nil {
+pub fn conflicting_write_returns_error_without_changing_state_test() -> Nil {
   let initial = kernel.new(replica_id.new("a"))
   let assert Ok(#(state, _, _, _)) = kernel.set(initial, "k", "first", 10)
   let assert Ok(#(_, _, conflicting, _)) =

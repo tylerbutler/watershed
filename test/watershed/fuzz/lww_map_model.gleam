@@ -34,11 +34,6 @@ pub type MapCommand {
 pub type Observation =
   List(#(String, Option(String), Int))
 
-type WriteIdentity {
-  Legacy
-  Modern(writer: String)
-}
-
 fn operation(command: MapCommand) -> kernel.LwwMapOperation {
   let assert Some(timestamp) = command.timestamp
   let assert Some(delta) = command.delta
@@ -89,9 +84,9 @@ fn observe(state: kernel.LwwMapState) -> Observation {
 }
 
 fn winner(
-  previous: #(Option(String), Int, WriteIdentity),
-  incoming: #(Option(String), Int, WriteIdentity),
-) -> #(Option(String), Int, WriteIdentity) {
+  previous: #(Option(String), Int, String),
+  incoming: #(Option(String), Int, String),
+) -> #(Option(String), Int, String) {
   case int.compare(incoming.1, previous.1) {
     order.Gt -> incoming
     order.Lt -> previous
@@ -99,40 +94,26 @@ fn winner(
       case previous.0, incoming.0 {
         None, _ -> previous
         _, None -> incoming
-        Some(a), Some(b) -> {
-          let compared = case previous.2, incoming.2 {
-            Legacy, Legacy -> canonical_json.compare(a, b)
-            Legacy, Modern(_) -> order.Lt
-            Modern(_), Legacy -> order.Gt
-            Modern(a), Modern(b) -> canonical_json.compare(a, b)
-          }
-          case compared {
+        Some(_), Some(_) ->
+          case canonical_json.compare(previous.2, incoming.2) {
             order.Lt -> incoming
             order.Eq | order.Gt -> previous
           }
-        }
       }
   }
 }
 
-fn identity(command: MapCommand, author: Int) -> WriteIdentity {
+fn identity(command: MapCommand, author: Int) -> String {
   case command.delta {
-    None -> Modern("client-" <> int.to_string(author))
+    None -> "client-" <> int.to_string(author)
     Some(delta) -> {
       let decoder =
         decode.at(
           ["state", "entries"],
           decode.list(
             decode.at(["provenance"], {
-              use kind <- decode.field("kind", decode.string)
-              case kind {
-                "legacy" -> decode.success(Legacy)
-                "modern" -> {
-                  use writer <- decode.field("writer", decode.string)
-                  decode.success(Modern(writer))
-                }
-                _ -> decode.failure(Legacy, "write provenance")
-              }
+              use writer <- decode.field("writer", decode.string)
+              decode.success(writer)
             }),
           ),
         )
@@ -192,7 +173,7 @@ fn apply_stashed(
     None, None -> {
       // Model an original write from an empty clock, not the replay clock.
       let timestamp = int.max(1, command.wall_clock)
-      // Distinct captured intents cannot reuse a modern immutable write ID.
+      // Distinct captured intents cannot reuse an immutable write ID.
       let replica = replica_id.new("stash:" <> json.to_string(encode(command)))
       let map = lww_map.new(replica, crdt.LwwRegisterSpec(""))
       let assert Ok(delta) = case command.value {

@@ -1,8 +1,7 @@
 # GCounter, LWWRegister, and LWWMap DDS Design
 
-**Status:** Approved for implementation. LWWMap release is blocked by the
-cross-target Unicode tie discrepancy recorded in its
-[implementation plan](../plans/2026-09-09-lww-map-dds.md).
+**Status:** Implemented. The LWWMap blocker was resolved by the Lattice 2.0.0
+upgrade, which gives writes a target-independent writer-ID tie-break.
 
 **Scope update (2026-09-10):** LWWMap delivery includes website integration,
 a demo in the maps family, and a comparison with SharedMap. This extends
@@ -67,7 +66,7 @@ these three DDSs could ship.
 - Keep all dependencies on Hex; do not introduce local-path dependencies.
 - GCounter requires `lattice_counters = ">= 1.1.0 and < 2.0.0"`.
 - LWWRegister requires `lattice_registers = ">= 1.1.0 and < 2.0.0"`.
-- LWWMap requires `lattice_maps = ">= 1.1.0 and < 2.0.0"`.
+- LWWMap requires `lattice_maps = ">= 2.0.0 and < 3.0.0"`.
 - Preserve existing channel tags, operation formats, and public behavior.
 - Support pure kernels on Erlang and JavaScript; do not add a BEAM p2p driver.
 - Keep register values and map keys/values as `String` in this release.
@@ -78,23 +77,15 @@ these three DDSs could ship.
 
 ### LWW-map dependency contract
 
-The root manifest currently resolves `lattice_maps` 1.1.0. Its LWW-map
-comments describe a left-biased tie rule, but `choose_winner` uses a
-deterministic rule: tombstones beat values; between two values, the
-lexicographically greater string wins. The published
-[`lattice_maps-v1.1.0` source](https://github.com/tylerbutler/lattice/blob/lattice_maps-v1.1.0/packages/lattice_maps/src/lattice_maps/lww_map.gleam)
-confirms that implementation. However, the value comparison is not
-target-independent for all Unicode strings: equal-time U+E000/U+10000
-writes select different winners on JavaScript and Erlang. The published
-1.1.2 release also retains this defect. Add focused equal-timestamp
-regressions, including this pair with one common expected winner on both
-targets. A corrected upstream release is required before shipping under
-this design. Do not reproduce Lattice's merge algorithm in Watershed.
+The root manifest resolves `lattice_maps` 2.0.0. Modern equal-time writes use
+writer identity in UTF-8 byte order, consistently on Erlang and JavaScript.
+A tombstone beats an active value at the same timestamp. Reusing one writer
+and timestamp for different active payloads is a conflict error. Watershed
+accepts only v3 summaries and delegates tie policy to Lattice rather than
+reproducing its merge algorithm.
 
-LWW-map has no native `set_with_delta` API in that release. Produce a
-single-key fragment with `set(new(), ...)` or `remove(new(), ...)`, then
-join it into the local state. This uses existing Lattice operations without
-shipping the whole map on each edit.
+Create single-key fragments with the public `set` and `remove` APIs, then
+join them into local state. This avoids sending the whole map for each edit.
 
 ## Semantics
 
@@ -119,8 +110,8 @@ separate from the winning register's author.
 Map removal of an absent key still creates a tombstone. A later write that
 has observed that tombstone can restore the key with a larger timestamp.
 Set/remove at the same timestamp resolves to removal. Two equal-timestamp
-sets resolve by string value, not replica ID. Document this difference
-from LWWRegister. Map iteration and event batches use sorted keys.
+sets resolve by writer ID in UTF-8 byte order. Map iteration
+and event batches use sorted keys.
 
 ## LWW clocks and author identity
 
@@ -243,8 +234,8 @@ mesh connection.
 
 The default race must demonstrate a higher-timestamp write winning even
 though the sequencer stamps it before a lower-timestamp write. Also offer
-equal-time set/set and remove/set races: the lexicographically greater
-string wins the former; the tombstone wins the latter. Replaying the
+equal-time set/set and remove/set races: the greater writer ID wins the
+former; the tombstone wins the latter. Replaying the
 losing write must not restore a deleted key. A new write after observing
 the tombstone must restore it with a higher timestamp. Browser coverage
 must exercise these interactions, view switching, reconnect, and reset
@@ -261,8 +252,8 @@ identify the last human action.
 Both maps choose a whole value for a conflicting key. LWWMap does not
 preserve concurrent alternatives or merge fields inside a value. Its
 equal-time remove-wins rule differs from OR-map's observed-remove
-add-wins rule, and its value-based tie differs from LWWRegister's
-replica-ID tie. Keep these distinctions in the website copy and README.
+add-wins rule. LWWMap and LWWRegister both use writer identity for
+equal-time writes. Keep these distinctions in the website copy and README.
 The LWWMap plan's website task defines the comparison and acceptance cases.
 
 ## OR-map composition: what is missing

@@ -91,15 +91,23 @@ test("LWWMap races, tombstones, string edits and shared-rig lifecycle", { timeou
     });
     assert.equal(await page.$eval("[data-latency-variance]", (el) => el.checked), false);
     await settled(page, baseline);
-    for (const choice of ["timestamp", "value-tie", "remove-tie"]) {
+    for (const choice of ["timestamp", "writer-tie", "remove-tie"]) {
       await page.click("[data-reset]");
       await settled(page, baseline);
-      const removedAt = await race(page, choice, choice === "remove-tie" ? [] : [["gate-mode", "open"]]);
+      const expected = choice === "remove-tie"
+        ? []
+        : [["gate-mode", choice === "writer-tie" ? "closed" : "open"]];
+      const removedAt = await race(page, choice, expected);
       if (choice === "remove-tie") {
-        assert.deepEqual(await metadata(page), [{ key: "gate-mode", value: null, timestamp: removedAt }]);
+        const removed = (await metadata(page))[0];
+        assert.deepEqual(
+          { key: removed.key, value: removed.value, timestamp: removed.timestamp },
+          { key: "gate-mode", value: null, timestamp: removedAt },
+        );
+        assert.match(removed.provenance.writer, /^client-a-lww-map-/);
         await page.click("[data-replay]");
         await settled(page, []);
-        assert.deepEqual(await metadata(page), [{ key: "gate-mode", value: null, timestamp: removedAt }]);
+        assert.deepEqual((await metadata(page))[0], removed);
         assert.match((await logRows(page))[0], /again set "gate-mode" = "open"/);
         await write(page, "c", "gate-mode", "restored", true);
         await settled(page, [["gate-mode", "restored"]]);
@@ -155,7 +163,12 @@ test("LWWMap races, tombstones, string edits and shared-rig lifecycle", { timeou
     await page.click("[data-reset]");
     await page.click("[data-cut-link]");
     await settled(page, baseline);
-    assert.deepEqual(await metadata(page), [{ key: "gate-mode", value: "surveyed", timestamp: 100 }]);
+    const resetEntry = (await metadata(page))[0];
+    assert.deepEqual(
+      { key: resetEntry.key, value: resetEntry.value, timestamp: resetEntry.timestamp },
+      { key: "gate-mode", value: "surveyed", timestamp: 100 },
+    );
+    assert.equal(resetEntry.provenance.writer, "survey-lww-map");
     assert.equal(await page.$eval("[data-replay]", (el) => el.disabled), true);
     assert.deepEqual(
       await page.$$eval(".dds-map [data-value], .dds-ormap [data-ormap-value]", (els) => els.map((el) => el.textContent)),
@@ -168,7 +181,7 @@ test("LWWMap races, tombstones, string edits and shared-rig lifecycle", { timeou
     for (const edit of ["write", "remove"]) {
       await page.click("[data-reset]");
       await settled(page, baseline);
-      await page.select("[data-lww-map-race]", "value-tie");
+      await page.select("[data-lww-map-race]", "writer-tie");
       await page.evaluate((action) => {
         const now = Date.now;
         try {
@@ -185,7 +198,7 @@ test("LWWMap races, tombstones, string edits and shared-rig lifecycle", { timeou
           Date.now = now;
         }
       }, edit);
-      await settled(page, [["gate-mode", "open"], ["independent", "future"]]);
+      await settled(page, [["gate-mode", "closed"], ["independent", "future"]]);
       const entries = await metadata(page);
       assert.equal(entries.find((entry) => entry.key === "gate-mode").timestamp, 5_000_000_000_001);
       assert.equal(entries.find((entry) => entry.key === "independent").timestamp, 200);

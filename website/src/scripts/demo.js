@@ -70,9 +70,12 @@ const TWO_P_SET_RETIRED_BASELINE = ["silt-flag"];
 
 function pnBaselineSummary() {
   let base = pnLattice.new$(replicaId.new$("survey-baseline"));
-  base = pnLattice.increment(base, PN_FILL_BASE);
-  base = pnLattice.decrement(base, PN_CUT_BASE);
-  return json.to_string(pnLattice.to_json(base));
+  const incremented = pnLattice.increment(base, PN_FILL_BASE);
+  if (!incremented.isOk()) throw new Error("PN-counter baseline increment failed");
+  base = incremented[0];
+  const decremented = pnLattice.decrement(base, PN_CUT_BASE);
+  if (!decremented.isOk()) throw new Error("PN-counter baseline decrement failed");
+  return json.to_string(pnLattice.to_json(decremented[0]));
 }
 
 function mvBaselineSummary(epoch) {
@@ -129,6 +132,10 @@ function lwwMapFromSummary(summary, id, epoch) {
 
 function lwwMapMetadata(state) {
   return JSON.parse(json.to_string(lwwMapKernel.summary(state))).state.entries
+    .map((entry) => ({
+      ...entry,
+      value: entry.value === null ? null : JSON.parse(entry.value).state.value,
+    }))
     .sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 }
 
@@ -136,8 +143,9 @@ function gCounterBaselineSummary() {
   let base = gCounter.new$(replicaId.new$("survey-baseline"));
   for (const [id, amount] of Object.entries(GCOUNTER_BASE_BY_REPLICA)) {
     const replica = gCounter.new$(replicaId.new$(`client-${id}`));
-    const delta = gCounter.increment(replica, amount);
-    base = gCounter.merge(base, delta);
+    const incremented = gCounter.increment(replica, amount);
+    if (!incremented.isOk()) throw new Error("G-counter baseline increment failed");
+    base = gCounter.merge(base, incremented[0]);
   }
   return json.to_string(gCounter.to_json(base));
 }
@@ -206,40 +214,21 @@ function compareCanonical(a, b) {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function canonicalObject(value) {
-  if (Array.isArray(value)) return value.map(canonicalObject);
-  if (value !== null && typeof value === "object") {
-    return Object.fromEntries(
-      Object.entries(value)
-        .sort(([a], [b]) => compareCanonical(a, b))
-        .map(([key, nested]) => [key, canonicalObject(nested)]),
-    );
-  }
-  return value;
-}
-
 function canonicalEncodedJson(source) {
   return JSON.stringify(canonicalMetadata(JSON.parse(source)));
 }
 
 function canonicalOrMapMvSummary(state) {
   const summary = JSON.parse(json.to_string(orMapKernel.summary(state)));
-  const mapState = summary.state;
-  const replicatedMapState = Object.fromEntries(
-    Object.entries(mapState).filter(([key]) => key !== "replica_id"),
-  );
-  return JSON.stringify(canonicalObject({
+  return JSON.stringify(canonicalMetadata({
     ...summary,
     state: {
-      ...replicatedMapState,
-      key_set: canonicalEncodedJson(mapState.key_set),
-      values: mapState.values
-        .map(({ key, crdt }) => ({
-          key,
-          crdt: canonicalEncodedJson(crdt),
-        }))
-        .sort((a, b) => compareCanonical(a.key, b.key) || compareCanonical(a.crdt, b.crdt)),
-      remove_bounds: canonicalMetadata(mapState.remove_bounds),
+      ...summary.state,
+      entries: summary.state.entries.map((entry) => ({
+        ...entry,
+        membership: canonicalEncodedJson(entry.membership),
+        value: canonicalEncodedJson(entry.value),
+      })),
     },
   }));
 }

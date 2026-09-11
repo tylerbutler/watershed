@@ -167,29 +167,24 @@ fn metadata_decoder() -> decode.Decoder(List(#(String, Option(String), Int))) {
 }
 
 /// Validate raw entries before Lattice converts them to a dictionary.
-/// Legacy v1/v2 snapshots are imported with their original String tie keys.
-/// Modern writes use writer identity to break ties and emit v3 snapshots.
+/// Only v3 snapshots with writer provenance are accepted.
 pub fn decoder() -> decode.Decoder(LWWMap) {
   use _ <- decode.then(metadata_decoder())
   use version <- decode.field("v", decode.int)
-  use payload <- decode.then(json_ot.decoder())
-  let encoded = json_ot.to_json(payload) |> json.to_string
-  let decoded = case version {
-    1 | 2 ->
-      lww_map.import_legacy(
-        encoded,
-        crdt.LwwRegisterSpec(""),
-        replica_id.new(""),
-      )
-    _ -> lww_map.from_json(encoded)
-  }
-  case decoded {
-    Ok(map) ->
-      case lww_map.spec(map) == crdt.LwwRegisterSpec("") {
-        True -> decode.success(map)
-        False -> decode.failure(map, "String LWW map with empty default")
+  case version {
+    3 -> {
+      use payload <- decode.then(json_ot.decoder())
+      let encoded = json_ot.to_json(payload) |> json.to_string
+      case lww_map.from_json(encoded) {
+        Ok(map) ->
+          case lww_map.spec(map) == crdt.LwwRegisterSpec("") {
+            True -> decode.success(map)
+            False -> decode.failure(map, "String LWW map with empty default")
+          }
+        Error(_) -> decode.failure(new_map(replica_id.new("")), "LWW map")
       }
-    Error(_) -> decode.failure(new_map(replica_id.new("")), "LWW map")
+    }
+    _ -> decode.failure(new_map(replica_id.new("")), "LWW map v3")
   }
 }
 
