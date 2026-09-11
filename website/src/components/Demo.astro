@@ -358,8 +358,19 @@ const PICKER_CELLS = [
       connected client signs off, or leaves drain the list.
     </p>
     <label class="field-notes-toggle">
-      <input type="checkbox" data-field-notes disabled />
-      <span class="annot">Field notes</span>
+      <input
+        type="checkbox"
+        data-field-notes
+        aria-describedby="field-notes-help"
+        disabled
+      />
+      <span class="field-note-tip">
+        <span class="annot">Field notes</span>
+        <span class="field-note-mark" aria-hidden="true">?</span>
+        <span class="field-note-tooltip" id="field-notes-help" role="tooltip">
+          Show hand-drawn annotations as edits move from pending to sequenced.
+        </span>
+      </span>
     </label>
   </div>
 
@@ -2489,6 +2500,60 @@ const PICKER_CELLS = [
     width: 1.05rem;
     height: 1.05rem;
     cursor: pointer;
+  }
+
+  .field-note-tip {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 0.55rem;
+  }
+
+  .field-note-mark {
+    display: inline-grid;
+    width: 1.35rem;
+    height: 1.35rem;
+    place-items: center;
+    border: 1px solid var(--ink);
+    color: var(--ink);
+    font: 700 0.72rem/1 var(--font-mono);
+    transform: rotate(-3deg);
+  }
+
+  .field-note-tooltip {
+    position: absolute;
+    z-index: var(--z-toast);
+    left: 0;
+    bottom: calc(100% + 0.65rem);
+    width: min(18rem, calc(100vw - 2rem));
+    padding: 0.7rem 0.85rem;
+    border: 1px solid var(--ink);
+    background: var(--bg);
+    color: var(--ink);
+    font: 500 var(--text-sm)/1.45 var(--font-sans);
+    letter-spacing: normal;
+    text-transform: none;
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(0.35rem);
+    transition:
+      opacity var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart),
+      visibility 0s linear var(--dur-feedback);
+  }
+
+  .field-note-tip:hover .field-note-tooltip {
+    visibility: visible;
+    opacity: 1;
+    transform: translateY(0);
+    transition-delay: 0s;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .field-note-tooltip {
+      transition: none;
+    }
   }
 
   .race-btn {

@@ -99,23 +99,22 @@ const familyViews = category.structures
                 </a>
               )
             }
-          </header>
 
-          {!s.demoHref && (
-            <div class="plate-viewbar" data-structure-controls hidden>
-              <span class="annot" data-structure-view-label>Description</span>
-              <button
-                type="button"
-                class="plate-toggle"
-                data-structure-toggle={s.id}
-                aria-controls={`${s.id}-demo`}
-                aria-describedby={`${s.id}-title`}
-                aria-expanded="false"
-              >
-                Try demo
-              </button>
-            </div>
-          )}
+            {!s.demoHref && (
+              <div class="plate-viewbar" data-structure-controls hidden>
+                <button
+                  type="button"
+                  class="plate-toggle"
+                  data-structure-toggle={s.id}
+                  aria-controls={`${s.id}-demo`}
+                  aria-describedby={`${s.id}-title`}
+                  aria-expanded="false"
+                >
+                  Try the live demo ↓
+                </button>
+              </div>
+            )}
+          </header>
 
           <div class="plate-body">
             <div class="plate-prose">
@@ -224,47 +223,72 @@ const familyViews = category.structures
     const rig = demo.querySelector<HTMLElement>("[data-demo-rig]");
     const skip = demo.querySelector<HTMLAnchorElement>(".demo-skip");
     if (!rig || !skip) throw new Error("Structure demo markup is incomplete");
-    let closeActiveDemo: (() => void) | undefined;
+    const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    let closeActiveDemo: (() => Promise<void>) | undefined;
+    let transitionPending = false;
+
+    const animatePanel = async (panel: HTMLElement, opening: boolean) => {
+      panel.getAnimations().forEach((animation) => animation.cancel());
+      panel.classList.remove("is-opening", "is-closing");
+      if (opening) panel.hidden = false;
+      if (reduceMotion.matches) {
+        if (!opening) panel.hidden = true;
+        return;
+      }
+
+      panel.style.setProperty("--panel-height", `${panel.scrollHeight}px`);
+      panel.classList.add(opening ? "is-opening" : "is-closing");
+      await Promise.allSettled(
+        panel.getAnimations().map((animation) => animation.finished),
+      );
+      panel.classList.remove("is-opening", "is-closing");
+      panel.style.removeProperty("--panel-height");
+      if (!opening) panel.hidden = true;
+    };
 
     for (const button of document.querySelectorAll<HTMLButtonElement>("[data-structure-toggle]")) {
       const id = button.dataset.structureToggle;
       const plate = button.closest(".plate");
       const controls = plate?.querySelector<HTMLElement>("[data-structure-controls]");
-      const label = plate?.querySelector<HTMLElement>("[data-structure-view-label]");
       const description = plate?.querySelector<HTMLElement>(".plate-body");
       const panel = plate?.querySelector<HTMLElement>("[data-structure-demo]");
       const pick = demo.querySelector<HTMLInputElement>(`[data-dds-pick][value="${id}"]`);
-      if (!controls || !label || !description || !panel || !pick || !id) {
+      if (!controls || !description || !panel || !pick || !id) {
         throw new Error(`Structure demo markup is incomplete for ${id}`);
       }
 
-      const close = () => {
-        panel.hidden = true;
+      const close = async () => {
+        await animatePanel(panel, false);
         description.hidden = false;
         button.setAttribute("aria-expanded", "false");
-        button.textContent = "Try demo";
-        label.textContent = "Description";
+        button.textContent = "Try the live demo ↓";
       };
 
-      button.addEventListener("click", () => {
-        if (!panel.hidden) {
-          close();
-          return;
+      button.addEventListener("click", async () => {
+        if (transitionPending) return;
+        transitionPending = true;
+        try {
+          if (!panel.hidden) {
+            await close();
+            closeActiveDemo = undefined;
+            return;
+          }
+          await closeActiveDemo?.();
+          panel.append(demo);
+          description.hidden = true;
+          button.setAttribute("aria-expanded", "true");
+          button.textContent = "Close demo ↑";
+          skip.href = `#${id}-after-demo`;
+          // The dataset also records a selection made before the kernels load.
+          rig.dataset.dds = id;
+          pick.checked = true;
+          pick.dispatchEvent(new Event("change", { bubbles: true }));
+          closeActiveDemo = close;
+          await animatePanel(panel, true);
+          button.scrollIntoView({ block: "nearest" });
+        } finally {
+          transitionPending = false;
         }
-        closeActiveDemo?.();
-        panel.append(demo);
-        panel.hidden = false;
-        description.hidden = true;
-        button.setAttribute("aria-expanded", "true");
-        button.textContent = "Back to description";
-        label.textContent = "Live demo";
-        skip.href = `#${id}-after-demo`;
-        // The dataset also records a selection made before the kernels load.
-        rig.dataset.dds = id;
-        pick.checked = true;
-        pick.dispatchEvent(new Event("change", { bubbles: true }));
-        closeActiveDemo = close;
-        button.scrollIntoView({ block: "nearest" });
       });
       controls.hidden = false;
     }
@@ -497,29 +521,43 @@ const familyViews = category.structures
   .plate-viewbar {
     display: flex;
     align-items: center;
-    justify-content: space-between;
-    flex-wrap: wrap;
-    gap: var(--space-sm) var(--space-md);
-    margin-top: var(--space-md);
-    color: var(--muted);
+    margin-top: var(--space-lg);
   }
 
   .plate-toggle {
-    min-height: 2.75rem;
-    padding: var(--space-xs) var(--space-md);
+    min-height: 3rem;
+    min-width: 13rem;
+    padding: var(--space-sm) var(--space-lg);
     border: 1px solid var(--ink);
-    background: var(--bg);
-    color: var(--ink);
-    font: inherit;
-    font-size: var(--text-sm);
-    font-weight: 600;
-    cursor: pointer;
-  }
-
-  .plate-toggle:hover,
-  .plate-toggle[aria-expanded="true"] {
     background: var(--ink);
     color: var(--bg);
+    font: inherit;
+    font-size: var(--text-sm);
+    font-weight: 700;
+    cursor: pointer;
+    transition:
+      background var(--dur-feedback) var(--ease-out-quart),
+      border-color var(--dur-feedback) var(--ease-out-quart),
+      color var(--dur-feedback) var(--ease-out-quart),
+      transform var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .plate-toggle:hover {
+    border-color: var(--waterline);
+    background: var(--waterline);
+  }
+
+  .plate-toggle[aria-expanded="true"] {
+    background: var(--bg);
+    color: var(--ink);
+  }
+
+  .plate-toggle[aria-expanded="true"]:hover {
+    background: var(--surface);
+  }
+
+  .plate-toggle:active {
+    transform: translateY(1px);
   }
 
   .plate-toggle:focus-visible {
@@ -529,6 +567,48 @@ const familyViews = category.structures
 
   .plate-live {
     margin-top: var(--space-lg);
+    transform-origin: top;
+    overflow: clip;
+  }
+
+  .plate-live.is-opening {
+    animation: plate-panel-open 320ms var(--ease-out-expo) both;
+  }
+
+  .plate-live.is-closing {
+    animation: plate-panel-close 220ms var(--ease-out-quart) both;
+  }
+
+  @keyframes plate-panel-open {
+    from {
+      block-size: 0;
+      opacity: 0;
+      clip-path: inset(0 0 100% 0);
+      transform: translateY(-0.75rem);
+    }
+
+    to {
+      block-size: var(--panel-height);
+      opacity: 1;
+      clip-path: inset(0);
+      transform: translateY(0);
+    }
+  }
+
+  @keyframes plate-panel-close {
+    from {
+      block-size: var(--panel-height);
+      opacity: 1;
+      clip-path: inset(0);
+      transform: translateY(0);
+    }
+
+    to {
+      block-size: 0;
+      opacity: 0;
+      clip-path: inset(0 0 100% 0);
+      transform: translateY(-0.5rem);
+    }
   }
 
   .k-pending {
@@ -538,6 +618,18 @@ const familyViews = category.structures
   .plate-viewbar[hidden],
   .plate-body[hidden] {
     display: none;
+  }
+
+  @media (max-width: 36rem) {
+    .plate-toggle {
+      width: 100%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .plate-toggle {
+      transition: none;
+    }
   }
 
   .plate-body {

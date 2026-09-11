@@ -32,9 +32,21 @@ for (const width of [1440, 1100, 390]) {
 
         for (const id of ids) {
           const toggle = `#${id} [data-structure-toggle]`;
+          assert.equal(
+            await page.$eval(toggle, (button) => button.closest(".plate-head") !== null),
+            true,
+          );
+          assert.equal(
+            await page.$eval(toggle, (button) => button.textContent.trim()),
+            "Try the live demo ↓",
+          );
           await page.focus(toggle);
           await page.keyboard.press("Enter");
           assert.equal(await page.$eval(toggle, (button) => button.getAttribute("aria-expanded")), "true");
+          assert.equal(
+            await page.$eval(toggle, (button) => button.textContent.trim()),
+            "Close demo ↑",
+          );
           assert.equal(await page.$eval(".plate:has(#demo)", (plate) => plate.id), id);
           assert.equal(await page.$eval("[data-demo-rig]", (rig) => rig.dataset.dds), id);
           assert.equal(await page.$eval(`#${id} .plate-body`, (body) => body.checkVisibility()), false);
@@ -58,6 +70,68 @@ for (const width of [1440, 1100, 390]) {
     }
   });
 }
+
+test("structure demo panel slides open and closed", { timeout: 90_000 }, async () => {
+  const executablePath = findBrowser();
+  assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
+  const browser = await puppeteer.launch({ executablePath, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1440, height: 1000 });
+    await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "no-preference" }]);
+    await page.goto(new URL("/structures/counters", base).href);
+    await page.waitForSelector("[data-race]:not([disabled])");
+
+    const toggle = "#counter [data-structure-toggle]";
+    const openingAnimations = await page.$eval(toggle, async (button) => {
+      button.click();
+      await new Promise(requestAnimationFrame);
+      return document
+        .querySelector("#counter [data-structure-demo]")
+        .getAnimations()
+        .some((animation) => animation.playState === "running");
+    });
+    assert.equal(openingAnimations, true);
+    await page.waitForFunction(
+      () => document.querySelector("#counter [data-structure-demo]").getAnimations().length === 0,
+    );
+
+    const tooltip = ".field-note-tooltip";
+    assert.equal(await page.$eval(tooltip, (element) => getComputedStyle(element).opacity), "0");
+    await page.focus("[data-field-notes]");
+    assert.equal(await page.$eval(tooltip, (element) => getComputedStyle(element).opacity), "0");
+    await page.hover(".field-note-tip");
+    await page.waitForFunction(
+      (selector) => getComputedStyle(document.querySelector(selector)).opacity === "1",
+      {},
+      tooltip,
+    );
+    assert.equal(await page.$eval(tooltip, (element) => getComputedStyle(element).opacity), "1");
+    await page.mouse.move(0, 0);
+    await page.waitForFunction(
+      (selector) => getComputedStyle(document.querySelector(selector)).opacity === "0",
+      {},
+      tooltip,
+    );
+    assert.equal(await page.$eval(tooltip, (element) => getComputedStyle(element).opacity), "0");
+
+    const closingAnimations = await page.$eval(toggle, async (button) => {
+      button.click();
+      await new Promise(requestAnimationFrame);
+      return document
+        .querySelector("#counter [data-structure-demo]")
+        .getAnimations()
+        .some((animation) => animation.playState === "running");
+    });
+    assert.equal(closingAnimations, true);
+    await page.waitForFunction(
+      () => document.querySelector("#counter [data-structure-demo]").hidden,
+    );
+    assert.equal(await page.$eval("#counter .plate-body", (body) => body.checkVisibility()), true);
+  } finally {
+    await browser.close();
+  }
+});
 
 test("descriptions and dedicated demo links work without JavaScript", async () => {
   const executablePath = findBrowser();

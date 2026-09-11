@@ -75,10 +75,12 @@ sections themselves get plain headings — no per-section eyebrows.
 
 - Panels and tables: 1px `--ink` borders, no border-radius, no shadows —
   everything sits flat on the sheet like printed linework.
-- Structure-family plates show their descriptions first. **Try demo** swaps
-  the description for the matching live view; **Back to description** restores
-  it. One shared rig moves between plates without resetting kernel state.
-  Structures with dedicated demo pages keep their links.
+- Structure-family plates show their descriptions first. **Try the live demo**
+  is a solid ink action in each plate header. It collapses the description and
+  reveals the matching live view as a downward-opening panel; **Close demo**
+  reverses the transition. One shared rig moves between plates without
+  resetting kernel state. Structures with dedicated demo pages keep their
+  links.
 - Architecture cross-section: keep target-specific facades/runtimes/transports
   in the left/right columns (`watershed_beam`/`runtime_beam`/`aquamarine` vs
   `watershed`/`runtime`/`transport_js`); keep `runtime_core`, `channel`,
@@ -97,7 +99,9 @@ sections themselves get plain headings — no per-section eyebrows.
   (magenta italic while pending) plus a race button proxy. It mirrors the map
   replicas' DOM via MutationObserver; map view only.
 - The field-notes toggle lives with the merge-rule copy above the rig, next to
-  where its panel appears (`rig.before`), not down in the control bar.
+  where its panel appears (`rig.before`), not down in the control bar. A small
+  question-mark stamp explains the annotations on pointer hover; the checkbox
+  receives the same explanation through `aria-describedby`.
 - Demo gauges are river gauges: values clamp at 0 and each row's `−` disables
   at the floor. Reset/race writes are clamped the same way.
 - Bedrock hatching: `repeating-linear-gradient(-45deg, …)` hairline diagonal.
