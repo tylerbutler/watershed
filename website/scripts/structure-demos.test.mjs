@@ -133,6 +133,45 @@ test("structure demo panel slides open and closed", { timeout: 90_000 }, async (
   }
 });
 
+test("PactMap shows accepted state and settles a proposal", { timeout: 90_000 }, async () => {
+  const executablePath = findBrowser();
+  assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
+  const browser = await puppeteer.launch({ executablePath, headless: true });
+  try {
+    const page = await browser.newPage();
+    await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
+    await page.goto(new URL("/structures/coordination", base).href);
+    await page.waitForSelector("[data-race]:not([disabled])");
+    await page.click("#pact [data-structure-toggle]");
+
+    const row = '[data-client="a"] .dds-pact tr[data-key="datum-grid"]';
+    assert.equal(
+      await page.$eval(`${row} [data-pact-accepted]`, (output) => output.textContent),
+      "Survey datum",
+    );
+
+    await page.click(`${row} [data-pact-set]`);
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector).textContent === "A proposal",
+      {},
+      `${row} [data-pact-accepted]`,
+    );
+    assert.equal(
+      await page.$eval(`${row} [data-pact-pending]`, (output) => output.textContent),
+      "—",
+    );
+
+    await page.click(`${row} [data-pact-delete]`);
+    await page.waitForFunction(
+      (selector) => document.querySelector(selector).textContent === "—",
+      {},
+      `${row} [data-pact-accepted]`,
+    );
+  } finally {
+    await browser.close();
+  }
+});
+
 test("descriptions and dedicated demo links work without JavaScript", async () => {
   const executablePath = findBrowser();
   assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");

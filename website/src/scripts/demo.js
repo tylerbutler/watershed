@@ -722,6 +722,11 @@ export function initDemo() {
   const taskNotes = { a: {}, b: {}, c: {} };
   const pactNotes = { a: {}, b: {}, c: {} };
   const pactPending = { a: new Set(), b: new Set(), c: new Set() };
+  const orMapRetained = {
+    a: new Map(ORMAP_BASELINE),
+    b: new Map(ORMAP_BASELINE),
+    c: new Map(ORMAP_BASELINE),
+  };
 
   // ── rendering ─────────────────────────────────────────────────────────────
 
@@ -906,6 +911,7 @@ export function initDemo() {
       const row = client.el.querySelector(`.dds-ormap tr[data-key="${key}"]`);
       const value = entries.get(key);
       const struck = value === undefined;
+      if (!struck) orMapRetained[client.id].set(key, value);
       row.classList.toggle("struck", struck);
       row.classList.toggle("pending", pending.has(key));
       row.querySelector("[data-ormap-value]").textContent = struck
@@ -1199,7 +1205,7 @@ export function initDemo() {
 
   function pactAccepted(state, key) {
     const accepted = pactKernel.get_with_details(state, key);
-    if (!(accepted instanceof Some)) return null;
+    if (!accepted.isOk()) return null;
     return {
       value: readOptionalJsonString(accepted[0].value),
       sequence: accepted[0].sequence_number,
@@ -1208,7 +1214,7 @@ export function initDemo() {
 
   function pactPendingValue(state, key) {
     const pending = pactKernel.get_pending(state, key);
-    if (!(pending instanceof Some)) return null;
+    if (!pending.isOk()) return null;
     return readOptionalJsonString(pending[0]) ?? "delete";
   }
 
@@ -2014,6 +2020,10 @@ export function initDemo() {
     return localOrMapEdit(clientId, orMapKernel.remove, key);
   }
 
+  function localOrMapReopen(clientId, key) {
+    return localOrMapLog(clientId, key, orMapRetained[clientId].get(key) ?? 0);
+  }
+
   function localOrMapEdit(clientId, mutate, ...args) {
     const client = clients[clientId];
     const result = mutate(client.ormap, ...args);
@@ -2226,7 +2236,7 @@ export function initDemo() {
       new Some(json.string(PACT_VALUES[clientId])),
       client.lastSeq,
     );
-    if (!(op instanceof Some)) {
+    if (!op.isOk()) {
       pactNotes[clientId][key] = "pending pact blocks new proposal";
       render(client);
       return;
@@ -2241,7 +2251,7 @@ export function initDemo() {
   function localPactDelete(clientId, key) {
     const client = clients[clientId];
     const op = pactKernel.delete$(client.pact, key, client.lastSeq);
-    if (!(op instanceof Some)) {
+    if (!op.isOk()) {
       pactNotes[clientId][key] = "nothing accepted to delete";
       render(client);
       return;
@@ -2783,7 +2793,7 @@ export function initDemo() {
       const orMapReopenBtn = event.target.closest("button[data-ormap-reopen]");
       if (orMapReopenBtn) {
         hasInteracted = true;
-        localOrMapLog(client.id, orMapReopenBtn.closest("tr").dataset.key, 0);
+        localOrMapReopen(client.id, orMapReopenBtn.closest("tr").dataset.key);
         return;
       }
       const orSetAddBtn = event.target.closest("button[data-orset-add]");
@@ -3166,7 +3176,7 @@ export function initDemo() {
       }
       for (const [key, base] of ORMAP_BASELINE) {
         if (!orMapEntries(clients.a.ormap).has(key)) {
-          localOrMapLog("a", key, 0);
+          localOrMapReopen("a", key);
         }
         const value = orMapEntries(clients.a.ormap).get(key) ?? 0;
         const drift = value - base;

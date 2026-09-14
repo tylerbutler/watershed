@@ -152,7 +152,7 @@ test("ORMap set local views, literal strings, independent keys and duplicate met
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
   await edit(page, "c", "pump-watch", "", "remove");
   await settle(page, "pump-watch", '["<b>literal</b>","é","😀"]');
-  await page.click("#mv-register [data-structure-toggle]");
+  await page.click("#map [data-structure-toggle]");
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true);
 });
 
@@ -165,7 +165,7 @@ test("ORMap scenarios follow their plate across moves and cancel at reset or mod
   assert.equal(await page.$eval("[data-seq-counter]", (el) => el.textContent), sn);
   await page.select("[data-ormap-set-race]", "readd");
   await page.click("[data-race]");
-  await page.click("#mv-register [data-structure-toggle]");
+  await page.click("#map [data-structure-toggle]");
   await page.waitForFunction(() => document.querySelector("[data-ormap-race-status]").textContent.includes("Complete"));
   await page.click("#ormap [data-structure-toggle]");
   await settle(page, "inspection-brief", '["handoff"]');
@@ -188,13 +188,8 @@ test("ORMap scenarios follow their plate across moves and cancel at reset or mod
   await settle(page, "inspection-brief", '["handoff"]');
 });
 
-test("ORMap mode epochs discard held, delayed and replayed packets without resetting other plates", { timeout: 120_000 }, async (t) => {
+test("ORMap mode epochs discard held, delayed and replayed packets without resetting the map plate", { timeout: 120_000 }, async (t) => {
   const page = await setup(t);
-  await page.click("#mv-register [data-structure-toggle]");
-  await page.$eval(client("a", "[data-mv-register-input]"), (input) => { input.value = "keep this revision"; });
-  await page.click(client("a", "[data-mv-register-write]"));
-  await page.waitForFunction(() => document.querySelector("[data-status] .converged"));
-  await page.click("#ormap [data-structure-toggle]");
   await page.select("[data-ormap-mode]", "set");
   await page.click("[data-latency-variance]");
   await page.click("[data-field-notes]");
@@ -237,8 +232,6 @@ test("ORMap mode epochs discard held, delayed and replayed packets without reset
   }
   await page.click("#map [data-structure-toggle]");
   assert.equal(await page.$eval(client("a", '.dds-map tr[data-key="mill-race"] [data-value]'), (el) => el.textContent), "25");
-  await page.click("#mv-register [data-structure-toggle]");
-  assert.equal(await page.$eval(client("a", "[data-mv-register-values]"), (el) => el.textContent), '["keep this revision"]');
   await page.click("#ormap [data-structure-toggle]");
   assert.equal(await page.$eval("[data-ormap-mode]", (select) => select.value), "set");
   await settle(page, "inspection-brief", '["handoff"]');
