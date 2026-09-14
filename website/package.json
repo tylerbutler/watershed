@@ -4,7 +4,6 @@
   "type": "module",
   "packageManager": "pnpm@11.13.1",
   "scripts": {
-    "build:gleam": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript",
     "generate:snippets": "cd ../tools/source-snippets && gleam run -m source_snippets/cli -- ../../website/snippets.json ../../website/src/generated/snippets.json",
     "predev": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript && cd ../website && pnpm generate:snippets",
     "dev": "astro dev",
@@ -40,7 +39,6 @@
     "rough-notation": "^0.5.1"
   },
   "devDependencies": {
-    "puppeteer-core": "^25.3.0",
-    "typescript": "^7.0.2"
+    "puppeteer-core": "^25.3.0"
   }
 }
