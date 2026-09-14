@@ -264,12 +264,26 @@ function findAllAuthoredModules(): string[] {
 
 function gleamContainerImports(source: string): string[] {
   const found = new Set<string>();
-  const imports =
-    /import\s*\{([^}]*)\}\s*from\s*["'][^"']*(?:\/gleam|\/gleam\/option)\.mjs["']/g;
+  const tokens =
+    /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\/[^\n]*|\/\*[\s\S]*?\*\/|\bimport\s+(type\s+)?(?:\{([\s\S]*?)\}|\*\s+as\s+([A-Za-z_$][\w$]*))\s+from\s+["']([^"']+)["']/g;
   let match;
-  while ((match = imports.exec(source)) !== null) {
-    for (const binding of match[1].split(",")) {
-      const imported = binding.trim().split(/\s+as\s+/)[0]?.trim();
+  while ((match = tokens.exec(source)) !== null) {
+    const [, typeOnly, namedBindings, namespaceBinding, modulePath] = match;
+    if (
+      (!namedBindings && !namespaceBinding) ||
+      typeOnly ||
+      !/(?:\/gleam(?:\/option)?|\/prelude)\.mjs$/.test(modulePath)
+    ) {
+      continue;
+    }
+    if (namespaceBinding) {
+      found.add(`* as ${namespaceBinding}`);
+      continue;
+    }
+    for (const binding of namedBindings.split(",")) {
+      const trimmed = binding.trim();
+      if (!trimmed || trimmed.startsWith("type ")) continue;
+      const imported = trimmed.split(/\s+as\s+/)[0]?.trim();
       if (imported && GLEAM_CONTAINER_CONSTRUCTORS.has(imported)) {
         found.add(imported);
       }
@@ -295,13 +309,29 @@ describe("Gate: Gleam Result and Option constructors stay behind the typed helpe
     const fake = `
       import { Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
       import { Ok } from "../../../build/dev/javascript/watershed/gleam.mjs";
+      import { Error as GleamError } from "../../../build/dev/javascript/watershed/prelude.mjs";
+      import * as gleam from "../../../watershed_lustre/build/dev/javascript/watershed/gleam.mjs";
     `;
-    assert.deepEqual(gleamContainerImports(fake), ["Ok", "Some"]);
+    assert.deepEqual(gleamContainerImports(fake), [
+      "* as gleam",
+      "Error",
+      "Ok",
+      "Some",
+    ]);
   });
 
   it("allows type-only container imports", () => {
     const fake = `
       import type { Option$, Result } from "../../../build/dev/javascript/watershed/gleam.mjs";
+      import { type Ok } from "../../../build/dev/javascript/watershed/gleam.mjs";
+    `;
+    assert.deepEqual(gleamContainerImports(fake), []);
+  });
+
+  it("ignores import-shaped comments and strings", () => {
+    const fake = `
+      // import { Ok } from "../../../build/dev/javascript/watershed/gleam.mjs";
+      const example = 'import { Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs"';
     `;
     assert.deepEqual(gleamContainerImports(fake), []);
   });
