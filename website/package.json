@@ -14,6 +14,7 @@
     "check:types": "pnpm build:gleam && pnpm generate:snippets && astro sync && tsc --noEmit",
     "og:image": "node scripts/og-image.mjs",
     "test:rich-text-adapter": "node --test src/scripts/demo/rich-text-adapter.test.mjs",
+    "test:gleam-values": "node --strip-types --test src/scripts/demo/gleam-values.test.mjs",
     "test:demo-boot": "node --strip-types --test src/scripts/demo/boot.test.ts",
     "test:mv-register-demo": "node --test scripts/mv-register-demo.test.mjs",
     "test:ormap-demo": "node --test scripts/ormap-demo.test.mjs",

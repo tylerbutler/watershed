@@ -23,6 +23,7 @@ type Result<T, E> = RootResult<T, E> | LustreResult<T, E>;
 type Ok<T, E> = RootOk<T, E> | LustreOk<T, E>;
 type Option<T> = RootOption<T> | LustreOption<T>;
 type Some<T> = RootSome<T> | LustreSome<T>;
+type GleamRuntime = "root" | "lustre";
 
 export type ResultValue<R> =
   R extends RootResult<infer T, infer _E> ? T
@@ -61,10 +62,19 @@ export function optionValue<T>(option: Option<T>): T | null {
   return isSome(option) ? option[0] : null;
 }
 
-export function some<T>(value: T): RootOption<T> {
-  return new RootSome(value);
+export function some<T>(value: T, runtime?: "root"): RootOption<T>;
+export function some<T>(value: T, runtime: "lustre"): LustreOption<T>;
+export function some<T>(
+  value: T,
+  runtime: GleamRuntime = "root",
+): RootOption<T> | LustreOption<T> {
+  return runtime === "lustre" ? new LustreSome(value) : new RootSome(value);
 }
 
-export function none<T>(): RootOption<T> {
-  return new RootNone();
+export function none<T>(runtime?: "root"): RootOption<T>;
+export function none<T>(runtime: "lustre"): LustreOption<T>;
+export function none<T>(
+  runtime: GleamRuntime = "root",
+): RootOption<T> | LustreOption<T> {
+  return runtime === "lustre" ? new LustreNone() : new RootNone();
 }

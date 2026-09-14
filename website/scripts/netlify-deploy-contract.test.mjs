@@ -270,6 +270,17 @@ describe("Netlify deploy contract", () => {
       /gleam build --target javascript/,
       "build:gleam must compile the Gleam kernel to JavaScript",
     );
+    const rootBuild = buildGleam.indexOf("gleam build --target javascript");
+    const lustreBuild = buildGleam.indexOf("cd watershed_lustre");
+    assert.notEqual(
+      lustreBuild,
+      -1,
+      "build:gleam must also compile watershed_lustre declarations",
+    );
+    assert.ok(
+      rootBuild < lustreBuild,
+      "build the root package before watershed_lustre consumes its generated modules",
+    );
     assert.match(
       generate,
       /tools\/source-snippets/,

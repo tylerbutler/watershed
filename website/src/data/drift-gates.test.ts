@@ -61,10 +61,21 @@ const MANIFEST_READER = "src/lib/snippet.ts";
 /** The one module allowed to import Gleam's Result and Option constructors. */
 const GLEAM_VALUE_HELPER = "src/scripts/demo/gleam-values.ts";
 
-const GLEAM_CONTAINER_CONSTRUCTORS = new Set([
+const GLEAM_CONTAINER_ESCAPES = new Set([
   "Error",
   "None",
   "Ok",
+  "Option$None",
+  "Option$Some",
+  "Option$Some$0",
+  "Option$isNone",
+  "Option$isSome",
+  "Result$Error",
+  "Result$Error$0",
+  "Result$Ok",
+  "Result$Ok$0",
+  "Result$isError",
+  "Result$isOk",
   "Some",
 ]);
 
@@ -242,7 +253,9 @@ const AUTHORED_EXTENSIONS = [".astro", ".ts", ".js", ".mjs"];
 
 /** All authored website source modules under src, minus test files and the
  *  snippet library itself. */
-function findAllAuthoredModules(): string[] {
+function findAllAuthoredModules(
+  { includeTests = false }: { includeTests?: boolean } = {},
+): string[] {
   const srcDir = resolve(websiteRoot, "src");
   const results: string[] = [];
   function walk(dir: string) {
@@ -252,7 +265,10 @@ function findAllAuthoredModules(): string[] {
         walk(full);
       } else if (AUTHORED_EXTENSIONS.some((ext) => entry.name.endsWith(ext))) {
         const rel = relative(websiteRoot, full);
-        if (!GATE_EXEMPT_PATTERNS.some((p) => p.test(rel))) {
+        const exemptPatterns = includeTests
+          ? GATE_EXEMPT_PATTERNS.filter((pattern) => !pattern.test("file.test.ts"))
+          : GATE_EXEMPT_PATTERNS;
+        if (!exemptPatterns.some((pattern) => pattern.test(rel))) {
           results.push(full);
         }
       }
@@ -289,17 +305,62 @@ function gleamContainerImports(source: string): string[] {
       const trimmed = binding.trim();
       if (!trimmed || trimmed.startsWith("type ")) continue;
       const imported = trimmed.split(/\s+as\s+/)[0]?.trim();
-      if (imported && GLEAM_CONTAINER_CONSTRUCTORS.has(imported)) {
+      if (imported && GLEAM_CONTAINER_ESCAPES.has(imported)) {
         found.add(imported);
       }
     }
   }
+
+  const exports =
+    /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\bexport\s+(type\s+)?(?:\{([\s\S]*?)\}|\*(?:\s+as\s+[A-Za-z_$][\w$]*)?)\s+from\s+["']([^"']+)["']/g;
+  while ((match = exports.exec(commentFree)) !== null) {
+    const [, typeOnly, namedBindings, modulePath] = match;
+    if (
+      typeOnly ||
+      !modulePath ||
+      !/(?:\/gleam(?:\/option)?|\/prelude)\.mjs$/.test(modulePath)
+    ) {
+      continue;
+    }
+    if (!namedBindings) {
+      found.add("export *");
+      continue;
+    }
+    for (const binding of namedBindings.split(",")) {
+      const trimmed = binding.trim();
+      if (!trimmed || trimmed.startsWith("type ")) continue;
+      const imported = trimmed.split(/\s+as\s+/)[0]?.trim();
+      if (imported && GLEAM_CONTAINER_ESCAPES.has(imported)) {
+        found.add(imported);
+      }
+    }
+  }
+
+  const dynamicImports =
+    /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\bimport\s*\(\s*["']([^"']+)["']\s*\)/g;
+  while ((match = dynamicImports.exec(commentFree)) !== null) {
+    const modulePath = match[1];
+    if (
+      modulePath &&
+      /(?:\/gleam(?:\/option)?|\/prelude)\.mjs$/.test(modulePath)
+    ) {
+      found.add("dynamic import");
+    }
+  }
+
   return [...found].sort();
 }
 
 describe("Gate: Gleam Result and Option constructors stay behind the typed helper", () => {
+  it("the boundary scan includes TypeScript test modules", () => {
+    const modules = findAllAuthoredModules({ includeTests: true }).map((path) =>
+      relative(websiteRoot, path),
+    );
+    assert.ok(modules.includes("src/scripts/demo/boot.test.ts"));
+  });
+
   it("no authored module imports container constructors directly", () => {
-    for (const absModule of findAllAuthoredModules()) {
+    for (const absModule of findAllAuthoredModules({ includeTests: true })) {
       const relModule = relative(websiteRoot, absModule);
       if (relModule === GLEAM_VALUE_HELPER) continue;
       assert.deepEqual(
@@ -313,7 +374,9 @@ describe("Gate: Gleam Result and Option constructors stay behind the typed helpe
   it("detects direct container constructor imports", () => {
     const fake = `
       import { Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
+      import { Option$Some, Option$isSome } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
       import { Ok } from "../../../build/dev/javascript/watershed/gleam.mjs";
+      import { Result$isOk } from "../../../build/dev/javascript/prelude.mjs";
       import { Error as GleamError } from "../../../build/dev/javascript/watershed/prelude.mjs";
       import * as gleam from "../../../watershed_lustre/build/dev/javascript/watershed/gleam.mjs";
     `;
@@ -321,7 +384,23 @@ describe("Gate: Gleam Result and Option constructors stay behind the typed helpe
       "* as gleam",
       "Error",
       "Ok",
+      "Option$Some",
+      "Option$isSome",
+      "Result$isOk",
       "Some",
+    ]);
+  });
+
+  it("detects re-exports and dynamic imports of container runtimes", () => {
+    const fake = `
+      export { Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
+      export * from "../../../build/dev/javascript/prelude.mjs";
+      const gleam = await import("../../../watershed_lustre/build/dev/javascript/watershed/gleam.mjs");
+    `;
+    assert.deepEqual(gleamContainerImports(fake), [
+      "Some",
+      "dynamic import",
+      "export *",
     ]);
   });
 

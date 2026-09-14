@@ -90,7 +90,7 @@ _test-compile-fail:
 # source-path chip keyboard-focusable — a snippet's citation is a link, so
 # losing its focus ring is a drift of the same system.
 _test-website-snippets: snippets
-    cd website && pnpm check:types && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles && pnpm test:netlify-contract && pnpm test:snippet-config
+    cd website && pnpm check:types && pnpm test:gleam-values && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles && pnpm test:netlify-contract && pnpm test:snippet-config
 
 # Generate the website's snippet manifest from `website/snippets.json`.
 # The output, `website/src/generated/snippets.json`, is ignored rather than

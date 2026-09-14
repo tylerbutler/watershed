@@ -122,6 +122,7 @@ git commit -m "build: emit Gleam TypeScript declarations"
 **Files:**
 - Create: `website/src/scripts/demo/gleam-values.ts`
 - Create: `website/src/scripts/demo/gleam-values.type-test.ts`
+- Create: `website/src/scripts/demo/gleam-values.test.mjs`
 - Modify: `website/package.json`
 - Modify: `website/pnpm-lock.yaml`
 
@@ -136,8 +137,8 @@ git commit -m "build: emit Gleam TypeScript declarations"
   - `expectOk<T, E>(result: Result<T, E>, detail: string): T`
   - `isSome<T>(option: Option<T>): option is Some<T>`
   - `optionValue<T>(option: Option<T>): T | null`
-  - `some<T>(value: T): Option<T>`
-  - `none<T>(): Option<T>`
+  - `some<T>(value: T, runtime?: "root" | "lustre"): Option<T>` with runtime-specific overloads
+  - `none<T>(runtime?: "root" | "lustre"): Option<T>` with runtime-specific overloads
   - `ResultValue<R>`: the `Ok` value type from a generated `Result`
 
 - [ ] **Step 1: Install TypeScript explicitly**
@@ -231,6 +232,7 @@ type Result<T, E> = RootResult<T, E> | LustreResult<T, E>;
 type Ok<T, E> = RootOk<T, E> | LustreOk<T, E>;
 type Option<T> = RootOption<T> | LustreOption<T>;
 type Some<T> = RootSome<T> | LustreSome<T>;
+type GleamRuntime = "root" | "lustre";
 
 export type ResultValue<R> =
   R extends RootResult<infer T, infer _E> ? T
@@ -262,12 +264,21 @@ export function optionValue<T>(option: Option<T>): T | null {
   return isSome(option) ? option[0] : null;
 }
 
-export function some<T>(value: T): RootOption<T> {
-  return new RootSome(value);
+export function some<T>(value: T, runtime?: "root"): RootOption<T>;
+export function some<T>(value: T, runtime: "lustre"): LustreOption<T>;
+export function some<T>(
+  value: T,
+  runtime: GleamRuntime = "root",
+): RootOption<T> | LustreOption<T> {
+  return runtime === "lustre" ? new LustreSome(value) : new RootSome(value);
 }
 
-export function none<T>(): RootOption<T> {
-  return new RootNone();
+export function none<T>(runtime?: "root"): RootOption<T>;
+export function none<T>(runtime: "lustre"): LustreOption<T>;
+export function none<T>(
+  runtime: GleamRuntime = "root",
+): RootOption<T> | LustreOption<T> {
+  return runtime === "lustre" ? new LustreNone() : new RootNone();
 }
 ```
 
@@ -278,12 +289,50 @@ Run the command from Step 3 again.
 Expected: PASS. TypeScript consumes all three `@ts-expect-error` directives,
 which proves that `Result` cannot enter the option helper.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 6: Add and run the runtime identity contract**
+
+Create `website/src/scripts/demo/gleam-values.test.mjs`:
+
+```js
+import test from "node:test";
+import assert from "node:assert/strict";
+
+import { unwrap as rootUnwrap } from "../../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
+import { unwrap as lustreUnwrap } from "../../../../watershed_lustre/build/dev/javascript/gleam_stdlib/gleam/option.mjs";
+import { none, some } from "./gleam-values.ts";
+
+test("constructs Options with the selected Gleam runtime", () => {
+  assert.equal(rootUnwrap(some("root"), "fallback"), "root");
+  assert.equal(rootUnwrap(none(), "fallback"), "fallback");
+  assert.equal(
+    lustreUnwrap(some("lustre", "lustre"), "fallback"),
+    "lustre",
+  );
+  assert.equal(lustreUnwrap(none("lustre"), "fallback"), "fallback");
+});
+```
+
+Add:
+
+```json
+"test:gleam-values": "node --strip-types --test src/scripts/demo/gleam-values.test.mjs",
+```
+
+Run:
+
+```bash
+cd website && pnpm test:gleam-values
+```
+
+Expected: 1 test passes.
+
+- [ ] **Step 7: Commit**
 
 ```bash
 git add website/package.json website/pnpm-lock.yaml \
   website/src/scripts/demo/gleam-values.ts \
-  website/src/scripts/demo/gleam-values.type-test.ts
+  website/src/scripts/demo/gleam-values.type-test.ts \
+  website/src/scripts/demo/gleam-values.test.mjs
 git commit -m "feat(site): add typed Gleam value helpers"
 ```
 
@@ -857,7 +906,7 @@ git commit -m "refactor(site): type the shared demo"
 - Produces:
   - `build:gleam`: fresh JavaScript and declaration generation for both local Gleam packages.
   - `check:types`: `build:gleam`, snippet generation, `astro sync`, then `tsc --noEmit`.
-  - a drift gate that rejects raw Gleam container constructor imports outside `gleam-values.ts`.
+  - a drift gate that rejects raw Gleam container constructors, generated container factories and predicates, namespace imports, re-exports, and dynamic imports outside `gleam-values.ts`.
 
 - [ ] **Step 1: Write the drift-gate tests first**
 
@@ -898,10 +947,21 @@ Add:
 
 ```ts
 const GLEAM_VALUE_HELPER = "src/scripts/demo/gleam-values.ts";
-const GLEAM_CONTAINER_CONSTRUCTORS = new Set([
+const GLEAM_CONTAINER_ESCAPES = new Set([
   "Error",
   "None",
   "Ok",
+  "Option$None",
+  "Option$Some",
+  "Option$Some$0",
+  "Option$isNone",
+  "Option$isSome",
+  "Result$Error",
+  "Result$Error$0",
+  "Result$Ok",
+  "Result$Ok$0",
+  "Result$isError",
+  "Result$isOk",
   "Some",
 ]);
 
@@ -932,7 +992,7 @@ function gleamContainerImports(source: string): string[] {
       const trimmed = binding.trim();
       if (!trimmed || trimmed.startsWith("type ")) continue;
       const imported = trimmed.split(/\s+as\s+/)[0]?.trim();
-      if (imported && GLEAM_CONTAINER_CONSTRUCTORS.has(imported)) {
+      if (imported && GLEAM_CONTAINER_ESCAPES.has(imported)) {
         found.add(imported);
       }
     }
@@ -942,8 +1002,10 @@ function gleamContainerImports(source: string): string[] {
 ```
 
 Extend the authored-module gate. Skip only
-`src/scripts/demo/gleam-values.ts`; every other authored website module must
-return an empty list from `gleamContainerImports`.
+`src/scripts/demo/gleam-values.ts` and the drift-gate fixture itself. Include
+test modules in this policy. Every other authored website module must return an
+empty list from `gleamContainerImports`. Apply the same runtime-module check to
+named re-exports, namespace re-exports, and dynamic imports.
 
 - [ ] **Step 4: Run the drift test**
 
@@ -982,7 +1044,7 @@ Change the website test recipe in `justfile` to include `pnpm check:types`:
 
 ```just
 _test-website-snippets: snippets
-    cd website && pnpm check:types && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles && pnpm test:netlify-contract && pnpm test:snippet-config
+    cd website && pnpm check:types && pnpm test:gleam-values && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles && pnpm test:netlify-contract && pnpm test:snippet-config
 ```
 
 - [ ] **Step 7: Verify the source and build gates**
