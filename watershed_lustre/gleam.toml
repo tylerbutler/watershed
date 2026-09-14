@@ -8,6 +8,9 @@ repository = { type = "github", user = "tylerbutler", repo = "watershed" }
 gleam = ">= 1.11.0"
 target = "javascript"
 
+[javascript]
+typescript_declarations = true
+
 [dependencies]
 gleam_stdlib = ">= 0.62.0 and < 2.0.0"
 gleam_json = ">= 3.0.0 and < 4.0.0"
