@@ -29,17 +29,167 @@ import * as pnLattice from "../../../build/dev/javascript/lattice_counters/latti
 import * as gCounter from "../../../build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
 import * as replicaId from "../../../build/dev/javascript/lattice_core/lattice_core/replica_id.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
-import { None, Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
-import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
+import * as signet from "../../../build/dev/javascript/signet/signet/types.mjs";
+import * as message from "../../../build/dev/javascript/spillway/spillway/message.mjs";
+import * as spillway from "../../../build/dev/javascript/spillway/spillway/types.mjs";
+import {
+  toList,
+  type List,
+} from "../../../build/dev/javascript/watershed/gleam.mjs";
 import { createFieldNotes } from "./tutorial.js";
 import { createFlowLayer } from "./demo/flow-dots.ts";
 import { createLatencyControls } from "./demo/controls.ts";
 import { createOpLog } from "./demo/op-log.ts";
-import { createSequencer } from "./demo/sequencer.ts";
+import { createSequencer, type SeqClient } from "./demo/sequencer.ts";
+import {
+  expectOk,
+  isOk,
+  none,
+  optionValue,
+  resultError,
+  type ResultValue,
+  resultValue,
+  some,
+} from "./demo/gleam-values.ts";
 import { lwwRaceTimestamp } from "./demo/lww-register.js";
 
-const GAUGES = ["mill-race", "kettle-run", "low-ford"];
-const INITIAL = [
+type ClientId = "a" | "b" | "c";
+type DdsId =
+  | "map"
+  | "counter"
+  | "gcounter"
+  | "pn"
+  | "ormap"
+  | "or-map-mv-register"
+  | "lww-map"
+  | "lww-register"
+  | "mv-register"
+  | "orset"
+  | "gset"
+  | "twopset"
+  | "claims"
+  | "registers"
+  | "ordered"
+  | "tasks"
+  | "pact";
+type OrMapMode = "tally" | "set";
+type OrMapScenario = "union" | "member" | "key" | "readd" | "empty";
+type JsonData =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonData[]
+  | { [key: string]: JsonData };
+type ListItem<T> = T extends { toArray(): Array<infer Item> } ? Item : never;
+type TaskPendingList = List<taskManagerKernel.PendingOperation$>;
+type CounterIncrement = ResultValue<ReturnType<typeof runtimeCore.increment>>;
+type CounterOutbound = ListItem<CounterIncrement[2]>;
+type CounterDemoOperation = {
+  amount: number;
+  outbound: CounterOutbound;
+  contents: ReturnType<typeof toDynamic>;
+};
+type EpochOperation<T> = {
+  operation: T;
+  messageId: number;
+  epoch: number;
+};
+type OrMapDemoOperation = EpochOperation<orMapKernel.OrMapOperation$> & {
+  mode: OrMapMode;
+};
+type TaskDemoOperation = {
+  op: taskManagerKernel.TaskManagerOperation$;
+  messageId: number;
+};
+type OperationByDds = {
+  map: mapKernel.MapOperation$;
+  counter: CounterDemoOperation;
+  gcounter: gCounterKernel.GCounterOperation$;
+  pn: pnKernel.PnCounterOperation$;
+  ormap: OrMapDemoOperation;
+  "or-map-mv-register": EpochOperation<orMapKernel.OrMapOperation$>;
+  "lww-map": EpochOperation<lwwMapKernel.LwwMapOperation$>;
+  "lww-register": EpochOperation<lwwRegisterKernel.LwwRegisterOperation$>;
+  "mv-register": EpochOperation<mvKernel.MvRegisterOperation$>;
+  orset: orSetKernel.OrSetOperation$;
+  gset: gSetKernel.GSetOperation$;
+  twopset: twoPSetKernel.TwoPSetOperation$;
+  claims: claimsKernel.ClaimOperation$;
+  registers: registerKernel.WriteOperation$;
+  ordered: orderedKernel.OrderedOperation$;
+  tasks: TaskDemoOperation;
+  pact: pactKernel.PactMapOperation$;
+};
+type OperationEnvelope = {
+  [K in DdsId]: { ddsId: K; op: OperationByDds[K] };
+}[DdsId];
+type ReplayDdsId =
+  | "gcounter"
+  | "pn"
+  | "ormap"
+  | "or-map-mv-register"
+  | "lww-map"
+  | "lww-register"
+  | "mv-register"
+  | "orset"
+  | "gset"
+  | "twopset";
+type ReplayOperationEnvelope = {
+  [K in ReplayDdsId]: { ddsId: K; op: OperationByDds[K] };
+}[ReplayDdsId];
+type LastOperation<K extends DdsId> = {
+  op: OperationByDds[K];
+  sn: number;
+};
+
+interface DemoClient extends SeqClient {
+  id: ClientId;
+  map: ReturnType<typeof mapKernel.from_sequenced>;
+  gcounter: ReturnType<typeof gCounterStateFromSummary>;
+  counterClientId: string;
+  counterCore: ReturnType<typeof bootstrapCounterCore>["core"];
+  pn: ResultValue<ReturnType<typeof pnKernel.from_summary>>;
+  "lww-register": ReturnType<typeof lwwRegisterFromBaseline>;
+  "lww-map": ReturnType<typeof lwwMapFromSummary>;
+  "mv-register": ReturnType<typeof mvFromBaseline>;
+  ormap: ResultValue<ReturnType<typeof orMapKernel.from_summary>>;
+  "or-map-mv-register": ReturnType<typeof orMapMvFromBaseline>;
+  orset: ResultValue<ReturnType<typeof orSetKernel.from_summary>>;
+  gset: ResultValue<ReturnType<typeof gSetKernel.from_summary>>;
+  twopset: ResultValue<ReturnType<typeof twoPSetKernel.from_summary>>;
+  claims: ReturnType<typeof claimsBaseline>;
+  registers: ReturnType<typeof registersBaseline>;
+  ordered: ReturnType<typeof orderedBaseline>;
+  taskmanager: ReturnType<typeof taskManagerBaseline>;
+  pact: ReturnType<typeof pactBaseline>;
+  el: HTMLElement;
+  lastArrival: number;
+  lastSeq: number;
+}
+
+const CLIENT_IDS: readonly ClientId[] = ["a", "b", "c"];
+const DDS_IDS: readonly DdsId[] = [
+  "map",
+  "counter",
+  "gcounter",
+  "pn",
+  "ormap",
+  "or-map-mv-register",
+  "lww-map",
+  "lww-register",
+  "mv-register",
+  "orset",
+  "gset",
+  "twopset",
+  "claims",
+  "registers",
+  "ordered",
+  "tasks",
+  "pact",
+];
+const GAUGES = ["mill-race", "kettle-run", "low-ford"] as const;
+const INITIAL: Array<[string, number]> = [
   ["mill-race", 24],
   ["kettle-run", 61],
   ["low-ford", 42],
@@ -47,38 +197,80 @@ const INITIAL = [
 const COUNTER_BASE = 120;
 const COUNTER_ADDRESS = "sandbags-counter";
 const GCOUNTER_BASE = 18;
-const GCOUNTER_BASE_BY_REPLICA = { a: 9, b: 9 };
+const GCOUNTER_BASE_BY_REPLICA: Partial<Record<ClientId, number>> = { a: 9, b: 9 };
 // The PN counter baseline: 74 yd³ of fill placed, 30 yd³ cut — net +44.
 // Built as a real CRDT summary under a "survey" replica id, then loaded per
 // client via `from_summary`, the same path a reconnecting client takes.
 const PN_FILL_BASE = 74;
 const PN_CUT_BASE = 30;
 const PN_BASE = PN_FILL_BASE - PN_CUT_BASE;
-const STOCKPILES = ["spoil-north", "borrow-pit-7", "wash-fill"];
-const ORMAP_BASELINE = [
+const STOCKPILES = ["spoil-north", "borrow-pit-7", "wash-fill"] as const;
+const ORMAP_BASELINE: Array<[string, number]> = [
   ["spoil-north", 18],
   ["borrow-pit-7", -6],
   ["wash-fill", 12],
 ];
-const MARKERS = ["north-stake", "sluice-tag", "borrow-flag"];
-const ORSET_BASELINE = ["north-stake", "sluice-tag"];
-const BENCHMARKS = ["BM-17", "BM-22", "BM-31"];
-const GSET_BASELINE = ["BM-17"];
-const RETIRED_MARKERS = ["stake-3", "gate-pin", "silt-flag"];
-const TWO_P_SET_ACTIVE_BASELINE = ["stake-3"];
-const TWO_P_SET_RETIRED_BASELINE = ["silt-flag"];
+const MARKERS = ["north-stake", "sluice-tag", "borrow-flag"] as const;
+const ORSET_BASELINE = ["north-stake", "sluice-tag"] as const;
+const BENCHMARKS = ["BM-17", "BM-22", "BM-31"] as const;
+const GSET_BASELINE = ["BM-17"] as const;
+const RETIRED_MARKERS = ["stake-3", "gate-pin", "silt-flag"] as const;
+const TWO_P_SET_ACTIVE_BASELINE = ["stake-3"] as const;
+const TWO_P_SET_RETIRED_BASELINE = ["silt-flag"] as const;
 
-function pnBaselineSummary() {
-  let base = pnLattice.new$(replicaId.new$("survey-baseline"));
-  const incremented = pnLattice.increment(base, PN_FILL_BASE);
-  if (!incremented.isOk()) throw new Error("PN-counter baseline increment failed");
-  base = incremented[0];
-  const decremented = pnLattice.decrement(base, PN_CUT_BASE);
-  if (!decremented.isOk()) throw new Error("PN-counter baseline decrement failed");
-  return json.to_string(pnLattice.to_json(decremented[0]));
+function required<T extends Element>(
+  root: ParentNode,
+  selector: string,
+): T {
+  const element = root.querySelector<T>(selector);
+  if (!element) throw new Error(`Structure demo markup is missing ${selector}`);
+  return element;
 }
 
-function mvBaselineSummary(epoch) {
+function requiredClosest<T extends Element>(
+  element: Element,
+  selector: string,
+): T {
+  const match = element.closest<T>(selector);
+  if (!match) throw new Error(`Structure demo markup is missing ${selector}`);
+  return match;
+}
+
+function rowKey(element: Element): string {
+  const key = requiredClosest<HTMLTableRowElement>(element, "tr").dataset.key;
+  if (key === undefined) {
+    throw new Error("Structure demo row is missing data-key");
+  }
+  return key;
+}
+
+function isDdsId(value: string): value is DdsId {
+  return DDS_IDS.some((id) => id === value);
+}
+
+function isOrMapMode(value: string): value is OrMapMode {
+  return value === "tally" || value === "set";
+}
+
+function isOrMapScenario(value: string): value is OrMapScenario {
+  return value === "union" || value === "member" || value === "key"
+    || value === "readd" || value === "empty";
+}
+
+function pnBaselineSummary(): string {
+  let base = pnLattice.new$(replicaId.new$("survey-baseline"));
+  base = expectOk(
+    pnLattice.increment(base, PN_FILL_BASE),
+    "PN-counter baseline increment failed",
+  );
+  const decremented = expectOk(
+    pnLattice.decrement(base, PN_CUT_BASE),
+    "PN-counter baseline decrement failed",
+  );
+  return json.to_string(pnLattice.to_json(decremented));
+}
+
+function mvBaselineSummary(epoch: number): string {
   const [base] = mvKernel.p2p_set(
     mvKernel.new$(replicaId.new$(`survey-mv-${epoch}`)),
     "Survey datum",
@@ -86,52 +278,85 @@ function mvBaselineSummary(epoch) {
   return json.to_string(mvKernel.summary(base));
 }
 
-function mvFromBaseline(baseline, id, epoch) {
-  const loaded = mvKernel.from_summary(
-    baseline, replicaId.new$(`client-${id}-mv-${epoch}`),
+function mvFromBaseline(
+  baseline: string,
+  id: ClientId,
+  epoch: number,
+): mvKernel.MvRegisterState$ {
+  return expectOk(
+    mvKernel.from_summary(
+      baseline,
+      replicaId.new$(`client-${id}-mv-${epoch}`),
+    ),
+    "MV-register baseline summary failed to load",
   );
-  if (!loaded.isOk()) throw new Error("MV-register baseline summary failed to load");
-  return loaded[0];
 }
 
-function lwwRegisterBaselineSummary() {
-  const seeded = lwwRegisterKernel.p2p_set(
-    lwwRegisterKernel.new$(replicaId.new$("survey-lww")),
-    "Survey datum",
-    100,
+function lwwRegisterBaselineSummary(): string {
+  const [state] = expectOk(
+    lwwRegisterKernel.p2p_set(
+      lwwRegisterKernel.new$(replicaId.new$("survey-lww")),
+      "Survey datum",
+      100,
+    ),
+    "LWW-register baseline write failed",
   );
-  if (!seeded.isOk()) throw new Error("LWW-register baseline write failed");
-  return json.to_string(lwwRegisterKernel.summary(seeded[0][0]));
+  return json.to_string(lwwRegisterKernel.summary(state));
 }
 
-function lwwRegisterFromBaseline(baseline, id, epoch) {
-  const loaded = lwwRegisterKernel.from_summary(
-    baseline,
-    replicaId.new$(`client-${id}-lww-${epoch}`),
+function lwwRegisterFromBaseline(
+  baseline: string,
+  id: ClientId,
+  epoch: number,
+): lwwRegisterKernel.LwwRegisterState$ {
+  return expectOk(
+    lwwRegisterKernel.from_summary(
+      baseline,
+      replicaId.new$(`client-${id}-lww-${epoch}`),
+    ),
+    "LWW-register baseline summary failed to load",
   );
-  if (!loaded.isOk()) throw new Error("LWW-register baseline summary failed to load");
-  return loaded[0];
 }
 
-function lwwMapBaselineSummary() {
-  const seeded = lwwMapKernel.p2p_set(
-    lwwMapKernel.new$(replicaId.new$("survey-lww-map")),
-    "gate-mode", "surveyed", 100,
+function lwwMapBaselineSummary(): string {
+  const [state] = expectOk(
+    lwwMapKernel.p2p_set(
+      lwwMapKernel.new$(replicaId.new$("survey-lww-map")),
+      "gate-mode",
+      "surveyed",
+      100,
+    ),
+    "LWWMap baseline write failed",
   );
-  if (!seeded.isOk()) throw new Error("LWWMap baseline write failed");
-  return json.to_string(lwwMapKernel.summary(seeded[0][0]));
+  return json.to_string(lwwMapKernel.summary(state));
 }
 
-function lwwMapFromSummary(summary, id, epoch) {
-  const loaded = lwwMapKernel.from_summary(
-    summary, replicaId.new$(`client-${id}-lww-map-${epoch}`),
+function lwwMapFromSummary(
+  summary: string,
+  id: ClientId,
+  epoch: number,
+): lwwMapKernel.LwwMapState$ {
+  return expectOk(
+    lwwMapKernel.from_summary(
+      summary,
+      replicaId.new$(`client-${id}-lww-map-${epoch}`),
+    ),
+    "LWWMap summary failed to load",
   );
-  if (!loaded.isOk()) throw new Error("LWWMap summary failed to load");
-  return loaded[0];
 }
 
-function lwwMapMetadata(state) {
-  return JSON.parse(json.to_string(lwwMapKernel.summary(state))).state.entries
+function lwwMapMetadata(state: lwwMapKernel.LwwMapState$) {
+  const summary: {
+    state: {
+      entries: Array<{
+        key: string;
+        value: string | null;
+        timestamp: number;
+        provenance: { writer: string };
+      }>;
+    };
+  } = JSON.parse(json.to_string(lwwMapKernel.summary(state)));
+  return summary.state.entries
     .map((entry) => ({
       ...entry,
       value: entry.value === null ? null : JSON.parse(entry.value).state.value,
@@ -139,61 +364,93 @@ function lwwMapMetadata(state) {
     .sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
 }
 
-function gCounterBaselineSummary() {
+function gCounterBaselineSummary(): string {
   let base = gCounter.new$(replicaId.new$("survey-baseline"));
   for (const [id, amount] of Object.entries(GCOUNTER_BASE_BY_REPLICA)) {
     const replica = gCounter.new$(replicaId.new$(`client-${id}`));
-    const incremented = gCounter.increment(replica, amount);
-    if (!incremented.isOk()) throw new Error("G-counter baseline increment failed");
-    base = gCounter.merge(base, incremented[0]);
+    base = gCounter.merge(
+      base,
+      expectOk(
+        gCounter.increment(replica, amount),
+        "G-counter baseline increment failed",
+      ),
+    );
   }
   return json.to_string(gCounter.to_json(base));
 }
 
-function gCounterStateFromSummary(summary, clientId) {
-  const loaded = gCounterKernel.from_summary(summary, replicaId.new$(`client-${clientId}`));
-  if (!loaded.isOk()) throw new Error("G-counter baseline summary failed to load");
-  return loaded[0];
+function gCounterStateFromSummary(
+  summary: string,
+  clientId: ClientId,
+): gCounterKernel.GCounterState$ {
+  return expectOk(
+    gCounterKernel.from_summary(
+      summary,
+      replicaId.new$(`client-${clientId}`),
+    ),
+    "G-counter baseline summary failed to load",
+  );
 }
 
-function orMapBaselineSummary() {
+function orMapBaselineSummary(): string {
   let base = orMapKernel.new$(
     replicaId.new$("survey-baseline"),
     new orMapKernel.TallyMode(),
   );
   for (const [key, amount] of ORMAP_BASELINE) {
-    const result = orMapKernel.increment(base, key, amount);
-    if (!result.isOk()) throw new Error("or-map baseline increment failed");
-    const [next, _events, op] = result[0];
-    const acked = orMapKernel.ack_local(next, op);
-    if (!acked.isOk()) throw new Error("or-map baseline ack failed");
-    base = acked[0];
+    const [next, _events, operation] = expectOk(
+      orMapKernel.increment(base, key, amount),
+      "or-map baseline increment failed",
+    );
+    base = expectOk(
+      orMapKernel.ack_local(next, operation),
+      "or-map baseline ack failed",
+    );
   }
   return json.to_string(orMapKernel.summary(base));
 }
 
-function orMapMvBaselineSummary(epoch) {
-  const seeded = orMapKernel.p2p_set_mv_register(
-    orMapKernel.new$(replicaId.new$(`survey-or-map-mv-${epoch}`), new orMapKernel.MvRegisterMode()),
-    "gate-mode", "surveyed",
+function orMapMvBaselineSummary(epoch: number): string {
+  const [state] = expectOk(
+    orMapKernel.p2p_set_mv_register(
+      orMapKernel.new$(
+        replicaId.new$(`survey-or-map-mv-${epoch}`),
+        new orMapKernel.MvRegisterMode(),
+      ),
+      "gate-mode",
+      "surveyed",
+    ),
+    "OR-map MV-register baseline write failed",
   );
-  if (!seeded.isOk()) throw new Error("OR-map MV-register baseline write failed", { cause: seeded[0] });
-  return json.to_string(orMapKernel.summary(seeded[0][0]));
+  return json.to_string(orMapKernel.summary(state));
 }
 
-function orMapMvFromBaseline(baseline, id, epoch) {
-  const loaded = orMapKernel.from_summary(
-    baseline, replicaId.new$(`client-${id}-or-map-mv-${epoch}`),
+function orMapMvFromBaseline(
+  baseline: string,
+  id: ClientId,
+  epoch: number,
+): orMapKernel.OrMapState$ {
+  return expectOk(
+    orMapKernel.from_summary(
+      baseline,
+      replicaId.new$(`client-${id}-or-map-mv-${epoch}`),
+    ),
+    "OR-map MV-register baseline failed to load",
   );
-  if (!loaded.isOk()) throw new Error("OR-map MV-register baseline failed to load", { cause: loaded[0] });
-  return loaded[0];
 }
 
-function orMapMvEntries(entries) {
-  return entries.toArray().map(([key, value]) => [key, value[0].toArray()]);
+function orMapMvEntries(
+  entries: ReturnType<typeof orMapKernel.entries>,
+): Array<[string, string[]]> {
+  return entries.toArray().map(([key, value]) => {
+    if (!(value instanceof orMapKernel.MvRegister)) {
+      throw new Error(`OR-map MV-register entry ${key} has the wrong value mode`);
+    }
+    return [key, value[0].toArray()];
+  });
 }
 
-function canonicalMetadata(value) {
+function canonicalMetadata(value: JsonData): JsonData {
   if (Array.isArray(value)) {
     return value
       .map(canonicalMetadata)
@@ -210,16 +467,26 @@ function canonicalMetadata(value) {
   return value;
 }
 
-function compareCanonical(a, b) {
+function compareCanonical(a: string, b: string): number {
   return a < b ? -1 : a > b ? 1 : 0;
 }
 
-function canonicalEncodedJson(source) {
+function canonicalEncodedJson(source: string): string {
   return JSON.stringify(canonicalMetadata(JSON.parse(source)));
 }
 
-function canonicalOrMapMvSummary(state) {
-  const summary = JSON.parse(json.to_string(orMapKernel.summary(state)));
+function canonicalOrMapMvSummary(state: orMapKernel.OrMapState$): string {
+  const summary: {
+    state: {
+      entries: Array<{
+        membership: string;
+        value: string;
+        [key: string]: JsonData;
+      }>;
+      [key: string]: JsonData;
+    };
+    [key: string]: JsonData;
+  } = JSON.parse(json.to_string(orMapKernel.summary(state)));
   return JSON.stringify(canonicalMetadata({
     ...summary,
     state: {
@@ -233,45 +500,50 @@ function canonicalOrMapMvSummary(state) {
   }));
 }
 
-function orSetBaselineSummary() {
+function orSetBaselineSummary(): string {
   let base = orSetKernel.new$(replicaId.new$("survey-baseline"));
   for (const element of ORSET_BASELINE) {
     const [next, _events, op] = orSetKernel.add(base, element);
-    const acked = orSetKernel.ack_local(next, op);
-    if (!acked.isOk()) throw new Error("or-set baseline ack failed");
-    base = acked[0];
+    base = expectOk(
+      orSetKernel.ack_local(next, op),
+      "or-set baseline ack failed",
+    );
   }
   return json.to_string(orSetKernel.summary(base));
 }
 
-function gSetBaselineSummary() {
+function gSetBaselineSummary(): string {
   let base = gSetKernel.new$();
   for (const element of GSET_BASELINE) {
     const [next, _events, op] = gSetKernel.add(base, element);
-    const acked = gSetKernel.ack_local(next, op);
-    if (!acked.isOk()) throw new Error("g-set baseline ack failed");
-    base = acked[0];
+    base = expectOk(
+      gSetKernel.ack_local(next, op),
+      "g-set baseline ack failed",
+    );
   }
   return json.to_string(gSetKernel.summary(base));
 }
 
-function twoPSetBaselineSummary() {
+function twoPSetBaselineSummary(): string {
   let base = twoPSetKernel.new$();
   for (const element of TWO_P_SET_ACTIVE_BASELINE) {
     const [next, _events, op] = twoPSetKernel.add(base, element);
-    const acked = twoPSetKernel.ack_local(next, op);
-    if (!acked.isOk()) throw new Error("2P-set baseline add ack failed");
-    base = acked[0];
+    base = expectOk(
+      twoPSetKernel.ack_local(next, op),
+      "2P-set baseline add ack failed",
+    );
   }
   for (const element of TWO_P_SET_RETIRED_BASELINE) {
     let result = twoPSetKernel.add(base, element);
-    let acked = twoPSetKernel.ack_local(result[0], result[2]);
-    if (!acked.isOk()) throw new Error("2P-set retired add ack failed");
-    base = acked[0];
+    base = expectOk(
+      twoPSetKernel.ack_local(result[0], result[2]),
+      "2P-set retired add ack failed",
+    );
     result = twoPSetKernel.remove(base, element);
-    acked = twoPSetKernel.ack_local(result[0], result[2]);
-    if (!acked.isOk()) throw new Error("2P-set retired remove ack failed");
-    base = acked[0];
+    base = expectOk(
+      twoPSetKernel.ack_local(result[0], result[2]),
+      "2P-set retired remove ack failed",
+    );
   }
   return json.to_string(twoPSetKernel.summary(base));
 }
@@ -279,27 +551,39 @@ function twoPSetBaselineSummary() {
 // The claims baseline: three duty stations, one already claimed by the
 // survey crew at seq 0, loaded per client via `from_summary` — sequence
 // numbers persist so first-writer-wins keeps working after load.
-const SLOTS = ["north-levee", "spillway-gate", "pump-house"];
-const CLAIMANTS = { a: "A", b: "B", c: "C" };
-const CLAIMS_BASELINE = [["pump-house", "Survey", 0]];
-const REGISTERS = ["north-bench", "gate-setpoint", "pump-mode"];
-const REGISTER_VALUES = { a: "A revision", b: "B revision", c: "C revision" };
-const ORDERED_BASELINE = ["grade-stakes", "pump-check"];
-const ORDERED_ADDS = ["silt-sample", "crest-photo", "gate-oiling"];
-const TASKS = ["sluice-inspection", "pump-watch", "crest-walk"];
-const TASK_BASELINE = [["sluice-inspection", [1]]];
-const PACT_KEYS = ["datum-grid", "gate-policy", "inspection-window"];
-const PACT_VALUES = { a: "A proposal", b: "B proposal", c: "C proposal" };
-const CLIENT_NUMBERS = { a: 1, b: 2, c: 3 };
-const CLIENT_NAMES = { 1: "A", 2: "B", 3: "C" };
+const SLOTS = ["north-levee", "spillway-gate", "pump-house"] as const;
+const CLAIMANTS: Record<ClientId, string> = { a: "A", b: "B", c: "C" };
+const CLAIMS_BASELINE: Array<[string, string, number]> = [
+  ["pump-house", "Survey", 0],
+];
+const REGISTERS = ["north-bench", "gate-setpoint", "pump-mode"] as const;
+const REGISTER_VALUES: Record<ClientId, string> = {
+  a: "A revision",
+  b: "B revision",
+  c: "C revision",
+};
+const ORDERED_BASELINE = ["grade-stakes", "pump-check"] as const;
+const ORDERED_ADDS = ["silt-sample", "crest-photo", "gate-oiling"] as const;
+const TASKS = ["sluice-inspection", "pump-watch", "crest-walk"] as const;
+const TASK_BASELINE: Array<[string, number[]]> = [
+  ["sluice-inspection", [1]],
+];
+const PACT_KEYS = ["datum-grid", "gate-policy", "inspection-window"] as const;
+const PACT_VALUES: Record<ClientId, string> = {
+  a: "A proposal",
+  b: "B proposal",
+  c: "C proposal",
+};
+const CLIENT_NUMBERS: Record<ClientId, number> = { a: 1, b: 2, c: 3 };
+const CLIENT_NAMES: Record<number, string> = { 1: "A", 2: "B", 3: "C" };
 
-function claimsBaseline() {
+function claimsBaseline(): claimsKernel.ClaimsState$ {
   return claimsKernel.from_summary(
     toList(CLAIMS_BASELINE.map(([k, who, seq]) => [k, json.string(who), seq])),
   );
 }
 
-function registersBaseline() {
+function registersBaseline(): registerKernel.RegisterState$ {
   const version = new registerKernel.VersionedValue(json.string("Survey"), 0);
   return registerKernel.from_summary(
     toList([
@@ -308,56 +592,80 @@ function registersBaseline() {
   );
 }
 
-function orderedBaseline(items = ORDERED_BASELINE) {
+function orderedBaseline(
+  items: readonly string[] = ORDERED_BASELINE,
+): orderedKernel.OrderedState$ {
   return orderedKernel.from_summary(
     toList(items.map((item) => json.string(item))),
     toList([]),
   );
 }
 
-function taskManagerBaseline() {
+function taskManagerBaseline(): taskManagerKernel.TaskManagerState$ {
   return taskManagerKernel.from_summary(
     toList(TASK_BASELINE.map(([task, queue]) => [task, toList(queue)])),
   );
 }
 
-function pactBaseline() {
+function pactBaseline(): pactKernel.PactMapState$ {
   return pactKernel.from_summary(
     toList([
       [
         "datum-grid",
         new pactKernel.Pact(
-          new Some(
-            new pactKernel.Accepted(new Some(json.string("Survey datum")), 0),
+          some(
+            new pactKernel.Accepted(some(json.string("Survey datum")), 0),
           ),
-          new None(),
+          none(),
         ),
       ],
     ]),
   );
 }
 
-function toDynamic(value) {
+function toDynamic(value: json.Json$) {
   const parsed = json.parse(json.to_string(value), decode.dynamic);
-  if (!parsed.isOk()) throw new Error("failed to convert JSON to Dynamic");
-  return parsed[0];
+  return expectOk(parsed, "failed to convert JSON to Dynamic");
 }
 
-function bootstrapCounterCore(clientId) {
+function bootstrapCounterCore(clientId: ClientId) {
   const summary = new runtimeCore.Summary(
     0,
     toList([[COUNTER_ADDRESS, new channel.CounterSnapshot(COUNTER_BASE)]]),
     toList([]),
   );
-  const connected = {
-    client_id: `demo-client-${clientId}`,
-    initial_clients: toList([]),
-    initial_messages: toList([]),
-    checkpoint_sequence_number: new Some(0),
-  };
-  const bootstrapped = runtimeCore.bootstrap(connected, new Some(summary));
-  if (!bootstrapped.isOk()) throw new Error("counter runtime bootstrap failed");
-  const outcome = bootstrapped[0];
+  const connected = new message.ConnectedMessage(
+    new signet.TokenClaims(
+      "demo",
+      toList([new signet.DocRead(), new signet.DocWrite()]),
+      "demo",
+      new signet.User("demo-user", gdict.new$()),
+      0,
+      0,
+      "1.0",
+      none(),
+    ),
+    `demo-client-${clientId}`,
+    true,
+    16_000,
+    new spillway.WriteMode(),
+    new spillway.ServiceConfiguration(65_536, 16_000, none(), none()),
+    toList([]),
+    toList([]),
+    toList([]),
+    toList(["^0.1.0"]),
+    gdict.new$(),
+    "^0.1.0",
+    none(),
+    some(0),
+    none(),
+    none(),
+    none(),
+  );
+  const outcome = expectOk(
+    runtimeCore.bootstrap(connected, some(summary)),
+    "counter runtime bootstrap failed",
+  );
   if (!(outcome instanceof runtimeCore.Complete)) {
     throw new Error("counter runtime bootstrap requested catch-up unexpectedly");
   }
@@ -367,10 +675,11 @@ function bootstrapCounterCore(clientId) {
   };
 }
 
-function counterPending(client) {
+function counterPending(client: DemoClient): { count: number; delta: number } {
   let count = 0;
   let delta = 0;
   for (const entry of client.counterCore.in_flight.toArray()) {
+    if (!(entry instanceof runtimeCore.InFlightOperation)) continue;
     if (entry.address !== COUNTER_ADDRESS) continue;
     if (!(entry.operation instanceof channel.CounterOperation)) continue;
     count += 1;
@@ -379,49 +688,49 @@ function counterPending(client) {
   return { count, delta };
 }
 
-function counterValue(client) {
+function counterValue(client: DemoClient): number {
   const value = runtimeCore.counter_value(client.counterCore, COUNTER_ADDRESS);
-  return value.isOk() ? value[0] : COUNTER_BASE;
+  return resultValue(value) ?? COUNTER_BASE;
 }
 
 const reducedMotion = window.matchMedia("(prefers-reduced-motion: reduce)");
 
-function jsonInt(n) {
+function jsonInt(n: number): json.Json$ {
   return json.int(n);
 }
 
-function readInt(optionValue) {
-  // `get` returns Option(Json); Some stores its payload at [0]. Json values
-  // stringify via the gleam encoder, so ints round-trip through Number().
-  if (optionValue && optionValue[0] !== undefined) {
-    return Number(json.to_string(optionValue[0]));
-  }
-  return null;
+function readInt(
+  value: ReturnType<typeof mapKernel.get>,
+): number | null {
+  const contained = resultValue(value);
+  return contained === null ? null : Number(json.to_string(contained));
 }
 
-function readClaimant(optionValue) {
+function readClaimant(
+  value: ReturnType<typeof claimsKernel.get>,
+): string | null {
   // Claim values are `json.string`, so the encoder yields quoted JSON;
   // JSON.parse unquotes it back to the claimant name.
-  if (optionValue && optionValue[0] !== undefined) {
-    return JSON.parse(json.to_string(optionValue[0]));
-  }
-  return null;
+  const contained = resultValue(value);
+  return contained === null ? null : JSON.parse(json.to_string(contained));
 }
 
-function readJsonString(optionValue) {
-  if (optionValue && optionValue[0] !== undefined) {
-    return JSON.parse(json.to_string(optionValue[0]));
-  }
-  return null;
+function readJsonString(
+  value: ReturnType<typeof registerKernel.read>,
+): string | null {
+  const contained = resultValue(value);
+  return contained === null ? null : JSON.parse(json.to_string(contained));
 }
 
-function readOptionalJsonString(optionValue) {
-  if (optionValue instanceof Some) return JSON.parse(json.to_string(optionValue[0]));
-  return null;
+function readOptionalJsonString(
+  value: Parameters<typeof pactKernel.set>[2],
+): string | null {
+  const contained = optionValue(value);
+  return contained === null ? null : JSON.parse(json.to_string(contained));
 }
 
-function pendingMapKeys(state) {
-  const keys = new Set();
+function pendingMapKeys(state: mapKernel.MapState$): Set<string> {
+  const keys = new Set<string>();
   for (const entry of state.pending.toArray()) {
     if (entry instanceof mapKernel.PendingLifetime) keys.add(entry.key);
     else if (entry instanceof mapKernel.PendingDelete) keys.add(entry.key);
@@ -430,15 +739,19 @@ function pendingMapKeys(state) {
   return keys;
 }
 
-function signed(n) {
+function signed(n: number): string {
   return n < 0 ? `−${Math.abs(n)}` : `+${n}`;
 }
 
-function describeOp(ddsId, op) {
+function describeOp({ ddsId, op }: OperationEnvelope): string {
   if (ddsId === "or-map-mv-register") {
-    return op.operation instanceof orMapKernel.Remove
-      ? `remove ${JSON.stringify(op.operation.key)}`
-      : `revise ${JSON.stringify(op.operation.key)} = ${JSON.stringify(op.operation.value)}`;
+    if (op.operation instanceof orMapKernel.Remove) {
+      return `remove ${JSON.stringify(op.operation.key)}`;
+    }
+    if (op.operation instanceof orMapKernel.SetMvRegister) {
+      return `revise ${JSON.stringify(op.operation.key)} = ${JSON.stringify(op.operation.value)}`;
+    }
+    throw new Error("Unexpected OR-map MV-register operation");
   }
   if (ddsId === "lww-map") {
     const operation = op.operation;
@@ -451,7 +764,7 @@ function describeOp(ddsId, op) {
     return `write ${JSON.stringify(op.operation.value)} (t ${op.operation.timestamp})`;
   }
   if (ddsId === "mv-register") return `revise ${JSON.stringify(op.operation.value)}`;
-  if (ddsId === "counter") return `inc ${signed(op.increment_amount)}`;
+  if (ddsId === "counter") return `inc ${signed(op.amount)}`;
   if (ddsId === "gcounter") return `inspect +${op.amount}`;
   if (ddsId === "pn") {
     return op.amount >= 0
@@ -521,41 +834,53 @@ function describeOp(ddsId, op) {
   return "clear";
 }
 
-export function initDemo() {
-  const rig = document.querySelector("[data-demo-rig]");
-  if (!rig) return;
+export function initDemo(): void {
+  const rig = required<HTMLElement>(document, "[data-demo-rig]");
 
   // Which structures this instance exposes. The homepage runs a SharedMap-only
   // proof; each /structures/* page scopes the picker to one family. Kernels all
   // boot regardless — `present` only gates rendering to panels that exist.
-  const present = new Set(
-    (rig.dataset.views || "map").split(",").map((v) => v.trim()).filter(Boolean),
+  const present = new Set<DdsId>(
+    (rig.dataset.views || "map")
+      .split(",")
+      .map((value) => value.trim())
+      .filter(isDdsId),
   );
 
-  const flowLayer = rig.querySelector("[data-flow-layer]");
-  const seqNode = rig.querySelector("[data-seq-node]");
-  const seqCounter = rig.querySelector("[data-seq-counter]");
-  const opLogEl = rig.querySelector("[data-op-log]");
-  const statusEl = document.querySelector("[data-status]");
-  const paceInput = document.querySelector("[data-pace]");
-  const paceOut = document.querySelector("[data-pace-out]");
-  const fieldNotesToggle = document.querySelector("[data-field-notes]");
-  const latencyVarianceToggle = document.querySelector(
+  const flowLayer = required<HTMLElement>(rig, "[data-flow-layer]");
+  const seqNode = required<HTMLElement>(rig, "[data-seq-node]");
+  const seqCounter = required<HTMLElement>(rig, "[data-seq-counter]");
+  const opLogEl = required<HTMLElement>(rig, "[data-op-log]");
+  const statusEl = required<HTMLElement>(document, "[data-status]");
+  const paceInput = required<HTMLInputElement>(document, "[data-pace]");
+  const paceOut = required<HTMLElement>(document, "[data-pace-out]");
+  const fieldNotesToggle = document.querySelector<HTMLInputElement>(
+    "[data-field-notes]",
+  );
+  const latencyVarianceToggle = document.querySelector<HTMLInputElement>(
     "[data-latency-variance]",
   );
-  const raceBtn = document.querySelector("[data-race]");
-  const resetBtn = document.querySelector("[data-reset]");
-  const replayBtn = document.querySelector("[data-replay]");
-  const cutLinkBtn = document.querySelector("[data-cut-link]");
-  const linkNote = document.querySelector("[data-link-note]");
-  const ddsPicks = document.querySelectorAll("[data-dds-pick]");
-  const mergeRules = document.querySelectorAll("[data-merge-rule]");
-  const orMapViewSelect = document.querySelector("[data-ormap-view]");
-  const orMapModeSelect = document.querySelector("[data-ormap-mode]");
-  const orMapRaceSelect = document.querySelector("[data-ormap-set-race]");
-  const orMapRaceStatus = document.querySelector("[data-ormap-race-status]");
+  const raceBtn = required<HTMLButtonElement>(document, "[data-race]");
+  const resetBtn = required<HTMLButtonElement>(document, "[data-reset]");
+  const replayBtn = required<HTMLButtonElement>(document, "[data-replay]");
+  const cutLinkBtn = document.querySelector<HTMLButtonElement>("[data-cut-link]");
+  const linkNote = document.querySelector<HTMLElement>("[data-link-note]");
+  const ddsPicks =
+    document.querySelectorAll<HTMLInputElement>("[data-dds-pick]");
+  const mergeRules =
+    document.querySelectorAll<HTMLElement>("[data-merge-rule]");
+  const orMapViewSelect =
+    document.querySelector<HTMLSelectElement>("[data-ormap-view]");
+  const orMapModeSelect =
+    document.querySelector<HTMLSelectElement>("[data-ormap-mode]");
+  const orMapRaceSelect =
+    document.querySelector<HTMLSelectElement>("[data-ormap-set-race]");
+  const orMapRaceStatus =
+    document.querySelector<HTMLElement>("[data-ormap-race-status]");
 
-  const initial = toList(INITIAL.map(([k, v]) => [k, jsonInt(v)]));
+  const initial = toList(
+    INITIAL.map(([key, value]): [string, json.Json$] => [key, jsonInt(value)]),
+  );
   const gCounterBaseline = gCounterBaselineSummary();
   const pnBaseline = pnBaselineSummary();
   const mvBaseline = mvBaselineSummary(0);
@@ -567,78 +892,90 @@ export function initDemo() {
   const gSetBaseline = gSetBaselineSummary();
   const twoPSetBaseline = twoPSetBaselineSummary();
 
-  const clients = {};
-  for (const id of ["a", "b", "c"]) {
+  function createClient(id: ClientId): DemoClient {
     // The PN kernel is replica-identified: each client loads the shared
     // summary under its own id, exactly like a client joining a session.
-    const pnLoaded = pnKernel.from_summary(
-      pnBaseline,
-      replicaId.new$(`client-${id}`),
+    const pn = expectOk(
+      pnKernel.from_summary(
+        pnBaseline,
+        replicaId.new$(`client-${id}`),
+      ),
+      "pn baseline summary failed to load",
     );
-    if (!pnLoaded.isOk()) throw new Error("pn baseline summary failed to load");
-    const orMapLoaded = orMapKernel.from_summary(
-      orMapBaseline,
-      replicaId.new$(`client-${id}`),
+    const ormap = expectOk(
+      orMapKernel.from_summary(
+        orMapBaseline,
+        replicaId.new$(`client-${id}`),
+      ),
+      "or-map baseline summary failed to load",
     );
-    if (!orMapLoaded.isOk()) {
-      throw new Error("or-map baseline summary failed to load");
-    }
-    const orSetLoaded = orSetKernel.from_summary(
-      orSetBaseline,
-      replicaId.new$(`client-${id}`),
+    const orset = expectOk(
+      orSetKernel.from_summary(
+        orSetBaseline,
+        replicaId.new$(`client-${id}`),
+      ),
+      "or-set baseline summary failed to load",
     );
-    if (!orSetLoaded.isOk()) {
-      throw new Error("or-set baseline summary failed to load");
-    }
-    const gSetLoaded = gSetKernel.from_summary(gSetBaseline);
-    if (!gSetLoaded.isOk()) {
-      throw new Error("g-set baseline summary failed to load");
-    }
-    const twoPSetLoaded = twoPSetKernel.from_summary(twoPSetBaseline);
-    if (!twoPSetLoaded.isOk()) {
-      throw new Error("2P-set baseline summary failed to load");
-    }
+    const gsetState = expectOk(
+      gSetKernel.from_summary(gSetBaseline),
+      "g-set baseline summary failed to load",
+    );
+    const twopset = expectOk(
+      twoPSetKernel.from_summary(twoPSetBaseline),
+      "2P-set baseline summary failed to load",
+    );
     const counterChannel = bootstrapCounterCore(id);
-    clients[id] = {
+    return {
       id,
       map: mapKernel.from_sequenced(initial),
       gcounter: gCounterStateFromSummary(gCounterBaseline, id),
       counterClientId: counterChannel.clientId,
       counterCore: counterChannel.core,
-      pn: pnLoaded[0],
+      pn,
       "lww-register": lwwRegisterFromBaseline(lwwRegisterBaseline, id, 0),
       "lww-map": lwwMapFromSummary(lwwMapBaseline, id, 0),
       "mv-register": mvFromBaseline(mvBaseline, id, 0),
-      ormap: orMapLoaded[0],
+      ormap,
       "or-map-mv-register": orMapMvFromBaseline(orMapMvBaseline, id, 0),
-      orset: orSetLoaded[0],
-      gset: gSetLoaded[0],
-      twopset: twoPSetLoaded[0],
+      orset,
+      gset: gsetState,
+      twopset,
       claims: claimsBaseline(),
       registers: registersBaseline(),
       ordered: orderedBaseline(),
       taskmanager: taskManagerBaseline(),
       pact: pactBaseline(),
-      el: rig.querySelector(`[data-client="${id}"]`),
+      el: required<HTMLElement>(rig, `[data-client="${id}"]`),
       lastArrival: 0, // enforces FIFO delivery from the sequencer
       lastSeq: 0, // last delivered container SN — the runtime's job, done here
     };
   }
+  const clients: Record<ClientId, DemoClient> = {
+    a: createClient("a"),
+    b: createClient("b"),
+    c: createClient("c"),
+  };
 
   // Controls are authored `disabled` and stay that way until every kernel has
   // booted above — if anything threw, the section stays inert and Demo.astro's
   // catch shows the offline note instead of live-looking dead buttons.
-  const demoSection = document.querySelector("#demo");
-  for (const el of demoSection.querySelectorAll("button, input, select")) {
+  const demoSection = required<HTMLElement>(document, "#demo");
+  for (const el of demoSection.querySelectorAll<
+    HTMLButtonElement | HTMLInputElement | HTMLSelectElement
+  >("button, input, select")) {
     el.disabled = false;
   }
   // Re-deliver stays dark until a CRDT delta has actually been sequenced.
   replayBtn.disabled = true;
 
-  let activeDds = present.has(rig.dataset.dds) ? rig.dataset.dds : [...present][0];
+  const initialDds = rig.dataset.dds;
+  let activeDds: DdsId =
+    initialDds && isDdsId(initialDds) && present.has(initialDds)
+      ? initialDds
+      : [...present][0] ?? "map";
   // Structures whose field notes flash the values that change (see tutorial.js
   // CHANGE_TARGETS). Kept in sync there; used to route the demo's op-flow hooks.
-  const FIELD_FLASH = new Set([
+  const FIELD_FLASH = new Set<DdsId>([
     "lww-map",
     "lww-register",
     "mv-register",
@@ -685,26 +1022,26 @@ export function initDemo() {
   let counterSn = 0;
   let hasInteracted = false;
   let linkUp = true; // Client B ⇄ sequencer link state
-  const heldHops = []; // sequenced ops awaiting delivery to B (catch-up)
-  const heldSubmits = []; // B's local ops parked while offline (resubmit)
-  let lastPn = null; // the most recently *sequenced* PN op, for re-delivery
-  let lastLwwRegister = null;
+  const heldHops: Array<() => void> = []; // sequenced ops awaiting delivery to B (catch-up)
+  const heldSubmits: Array<() => void> = []; // B's local ops parked while offline (resubmit)
+  let lastPn: LastOperation<"pn"> | null = null; // the most recently *sequenced* PN op, for re-delivery
+  let lastLwwRegister: LastOperation<"lww-register"> | null = null;
   let lwwRegisterEpoch = 0;
-  let lastLwwMap = null;
+  let lastLwwMap: LastOperation<"lww-map"> | null = null;
   let lwwMapEpoch = 0;
   // Keep an early delta so replay after resolution proves it cannot resurrect.
-  let lastMv = null;
+  let lastMv: LastOperation<"mv-register"> | null = null;
   let mvEpoch = 0;
-  let lastGCounter = null; // the most recently *sequenced* G-counter delta
-  let lastOrMap = null; // the most recently *sequenced* OR-map op
-  let orMapMode = "tally";
+  let lastGCounter: LastOperation<"gcounter"> | null = null; // the most recently *sequenced* G-counter delta
+  let lastOrMap: LastOperation<"ormap"> | null = null; // the most recently *sequenced* OR-map op
+  let orMapMode: OrMapMode = "tally";
   let orMapEpoch = 0;
   let orMapRaceRunning = false;
-  let lastOrMapMv = null; // retain the early op to replay after resolution
+  let lastOrMapMv: LastOperation<"or-map-mv-register"> | null = null; // retain the early op to replay after resolution
   let orMapMvEpoch = 0;
-  let lastOrSet = null; // the most recently *sequenced* OR-set op
-  let lastGSet = null; // the most recently *sequenced* G-set op
-  let lastTwoPSet = null; // the most recently *sequenced* 2P-set op
+  let lastOrSet: LastOperation<"orset"> | null = null; // the most recently *sequenced* OR-set op
+  let lastGSet: LastOperation<"gset"> | null = null; // the most recently *sequenced* G-set op
+  let lastTwoPSet: LastOperation<"twopset"> | null = null; // the most recently *sequenced* 2P-set op
   let claimsEpoch = 0; // bumped by reset so in-flight claims are dropped
   let twoPSetEpoch = 0; // 2P-set reset reloads because tombstones cannot shrink
   let registersEpoch = 0; // same guard for out-of-band register-sheet reset
@@ -714,15 +1051,15 @@ export function initDemo() {
   let orderedAcquireSerial = 0;
   let orderedAddSerial = 0;
   let taskMessageSerial = 0;
-  const claimNotes = { a: {}, b: {}, c: {} }; // per-slot margin notes (lost, refused)
-  const registerNotes = { a: {}, b: {}, c: {} };
-  const registerPending = { a: new Set(), b: new Set(), c: new Set() };
-  const orderedNotes = { a: "", b: "", c: "" };
-  const orderedPending = { a: new Set(), b: new Set(), c: new Set() };
-  const taskNotes = { a: {}, b: {}, c: {} };
-  const pactNotes = { a: {}, b: {}, c: {} };
-  const pactPending = { a: new Set(), b: new Set(), c: new Set() };
-  const orMapRetained = {
+  const claimNotes: Record<ClientId, Record<string, string>> = { a: {}, b: {}, c: {} }; // per-slot margin notes (lost, refused)
+  const registerNotes: Record<ClientId, Record<string, string>> = { a: {}, b: {}, c: {} };
+  const registerPending: Record<ClientId, Set<string>> = { a: new Set(), b: new Set(), c: new Set() };
+  const orderedNotes: Record<ClientId, string> = { a: "", b: "", c: "" };
+  const orderedPending: Record<ClientId, Set<string>> = { a: new Set(), b: new Set(), c: new Set() };
+  const taskNotes: Record<ClientId, Record<string, string>> = { a: {}, b: {}, c: {} };
+  const pactNotes: Record<ClientId, Record<string, string>> = { a: {}, b: {}, c: {} };
+  const pactPending: Record<ClientId, Set<string>> = { a: new Set(), b: new Set(), c: new Set() };
+  const orMapRetained: Record<ClientId, Map<string, number>> = {
     a: new Map(ORMAP_BASELINE),
     b: new Map(ORMAP_BASELINE),
     c: new Map(ORMAP_BASELINE),
@@ -730,194 +1067,289 @@ export function initDemo() {
 
   // ── rendering ─────────────────────────────────────────────────────────────
 
-  function renderMap(client) {
+  function renderMap(client: DemoClient): void {
     const pending = pendingMapKeys(client.map);
     for (const key of GAUGES) {
-      const row = client.el.querySelector(`tr[data-key="${key}"]`);
+      const row = required<HTMLTableRowElement>(
+        client.el,
+        `tr[data-key="${key}"]`,
+      );
       const value = readInt(mapKernel.get(client.map, key));
-      row.querySelector("[data-value]").textContent =
+      required<HTMLElement>(row, "[data-value]").textContent =
         value === null ? "—" : String(value);
       row.classList.toggle("pending", pending.has(key));
-      const minus = row.querySelector('button[data-step="-1"]');
+      const minus =
+        row.querySelector<HTMLButtonElement>('button[data-step="-1"]');
       if (minus) minus.disabled = value !== null && value <= 0;
     }
   }
 
-  function renderCounter(client) {
+  function renderCounter(client: DemoClient): void {
     const pending = counterPending(client);
-    const valueEl = client.el.querySelector("[data-counter-value]");
+    const valueEl = required<HTMLElement>(client.el, "[data-counter-value]");
     valueEl.textContent = String(counterValue(client));
     valueEl.classList.toggle("pending", pending.count > 0);
-    const deltaEl = client.el.querySelector("[data-counter-delta]");
+    const deltaEl = required<HTMLElement>(client.el, "[data-counter-delta]");
     deltaEl.textContent =
       pending.count > 0 ? `Δ ${signed(pending.delta)} unsequenced` : "";
   }
 
-  function gCounterPendingTotal(state) {
+  function gCounterPendingTotal(state: gCounterKernel.GCounterState$): number {
     return state.pending
       .toArray()
       .reduce((sum, item) => sum + item.amount, 0);
   }
 
-  function gCounterCounts(state) {
+  function gCounterCounts(
+    state: gCounterKernel.GCounterState$,
+  ): Record<
+    ClientId,
+    ReturnType<typeof gdict.get<replicaId.ReplicaId$, number>>
+  > {
     const [counts] = gCounter.to_parts(state.optimistic);
-    const perAuthor = {};
-    for (const id of Object.keys(clients)) {
+    const perAuthor: Record<
+      ClientId,
+      ReturnType<typeof gdict.get<replicaId.ReplicaId$, number>>
+    > = {
+      a: gdict.get(counts, replicaId.new$("client-a")),
+      b: gdict.get(counts, replicaId.new$("client-b")),
+      c: gdict.get(counts, replicaId.new$("client-c")),
+    };
+    for (const id of CLIENT_IDS) {
       perAuthor[id] = gdict.get(counts, replicaId.new$(`client-${id}`));
     }
     return perAuthor;
   }
 
-  function readCount(result) {
-    return result.isOk() ? result[0] : 0;
+  function readCount(
+    result: ReturnType<typeof gdict.get<replicaId.ReplicaId$, number>>,
+  ): number {
+    return resultValue(result) ?? 0;
   }
 
-  function renderGCounter(client) {
+  function renderGCounter(client: DemoClient): void {
     const pendingCount = client.gcounter.pending.toArray().length;
-    const valueEl = client.el.querySelector("[data-gcounter-value]");
+    const valueEl = required<HTMLElement>(client.el, "[data-gcounter-value]");
     valueEl.textContent = String(gCounterKernel.value(client.gcounter));
     valueEl.classList.toggle("pending", pendingCount > 0);
-    const deltaEl = client.el.querySelector("[data-gcounter-delta]");
+    const deltaEl = required<HTMLElement>(client.el, "[data-gcounter-delta]");
     deltaEl.textContent =
       pendingCount > 0
         ? `Δ +${gCounterPendingTotal(client.gcounter)} unsequenced`
         : "";
     const counts = gCounterCounts(client.gcounter);
     for (const [id, count] of Object.entries(counts)) {
-      const cell = client.el.querySelector(`[data-gcounter-author="${id}"]`);
+      const cell = client.el.querySelector<HTMLElement>(
+        `[data-gcounter-author="${id}"]`,
+      );
       if (cell) cell.textContent = String(readCount(count));
     }
   }
 
-  function renderLwwRegister(client) {
+  function renderLwwRegister(client: DemoClient): void {
     const state = client["lww-register"];
-    const optimistic = client.el.querySelector("[data-lww-register-value]");
+    const optimistic = required<HTMLElement>(
+      client.el,
+      "[data-lww-register-value]",
+    );
     optimistic.textContent = lwwRegisterKernel.value(state);
     optimistic.classList.toggle("k-pending", state.pending.toArray().length > 0);
-    client.el.querySelector("[data-lww-register-confirmed]").textContent =
+    required<HTMLElement>(
+      client.el,
+      "[data-lww-register-confirmed]",
+    ).textContent =
       lwwRegisterKernel.sequenced_value(state);
     const winner = JSON.parse(
       json.to_string(lwwRegisterKernel.summary(state)),
     ).state;
-    client.el.querySelector("[data-lww-register-winner]").textContent =
+    required<HTMLElement>(
+      client.el,
+      "[data-lww-register-winner]",
+    ).textContent =
       `timestamp ${winner.timestamp} · ${winner.replica_id || "bottom"}`;
   }
 
-  function renderLwwMap(client) {
+  function renderLwwMap(client: DemoClient): void {
     const state = client["lww-map"];
-    const optimistic = client.el.querySelector("[data-lww-map-entries]");
+    const optimistic = required<HTMLElement>(
+      client.el,
+      "[data-lww-map-entries]",
+    );
     optimistic.textContent = JSON.stringify(lwwMapKernel.entries(state).toArray());
     optimistic.classList.toggle("k-pending", state.pending.toArray().length > 0);
     const confirmed = lwwMapFromSummary(
       json.to_string(lwwMapKernel.summary(state)), client.id, lwwMapEpoch,
     );
-    client.el.querySelector("[data-lww-map-confirmed]").textContent =
+    required<HTMLElement>(
+      client.el,
+      "[data-lww-map-confirmed]",
+    ).textContent =
       JSON.stringify(lwwMapKernel.entries(confirmed).toArray());
-    client.el.querySelector("[data-lww-map-metadata]").textContent =
+    required<HTMLElement>(
+      client.el,
+      "[data-lww-map-metadata]",
+    ).textContent =
       JSON.stringify(lwwMapMetadata(confirmed));
   }
 
-  function renderMv(client) {
+  function renderMv(client: DemoClient): void {
     const state = client["mv-register"];
-    const optimistic = client.el.querySelector("[data-mv-register-values]");
+    const optimistic = required<HTMLElement>(
+      client.el,
+      "[data-mv-register-values]",
+    );
     optimistic.textContent = JSON.stringify(mvKernel.values(state).toArray());
     optimistic.classList.toggle("k-pending", state.pending.toArray().length > 0);
-    client.el.querySelector("[data-mv-register-confirmed]").textContent =
+    required<HTMLElement>(
+      client.el,
+      "[data-mv-register-confirmed]",
+    ).textContent =
       JSON.stringify(mvKernel.sequenced_values(state).toArray());
-    client.el.querySelector("[data-mv-register-resolve]").disabled =
+    required<HTMLButtonElement>(
+      client.el,
+      "[data-mv-register-resolve]",
+    ).disabled =
       mvKernel.values(state).toArray().length < 2;
   }
 
-  function selectedOrMapMvValues(client) {
-    const key = client.el.querySelector("[data-or-map-mv-register-key]").value;
-    return orMapEntries(client["or-map-mv-register"]).get(key)?.toArray() ?? [];
+  function selectedOrMapMvValues(client: DemoClient): string[] {
+    const key = required<HTMLInputElement>(
+      client.el,
+      "[data-or-map-mv-register-key]",
+    ).value;
+    const values = orMapEntries(client["or-map-mv-register"]).get(key);
+    return Array.isArray(values) ? values : [];
   }
 
-  function renderOrMapMv(client) {
+  function renderOrMapMv(client: DemoClient): void {
     const state = client["or-map-mv-register"];
-    const optimistic = client.el.querySelector("[data-or-map-mv-register-entries]");
+    const optimistic = required<HTMLElement>(
+      client.el,
+      "[data-or-map-mv-register-entries]",
+    );
     optimistic.textContent = JSON.stringify(orMapMvEntries(orMapKernel.entries(state)));
     optimistic.classList.toggle("k-pending", state.pending.toArray().length > 0);
-    client.el.querySelector("[data-or-map-mv-register-confirmed]").textContent =
+    required<HTMLElement>(
+      client.el,
+      "[data-or-map-mv-register-confirmed]",
+    ).textContent =
       JSON.stringify(orMapMvEntries(orMapKernel.sequenced_entries(state)));
-    client.el.querySelector("[data-or-map-mv-register-canonical-summary]")
+    required<HTMLElement>(
+      client.el,
+      "[data-or-map-mv-register-canonical-summary]",
+    )
       .setAttribute("data-or-map-mv-register-canonical-summary", canonicalOrMapMvSummary(state));
-    client.el.querySelector("[data-or-map-mv-register-resolve]").disabled =
+    required<HTMLButtonElement>(
+      client.el,
+      "[data-or-map-mv-register-resolve]",
+    ).disabled =
       selectedOrMapMvValues(client).length < 2;
   }
 
-  function renderPn(client) {
+  function renderPn(client: DemoClient): void {
     const pending = client.pn.pending.toArray();
-    const valueEl = client.el.querySelector("[data-pn-value]");
+    const valueEl = required<HTMLElement>(client.el, "[data-pn-value]");
     // An earthwork balance is signed: net fill above baseline zero.
     valueEl.textContent = signed(pnKernel.value(client.pn));
     valueEl.classList.toggle("pending", pending.length > 0);
     const deltaSum = pending.reduce((sum, p) => sum + p.amount, 0);
-    const deltaEl = client.el.querySelector("[data-pn-delta]");
+    const deltaEl = required<HTMLElement>(client.el, "[data-pn-delta]");
     deltaEl.textContent =
       pending.length > 0 ? `Δ ${signed(deltaSum)} unsequenced` : "";
     // The ledger prints the CRDT's real internal state: the two monotone
     // tallies (P = fill, N = cut) whose difference is the value.
-    client.el.querySelector("[data-pn-fill]").textContent = String(
+    required<HTMLElement>(client.el, "[data-pn-fill]").textContent = String(
       gCounter.value(client.pn.optimistic.positive),
     );
-    client.el.querySelector("[data-pn-cut]").textContent = String(
+    required<HTMLElement>(client.el, "[data-pn-cut]").textContent = String(
       gCounter.value(client.pn.optimistic.negative),
     );
   }
 
-  function orMapEntries(state) {
-    const entries = new Map();
+  function orMapEntries(
+    state: orMapKernel.OrMapState$,
+  ): Map<string, string[] | number> {
+    const entries = new Map<string, string[] | number>();
     for (const [key, value] of orMapKernel.entries(state).toArray()) {
-      entries.set(key, value[0]);
+      if (
+        value instanceof orMapKernel.SetMembers
+        || value instanceof orMapKernel.MvRegister
+      ) {
+        entries.set(key, value[0].toArray());
+      } else if (value instanceof orMapKernel.Tally) {
+        entries.set(key, value[0]);
+      } else {
+        throw new Error("OR-map register value is not used by this demo");
+      }
     }
     return entries;
   }
 
-  function pendingOrMapKeys(state) {
-    const keys = new Set();
+  function pendingOrMapKeys(state: orMapKernel.OrMapState$): Set<string> {
+    const keys = new Set<string>();
     for (const pending of state.pending.toArray()) {
       keys.add(pending.operation.key);
     }
     return keys;
   }
 
-  function renderOrMap(client) {
+  function renderOrMap(client: DemoClient): void {
     const pending = pendingOrMapKeys(client.ormap);
-    client.el.querySelector("table.dds-ormap").hidden = orMapMode !== "tally";
-    client.el.querySelector(".ormap-set-panel").hidden = orMapMode !== "set";
+    required<HTMLTableElement>(client.el, "table.dds-ormap").hidden =
+      orMapMode !== "tally";
+    required<HTMLElement>(client.el, ".ormap-set-panel").hidden =
+      orMapMode !== "set";
     if (orMapMode === "set") {
       const optimistic = new Map(orMapKernel.entries(client.ormap).toArray());
       const confirmed = new Map(orMapKernel.sequenced_entries(client.ormap).toArray());
-      const memberText = (entries, key) => {
-        if (!entries.has(key)) return "missing";
-        const members = entries.get(key)[0].toArray();
+      const memberText = (
+        entries: Map<string, orMapKernel.OrMapValue$>,
+        key: string,
+      ): string => {
+        const value = entries.get(key);
+        if (value === undefined) return "missing";
+        if (!(value instanceof orMapKernel.SetMembers)) {
+          throw new Error("OR-map set view received a non-set value");
+        }
+        const members = value[0].toArray();
         return members.length === 0 ? "empty set" : JSON.stringify(members);
       };
-      for (const row of client.el.querySelectorAll("[data-ormap-set-row]")) {
+      for (const row of client.el.querySelectorAll<HTMLElement>(
+        "[data-ormap-set-row]",
+      )) {
         const key = row.dataset.ormapSetRow;
-        const local = row.querySelector("[data-ormap-members]");
+        if (key === undefined) {
+          throw new Error("OR-map set row is missing data-ormap-set-row");
+        }
+        const local = required<HTMLElement>(row, "[data-ormap-members]");
         local.textContent = memberText(optimistic, key);
         local.classList.toggle("k-pending", pending.has(key));
-        row.querySelector("[data-ormap-confirmed]").textContent = memberText(confirmed, key);
+        required<HTMLElement>(row, "[data-ormap-confirmed]").textContent =
+          memberText(confirmed, key);
       }
-      for (const control of client.el.querySelectorAll(".ormap-set-panel button, .ormap-set-panel input, .ormap-set-panel select")) {
+      for (const control of client.el.querySelectorAll<
+        HTMLButtonElement | HTMLInputElement | HTMLSelectElement
+      >(".ormap-set-panel button, .ormap-set-panel input, .ormap-set-panel select")) {
         control.disabled = orMapRaceRunning;
       }
       return;
     }
     const entries = orMapEntries(client.ormap);
     for (const key of STOCKPILES) {
-      const row = client.el.querySelector(`.dds-ormap tr[data-key="${key}"]`);
+      const row = required<HTMLTableRowElement>(
+        client.el,
+        `.dds-ormap tr[data-key="${key}"]`,
+      );
       const value = entries.get(key);
-      const struck = value === undefined;
+      const struck = typeof value !== "number";
       if (!struck) orMapRetained[client.id].set(key, value);
       row.classList.toggle("struck", struck);
       row.classList.toggle("pending", pending.has(key));
-      row.querySelector("[data-ormap-value]").textContent = struck
+      required<HTMLElement>(row, "[data-ormap-value]").textContent = struck
         ? "struck"
         : signed(value);
-      row.querySelector("[data-ormap-note]").textContent = pending.has(key)
+      required<HTMLElement>(row, "[data-ormap-note]").textContent =
+        pending.has(key)
         ? "unsequenced delta"
         : struck
           ? "hidden, not erased"
@@ -925,30 +1357,36 @@ export function initDemo() {
     }
   }
 
-  function orSetValues(state) {
+  function orSetValues(state: orSetKernel.OrSetState$): Set<string> {
     return new Set(orSetKernel.values(state).toArray());
   }
 
-  function pendingOrSetElements(state) {
-    const elements = new Set();
+  function pendingOrSetElements(
+    state: orSetKernel.OrSetState$,
+  ): Set<string> {
+    const elements = new Set<string>();
     for (const pending of state.pending.toArray()) {
       elements.add(pending.operation.element);
     }
     return elements;
   }
 
-  function renderOrSet(client) {
+  function renderOrSet(client: DemoClient): void {
     const values = orSetValues(client.orset);
     const pending = pendingOrSetElements(client.orset);
     for (const element of MARKERS) {
-      const row = client.el.querySelector(`.dds-orset tr[data-key="${element}"]`);
+      const row = required<HTMLTableRowElement>(
+        client.el,
+        `.dds-orset tr[data-key="${element}"]`,
+      );
       const present = values.has(element);
       row.classList.toggle("absent", !present);
       row.classList.toggle("pending", pending.has(element));
-      row.querySelector("[data-orset-value]").textContent = present
+      required<HTMLElement>(row, "[data-orset-value]").textContent = present
         ? "marked"
         : "clear";
-      row.querySelector("[data-orset-note]").textContent = pending.has(element)
+      required<HTMLElement>(row, "[data-orset-note]").textContent =
+        pending.has(element)
         ? "unsequenced tag"
         : present
           ? "live tag observed"
@@ -956,49 +1394,57 @@ export function initDemo() {
     }
   }
 
-  function gSetValues(state) {
+  function gSetValues(state: gSetKernel.GSetState$): Set<string> {
     return new Set(gSetKernel.values(state).toArray());
   }
 
-  function pendingGSetElements(state) {
-    const elements = new Set();
+  function pendingGSetElements(state: gSetKernel.GSetState$): Set<string> {
+    const elements = new Set<string>();
     for (const pending of state.pending.toArray()) {
       elements.add(pending.operation.element);
     }
     return elements;
   }
 
-  function renderGSet(client) {
+  function renderGSet(client: DemoClient): void {
     const values = gSetValues(client.gset);
     const pending = pendingGSetElements(client.gset);
     for (const element of BENCHMARKS) {
-      const row = client.el.querySelector(`.dds-gset tr[data-key="${element}"]`);
+      const row = required<HTMLTableRowElement>(
+        client.el,
+        `.dds-gset tr[data-key="${element}"]`,
+      );
       const recorded = values.has(element);
       row.classList.toggle("absent", !recorded);
       row.classList.toggle("pending", pending.has(element));
-      row.querySelector("[data-gset-value]").textContent = recorded
+      required<HTMLElement>(row, "[data-gset-value]").textContent = recorded
         ? "recorded"
         : "unrecorded";
-      row.querySelector("[data-gset-note]").textContent = pending.has(element)
+      required<HTMLElement>(row, "[data-gset-note]").textContent =
+        pending.has(element)
         ? "unsequenced permanent fact"
         : recorded
           ? "in the registry"
           : "not yet observed";
-      row.querySelector("[data-gset-add]").disabled =
+      required<HTMLButtonElement>(row, "[data-gset-add]").disabled =
         recorded || pending.has(element);
     }
   }
 
-  function twoPSetValues(state) {
+  function twoPSetValues(state: twoPSetKernel.TwoPSetState$): Set<string> {
     return new Set(twoPSetKernel.values(state).toArray());
   }
 
-  function twoPSetTombstones(state) {
+  function twoPSetTombstones(
+    state: twoPSetKernel.TwoPSetState$,
+  ): Set<string> {
     return new Set(gset.to_list(state.optimistic.removed).toArray());
   }
 
-  function pendingTwoPSetElements(state) {
-    const pending = new Map();
+  function pendingTwoPSetElements(
+    state: twoPSetKernel.TwoPSetState$,
+  ): Map<string, "retire" | "place"> {
+    const pending = new Map<string, "retire" | "place">();
     for (const entry of state.pending.toArray()) {
       pending.set(
         entry.operation.element,
@@ -1008,12 +1454,13 @@ export function initDemo() {
     return pending;
   }
 
-  function renderTwoPSet(client) {
+  function renderTwoPSet(client: DemoClient): void {
     const values = twoPSetValues(client.twopset);
     const tombstones = twoPSetTombstones(client.twopset);
     const pending = pendingTwoPSetElements(client.twopset);
     for (const element of RETIRED_MARKERS) {
-      const row = client.el.querySelector(
+      const row = required<HTMLTableRowElement>(
+        client.el,
         `.dds-twopset tr[data-key="${element}"]`,
       );
       const active = values.has(element);
@@ -1022,60 +1469,71 @@ export function initDemo() {
       row.classList.toggle("absent", !active && !retired);
       row.classList.toggle("retired", retired);
       row.classList.toggle("pending", pending.has(element));
-      row.querySelector("[data-twopset-value]").textContent = retired
+      required<HTMLElement>(row, "[data-twopset-value]").textContent = retired
         ? "retired"
         : active
           ? "active"
           : "unplaced";
-      row.querySelector("[data-twopset-note]").textContent = pendingKind
+      required<HTMLElement>(row, "[data-twopset-note]").textContent =
+        pendingKind
         ? `unsequenced ${pendingKind}`
         : retired
           ? "tombstone wins"
           : active
           ? "active marker"
           : "not placed";
-      row.querySelector("[data-twopset-add]").disabled =
+      const add = required<HTMLButtonElement>(row, "[data-twopset-add]");
+      add.disabled =
         active || pending.has(element);
-      row.querySelector("[data-twopset-add]").textContent = retired
+      add.textContent = retired
         ? "Try place"
         : "Place";
-      row.querySelector("[data-twopset-add]").setAttribute(
+      add.setAttribute(
         "aria-label",
         `${retired ? "Try to re-place retired marker" : "Place marker"} ${element} on ${client.id.toUpperCase()}`,
       );
-      row.querySelector("[data-twopset-remove]").disabled =
+      required<HTMLButtonElement>(row, "[data-twopset-remove]").disabled =
         retired || pendingKind === "retire";
     }
   }
 
-  function renderClaims(client) {
+  function renderClaims(client: DemoClient): void {
     for (const key of SLOTS) {
-      const row = client.el.querySelector(`.dds-claims tr[data-key="${key}"]`);
+      const row = required<HTMLTableRowElement>(
+        client.el,
+        `.dds-claims tr[data-key="${key}"]`,
+      );
       const holder = readClaimant(claimsKernel.get(client.claims, key));
       const filed = gdict.has_key(client.claims.pending, key);
       // Non-optimistic by design: a filed claim never prints as the holder —
       // the row shows "—" in ink until the claim round-trips as won or lost.
-      row.querySelector("[data-holder]").textContent = holder ?? "—";
+      required<HTMLElement>(row, "[data-holder]").textContent = holder ?? "—";
       row.classList.toggle("filed", filed);
-      row.querySelector("[data-claim-note]").textContent = filed
+      required<HTMLElement>(row, "[data-claim-note]").textContent = filed
         ? "claim filed · outcome unknown"
         : (claimNotes[client.id][key] ??
           (holder === CLAIMANTS[client.id] ? "yours" : ""));
-      row.querySelector("[data-claim]").disabled = filed;
+      required<HTMLButtonElement>(row, "[data-claim]").disabled = filed;
     }
   }
 
-  function registerVersions(state, key) {
-    const versions = registerKernel.read_versions(state, key);
-    if (!versions || versions[0] === undefined) return [];
-    return versions[0]
+  function registerVersions(
+    state: registerKernel.RegisterState$,
+    key: string,
+  ): string[] {
+    const versions = resultValue(registerKernel.read_versions(state, key));
+    if (versions === null) return [];
+    return versions
       .toArray()
       .map((value) => JSON.parse(json.to_string(value)));
   }
 
-  function renderRegisters(client) {
+  function renderRegisters(client: DemoClient): void {
     for (const key of REGISTERS) {
-      const row = client.el.querySelector(`.dds-registers tr[data-key="${key}"]`);
+      const row = required<HTMLTableRowElement>(
+        client.el,
+        `.dds-registers tr[data-key="${key}"]`,
+      );
       const atomic = readJsonString(
         registerKernel.read(client.registers, key, new registerKernel.Atomic()),
       );
@@ -1084,91 +1542,117 @@ export function initDemo() {
       );
       const versions = registerVersions(client.registers, key);
       const filed = registerPending[client.id].has(key);
-      row.querySelector("[data-register-atomic]").textContent = atomic ?? "—";
-      row.querySelector("[data-register-lww]").textContent = lww ?? "—";
+      required<HTMLElement>(row, "[data-register-atomic]").textContent =
+        atomic ?? "—";
+      required<HTMLElement>(row, "[data-register-lww]").textContent =
+        lww ?? "—";
       row.classList.toggle("filed", filed);
-      row.querySelector("[data-register-note]").textContent = filed
+      required<HTMLElement>(row, "[data-register-note]").textContent = filed
         ? "revision filed · atomic outcome unknown"
         : (registerNotes[client.id][key] ?? "");
-      row.querySelector("[data-register-versions]").textContent =
+      required<HTMLElement>(row, "[data-register-versions]").textContent =
         versions.length > 1 ? `${versions.length} concurrent versions` : "";
-      row.querySelector("[data-register-write]").disabled = filed;
+      required<HTMLButtonElement>(row, "[data-register-write]").disabled =
+        filed;
     }
   }
 
-  function orderedQueue(state) {
+  function orderedQueue(state: orderedKernel.OrderedState$): string[] {
     return orderedKernel
       .summary_queue(state)
       .toArray()
       .map((value) => JSON.parse(json.to_string(value)));
   }
 
-  function orderedJobs(state) {
+  function orderedJobs(state: orderedKernel.OrderedState$) {
     return orderedKernel
       .summary_jobs(state)
       .toArray()
       .map(([id, job]) => ({
         id,
         value: JSON.parse(json.to_string(job.value)),
-        owner: job.owner instanceof Some ? job.owner[0] : null,
+        owner: optionValue(job.owner),
       }));
   }
 
-  function firstOwnedOrderedJob(client) {
+  function firstOwnedOrderedJob(client: DemoClient) {
     return orderedJobs(client.ordered).find(
       (job) => job.owner === CLIENT_NUMBERS[client.id],
     );
   }
 
-  function renderOrdered(client) {
+  function renderOrdered(client: DemoClient): void {
     const queue = orderedQueue(client.ordered);
     const jobs = orderedJobs(client.ordered);
     const localJob = firstOwnedOrderedJob(client);
     const filed = orderedPending[client.id].size > 0;
-    const queueRow = client.el.querySelector(".dds-ordered tbody tr:first-child");
-    const jobsRow = client.el.querySelector(".dds-ordered tbody tr:last-child");
+    const queueRow = required<HTMLTableRowElement>(
+      client.el,
+      ".dds-ordered tbody tr:first-child",
+    );
+    const jobsRow = required<HTMLTableRowElement>(
+      client.el,
+      ".dds-ordered tbody tr:last-child",
+    );
     queueRow.classList.toggle("filed", filed);
     jobsRow.classList.toggle("filed", filed);
-    queueRow.querySelector("[data-ordered-queue]").textContent =
+    required<HTMLElement>(queueRow, "[data-ordered-queue]").textContent =
       queue.length === 0 ? "empty" : queue.join(", ");
-    jobsRow.querySelector("[data-ordered-jobs]").textContent =
+    required<HTMLElement>(jobsRow, "[data-ordered-jobs]").textContent =
       jobs.length === 0
         ? "none"
         : jobs
-            .map((job) => `${job.value} · ${CLIENT_NAMES[job.owner] ?? "local"}`)
+            .map((job) =>
+              `${job.value} · ${
+                job.owner === null ? "local" : CLIENT_NAMES[job.owner] ?? "local"
+              }`
+            )
             .join(", ");
-    queueRow.querySelector("[data-ordered-note]").textContent = filed
+    required<HTMLElement>(queueRow, "[data-ordered-note]").textContent = filed
       ? "op filed · waiting for SN"
       : orderedNotes[client.id];
-    queueRow.querySelector("[data-ordered-add]").disabled = filed;
-    queueRow.querySelector("[data-ordered-acquire]").disabled = filed;
-    jobsRow.querySelector("[data-ordered-complete]").disabled = filed || !localJob;
-    jobsRow.querySelector("[data-ordered-release]").disabled = filed || !localJob;
+    required<HTMLButtonElement>(queueRow, "[data-ordered-add]").disabled =
+      filed;
+    required<HTMLButtonElement>(queueRow, "[data-ordered-acquire]").disabled =
+      filed;
+    required<HTMLButtonElement>(jobsRow, "[data-ordered-complete]").disabled =
+      filed || !localJob;
+    required<HTMLButtonElement>(jobsRow, "[data-ordered-release]").disabled =
+      filed || !localJob;
   }
 
-  function taskQueues(state) {
-    const queues = new Map();
+  function taskQueues(
+    state: taskManagerKernel.TaskManagerState$,
+  ): Map<string, number[]> {
+    const queues = new Map<string, number[]>();
     for (const [task, queue] of taskManagerKernel.summary_queues(state).toArray()) {
       queues.set(task, queue.toArray());
     }
     return queues;
   }
 
-  function taskPendingKeys(state) {
-    return new Set(
-      gdict
-        .to_list(state.pending)
+  function taskPendingKeys(
+    state: taskManagerKernel.TaskManagerState$,
+  ): Set<string> {
+    const keys = new Set<string>();
+    for (
+      const [task, pending] of gdict
+        .to_list<string, TaskPendingList>(state.pending)
         .toArray()
-        .filter(([_task, pending]) => pending.toArray().length > 0)
-        .map(([task]) => task),
-    );
+    ) {
+      if (pending.toArray().length > 0) keys.add(task);
+    }
+    return keys;
   }
 
-  function renderTaskManager(client) {
+  function renderTaskManager(client: DemoClient): void {
     const queues = taskQueues(client.taskmanager);
     const pending = taskPendingKeys(client.taskmanager);
     for (const task of TASKS) {
-      const row = client.el.querySelector(`.dds-tasks tr[data-key="${task}"]`);
+      const row = required<HTMLTableRowElement>(
+        client.el,
+        `.dds-tasks tr[data-key="${task}"]`,
+      );
       const queue = queues.get(task) ?? [];
       const assignee = queue[0] ?? null;
       const waiters = queue.slice(1);
@@ -1184,108 +1668,150 @@ export function initDemo() {
         CLIENT_NUMBERS[client.id],
       );
       row.classList.toggle("filed", pending.has(task));
-      row.querySelector("[data-task-assignee]").textContent =
+      required<HTMLElement>(row, "[data-task-assignee]").textContent =
         assignee === null ? "—" : CLIENT_NAMES[assignee];
-      row.querySelector("[data-task-waiters]").textContent =
+      required<HTMLElement>(row, "[data-task-waiters]").textContent =
         waiters.length === 0
           ? "empty"
           : waiters.map((id) => CLIENT_NAMES[id]).join(" → ");
-      row.querySelector("[data-task-note]").textContent = pending.has(task)
+      required<HTMLElement>(row, "[data-task-note]").textContent =
+        pending.has(task)
         ? (taskNotes[client.id][task] ?? "op filed · waiting for SN")
         : taskNotes[client.id][task] ??
           (assignedHere ? "yours" : queuedHere ? "waiting" : "");
-      row.querySelector("[data-task-volunteer]").disabled =
+      required<HTMLButtonElement>(row, "[data-task-volunteer]").disabled =
         pending.has(task) || queuedHere;
-      row.querySelector("[data-task-abandon]").disabled =
+      required<HTMLButtonElement>(row, "[data-task-abandon]").disabled =
         pending.has(task) || !queuedHere;
-      row.querySelector("[data-task-complete]").disabled =
+      required<HTMLButtonElement>(row, "[data-task-complete]").disabled =
         pending.has(task) || !assignedHere;
     }
   }
 
-  function pactAccepted(state, key) {
-    const accepted = pactKernel.get_with_details(state, key);
-    if (!accepted.isOk()) return null;
+  function pactAccepted(
+    state: pactKernel.PactMapState$,
+    key: string,
+  ): { value: string | null; sequence: number } | null {
+    const accepted = resultValue(pactKernel.get_with_details(state, key));
+    if (accepted === null) return null;
     return {
-      value: readOptionalJsonString(accepted[0].value),
-      sequence: accepted[0].sequence_number,
+      value: readOptionalJsonString(accepted.value),
+      sequence: accepted.sequence_number,
     };
   }
 
-  function pactPendingValue(state, key) {
-    const pending = pactKernel.get_pending(state, key);
-    if (!pending.isOk()) return null;
-    return readOptionalJsonString(pending[0]) ?? "delete";
+  function pactPendingValue(
+    state: pactKernel.PactMapState$,
+    key: string,
+  ): string | null {
+    const pending = resultValue(pactKernel.get_pending(state, key));
+    if (pending === null) return null;
+    return readOptionalJsonString(pending) ?? "delete";
   }
 
-  function pactSignoffs(state, key) {
+  function pactSignoffs(
+    state: pactKernel.PactMapState$,
+    key: string,
+  ): number[] {
     const entry = pactKernel
       .summary_entries(state)
       .toArray()
       .find(([entryKey]) => entryKey === key);
-    if (!entry || !(entry[1].pending instanceof Some)) return [];
-    return entry[1].pending[0].expected_signoffs.toArray();
+    if (!entry) return [];
+    return optionValue(entry[1].pending)?.expected_signoffs.toArray() ?? [];
   }
 
-  function renderPact(client) {
+  function renderPact(client: DemoClient): void {
     for (const key of PACT_KEYS) {
-      const row = client.el.querySelector(`.dds-pact tr[data-key="${key}"]`);
+      const row = required<HTMLTableRowElement>(
+        client.el,
+        `.dds-pact tr[data-key="${key}"]`,
+      );
       const accepted = pactAccepted(client.pact, key);
       const pending = pactPendingValue(client.pact, key);
       const signoffs = pactSignoffs(client.pact, key);
       const filed = pactPending[client.id].has(key);
       row.classList.toggle("filed", filed || pending !== null);
-      row.querySelector("[data-pact-accepted]").textContent =
+      required<HTMLElement>(row, "[data-pact-accepted]").textContent =
         accepted?.value ?? "—";
-      row.querySelector("[data-pact-pending]").textContent = pending ?? "—";
-      row.querySelector("[data-pact-signoffs]").textContent =
+      required<HTMLElement>(row, "[data-pact-pending]").textContent =
+        pending ?? "—";
+      required<HTMLElement>(row, "[data-pact-signoffs]").textContent =
         signoffs.length > 0
           ? `awaiting ${signoffs.map((id) => CLIENT_NAMES[id]).join(" + ")}`
           : "";
-      row.querySelector("[data-pact-note]").textContent = filed
+      required<HTMLElement>(row, "[data-pact-note]").textContent = filed
         ? (pactNotes[client.id][key] ?? "proposal filed")
         : (pactNotes[client.id][key] ?? "");
-      row.querySelector("[data-pact-set]").disabled =
+      required<HTMLButtonElement>(row, "[data-pact-set]").disabled =
         filed || pending !== null;
-      row.querySelector("[data-pact-delete]").disabled =
+      required<HTMLButtonElement>(row, "[data-pact-delete]").disabled =
         filed || pending !== null || accepted === null || accepted.value === null;
     }
   }
 
-  function renderBadge(client) {
-    const count =
-      activeDds === "claims"
-        ? gdict.size(client.claims.pending)
-        : activeDds === "counter"
-          ? counterPending(client).count
-        : activeDds === "registers"
-          ? registerPending[client.id].size
-        : activeDds === "ordered"
-          ? orderedPending[client.id].size
-        : activeDds === "tasks"
-          ? taskPendingKeys(client.taskmanager).size
-        : activeDds === "pact"
-          ? pactPending[client.id].size
-        : activeDds === "lww-register"
-          ? client["lww-register"].pending.toArray().length
-        : activeDds === "gcounter"
-          ? client.gcounter.pending.toArray().length
-        : activeDds === "orset"
-          ? client.orset.pending.toArray().length
-        : activeDds === "gset"
-          ? client.gset.pending.toArray().length
-        : activeDds === "twopset"
-          ? client.twopset.pending.toArray().length
-        : activeDds === "ormap"
-          ? client.ormap.pending.toArray().length
-        : client[activeDds].pending.toArray().length;
-    const badge = client.el.querySelector("[data-pending-count]");
+  function renderBadge(client: DemoClient): void {
+    let count: number;
+    switch (activeDds) {
+      case "claims":
+        count = gdict.size(client.claims.pending);
+        break;
+      case "counter":
+        count = counterPending(client).count;
+        break;
+      case "registers":
+        count = registerPending[client.id].size;
+        break;
+      case "ordered":
+        count = orderedPending[client.id].size;
+        break;
+      case "tasks":
+        count = taskPendingKeys(client.taskmanager).size;
+        break;
+      case "pact":
+        count = pactPending[client.id].size;
+        break;
+      case "lww-register":
+        count = client["lww-register"].pending.toArray().length;
+        break;
+      case "gcounter":
+        count = client.gcounter.pending.toArray().length;
+        break;
+      case "orset":
+        count = client.orset.pending.toArray().length;
+        break;
+      case "gset":
+        count = client.gset.pending.toArray().length;
+        break;
+      case "twopset":
+        count = client.twopset.pending.toArray().length;
+        break;
+      case "ormap":
+        count = client.ormap.pending.toArray().length;
+        break;
+      case "map":
+        count = client.map.pending.toArray().length;
+        break;
+      case "pn":
+        count = client.pn.pending.toArray().length;
+        break;
+      case "lww-map":
+        count = client["lww-map"].pending.toArray().length;
+        break;
+      case "mv-register":
+        count = client["mv-register"].pending.toArray().length;
+        break;
+      case "or-map-mv-register":
+        count = client["or-map-mv-register"].pending.toArray().length;
+        break;
+    }
+    const badge = required<HTMLElement>(client.el, "[data-pending-count]");
     badge.textContent = `${count} pending`;
     if (count === 0) badge.setAttribute("data-zero", "");
     else badge.removeAttribute("data-zero");
   }
 
-  function render(client) {
+  function render(client: DemoClient): void {
     if (present.has("lww-map")) renderLwwMap(client);
     if (present.has("lww-register")) renderLwwRegister(client);
     if (present.has("mv-register")) renderMv(client);
@@ -1306,7 +1832,7 @@ export function initDemo() {
     renderBadge(client);
   }
 
-  function pendingTotal() {
+  function pendingTotal(): number {
     let total = 0;
     for (const client of Object.values(clients)) {
       total += client.map.pending.toArray().length;
@@ -1330,12 +1856,19 @@ export function initDemo() {
     return total;
   }
 
-  function replicaSignature(client) {
+  function replicaSignature(client: DemoClient): string {
     const { entries, vclock } = JSON.parse(
       json.to_string(mvKernel.summary(client["mv-register"])),
     ).state;
     return JSON.stringify([
-      entries.map(({ tag, value }) => [tag.r, tag.c, value]).sort(),
+      entries
+        .map(
+          ({ tag, value }: {
+            tag: { r: string; c: number };
+            value: string;
+          }) => [tag.r, tag.c, value],
+        )
+        .sort(),
       Object.entries(vclock).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0),
       json.to_string(lwwRegisterKernel.summary(client["lww-register"])),
       lwwMapMetadata(client["lww-map"]),
@@ -1356,7 +1889,7 @@ export function initDemo() {
     ]);
   }
 
-  function renderStatus() {
+  function renderStatus(): void {
     if (activeDds === "ormap" && orMapMode === "set") {
       raceBtn.disabled = orMapRaceRunning || !linkUp || sequencer.inFlight > 0
         || Object.values(clients).some((client) => client.ormap.pending.toArray().length > 0);
@@ -1381,14 +1914,14 @@ export function initDemo() {
     }
   }
 
-  function mapSnapshot(state) {
+  function mapSnapshot(state: mapKernel.MapState$) {
     return mapKernel
       .sequenced_entries(state)
       .toArray()
       .map(([k, v]) => [k, json.to_string(v)]);
   }
 
-  function gCounterSnapshot(state) {
+  function gCounterSnapshot(state: gCounterKernel.GCounterState$) {
     const [counts] = gCounter.to_parts(state.sequenced);
     return [
       readCount(gdict.get(counts, replicaId.new$("client-a"))),
@@ -1396,36 +1929,36 @@ export function initDemo() {
     ];
   }
 
-  function claimsSnapshot(state) {
+  function claimsSnapshot(state: claimsKernel.ClaimsState$) {
     return claimsKernel
       .summary_entries(state)
       .toArray()
       .map(([k, v, s]) => [k, json.to_string(v), s]);
   }
 
-  function orMapSnapshot(state) {
+  function orMapSnapshot(state: orMapKernel.OrMapState$) {
     return orMapKernel
       .sequenced_entries(state)
       .toArray()
       .map(([k, v]) => [k, v instanceof orMapKernel.SetMembers ? v[0].toArray() : v[0]]);
   }
 
-  function orSetSnapshot(state) {
+  function orSetSnapshot(state: orSetKernel.OrSetState$) {
     return orSetKernel.sequenced_values(state).toArray();
   }
 
-  function gSetSnapshot(state) {
+  function gSetSnapshot(state: gSetKernel.GSetState$) {
     return gSetKernel.sequenced_values(state).toArray();
   }
 
-  function twoPSetSnapshot(state) {
+  function twoPSetSnapshot(state: twoPSetKernel.TwoPSetState$) {
     return [
       twoPSetKernel.sequenced_values(state).toArray(),
       gset.to_list(state.sequenced.removed).toArray(),
     ];
   }
 
-  function registerSnapshot(state) {
+  function registerSnapshot(state: registerKernel.RegisterState$) {
     return registerKernel
       .summary_registers(state)
       .toArray()
@@ -1442,51 +1975,60 @@ export function initDemo() {
       ]);
   }
 
-  function orderedSnapshot(state) {
+  function orderedSnapshot(state: orderedKernel.OrderedState$) {
     return [
       orderedQueue(state),
       orderedJobs(state).map((job) => [job.id, job.value, job.owner]),
     ];
   }
 
-  function taskManagerSnapshot(state) {
+  function taskManagerSnapshot(state: taskManagerKernel.TaskManagerState$) {
     return taskManagerKernel
       .summary_queues(state)
       .toArray()
       .map(([task, queue]) => [task, queue.toArray()]);
   }
 
-  function pactSnapshot(state) {
+  function pactSnapshot(state: pactKernel.PactMapState$) {
     return pactKernel
       .summary_entries(state)
       .toArray()
-      .map(([key, pact]) => [
-        key,
-        pact.accepted instanceof Some
-          ? [
-              readOptionalJsonString(pact.accepted[0].value),
-              pact.accepted[0].sequence_number,
-            ]
-          : null,
-        pact.pending instanceof Some
-          ? [
-              readOptionalJsonString(pact.pending[0].value),
-              pact.pending[0].expected_signoffs.toArray(),
-            ]
-          : null,
-      ]);
+      .map(([key, pact]) => {
+        const accepted = optionValue(pact.accepted);
+        const pending = optionValue(pact.pending);
+        return [
+          key,
+          accepted
+            ? [
+                readOptionalJsonString(accepted.value),
+                accepted.sequence_number,
+              ]
+            : null,
+          pending
+            ? [
+                readOptionalJsonString(pending.value),
+                pending.expected_signoffs.toArray(),
+              ]
+            : null,
+        ];
+      });
   }
 
-  function logRejected(stampedSn, key) {
+  function logRejected(stampedSn: number, key: string): void {
     const li = document.createElement("li");
     li.className = "rejected";
     li.textContent = `#${String(stampedSn).padStart(2, "0")} rejected — ${key} held · first writer wins`;
     opLog.push(li);
   }
 
-  function logOp(stampedSn, origin, ddsId, op) {
+  function logOp(
+    stampedSn: number,
+    origin: ClientId,
+    operation: OperationEnvelope,
+  ): void {
+    const { ddsId } = operation;
     const li = document.createElement("li");
-    li.textContent = `#${String(stampedSn).padStart(2, "0")} ${describeOp(ddsId, op)} · from ${origin.toUpperCase()}`;
+    li.textContent = `#${String(stampedSn).padStart(2, "0")} ${describeOp(operation)} · from ${origin.toUpperCase()}`;
     opLog.push(li);
     seqCounter.textContent = `SN ${stampedSn}`;
     seqCounter.classList.remove("stamped");
@@ -1497,7 +2039,9 @@ export function initDemo() {
     }
   }
 
-  function describeOrderedPending(op) {
+  function describeOrderedPending(
+    op: orderedKernel.OrderedOperation$,
+  ): string {
     if (op instanceof orderedKernel.Add) return `add:${json.to_string(op.value)}`;
     return `${op.constructor.name}:${op.acquire_id}`;
   }
@@ -1507,15 +2051,23 @@ export function initDemo() {
 
   // ── protocol: client → sequencer → broadcast ──────────────────────────────
 
-  function deliver(target, originId, ddsId, op, seq, counterSeq = seq) {
+  function deliver(
+    target: DemoClient,
+    originId: ClientId,
+    operation: OperationEnvelope,
+    seq: number,
+    counterSeq = seq,
+  ): void {
+    const { ddsId, op } = operation;
     // Every op advances the container SN on every replica — all structures
     // ride the one stream. Claims file their `reference_sequence_number` against this.
     target.lastSeq = seq;
     if (ddsId === "map") {
       if (target.id === originId) {
         const result = mapKernel.ack_local(target.map, op);
-        if (result.isOk()) target.map = result[0];
-        else console.error("unexpected ack", result[0]);
+        const next = resultValue(result);
+        if (next !== null) target.map = next;
+        else console.error("unexpected ack", resultError(result));
       } else {
         const [next] = mapKernel.apply_remote(target.map, op);
         target.map = next;
@@ -1525,12 +2077,13 @@ export function initDemo() {
         const result = lwwMapKernel.ack_local_with_message_id(
           target["lww-map"], op.operation, op.messageId,
         );
-        if (!result.isOk()) throw new Error("Unexpected LWWMap acknowledgement");
-        target["lww-map"] = result[0];
+        target["lww-map"] = expectOk(
+          result,
+          "Unexpected LWWMap acknowledgement",
+        );
       } else {
         const result = lwwMapKernel.apply_remote(target["lww-map"], op.operation);
-        if (!result.isOk()) throw new Error("Unexpected LWWMap delivery");
-        [target["lww-map"]] = result[0];
+        [target["lww-map"]] = expectOk(result, "Unexpected LWWMap delivery");
       }
     } else if (ddsId === "lww-register") {
       const result = target.id === originId
@@ -1543,25 +2096,31 @@ export function initDemo() {
           target["lww-register"],
           op.operation,
         );
-      if (!result.isOk()) throw new Error("Unexpected LWW-register delivery");
-      target["lww-register"] = result[0] instanceof Array
-        ? result[0][0]
-        : result[0];
+      const delivered = expectOk(
+        result,
+        "Unexpected LWW-register delivery",
+      );
+      target["lww-register"] = delivered instanceof Array
+        ? delivered[0]
+        : delivered;
     } else if (ddsId === "mv-register") {
       if (target.id === originId) {
         const result = mvKernel.ack_local_with_message_id(
           target["mv-register"], op.operation, op.messageId,
         );
-        if (!result.isOk()) throw new Error("Unexpected MV-register acknowledgement");
-        target["mv-register"] = result[0];
+        target["mv-register"] = expectOk(
+          result,
+          "Unexpected MV-register acknowledgement",
+        );
       } else {
         [target["mv-register"]] = mvKernel.apply_remote(target["mv-register"], op.operation);
       }
     } else if (ddsId === "pn") {
       if (target.id === originId) {
         const result = pnKernel.ack_local(target.pn, op);
-        if (result.isOk()) target.pn = result[0];
-        else console.error("unexpected ack", result[0]);
+        const next = resultValue(result);
+        if (next !== null) target.pn = next;
+        else console.error("unexpected ack", resultError(result));
       } else {
         const [next] = pnKernel.apply_remote(target.pn, op);
         target.pn = next;
@@ -1569,8 +2128,9 @@ export function initDemo() {
     } else if (ddsId === "gcounter") {
       if (target.id === originId) {
         const result = gCounterKernel.ack_local(target.gcounter, op);
-        if (result.isOk()) target.gcounter = result[0];
-        else console.error("unexpected ack", result[0]);
+        const next = resultValue(result);
+        if (next !== null) target.gcounter = next;
+        else console.error("unexpected ack", resultError(result));
       } else {
         const [next] = gCounterKernel.apply_remote(target.gcounter, op);
         target.gcounter = next;
@@ -1580,28 +2140,34 @@ export function initDemo() {
         const result = orMapKernel.ack_local_with_message_id(
           target[ddsId], op.operation, op.messageId,
         );
-        if (!result.isOk()) throw new Error("Unexpected OR-map MV-register acknowledgement", { cause: result[0] });
-        target[ddsId] = result[0];
+        target[ddsId] = expectOk(
+          result,
+          "Unexpected OR-map MV-register acknowledgement",
+        );
       } else {
         const result = orMapKernel.apply_remote(target[ddsId], op.operation);
-        if (!result.isOk()) throw new Error("Unexpected OR-map MV-register delivery", { cause: result[0] });
-        [target[ddsId]] = result[0];
+        [target[ddsId]] = expectOk(
+          result,
+          "Unexpected OR-map MV-register delivery",
+        );
       }
     } else if (ddsId === "ormap") {
       if (target.id === originId) {
         const result = orMapKernel.ack_local_with_message_id(target.ormap, op.operation, op.messageId);
-        if (!result.isOk()) throw new Error("Unexpected OR-map acknowledgement");
-        target.ormap = result[0];
+        target.ormap = expectOk(result, "Unexpected OR-map acknowledgement");
       } else {
         const result = orMapKernel.apply_remote(target.ormap, op.operation);
-        if (!result.isOk()) throw new Error("Unexpected remote OR-map operation");
-        [target.ormap] = result[0];
+        [target.ormap] = expectOk(
+          result,
+          "Unexpected remote OR-map operation",
+        );
       }
     } else if (ddsId === "orset") {
       if (target.id === originId) {
         const result = orSetKernel.ack_local(target.orset, op);
-        if (result.isOk()) target.orset = result[0];
-        else console.error("unexpected OR-set ack", result[0]);
+        const next = resultValue(result);
+        if (next !== null) target.orset = next;
+        else console.error("unexpected OR-set ack", resultError(result));
       } else {
         const [next] = orSetKernel.apply_remote(target.orset, op);
         target.orset = next;
@@ -1609,8 +2175,9 @@ export function initDemo() {
     } else if (ddsId === "gset") {
       if (target.id === originId) {
         const result = gSetKernel.ack_local(target.gset, op);
-        if (result.isOk()) target.gset = result[0];
-        else console.error("unexpected G-set ack", result[0]);
+        const next = resultValue(result);
+        if (next !== null) target.gset = next;
+        else console.error("unexpected G-set ack", resultError(result));
       } else {
         const [next] = gSetKernel.apply_remote(target.gset, op);
         target.gset = next;
@@ -1618,8 +2185,9 @@ export function initDemo() {
     } else if (ddsId === "twopset") {
       if (target.id === originId) {
         const result = twoPSetKernel.ack_local(target.twopset, op);
-        if (result.isOk()) target.twopset = result[0];
-        else console.error("unexpected 2P-set ack", result[0]);
+        const next = resultValue(result);
+        if (next !== null) target.twopset = next;
+        else console.error("unexpected 2P-set ack", resultError(result));
       } else {
         const [next] = twoPSetKernel.apply_remote(target.twopset, op);
         target.twopset = next;
@@ -1629,17 +2197,18 @@ export function initDemo() {
         // The ack resolves the deferred outcome: only now does the origin
         // learn whether its claim won or lost the race.
         const result = claimsKernel.ack_local(target.claims, op, seq);
-        if (result.isOk()) {
-          const [next, _events, outcome] = result[0];
+        const acknowledged = resultValue(result);
+        if (acknowledged !== null) {
+          const [next, _events, outcome] = acknowledged;
           target.claims = next;
           if (outcome instanceof claimsKernel.Lost) {
-            const holder = readClaimant(outcome.current_value);
+            const holder = readOptionalJsonString(outcome.current_value);
             claimNotes[target.id][op.key] = holder
               ? `lost — ${holder} holds it`
               : "lost";
             logRejected(seq, op.key);
           }
-        } else console.error("unexpected ack", result[0]);
+        } else console.error("unexpected ack", resultError(result));
       } else {
         const [next] = claimsKernel.apply_remote(target.claims, op, seq);
         target.claims = next;
@@ -1669,10 +2238,11 @@ export function initDemo() {
         );
         target.ordered = next;
         orderedPending[target.id].delete(describeOrderedPending(op));
-        if (outcome instanceof Some) {
+        const acquireOutcome = optionValue(outcome);
+        if (acquireOutcome !== null) {
           orderedNotes[target.id] =
-            outcome[0] instanceof orderedKernel.AcquiredItem
-              ? `acquired ${JSON.parse(json.to_string(outcome[0].value))}`
+            acquireOutcome instanceof orderedKernel.AcquiredItem
+              ? `acquired ${JSON.parse(json.to_string(acquireOutcome.value))}`
               : "queue empty";
         } else if (op instanceof orderedKernel.Complete) {
           orderedNotes[target.id] = "completed";
@@ -1699,8 +2269,9 @@ export function initDemo() {
           op.messageId,
           quorum,
         );
-        if (result.isOk()) {
-          const [next] = result[0];
+        const acknowledged = resultValue(result);
+        if (acknowledged !== null) {
+          const [next] = acknowledged;
           target.taskmanager = next;
           if (op.op instanceof taskManagerKernel.Volunteer) {
             taskNotes[target.id][op.op.task_id] = taskManagerKernel.assigned(
@@ -1716,7 +2287,9 @@ export function initDemo() {
           } else {
             taskNotes[target.id][op.op.task_id] = "completed";
           }
-        } else console.error("unexpected TaskManager ack", result[0]);
+        } else {
+          console.error("unexpected TaskManager ack", resultError(result));
+        }
       } else {
         const [next] = taskManagerKernel.apply_remote(
           target.taskmanager,
@@ -1747,7 +2320,7 @@ export function initDemo() {
         if (reaction instanceof pactKernel.OweAccept) {
           pactPending[target.id].add(op.key);
           pactNotes[target.id][op.key] = "signoff owed";
-          submit(target.id, "pact", reaction.operation);
+          submit(target.id, { ddsId: "pact", op: reaction.operation });
         }
       } else {
         const result = pactKernel.apply_accept(
@@ -1756,41 +2329,57 @@ export function initDemo() {
           CLIENT_NUMBERS[originId],
           seq,
         );
-        if (result.isOk()) {
-          const [next] = result[0];
+        const accepted = resultValue(result);
+        if (accepted !== null) {
+          const [next] = accepted;
           target.pact = next;
           if (target.id === originId) {
             pactPending[target.id].delete(op.key);
             pactNotes[target.id][op.key] = "signed off";
           }
         } else {
-          console.error("unexpected pact accept", result[0]);
+          console.error("unexpected pact accept", resultError(result));
         }
       }
     } else {
       const origin = clients[originId];
       const { outbound, contents } = op;
-      const result = runtimeCore.handle_sequenced(target.counterCore, {
-        client_id: new Some(origin.counterClientId),
-        sequence_number: counterSeq,
-        minimum_sequence_number: 0,
-        client_sequence_number: outbound.client_sequence_number,
-        reference_sequence_number: outbound.reference_sequence_number,
-        message_type: outbound.operation_type,
+      const sequencedMessage = new spillway.SequencedDocumentMessage(
+        some(origin.counterClientId),
+        counterSeq,
+        0,
+        outbound.client_sequence_number,
+        outbound.reference_sequence_number,
+        outbound.operation_type,
         contents,
-        metadata: outbound.metadata,
-        server_metadata: new None(),
-        origin: new None(),
-        traces: new None(),
-        timestamp: 0,
-        data: new None(),
-      });
-      if (result.isOk()) target.counterCore = result[0][0];
-      else console.error("unexpected counter channel ingest failure", result[0]);
+        outbound.metadata,
+        none(),
+        none(),
+        none(),
+        0,
+        none(),
+      );
+      const result = runtimeCore.handle_sequenced(
+        target.counterCore,
+        sequencedMessage,
+      );
+      const ingested = resultValue(result);
+      if (ingested !== null) target.counterCore = ingested[0];
+      else {
+        console.error(
+          "unexpected counter channel ingest failure",
+          resultError(result),
+        );
+      }
     }
   }
 
-  function submit(originId, ddsId, op, onDelivered = () => {}) {
+  function submit(
+    originId: ClientId,
+    operation: OperationEnvelope,
+    onDelivered: (client: DemoClient) => void = () => {},
+  ): void {
+    const { ddsId, op } = operation;
     // The author captured this epoch before offline work could be parked.
     if (ddsId === "or-map-mv-register" && op.epoch !== orMapMvEpoch) return;
     if (ddsId === "lww-map" && op.epoch !== lwwMapEpoch) return;
@@ -1801,7 +2390,7 @@ export function initDemo() {
     // until the link is restored, then resubmits — like the runtime's own
     // resubmit queue.
     if (originId === "b" && !linkUp) {
-      heldSubmits.push(() => submit(originId, ddsId, op, onDelivered));
+      heldSubmits.push(() => submit(originId, operation, onDelivered));
       renderStatus();
       return;
     }
@@ -1836,19 +2425,14 @@ export function initDemo() {
 
     sequencer.send({
       originId,
-      label: describeOp(ddsId, op),
+      label: describeOp(operation),
       guard: () => {
         const snapshot = epochFor();
         return () => snapshot !== epochFor();
       },
       onSequence: (stamped) => {
         const stampedCounter = ddsId === "counter" ? ++counterSn : null;
-        logOp(
-          stamped,
-          originId,
-          ddsId,
-          ddsId === "counter" ? { increment_amount: op.amount } : op,
-        );
+        logOp(stamped, originId, operation);
         if (ddsId === "or-map-mv-register") {
           lastOrMapMv ??= { op, sn: stamped };
           if (activeDds === "or-map-mv-register") replayBtn.disabled = false;
@@ -1885,7 +2469,13 @@ export function initDemo() {
         return { stampedCounter };
       },
       onDeliver: (target, { seq, extra }) => {
-        deliver(target, originId, ddsId, op, seq, extra.stampedCounter ?? seq);
+        deliver(
+          target,
+          originId,
+          operation,
+          seq,
+          extra.stampedCounter ?? seq,
+        );
         if (FIELD_FLASH.has(ddsId)) {
           fieldNotes.trackChange(ddsId, target.el, false, () => render(target));
         } else {
@@ -1904,22 +2494,26 @@ export function initDemo() {
     });
   }
 
-  function localSet(clientId, key, value) {
+  function localSet(clientId: ClientId, key: string, value: number): void {
     const client = clients[clientId];
     const [next, _events, op] = mapKernel.set(client.map, key, jsonInt(value));
     client.map = next;
     fieldNotes.trackChange("map", client.el, true, () => render(client));
-    submit(clientId, "map", op);
+    submit(clientId, { ddsId: "map", op });
   }
 
-  function localIncrement(clientId, amount) {
+  function localIncrement(clientId: ClientId, amount: number): void {
     const client = clients[clientId];
     const result = runtimeCore.increment(client.counterCore, COUNTER_ADDRESS, amount);
-    if (!result.isOk()) {
-      console.error("unexpected counter channel increment refusal", result[0]);
+    const incremented = resultValue(result);
+    if (incremented === null) {
+      console.error(
+        "unexpected counter channel increment refusal",
+        resultError(result),
+      );
       return;
     }
-    const [next, _events, outbound] = result[0];
+    const [next, _events, outbound] = incremented;
     const [outboundOp] = outbound.toArray();
     if (outboundOp === undefined) {
       console.error("counter channel increment produced no outbound op");
@@ -1927,159 +2521,244 @@ export function initDemo() {
     }
     client.counterCore = next;
     fieldNotes.trackChange("counter", client.el, true, () => render(client));
-    submit(clientId, "counter", {
-      amount,
-      outbound: outboundOp,
-      contents: toDynamic(outboundOp.contents),
+    submit(clientId, {
+      ddsId: "counter",
+      op: {
+        amount,
+        outbound: outboundOp,
+        contents: toDynamic(outboundOp.contents),
+      },
     });
   }
 
-  function localGCounterIncrement(clientId, amount) {
+  function localGCounterIncrement(clientId: ClientId, amount: number): void {
     const client = clients[clientId];
     // The kernel refuses a negative amount, which is the whole point of a
     // grow-only counter. The demo never offers one, so a refusal is a bug here.
     const applied = gCounterKernel.increment(client.gcounter, amount);
-    if (!applied.isOk()) {
-      console.error("g-counter refused an increment", applied[0]);
+    const incremented = resultValue(applied);
+    if (incremented === null) {
+      console.error("g-counter refused an increment", resultError(applied));
       return;
     }
-    const [next, _events, operation] = applied[0];
+    const [next, _events, operation] = incremented;
     client.gcounter = next;
     fieldNotes.trackChange("gcounter", client.el, true, () => render(client));
-    submit(clientId, "gcounter", operation);
+    submit(clientId, { ddsId: "gcounter", op: operation });
   }
 
-  function localLwwSet(clientId, value, wallClock = Date.now()) {
+  function localLwwSet(
+    clientId: ClientId,
+    value: string,
+    wallClock = Date.now(),
+  ): void {
     const client = clients[clientId];
     const result = lwwRegisterKernel.set(
       client["lww-register"],
       value,
       wallClock,
     );
-    if (!result.isOk()) {
-      console.error("LWW register refused a write", result[0]);
+    const updated = resultValue(result);
+    if (updated === null) {
+      console.error("LWW register refused a write", resultError(result));
       return;
     }
-    const [next, _events, operation, messageId] = result[0];
+    const [next, _events, operation, messageId] = updated;
     client["lww-register"] = next;
     fieldNotes.trackChange("lww-register", client.el, true, () => render(client));
-    submit(clientId, "lww-register", {
-      operation,
-      messageId,
-      epoch: lwwRegisterEpoch,
+    submit(clientId, {
+      ddsId: "lww-register",
+      op: {
+        operation,
+        messageId,
+        epoch: lwwRegisterEpoch,
+      },
     });
   }
 
-  function localLwwMapEdit(clientId, key, value, wallClock = Date.now()) {
+  function localLwwMapEdit(
+    clientId: ClientId,
+    key: string,
+    value: string | null,
+    wallClock = Date.now(),
+  ): void {
     const client = clients[clientId];
     const result = value === null
       ? lwwMapKernel.remove(client["lww-map"], key, wallClock)
       : lwwMapKernel.set(client["lww-map"], key, value, wallClock);
-    if (!result.isOk()) throw new Error("LWWMap refused an edit", { cause: result[0] });
-    const [next, _events, operation, messageId] = result[0];
+    const [next, _events, operation, messageId] = expectOk(
+      result,
+      "LWWMap refused an edit",
+    );
     client["lww-map"] = next;
     fieldNotes.trackChange("lww-map", client.el, true, () => render(client));
-    submit(clientId, "lww-map", { operation, messageId, epoch: lwwMapEpoch });
+    submit(clientId, {
+      ddsId: "lww-map",
+      op: { operation, messageId, epoch: lwwMapEpoch },
+    });
   }
 
-  function localMvSet(clientId, value) {
+  function localMvSet(clientId: ClientId, value: string): void {
     const client = clients[clientId];
     const [next, _events, operation, messageId] = mvKernel.set(client["mv-register"], value);
     client["mv-register"] = next;
     fieldNotes.trackChange("mv-register", client.el, true, () => render(client));
-    submit(clientId, "mv-register", { operation, messageId, epoch: mvEpoch });
+    submit(clientId, {
+      ddsId: "mv-register",
+      op: { operation, messageId, epoch: mvEpoch },
+    });
   }
 
-  function localOrMapMvEdit(clientId, key, value) {
+  function localOrMapMvEdit(
+    clientId: ClientId,
+    key: string,
+    value: string | null,
+  ): void {
     const client = clients[clientId];
     const result = value === null
       ? orMapKernel.remove(client["or-map-mv-register"], key)
       : orMapKernel.set_mv_register(client["or-map-mv-register"], key, value);
-    if (!result.isOk()) throw new Error("OR-map MV register refused an edit", { cause: result[0] });
-    const [next, _events, operation, messageId] = result[0];
+    const [next, _events, operation, messageId] = expectOk(
+      result,
+      "OR-map MV register refused an edit",
+    );
     client["or-map-mv-register"] = next;
     fieldNotes.trackChange("or-map-mv-register", client.el, true, () => render(client));
-    submit(clientId, "or-map-mv-register", { operation, messageId, epoch: orMapMvEpoch });
+    submit(clientId, {
+      ddsId: "or-map-mv-register",
+      op: { operation, messageId, epoch: orMapMvEpoch },
+    });
   }
 
-  function localPnUpdate(clientId, amount) {
+  function localPnUpdate(clientId: ClientId, amount: number): void {
     const client = clients[clientId];
     // `update` also returns the local message id; the demo's sequencer acks
     // in FIFO order, so only the op needs to travel.
     const [next, _events, op] = pnKernel.update(client.pn, amount);
     client.pn = next;
     fieldNotes.trackChange("pn", client.el, true, () => render(client));
-    submit(clientId, "pn", op);
+    submit(clientId, { ddsId: "pn", op });
   }
 
-  function localOrMapLog(clientId, key, amount) {
-    return localOrMapEdit(clientId, orMapKernel.increment, key, amount);
+  function localOrMapLog(
+    clientId: ClientId,
+    key: string,
+    amount: number,
+  ): Promise<void> {
+    return applyLocalOrMapEdit(
+      clientId,
+      orMapKernel.increment(clients[clientId].ormap, key, amount),
+    );
   }
 
-  function localOrMapStrike(clientId, key) {
-    return localOrMapEdit(clientId, orMapKernel.remove, key);
+  function localOrMapStrike(
+    clientId: ClientId,
+    key: string,
+  ): Promise<void> {
+    return applyLocalOrMapEdit(
+      clientId,
+      orMapKernel.remove(clients[clientId].ormap, key),
+    );
   }
 
-  function localOrMapReopen(clientId, key) {
+  function localOrMapReopen(clientId: ClientId, key: string): Promise<void> {
     return localOrMapLog(clientId, key, orMapRetained[clientId].get(key) ?? 0);
   }
 
-  function localOrMapEdit(clientId, mutate, ...args) {
+  function localOrMapAddMember(
+    clientId: ClientId,
+    key: string,
+    member: string,
+  ): Promise<void> {
+    return applyLocalOrMapEdit(
+      clientId,
+      orMapKernel.add_member(clients[clientId].ormap, key, member),
+    );
+  }
+
+  function localOrMapRemoveMember(
+    clientId: ClientId,
+    key: string,
+    member: string,
+  ): Promise<void> {
+    return applyLocalOrMapEdit(
+      clientId,
+      orMapKernel.remove_member(clients[clientId].ormap, key, member),
+    );
+  }
+
+  function applyLocalOrMapEdit(
+    clientId: ClientId,
+    result: ReturnType<typeof orMapKernel.increment>,
+  ): Promise<void> {
     const client = clients[clientId];
-    const result = mutate(client.ormap, ...args);
-    if (!result.isOk()) throw new Error(`OR-map edit failed: ${result[0].constructor.name}`);
-    const [next, _events, operation, messageId] = result[0];
+    const [next, _events, operation, messageId] = expectOk(
+      result,
+      "OR-map edit failed",
+    );
     client.ormap = next;
     fieldNotes.trackChange("ormap", client.el, true, () => render(client));
-    return new Promise((resolve) => {
-      let remaining = Object.keys(clients).length;
-      submit(clientId, "ormap", { operation, messageId, epoch: orMapEpoch, mode: orMapMode }, () => {
-        if (--remaining === 0) resolve();
-      });
+    return new Promise<void>((resolve) => {
+      let remaining = CLIENT_IDS.length;
+      submit(
+        clientId,
+        {
+          ddsId: "ormap",
+          op: {
+            operation,
+            messageId,
+            epoch: orMapEpoch,
+            mode: orMapMode,
+          },
+        },
+        () => {
+          if (--remaining === 0) resolve();
+        },
+      );
     });
   }
 
-  function localOrSetAdd(clientId, element) {
+  function localOrSetAdd(clientId: ClientId, element: string): void {
     const client = clients[clientId];
     const [next, _events, op] = orSetKernel.add(client.orset, element);
     client.orset = next;
     fieldNotes.trackChange("orset", client.el, true, () => render(client));
-    submit(clientId, "orset", op);
+    submit(clientId, { ddsId: "orset", op });
   }
 
-  function localOrSetRemove(clientId, element) {
+  function localOrSetRemove(clientId: ClientId, element: string): void {
     const client = clients[clientId];
     const [next, _events, op] = orSetKernel.remove(client.orset, element);
     client.orset = next;
     fieldNotes.trackChange("orset", client.el, true, () => render(client));
-    submit(clientId, "orset", op);
+    submit(clientId, { ddsId: "orset", op });
   }
 
-  function localGSetAdd(clientId, element) {
+  function localGSetAdd(clientId: ClientId, element: string): void {
     const client = clients[clientId];
     const [next, _events, op] = gSetKernel.add(client.gset, element);
     client.gset = next;
     fieldNotes.trackChange("gset", client.el, true, () => render(client));
-    submit(clientId, "gset", op);
+    submit(clientId, { ddsId: "gset", op });
   }
 
-  function localTwoPSetAdd(clientId, element) {
+  function localTwoPSetAdd(clientId: ClientId, element: string): void {
     const client = clients[clientId];
     const [next, _events, op] = twoPSetKernel.add(client.twopset, element);
     client.twopset = next;
     fieldNotes.trackChange("twopset", client.el, true, () => render(client));
-    submit(clientId, "twopset", op);
+    submit(clientId, { ddsId: "twopset", op });
   }
 
-  function localTwoPSetRemove(clientId, element) {
+  function localTwoPSetRemove(clientId: ClientId, element: string): void {
     const client = clients[clientId];
     const [next, _events, op] = twoPSetKernel.remove(client.twopset, element);
     client.twopset = next;
     fieldNotes.trackChange("twopset", client.el, true, () => render(client));
-    submit(clientId, "twopset", op);
+    submit(clientId, { ddsId: "twopset", op });
   }
 
-  function localClaim(clientId, key) {
+  function localClaim(clientId: ClientId, key: string): void {
     const client = clients[clientId];
     const result = claimsKernel.claim_once(
       client.claims,
@@ -2087,12 +2766,13 @@ export function initDemo() {
       json.string(CLAIMANTS[clientId]),
       client.lastSeq,
     );
-    if (!result.isOk()) {
+    const submitted = resultValue(result);
+    if (submitted === null) {
       // AlreadyPendingLocally — unreachable while the button disables itself.
-      console.error("unexpected claim refusal", result[0]);
+      console.error("unexpected claim refusal", resultError(result));
       return;
     }
-    if (result[0] instanceof claimsKernel.AlreadyClaimed) {
+    if (submitted instanceof claimsKernel.AlreadyClaimed) {
       // Write-once: the kernel refuses a claim on a committed slot locally
       // and synchronously — no op travels, no SN is spent.
       claimNotes[clientId][key] = "already claimed — nothing sent";
@@ -2105,14 +2785,14 @@ export function initDemo() {
       }, controls.paced(2200));
       return;
     }
-    client.claims = result[0].state;
+    client.claims = submitted.state;
     // Non-optimistic: the holder does not change here, so this flashes nothing
     // on the origin; the ink flash lands only when the winner is sequenced.
     fieldNotes.trackChange("claims", client.el, true, () => render(client));
-    submit(clientId, "claims", result[0].operation);
+    submit(clientId, { ddsId: "claims", op: submitted.operation });
   }
 
-  function localRegisterWrite(clientId, key) {
+  function localRegisterWrite(clientId: ClientId, key: string): void {
     const client = clients[clientId];
     const op = registerKernel.write(
       client.registers,
@@ -2124,10 +2804,10 @@ export function initDemo() {
     registerNotes[clientId][key] = "revision filed";
     // Non-optimistic: the atomic/LWW values move only when sequenced (ink).
     fieldNotes.trackChange("registers", client.el, true, () => render(client));
-    submit(clientId, "registers", op);
+    submit(clientId, { ddsId: "registers", op });
   }
 
-  function localOrderedAdd(clientId) {
+  function localOrderedAdd(clientId: ClientId): void {
     const client = clients[clientId];
     const value = ORDERED_ADDS[orderedAddSerial % ORDERED_ADDS.length];
     orderedAddSerial += 1;
@@ -2135,20 +2815,20 @@ export function initDemo() {
     orderedPending[clientId].add(describeOrderedPending(op));
     orderedNotes[clientId] = "add filed";
     fieldNotes.trackChange("ordered", client.el, true, () => render(client));
-    submit(clientId, "ordered", op);
+    submit(clientId, { ddsId: "ordered", op });
   }
 
-  function localOrderedAcquire(clientId) {
+  function localOrderedAcquire(clientId: ClientId): void {
     const client = clients[clientId];
     orderedAcquireSerial += 1;
     const op = orderedKernel.acquire(`${clientId}${orderedAcquireSerial}`);
     orderedPending[clientId].add(describeOrderedPending(op));
     orderedNotes[clientId] = "acquire filed";
     fieldNotes.trackChange("ordered", client.el, true, () => render(client));
-    submit(clientId, "ordered", op);
+    submit(clientId, { ddsId: "ordered", op });
   }
 
-  function localOrderedComplete(clientId) {
+  function localOrderedComplete(clientId: ClientId): void {
     const client = clients[clientId];
     const job = firstOwnedOrderedJob(client);
     if (!job) return;
@@ -2156,10 +2836,10 @@ export function initDemo() {
     orderedPending[clientId].add(describeOrderedPending(op));
     orderedNotes[clientId] = "complete filed";
     fieldNotes.trackChange("ordered", client.el, true, () => render(client));
-    submit(clientId, "ordered", op);
+    submit(clientId, { ddsId: "ordered", op });
   }
 
-  function localOrderedRelease(clientId) {
+  function localOrderedRelease(clientId: ClientId): void {
     const client = clients[clientId];
     const job = firstOwnedOrderedJob(client);
     if (!job) return;
@@ -2167,10 +2847,10 @@ export function initDemo() {
     orderedPending[clientId].add(describeOrderedPending(op));
     orderedNotes[clientId] = "release filed";
     fieldNotes.trackChange("ordered", client.el, true, () => render(client));
-    submit(clientId, "ordered", op);
+    submit(clientId, { ddsId: "ordered", op });
   }
 
-  function localTaskVolunteer(clientId, taskId) {
+  function localTaskVolunteer(clientId: ClientId, taskId: string): void {
     const client = clients[clientId];
     const messageId = ++taskMessageSerial;
     const [next, maybeOp, outcome] = taskManagerKernel.volunteer(
@@ -2185,12 +2865,16 @@ export function initDemo() {
         ? "assigned locally · filing"
         : "volunteer filed";
     fieldNotes.trackChange("tasks", client.el, true, () => render(client));
-    if (maybeOp instanceof Some) {
-      submit(clientId, "tasks", { op: maybeOp[0], messageId });
+    const operation = optionValue(maybeOp);
+    if (operation !== null) {
+      submit(clientId, {
+        ddsId: "tasks",
+        op: { op: operation, messageId },
+      });
     }
   }
 
-  function localTaskAbandon(clientId, taskId) {
+  function localTaskAbandon(clientId: ClientId, taskId: string): void {
     const client = clients[clientId];
     const messageId = ++taskMessageSerial;
     const [next, maybeOp] = taskManagerKernel.abandon(
@@ -2202,12 +2886,16 @@ export function initDemo() {
     client.taskmanager = next;
     taskNotes[clientId][taskId] = "abandon filed";
     fieldNotes.trackChange("tasks", client.el, true, () => render(client));
-    if (maybeOp instanceof Some) {
-      submit(clientId, "tasks", { op: maybeOp[0], messageId });
+    const operation = optionValue(maybeOp);
+    if (operation !== null) {
+      submit(clientId, {
+        ddsId: "tasks",
+        op: { op: operation, messageId },
+      });
     }
   }
 
-  function localTaskComplete(clientId, taskId) {
+  function localTaskComplete(clientId: ClientId, taskId: string): void {
     const client = clients[clientId];
     const messageId = ++taskMessageSerial;
     const result = taskManagerKernel.complete(
@@ -2216,27 +2904,32 @@ export function initDemo() {
       CLIENT_NUMBERS[clientId],
       messageId,
     );
-    if (!result.isOk()) {
+    const completed = resultValue(result);
+    if (completed === null) {
       taskNotes[clientId][taskId] = "not assigned here";
       render(client);
       return;
     }
-    const [next, op] = result[0];
+    const [next, op] = completed;
     client.taskmanager = next;
     taskNotes[clientId][taskId] = "complete filed";
     fieldNotes.trackChange("tasks", client.el, true, () => render(client));
-    submit(clientId, "tasks", { op, messageId });
+    submit(clientId, {
+      ddsId: "tasks",
+      op: { op, messageId },
+    });
   }
 
-  function localPactSet(clientId, key) {
+  function localPactSet(clientId: ClientId, key: string): void {
     const client = clients[clientId];
     const op = pactKernel.set(
       client.pact,
       key,
-      new Some(json.string(PACT_VALUES[clientId])),
+      some(json.string(PACT_VALUES[clientId])),
       client.lastSeq,
     );
-    if (!op.isOk()) {
+    const operation = resultValue(op);
+    if (operation === null) {
       pactNotes[clientId][key] = "pending pact blocks new proposal";
       render(client);
       return;
@@ -2245,13 +2938,14 @@ export function initDemo() {
     pactNotes[clientId][key] = "proposal filed";
     // Non-optimistic: pending/accepted print only when sequenced (ink).
     fieldNotes.trackChange("pact", client.el, true, () => render(client));
-    submit(clientId, "pact", op[0]);
+    submit(clientId, { ddsId: "pact", op: operation });
   }
 
-  function localPactDelete(clientId, key) {
+  function localPactDelete(clientId: ClientId, key: string): void {
     const client = clients[clientId];
     const op = pactKernel.delete$(client.pact, key, client.lastSeq);
-    if (!op.isOk()) {
+    const operation = resultValue(op);
+    if (operation === null) {
       pactNotes[clientId][key] = "nothing accepted to delete";
       render(client);
       return;
@@ -2260,7 +2954,7 @@ export function initDemo() {
     pactNotes[clientId][key] = "delete filed";
     // Non-optimistic: pending/accepted print only when sequenced (ink).
     fieldNotes.trackChange("pact", client.el, true, () => render(client));
-    submit(clientId, "pact", op[0]);
+    submit(clientId, { ddsId: "pact", op: operation });
   }
 
   // Claims are write-once — there is no unclaim op — so reset tears off a
@@ -2287,7 +2981,7 @@ export function initDemo() {
     renderStatus();
   }
 
-  function resetOrdered(items = ORDERED_BASELINE) {
+  function resetOrdered(items: readonly string[] = ORDERED_BASELINE): void {
     orderedEpoch += 1;
     for (const client of Object.values(clients)) {
       client.ordered = orderedBaseline(items);
@@ -2321,8 +3015,9 @@ export function initDemo() {
 
   function resetOrSet() {
     const current = orSetValues(clients.a.orset);
+    const baseline = new Set<string>(ORSET_BASELINE);
     for (const element of MARKERS) {
-      const shouldBePresent = ORSET_BASELINE.includes(element);
+      const shouldBePresent = baseline.has(element);
       const isPresent = current.has(element);
       if (shouldBePresent && !isPresent) localOrSetAdd("a", element);
       if (!shouldBePresent && isPresent) localOrSetRemove("a", element);
@@ -2392,8 +3087,10 @@ export function initDemo() {
         client.ormap = orMapKernel.new$(writer, new orMapKernel.OrSetMode());
       } else {
         const loaded = orMapKernel.from_summary(orMapBaseline, writer);
-        if (!loaded.isOk()) throw new Error("OR-map tally baseline failed to load");
-        client.ormap = loaded[0];
+        client.ormap = expectOk(
+          loaded,
+          "OR-map tally baseline failed to load",
+        );
       }
       render(client);
     }
@@ -2401,17 +3098,29 @@ export function initDemo() {
     applyActiveView();
   }
 
-  async function runOrMapSetRace() {
+  async function runOrMapSetRace(): Promise<void> {
+    const raceSelect = orMapRaceSelect;
+    const raceStatus = orMapRaceStatus;
+    if (raceSelect === null || raceStatus === null) {
+      throw new Error("OR-map race controls are missing");
+    }
     resetOrMap();
     const epoch = orMapEpoch;
-    const scenario = orMapRaceSelect.value;
+    const scenarioValue = raceSelect.value;
+    if (!isOrMapScenario(scenarioValue)) {
+      throw new Error(`Unknown OR-map scenario: ${scenarioValue}`);
+    }
+    const scenario = scenarioValue;
     orMapRaceRunning = true;
-    orMapRaceStatus.textContent = "Running: setup and edits travel through the sequencer.";
+    raceStatus.textContent =
+      "Running: setup and edits travel through the sequencer.";
     for (const client of Object.values(clients)) render(client);
     renderStatus();
     const key = "inspection-brief";
-    const add = (id, member) => localOrMapEdit(id, orMapKernel.add_member, key, member);
-    const remove = (id, member) => localOrMapEdit(id, orMapKernel.remove_member, key, member);
+    const add = (id: ClientId, member: string) =>
+      localOrMapAddMember(id, key, member);
+    const remove = (id: ClientId, member: string) =>
+      localOrMapRemoveMember(id, key, member);
     if (scenario === "union") {
       await Promise.all([add("a", "draft"), add("b", "reviewed")]);
     } else {
@@ -2432,15 +3141,14 @@ export function initDemo() {
         if (epoch !== orMapEpoch) return;
         await Promise.all([
           remove("a", "absent"),
-          localOrMapEdit("b", orMapKernel.remove_member, "pump-watch", "absent"),
+          localOrMapRemoveMember("b", "pump-watch", "absent"),
         ]);
-      } else {
-        throw new Error(`Unknown OR-map scenario: ${scenario}`);
       }
     }
     if (epoch !== orMapEpoch) return;
     orMapRaceRunning = false;
-    orMapRaceStatus.textContent = "Complete. All three clients received the operations; try another edit.";
+    raceStatus.textContent =
+      "Complete. All three clients received the operations; try another edit.";
     for (const client of Object.values(clients)) render(client);
     renderStatus();
   }
@@ -2463,8 +3171,10 @@ export function initDemo() {
     const baseline = twoPSetBaselineSummary();
     for (const client of Object.values(clients)) {
       const loaded = twoPSetKernel.from_summary(baseline);
-      if (!loaded.isOk()) throw new Error("2P-set reset summary failed to load");
-      client.twopset = loaded[0];
+      client.twopset = expectOk(
+        loaded,
+        "2P-set reset summary failed to load",
+      );
       render(client);
     }
     if (activeDds === "twopset") replayBtn.disabled = true;
@@ -2475,84 +3185,136 @@ export function initDemo() {
   // new SN is stamped — this is duplicate delivery, the failure mode resends
   // and stash replays produce — and the lattice absorbs it: merge is
   // idempotent, so nothing changes anywhere.
-  function redeliverLastDelta(ddsId = activeDds) {
-    const last =
-      ddsId === "or-map-mv-register"
-        ? lastOrMapMv
-      : ddsId === "lww-map"
-        ? lastLwwMap
-      : ddsId === "lww-register"
-        ? lastLwwRegister
-      : ddsId === "mv-register"
-        ? lastMv
-      : ddsId === "ormap"
-        ? lastOrMap
-        : ddsId === "orset"
-          ? lastOrSet
-        : ddsId === "gset"
-          ? lastGSet
-        : ddsId === "gcounter"
-          ? lastGCounter
-        : ddsId === "twopset"
-          ? lastTwoPSet
-          : lastPn;
-    const { op, sn: originalSn } = last;
+  function redeliverLastDelta(ddsId: DdsId = activeDds): Promise<void> {
+    let replay: { operation: ReplayOperationEnvelope; sn: number } | null =
+      null;
+    if (ddsId === "or-map-mv-register" && lastOrMapMv) {
+      replay = {
+        operation: { ddsId, op: lastOrMapMv.op },
+        sn: lastOrMapMv.sn,
+      };
+    } else if (ddsId === "lww-map" && lastLwwMap) {
+      replay = { operation: { ddsId, op: lastLwwMap.op }, sn: lastLwwMap.sn };
+    } else if (ddsId === "lww-register" && lastLwwRegister) {
+      replay = {
+        operation: { ddsId, op: lastLwwRegister.op },
+        sn: lastLwwRegister.sn,
+      };
+    } else if (ddsId === "mv-register" && lastMv) {
+      replay = { operation: { ddsId, op: lastMv.op }, sn: lastMv.sn };
+    } else if (ddsId === "ormap" && lastOrMap) {
+      replay = { operation: { ddsId, op: lastOrMap.op }, sn: lastOrMap.sn };
+    } else if (ddsId === "orset" && lastOrSet) {
+      replay = { operation: { ddsId, op: lastOrSet.op }, sn: lastOrSet.sn };
+    } else if (ddsId === "gset" && lastGSet) {
+      replay = { operation: { ddsId, op: lastGSet.op }, sn: lastGSet.sn };
+    } else if (ddsId === "gcounter" && lastGCounter) {
+      replay = {
+        operation: { ddsId, op: lastGCounter.op },
+        sn: lastGCounter.sn,
+      };
+    } else if (ddsId === "twopset" && lastTwoPSet) {
+      replay = {
+        operation: { ddsId, op: lastTwoPSet.op },
+        sn: lastTwoPSet.sn,
+      };
+    } else if (ddsId === "pn" && lastPn) {
+      replay = { operation: { ddsId, op: lastPn.op }, sn: lastPn.sn };
+    }
+    if (replay === null) return Promise.resolve();
+    const { operation, sn: originalSn } = replay;
     const li = document.createElement("li");
     li.className = "replay";
-    li.textContent = `#${String(originalSn).padStart(2, "0")} again ${describeOp(ddsId, op)} · absorbed`;
+    li.textContent = `#${String(originalSn).padStart(2, "0")} again ${describeOp(operation)} · absorbed`;
     opLog.push(li);
     if (fieldNotes.active && ddsId === activeDds && FIELD_FLASH.has(ddsId)) {
       fieldNotes.flashLog();
     }
 
-    const delivered = new Promise((resolve) => {
+    const delivered = new Promise<void>((resolve) => {
       let remaining = Object.keys(clients).length;
       sequencer.broadcast({
-        label: describeOp(ddsId, op),
-        isStale: () =>
-          (ddsId === "or-map-mv-register" && op.epoch !== orMapMvEpoch) ||
-          (ddsId === "lww-map" && op.epoch !== lwwMapEpoch) ||
-          (ddsId === "lww-register" && op.epoch !== lwwRegisterEpoch) ||
-          (ddsId === "mv-register" && op.epoch !== mvEpoch) ||
-          (ddsId === "ormap" && op.epoch !== orMapEpoch),
+        label: describeOp(operation),
+        isStale: () => {
+          if (operation.ddsId === "or-map-mv-register") {
+            return operation.op.epoch !== orMapMvEpoch;
+          }
+          if (operation.ddsId === "lww-map") {
+            return operation.op.epoch !== lwwMapEpoch;
+          }
+          if (operation.ddsId === "lww-register") {
+            return operation.op.epoch !== lwwRegisterEpoch;
+          }
+          if (operation.ddsId === "mv-register") {
+            return operation.op.epoch !== mvEpoch;
+          }
+          return operation.ddsId === "ormap"
+            && operation.op.epoch !== orMapEpoch;
+        },
         onDeliver: (target) => {
           // Every replica takes duplicates through apply_remote, including
           // the origin whose acknowledged delta is already merged.
-          if (ddsId === "or-map-mv-register") {
-            const result = orMapKernel.apply_remote(target[ddsId], op.operation);
-            if (!result.isOk()) throw new Error("Unexpected duplicate OR-map MV-register op", { cause: result[0] });
-            [target[ddsId]] = result[0];
-          } else if (ddsId === "lww-map") {
-            const result = lwwMapKernel.apply_remote(target["lww-map"], op.operation);
-            if (!result.isOk()) throw new Error("Unexpected duplicate LWWMap op");
-            [target["lww-map"]] = result[0];
-          } else if (ddsId === "lww-register") {
+          if (operation.ddsId === "or-map-mv-register") {
+            const result = orMapKernel.apply_remote(
+              target[operation.ddsId],
+              operation.op.operation,
+            );
+            [target[operation.ddsId]] = expectOk(
+              result,
+              "Unexpected duplicate OR-map MV-register op",
+            );
+          } else if (operation.ddsId === "lww-map") {
+            const result = lwwMapKernel.apply_remote(
+              target["lww-map"],
+              operation.op.operation,
+            );
+            [target["lww-map"]] = expectOk(
+              result,
+              "Unexpected duplicate LWWMap op",
+            );
+          } else if (operation.ddsId === "lww-register") {
             const result = lwwRegisterKernel.apply_remote(
               target["lww-register"],
-              op.operation,
+              operation.op.operation,
             );
-            if (!result.isOk()) throw new Error("Unexpected duplicate LWW-register op");
-            [target["lww-register"]] = result[0];
-          } else if (ddsId === "mv-register") {
-            [target["mv-register"]] = mvKernel.apply_remote(target["mv-register"], op.operation);
-          } else if (ddsId === "ormap") {
-            const result = orMapKernel.apply_remote(target.ormap, op.operation);
-            if (!result.isOk()) throw new Error("Unexpected duplicate OR-map operation");
-            [target.ormap] = result[0];
-          } else if (ddsId === "orset") {
-            const [next] = orSetKernel.apply_remote(target.orset, op);
+            [target["lww-register"]] = expectOk(
+              result,
+              "Unexpected duplicate LWW-register op",
+            );
+          } else if (operation.ddsId === "mv-register") {
+            [target["mv-register"]] = mvKernel.apply_remote(
+              target["mv-register"],
+              operation.op.operation,
+            );
+          } else if (operation.ddsId === "ormap") {
+            const result = orMapKernel.apply_remote(
+              target.ormap,
+              operation.op.operation,
+            );
+            [target.ormap] = expectOk(
+              result,
+              "Unexpected duplicate OR-map operation",
+            );
+          } else if (operation.ddsId === "orset") {
+            const [next] = orSetKernel.apply_remote(target.orset, operation.op);
             target.orset = next;
-          } else if (ddsId === "gset") {
-            const [next] = gSetKernel.apply_remote(target.gset, op);
+          } else if (operation.ddsId === "gset") {
+            const [next] = gSetKernel.apply_remote(target.gset, operation.op);
             target.gset = next;
-          } else if (ddsId === "gcounter") {
-            const [next] = gCounterKernel.apply_remote(target.gcounter, op);
+          } else if (operation.ddsId === "gcounter") {
+            const [next] = gCounterKernel.apply_remote(
+              target.gcounter,
+              operation.op,
+            );
             target.gcounter = next;
-          } else if (ddsId === "twopset") {
-            const [next] = twoPSetKernel.apply_remote(target.twopset, op);
+          } else if (operation.ddsId === "twopset") {
+            const [next] = twoPSetKernel.apply_remote(
+              target.twopset,
+              operation.op,
+            );
             target.twopset = next;
           } else {
-            const [next] = pnKernel.apply_remote(target.pn, op);
+            const [next] = pnKernel.apply_remote(target.pn, operation.op);
             target.pn = next;
           }
           render(target);
@@ -2575,110 +3337,148 @@ export function initDemo() {
   // ── wiring ────────────────────────────────────────────────────────────────
 
   for (const client of Object.values(clients)) {
-    const memberInput = client.el.querySelector("[data-ormap-set-input]");
-    const memberKey = client.el.querySelector("[data-ormap-key]");
+    const memberInput = required<HTMLInputElement>(
+      client.el,
+      "[data-ormap-set-input]",
+    );
+    const memberKey = required<HTMLInputElement>(
+      client.el,
+      "[data-ormap-key]",
+    );
+    const orMapMvKey = required<HTMLInputElement>(
+      client.el,
+      "[data-or-map-mv-register-key]",
+    );
+    const orMapMvInput = required<HTMLInputElement>(
+      client.el,
+      "[data-or-map-mv-register-input]",
+    );
+    const lwwMapKey = required<HTMLInputElement>(
+      client.el,
+      "[data-lww-map-key]",
+    );
+    const lwwMapInput = required<HTMLInputElement>(
+      client.el,
+      "[data-lww-map-input]",
+    );
+    const lwwRegisterInput = required<HTMLInputElement>(
+      client.el,
+      "[data-lww-register-input]",
+    );
+    const mvRegisterInput = required<HTMLInputElement>(
+      client.el,
+      "[data-mv-register-input]",
+    );
     memberInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
         hasInteracted = true;
-        localOrMapEdit(client.id, orMapKernel.add_member, memberKey.value, memberInput.value);
+        void localOrMapAddMember(client.id, memberKey.value, memberInput.value);
       }
     });
-    client.el.querySelector("[data-or-map-mv-register-key]").addEventListener("input", () => {
+    orMapMvKey.addEventListener("input", () => {
       renderOrMapMv(client);
     });
-    for (const input of client.el.querySelectorAll("[data-or-map-mv-register-key], [data-or-map-mv-register-input]")) {
+    for (
+      const input of client.el.querySelectorAll<HTMLInputElement>(
+        "[data-or-map-mv-register-key], [data-or-map-mv-register-input]",
+      )
+    ) {
       input.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
         event.preventDefault();
         hasInteracted = true;
         localOrMapMvEdit(
           client.id,
-          client.el.querySelector("[data-or-map-mv-register-key]").value,
-          client.el.querySelector("[data-or-map-mv-register-input]").value,
+          orMapMvKey.value,
+          orMapMvInput.value,
         );
       });
     }
-    for (const input of client.el.querySelectorAll("[data-lww-map-key], [data-lww-map-input]")) {
+    for (
+      const input of client.el.querySelectorAll<HTMLInputElement>(
+        "[data-lww-map-key], [data-lww-map-input]",
+      )
+    ) {
       input.addEventListener("keydown", (event) => {
         if (event.key !== "Enter") return;
         event.preventDefault();
         hasInteracted = true;
         localLwwMapEdit(
           client.id,
-          client.el.querySelector("[data-lww-map-key]").value,
-          client.el.querySelector("[data-lww-map-input]").value,
+          lwwMapKey.value,
+          lwwMapInput.value,
         );
       });
     }
-    client.el.querySelector("[data-lww-register-input]").addEventListener("keydown", (event) => {
+    lwwRegisterInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
         hasInteracted = true;
-        localLwwSet(client.id, event.target.value);
+        localLwwSet(client.id, lwwRegisterInput.value);
       }
     });
-    client.el.querySelector("[data-mv-register-input]").addEventListener("keydown", (event) => {
+    mvRegisterInput.addEventListener("keydown", (event) => {
       if (event.key === "Enter") {
         event.preventDefault();
         hasInteracted = true;
-        localMvSet(client.id, event.target.value);
+        localMvSet(client.id, mvRegisterInput.value);
       }
     });
     client.el.addEventListener("click", (event) => {
-      if (event.target.closest("[data-or-map-mv-register-write], [data-or-map-mv-register-resolve], [data-or-map-mv-register-remove]")) {
+      if (!(event.target instanceof Element)) return;
+      const target = event.target;
+      if (target.closest("[data-or-map-mv-register-write], [data-or-map-mv-register-resolve], [data-or-map-mv-register-remove]")) {
         hasInteracted = true;
-        const value = event.target.closest("[data-or-map-mv-register-remove]")
+        const value = target.closest("[data-or-map-mv-register-remove]")
           ? null
-          : event.target.closest("[data-or-map-mv-register-resolve]")
+          : target.closest("[data-or-map-mv-register-resolve]")
             ? selectedOrMapMvValues(client).reverse().join(" + ")
-            : client.el.querySelector("[data-or-map-mv-register-input]").value;
-        localOrMapMvEdit(client.id, client.el.querySelector("[data-or-map-mv-register-key]").value, value);
+            : orMapMvInput.value;
+        localOrMapMvEdit(client.id, orMapMvKey.value, value);
         return;
       }
-      if (event.target.closest("[data-lww-map-write], [data-lww-map-remove]")) {
+      if (target.closest("[data-lww-map-write], [data-lww-map-remove]")) {
         hasInteracted = true;
         localLwwMapEdit(
           client.id,
-          client.el.querySelector("[data-lww-map-key]").value,
-          event.target.closest("[data-lww-map-remove]")
-            ? null : client.el.querySelector("[data-lww-map-input]").value,
+          lwwMapKey.value,
+          target.closest("[data-lww-map-remove]") ? null : lwwMapInput.value,
         );
         return;
       }
-      if (event.target.closest("[data-lww-register-write]")) {
+      if (target.closest("[data-lww-register-write]")) {
         hasInteracted = true;
-        localLwwSet(
-          client.id,
-          client.el.querySelector("[data-lww-register-input]").value,
-        );
+        localLwwSet(client.id, lwwRegisterInput.value);
         return;
       }
-      if (event.target.closest("[data-mv-register-write], [data-mv-register-resolve]")) {
+      if (target.closest("[data-mv-register-write], [data-mv-register-resolve]")) {
         hasInteracted = true;
-        const value = event.target.closest("[data-mv-register-resolve]")
+        const value = target.closest("[data-mv-register-resolve]")
           ? "raise crest + arm pump"
-          : client.el.querySelector("[data-mv-register-input]").value;
+          : mvRegisterInput.value;
         localMvSet(client.id, value);
         return;
       }
-      const stepBtn = event.target.closest("button[data-step]");
+      const stepBtn = target.closest<HTMLButtonElement>("button[data-step]");
       if (stepBtn) {
         hasInteracted = true;
-        const key = stepBtn.closest("tr").dataset.key;
+        const key = rowKey(stepBtn);
         const current = readInt(mapKernel.get(client.map, key)) ?? 0;
         // River gauges don't read below zero; renderMap disables "−" at 0.
         const next = Math.max(0, current + Number(stepBtn.dataset.step));
         if (next !== current) localSet(client.id, key, next);
         return;
       }
-      const incBtn = event.target.closest("button[data-inc]");
+      const incBtn = target.closest<HTMLButtonElement>("button[data-inc]");
       if (incBtn) {
         hasInteracted = true;
         localIncrement(client.id, Number(incBtn.dataset.inc));
         return;
       }
-      const gCounterIncBtn = event.target.closest("button[data-gcounter-inc]");
+      const gCounterIncBtn = target.closest<HTMLButtonElement>(
+        "button[data-gcounter-inc]",
+      );
       if (gCounterIncBtn) {
         hasInteracted = true;
         localGCounterIncrement(
@@ -2687,143 +3487,191 @@ export function initDemo() {
         );
         return;
       }
-      const pnBtn = event.target.closest("button[data-pn-inc]");
+      const pnBtn = target.closest<HTMLButtonElement>("button[data-pn-inc]");
       if (pnBtn) {
         hasInteracted = true;
         localPnUpdate(client.id, Number(pnBtn.dataset.pnInc));
         return;
       }
-      const claimBtn = event.target.closest("button[data-claim]");
+      const claimBtn = target.closest<HTMLButtonElement>("button[data-claim]");
       if (claimBtn) {
         hasInteracted = true;
-        localClaim(client.id, claimBtn.closest("tr").dataset.key);
+        localClaim(client.id, rowKey(claimBtn));
         return;
       }
-      const registerBtn = event.target.closest("button[data-register-write]");
+      const registerBtn = target.closest<HTMLButtonElement>(
+        "button[data-register-write]",
+      );
       if (registerBtn) {
         hasInteracted = true;
         localRegisterWrite(
           client.id,
-          registerBtn.closest("tr").dataset.key,
+          rowKey(registerBtn),
         );
         return;
       }
-      const orderedAddBtn = event.target.closest("button[data-ordered-add]");
+      const orderedAddBtn = target.closest<HTMLButtonElement>(
+        "button[data-ordered-add]",
+      );
       if (orderedAddBtn) {
         hasInteracted = true;
         localOrderedAdd(client.id);
         return;
       }
-      const orderedAcquireBtn = event.target.closest("button[data-ordered-acquire]");
+      const orderedAcquireBtn = target.closest<HTMLButtonElement>(
+        "button[data-ordered-acquire]",
+      );
       if (orderedAcquireBtn) {
         hasInteracted = true;
         localOrderedAcquire(client.id);
         return;
       }
-      const orderedCompleteBtn = event.target.closest("button[data-ordered-complete]");
+      const orderedCompleteBtn = target.closest<HTMLButtonElement>(
+        "button[data-ordered-complete]",
+      );
       if (orderedCompleteBtn) {
         hasInteracted = true;
         localOrderedComplete(client.id);
         return;
       }
-      const orderedReleaseBtn = event.target.closest("button[data-ordered-release]");
+      const orderedReleaseBtn = target.closest<HTMLButtonElement>(
+        "button[data-ordered-release]",
+      );
       if (orderedReleaseBtn) {
         hasInteracted = true;
         localOrderedRelease(client.id);
         return;
       }
-      const taskVolunteerBtn = event.target.closest("button[data-task-volunteer]");
+      const taskVolunteerBtn = target.closest<HTMLButtonElement>(
+        "button[data-task-volunteer]",
+      );
       if (taskVolunteerBtn) {
         hasInteracted = true;
-        localTaskVolunteer(client.id, taskVolunteerBtn.closest("tr").dataset.key);
+        localTaskVolunteer(client.id, rowKey(taskVolunteerBtn));
         return;
       }
-      const taskAbandonBtn = event.target.closest("button[data-task-abandon]");
+      const taskAbandonBtn = target.closest<HTMLButtonElement>(
+        "button[data-task-abandon]",
+      );
       if (taskAbandonBtn) {
         hasInteracted = true;
-        localTaskAbandon(client.id, taskAbandonBtn.closest("tr").dataset.key);
+        localTaskAbandon(client.id, rowKey(taskAbandonBtn));
         return;
       }
-      const taskCompleteBtn = event.target.closest("button[data-task-complete]");
+      const taskCompleteBtn = target.closest<HTMLButtonElement>(
+        "button[data-task-complete]",
+      );
       if (taskCompleteBtn) {
         hasInteracted = true;
-        localTaskComplete(client.id, taskCompleteBtn.closest("tr").dataset.key);
+        localTaskComplete(client.id, rowKey(taskCompleteBtn));
         return;
       }
-      const pactSetBtn = event.target.closest("button[data-pact-set]");
+      const pactSetBtn = target.closest<HTMLButtonElement>(
+        "button[data-pact-set]",
+      );
       if (pactSetBtn) {
         hasInteracted = true;
-        localPactSet(client.id, pactSetBtn.closest("tr").dataset.key);
+        localPactSet(client.id, rowKey(pactSetBtn));
         return;
       }
-      const pactDeleteBtn = event.target.closest("button[data-pact-delete]");
+      const pactDeleteBtn = target.closest<HTMLButtonElement>(
+        "button[data-pact-delete]",
+      );
       if (pactDeleteBtn) {
         hasInteracted = true;
-        localPactDelete(client.id, pactDeleteBtn.closest("tr").dataset.key);
+        localPactDelete(client.id, rowKey(pactDeleteBtn));
         return;
       }
-      const orMapLogBtn = event.target.closest("button[data-ormap-log]");
+      const orMapLogBtn = target.closest<HTMLButtonElement>(
+        "button[data-ormap-log]",
+      );
       if (orMapLogBtn) {
         hasInteracted = true;
         localOrMapLog(
           client.id,
-          orMapLogBtn.closest("tr").dataset.key,
+          rowKey(orMapLogBtn),
           Number(orMapLogBtn.dataset.ormapLog),
         );
         return;
       }
-      const memberButton = event.target.closest("[data-ormap-set-add], [data-ormap-set-remove], [data-ormap-remove-key]");
+      const memberButton = target.closest<HTMLElement>(
+        "[data-ormap-set-add], [data-ormap-set-remove], [data-ormap-remove-key]",
+      );
       if (memberButton) {
         hasInteracted = true;
         if (memberButton.hasAttribute("data-ormap-remove-key")) {
           localOrMapStrike(client.id, memberKey.value);
         } else {
-          localOrMapEdit(client.id,
-            memberButton.hasAttribute("data-ormap-set-add") ? orMapKernel.add_member : orMapKernel.remove_member,
-            memberKey.value, memberInput.value);
+          if (memberButton.hasAttribute("data-ormap-set-add")) {
+            void localOrMapAddMember(
+              client.id,
+              memberKey.value,
+              memberInput.value,
+            );
+          } else {
+            void localOrMapRemoveMember(
+              client.id,
+              memberKey.value,
+              memberInput.value,
+            );
+          }
         }
         return;
       }
-      const orMapStrikeBtn = event.target.closest("button[data-ormap-strike]");
+      const orMapStrikeBtn = target.closest<HTMLButtonElement>(
+        "button[data-ormap-strike]",
+      );
       if (orMapStrikeBtn) {
         hasInteracted = true;
-        localOrMapStrike(client.id, orMapStrikeBtn.closest("tr").dataset.key);
+        localOrMapStrike(client.id, rowKey(orMapStrikeBtn));
         return;
       }
-      const orMapReopenBtn = event.target.closest("button[data-ormap-reopen]");
+      const orMapReopenBtn = target.closest<HTMLButtonElement>(
+        "button[data-ormap-reopen]",
+      );
       if (orMapReopenBtn) {
         hasInteracted = true;
-        localOrMapReopen(client.id, orMapReopenBtn.closest("tr").dataset.key);
+        localOrMapReopen(client.id, rowKey(orMapReopenBtn));
         return;
       }
-      const orSetAddBtn = event.target.closest("button[data-orset-add]");
+      const orSetAddBtn = target.closest<HTMLButtonElement>(
+        "button[data-orset-add]",
+      );
       if (orSetAddBtn) {
         hasInteracted = true;
-        localOrSetAdd(client.id, orSetAddBtn.closest("tr").dataset.key);
+        localOrSetAdd(client.id, rowKey(orSetAddBtn));
         return;
       }
-      const orSetRemoveBtn = event.target.closest("button[data-orset-remove]");
+      const orSetRemoveBtn = target.closest<HTMLButtonElement>(
+        "button[data-orset-remove]",
+      );
       if (orSetRemoveBtn) {
         hasInteracted = true;
-        localOrSetRemove(client.id, orSetRemoveBtn.closest("tr").dataset.key);
+        localOrSetRemove(client.id, rowKey(orSetRemoveBtn));
         return;
       }
-      const gSetAddBtn = event.target.closest("button[data-gset-add]");
+      const gSetAddBtn = target.closest<HTMLButtonElement>(
+        "button[data-gset-add]",
+      );
       if (gSetAddBtn) {
         hasInteracted = true;
-        localGSetAdd(client.id, gSetAddBtn.closest("tr").dataset.key);
+        localGSetAdd(client.id, rowKey(gSetAddBtn));
         return;
       }
-      const twoPSetAddBtn = event.target.closest("button[data-twopset-add]");
+      const twoPSetAddBtn = target.closest<HTMLButtonElement>(
+        "button[data-twopset-add]",
+      );
       if (twoPSetAddBtn) {
         hasInteracted = true;
-        localTwoPSetAdd(client.id, twoPSetAddBtn.closest("tr").dataset.key);
+        localTwoPSetAdd(client.id, rowKey(twoPSetAddBtn));
         return;
       }
-      const twoPSetRemoveBtn = event.target.closest("button[data-twopset-remove]");
+      const twoPSetRemoveBtn = target.closest<HTMLButtonElement>(
+        "button[data-twopset-remove]",
+      );
       if (twoPSetRemoveBtn) {
         hasInteracted = true;
-        localTwoPSetRemove(client.id, twoPSetRemoveBtn.closest("tr").dataset.key);
+        localTwoPSetRemove(client.id, rowKey(twoPSetRemoveBtn));
       }
     });
   }
@@ -2871,27 +3719,30 @@ export function initDemo() {
     rig.dataset.dds = activeDds;
     rig.dataset.ormapValueMode = orMapMode;
     if (orMapViewSelect) {
-      document.querySelector("[data-ormap-view-controls]").hidden =
-        activeDds !== "ormap" && activeDds !== "or-map-mv-register";
+      required<HTMLElement>(
+        document,
+        "[data-ormap-view-controls]",
+      ).hidden = activeDds !== "ormap" && activeDds !== "or-map-mv-register";
       orMapViewSelect.value = activeDds === "or-map-mv-register" ? activeDds : "ormap";
     }
     for (const pick of ddsPicks) pick.checked = pick.value === activeDds;
     const setMode = orMapMode === "set";
-    const orMapControls = document.querySelector("[data-ormap-controls]");
+    const orMapControls =
+      document.querySelector<HTMLElement>("[data-ormap-controls]");
     if (orMapControls) orMapControls.hidden = activeDds !== "ormap";
-    document.querySelector("[data-ormap-tally-note]").hidden = setMode;
-    document.querySelector("[data-ormap-set-note]").hidden = !setMode;
+    required<HTMLElement>(document, "[data-ormap-tally-note]").hidden = setMode;
+    required<HTMLElement>(document, "[data-ormap-set-note]").hidden = !setMode;
     if (orMapRaceSelect) {
-      document.querySelector("[data-ormap-scenarios]").hidden = !setMode;
+      required<HTMLElement>(document, "[data-ormap-scenarios]").hidden =
+        !setMode;
     }
     for (const rule of mergeRules) {
       rule.hidden = rule.dataset.mergeRule !== activeDds;
     }
-    if (raceBtn) raceBtn.textContent = RACE_LABELS[activeDds];
+    raceBtn.textContent = RACE_LABELS[activeDds];
     raceBtn.disabled = false;
-    if (resetBtn) resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
-    if (replayBtn) {
-      replayBtn.hidden = ![
+    resetBtn.setAttribute("aria-label", RESET_LABELS[activeDds]);
+    replayBtn.hidden = ![
         "or-map-mv-register",
         "lww-map",
         "lww-register",
@@ -2903,7 +3754,7 @@ export function initDemo() {
         "gset",
         "twopset",
       ].includes(activeDds);
-      replayBtn.disabled =
+    replayBtn.disabled =
         activeDds === "or-map-mv-register"
           ? !lastOrMapMv
         : activeDds === "lww-map"
@@ -2923,12 +3774,13 @@ export function initDemo() {
           : activeDds === "twopset"
             ? !lastTwoPSet
             : !lastPn;
-      const replayOldAdd = activeDds === "ormap" && setMode;
-      replayBtn.textContent = replayOldAdd ? "Re-deliver first add" : "Re-deliver last delta";
-      replayBtn.setAttribute("aria-label", replayOldAdd
-        ? "Deliver the first sequenced member addition again to every replica"
-        : "Deliver the saved sequenced delta again to every replica");
-    }
+    const replayOldAdd = activeDds === "ormap" && setMode;
+    replayBtn.textContent = replayOldAdd
+      ? "Re-deliver first add"
+      : "Re-deliver last delta";
+    replayBtn.setAttribute("aria-label", replayOldAdd
+      ? "Deliver the first sequenced member addition again to every replica"
+      : "Deliver the saved sequenced delta again to every replica");
     if (activeDds === "ormap" && setMode) {
       raceBtn.textContent = "Run set scenario";
       resetBtn.setAttribute("aria-label", "Start fresh OR-map set replicas and discard pending set edits");
@@ -2948,13 +3800,17 @@ export function initDemo() {
 
   orMapViewSelect?.addEventListener("change", () => {
     hasInteracted = true;
-    activeDds = orMapViewSelect.value;
+    const value = orMapViewSelect.value;
+    if (!isDdsId(value)) throw new Error(`Unknown structure view: ${value}`);
+    activeDds = value;
     applyActiveView();
   });
 
   orMapModeSelect?.addEventListener("change", () => {
     hasInteracted = true;
-    orMapMode = orMapModeSelect.value;
+    const value = orMapModeSelect.value;
+    if (!isOrMapMode(value)) throw new Error(`Unknown OR-map mode: ${value}`);
+    orMapMode = value;
     resetOrMap();
   });
 
@@ -2962,6 +3818,9 @@ export function initDemo() {
     pick.addEventListener("change", () => {
       if (!pick.checked) return;
       hasInteracted = true;
+      if (!isDdsId(pick.value)) {
+        throw new Error(`Unknown structure view: ${pick.value}`);
+      }
       activeDds = pick.value;
       applyActiveView();
     });
@@ -2979,10 +3838,10 @@ export function initDemo() {
 
   // Rough-notation marks are absolutely positioned, so redraw them when the
   // layout shifts under a resize.
-  let reflowTimer = null;
+  let reflowTimer: ReturnType<typeof setTimeout> | null = null;
   window.addEventListener("resize", () => {
     if (!fieldNotes.active) return;
-    clearTimeout(reflowTimer);
+    if (reflowTimer !== null) clearTimeout(reflowTimer);
     reflowTimer = setTimeout(() => fieldNotes.reflow(), 150);
   });
 
@@ -2994,11 +3853,17 @@ export function initDemo() {
     } else if (activeDds === "lww-map") {
       // Issued clocks include pending edits and retained tombstones, on every client.
       const timestamp = Math.max(Date.now(), ...Object.values(clients).map((client) => {
-        const seen = gdict.get(client["lww-map"].last_seen, "gate-mode");
-        return seen.isOk() ? seen[0] + 1 : 1;
+        const seen = gdict.get<string, number>(
+          client["lww-map"].last_seen,
+          "gate-mode",
+        );
+        return (resultValue(seen) ?? 0) + 1;
       }));
       if (!Number.isSafeInteger(timestamp + 1)) throw new Error("LWWMap race clock exhausted");
-      const race = document.querySelector("[data-lww-map-race]").value;
+      const race = required<HTMLSelectElement>(
+        document,
+        "[data-lww-map-race]",
+      ).value;
       localLwwMapEdit("a", "gate-mode", race === "remove-tie" ? null : "open",
         timestamp + (race === "timestamp" ? 1 : 0));
       localLwwMapEdit("b", "gate-mode", race === "remove-tie" ? "open" : "closed", timestamp);
@@ -3179,6 +4044,9 @@ export function initDemo() {
           localOrMapReopen("a", key);
         }
         const value = orMapEntries(clients.a.ormap).get(key) ?? 0;
+        if (typeof value !== "number") {
+          throw new Error("OR-map tally view received a non-tally value");
+        }
         const drift = value - base;
         if (drift !== 0) localOrMapLog("a", key, -drift);
       }

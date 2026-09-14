@@ -250,7 +250,7 @@ test("MV revision slate loads a baseline under independent writers", () => {
 // Regression: compiled-record arity drift fails silently — a Summary built
 // with too few arguments carries `undefined` fields and only throws deep
 // inside bootstrap, which is how the homepage demo once shipped broken.
-// Mirrors bootstrapCounterCore() in ../demo.js.
+// Mirrors bootstrapCounterCore() in ../demo.ts.
 test("demo counter core boots from the baseline summary", () => {
   const summary = new runtimeCore.Summary(
     0,
@@ -298,7 +298,7 @@ test("demo counter core boots from the baseline summary", () => {
 // than a JavaScript copy of its merge rule.
 test("shared demo wires the compiled LWW register and map kernels", () => {
   const source = readFileSync(
-    new URL("../demo.js", import.meta.url),
+    new URL("../demo.ts", import.meta.url),
     "utf8",
   );
   assert.match(source, /lww_register_kernel\.mjs/);
