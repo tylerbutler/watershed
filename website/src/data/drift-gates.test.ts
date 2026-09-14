@@ -58,6 +58,16 @@ const SNIPPET_MANIFEST = "src/generated/snippets.json";
  *  validation and render an entry it decoded itself. */
 const MANIFEST_READER = "src/lib/snippet.ts";
 
+/** The one module allowed to import Gleam's Result and Option constructors. */
+const GLEAM_VALUE_HELPER = "src/scripts/demo/gleam-values.ts";
+
+const GLEAM_CONTAINER_CONSTRUCTORS = new Set([
+  "Error",
+  "None",
+  "Ok",
+  "Some",
+]);
+
 // ══════════════════════════════════════════════════════════════════════════
 // Helpers
 // ══════════════════════════════════════════════════════════════════════════
@@ -251,6 +261,58 @@ function findAllAuthoredModules(): string[] {
   walk(srcDir);
   return results;
 }
+
+function gleamContainerImports(source: string): string[] {
+  const found = new Set<string>();
+  const imports =
+    /import\s*\{([^}]*)\}\s*from\s*["'][^"']*(?:\/gleam|\/gleam\/option)\.mjs["']/g;
+  let match;
+  while ((match = imports.exec(source)) !== null) {
+    for (const binding of match[1].split(",")) {
+      const imported = binding.trim().split(/\s+as\s+/)[0]?.trim();
+      if (imported && GLEAM_CONTAINER_CONSTRUCTORS.has(imported)) {
+        found.add(imported);
+      }
+    }
+  }
+  return [...found].sort();
+}
+
+describe("Gate: Gleam Result and Option constructors stay behind the typed helper", () => {
+  it("no authored module imports container constructors directly", () => {
+    for (const absModule of findAllAuthoredModules()) {
+      const relModule = relative(websiteRoot, absModule);
+      if (relModule === GLEAM_VALUE_HELPER) continue;
+      assert.deepEqual(
+        gleamContainerImports(readFileSync(absModule, "utf-8")),
+        [],
+        `${relModule} imports a Gleam container constructor directly`,
+      );
+    }
+  });
+
+  it("detects direct container constructor imports", () => {
+    const fake = `
+      import { Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
+      import { Ok } from "../../../build/dev/javascript/watershed/gleam.mjs";
+    `;
+    assert.deepEqual(gleamContainerImports(fake), ["Ok", "Some"]);
+  });
+
+  it("allows type-only container imports", () => {
+    const fake = `
+      import type { Option$, Result } from "../../../build/dev/javascript/watershed/gleam.mjs";
+    `;
+    assert.deepEqual(gleamContainerImports(fake), []);
+  });
+
+  it("allows generated domain constructors", () => {
+    const fake = `
+      import { Set } from "../../../build/dev/javascript/watershed/watershed/pact_map_kernel.mjs";
+    `;
+    assert.deepEqual(gleamContainerImports(fake), []);
+  });
+});
 
 // ══════════════════════════════════════════════════════════════════════════
 // Gate 1: Every rendered id is declared, generated, and cites a real file
