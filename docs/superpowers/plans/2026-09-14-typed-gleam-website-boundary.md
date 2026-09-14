@@ -856,7 +856,7 @@ git commit -m "refactor(site): type the shared demo"
 - Consumes: `pnpm check:types` and the helper-only constructor import rule.
 - Produces:
   - `build:gleam`: fresh JavaScript and declaration generation for both local Gleam packages.
-  - `check:types`: `build:gleam`, snippet generation, then `tsc --noEmit`.
+  - `check:types`: `build:gleam`, snippet generation, `astro sync`, then `tsc --noEmit`.
   - a drift gate that rejects raw Gleam container constructor imports outside `gleam-values.ts`.
 
 - [ ] **Step 1: Write the drift-gate tests first**
@@ -907,10 +907,15 @@ const GLEAM_CONTAINER_CONSTRUCTORS = new Set([
 
 function gleamContainerImports(source: string): string[] {
   const found = new Set<string>();
+  const commentFree = source.replace(
+    /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g,
+    (match, literal: string | undefined) =>
+      literal === undefined ? " ".repeat(match.length) : literal,
+  );
   const tokens =
-    /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\/[^\n]*|\/\*[\s\S]*?\*\/|\bimport\s+(type\s+)?(?:\{([\s\S]*?)\}|\*\s+as\s+([A-Za-z_$][\w$]*))\s+from\s+["']([^"']+)["']/g;
+    /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\bimport\s+(type\s+)?(?:\{([\s\S]*?)\}|\*\s+as\s+([A-Za-z_$][\w$]*))\s+from\s+["']([^"']+)["']/g;
   let match;
-  while ((match = tokens.exec(source)) !== null) {
+  while ((match = tokens.exec(commentFree)) !== null) {
     const [, typeOnly, namedBindings, namespaceBinding, modulePath] = match;
     if (
       (!namedBindings && !namespaceBinding) ||
@@ -956,7 +961,7 @@ Add:
 
 ```json
 "build:gleam": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript",
-"check:types": "pnpm build:gleam && pnpm generate:snippets && tsc --noEmit",
+"check:types": "pnpm build:gleam && pnpm generate:snippets && astro sync && tsc --noEmit",
 ```
 
 Replace the duplicated Gleam build commands in `predev` and `prebuild`:
@@ -966,10 +971,10 @@ Replace the duplicated Gleam build commands in `predev` and `prebuild`:
 "prebuild": "pnpm check:types && node --strip-types --test src/data/drift-gates.test.ts && node --strip-types --test src/data/copy-gates.test.ts",
 ```
 
-The standalone `check:types` command must build fresh declarations and generate
-the ignored snippet manifest before TypeScript resolves its JSON import. Do not
-allow it to consume an old `build/` directory or require a pre-existing
-`src/generated/snippets.json`.
+The standalone `check:types` command must build fresh declarations, generate
+the ignored snippet manifest, and run `astro sync` before TypeScript resolves
+generated imports. Do not allow it to consume old build output or require
+pre-existing generated files.
 
 - [ ] **Step 6: Add the root test gate**
 

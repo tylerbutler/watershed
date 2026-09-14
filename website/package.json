@@ -11,7 +11,7 @@
     "prebuild": "pnpm check:types && node --strip-types --test src/data/drift-gates.test.ts && node --strip-types --test src/data/copy-gates.test.ts",
     "build": "astro build",
     "preview": "astro preview",
-    "check:types": "pnpm build:gleam && pnpm generate:snippets && tsc --noEmit",
+    "check:types": "pnpm build:gleam && pnpm generate:snippets && astro sync && tsc --noEmit",
     "og:image": "node scripts/og-image.mjs",
     "test:rich-text-adapter": "node --test src/scripts/demo/rich-text-adapter.test.mjs",
     "test:demo-boot": "node --strip-types --test src/scripts/demo/boot.test.ts",

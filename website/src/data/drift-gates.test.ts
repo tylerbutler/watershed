@@ -264,10 +264,15 @@ function findAllAuthoredModules(): string[] {
 
 function gleamContainerImports(source: string): string[] {
   const found = new Set<string>();
+  const commentFree = source.replace(
+    /("(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`)|(\/\/[^\n]*|\/\*[\s\S]*?\*\/)/g,
+    (match, literal: string | undefined) =>
+      literal === undefined ? " ".repeat(match.length) : literal,
+  );
   const tokens =
-    /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\/\/[^\n]*|\/\*[\s\S]*?\*\/|\bimport\s+(type\s+)?(?:\{([\s\S]*?)\}|\*\s+as\s+([A-Za-z_$][\w$]*))\s+from\s+["']([^"']+)["']/g;
+    /"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|\bimport\s+(type\s+)?(?:\{([\s\S]*?)\}|\*\s+as\s+([A-Za-z_$][\w$]*))\s+from\s+["']([^"']+)["']/g;
   let match;
-  while ((match = tokens.exec(source)) !== null) {
+  while ((match = tokens.exec(commentFree)) !== null) {
     const [, typeOnly, namedBindings, namespaceBinding, modulePath] = match;
     if (
       (!namedBindings && !namespaceBinding) ||
@@ -334,6 +339,14 @@ describe("Gate: Gleam Result and Option constructors stay behind the typed helpe
       const example = 'import { Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs"';
     `;
     assert.deepEqual(gleamContainerImports(fake), []);
+  });
+
+  it("detects constructors when comments appear inside imports", () => {
+    const fake = `
+      import /* runtime */ { Ok } from "../../../build/dev/javascript/watershed/gleam.mjs";
+      import { /* runtime */ Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
+    `;
+    assert.deepEqual(gleamContainerImports(fake), ["Ok", "Some"]);
   });
 
   it("allows generated domain constructors", () => {
