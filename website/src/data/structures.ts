@@ -539,16 +539,6 @@ export const categories: Category[] = [
     structures: sets,
   },
   {
-    slug: "maps",
-    name: "Maps",
-    tagline: "Keyed state that picks a winner, keeps an edit, or grows into a tree.",
-    lede: [
-      "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed's maps span that choice.",
-      "SharedMap resolves JSON and encoded-handle values by server order, following the last-write-wins design used by Fluid Framework. LWWMap lets each string key's timestamp outrank a later server SN, and keeps removals as tombstones. OR-map keeps causal dots per entry so a concurrent write survives a delete. SharedDirectory makes SharedMap recursive, with hierarchical identity that survives concurrent creation and delete-then-recreate.",
-    ],
-    structures: maps,
-  },
-  {
     slug: "registers",
     name: "Registers",
     tagline: "One shared value, and three different answers to a race.",
@@ -557,6 +547,16 @@ export const categories: Category[] = [
       "LWWRegister trusts timestamp and replica identity to select one winner without caring about delivery order. MvRegister refuses the forced choice and keeps concurrent answers until a writer who has seen them resolves them. RegisterCollection keeps every server-sequenced version so each read can choose the first uncontested write or the latest one.",
     ],
     structures: registers,
+  },
+  {
+    slug: "maps",
+    name: "Maps",
+    tagline: "Keyed state that picks a winner, keeps an edit, or grows into a tree.",
+    lede: [
+      "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed's maps span that choice.",
+      "SharedMap resolves JSON and encoded-handle values by server order, following the last-write-wins design used by Fluid Framework. LWWMap lets each string key's timestamp outrank a later server SN, and keeps removals as tombstones. OR-map keeps causal dots per entry so a concurrent write survives a delete. SharedDirectory makes SharedMap recursive, with hierarchical identity that survives concurrent creation and delete-then-recreate.",
+    ],
+    structures: maps,
   },
   {
     slug: "sequences",
