@@ -5,7 +5,8 @@
 // sequences; delivery is paced one hop at a time and every replica converges.
 import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
-import { createSluiceRig, some, type RigClient } from "./demo/sluice-rig.ts";
+import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
+import { resultValue } from "./demo/gleam-values.ts";
 
 const CLIENT_IDS = ["a", "b", "c"];
 const CLIENT_LABEL: Record<string, string> = {
@@ -25,15 +26,21 @@ function cellLabel(row: number, col: number): string {
   return `r${row + 1}c${col + 1}`;
 }
 
-function readInt(optionValue: unknown): number | null {
-  const value = some<unknown>(optionValue);
+type SharedMap = ReturnType<typeof watershed.root>;
+
+function map(client: RigClient): SharedMap {
+  return client.handle as SharedMap;
+}
+
+function readInt(result: ReturnType<typeof watershed.get>): number | null {
+  const value = resultValue(result);
   if (value == null) return null;
   const n = Number(json.to_string(value));
   return Number.isFinite(n) ? n : null;
 }
 
 function cellValue(client: RigClient, row: number, col: number): number | null {
-  return readInt(watershed.get(client.handle, cellKey(row, col)));
+  return readInt(watershed.get(map(client), cellKey(row, col)));
 }
 
 function canonicalBoard(client: RigClient): string {
@@ -70,7 +77,7 @@ export function initSudokuDemo() {
     rig.submit(
       client,
       key,
-      () => watershed.set(client.handle, key, json.int(digit)),
+      () => watershed.set(map(client), key, json.int(digit)),
       `${cellLabel(row, col)} → ${digit}`,
     );
   }
@@ -82,7 +89,7 @@ export function initSudokuDemo() {
     rig.submit(
       client,
       key,
-      () => watershed.delete$(client.handle, key),
+      () => watershed.delete$(map(client), key),
       `${cellLabel(row, col)} clear`,
     );
   }

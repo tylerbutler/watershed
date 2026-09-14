@@ -1,7 +1,8 @@
 import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
 import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
-import { createSluiceRig, some, type RigClient } from "./demo/sluice-rig.ts";
+import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
+import { expectOk, type ResultValue } from "./demo/gleam-values.ts";
 
 const CLIENT_IDS = ["a", "b"];
 const CLIENT_LABEL: Record<string, string> = {
@@ -14,9 +15,11 @@ const CHANNEL_KEYS = {
 } as const;
 const WENT_WELL = "went_well";
 
+type OrMap = ResultValue<ReturnType<typeof watershed.create_or_map>>;
+
 interface GuideRaceChannels {
-  notes: unknown;
-  votes: unknown;
+  notes: OrMap;
+  votes: OrMap;
 }
 
 interface GuideRaceNote {
@@ -71,23 +74,11 @@ function voteMarker(id: string): string {
   return `vote:${id}`;
 }
 
-function expectOk<T>(result: unknown, detail: string): T {
-  const outcome = result as { isOk?: () => boolean; 0?: T | string };
-  if (typeof outcome.isOk === "function" && outcome.isOk()) return outcome[0] as T;
-  throw new Error(`${detail}: ${String(outcome[0] ?? "unknown error")}`);
-}
-
-function expectSome<T>(optionValue: unknown, detail: string): T {
-  const value = some<T>(optionValue);
-  if (value != null) return value;
-  throw new Error(detail);
-}
-
 function channels(client: RigClient): GuideRaceChannels {
   return client.handle as GuideRaceChannels;
 }
 
-function writeNote(notes: unknown, id: string, note: GuideRaceNote) {
+function writeNote(notes: OrMap, id: string, note: GuideRaceNote) {
   watershed.or_map_set(notes, id, JSON.stringify(note));
 }
 
@@ -172,7 +163,9 @@ function canonicalBoard(client: RigClient): string {
   );
 }
 
-function seedChannels(doc: unknown): GuideRaceChannels {
+function seedChannels(
+  doc: ReturnType<typeof sluice.connect>,
+): GuideRaceChannels {
   const root = watershed.root(doc);
   const notes = expectOk(
     watershed.create_or_map(doc, new orMapKernel.RegisterMode()),
@@ -188,13 +181,15 @@ function seedChannels(doc: unknown): GuideRaceChannels {
   return { notes, votes };
 }
 
-function resolveChannels(doc: unknown): GuideRaceChannels {
+function resolveChannels(
+  doc: ReturnType<typeof sluice.connect>,
+): GuideRaceChannels {
   const root = watershed.root(doc);
-  const notesHandle = expectSome<unknown>(
+  const notesHandle = expectOk(
     watershed.get(root, CHANNEL_KEYS.notes),
     "guide race notes handle missing",
   );
-  const votesHandle = expectSome<unknown>(
+  const votesHandle = expectOk(
     watershed.get(root, CHANNEL_KEYS.votes),
     "guide race votes handle missing",
   );

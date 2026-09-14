@@ -9,7 +9,8 @@ import * as watershed from "../../../build/dev/javascript/watershed/watershed.mj
 import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime.mjs";
 import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
-import { createSluiceRig, some, type RigClient } from "./demo/sluice-rig.ts";
+import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
+import { expectOk, type ResultValue } from "./demo/gleam-values.ts";
 import { createRigNotes, type RigNotes } from "./demo/rig-notes.ts";
 
 const CLIENT_IDS = ["a", "b", "c"];
@@ -65,20 +66,22 @@ interface PaneData {
   nameCursor: number;
 }
 
+type SharedSequence = ResultValue<ReturnType<typeof watershed.create_sequence>>;
+
 function pane(client: RigClient): PaneData {
-  return client.data as unknown as PaneData;
+  return client.data as PaneData;
+}
+function sequence(client: RigClient): SharedSequence {
+  return client.handle as SharedSequence;
 }
 function unquote(raw: string): string {
   return raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"')
     ? raw.slice(1, -1)
     : raw;
 }
-function okValue<T>(result: unknown): T {
-  return (result as { 0: T })[0];
-}
 function values(client: RigClient): string[] {
   return watershed
-    .sequence_values(client.handle)
+    .sequence_values(sequence(client))
     .toArray()
     .map((v: unknown) => unquote(json.to_string(v)));
 }
@@ -133,7 +136,7 @@ export function initSequenceDemo() {
       client,
       "st:" + name,
       () => {
-        watershed.sequence_insert(client.handle, at, json.string(name));
+        watershed.sequence_insert(sequence(client), at, json.string(name));
       },
       `insert ${name} @${at + 1}`,
     );
@@ -150,7 +153,7 @@ export function initSequenceDemo() {
       client,
       "st:" + name,
       () => {
-        watershed.sequence_move(client.handle, from, to);
+        watershed.sequence_move(sequence(client), from, to);
       },
       `move ${name} ${from + 1}→${to + 1}`,
     );
@@ -167,7 +170,7 @@ export function initSequenceDemo() {
       client,
       "st:" + name,
       () => {
-        watershed.sequence_replace(client.handle, index, json.string(name));
+        watershed.sequence_replace(sequence(client), index, json.string(name));
       },
       `rename ${oldName} → ${name}`,
     );
@@ -182,7 +185,7 @@ export function initSequenceDemo() {
       client,
       null,
       () => {
-        watershed.sequence_delete(client.handle, index);
+        watershed.sequence_delete(sequence(client), index);
       },
       `delete ${name} @${index + 1}`,
     );
@@ -344,7 +347,10 @@ export function initSequenceDemo() {
       // seeds the initial route; the others resolve the shared handle. All of
       // this drains inside setup's settle, so the visible timeline is clean.
       const a = clients["a"];
-      const seq = okValue<unknown>(watershed.create_sequence(a.doc));
+      const seq = expectOk(
+        watershed.create_sequence(a.doc),
+        "sequence creation failed",
+      );
       a.handle = seq;
       const runtimeA = watershed.runtime_of(a.doc);
       runtime.set(
@@ -361,9 +367,13 @@ export function initSequenceDemo() {
         const client = clients[id];
         if (id !== "a") {
           const rt = watershed.runtime_of(client.doc);
-          const stored = some<unknown>(runtime.get(rt, "root", SEQ_ADDRESS));
-          client.handle = okValue<unknown>(
+          const stored = expectOk(
+            runtime.get(rt, "root", SEQ_ADDRESS),
+            "sequence handle lookup failed",
+          );
+          client.handle = expectOk(
             watershed.resolve_sequence(client.doc, stored),
+            "sequence resolve failed",
           );
         }
         client.data = {
@@ -371,7 +381,7 @@ export function initSequenceDemo() {
           order: null,
           selected: null,
           nameCursor: i,
-        } as unknown as Record<string, unknown>;
+        };
         // Reset re-runs setup against panes that still hold old station DOM.
         client.el.querySelector("[data-route]")?.replaceChildren();
       });

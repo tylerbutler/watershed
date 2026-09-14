@@ -16,6 +16,7 @@
 // The sluice is DDS-agnostic (it sequences opaque wire frames), so this harness
 // is too: it never mentions maps, folders, or text.
 import * as sluice from "../../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
+import { optionValue, resultValue, type ResultValue } from "./gleam-values.ts";
 import { prefersReducedMotion } from "./timing.ts";
 import { createFlowLayer, type FlowLayer } from "./flow-dots.ts";
 import { createLatencyControls, type LatencyControls } from "./controls.ts";
@@ -25,7 +26,7 @@ const FIFO_GAP_MS = 25;
 
 export interface RigClient {
   id: string;
-  doc: unknown;
+  doc: ReturnType<typeof sluice.connect>;
   el: Element;
   /** DDS-specific handle set by `setup` (a SharedMap, an address, …). */
   handle: unknown;
@@ -33,7 +34,7 @@ export interface RigClient {
   pending: string[];
   cursor: number;
   /** Scratch space for the demo. */
-  data: Record<string, unknown>;
+  data: unknown;
 }
 
 export interface RigConfig {
@@ -49,7 +50,10 @@ export interface RigConfig {
   document: string;
   clientIds: string[];
   clientLabel: Record<string, string>;
-  setup: (clients: Record<string, RigClient>, server: unknown) => void;
+  setup: (
+    clients: Record<string, RigClient>,
+    server: ReturnType<typeof sluice.start>,
+  ) => void;
   render: (client: RigClient) => void;
   canonical: (client: RigClient) => string;
   /**
@@ -97,20 +101,9 @@ export interface Rig {
   settleNow: () => void;
 }
 
-// Gleam `Some(x)` carries the value at index 0; `None` has no such field.
-export function some<T>(option: unknown): T | null {
-  if (option && typeof option === "object" && 0 in option) {
-    return (option as { 0: T })[0];
-  }
-  return null;
-}
+export const some = optionValue;
 
-export interface Delivery {
-  to: string;
-  event: string;
-  sequence_number: number;
-  author: string;
-}
+export type Delivery = ResultValue<ReturnType<typeof sluice.peek_info>>;
 
 export function createSluiceRig(config: RigConfig): Rig | null {
   const rig = document.querySelector(config.rig);
@@ -138,6 +131,10 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   ) {
     return null;
   }
+  const flowLayerEl = flowLayer;
+  const seqNodeEl = seqNode;
+  const seqCounterEl = seqCounter;
+  const statusElement = statusEl;
 
   for (const el of section.querySelectorAll("button, input")) {
     if (el instanceof HTMLButtonElement || el instanceof HTMLInputElement) el.disabled = false;
@@ -148,25 +145,18 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     paceOut: paceOut instanceof HTMLElement ? paceOut : null,
     varianceToggle: varianceToggle instanceof HTMLInputElement ? varianceToggle : null,
   });
-  const flow: FlowLayer = createFlowLayer(flowLayer, prefersReducedMotion);
+  const flow: FlowLayer = createFlowLayer(flowLayerEl, prefersReducedMotion);
   const opLog: OpLog = createOpLog(opLogEl, { max: 24 });
 
-  const clients: Record<string, RigClient> = {};
+  const clientElements: Record<string, Element> = {};
   for (const id of config.clientIds) {
     const el = rig.querySelector(`[data-client="${id}"]`);
     if (!el) return null;
-    clients[id] = {
-      id,
-      doc: null,
-      el,
-      handle: null,
-      pending: [],
-      cursor: config.clientIds.indexOf(id),
-      data: {},
-    };
+    clientElements[id] = el;
   }
 
-  let server: unknown = null;
+  const clients: Record<string, RigClient> = {};
+  let server: ReturnType<typeof sluice.start>;
   const sidToId: Record<string, string> = {};
   const labelBySn = new Map<number, string>();
   const outboundBySn = new Map<
@@ -183,18 +173,32 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     server = sluice.start(config.document, config.document);
     for (const id of config.clientIds) {
       const doc = sluice.connect(server, `user-${id}`);
-      clients[id].doc = doc;
-      clients[id].pending = [];
-      clients[id].cursor = config.clientIds.indexOf(id);
-      clients[id].data = {};
-      clients[id].handle = null;
+      const client = clients[id];
+      if (client) {
+        client.doc = doc;
+        client.pending = [];
+        client.cursor = config.clientIds.indexOf(id);
+        client.data = {};
+        client.handle = null;
+      } else {
+        clients[id] = {
+          id,
+          doc,
+          el: clientElements[id],
+          handle: null,
+          pending: [],
+          cursor: config.clientIds.indexOf(id),
+          data: {},
+        };
+      }
     }
     // Complete every handshake before the DDS-specific shared-instance setup.
     sluice.settle(server);
     for (const key of Object.keys(sidToId)) delete sidToId[key];
     for (const id of config.clientIds) {
       const result = sluice.client_id(server, clients[id].doc);
-      if (result.isOk()) sidToId[result[0] as string] = id;
+      const sid = resultValue(result);
+      if (sid !== null) sidToId[sid] = id;
     }
     config.setup(clients, server);
     // The setup may have pushed handshake/attach ops; drain them silently so
@@ -211,16 +215,16 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   }
 
   function renderStatus() {
-    statusEl.innerHTML = converged()
+    statusElement.innerHTML = converged()
       ? '<span class="stamp converged">Converged</span> all replicas identical · nothing pending'
       : '<span class="stamp revising">Revising</span> ops in flight';
   }
 
   function stampSeqCounter(seq: number) {
-    seqCounter.textContent = `SN ${seq}`;
-    seqCounter.classList.remove("stamped");
-    void seqCounter.offsetWidth;
-    seqCounter.classList.add("stamped");
+    seqCounterEl.textContent = `SN ${seq}`;
+    seqCounterEl.classList.remove("stamped");
+    void seqCounterEl.offsetWidth;
+    seqCounterEl.classList.add("stamped");
   }
 
   function logOp(seq: number, authorId: string, label: string) {
@@ -241,7 +245,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
 
   function pump() {
     if (pumpTimer != null) return;
-    const next = some<Delivery>(sluice.peek_info(server));
+    const next = resultValue(sluice.peek_info(server));
     if (next == null) {
       renderStatus();
       return;
@@ -295,7 +299,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     const latency = controls.sampleLatency();
     const duration = controls.paced(latency);
     flow.animateDot(
-      seqNode,
+      seqNodeEl,
       clients[toId].el,
       duration,
       true,
@@ -327,7 +331,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
 
   function pumpTick() {
     pumpTimer = null;
-    const first = some<Delivery>(sluice.peek_info(server));
+    const first = resultValue(sluice.peek_info(server));
     if (first == null) {
       renderStatus();
       return;
@@ -348,14 +352,14 @@ export function createSluiceRig(config: RigConfig): Rig | null {
         // (e.g. to stamp the upcoming subscribe callback with its author)
         // just before that side effect, using the still-undelivered peek.
         fireBeforeDeliver(next);
-        const delivery = some<Delivery>(sluice.step_info(server));
+        const delivery = resultValue(sluice.step_info(server));
         if (delivery == null) break;
         deliver(delivery);
-        next = some<Delivery>(sluice.peek_info(server));
+        next = resultValue(sluice.peek_info(server));
       }
     } else {
       fireBeforeDeliver(first);
-      const delivery = some<Delivery>(sluice.step_info(server));
+      const delivery = resultValue(sluice.step_info(server));
       if (delivery != null) deliver(delivery);
     }
 
@@ -392,11 +396,11 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     let guard = 0;
     const GUARD_LIMIT = 20000; // pathological-loop backstop, never expected
     while (guard < GUARD_LIMIT) {
-      const next = some<Delivery>(sluice.peek_info(server));
+      const next = resultValue(sluice.peek_info(server));
       if (next == null) break;
       if (next.event === "op") outboundBySn.delete(next.sequence_number);
       fireBeforeDeliver(next);
-      const delivery = some<Delivery>(sluice.step_info(server));
+      const delivery = resultValue(sluice.step_info(server));
       if (delivery == null) break;
       const toId = sidToId[delivery.to];
       if (delivery.event === "op" && toId) {
@@ -441,7 +445,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     }
     config.render(client);
     renderStatus();
-    flow.animateDot(client.el, seqNode, arrivalAt - now, false, label, latency);
+    flow.animateDot(client.el, seqNodeEl, arrivalAt - now, false, label, latency);
     pump();
   }
 
@@ -460,9 +464,9 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     pendingBySn.clear();
     lastOutboundArrival = 0;
     inFlight = 0;
-    flowLayer.replaceChildren();
+    flowLayerEl.replaceChildren();
     boot();
-    seqCounter.textContent = "SN 0";
+    seqCounterEl.textContent = "SN 0";
     opLog.clear();
     renderAll();
     renderStatus();

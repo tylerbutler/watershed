@@ -10,6 +10,7 @@
     "prebuild": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript && cd ../website && pnpm generate:snippets && node --strip-types --test src/data/drift-gates.test.ts && node --strip-types --test src/data/copy-gates.test.ts",
     "build": "astro build",
     "preview": "astro preview",
+    "check:types": "tsc --noEmit",
     "og:image": "node scripts/og-image.mjs",
     "test:rich-text-adapter": "node --test src/scripts/demo/rich-text-adapter.test.mjs",
     "test:demo-boot": "node --test src/scripts/demo/boot.test.mjs",
@@ -39,6 +40,7 @@
     "rough-notation": "^0.5.1"
   },
   "devDependencies": {
+    "@types/node": "^24.13.3",
     "puppeteer-core": "^25.3.0",
     "typescript": "^7.0.2"
   }

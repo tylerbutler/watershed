@@ -37,6 +37,13 @@ export function resultValue<T, E>(result: Result<T, E>): T | null {
   return isOk(result) ? result[0] : null;
 }
 
+export function resultError<T, E>(result: Result<T, E>): E | null {
+  if (result instanceof RootError || result instanceof LustreError) {
+    return result[0];
+  }
+  return null;
+}
+
 export function expectOk<T, E>(result: Result<T, E>, detail: string): T {
   if (isOk(result)) return result[0];
   const error =

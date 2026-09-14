@@ -44,10 +44,16 @@ import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluic
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
 import {
   createSluiceRig,
-  some,
   type Delivery,
   type RigClient,
 } from "./demo/sluice-rig.ts";
+import {
+  expectOk,
+  isOk,
+  resultError,
+  resultValue,
+  type ResultValue,
+} from "./demo/gleam-values.ts";
 import {
   createRichTextAdapter,
   type RichTextAdapter,
@@ -69,37 +75,48 @@ Quill.register("modules/cursors", QuillCursors);
 // accept a bare op array directly (`new Delta(opsArray)`), so the bare array
 // is exactly what both `updateContents`/`setContents` and this codec want.
 type QuillOp = Record<string, unknown>;
-
-function resultOk<T>(result: unknown): result is { 0: T } {
-  return (result as { isOk(): boolean }).isOk();
-}
+type GleamDelta = ResultValue<ReturnType<typeof richText.parse_delta>>;
+type RichTextDocument = ResultValue<
+  ReturnType<typeof watershed.rich_text_view>
+>;
+type SharedRichText = ResultValue<
+  ReturnType<typeof watershed.create_rich_text>
+>;
 
 /** Decode a Quill Delta's `.ops` (or a bare op array) through the generated
  * codec, or `null` on a decode `Error` (logged, never thrown/swallowed). */
-function decodeDelta(ops: QuillOp[], context: string): unknown | null {
-  const result = richText.parse_delta(JSON.stringify(ops));
-  if (resultOk<unknown>(result)) return (result as { 0: unknown })[0];
+function decodeDelta(ops: QuillOp[], context: string): GleamDelta | null {
+  const parsed = richText.parse_delta(JSON.stringify(ops));
+  const value = resultValue(parsed);
+  if (value !== null) return value;
   console.error(
     `watershed rich-text demo: could not decode ${context} as a rich_text delta`,
-    (result as { 0: unknown })[0],
+    resultError(parsed),
   );
   return null;
 }
 
-function deltaToOps(delta: unknown): QuillOp[] {
+function deltaToOps(delta: GleamDelta): QuillOp[] {
   return JSON.parse(json.to_string(richText.delta_to_json(delta))) as QuillOp[];
 }
 
-function documentToOps(document: unknown): QuillOp[] {
+function documentToOps(document: RichTextDocument): QuillOp[] {
   return JSON.parse(
     json.to_string(richText.document_to_json(document)),
   ) as QuillOp[];
 }
 
+function isQuillOp(value: unknown): value is QuillOp {
+  return typeof value === "object" && value !== null;
+}
+
 function opsOf(delta: unknown): QuillOp[] {
-  if (Array.isArray(delta)) return delta as QuillOp[];
-  const withOps = delta as { ops?: QuillOp[] };
-  return withOps.ops ?? [];
+  if (Array.isArray(delta) && delta.every(isQuillOp)) return delta;
+  if (typeof delta !== "object" || delta === null || !("ops" in delta)) {
+    return [];
+  }
+  const ops = delta.ops;
+  return Array.isArray(ops) && ops.every(isQuillOp) ? ops : [];
 }
 
 /**
@@ -118,25 +135,28 @@ function transformSelection(
   const gleamDelta = decodeDelta(opsOf(delta), "a peer-selection delta");
   if (gleamDelta == null) return selection;
   const length = Math.max(0, selection.length);
-  const selResult = richText.selection(Math.max(0, selection.index), length);
-  if (!resultOk<unknown>(selResult)) return selection;
+  const gleamSelection = resultValue(
+    richText.selection(Math.max(0, selection.index), length),
+  );
+  if (gleamSelection === null) return selection;
   const transformed = richText.transform_selection(
     gleamDelta,
-    (selResult as { 0: unknown })[0],
+    gleamSelection,
     isOwnOperation,
   );
-  if (!resultOk<unknown>(transformed)) {
+  if (isOk(transformed)) {
+    const out = transformed[0];
+    return {
+      index: richText.selection_index(out),
+      length: richText.selection_length(out),
+    };
+  } else {
     console.error(
       "watershed rich-text demo: transform_selection failed",
-      (transformed as { 0: unknown })[0],
+      resultError(transformed),
     );
     return selection;
   }
-  const out = (transformed as { 0: unknown })[0];
-  return {
-    index: richText.selection_index(out),
-    length: richText.selection_length(out),
-  };
 }
 
 // ── Describing an op for the shared op log / pending marker label ──────────
@@ -197,14 +217,8 @@ const IMAGE_DATA_URI =
       "</svg>",
   );
 
-/** The facade's opaque `SharedRichText`; only watershed reads inside it. */
-type SharedRichText = unknown;
-
 function h(client: RigClient): SharedRichText {
-  return client.handle;
-}
-function okValue<T>(result: unknown): T {
-  return (result as { 0: T })[0];
+  return client.handle as SharedRichText;
 }
 
 interface ClientUI {
@@ -214,8 +228,8 @@ interface ClientUI {
   knownCursors: Set<string>;
 }
 
-function optimisticDocument(client: RigClient): unknown | null {
-  return some<unknown>(watershed.rich_text_view(h(client)));
+function optimisticDocument(client: RigClient): RichTextDocument | null {
+  return resultValue(watershed.rich_text_view(h(client)));
 }
 
 // ── Peer-selection roster: an isolated in-page broadcaster ──────────────────
@@ -291,7 +305,8 @@ export function initRichTextDemo() {
     const cursors = quill.getModule("cursors") as QuillCursors;
 
     const adapter = createRichTextAdapter({
-      editor: quill,
+      editor:
+        quill as Parameters<typeof createRichTextAdapter>[0]["editor"],
       submitChange: (delta) => {
         const ops = opsOf(delta);
         const gleamDelta = decodeDelta(ops, `${client.id}'s local edit`);
@@ -397,7 +412,7 @@ export function initRichTextDemo() {
     }
   }
 
-  function canonicalOf(_client: RigClient, doc: unknown): string {
+  function canonicalOf(_client: RigClient, doc: RichTextDocument): string {
     const text = documentToOps(doc)
       .map((op) => (typeof op.insert === "string" ? op.insert : op.insert !== undefined ? "▣" : ""))
       .join("")
@@ -422,7 +437,10 @@ export function initRichTextDemo() {
       }
 
       const a = clients["a"];
-      const rtA = okValue<SharedRichText>(watershed.create_rich_text(a.doc));
+      const rtA = expectOk(
+        watershed.create_rich_text(a.doc),
+        "rich-text channel creation failed",
+      );
       seedInto(rtA);
       watershed.set(
         watershed.root(a.doc),
@@ -438,17 +456,19 @@ export function initRichTextDemo() {
         if (id === "a") {
           rt = rtA;
         } else {
-          const stored = some<unknown>(
+          const stored = expectOk(
             watershed.get(watershed.root(client.doc), DOC_KEY),
+            "rich-text handle lookup failed",
           );
-          rt = okValue<SharedRichText>(
+          rt = expectOk(
             watershed.resolve_rich_text(client.doc, stored),
+            "rich-text channel resolve failed",
           );
           client.handle = rt;
         }
         // The facade narrows the channel's event stream for us, so there is no
         // `instanceof` tag to test and no wrapper to unpack.
-        watershed.subscribe_rich_text(rt, (changed: { delta: unknown; local: boolean }) => {
+        watershed.subscribe_rich_text(rt, (changed) => {
           const ops = deltaToOps(changed.delta);
           ui(client).adapter.applyChange({
             delta: ops,

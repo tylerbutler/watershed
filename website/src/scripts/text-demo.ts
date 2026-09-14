@@ -12,7 +12,12 @@ import * as runtime from "../../../build/dev/javascript/watershed/watershed/runt
 import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
 // The anchor bias enum lives in the sequence lattice SharedText is built on.
 import * as bias from "../../../build/dev/javascript/lattice_sequence/lattice_sequence/sequence.mjs";
-import { createSluiceRig, some, type RigClient } from "./demo/sluice-rig.ts";
+import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
+import {
+  expectOk,
+  resultValue,
+  type ResultValue,
+} from "./demo/gleam-values.ts";
 import {
   minimalGraphemeEdit,
   graphemeLength,
@@ -38,7 +43,7 @@ const SEED = "ri\u0301o \uD83D\uDEF6 caf\u00E9 \u2615 \uD83D\uDC68\u200D\uD83D\u
 interface PaneData {
   textarea: HTMLTextAreaElement | null;
   /** A locally-pinned anchor (SharedText anchors are per-replica). */
-  anchor: unknown | null;
+  anchor: TextAnchor | null;
   /** The grapheme index the anchor was pinned at, for the readout. */
   anchorPinnedAt: number | null;
   /** True between compositionstart and compositionend (IME/dead keys). */
@@ -57,26 +62,21 @@ interface PaneData {
    * base-coordinate diff into *current* CRDT indexes, so a remote insert that
    * advanced the text mid-composition can't push the composed run off target.
    */
-  compStartAnchors: unknown[] | null;
-  compEndAnchors: unknown[] | null;
+  compStartAnchors: TextAnchor[] | null;
+  compEndAnchors: TextAnchor[] | null;
 }
 
+type SharedText = ResultValue<ReturnType<typeof watershed.create_text>>;
+type TextAnchor = ReturnType<typeof watershed.text_start_anchor>;
+
 function pane(client: RigClient): PaneData {
-  return client.data as unknown as PaneData;
+  return client.data as PaneData;
 }
-function okValue<T>(result: unknown): T {
-  return (result as { 0: T })[0];
-}
-function isOk(result: unknown): boolean {
-  return (
-    !!result &&
-    typeof result === "object" &&
-    "isOk" in result &&
-    (result as { isOk(): boolean }).isOk()
-  );
+function sharedText(client: RigClient): SharedText {
+  return client.handle as SharedText;
 }
 function value(client: RigClient): string {
-  return watershed.text_value(client.handle) as string;
+  return watershed.text_value(sharedText(client));
 }
 
 export function initTextDemo() {
@@ -117,19 +117,20 @@ export function initTextDemo() {
     if (kind === "insert") {
       submitEdit(
         client,
-        () => watershed.text_insert(client.handle, start, insert),
+        () => watershed.text_insert(sharedText(client), start, insert),
         `insert "${clip(insert)}" @${start}`,
       );
     } else if (kind === "delete") {
       submitEdit(
         client,
-        () => watershed.text_delete_range(client.handle, start, end),
+        () => watershed.text_delete_range(sharedText(client), start, end),
         `delete ${start}..${end}`,
       );
     } else {
       submitEdit(
         client,
-        () => watershed.text_replace_range(client.handle, start, end, insert),
+        () =>
+          watershed.text_replace_range(sharedText(client), start, end, insert),
         `replace ${start}..${end} "${clip(insert)}"`,
       );
     }
@@ -164,22 +165,22 @@ export function initTextDemo() {
     g: number,
     len: number,
     role: "start" | "end",
-  ): unknown {
+  ): TextAnchor {
     if (g <= 0) return watershed.text_start_anchor();
     if (role === "start" && g >= len) return watershed.text_end_anchor();
     const b = role === "start" ? new bias.Before() : new bias.After();
-    const result = watershed.text_anchor_at(client.handle, g, b);
-    if (isOk(result)) return okValue(result);
+    const anchor = resultValue(watershed.text_anchor_at(sharedText(client), g, b));
+    if (anchor !== null) return anchor;
     return role === "start"
       ? watershed.text_start_anchor()
       : watershed.text_end_anchor();
   }
 
-  function resolveGap(client: RigClient, anchor: unknown): number {
-    const result = watershed.text_resolve_anchor(client.handle, anchor);
-    return isOk(result)
-      ? okValue<number>(result)
-      : (watershed.text_length(client.handle) as number);
+  function resolveGap(client: RigClient, anchor: TextAnchor): number {
+    return (
+      resultValue(watershed.text_resolve_anchor(sharedText(client), anchor)) ??
+      watershed.text_length(sharedText(client))
+    );
   }
 
   // IME composition finished: diff the composed run against the compositionstart
@@ -221,7 +222,7 @@ export function initTextDemo() {
     const add = " \u21e3"; // a downstream arrow, unmistakable at the tail
     submitEdit(
       client,
-      () => watershed.text_append(client.handle, add),
+      () => watershed.text_append(sharedText(client), add),
       `append "${clip(add)}"`,
     );
   }
@@ -235,9 +236,11 @@ export function initTextDemo() {
     const gi = utf16ToGrapheme(value(client), ta.selectionStart);
     // `After` bias glues the anchor to the grapheme before the gap, so text
     // inserted at the caret lands after the anchor and it stays put.
-    const result = watershed.text_anchor_at(client.handle, gi, new bias.After());
-    if (!isOk(result)) return;
-    data.anchor = okValue(result);
+    const anchor = resultValue(
+      watershed.text_anchor_at(sharedText(client), gi, new bias.After()),
+    );
+    if (anchor === null) return;
+    data.anchor = anchor;
     data.anchorPinnedAt = gi;
     renderPane(client);
   }
@@ -299,12 +302,13 @@ export function initTextDemo() {
         readout.classList.remove("is-pinned");
       } else {
         const resolved = watershed.text_resolve_anchor(
-          client.handle,
+          sharedText(client),
           data.anchor,
         );
+        const resolvedIndex = resultValue(resolved);
         readout.classList.add("is-pinned");
-        readout.textContent = isOk(resolved)
-          ? `anchor pinned @${data.anchorPinnedAt} → now grapheme ${okValue<number>(resolved)}`
+        readout.textContent = resolvedIndex !== null
+          ? `anchor pinned @${data.anchorPinnedAt} → now grapheme ${resolvedIndex}`
           : `anchor pinned @${data.anchorPinnedAt} → re-anchor needed`;
       }
     }
@@ -327,7 +331,10 @@ export function initTextDemo() {
       // it; the others resolve the shared handle. All of this drains inside
       // setup's settle, so the visible timeline starts clean.
       const a = clients["a"];
-      const text = okValue<unknown>(watershed.create_text(a.doc));
+      const text = expectOk(
+        watershed.create_text(a.doc),
+        "text channel creation failed",
+      );
       a.handle = text;
       const runtimeA = watershed.runtime_of(a.doc);
       runtime.set(runtimeA, "root", TEXT_ADDRESS, watershed.text_handle_of(text));
@@ -337,9 +344,13 @@ export function initTextDemo() {
         const client = clients[id];
         if (id !== "a") {
           const rt = watershed.runtime_of(client.doc);
-          const stored = some<unknown>(runtime.get(rt, "root", TEXT_ADDRESS));
-          client.handle = okValue<unknown>(
+          const stored = expectOk(
+            runtime.get(rt, "root", TEXT_ADDRESS),
+            "text handle lookup failed",
+          );
+          client.handle = expectOk(
             watershed.resolve_text(client.doc, stored),
+            "text channel resolve failed",
           );
         }
         const ta = client.el.querySelector("[data-text-editor]");
@@ -351,7 +362,7 @@ export function initTextDemo() {
           compBase: null,
           compStartAnchors: null,
           compEndAnchors: null,
-        } as unknown as Record<string, unknown>;
+        };
       }
     },
     render: renderPane,
@@ -384,8 +395,8 @@ export function initTextDemo() {
         const base = ta.value;
         data.compBase = base;
         const len = graphemeLength(base);
-        const starts = new Array<unknown>(len + 1);
-        const ends = new Array<unknown>(len + 1);
+        const starts = new Array<TextAnchor>(len + 1);
+        const ends = new Array<TextAnchor>(len + 1);
         for (let g = 0; g <= len; g++) {
           starts[g] = gapAnchor(client, g, len, "start");
           ends[g] = gapAnchor(client, g, len, "end");
@@ -418,14 +429,14 @@ export function initTextDemo() {
       if (at == null) return;
       submitEdit(
         b,
-        () => watershed.text_insert(b.handle, at, "still "),
+        () => watershed.text_insert(sharedText(b), at, "still "),
         `insert "still " @${at}`,
       );
       const atC = findGraphemeIndex(value(c), "weir");
       if (atC == null) return;
       submitEdit(
         c,
-        () => watershed.text_insert(c.handle, atC, "calm "),
+        () => watershed.text_insert(sharedText(c), atC, "calm "),
         `insert "calm " @${atC}`,
       );
     });
@@ -443,14 +454,15 @@ export function initTextDemo() {
       if (at == null) return;
       submitEdit(
         b,
-        () => watershed.text_replace_range(b.handle, at, at + 4, "levee"),
+        () =>
+          watershed.text_replace_range(sharedText(b), at, at + 4, "levee"),
         `replace ${at}..${at + 4} "levee"`,
       );
       const atC = findGraphemeIndex(value(c), "weir");
       if (atC == null) return;
       submitEdit(
         c,
-        () => watershed.text_delete_range(c.handle, atC + 1, atC + 3),
+        () => watershed.text_delete_range(sharedText(c), atC + 1, atC + 3),
         `delete ${atC + 1}..${atC + 3}`,
       );
     });
