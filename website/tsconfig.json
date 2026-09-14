@@ -1,12 +1,5 @@
 {
   "extends": "astro/tsconfigs/base",
-  "compilerOptions": {
-    "strict": true
-  },
-  "include": [
-    ".astro/types.d.ts",
-    "src/scripts/demo/gleam-values.ts",
-    "src/scripts/demo/gleam-values.type-test.ts"
-  ],
+  "include": [".astro/types.d.ts", "src/**/*"],
   "exclude": ["dist"]
 }
