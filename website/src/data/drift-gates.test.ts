@@ -66,6 +66,7 @@ const GLEAM_CONTAINER_ESCAPES = new Set([
   "None",
   "Ok",
   "Option$None",
+  "Option$None$const",
   "Option$Some",
   "Option$Some$0",
   "Option$isNone",
@@ -374,7 +375,7 @@ describe("Gate: Gleam Result and Option constructors stay behind the typed helpe
   it("detects direct container constructor imports", () => {
     const fake = `
       import { Some } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
-      import { Option$Some, Option$isSome } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
+      import { Option$None$const, Option$Some, Option$isSome } from "../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
       import { Ok } from "../../../build/dev/javascript/watershed/gleam.mjs";
       import { Result$isOk } from "../../../build/dev/javascript/prelude.mjs";
       import { Error as GleamError } from "../../../build/dev/javascript/watershed/prelude.mjs";
@@ -384,6 +385,7 @@ describe("Gate: Gleam Result and Option constructors stay behind the typed helpe
       "* as gleam",
       "Error",
       "Ok",
+      "Option$None$const",
       "Option$Some",
       "Option$isSome",
       "Result$isOk",

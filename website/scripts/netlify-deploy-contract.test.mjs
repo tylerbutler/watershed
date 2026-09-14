@@ -282,6 +282,11 @@ describe("Netlify deploy contract", () => {
       "build the root package before watershed_lustre consumes its generated modules",
     );
     assert.match(
+      buildGleam.slice(lustreBuild),
+      /gleam build --target javascript/,
+      "build:gleam must compile watershed_lustre after entering its package directory",
+    );
+    assert.match(
       generate,
       /tools\/source-snippets/,
       "generate:snippets must run the tools/source-snippets CLI",
