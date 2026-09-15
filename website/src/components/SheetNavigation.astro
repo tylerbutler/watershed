@@ -1,0 +1,213 @@
+---
+import {
+  contextualNavigation,
+  topNavigationGroups,
+} from "../data/navigation";
+
+interface Props {
+  path: string;
+}
+
+const { path } = Astro.props;
+const context = contextualNavigation(path);
+const isActive = (match: string) =>
+  match !== "" && (path === match || path.startsWith(`${match}/`));
+---
+
+<header class="sheet-index">
+  <div class="si-primary">
+    <a class="si-mark" href="/" aria-current={path === "/" ? "page" : undefined}>
+      <span class="si-name">watershed</span>
+      <span class="si-tag annot">Collaborative data structures for Gleam</span>
+    </a>
+    <nav class="si-nav" aria-label="Sheet index">
+      {
+        topNavigationGroups.map((group) => (
+          <span class="si-group">
+            {group.links.map((item) => (
+              <a
+                href={item.href}
+                class:list={["si-link", "annot", { "si-link-out": item.external }]}
+                aria-current={isActive(item.match) ? "page" : undefined}
+              >
+                {item.label}
+                {item.external && <span aria-hidden="true"> ↗</span>}
+              </a>
+            ))}
+          </span>
+        ))
+      }
+    </nav>
+  </div>
+
+  {
+    context && (
+      <nav class="si-context" aria-label={`${context.label} sheets`}>
+        <a class="si-context-title annot" href={context.href}>
+          {context.label}
+        </a>
+        <span class="si-context-rule" aria-hidden="true" />
+        <div class="si-context-links">
+          {context.links.map((link) => (
+            <a
+              class="si-context-link annot"
+              href={link.href}
+              aria-current={link.current ? "page" : undefined}
+            >
+              {link.label}
+            </a>
+          ))}
+        </div>
+      </nav>
+    )
+  }
+</header>
+
+<style>
+  .sheet-index {
+    margin: 0 var(--sheet-gutter);
+    padding: 0.55rem 2px;
+  }
+
+  .si-primary {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-xs) var(--space-lg);
+  }
+
+  .si-mark {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 0.6rem;
+    text-decoration: none;
+    color: var(--ink);
+  }
+
+  .si-name {
+    font-family: var(--font-mono);
+    font-size: 0.9375rem;
+    letter-spacing: -0.01em;
+    color: var(--ink);
+  }
+
+  .si-mark:hover .si-name {
+    color: var(--overprint-deep);
+  }
+
+  .si-tag {
+    color: var(--muted);
+  }
+
+  .si-nav {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: var(--space-xs) var(--space-lg);
+  }
+
+  .si-group {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+  }
+
+  .si-link {
+    position: relative;
+    text-decoration: none;
+    color: var(--muted);
+    padding-bottom: 0.15rem;
+    transition: color var(--dur-feedback) var(--ease-out-quart);
+  }
+
+  .si-link:hover,
+  .si-context-title:hover,
+  .si-context-link:hover {
+    color: var(--overprint-deep);
+  }
+
+  .si-link[aria-current="page"],
+  .si-context-link[aria-current="page"] {
+    color: var(--ink);
+  }
+
+  .si-link[aria-current="page"]::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -1px;
+    height: 1.5px;
+    background: var(--overprint);
+  }
+
+  .si-link-out,
+  .si-context-title {
+    color: var(--waterline);
+  }
+
+  .si-context {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+    padding-top: var(--space-xs);
+    border-top: 1px solid var(--hairline-faint);
+    overflow-x: auto;
+    scrollbar-color: var(--waterline) var(--surface);
+    scrollbar-width: thin;
+  }
+
+  .si-context-title,
+  .si-context-link {
+    flex: 0 0 auto;
+    text-decoration: none;
+  }
+
+  .si-context-rule {
+    flex: 0 0 1.5rem;
+    height: 1px;
+    background: var(--hairline);
+  }
+
+  .si-context-links {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-lg);
+  }
+
+  .si-context-link {
+    color: var(--muted);
+    padding-block: 0.15rem;
+  }
+
+  .si-context-link[aria-current="page"] {
+    text-decoration: underline;
+    text-decoration-color: var(--overprint);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 0.3rem;
+  }
+
+  @media (max-width: 620px) {
+    .si-tag {
+      display: none;
+    }
+  }
+
+  @media (pointer: coarse) {
+    .si-link,
+    .si-mark {
+      padding-block: 0.8rem;
+    }
+
+    .si-link[aria-current="page"]::after {
+      bottom: 0.55rem;
+    }
+
+    .si-context-link,
+    .si-context-title {
+      padding-block: 0.45rem;
+    }
+  }
+</style>

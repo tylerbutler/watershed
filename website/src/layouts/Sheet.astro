@@ -4,6 +4,7 @@ import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/400-italic.css";
 import "@fontsource/jetbrains-mono/700.css";
 import "../styles/global.css";
+import SheetNavigation from "../components/SheetNavigation.astro";
 import { Script } from "astro-tinylytics";
 
 interface Props {
@@ -16,23 +17,7 @@ const { title, description } = Astro.props;
 // Social card, regenerated with `pnpm og:image` (see scripts/og-image.mjs).
 const ogImage = new URL("/og.png", Astro.site);
 
-// Sheet-index navigation. On a photorevised quadrangle the margins carry the
-// sheet's own index — the name, the legend, the adjoining-sheet references. Here
-// they carry the site's: a persistent quick-jump printed in the top margin, the
-// only nav that appears on every sheet. The "adjoining sheets" footer (in
-// Ecosystem) is the full index; this is the always-there shortcut.
-const nav = [
-  { label: "Atlas", href: "/structures", match: "/structures" },
-  { label: "Foundations", href: "/foundations", match: "/foundations" },
-  { label: "Guide", href: "/guide", match: "/guide" },
-  { label: "Examples", href: "/examples", match: "/examples" },
-  { label: "Models", href: "/models", match: "/models" },
-  { label: "Runtime", href: "/runtime", match: "/runtime" },
-] as const;
-
 const path = Astro.url.pathname;
-const isActive = (match: string) =>
-  path === match || path.startsWith(`${match}/`);
 ---
 
 <!doctype html>
@@ -58,31 +43,7 @@ const isActive = (match: string) =>
     <Script embedCode="uhk_zvSq2fBb_T2hTaLx" min hits events beacon />
   </head>
   <body>
-    <header class="sheet-index">
-      <a class="si-mark" href="/" aria-current={path === "/" ? "page" : undefined}>
-        <span class="si-name">watershed</span>
-        <span class="si-tag annot">Collaborative data structures for Gleam</span>
-      </a>
-      <nav class="si-nav" aria-label="Sheet index">
-        {
-          nav.map((item) => (
-            <a
-              href={item.href}
-              class="si-link annot"
-              aria-current={isActive(item.match) ? "page" : undefined}
-            >
-              {item.label}
-            </a>
-          ))
-        }
-        <a
-          class="si-link si-link-out annot"
-          href="https://github.com/tylerbutler/watershed"
-        >
-          Source <span aria-hidden="true">↗</span>
-        </a>
-      </nav>
-    </header>
+    <SheetNavigation path={path} />
 
     <div class="sheet">
       <span class="reg reg-tl" aria-hidden="true"></span>
@@ -101,101 +62,6 @@ const isActive = (match: string) =>
 </html>
 
 <style>
-  /* ── sheet-index nav (top margin, outside the neatline) ─────────────────── */
-  .sheet-index {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    justify-content: space-between;
-    gap: var(--space-xs) var(--space-lg);
-    margin: 0 var(--sheet-gutter);
-    padding: 0.55rem 2px;
-  }
-
-  .si-mark {
-    display: inline-flex;
-    align-items: baseline;
-    gap: 0.6rem;
-    text-decoration: none;
-    color: var(--ink);
-  }
-
-  .si-name {
-    font-family: var(--font-mono);
-    font-size: 0.9375rem;
-    letter-spacing: -0.01em;
-    color: var(--ink);
-  }
-
-  .si-mark:hover .si-name {
-    color: var(--overprint-deep);
-  }
-
-  .si-tag {
-    color: var(--muted);
-  }
-
-  /* below the neatline width, the tagline drops so the wordmark + nav fit */
-  @media (max-width: 620px) {
-    .si-tag {
-      display: none;
-    }
-  }
-
-  .si-nav {
-    display: flex;
-    flex-wrap: wrap;
-    align-items: baseline;
-    gap: var(--space-xs) var(--space-lg);
-  }
-
-  .si-link {
-    position: relative;
-    text-decoration: none;
-    color: var(--muted);
-    padding-bottom: 0.15rem;
-    transition: color var(--dur-feedback) var(--ease-out-quart);
-  }
-
-  /* touch: grow the tap target without moving the printed baseline */
-  @media (pointer: coarse) {
-    .si-link,
-    .si-mark {
-      padding-block: 0.8rem;
-    }
-
-    .si-link[aria-current="page"]::after {
-      bottom: 0.55rem;
-    }
-  }
-
-  .si-link:hover {
-    color: var(--overprint-deep);
-  }
-
-  /* active sheet: printed in ink with a registration tick underneath */
-  .si-link[aria-current="page"] {
-    color: var(--ink);
-  }
-
-  .si-link[aria-current="page"]::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: -1px;
-    height: 1.5px;
-    background: var(--overprint);
-  }
-
-  .si-link-out {
-    color: var(--waterline);
-  }
-
-  .si-link-out:hover {
-    color: var(--overprint-deep);
-  }
-
   .margin-row {
     display: flex;
     justify-content: space-between;
