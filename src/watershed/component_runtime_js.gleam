@@ -258,10 +258,7 @@ pub fn layout(runtime: Runtime(root, context, running)) -> List(String) {
 pub fn graph(
   runtime: Runtime(root, context, running),
 ) -> Option(port_graph.EffectiveGraph) {
-  get_state(runtime).snapshot
-  |> result_from_option
-  |> result.map(workspace.graph)
-  |> option_from_result
+  option.map(get_state(runtime).snapshot, workspace.graph)
 }
 
 @target(javascript)
@@ -1219,20 +1216,4 @@ fn set_state(
   state: State(root, context, running),
 ) -> Nil {
   transport_js.set_cell(runtime.state, state)
-}
-
-@target(javascript)
-fn result_from_option(value: Option(a)) -> Result(a, Nil) {
-  case value {
-    Some(inner) -> Ok(inner)
-    None -> Error(Nil)
-  }
-}
-
-@target(javascript)
-fn option_from_result(value: Result(a, Nil)) -> Option(a) {
-  case value {
-    Ok(inner) -> Some(inner)
-    Error(Nil) -> None
-  }
 }

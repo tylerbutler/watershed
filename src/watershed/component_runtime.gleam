@@ -236,12 +236,5 @@ fn find_current(
   instance_id: String,
 ) -> Option(CurrentInstance) {
   list.find(current, fn(found) { found.instance_id == instance_id })
-  |> result_to_option
-}
-
-fn result_to_option(result: Result(a, Nil)) -> Option(a) {
-  case result {
-    Ok(value) -> Some(value)
-    Error(Nil) -> None
-  }
+  |> option.from_result
 }
