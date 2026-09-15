@@ -30,7 +30,7 @@ _build-bundles:
     trellis run bundle --serial
 
 # Run tests
-test: _test-gleam _test-js _test-compile-fail _test-website-snippets _test-code-map
+test: _test-gleam _test-js _test-compile-fail _test-website-snippets
 
 # Every member with a `test/` directory, each on the target its own gleam.toml
 # pins. This covers the Lustre bindings package (grapheme diff, UTF-16 offset
@@ -101,21 +101,6 @@ snippets:
     cd tools/source-snippets && gleam run -m source_snippets/cli -- ../../website/snippets.json ../../website/src/generated/snippets.json
 
 alias website-snippets := snippets
-
-# Syntax-backed discovery; the tool owns all indexing and configuration.
-[positional-arguments]
-code-map *args:
-    @cd tools/code-map && gleam build >&2
-    @node tools/code-map/cli.mjs "$@"
-
-# Node contracts include the consumer-owned corpus gate; Trellis runs Gleam tests.
-_test-code-map:
-    cd tools/code-map && gleam build
-    node --test tools/code-map/test/*.test.mjs tools/code-map-watershed.test.mjs
-
-# Focused parser, cache, CLI, extraction, and repository-coverage suites.
-code-map-test: _test-code-map
-    cd tools/code-map && gleam test
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
@@ -305,7 +290,7 @@ alias pr := ci
 # === DEPENDENCIES ===
 
 # Install dependencies
-deps: _deps-gleam _deps-live-js _deps-bundles _deps-code-map
+deps: _deps-gleam _deps-live-js _deps-bundles
 
 # `gleam deps download` in every member — each example carries its own manifest,
 # which is why this cannot be a single root-level download.
@@ -315,9 +300,6 @@ _deps-gleam:
 # phoenix + ws, for the live JS integration suite only
 _deps-live-js:
     pnpm install
-
-_deps-code-map:
-    pnpm --dir tools/code-map install
 
 # npm deps for the browser examples; see `_build-bundles` for why this is a glob.
 _deps-bundles:
