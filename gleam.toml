@@ -106,3 +106,6 @@ command = "pnpm run build"
 # Hex. Raise a package to `hex` here when that changes.
 [tools.trellis.publish.lifecycle]
 default = "git_only"
+[tools.licence_audit]
+allow = ["Apache-2.0", "ISC", "MIT"]
+deny = []
