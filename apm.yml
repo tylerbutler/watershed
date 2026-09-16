@@ -10,7 +10,7 @@ devDependencies:
   apm:
     - tylerbutler/apm-base
     - tylerbutler/agent-marketplace/plugins/gleam
-    - tylerbutler/agent-marketplace/plugins/repo-tools/skills/astro-tinylytics
+    - tylerbutler/agent-marketplace/skills/astro-tinylytics
     - obra/superpowers
 
     # - tylerbutler/agent-marketplace/plugins/repo-tools
