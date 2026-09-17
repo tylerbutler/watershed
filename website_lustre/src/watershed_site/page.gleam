@@ -69,7 +69,11 @@ pub fn render(
               Error(Nil) ->
                 case concept_index.component(name) {
                   Ok(component) ->
-                    concept_index.component_view(component, children)
+                    concept_index.component_view(
+                      component,
+                      route.path,
+                      children,
+                    )
                   Error(Nil) -> default.div(attributes, children)
                 }
             }
@@ -82,6 +86,8 @@ pub fn render(
             html.div([attribute.class(class)], children)
           Ok("annot" as class) -> html.span([attribute.class(class)], children)
           Ok("fh-scope annot" as class) ->
+            html.span([attribute.class(class)], children)
+          Ok("fh-scope annot fh-scope-optional" as class) ->
             html.span([attribute.class(class)], children)
           _ -> default.paragraph(attributes, children)
         }
@@ -124,8 +130,12 @@ pub fn render(
       Ok(render_document(
         route,
         source.metadata,
-        "watershed — foundations",
-        concept_index.view(body),
+        "watershed — "
+          <> case route.path {
+          "/component-model" -> "component model"
+          _ -> "foundations"
+        },
+        concept_index.view(route.path, body),
       ))
     content.ConceptSheet(doc) ->
       Ok(render_document(

@@ -96,6 +96,16 @@ pub fn foundations_index() -> Route {
   )
 }
 
+pub fn component_model_index() -> Route {
+  Route(
+    path: "/component-model",
+    layout: ConceptIndex,
+    content_path: "content/component-model/index.djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -112,6 +122,7 @@ pub fn all() -> List(Route) {
     foundation("schema"),
     foundation("topology"),
     foundation("lifecycle"),
+    component_model_index(),
     Route(
       path: "/guide",
       layout: GuideIndex,

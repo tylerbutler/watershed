@@ -69,6 +69,11 @@
   color: var(--waterline);
 }
 
+.fh-scope-optional {
+  border-color: var(--overprint);
+  color: var(--overprint-deep);
+}
+
 .fh-ledger-head p {
   margin-top: var(--space-md);
   color: var(--muted);

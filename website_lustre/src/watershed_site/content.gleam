@@ -133,11 +133,11 @@ fn decode_metadata(
             path,
             "guide_step: A concept index cannot name a guide step.",
           ))
-        False, "/foundations" -> Ok(ConceptIndex)
+        False, "/foundations" | False, "/component-model" -> Ok(ConceptIndex)
         False, _ ->
           Error(error.InvalidFrontmatter(
             path,
-            "layout: The foundations index path must be /foundations.",
+            "layout: The concept index path must be /foundations or /component-model.",
           ))
       }
     "concept-sheet", route.ConceptSheet -> {

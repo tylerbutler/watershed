@@ -24,12 +24,20 @@ pub fn component(name: String) -> Result(Component, Nil) {
 
 pub fn component_view(
   component: Component,
+  path: String,
   children: List(Element(msg)),
 ) -> Element(msg) {
+  let test_prefix = case path {
+    "/component-model" -> "component-model"
+    _ -> "foundations"
+  }
   case component {
     Intro ->
       h.header(
-        [a.class("fh-hero"), a.attribute("data-testid", "foundations-intro")],
+        [
+          a.class("fh-hero"),
+          a.attribute("data-testid", test_prefix <> "-intro"),
+        ],
         [h.div([a.class("fh-hero-inner")], children)],
       )
     Content ->
@@ -38,13 +46,18 @@ pub fn component_view(
           a.id("content"),
           a.class("fh-ledger"),
           a.attribute("aria-labelledby", "fh-ledger-title"),
-          a.attribute("data-testid", "foundations-ledger"),
+          a.attribute("data-testid", test_prefix <> "-ledger"),
         ],
         [
           h.div([a.class("fh-ledger-head")], children),
           h.ol(
-            [a.class("fh-list"), a.attribute("data-testid", "foundations-list")],
-            list.index_map(foundations.all(), doc),
+            [
+              a.class("fh-list"),
+              a.attribute("data-testid", test_prefix <> "-list"),
+            ],
+            list.index_map(foundations.for_path(path), fn(item, index) {
+              doc(item, index, path)
+            }),
           ),
         ],
       )
@@ -52,16 +65,13 @@ pub fn component_view(
   }
 }
 
-pub fn view(children: List(Element(msg))) -> Element(msg) {
-  sheet.view(
-    "/foundations/",
-    list.append(children, [ecosystem.view("/foundations/")]),
-  )
+pub fn view(path: String, children: List(Element(msg))) -> Element(msg) {
+  sheet.view(path <> "/", list.append(children, [ecosystem.view(path <> "/")]))
 }
 
-fn doc(item: foundations.Doc, index: Int) -> Element(msg) {
+fn doc(item: foundations.Doc, index: Int, path: String) -> Element(msg) {
   h.li([a.class("fh-item"), a.attribute("data-reveal", "rise")], [
-    h.a([a.href("/foundations/" <> item.slug)], [
+    h.a([a.href(path <> "/" <> item.slug)], [
       h.span([a.class("fh-n annot")], [
         h.text(int.to_string(index + 1) |> pad_number),
       ]),

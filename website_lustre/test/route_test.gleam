@@ -108,6 +108,17 @@ pub fn foundations_index_is_registered_as_a_static_page_test() {
   |> should.equal(["/styles/site.css", "/styles/concept-index.css"])
 }
 
+pub fn component_model_index_uses_the_shared_concept_index_test() {
+  let assert Ok(component_model) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/component-model" })
+  component_model.content_path
+  |> should.equal("content/component-model/index.djot")
+  component_model.client_script |> should.equal(None)
+  route.stylesheets(component_model)
+  |> should.equal(["/styles/site.css", "/styles/concept-index.css"])
+}
+
 pub fn foundations_detail_routes_use_the_shared_concept_sheet_test() {
   [
     #("schema", "content/foundations/schema.djot"),

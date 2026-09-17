@@ -129,6 +129,21 @@ pub fn concept_sheet_metadata_matches_its_route_test() {
   })
 }
 
+pub fn component_model_index_metadata_matches_its_route_test() {
+  let page =
+    "---\ndescription = \"Components.\"\nlayout = \"concept-index\"\n---\n\nA page."
+  let component_model =
+    route.Route(
+      path: "/component-model",
+      layout: route.ConceptIndex,
+      content_path: "component-model.djot",
+      client_script: None,
+      analytics: route.Tinylytics,
+    )
+  content.parse(page, "component-model.djot", component_model)
+  |> should.be_ok()
+}
+
 pub fn raw_html_and_unknown_components_are_rejected_test() {
   content.load(
     route.Route(

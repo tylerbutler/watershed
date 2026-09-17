@@ -27,6 +27,36 @@ pub fn all() -> List(Doc) {
   ]
 }
 
+pub fn component_model() -> List(Doc) {
+  [
+    Doc(
+      "components",
+      "Components and catalogs",
+      "Let users, not the author, decide what is on the page: package each part of the app behind a versioned descriptor so it can be rebuilt from a saved document, and keep unlike parts in one catalog.",
+      "Descriptor · Catalog · register · find · start",
+    ),
+    Doc(
+      "ports",
+      "Ports and dispatch",
+      "Let a user connect two parts that were written apart: a port is a named connection point a component publishes, typed while you write it, erased once it is stored, and checked again before every event it carries.",
+      "Output · Input · EffectiveGraph · LocalIntent · Delivery",
+    ),
+    Doc(
+      "workspaces",
+      "Workspaces and instances",
+      "Save the finished board — which parts exist, where they sit, how they are wired — and reopen it safely next year, without deleting the parts this build cannot understand.",
+      "ManifestEntry · Snapshot · Prepared · delete_instance",
+    ),
+  ]
+}
+
+pub fn for_path(path: String) -> List(Doc) {
+  case path {
+    "/component-model" -> component_model()
+    _ -> all()
+  }
+}
+
 pub fn get(slug: String) -> Result(Doc, Nil) {
   list.find(all(), fn(item) { item.slug == slug })
 }

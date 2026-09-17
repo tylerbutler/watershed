@@ -1,10 +1,11 @@
 # Lustre website migration
 
-This package renders `/foundations/`, its three concept sheets, `/guide/`, and
-all six guide steps with Lustre SSG. The foundations pages, guide index, and
-five prose-first guide steps are static documents; `/guide/race/` runs its
-two-replica demo as a page-scoped Lustre application. The Astro site under
-`website/` remains the production site. The root `netlify.toml` still builds
+This package renders `/foundations/`, its three concept sheets,
+`/component-model/`, `/guide/`, and all six guide steps with Lustre SSG. The
+concept indexes, foundations pages, guide index, and five prose-first guide
+steps are static documents; `/guide/race/` runs its two-replica demo as a
+page-scoped Lustre application. The Astro site under `website/` remains the
+production site. The root `netlify.toml` still builds
 and publishes Astro; production cutover is a later milestone.
 
 ## Run it
@@ -20,11 +21,12 @@ just website-lustre
 just website-lustre-serve
 ```
 
-Open `http://127.0.0.1:4321/foundations/` or
+Open `http://127.0.0.1:4321/foundations/`,
+`http://127.0.0.1:4321/component-model/`, or
 `http://127.0.0.1:4321/guide/`. The preview contains the foundations index and
-its Schema, Topology, and Lifecycle sheets, plus the guide index and the
-Connect, Notes, Race, Votes, Presence, and Testing sheets. Fonts, styles,
-images, and page scripts sit alongside the generated documents in
+its Schema, Topology, and Lifecycle sheets, the component-model index, plus the
+guide index and the Connect, Notes, Race, Votes, Presence, and Testing sheets.
+Fonts, styles, images, and page scripts sit alongside the generated documents in
 `website_lustre/dist/`.
 
 The first build downloads Gleam dependencies and the Bun executable used
@@ -70,6 +72,7 @@ parser. `code.gleam` maps Smalto tokens to Lustre elements because
 | `content/guide/*.djot` | Guide prose and TOML frontmatter |
 | `content/foundations/index.djot` | Foundations landing-page prose and section markers |
 | `content/foundations/*.djot` | Foundations concept-sheet prose and snippet references |
+| `content/component-model/index.djot` | Component-model landing-page prose and section markers |
 | `src/watershed_site/route.gleam` | Explicit route, source path, and client entry registry |
 | `src/watershed_site/content.gleam` | Metadata decoding and Djot AST validation |
 | `src/watershed_site/page.gleam` | Djot renderer and embedded demo |
