@@ -74,6 +74,23 @@ pub fn generated_route_and_assets_test() {
   |> should.be_false()
   simplifile.read(output <> "/styles/examples.css")
   |> should.be_ok()
+  let assert Ok(sharedtree_html) =
+    simplifile.read(output <> "/sharedtree/index.html")
+  let sharedtree_tree = html_parser.as_tree(sharedtree_html)
+  find(sharedtree_tree, "class", "g-code")
+  |> list.length
+  |> should.equal(14)
+  find(sharedtree_tree, "scope", "row")
+  |> list.length
+  |> should.equal(13)
+  find(sharedtree_tree, "id", "gaps")
+  |> list.length
+  |> should.equal(1)
+  find(sharedtree_tree, "src", "/scripts/concept-index.js")
+  |> list.length
+  |> should.equal(1)
+  simplifile.read(output <> "/styles/sharedtree.css")
+  |> should.be_ok()
   let assert Ok(runtime_html) = simplifile.read(output <> "/runtime/index.html")
   let runtime_tree = html_parser.as_tree(runtime_html)
   let assert False =

@@ -1,0 +1,224 @@
+---
+description = "Fluid Framework's SharedTree puts a stored schema inside the document and enforces it in each client. watershed's typed layer puts its schema in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, and an honest list of what SharedTree has that watershed does not."
+layout = "sharedtree"
+---
+
+::::: g-block
+## The one difference the rest follows from
+
+SharedTree makes the schema _the document_. The `SchemaFactory` id you pick is written into the container as the *stored schema*, and from then on every client's SharedTree enforces it. A client whose view schema disagrees cannot silently write the wrong shape. Because there is one tree under one rebasable changeset algebra, transactions, undo/redo, node identity, cross-parent moves, and a real schema-upgrade path all fall out of the same machinery.
+
+watershed makes the schema a *decode boundary* that exists only in your build. The tag scoping a set of fields is a phantom type, erased at compile time. Nothing about it reaches the wire, and any Fluid Framework-compatible sequencer (floodgate included) stays content-agnostic by design. In exchange the document is not one structure but a graph of independently converging channels, so the merge policy is named per slot rather than once for everything. Reads hand back a `Result`, because a peer really can write anything. What you do not get is atomicity, undo, or a schema upgrade. Those are listed [further down](#gaps), not buried.
+
+::: g-note
+*Both columns below model the same board.* The Gleam is compiled from real source: a fixture package and `sudoku_lustre`. The TypeScript uses only APIs the Fluid Framework documentation publishes.
+:::
+:::::
+
+::::: g-block
+## 1 · Declaring the shape
+
+Both declare once and derive the types. The difference is what the declaration _is_: a `SchemaFactory` id becomes part of the document, where `pub type Board` is a phantom tag that exists only to stop you reading a field against the wrong map. Note the counter too: SharedTree's `wipBreaches` is a number in the tree; watershed's is a handle to a whole `SharedCounter`, with commutative increments of its own. [Foundations · schemas and fields](/foundations/schema) covers that phantom tag, and the three kinds of field, in full.
+
+:::: st-pair
+::: st-col
+{data-source-label="(illustrative — Fluid SharedTree schema)" data-caption="Fluid SharedTree · TypeScript"}
+```typescript
+import { SchemaFactory } from "fluid-framework";
+
+// This id is written into the document. It becomes the *stored* schema,
+// and from here on every client's SharedTree enforces it.
+const sf = new SchemaFactory("com.example.sprintboard");
+
+class Card extends sf.object("Card", {
+  title: sf.string,
+  column: sf.string,
+  owner: sf.optional(sf.string),
+}) {}
+
+class Cards extends sf.array("Cards", Card) {}
+
+class Board extends sf.object("Board", {
+  title: sf.string,
+  cards: Cards,
+  wipBreaches: sf.number,
+}) {}
+```
+:::
+::: st-col
+{data-snippet="sharedtree-declare" data-caption="watershed · Gleam"}
+```gleam
+generated
+```
+:::
+::::
+:::::
+
+::::: g-block
+## 2 · Establishing one root
+
+`initialize` is a once-only act against an empty document; it writes the stored schema and every later client reads it back. `ensure_*` is the opposite shape: idempotent, and run by every client on every boot. Two clients opening a fresh document both seed a candidate channel; each one waits for its own write to sync, then adopts whichever handle the field shows at that moment — a concurrent write from the other client can still land after and replace the field. The field itself converges on one handle without a leader; the handle each call returns just isn't promised to be that one. [Foundations · starting a document](/foundations/lifecycle) walks through that whole bootstrap in order.
+
+:::: st-pair
+::: st-col
+{data-source-label="(illustrative — Fluid SharedTree root)" data-caption="Fluid SharedTree · TypeScript"}
+```typescript
+import { TreeViewConfiguration } from "fluid-framework";
+
+const config = new TreeViewConfiguration({ schema: Board });
+const view = tree.viewWith(config);
+
+// Once, against an empty document. After this the stored schema is
+// authoritative and every later client just reads it.
+view.initialize(
+  new Board({ title: "Sprint board", cards: [], wipBreaches: 0 }),
+);
+
+const board = view.root; // typed Board, guaranteed to exist
+```
+:::
+::: st-col
+{data-snippet="sharedtree-bootstrap" data-caption="watershed · Gleam, in a Lustre effect"}
+```gleam
+generated
+```
+:::
+::::
+::: g-note
+*The losers stay attached.* A candidate channel that did not win the race is still attached to the document, just unreferenced. Orphan collection is out of scope; that's the cost of not having a leader elect the root.
+:::
+:::::
+
+::::: g-block
+## 3 · Reading and writing a field
+
+This pair is the whole argument, and it is short. `board.title` is a `string`, and under a stored schema it cannot be anything else, so the read needs no error arm. watershed cannot promise that, so it does not pretend to: `get_field` returns `Result(Option(a), FieldError)`, and you confront the “a peer disagrees about this type” case once, at the read, instead of discovering it later as corrupted state.
+
+:::: st-pair
+::: st-col
+{data-source-label="(illustrative — Fluid SharedTree read/write)" data-caption="Fluid SharedTree · TypeScript"}
+```typescript
+// Writing is checked by the compiler and again by SharedTree.
+board.title = "Q3 sprint board";
+
+// Reading is total. `title` is a string, and no client running this
+// schema can make it anything else.
+renderHeader(board.title);
+```
+:::
+::: st-col
+{data-snippet="sharedtree-read-write" data-caption="watershed · Gleam"}
+```gleam
+generated
+```
+:::
+::::
+
+Whether that `Error` arm is a tax or a feature depends on what you can assume about the clients. If every writer runs your build against an enforced stored schema, it is noise. If an old tab, a stale summary, or a second application can reach the same document, it is the one place a multiplayer app gets to decide what to do about disagreement. The [build guide](/guide/notes) works through it in context.
+:::::
+
+::::: g-block
+## 4 · A record spread across keys
+
+SharedTree stores the node, so the class declaration is the only declaration there is. watershed stores JSON per key, which normally means writing a decoder and an encoder and keeping them in sync by hand. The `record1`…`record9` builders derive both from one prop list instead, and `sealed_known` seals the schema without you repeating the key names a third time.
+
+:::: st-pair
+::: st-col
+{data-source-label="(illustrative — Fluid SharedTree record)" data-caption="Fluid SharedTree · TypeScript"}
+```typescript
+// The shape was declared once, on the class. There is no second
+// encoder to keep in sync, because the tree stores the node itself.
+card.title = "Ship the gauge rebuild";
+card.column = "doing";
+card.owner = undefined; // clears the optional property
+```
+:::
+::: st-col
+{data-snippet="sharedtree-record" data-caption="watershed · Gleam"}
+```gleam
+generated
+```
+:::
+::::
+::: g-note
+*Per-key ops cut both ways.* Writing a whole record as one op per key is why a peer editing `owner` at the same moment keeps their edit: the record view is never a clobbering blob. It is also why a peer can read the record _mid-write_ and see three of four keys updated. `Tree.runTransaction` would prevent that; watershed has no answer for it yet. See [below](#gaps).
+:::
+:::::
+
+::::: g-block
+## 5 · One tree, or a graph of channels
+
+Here the two models stop resembling each other. Everything in a SharedTree is in the tree, under one changeset algebra. That is what makes a reorder across two arrays a coherent operation, and what makes the merge behaviour uniform enough that you never have to think about it.
+
+A watershed document is not one structure. Each slot on the root holds a handle to a channel that converges on its own terms, and the field declaration names which terms. The Sudoku example is the clearest case: four slots, four different answers to “what happens when two clients touch this at once”. [Foundations · documents and handles](/foundations/topology) lays out that layout on its own terms, without the SharedTree comparison.
+
+:::: st-pair
+::: st-col
+{data-source-label="(illustrative — Fluid SharedTree nesting)" data-caption="Fluid SharedTree · TypeScript"}
+```typescript
+// Everything is in one tree under one changeset algebra, so inserts,
+// removals, and reorders are all edits to the same document — and all
+// merge by the same rules.
+board.cards.insertAtEnd(new Card({ title: "Ship it", column: "todo" }));
+board.cards.moveRangeToIndex(4, 0, 3);
+board.cards.removeAt(2);
+```
+:::
+::: st-col
+{data-snippet="sharedtree-nest" data-caption="watershed · Gleam"}
+```gleam
+generated
+```
+:::
+::::
+
+So watershed makes you choose, and in exchange lets you choose right: pencil marks want an [OR-set](/structures/sets#orset) where a concurrent add beats a remove, the puzzle's givens want [first-writer-wins claims](/structures/coordination#claims), the mistake tally wants a [counter](/structures/counters#counter) that does not double-count a redelivered op. SharedTree would give all four the same treatment. The [DDS · CRDT · OT comparison](/models) lays out what each of those policies costs.
+
+::: g-note
+*Nesting is indirection, not containment.* A nested typed map, `schema.child_field("players")`, stores a handle, and the child is a peer channel, not a subtree of its parent. There is no cross-parent move, no operation that spans two channels, and a root made of child fields cannot be sealed by a record schema at all. See [Foundations · documents and handles](/foundations/topology) for what that costs you in practice.
+:::
+:::::
+
+::::: g-block
+## 6 · Being told what changed
+
+`treeChanged` is the thing a tree buys you that a graph cannot: a rollup over an entire subtree, for free, because the subtree is a real thing with a boundary. watershed has no rollup above a single channel: you subscribe per channel, and per field.
+
+What a field subscription gives back in exchange is decoded on both sides. A `FieldChange` carries the previous value and the new one, already run through the field's decoder, plus whether this client made it. A peer's type-confused write arrives as an `Error` in the event rather than as state that looks fine until it does not.
+
+:::: st-pair
+::: st-col
+{data-source-label="(illustrative — Fluid SharedTree events)" data-caption="Fluid SharedTree · TypeScript"}
+```typescript
+// Per node, plus a subtree rollup for free: `treeChanged` fires for a
+// change anywhere below the node, because there is a tree to roll up.
+const stopCards = Tree.on(board.cards, "nodeChanged", renderCards);
+const stopAll = Tree.on(board, "treeChanged", renderEverything);
+
+// Editing the tree from inside a change callback throws a UsageError.
+```
+:::
+::: st-col
+{data-snippet="sharedtree-events" data-caption="watershed · Gleam"}
+```gleam
+generated
+```
+:::
+::: st-col
+{data-snippet="sharedtree-per-kind" data-caption="watershed · Gleam, narrowed per-kind subscriptions"}
+```gleam
+generated
+```
+:::
+::::
+:::::
+
+::::: g-block
+{data-heading-id="gaps"}
+## What SharedTree has that watershed does not
+
+All three of these are consequences of the same choice. A rebasable changeset over one enforced tree is what lets you group edits, revert them, and move a document from one stored schema to the next. watershed has ops over independent channels and a client-side decoder, so it has none of them.
+
+{data-component="sharedtree-gaps"}
+:::
+:::::

@@ -182,6 +182,17 @@ pub fn examples_route_is_registered_as_a_static_index_test() {
   |> should.equal(["/styles/site.css", "/styles/examples.css"])
 }
 
+pub fn sharedtree_route_is_registered_with_static_reveals_test() {
+  let assert Ok(sharedtree) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/sharedtree" })
+  sharedtree.layout |> should.equal(route.SharedTree)
+  sharedtree.content_path |> should.equal("content/sharedtree.djot")
+  sharedtree.client_script |> should.equal(None)
+  route.stylesheets(sharedtree)
+  |> should.equal(["/styles/site.css", "/styles/sharedtree.css"])
+}
+
 pub fn foundations_detail_routes_use_the_shared_concept_sheet_test() {
   [
     #("schema", "content/foundations/schema.djot"),

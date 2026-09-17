@@ -26,6 +26,7 @@ import watershed_site/view/models
 import watershed_site/view/patterns
 import watershed_site/view/runtime_index
 import watershed_site/view/runtime_sheet
+import watershed_site/view/sharedtree
 import watershed_site/view/structure_sheet
 import watershed_site/view/structures_index
 
@@ -65,6 +66,7 @@ pub fn render(
               ],
               [race_view.static()],
             )
+          Ok("sharedtree-gaps") -> sharedtree.gaps()
           Ok("field-note-ref") -> {
             let assert Ok(id) = dict.get(attributes, "data-practice")
             let assert Ok(item) = practice.get(id)
@@ -227,6 +229,13 @@ pub fn render(
         "watershed — browser examples",
         examples.view(),
       ))
+    content.SharedTree ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — SharedTree and the schema layer",
+        sharedtree.view(body),
+      ))
   }
 }
 
@@ -282,7 +291,8 @@ fn render_document(
     | content.StructureSheet(_)
     | content.Models
     | content.Patterns
-    | content.Examples -> scripts
+    | content.Examples
+    | content.SharedTree -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -301,6 +311,9 @@ fn render_document(
       |> list.append([document.Module("/scripts/concept-index.js")])
     route.Patterns -> scripts
     route.Examples -> scripts
+    route.SharedTree ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
   }
   document.view(document.Document(
     title:,

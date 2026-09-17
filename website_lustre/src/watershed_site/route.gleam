@@ -24,6 +24,7 @@ pub type Layout {
   Models
   Patterns
   Examples
+  SharedTree
 }
 
 pub type Analytics {
@@ -171,6 +172,16 @@ pub fn examples() -> Route {
   )
 }
 
+pub fn sharedtree() -> Route {
+  Route(
+    path: "/sharedtree",
+    layout: SharedTree,
+    content_path: "content/sharedtree.djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -228,6 +239,7 @@ pub fn all() -> List(Route) {
     models(),
     patterns(),
     examples(),
+    sharedtree(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -259,6 +271,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     Models -> ["/styles/site.css", "/styles/models.css"]
     Patterns -> ["/styles/site.css", "/styles/patterns.css"]
     Examples -> ["/styles/site.css", "/styles/examples.css"]
+    SharedTree -> ["/styles/site.css", "/styles/sharedtree.css"]
   }
 }
 

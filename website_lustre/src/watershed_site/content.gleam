@@ -32,6 +32,7 @@ pub type PageKind {
   Models
   Patterns
   Examples
+  SharedTree
 }
 
 pub type Metadata {
@@ -292,6 +293,20 @@ fn decode_metadata(
             "layout: The examples page metadata is invalid.",
           ))
       }
+    "sharedtree", route.SharedTree ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/sharedtree" -> Ok(SharedTree)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The SharedTree page metadata is invalid.",
+          ))
+      }
     _, _ ->
       Error(error.InvalidFrontmatter(
         path,
@@ -413,7 +428,7 @@ fn validate_blocks(
       jot.RawBlock(_) -> Error(error.RawHtml(path))
       jot.Div(attributes, children) -> {
         use _ <- result.try(case dict.get(attributes, "data-component") {
-          Error(Nil) | Ok("guide-race") -> Ok(Nil)
+          Error(Nil) | Ok("guide-race") | Ok("sharedtree-gaps") -> Ok(Nil)
           Ok("field-note-ref") ->
             case dict.get(attributes, "data-practice") {
               Error(Nil) ->
