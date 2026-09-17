@@ -21,6 +21,7 @@ import watershed_site/view/document
 import watershed_site/view/field_notes
 import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
+import watershed_site/view/runtime_index
 
 pub type GuidePage(msg) {
   GuidePage(
@@ -74,7 +75,12 @@ pub fn render(
                       route.path,
                       children,
                     )
-                  Error(Nil) -> default.div(attributes, children)
+                  Error(Nil) ->
+                    case runtime_index.component(name) {
+                      Ok(component) ->
+                        runtime_index.component_view(component, children)
+                      Error(Nil) -> default.div(attributes, children)
+                    }
                 }
             }
           Error(Nil) -> default.div(attributes, children)
@@ -135,16 +141,22 @@ pub fn render(
         guide_index.view(body),
       ))
     content.ConceptIndex ->
-      Ok(render_document(
-        route,
-        source.metadata,
-        "watershed — "
-          <> case route.path {
-          "/component-model" -> "component model"
-          _ -> "foundations"
-        },
-        concept_index.view(route.path, body),
-      ))
+      Ok(
+        render_document(
+          route,
+          source.metadata,
+          "watershed — "
+            <> case route.path {
+            "/component-model" -> "component model"
+            "/runtime" -> "runtime behavior"
+            _ -> "foundations"
+          },
+          case route.path {
+            "/runtime" -> runtime_index.view(body)
+            _ -> concept_index.view(route.path, body)
+          },
+        ),
+      )
     content.ConceptSheet(doc) ->
       Ok(render_document(
         route,

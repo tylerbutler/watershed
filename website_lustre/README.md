@@ -1,11 +1,11 @@
 # Lustre website migration
 
-This package renders `/foundations/`, `/component-model/`, both sections'
-concept sheets, `/guide/`, and all six guide steps with Lustre SSG. The concept
-indexes, concept sheets, guide index, and five prose-first guide steps are
-static documents; `/guide/race/` runs its two-replica demo as a page-scoped
-Lustre application. The Astro site under `website/` remains the production
-site. The root `netlify.toml` still builds
+This package renders `/foundations/`, `/component-model/`, `/runtime/`, the
+foundations and component-model concept sheets, `/guide/`, and all six guide
+steps with Lustre SSG. The three indexes, concept sheets, guide index, and five
+prose-first guide steps are static documents; `/guide/race/` runs its
+two-replica demo as a page-scoped Lustre application. The Astro site under
+`website/` remains the production site. The root `netlify.toml` still builds
 and publishes Astro; production cutover is a later milestone.
 
 ## Run it
@@ -23,12 +23,12 @@ just website-lustre-serve
 
 Open `http://127.0.0.1:4321/foundations/`,
 `http://127.0.0.1:4321/component-model/`, or
-`http://127.0.0.1:4321/guide/`. The preview contains the foundations index and
-its Schema, Topology, and Lifecycle sheets, the component-model index and its
-Components, Ports, and Workspaces sheets, plus the guide index and the Connect,
-Notes, Race, Votes, Presence, and Testing sheets. Fonts, styles, images, and
-page scripts sit alongside the generated documents in
-`website_lustre/dist/`.
+`http://127.0.0.1:4321/runtime/`, or `http://127.0.0.1:4321/guide/`. The
+preview contains the foundations index and its Schema, Topology, and Lifecycle
+sheets, the component-model index and its Components, Ports, and Workspaces
+sheets, the runtime index, plus the guide index and the Connect, Notes, Race,
+Votes, Presence, and Testing sheets. Fonts, styles, images, and page scripts
+sit alongside the generated documents in `website_lustre/dist/`.
 
 The first build downloads Gleam dependencies and the Bun executable used
 by the official Lustre bundler. You do not need a separate Bun installation.
@@ -75,7 +75,9 @@ parser. `code.gleam` maps Smalto tokens to Lustre elements because
 | `content/foundations/*.djot` | Foundations concept-sheet prose and snippet references |
 | `content/component-model/index.djot` | Component-model landing-page prose and section markers |
 | `content/component-model/*.djot` | Component-model concept-sheet prose and snippet references |
+| `content/runtime/index.djot` | Runtime landing-page prose and section markers |
 | `src/watershed_site/route.gleam` | Explicit route, source path, and client entry registry |
+| `src/watershed_site/runtime.gleam` | Typed runtime behavior catalog |
 | `src/watershed_site/content.gleam` | Metadata decoding and Djot AST validation |
 | `src/watershed_site/page.gleam` | Djot renderer and embedded demo |
 | `src/watershed_site/practice.gleam` | Typed catalog for all 17 field notes |

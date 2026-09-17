@@ -57,15 +57,6 @@ pub fn view(path: String) -> Element(msg) {
 
 fn columns() -> List(Column) {
   [
-    Column("Data structures", "/structures", [
-      #("Field atlas", "/structures"),
-      #("Counters", "/structures/counters"),
-      #("Sets", "/structures/sets"),
-      #("Maps", "/structures/maps"),
-      #("Sequences", "/structures/sequences"),
-      #("Coordination", "/structures/coordination"),
-      #("Transforms", "/structures/transforms"),
-    ]),
     Column("Foundations", "/foundations", [
       #("Overview", "/foundations"),
       #("Schemas and fields", "/foundations/schema"),
@@ -83,6 +74,16 @@ fn columns() -> List(Column) {
       ..list.map(guide.all(), fn(step) {
         #(step.number <> " · " <> step.title, guide.path(step.slug))
       })
+    ]),
+    Column("Data structures", "/structures", [
+      #("Field atlas", "/structures"),
+      #("Counters", "/structures/counters"),
+      #("Sets", "/structures/sets"),
+      #("Registers", "/structures/registers"),
+      #("Maps", "/structures/maps"),
+      #("Sequences", "/structures/sequences"),
+      #("Coordination", "/structures/coordination"),
+      #("Transforms", "/structures/transforms"),
     ]),
     Column("Runtime", "/runtime", [
       #("Behaviors", "/runtime"),

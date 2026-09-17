@@ -22,6 +22,15 @@ pub fn generated_route_and_assets_test() {
   |> should.equal(Ok(motion <> "\ninitReveals();\n"))
   simplifile.read(output <> "/scripts/concept-index.js")
   |> should.equal(Ok(motion <> "\ninitReveals();\n"))
+  let assert Ok(runtime_html) = simplifile.read(output <> "/runtime/index.html")
+  let runtime_tree = html_parser.as_tree(runtime_html)
+  let assert False =
+    find(runtime_tree, "href", "/runtime/optimistic")
+    |> list.is_empty
+    as "runtime entry"
+  find(runtime_tree, "src", "/scripts/concept-index.js")
+  |> list.length
+  |> should.equal(1)
   let assert Ok(component_model_html) =
     simplifile.read(output <> "/component-model/index.html")
   let component_model_tree = html_parser.as_tree(component_model_html)

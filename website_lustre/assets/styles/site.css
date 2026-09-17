@@ -470,13 +470,16 @@ samp {
 
   /* ── sheet-index nav (top margin, outside the neatline) ─────────────────── */
   .sheet-index {
+    margin: 0 var(--sheet-gutter);
+    padding: 0.55rem 2px;
+  }
+
+  .si-primary {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
     gap: var(--space-xs) var(--space-lg);
-    margin: 0 var(--sheet-gutter);
-    padding: 0.55rem 2px;
   }
 
   .si-mark {
@@ -516,6 +519,12 @@ samp {
     gap: var(--space-xs) var(--space-lg);
   }
 
+  .si-group {
+    display: inline-flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+  }
+
   .si-link {
     position: relative;
     text-decoration: none;
@@ -524,24 +533,15 @@ samp {
     transition: color var(--dur-feedback) var(--ease-out-quart);
   }
 
-  /* touch: grow the tap target without moving the printed baseline */
-  @media (pointer: coarse) {
-    .si-link,
-    .si-mark {
-      padding-block: 0.8rem;
-    }
-
-    .si-link[aria-current="page"]::after {
-      bottom: 0.55rem;
-    }
-  }
-
-  .si-link:hover {
+  .si-link:hover,
+  .si-context-title:hover,
+  .si-context-link:hover {
     color: var(--overprint-deep);
   }
 
   /* active sheet: printed in ink with a registration tick underneath */
-  .si-link[aria-current="page"] {
+  .si-link[aria-current="page"],
+  .si-context-link[aria-current="page"] {
     color: var(--ink);
   }
 
@@ -555,12 +555,68 @@ samp {
     background: var(--overprint);
   }
 
-  .si-link-out {
+  .si-link-out,
+  .si-context-title {
     color: var(--waterline);
   }
 
-  .si-link-out:hover {
-    color: var(--overprint-deep);
+  .si-context {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-sm);
+    margin-top: var(--space-xs);
+    padding-top: var(--space-xs);
+    border-top: 1px solid var(--hairline-faint);
+    overflow-x: auto;
+    scrollbar-color: var(--waterline) var(--surface);
+    scrollbar-width: thin;
+  }
+
+  .si-context-title,
+  .si-context-link {
+    flex: 0 0 auto;
+    text-decoration: none;
+  }
+
+  .si-context-rule {
+    flex: 0 0 1.5rem;
+    height: 1px;
+    background: var(--hairline);
+  }
+
+  .si-context-links {
+    display: flex;
+    align-items: baseline;
+    gap: var(--space-lg);
+  }
+
+  .si-context-link {
+    color: var(--muted);
+    padding-block: 0.15rem;
+  }
+
+  .si-context-link[aria-current="page"] {
+    text-decoration: underline;
+    text-decoration-color: var(--overprint);
+    text-decoration-thickness: 1.5px;
+    text-underline-offset: 0.3rem;
+  }
+
+  /* touch: grow the tap target without moving the printed baseline */
+  @media (pointer: coarse) {
+    .si-link,
+    .si-mark {
+      padding-block: 0.8rem;
+    }
+
+    .si-link[aria-current="page"]::after {
+      bottom: 0.55rem;
+    }
+
+    .si-context-link,
+    .si-context-title {
+      padding-block: 0.45rem;
+    }
   }
 
   .margin-row {

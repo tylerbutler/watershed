@@ -54,7 +54,7 @@ pub fn component_model() -> List(Doc) {
     Doc(
       "workspaces",
       "Workspaces and instances",
-      "Save the finished board — which parts exist, where they sit, how they are wired — and reopen it safely next year, without deleting the parts this build cannot understand.",
+      "Save component instances, presentation order, and wiring in a workspace within your document — and reopen it safely next year, without deleting the parts this build cannot understand.",
       "ManifestEntry · Snapshot · Prepared · delete_instance",
     ),
   ]

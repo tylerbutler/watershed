@@ -100,6 +100,26 @@
     ],
     "pager": [
       [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "OVERVIEW",
+        "/foundations"
+      ],
+      [
+        "01 SCHEMAS",
+        "/foundations/schema"
+      ],
+      [
+        "02 DOCUMENTS",
+        "/foundations/topology"
+      ],
+      [
+        "03 STARTING A DOCUMENT",
+        "/foundations/lifecycle"
+      ],
+      [
         "← SCHEMAS AND FIELDS Declare the shape of a map once, at compile time, with a phantom tag the runtime never sees: a plain field, a handle to a nested map, or a handle to another channel entirely.",
         "/foundations/schema"
       ],
@@ -274,6 +294,26 @@
       ]
     ],
     "pager": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "OVERVIEW",
+        "/foundations"
+      ],
+      [
+        "01 SCHEMAS",
+        "/foundations/schema"
+      ],
+      [
+        "02 DOCUMENTS",
+        "/foundations/topology"
+      ],
+      [
+        "03 STARTING A DOCUMENT",
+        "/foundations/lifecycle"
+      ],
       [
         "← SCHEMAS AND FIELDS Declare the shape of a map once, at compile time, with a phantom tag the runtime never sees: a plain field, a handle to a nested map, or a handle to another channel entirely.",
         "/foundations/schema"

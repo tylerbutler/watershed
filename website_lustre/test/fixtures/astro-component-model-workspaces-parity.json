@@ -52,7 +52,7 @@
       "← WATERSHED · COMPONENT MODEL / WORKSPACES AND INSTANCES",
       "COMPONENT MODEL",
       "Optional · user-constructable apps",
-      "Save the finished board — which parts exist, where they sit, how they are wired — and reopen it safely next year, without deleting the parts this build cannot understand.",
+      "Save component instances, presentation order, and wiring in a workspace within your document — and reopen it safely next year, without deleting the parts this build cannot understand.",
       "TRACES MANIFESTENTRY · SNAPSHOT · PREPARED · DELETE_INSTANCE",
       "TRACES"
     ],
@@ -110,6 +110,26 @@
       ]
     ],
     "pager": [
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "OVERVIEW",
+        "/component-model"
+      ],
+      [
+        "01 COMPONENTS",
+        "/component-model/components"
+      ],
+      [
+        "02 PORTS",
+        "/component-model/ports"
+      ],
+      [
+        "03 WORKSPACES",
+        "/component-model/workspaces"
+      ],
       [
         "← PORTS AND DISPATCH Let a user connect two parts that were written apart: a port is a named connection point a component publishes, typed while you write it, erased once it is stored, and checked again before every event it carries.",
         "/component-model/ports"
@@ -228,7 +248,7 @@
       "← WATERSHED · COMPONENT MODEL / WORKSPACES AND INSTANCES",
       "COMPONENT MODEL",
       "Optional · user-constructable apps",
-      "Save the finished board — which parts exist, where they sit, how they are wired — and reopen it safely next year, without deleting the parts this build cannot understand.",
+      "Save component instances, presentation order, and wiring in a workspace within your document — and reopen it safely next year, without deleting the parts this build cannot understand.",
       "TRACES MANIFESTENTRY · SNAPSHOT · PREPARED · DELETE_INSTANCE",
       "TRACES"
     ],
@@ -286,6 +306,26 @@
       ]
     ],
     "pager": [
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "OVERVIEW",
+        "/component-model"
+      ],
+      [
+        "01 COMPONENTS",
+        "/component-model/components"
+      ],
+      [
+        "02 PORTS",
+        "/component-model/ports"
+      ],
+      [
+        "03 WORKSPACES",
+        "/component-model/workspaces"
+      ],
       [
         "← PORTS AND DISPATCH Let a user connect two parts that were written apart: a port is a named connection point a component publishes, typed while you write it, erased once it is stored, and checked again before every event it carries.",
         "/component-model/ports"

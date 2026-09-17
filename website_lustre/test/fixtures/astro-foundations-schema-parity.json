@@ -102,6 +102,26 @@
     ],
     "pager": [
       [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "OVERVIEW",
+        "/foundations"
+      ],
+      [
+        "01 SCHEMAS",
+        "/foundations/schema"
+      ],
+      [
+        "02 DOCUMENTS",
+        "/foundations/topology"
+      ],
+      [
+        "03 STARTING A DOCUMENT",
+        "/foundations/lifecycle"
+      ],
+      [
         "← INDEX All foundations sheets",
         "/foundations"
       ],
@@ -286,6 +306,26 @@
       ]
     ],
     "pager": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "OVERVIEW",
+        "/foundations"
+      ],
+      [
+        "01 SCHEMAS",
+        "/foundations/schema"
+      ],
+      [
+        "02 DOCUMENTS",
+        "/foundations/topology"
+      ],
+      [
+        "03 STARTING A DOCUMENT",
+        "/foundations/lifecycle"
+      ],
       [
         "← INDEX All foundations sheets",
         "/foundations"

@@ -106,6 +106,16 @@ pub fn component_model_index() -> Route {
   )
 }
 
+pub fn runtime_index() -> Route {
+  Route(
+    path: "/runtime",
+    layout: ConceptIndex,
+    content_path: "content/runtime/index.djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -136,6 +146,7 @@ pub fn all() -> List(Route) {
     component_model("components"),
     component_model("ports"),
     component_model("workspaces"),
+    runtime_index(),
     Route(
       path: "/guide",
       layout: GuideIndex,

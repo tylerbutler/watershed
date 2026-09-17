@@ -15,6 +15,7 @@ import watershed_site/route
 import watershed_site/snippet
 import watershed_site/view/concept_index
 import watershed_site/view/guide_index
+import watershed_site/view/runtime_index
 
 pub type PageKind {
   GuideStep(guide.Slug)
@@ -133,11 +134,12 @@ fn decode_metadata(
             path,
             "guide_step: A concept index cannot name a guide step.",
           ))
-        False, "/foundations" | False, "/component-model" -> Ok(ConceptIndex)
+        False, "/foundations" | False, "/component-model" | False, "/runtime" ->
+          Ok(ConceptIndex)
         False, _ ->
           Error(error.InvalidFrontmatter(
             path,
-            "layout: The concept index path must be /foundations or /component-model.",
+            "layout: The concept index path is not registered.",
           ))
       }
     "concept-sheet", route.ConceptSheet -> {
@@ -304,9 +306,13 @@ fn validate_blocks(
                 }
             }
           Ok(name) ->
-            case guide_index.component(name), concept_index.component(name) {
-              Ok(_), _ | _, Ok(_) -> Ok(Nil)
-              Error(Nil), Error(Nil) ->
+            case
+              guide_index.component(name),
+              concept_index.component(name),
+              runtime_index.component(name)
+            {
+              Ok(_), _, _ | _, Ok(_), _ | _, _, Ok(_) -> Ok(Nil)
+              Error(Nil), Error(Nil), Error(Nil) ->
                 Error(error.UnknownComponent(path, name))
             }
         })

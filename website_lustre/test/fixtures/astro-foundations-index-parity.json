@@ -90,14 +90,14 @@
     ],
     "primary": [
       {
-        "text": "Atlas",
-        "href": "/structures",
-        "current": null
-      },
-      {
         "text": "Foundations",
         "href": "/foundations",
         "current": "page"
+      },
+      {
+        "text": "Components",
+        "href": "/component-model",
+        "current": null
       },
       {
         "text": "Guide",
@@ -105,8 +105,13 @@
         "current": null
       },
       {
-        "text": "Examples",
-        "href": "/examples",
+        "text": "Atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
         "current": null
       },
       {
@@ -115,8 +120,8 @@
         "current": null
       },
       {
-        "text": "Runtime",
-        "href": "/runtime",
+        "text": "Examples",
+        "href": "/examples",
         "current": null
       },
       {
@@ -126,46 +131,6 @@
       }
     ],
     "adjoining": [
-      {
-        "text": "Data structures",
-        "href": "/structures",
-        "current": null
-      },
-      {
-        "text": "Field atlas",
-        "href": "/structures",
-        "current": null
-      },
-      {
-        "text": "Counters",
-        "href": "/structures/counters",
-        "current": null
-      },
-      {
-        "text": "Sets",
-        "href": "/structures/sets",
-        "current": null
-      },
-      {
-        "text": "Maps",
-        "href": "/structures/maps",
-        "current": null
-      },
-      {
-        "text": "Sequences",
-        "href": "/structures/sequences",
-        "current": null
-      },
-      {
-        "text": "Coordination",
-        "href": "/structures/coordination",
-        "current": null
-      },
-      {
-        "text": "Transforms",
-        "href": "/structures/transforms",
-        "current": null
-      },
       {
         "text": "Foundations",
         "href": "/foundations",
@@ -254,6 +219,51 @@
       {
         "text": "06 · Write repeatable tests",
         "href": "/guide/testing",
+        "current": null
+      },
+      {
+        "text": "Data structures",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Field atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Counters",
+        "href": "/structures/counters",
+        "current": null
+      },
+      {
+        "text": "Sets",
+        "href": "/structures/sets",
+        "current": null
+      },
+      {
+        "text": "Registers",
+        "href": "/structures/registers",
+        "current": null
+      },
+      {
+        "text": "Maps",
+        "href": "/structures/maps",
+        "current": null
+      },
+      {
+        "text": "Sequences",
+        "href": "/structures/sequences",
+        "current": null
+      },
+      {
+        "text": "Coordination",
+        "href": "/structures/coordination",
+        "current": null
+      },
+      {
+        "text": "Transforms",
+        "href": "/structures/transforms",
         "current": null
       },
       {

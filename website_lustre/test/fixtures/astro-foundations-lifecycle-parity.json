@@ -93,6 +93,26 @@
     ],
     "pager": [
       [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "OVERVIEW",
+        "/foundations"
+      ],
+      [
+        "01 SCHEMAS",
+        "/foundations/schema"
+      ],
+      [
+        "02 DOCUMENTS",
+        "/foundations/topology"
+      ],
+      [
+        "03 STARTING A DOCUMENT",
+        "/foundations/lifecycle"
+      ],
+      [
         "← DOCUMENTS AND HANDLES A watershed document is not one tree — it's a root map plus whatever channels its values point to, each one independently addressed, attached, and resolved.",
         "/foundations/topology"
       ],
@@ -113,7 +133,7 @@
     "code": [
       "/// Connect to a document. `got_document` runs with the handle immediately. You\n/// can start a root subscription and an optimistic edit at that point. To\n/// create a nested channel, wait for `connected`. That callback runs with\n/// `Ok(Nil)` after the handshake and the history replay complete, or with\n/// `Error(reason)` when the server refuses the connection. This effect owns the\n/// microtask for both callbacks.\npub fn connect(\n  config: WatershedConfig,\n  got_document got_document: fn(Document(root)) -> msg,\n  connected connected: fn(Result(Nil, String)) -> msg,\n) -> Effect(msg) {\n  use dispatch <- effect.from\n  let document =\n    watershed.connect(config, on_ready: fn(result) {\n      queue_microtask(fn() { dispatch(connected(result)) })\n    })\n  queue_microtask(fn() { dispatch(got_document(document)) })\n}",
       "GotDocument(document) -> {\n  let model = Model(..model, document: Some(document))\n  let presence_start = presence_effect(model, document)\n  case model.status, model.shared {\n    Ready, None -> #(\n      model,\n      effect.batch([bootstrap_effect(document), presence_start]),\n    )\n    _, _ -> #(model, presence_start)\n  }\n}\n\nConnected(Ok(_)) -> {\n  let model = Model(..model, status: Ready)\n  case model.document, model.shared {\n    Some(document), None -> #(model, bootstrap_effect(document))\n    _, _ -> #(model, effect.none())\n  }\n}\n\nConnected(Error(reason)) -> #(\n  Model(..model, status: Failed(reason), last_error: Some(reason)),\n  effect.none(),\n)",
-      "@target(javascript)\n/// Adopt the channel under `key`. If the key already holds a value, the\n/// function resolves the handle currently there. If the key is empty, the\n/// function calls `seed` to create a candidate, waits for the caller's own\n/// write to sync, and then resolves the handle the field shows at that\n/// point. A later write from another client can still replace the field.\nfn ensure_channel(\n  document: Document(root),\n  typed_map: TypedMap(s),\n  key: String,\n  seed: fn() -> Result(Nil, String),\n  resolve: fn() -> Result(Option(shared), String),\n  done: fn(Result(shared, String)) -> Nil,\n) -> Nil {\n  case has(typed_map.map, key) {\n    True -> resolve_with_retry(resolve, resolve_attempts, done)\n    False ->\n      case seed() {\n        Error(reason) -> done(Error(reason))\n        Ok(Nil) ->\n          await_synced(document, resolve_attempts, fn() {\n            resolve_with_retry(resolve, resolve_attempts, done)\n          })\n      }\n  }\n}",
+      "@target(javascript)\n/// Wait for synchronization before reading `key`. Adopt an existing channel,\n/// or seed a candidate and wait for its write to synchronize before resolving.\n/// Either wait can return a timeout. A timeout does not undo a submitted seed.\n/// A later write from another client can still replace the field.\nfn ensure_channel(\n  document: Document(root),\n  typed_map: TypedMap(s),\n  key: String,\n  seed: fn() -> Result(Nil, String),\n  resolve: fn() -> Result(Option(shared), String),\n  done: fn(Result(shared, String)) -> Nil,\n) -> Nil {\n  use synced <- await_synced(document, resolve_attempts)\n  case synced {\n    Error(reason) -> done(Error(reason))\n    Ok(Nil) ->\n      case has(typed_map.map, key) {\n        True -> resolve_with_retry(document, resolve, resolve_attempts, done)\n        False ->\n          case seed() {\n            Error(reason) -> done(Error(reason))\n            Ok(Nil) -> {\n              use synced <- await_synced(document, resolve_attempts)\n              case synced {\n                Error(reason) -> done(Error(reason))\n                Ok(Nil) ->\n                  resolve_with_retry(document, resolve, resolve_attempts, done)\n              }\n            }\n          }\n      }\n  }\n}",
       "fn bootstrap_effect(\n  document: Document(document_schema.BoardDocument),\n) -> Effect(Msg) {\n  let root = watershed.root_typed(document)\n  effect.batch([\n    watershed_lustre.ensure_field(root, document_schema.title(), \"Sprint retro\"),\n    watershed_lustre.ensure_or_map(\n      document,\n      root,\n      document_schema.notes(),\n      or_map_kernel.RegisterMode,\n      EnsuredNotes,\n    ),\n    watershed_lustre.ensure_or_map(\n      document,\n      root,\n      document_schema.votes(),\n      or_map_kernel.TallyMode,\n      EnsuredVotes,\n    ),\n    watershed_lustre.subscribe(watershed.root(document), fn(_event) {\n      SharedChanged\n    }),\n  ])\n}",
       "EnsuredNotes(Ok(notes)) ->\n  Model(\n    ..model,\n    pending: PendingShared(..model.pending, notes: Some(notes)),\n  )\n  |> assemble\nEnsuredNotes(Error(reason)) -> #(\n  Model(..model, last_error: Some(\"notes channel failed: \" <> reason)),\n  effect.none(),\n)\n\nEnsuredVotes(Ok(votes)) ->\n  Model(\n    ..model,\n    pending: PendingShared(..model.pending, votes: Some(votes)),\n  )\n  |> assemble\nEnsuredVotes(Error(reason)) -> #(\n  Model(..model, last_error: Some(\"votes channel failed: \" <> reason)),\n  effect.none(),\n)",
       "fn assemble(model: Model) -> #(Model, Effect(Msg)) {\n  case model.shared, model.pending {\n    None, PendingShared(Some(notes), Some(votes)) -> {\n      let shared = SharedState(notes:, votes:)\n      let model = snapshot(Model(..model, shared: Some(shared)))\n      #(\n        model,\n        effect.batch([\n          watershed_lustre.subscribe_or_map(shared.notes, fn(_) {\n            SharedChanged\n          }),\n          watershed_lustre.subscribe_or_map(shared.votes, fn(_) {\n            SharedChanged\n          }),\n        ]),\n      )\n    }\n    _, _ -> #(model, effect.none())\n  }\n}"
@@ -267,6 +287,26 @@
     ],
     "pager": [
       [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "OVERVIEW",
+        "/foundations"
+      ],
+      [
+        "01 SCHEMAS",
+        "/foundations/schema"
+      ],
+      [
+        "02 DOCUMENTS",
+        "/foundations/topology"
+      ],
+      [
+        "03 STARTING A DOCUMENT",
+        "/foundations/lifecycle"
+      ],
+      [
         "← DOCUMENTS AND HANDLES A watershed document is not one tree — it's a root map plus whatever channels its values point to, each one independently addressed, attached, and resolved.",
         "/foundations/topology"
       ],
@@ -287,7 +327,7 @@
     "code": [
       "/// Connect to a document. `got_document` runs with the handle immediately. You\n/// can start a root subscription and an optimistic edit at that point. To\n/// create a nested channel, wait for `connected`. That callback runs with\n/// `Ok(Nil)` after the handshake and the history replay complete, or with\n/// `Error(reason)` when the server refuses the connection. This effect owns the\n/// microtask for both callbacks.\npub fn connect(\n  config: WatershedConfig,\n  got_document got_document: fn(Document(root)) -> msg,\n  connected connected: fn(Result(Nil, String)) -> msg,\n) -> Effect(msg) {\n  use dispatch <- effect.from\n  let document =\n    watershed.connect(config, on_ready: fn(result) {\n      queue_microtask(fn() { dispatch(connected(result)) })\n    })\n  queue_microtask(fn() { dispatch(got_document(document)) })\n}",
       "GotDocument(document) -> {\n  let model = Model(..model, document: Some(document))\n  let presence_start = presence_effect(model, document)\n  case model.status, model.shared {\n    Ready, None -> #(\n      model,\n      effect.batch([bootstrap_effect(document), presence_start]),\n    )\n    _, _ -> #(model, presence_start)\n  }\n}\n\nConnected(Ok(_)) -> {\n  let model = Model(..model, status: Ready)\n  case model.document, model.shared {\n    Some(document), None -> #(model, bootstrap_effect(document))\n    _, _ -> #(model, effect.none())\n  }\n}\n\nConnected(Error(reason)) -> #(\n  Model(..model, status: Failed(reason), last_error: Some(reason)),\n  effect.none(),\n)",
-      "@target(javascript)\n/// Adopt the channel under `key`. If the key already holds a value, the\n/// function resolves the handle currently there. If the key is empty, the\n/// function calls `seed` to create a candidate, waits for the caller's own\n/// write to sync, and then resolves the handle the field shows at that\n/// point. A later write from another client can still replace the field.\nfn ensure_channel(\n  document: Document(root),\n  typed_map: TypedMap(s),\n  key: String,\n  seed: fn() -> Result(Nil, String),\n  resolve: fn() -> Result(Option(shared), String),\n  done: fn(Result(shared, String)) -> Nil,\n) -> Nil {\n  case has(typed_map.map, key) {\n    True -> resolve_with_retry(resolve, resolve_attempts, done)\n    False ->\n      case seed() {\n        Error(reason) -> done(Error(reason))\n        Ok(Nil) ->\n          await_synced(document, resolve_attempts, fn() {\n            resolve_with_retry(resolve, resolve_attempts, done)\n          })\n      }\n  }\n}",
+      "@target(javascript)\n/// Wait for synchronization before reading `key`. Adopt an existing channel,\n/// or seed a candidate and wait for its write to synchronize before resolving.\n/// Either wait can return a timeout. A timeout does not undo a submitted seed.\n/// A later write from another client can still replace the field.\nfn ensure_channel(\n  document: Document(root),\n  typed_map: TypedMap(s),\n  key: String,\n  seed: fn() -> Result(Nil, String),\n  resolve: fn() -> Result(Option(shared), String),\n  done: fn(Result(shared, String)) -> Nil,\n) -> Nil {\n  use synced <- await_synced(document, resolve_attempts)\n  case synced {\n    Error(reason) -> done(Error(reason))\n    Ok(Nil) ->\n      case has(typed_map.map, key) {\n        True -> resolve_with_retry(document, resolve, resolve_attempts, done)\n        False ->\n          case seed() {\n            Error(reason) -> done(Error(reason))\n            Ok(Nil) -> {\n              use synced <- await_synced(document, resolve_attempts)\n              case synced {\n                Error(reason) -> done(Error(reason))\n                Ok(Nil) ->\n                  resolve_with_retry(document, resolve, resolve_attempts, done)\n              }\n            }\n          }\n      }\n  }\n}",
       "fn bootstrap_effect(\n  document: Document(document_schema.BoardDocument),\n) -> Effect(Msg) {\n  let root = watershed.root_typed(document)\n  effect.batch([\n    watershed_lustre.ensure_field(root, document_schema.title(), \"Sprint retro\"),\n    watershed_lustre.ensure_or_map(\n      document,\n      root,\n      document_schema.notes(),\n      or_map_kernel.RegisterMode,\n      EnsuredNotes,\n    ),\n    watershed_lustre.ensure_or_map(\n      document,\n      root,\n      document_schema.votes(),\n      or_map_kernel.TallyMode,\n      EnsuredVotes,\n    ),\n    watershed_lustre.subscribe(watershed.root(document), fn(_event) {\n      SharedChanged\n    }),\n  ])\n}",
       "EnsuredNotes(Ok(notes)) ->\n  Model(\n    ..model,\n    pending: PendingShared(..model.pending, notes: Some(notes)),\n  )\n  |> assemble\nEnsuredNotes(Error(reason)) -> #(\n  Model(..model, last_error: Some(\"notes channel failed: \" <> reason)),\n  effect.none(),\n)\n\nEnsuredVotes(Ok(votes)) ->\n  Model(\n    ..model,\n    pending: PendingShared(..model.pending, votes: Some(votes)),\n  )\n  |> assemble\nEnsuredVotes(Error(reason)) -> #(\n  Model(..model, last_error: Some(\"votes channel failed: \" <> reason)),\n  effect.none(),\n)",
       "fn assemble(model: Model) -> #(Model, Effect(Msg)) {\n  case model.shared, model.pending {\n    None, PendingShared(Some(notes), Some(votes)) -> {\n      let shared = SharedState(notes:, votes:)\n      let model = snapshot(Model(..model, shared: Some(shared)))\n      #(\n        model,\n        effect.batch([\n          watershed_lustre.subscribe_or_map(shared.notes, fn(_) {\n            SharedChanged\n          }),\n          watershed_lustre.subscribe_or_map(shared.votes, fn(_) {\n            SharedChanged\n          }),\n        ]),\n      )\n    }\n    _, _ -> #(model, effect.none())\n  }\n}"
