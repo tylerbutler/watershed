@@ -112,6 +112,12 @@ pub fn generated_route_and_assets_test() {
   })
   simplifile.read(output <> "/styles/sudoku.css")
   |> should.be_ok()
+  simplifile.read(output <> "/_redirects")
+  |> should.equal(Ok(
+    "/foundations/components /component-model/components 301\n"
+    <> "/foundations/ports /component-model/ports 301\n"
+    <> "/foundations/workspaces /component-model/workspaces 301\n",
+  ))
   let assert Ok(runtime_html) = simplifile.read(output <> "/runtime/index.html")
   let runtime_tree = html_parser.as_tree(runtime_html)
   let assert False =

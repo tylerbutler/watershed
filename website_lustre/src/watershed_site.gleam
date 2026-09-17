@@ -7,6 +7,7 @@ import simplifile
 import watershed_site/content
 import watershed_site/error.{type BuildError}
 import watershed_site/page
+import watershed_site/redirect
 import watershed_site/route
 import watershed_site/snippet
 
@@ -97,6 +98,12 @@ pub fn build_routes(
           |> ssg.add_static_asset("/scripts/guide-index.js", source)
           |> ssg.add_static_asset("/scripts/concept-index.js", source)
       }
+      let config =
+        ssg.add_static_asset(
+          config,
+          "/_redirects",
+          redirect.render(redirect.all()),
+        )
       list.fold(rest, config, fn(config, entry) {
         ssg.add_static_route(config, entry.0, entry.1)
       })
