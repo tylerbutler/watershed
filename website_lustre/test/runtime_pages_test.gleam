@@ -116,3 +116,32 @@ pub fn redelivery_renders_the_duplicate_op_log_test() {
     let assert False = string.contains(html, absent) as absent
   })
 }
+
+pub fn presence_renders_the_configuration_example_test() {
+  let assert Ok(doc) = runtime.get("presence")
+  let assert #(Ok(previous), Ok(next)) = runtime.neighbours("presence")
+  previous.slug |> should.equal("redelivery")
+  next.slug |> should.equal("p2p")
+
+  let page_route = route.runtime("presence")
+  let assert Ok(source) = content.load(page_route)
+  source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
+  let assert Ok(manifest) =
+    snippet.load("../website/src/generated/snippets.json")
+  let assert Ok(document) = page.render(source, page_route, manifest, "test")
+  let html = element.to_document_string(document)
+  [
+    "<title>watershed — presence &amp; ripples</title>",
+    "Not everything belongs in the document",
+    "(illustrative — presence configuration)",
+    "href=\"/runtime/redelivery\"",
+    "href=\"/runtime/p2p\"",
+  ]
+  |> list.each(fn(expected) {
+    let assert True = string.contains(html, expected) as expected
+  })
+  ["/guide_race.js", "astro-island", "/_astro/", "@vite", "data-component"]
+  |> list.each(fn(absent) {
+    let assert False = string.contains(html, absent) as absent
+  })
+}

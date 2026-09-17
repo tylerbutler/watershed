@@ -7,7 +7,7 @@ import { withBrowserSite } from "./site.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const record = process.argv.includes("--record-baseline");
 const site = resolve(root, record ? "../website/dist" : "dist");
-const routes = ["optimistic", "reconnect", "redelivery"];
+const routes = ["optimistic", "reconnect", "redelivery", "presence"];
 
 async function snapshot(page) {
   return page.evaluate(() => {

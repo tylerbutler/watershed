@@ -55,6 +55,12 @@ pub fn generated_route_and_assets_test() {
   |> should.be_true()
   string.contains(redelivery_html, "href=\"/runtime/presence\"")
   |> should.be_true()
+  let assert Ok(presence_html) =
+    simplifile.read(output <> "/runtime/presence/index.html")
+  string.contains(presence_html, "(illustrative — presence configuration)")
+  |> should.be_true()
+  string.contains(presence_html, "href=\"/runtime/p2p\"")
+  |> should.be_true()
   let assert Ok(component_model_html) =
     simplifile.read(output <> "/component-model/index.html")
   let component_model_tree = html_parser.as_tree(component_model_html)
