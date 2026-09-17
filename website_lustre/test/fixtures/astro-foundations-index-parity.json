@@ -1,0 +1,436 @@
+{
+  "content": {
+    "title": "watershed — foundations",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "The core model behind every watershed document: typed schemas, channel topology, and startup."
+      ],
+      [
+        "og:title",
+        "watershed — foundations"
+      ],
+      [
+        "og:description",
+        "The core model behind every watershed document: typed schemas, channel topology, and startup."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/foundations/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Before youbuild anything.",
+    "headingBreaks": 1,
+    "headings": [
+      "Foundations"
+    ],
+    "prose": [
+      "← watershed · Foundations",
+      "The build guide walks a working board through every step. These sheets cover the model underneath it: how you declare and lay out a document, and how you bring its channels online.",
+      "Building a screen users can assemble for themselves? That optional layer now has its own section: the component model.",
+      "3 sheets. Read in order — each one leans on the last.",
+      "Once a channel exists, the field atlas covers what it does when two clients touch it at once, and runtime covers what happens while it's live: optimistic edits, reconnect, and the rest. Ready to see it running? Start the survey procedure at step one."
+    ],
+    "entries": [
+      {
+        "href": "/foundations/schema",
+        "number": "01",
+        "fields": [
+          "Schemas and fields",
+          "Declare the shape of a map once, at compile time, with a phantom tag the runtime never sees: a plain field, a handle to a nested map, or a handle to another channel entirely.",
+          "Field · ChildField · ChannelField · FieldError"
+        ]
+      },
+      {
+        "href": "/foundations/topology",
+        "number": "02",
+        "fields": [
+          "Documents and handles",
+          "A watershed document is not one tree — it's a root map plus whatever channels its values point to, each one independently addressed, attached, and resolved.",
+          "root_typed · handle_of · create_map · resolve"
+        ]
+      },
+      {
+        "href": "/foundations/lifecycle",
+        "number": "03",
+        "fields": [
+          "Starting a document",
+          "Every client runs the same bootstrap: get a handle, wait for the catch-up, ensure the channels it needs exist, and only render once they've all reported in.",
+          "got_document · connected · ensure_* · subscribe"
+        ]
+      }
+    ],
+    "primary": [
+      {
+        "text": "Atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": "page"
+      },
+      {
+        "text": "Guide",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "adjoining": [
+      {
+        "text": "Data structures",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Field atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Counters",
+        "href": "/structures/counters",
+        "current": null
+      },
+      {
+        "text": "Sets",
+        "href": "/structures/sets",
+        "current": null
+      },
+      {
+        "text": "Maps",
+        "href": "/structures/maps",
+        "current": null
+      },
+      {
+        "text": "Sequences",
+        "href": "/structures/sequences",
+        "current": null
+      },
+      {
+        "text": "Coordination",
+        "href": "/structures/coordination",
+        "current": null
+      },
+      {
+        "text": "Transforms",
+        "href": "/structures/transforms",
+        "current": null
+      },
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Schemas and fields",
+        "href": "/foundations/schema",
+        "current": null
+      },
+      {
+        "text": "Documents and handles",
+        "href": "/foundations/topology",
+        "current": null
+      },
+      {
+        "text": "Starting a document",
+        "href": "/foundations/lifecycle",
+        "current": null
+      },
+      {
+        "text": "Component model",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Components and catalogs",
+        "href": "/component-model/components",
+        "current": null
+      },
+      {
+        "text": "Ports and dispatch",
+        "href": "/component-model/ports",
+        "current": null
+      },
+      {
+        "text": "Workspaces and instances",
+        "href": "/component-model/workspaces",
+        "current": null
+      },
+      {
+        "text": "Build guide",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "01 · Connect the board",
+        "href": "/guide/connect",
+        "current": null
+      },
+      {
+        "text": "02 · Add notes",
+        "href": "/guide/notes",
+        "current": null
+      },
+      {
+        "text": "03 · Try two edits at once",
+        "href": "/guide/race",
+        "current": null
+      },
+      {
+        "text": "04 · Add votes",
+        "href": "/guide/votes",
+        "current": null
+      },
+      {
+        "text": "05 · Add presence",
+        "href": "/guide/presence",
+        "current": null
+      },
+      {
+        "text": "06 · Write repeatable tests",
+        "href": "/guide/testing",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Behaviors",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Optimistic edits",
+        "href": "/runtime/optimistic",
+        "current": null
+      },
+      {
+        "text": "Reconnect & resync",
+        "href": "/runtime/reconnect",
+        "current": null
+      },
+      {
+        "text": "Idempotent re-delivery",
+        "href": "/runtime/redelivery",
+        "current": null
+      },
+      {
+        "text": "Presence & ripples",
+        "href": "/runtime/presence",
+        "current": null
+      },
+      {
+        "text": "Peer-to-peer over WebRTC",
+        "href": "/runtime/p2p",
+        "current": null
+      },
+      {
+        "text": "Reference & demos",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Browser examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Patterns",
+        "href": "/patterns",
+        "current": null
+      },
+      {
+        "text": "Convergence models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "SharedTree comparison",
+        "href": "/sharedtree",
+        "current": null
+      },
+      {
+        "text": "The counter bug",
+        "href": "/counter-bug",
+        "current": null
+      },
+      {
+        "text": "Shared directory",
+        "href": "/directory",
+        "current": null
+      },
+      {
+        "text": "JsonOt",
+        "href": "/json-ot",
+        "current": null
+      },
+      {
+        "text": "Rich text",
+        "href": "/rich-text",
+        "current": null
+      },
+      {
+        "text": "Sudoku",
+        "href": "/sudoku",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "canonical": null
+  },
+  "desktop": {
+    "hero": {
+      "padding": "112px 64.8px 80px",
+      "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+    },
+    "heading": {
+      "font-size": "86.4px",
+      "font-weight": "640",
+      "font-stretch": "122%",
+      "line-height": "85.536px",
+      "letter-spacing": "-2.16px"
+    },
+    "lede": {
+      "font-size": "21px",
+      "line-height": "33.6px",
+      "max-width": "745.659px",
+      "margin-top": "40px"
+    },
+    "ledger": {
+      "padding": "64px 64.8px 129.6px",
+      "max-width": "1152px"
+    },
+    "item": {
+      "display": "grid",
+      "grid-template-columns": "23.9375px 914.641px 11.8281px",
+      "gap": "24px",
+      "padding": "24px 12px"
+    },
+    "concept": {
+      "display": "block",
+      "font-size": "13px",
+      "color": "oklch(0.37 0.095 240)"
+    },
+    "aside": {
+      "margin-top": "64px",
+      "padding-top": "24px",
+      "border-top": "1px dashed oklch(0.25 0.02 260 / 0.22)",
+      "max-width": "494.815px"
+    }
+  },
+  "mobile": {
+    "hero": {
+      "padding": "56px 20px 40px",
+      "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+    },
+    "heading": {
+      "font-size": "33.15px",
+      "font-weight": "640",
+      "font-stretch": "100%",
+      "line-height": "32.8185px",
+      "letter-spacing": "-0.9945px"
+    },
+    "lede": {
+      "font-size": "18.34px",
+      "line-height": "29.344px",
+      "max-width": "651.209px",
+      "margin-top": "40px"
+    },
+    "ledger": {
+      "padding": "64px 20px 72px",
+      "max-width": "1152px"
+    },
+    "item": {
+      "display": "grid",
+      "grid-template-columns": "23.9375px 232.234px 11.8281px",
+      "gap": "16px",
+      "padding": "24px 12px"
+    },
+    "concept": {
+      "display": "none",
+      "font-size": "13px",
+      "color": "oklch(0.37 0.095 240)"
+    },
+    "aside": {
+      "margin-top": "64px",
+      "padding-top": "24px",
+      "border-top": "1px dashed oklch(0.25 0.02 260 / 0.22)",
+      "max-width": "494.815px"
+    }
+  },
+  "focus": {
+    "outline": "oklch(0.55 0.21 340) solid 2px",
+    "offset": "2px"
+  }
+}

@@ -1,10 +1,11 @@
 # Lustre website migration
 
-This package renders `/guide/` and all six guide steps with Lustre SSG. The
-index and five prose-first steps are static documents; `/guide/race/` runs its
-two-replica demo as a page-scoped Lustre application. The Astro site under
-`website/` remains the production site. The root `netlify.toml` still builds
-and publishes Astro; production cutover is a later milestone.
+This package renders `/foundations/`, `/guide/`, and all six guide steps with
+Lustre SSG. The foundations index, guide index, and five prose-first guide
+steps are static documents; `/guide/race/` runs its two-replica demo as a
+page-scoped Lustre application. The Astro site under `website/` remains the
+production site. The root `netlify.toml` still builds and publishes Astro;
+production cutover is a later milestone.
 
 ## Run it
 
@@ -19,10 +20,11 @@ just website-lustre
 just website-lustre-serve
 ```
 
-Open `http://127.0.0.1:4321/guide/`. The preview contains `/guide/` and the
-Connect, Notes, Race, Votes, Presence, and Testing sheets. Fonts, styles,
-images, and page scripts sit alongside the generated documents in
-`website_lustre/dist/`.
+Open `http://127.0.0.1:4321/foundations/` or
+`http://127.0.0.1:4321/guide/`. The preview contains the foundations index,
+the guide index, and the Connect, Notes, Race, Votes, Presence, and Testing
+sheets. Fonts, styles, images, and page scripts sit alongside the generated
+documents in `website_lustre/dist/`.
 
 The first build downloads Gleam dependencies and the Bun executable used
 by the official Lustre bundler. You do not need a separate Bun installation.
@@ -40,13 +42,13 @@ Chromium executable. A missing browser skips the gate locally and fails in
 CI. No running Astro server or external collaboration service is required.
 
 The browser fixtures under `test/fixtures/` record Astro's copy, metadata,
-navigation, code figures, field notes, and computed styles for the index, race
-sheet, and five static sheets. The index gate also follows the step-03 link and
-back, and checks keyboard navigation, no-script content, and reduced-motion
-behavior. The static-sheet gate checks field-note fragments on initial load
-and `hashchange`. To update the fixtures after an intentional Astro change,
-build `website/`, then run `pnpm run record:parity` from this directory. Review
-the fixture diff before accepting a new baseline.
+navigation, code figures, field notes, and computed styles for both indexes,
+the race sheet, and five static guide sheets. The index gates check keyboard
+navigation, no-script content, and reduced-motion behavior. The guide index
+also follows the step-03 link and back. The static-sheet gate checks field-note
+fragments on initial load and `hashchange`. To update the fixtures after an
+intentional Astro change, build `website/`, then run `pnpm run record:parity`
+from this directory. Review the fixture diff before accepting a new baseline.
 
 ## Build and rendering
 
@@ -65,6 +67,7 @@ parser. `code.gleam` maps Smalto tokens to Lustre elements because
 | --- | --- |
 | `content/guide/index.djot` | Guide landing-page prose and section markers |
 | `content/guide/*.djot` | Guide prose and TOML frontmatter |
+| `content/foundations/index.djot` | Foundations landing-page prose and section markers |
 | `src/watershed_site/route.gleam` | Explicit route, source path, and client entry registry |
 | `src/watershed_site/content.gleam` | Metadata decoding and Djot AST validation |
 | `src/watershed_site/page.gleam` | Djot renderer and embedded demo |
@@ -72,6 +75,7 @@ parser. `code.gleam` maps Smalto tokens to Lustre elements because
 | `src/watershed_site/view/field_notes.gleam` | Inline references and complete field-note sections |
 | `src/watershed_site/view/` | Complete document, sheet, guide, and footer markup |
 | `src/watershed_site/view/guide_index.gleam` | Guide landing sections, document diagram, and shared step ledger |
+| `src/watershed_site/view/concept_index.gleam` | Foundations landing sections and shared concept ledger |
 | `src/watershed_site/guide_race/` | Shared static/browser view and real sluice runtime |
 | `src/watershed_site/client/guide_race.gleam` | Page-scoped browser entry |
 | `src/watershed_site/client/guide_race_ffi.mjs` | DOM geometry and Web Animations only |

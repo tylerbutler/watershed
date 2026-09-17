@@ -62,7 +62,11 @@ pub fn build_routes(
     }),
   )
   use motion <- result.try(
-    case list.any(routes, fn(route) { route.layout == route.GuideIndex }) {
+    case
+      list.any(routes, fn(route) {
+        route.layout == route.GuideIndex || route.layout == route.ConceptIndex
+      })
+    {
       False -> Ok(option.None)
       True -> {
         let path = "../website/src/scripts/motion.js"
@@ -89,7 +93,9 @@ pub fn build_routes(
       let config = case motion {
         option.None -> config
         option.Some(source) ->
-          ssg.add_static_asset(config, "/scripts/guide-index.js", source)
+          config
+          |> ssg.add_static_asset("/scripts/guide-index.js", source)
+          |> ssg.add_static_asset("/scripts/concept-index.js", source)
       }
       list.fold(rest, config, fn(config, entry) {
         ssg.add_static_route(config, entry.0, entry.1)

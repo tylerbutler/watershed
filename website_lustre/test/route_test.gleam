@@ -97,6 +97,17 @@ pub fn testing_route_is_registered_as_a_static_guide_test() {
   |> should.equal(["/styles/site.css"])
 }
 
+pub fn foundations_index_is_registered_as_a_static_page_test() {
+  let assert Ok(foundations) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/foundations" })
+  foundations.content_path
+  |> should.equal("content/foundations/index.djot")
+  foundations.client_script |> should.equal(None)
+  route.stylesheets(foundations)
+  |> should.equal(["/styles/site.css", "/styles/concept-index.css"])
+}
+
 pub fn duplicate_paths_report_both_sources_test() {
   let first = route.guide_race()
   let second = route.Route(..first, content_path: "other.djot")

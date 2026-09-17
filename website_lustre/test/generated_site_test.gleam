@@ -20,6 +20,17 @@ pub fn generated_route_and_assets_test() {
   let assert Ok(motion) = simplifile.read("../website/src/scripts/motion.js")
   simplifile.read(output <> "/scripts/guide-index.js")
   |> should.equal(Ok(motion <> "\ninitReveals();\n"))
+  simplifile.read(output <> "/scripts/concept-index.js")
+  |> should.equal(Ok(motion <> "\ninitReveals();\n"))
+  let assert Ok(foundations_html) =
+    simplifile.read(output <> "/foundations/index.html")
+  let foundations_tree = html_parser.as_tree(foundations_html)
+  find(foundations_tree, "href", "/foundations/schema")
+  |> list.is_empty
+  |> should.be_false()
+  find(foundations_tree, "src", "/scripts/concept-index.js")
+  |> list.length
+  |> should.equal(1)
   let assert Ok(html) = simplifile.read(output <> "/guide/race/index.html")
   let tree = html_parser.as_tree(html)
   find(tree, "id", "guide-race-demo") |> list.length |> should.equal(1)
@@ -188,6 +199,7 @@ pub fn generated_route_and_assets_test() {
     "styles/site.css",
     "styles/guide-race.css",
     "styles/guide-index.css",
+    "styles/concept-index.css",
     "fonts/archivo/wdth.css",
     "favicon.svg",
     "og.png",

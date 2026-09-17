@@ -15,6 +15,7 @@ import watershed_site/guide_race/view as race_view
 import watershed_site/practice
 import watershed_site/route
 import watershed_site/snippet
+import watershed_site/view/concept_index
 import watershed_site/view/document
 import watershed_site/view/field_notes
 import watershed_site/view/guide as guide_view
@@ -64,7 +65,12 @@ pub fn render(
           Ok(name) ->
             case guide_index.component(name) {
               Ok(component) -> guide_index.component_view(component, children)
-              Error(Nil) -> default.div(attributes, children)
+              Error(Nil) ->
+                case concept_index.component(name) {
+                  Ok(component) ->
+                    concept_index.component_view(component, children)
+                  Error(Nil) -> default.div(attributes, children)
+                }
             }
           Error(Nil) -> default.div(attributes, children)
         }
@@ -74,6 +80,8 @@ pub fn render(
           Ok("cta-row" as class) | Ok("gi-companion-links" as class) ->
             html.div([attribute.class(class)], children)
           Ok("annot" as class) -> html.span([attribute.class(class)], children)
+          Ok("fh-scope annot" as class) ->
+            html.span([attribute.class(class)], children)
           _ -> default.paragraph(attributes, children)
         }
       },
@@ -110,6 +118,13 @@ pub fn render(
         source.metadata,
         "watershed — build guide",
         guide_index.view(body),
+      ))
+    content.ConceptIndex ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — foundations",
+        concept_index.view(body),
       ))
   }
 }
@@ -158,12 +173,15 @@ fn render_document(
         False ->
           list.append(scripts, [document.Module("/scripts/field-notes.js")])
       }
-    content.GuideIndex -> scripts
+    content.GuideIndex | content.ConceptIndex -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
     route.GuideIndex ->
       list.append(scripts, [document.Module("/scripts/guide-index.js")])
+    route.ConceptIndex ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
   }
   document.view(document.Document(
     title:,

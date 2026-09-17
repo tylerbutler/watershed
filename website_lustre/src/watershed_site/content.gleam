@@ -12,11 +12,13 @@ import watershed_site/guide
 import watershed_site/practice
 import watershed_site/route
 import watershed_site/snippet
+import watershed_site/view/concept_index
 import watershed_site/view/guide_index
 
 pub type PageKind {
   GuideStep(guide.Slug)
   GuideIndex
+  ConceptIndex
 }
 
 pub type Metadata {
@@ -117,6 +119,20 @@ fn decode_metadata(
           Error(error.InvalidFrontmatter(
             path,
             "layout: The guide index path must be /guide.",
+          ))
+      }
+    "concept-index", route.ConceptIndex ->
+      case dict.has_key(fields, "guide_step"), route.path {
+        True, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "guide_step: A concept index cannot name a guide step.",
+          ))
+        False, "/foundations" -> Ok(ConceptIndex)
+        False, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The foundations index path must be /foundations.",
           ))
       }
     _, _ ->
@@ -255,9 +271,11 @@ fn validate_blocks(
                 }
             }
           Ok(name) ->
-            guide_index.component(name)
-            |> result.replace(Nil)
-            |> result.replace_error(error.UnknownComponent(path, name))
+            case guide_index.component(name), concept_index.component(name) {
+              Ok(_), _ | _, Ok(_) -> Ok(Nil)
+              Error(Nil), Error(Nil) ->
+                Error(error.UnknownComponent(path, name))
+            }
         })
         validate_blocks(children, path)
       }

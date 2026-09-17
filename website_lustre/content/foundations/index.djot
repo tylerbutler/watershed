@@ -1,0 +1,35 @@
+---
+description = "The core model behind every watershed document: typed schemas, channel topology, and startup."
+layout = "concept-index"
+---
+
+{data-component="concept-intro"}
+::::
+{.eyebrow .annot}
+[← watershed](/) · Foundations
+
+# Before you\
+_build anything._
+
+{.lede}
+The [build guide](/guide) walks a working board through every step. These sheets cover the model underneath it: how you declare and lay out a document, and how you bring its channels online.
+
+{.lede}
+Building a screen users can assemble for themselves? That optional layer now has its own section: [the component model](/component-model).
+::::
+
+{data-component="concept-content"}
+:::::
+{data-heading-id="fh-ledger-title"}
+## Foundations
+
+{.fh-scope .annot}
+Core · every watershed app
+
+3 sheets. Read in order — each one leans on the last.
+
+{data-component="concept-aside"}
+:::
+Once a channel exists, [the field atlas](/structures) covers what it does when two clients touch it at once, and [runtime](/runtime) covers what happens while it's live: optimistic edits, reconnect, and the rest. Ready to see it running? Start [the survey procedure](/guide) at step one.
+:::
+:::::
