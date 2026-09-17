@@ -158,6 +158,7 @@ pub fn all() -> List(Route) {
     component_model("workspaces"),
     runtime_index(),
     runtime("optimistic"),
+    runtime("reconnect"),
     Route(
       path: "/guide",
       layout: GuideIndex,

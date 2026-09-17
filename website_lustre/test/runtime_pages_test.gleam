@@ -56,3 +56,32 @@ pub fn optimistic_renders_the_runtime_sheet_and_snippet_test() {
     let assert False = string.contains(html, absent) as absent
   })
 }
+
+pub fn reconnect_renders_the_runtime_sheet_without_a_client_test() {
+  let assert Ok(doc) = runtime.get("reconnect")
+  let assert #(Ok(previous), Ok(next)) = runtime.neighbours("reconnect")
+  previous.slug |> should.equal("optimistic")
+  next.slug |> should.equal("redelivery")
+
+  let page_route = route.runtime("reconnect")
+  let assert Ok(source) = content.load(page_route)
+  source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
+  let assert Ok(manifest) =
+    snippet.load("../website/src/generated/snippets.json")
+  let assert Ok(document) = page.render(source, page_route, manifest, "test")
+  let html = element.to_document_string(document)
+  [
+    "<title>watershed — reconnect &amp; resync</title>",
+    "A dropped link is not a lost document",
+    "href=\"/runtime/optimistic\"",
+    "href=\"/runtime/redelivery\"",
+    "aria-label=\"Runtime sheets\"",
+  ]
+  |> list.each(fn(expected) {
+    let assert True = string.contains(html, expected) as expected
+  })
+  ["/guide_race.js", "astro-island", "/_astro/", "@vite", "data-component"]
+  |> list.each(fn(absent) {
+    let assert False = string.contains(html, absent) as absent
+  })
+}

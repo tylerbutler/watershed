@@ -7,7 +7,7 @@ import { withBrowserSite } from "./site.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const record = process.argv.includes("--record-baseline");
 const site = resolve(root, record ? "../website/dist" : "dist");
-const routes = ["optimistic"];
+const routes = ["optimistic", "reconnect"];
 
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -15,7 +15,9 @@ async function snapshot(page) {
     const links = (selector) => [...document.querySelectorAll(`${selector} a`)]
       .map((node) => [text(node), node.getAttribute("href")]);
     const style = (selector, properties) => {
-      const computed = getComputedStyle(document.querySelector(selector));
+      const node = document.querySelector(selector);
+      if (!node) return null;
+      const computed = getComputedStyle(node);
       return Object.fromEntries(properties.map((key) => [key, computed.getPropertyValue(key)]));
     };
     return {

@@ -40,6 +40,12 @@ pub fn generated_route_and_assets_test() {
     "tools/website-samples/src/website_samples/optimistic_sample.gleam",
   )
   |> should.be_true()
+  let assert Ok(reconnect_html) =
+    simplifile.read(output <> "/runtime/reconnect/index.html")
+  string.contains(reconnect_html, "href=\"/runtime/optimistic\"")
+  |> should.be_true()
+  string.contains(reconnect_html, "href=\"/runtime/redelivery\"")
+  |> should.be_true()
   let assert Ok(component_model_html) =
     simplifile.read(output <> "/component-model/index.html")
   let component_model_tree = html_parser.as_tree(component_model_html)
