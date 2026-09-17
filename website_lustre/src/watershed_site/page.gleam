@@ -80,7 +80,12 @@ pub fn render(
                     case runtime_index.component(name) {
                       Ok(component) ->
                         runtime_index.component_view(component, children)
-                      Error(Nil) -> default.div(attributes, children)
+                      Error(Nil) ->
+                        case runtime_sheet.component(name) {
+                          Ok(component) ->
+                            runtime_sheet.component_view(component)
+                          Error(Nil) -> default.div(attributes, children)
+                        }
                     }
                 }
             }

@@ -17,6 +17,7 @@ import watershed_site/snippet
 import watershed_site/view/concept_index
 import watershed_site/view/guide_index
 import watershed_site/view/runtime_index
+import watershed_site/view/runtime_sheet
 
 pub type PageKind {
   GuideStep(guide.Slug)
@@ -332,10 +333,15 @@ fn validate_blocks(
             case
               guide_index.component(name),
               concept_index.component(name),
-              runtime_index.component(name)
+              runtime_index.component(name),
+              runtime_sheet.component(name)
             {
-              Ok(_), _, _ | _, Ok(_), _ | _, _, Ok(_) -> Ok(Nil)
-              Error(Nil), Error(Nil), Error(Nil) ->
+              Ok(_), _, _, _
+              | _, Ok(_), _, _
+              | _, _, Ok(_), _
+              | _, _, _, Ok(_)
+              -> Ok(Nil)
+              Error(Nil), Error(Nil), Error(Nil), Error(Nil) ->
                 Error(error.UnknownComponent(path, name))
             }
         })

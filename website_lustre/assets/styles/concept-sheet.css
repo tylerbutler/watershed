@@ -179,6 +179,39 @@
   color: var(--muted);
 }
 
+.oplog {
+  margin: var(--space-lg) 0 0;
+  border: 1px solid var(--ink);
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+}
+
+.oplog-line {
+  display: flex;
+  gap: var(--space-md);
+  padding: 0.5rem var(--space-lg);
+}
+
+.oplog-line + .oplog-line {
+  border-top: 1px solid var(--hairline-faint);
+}
+
+.oplog-sn {
+  color: var(--muted);
+  min-width: 3ch;
+}
+
+.oplog-op {
+  color: var(--ink);
+}
+
+.oplog-dupe .oplog-sn,
+.oplog-dupe .oplog-op {
+  color: var(--muted);
+  font-style: italic;
+}
+
 @media (max-width: 30rem) {
   .fd-hero h1 {
     font-size: clamp(1.9rem, 8.5vw, 2.7rem);

@@ -7,7 +7,7 @@ import { withBrowserSite } from "./site.mjs";
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 const record = process.argv.includes("--record-baseline");
 const site = resolve(root, record ? "../website/dist" : "dist");
-const routes = ["optimistic", "reconnect"];
+const routes = ["optimistic", "reconnect", "redelivery"];
 
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -36,6 +36,14 @@ async function snapshot(page) {
       captions: [...document.querySelectorAll("main figcaption")].map(text),
       code: [...document.querySelectorAll("main pre code")]
         .map((node) => node.textContent.replace(/\n$/, "")),
+      ...(document.querySelector(".oplog") ? {
+        oplog: {
+          label: document.querySelector(".oplog").getAttribute("aria-label"),
+          lines: [...document.querySelectorAll(".oplog-line")].map(text),
+          style: style(".oplog", ["border", "background-color", "font-family", "font-size"]),
+          duplicate: style(".oplog-dupe .oplog-op", ["color", "font-style"]),
+        },
+      } : {}),
       fitsViewport: document.documentElement.scrollWidth <= innerWidth,
       styles: {
         hero: style(".r-hero", ["padding", "border-bottom"]),

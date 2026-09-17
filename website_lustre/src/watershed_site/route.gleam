@@ -159,6 +159,7 @@ pub fn all() -> List(Route) {
     runtime_index(),
     runtime("optimistic"),
     runtime("reconnect"),
+    runtime("redelivery"),
     Route(
       path: "/guide",
       layout: GuideIndex,

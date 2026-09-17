@@ -46,6 +46,15 @@ pub fn generated_route_and_assets_test() {
   |> should.be_true()
   string.contains(reconnect_html, "href=\"/runtime/redelivery\"")
   |> should.be_true()
+  let assert Ok(redelivery_html) =
+    simplifile.read(output <> "/runtime/redelivery/index.html")
+  string.contains(
+    redelivery_html,
+    "aria-label=\"Op-log excerpt: a duplicate delta absorbed\"",
+  )
+  |> should.be_true()
+  string.contains(redelivery_html, "href=\"/runtime/presence\"")
+  |> should.be_true()
   let assert Ok(component_model_html) =
     simplifile.read(output <> "/component-model/index.html")
   let component_model_tree = html_parser.as_tree(component_model_html)

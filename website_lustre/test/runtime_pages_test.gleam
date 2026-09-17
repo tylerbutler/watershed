@@ -85,3 +85,34 @@ pub fn reconnect_renders_the_runtime_sheet_without_a_client_test() {
     let assert False = string.contains(html, absent) as absent
   })
 }
+
+pub fn redelivery_renders_the_duplicate_op_log_test() {
+  let assert Ok(doc) = runtime.get("redelivery")
+  let assert #(Ok(previous), Ok(next)) = runtime.neighbours("redelivery")
+  previous.slug |> should.equal("reconnect")
+  next.slug |> should.equal("presence")
+
+  let page_route = route.runtime("redelivery")
+  let assert Ok(source) = content.load(page_route)
+  source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
+  let assert Ok(manifest) =
+    snippet.load("../website/src/generated/snippets.json")
+  let assert Ok(document) = page.render(source, page_route, manifest, "test")
+  let html = element.to_document_string(document)
+  [
+    "<title>watershed — idempotent re-delivery</title>",
+    "At-least-once is the honest assumption",
+    "class=\"oplog\"",
+    "aria-label=\"Op-log excerpt: a duplicate delta absorbed\"",
+    "again · cut −5 yd³ · absorbed",
+    "href=\"/runtime/reconnect\"",
+    "href=\"/runtime/presence\"",
+  ]
+  |> list.each(fn(expected) {
+    let assert True = string.contains(html, expected) as expected
+  })
+  ["astro-island", "/_astro/", "@vite", "data-component"]
+  |> list.each(fn(absent) {
+    let assert False = string.contains(html, absent) as absent
+  })
+}

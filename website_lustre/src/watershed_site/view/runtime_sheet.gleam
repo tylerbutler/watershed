@@ -7,6 +7,47 @@ import watershed_site/view/ecosystem
 import watershed_site/view/related_field_notes
 import watershed_site/view/sheet
 
+pub type Component {
+  OpLog
+}
+
+pub fn component(name: String) -> Result(Component, Nil) {
+  case name {
+    "runtime-oplog" -> Ok(OpLog)
+    _ -> Error(Nil)
+  }
+}
+
+pub fn component_view(component: Component) -> Element(msg) {
+  case component {
+    OpLog ->
+      h.figure(
+        [
+          a.class("oplog"),
+          a.attribute(
+            "aria-label",
+            "Op-log excerpt: a duplicate delta absorbed",
+          ),
+        ],
+        [
+          op_log_line("#03", "cut −5 yd³ → net −5", ""),
+          op_log_line("#03", "again · cut −5 yd³ · absorbed", " oplog-dupe"),
+        ],
+      )
+  }
+}
+
+fn op_log_line(
+  sequence: String,
+  operation: String,
+  class: String,
+) -> Element(msg) {
+  h.div([a.class("oplog-line" <> class)], [
+    h.span([a.class("oplog-sn")], [h.text(sequence)]),
+    h.span([a.class("oplog-op")], [h.text(operation)]),
+  ])
+}
+
 pub fn view(doc: runtime.Doc, body: List(Element(msg))) -> Element(msg) {
   let path = "/runtime/" <> doc.slug
   sheet.view(path <> "/", [

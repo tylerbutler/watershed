@@ -1,0 +1,42 @@
+---
+description = "How watershed survives duplicate delivery: the runtime drops already-seen sequence numbers before any structure is touched, and CRDT merges are idempotent besides, so a re-delivered delta is a non-event at either layer."
+layout = "concept-sheet"
+concept = "redelivery"
+---
+
+::: g-block
+## At-least-once is the honest assumption
+
+Real networks do not deliver exactly once. An ack gets lost and the client resends; a [reconnecting](/runtime/reconnect) peer replays a window it already saw; a retry races the original. Sooner or later the same update arrives twice, and the system has to make that a non-event.
+
+watershed's first line of defense is the runtime itself. Every sequenced message carries a sequence number, and each client tracks the last one it has applied; anything at or below that mark is dropped before any structure sees it. That check protects every kind, including the op-based [SharedCounter](/structures/counters), whose "add 5" applied twice really would be `+10`. The duplicate never reaches the kernel, so there is nothing to un-count.
+:::
+
+::: g-block
+## Merge, don't apply
+
+watershed's lattice counters go one layer deeper. A [CRDT](/models) is built so its merge is *idempotent*: merging the same value a second time changes nothing. A [PN counter](/structures/counters#pn) does not ship "add 5"; it ships its two grow-only tallies (total fill and total cut) and the receiver merges by taking the pairwise maximum of what it has and what arrived. Take the max of a number with itself and you get the same number. The duplicate lands, the merge runs, and the state does not move.
+
+That puts the safety in the structure itself rather than one layer up. An op-based counter is safe because the runtime checks sequence numbers before applying; a lattice CRDT would converge even if nothing did. A duplicate that reached the kernel by any path (a summary overlapping a replay window, a sync that never passed through the sequencer) is still a no-op. Same outcome on the sequenced stream; a different layer holding the guarantee.
+:::
+
+::: g-block
+## Watch it absorb, live
+
+The demo makes this witnessable. In PN-counter mode a *Re-deliver last delta* button re-sends the last sequenced delta with _no new sequence number_, and hands it straight to each replica's kernel, deliberately skipping the runtime's sequence-number check so the merge is the only thing standing. It swallows the duplicate anyway: the signed total holds, and the op log records the redelivery as an italic, muted non-event rather than a change:
+:::
+
+{data-component="runtime-oplog"}
+:::
+:::
+
+::: g-note
+*This is the line the runtime never lets an op-based counter see.* Hand the same duplicate to `counter_kernel` directly and it would add again, which is why the sequence-number check in front of it prevents double-counting. The lattice kernels need no such guard: the duplicate reaches the merge and the merge shrugs. Both are safe on the stream; only one is safe without it.
+:::
+
+::: g-out
+{.annot}
+In short
+
+Every structure survives re-delivery on the sequenced stream, because the runtime drops any sequence number it has already seen. CRDTs have a second, deeper guarantee: their merge is idempotent, so a duplicate is a non-event even when it reaches the kernel itself: safety that comes from the data type, not the delivery.
+:::

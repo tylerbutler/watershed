@@ -1,9 +1,9 @@
 # Lustre website migration
 
 This package renders `/foundations/`, `/component-model/`, `/runtime/`, the
-foundations and component-model concept sheets, the Optimistic Edits and
-Reconnect runtime sheets, `/guide/`, and all six guide steps with Lustre SSG.
-The three indexes,
+foundations and component-model concept sheets, the Optimistic Edits,
+Reconnect, and Idempotent Re-delivery runtime sheets, `/guide/`, and all six
+guide steps with Lustre SSG. The three indexes,
 concept sheets, guide index, and five prose-first guide steps are static
 documents; `/guide/race/` runs its two-replica demo as a page-scoped Lustre
 application. The Astro site under
@@ -30,10 +30,10 @@ Open `http://127.0.0.1:4321/foundations/`,
 `http://127.0.0.1:4321/guide/`. The
 preview contains the foundations index and its Schema, Topology, and Lifecycle
 sheets, the component-model index and its Components, Ports, and Workspaces
-sheets, the runtime index and its Optimistic Edits and Reconnect sheets, plus
-the guide index and the Connect, Notes, Race, Votes, Presence, and Testing
-sheets. Fonts, styles, images, and page scripts sit alongside the generated
-documents in `website_lustre/dist/`.
+sheets, the runtime index and its Optimistic Edits, Reconnect, and Idempotent
+Re-delivery sheets, plus the guide index and the Connect, Notes, Race, Votes,
+Presence, and Testing sheets. Fonts, styles, images, and page scripts sit
+alongside the generated documents in `website_lustre/dist/`.
 
 The first build downloads Gleam dependencies and the Bun executable used
 by the official Lustre bundler. You do not need a separate Bun installation.
