@@ -18,6 +18,7 @@ import watershed_site/snippet
 import watershed_site/view/concept_index
 import watershed_site/view/concept_sheet
 import watershed_site/view/document
+import watershed_site/view/examples
 import watershed_site/view/field_notes
 import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
@@ -219,6 +220,13 @@ pub fn render(
         body,
       ))
     }
+    content.Examples ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — browser examples",
+        examples.view(),
+      ))
   }
 }
 
@@ -273,7 +281,8 @@ fn render_document(
     | content.StructureIndex
     | content.StructureSheet(_)
     | content.Models
-    | content.Patterns -> scripts
+    | content.Patterns
+    | content.Examples -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -291,6 +300,7 @@ fn render_document(
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
     route.Patterns -> scripts
+    route.Examples -> scripts
   }
   document.view(document.Document(
     title:,

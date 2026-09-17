@@ -355,6 +355,11 @@ pub fn by_theme(theme: Theme) -> List(Practice) {
   |> list.filter(fn(item) { item.theme == theme })
 }
 
+pub fn by_example(id: String) -> List(Practice) {
+  all()
+  |> list.filter(fn(item) { item.example_id == id })
+}
+
 pub fn related_to(path: String) -> List(Practice) {
   all()
   |> list.filter(fn(item) { list.contains(item.related, path) })

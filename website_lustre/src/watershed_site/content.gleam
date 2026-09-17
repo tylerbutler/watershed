@@ -31,6 +31,7 @@ pub type PageKind {
   StructureSheet(structures.Family)
   Models
   Patterns
+  Examples
 }
 
 pub type Metadata {
@@ -275,6 +276,20 @@ fn decode_metadata(
           Error(error.InvalidFrontmatter(
             path,
             "layout: The patterns page metadata is invalid.",
+          ))
+      }
+    "examples", route.Examples ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/examples" -> Ok(Examples)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The examples page metadata is invalid.",
           ))
       }
     _, _ ->

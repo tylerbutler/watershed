@@ -60,6 +60,20 @@ pub fn generated_route_and_assets_test() {
   |> should.be_true()
   simplifile.read(output <> "/styles/patterns.css")
   |> should.be_ok()
+  let assert Ok(examples_html) =
+    simplifile.read(output <> "/examples/index.html")
+  let examples_tree = html_parser.as_tree(examples_html)
+  find(examples_tree, "class", "e-group")
+  |> list.length
+  |> should.equal(4)
+  find(examples_tree, "class", "e-entry")
+  |> list.length
+  |> should.equal(14)
+  find(examples_tree, "href", "/structures/maps#map")
+  |> list.is_empty
+  |> should.be_false()
+  simplifile.read(output <> "/styles/examples.css")
+  |> should.be_ok()
   let assert Ok(runtime_html) = simplifile.read(output <> "/runtime/index.html")
   let runtime_tree = html_parser.as_tree(runtime_html)
   let assert False =

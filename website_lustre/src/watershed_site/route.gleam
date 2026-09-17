@@ -23,6 +23,7 @@ pub type Layout {
   StructureSheet
   Models
   Patterns
+  Examples
 }
 
 pub type Analytics {
@@ -160,6 +161,16 @@ pub fn patterns() -> Route {
   )
 }
 
+pub fn examples() -> Route {
+  Route(
+    path: "/examples",
+    layout: Examples,
+    content_path: "content/examples.djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -216,6 +227,7 @@ pub fn all() -> List(Route) {
     structure_family("transforms"),
     models(),
     patterns(),
+    examples(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -246,6 +258,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     StructureSheet -> ["/styles/site.css", "/styles/structure-sheet.css"]
     Models -> ["/styles/site.css", "/styles/models.css"]
     Patterns -> ["/styles/site.css", "/styles/patterns.css"]
+    Examples -> ["/styles/site.css", "/styles/examples.css"]
   }
 }
 
