@@ -17,6 +17,7 @@ import watershed_site/route
 import watershed_site/snippet
 import watershed_site/view/concept_index
 import watershed_site/view/concept_sheet
+import watershed_site/view/directory
 import watershed_site/view/document
 import watershed_site/view/examples
 import watershed_site/view/field_notes
@@ -244,6 +245,13 @@ pub fn render(
         "watershed — SharedMap Sudoku demo",
         sudoku.view(),
       ))
+    content.Directory ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — SharedDirectory demo",
+        directory.view(),
+      ))
   }
 }
 
@@ -301,7 +309,8 @@ fn render_document(
     | content.Patterns
     | content.Examples
     | content.SharedTree
-    | content.Sudoku -> scripts
+    | content.Sudoku
+    | content.Directory -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -324,6 +333,9 @@ fn render_document(
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
     route.Sudoku ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
+    route.Directory ->
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
   }

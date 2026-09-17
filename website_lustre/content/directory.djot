@@ -1,0 +1,4 @@
+---
+description = "Three browser clients edit one shared folder tree through watershed's compiled directory_kernel, modeled after Fluid Framework's SharedDirectory design. Recursive key/value storage per folder, optimistic edits, server-sequenced convergence, and concurrent same-name folder creation that merges into one node instead of duplicating."
+layout = "directory"
+---

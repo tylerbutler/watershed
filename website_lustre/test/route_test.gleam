@@ -204,6 +204,17 @@ pub fn sudoku_route_is_registered_with_its_lustre_client_test() {
   |> should.equal(["/styles/site.css", "/styles/sudoku.css"])
 }
 
+pub fn directory_route_is_registered_with_its_lustre_client_test() {
+  let assert Ok(directory) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/directory" })
+  directory.layout |> should.equal(route.Directory)
+  directory.content_path |> should.equal("content/directory.djot")
+  directory.client_script |> should.equal(Some("/directory.js"))
+  route.stylesheets(directory)
+  |> should.equal(["/styles/site.css", "/styles/directory.css"])
+}
+
 pub fn foundations_detail_routes_use_the_shared_concept_sheet_test() {
   [
     #("schema", "content/foundations/schema.djot"),

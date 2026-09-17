@@ -1,0 +1,155 @@
+@import url("/styles/sudoku.css");
+
+h1 {
+  max-width: 16ch;
+}
+
+.lede {
+  max-width: 56ch;
+}
+
+.rig .client[data-client="c"] {
+  width: min(100%, 24rem);
+}
+
+.client {
+  min-height: 12rem;
+}
+
+.tree {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  padding: var(--space-md);
+  color: var(--ink);
+}
+
+.dir-node {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.dir-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.15rem 0.35rem;
+  border-radius: 2px;
+}
+
+.dir-head.pending .dir-name,
+.dir-key.pending .dk-key,
+.dir-key.pending .dk-val {
+  color: var(--overprint-deep);
+}
+
+.dir-name {
+  color: var(--waterline);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.dir-actions {
+  display: inline-flex;
+  gap: 0.15rem;
+  margin-inline-start: auto;
+  opacity: 0.55;
+  transition: opacity var(--dur-feedback) var(--ease-out-quart);
+}
+
+.dir-head:hover .dir-actions,
+.dir-head:focus-within .dir-actions {
+  opacity: 1;
+}
+
+.node-action {
+  padding: 0.05rem 0.4rem;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.2;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.node-action:hover:enabled {
+  background: var(--overprint-faint);
+  border-color: var(--overprint);
+  color: var(--overprint-deep);
+}
+
+.node-action:active:enabled {
+  transform: scale(0.97);
+}
+
+.dir-keys {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 1.1rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.05rem;
+}
+
+.dir-key {
+  display: flex;
+  align-items: baseline;
+  gap: 0.4rem;
+  padding: 0.05rem 0.35rem;
+  border-radius: 2px;
+}
+
+.dk-key {
+  color: var(--muted);
+}
+
+.dk-key::after {
+  content: "=";
+  color: var(--hairline-strong, var(--muted));
+  margin-inline-start: 0.35rem;
+}
+
+.dk-val {
+  color: var(--ink);
+}
+
+.dir-children {
+  padding-inline-start: 1.1rem;
+  border-inline-start: 1px solid var(--hairline);
+  margin-inline-start: 0.35rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+}
+
+.directory-fallback {
+  display: none;
+}
+
+@media (scripting: enabled) {
+  .directory-fallback {
+    display: block;
+    visibility: hidden;
+    animation: directory-fallback-reveal 0s 3s forwards;
+  }
+}
+
+@keyframes directory-fallback-reveal {
+  to {
+    visibility: visible;
+  }
+}
+
+@media (pointer: coarse) {
+  .node-action {
+    min-inline-size: 2.2rem;
+    min-block-size: 2rem;
+  }
+
+  .dir-actions {
+    opacity: 1;
+  }
+}

@@ -112,6 +112,19 @@ pub fn generated_route_and_assets_test() {
   })
   simplifile.read(output <> "/styles/sudoku.css")
   |> should.be_ok()
+  let assert Ok(directory_html) =
+    simplifile.read(output <> "/directory/index.html")
+  let directory_tree = html_parser.as_tree(directory_html)
+  find(directory_tree, "id", "directory-mount")
+  |> list.length
+  |> should.equal(1)
+  find(directory_tree, "src", "/directory.js")
+  |> list.length
+  |> should.equal(1)
+  string.contains(directory_html, "A shared folder tree, live")
+  |> should.be_true()
+  simplifile.read(output <> "/styles/directory.css")
+  |> should.be_ok()
   simplifile.read(output <> "/_redirects")
   |> should.equal(Ok(
     "/foundations/components /component-model/components 301\n"
@@ -396,7 +409,9 @@ pub fn generated_route_and_assets_test() {
     "styles/structure-sheet.css",
     "styles/models.css",
     "styles/sudoku.css",
+    "styles/directory.css",
     "sudoku.js",
+    "directory.js",
     "fonts/archivo/wdth.css",
     "favicon.svg",
     "og.png",

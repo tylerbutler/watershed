@@ -26,6 +26,7 @@ pub type Layout {
   Examples
   SharedTree
   Sudoku
+  Directory
 }
 
 pub type Analytics {
@@ -193,6 +194,16 @@ pub fn sudoku() -> Route {
   )
 }
 
+pub fn directory() -> Route {
+  Route(
+    path: "/directory",
+    layout: Directory,
+    content_path: "content/directory.djot",
+    client_script: Some("/directory.js"),
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -252,6 +263,7 @@ pub fn all() -> List(Route) {
     examples(),
     sharedtree(),
     sudoku(),
+    directory(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -285,6 +297,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     Examples -> ["/styles/site.css", "/styles/examples.css"]
     SharedTree -> ["/styles/site.css", "/styles/sharedtree.css"]
     Sudoku -> ["/styles/site.css", "/styles/sudoku.css"]
+    Directory -> ["/styles/site.css", "/styles/directory.css"]
   }
 }
 

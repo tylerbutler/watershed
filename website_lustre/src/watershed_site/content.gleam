@@ -34,6 +34,7 @@ pub type PageKind {
   Examples
   SharedTree
   Sudoku
+  Directory
 }
 
 pub type Metadata {
@@ -320,6 +321,20 @@ fn decode_metadata(
           Error(error.InvalidFrontmatter(
             path,
             "layout: The Sudoku page metadata is invalid.",
+          ))
+      }
+    "directory", route.Directory ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/directory" -> Ok(Directory)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The directory page metadata is invalid.",
           ))
       }
     _, _ ->
