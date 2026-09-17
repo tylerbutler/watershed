@@ -16,6 +16,7 @@ import watershed_site/practice
 import watershed_site/route
 import watershed_site/snippet
 import watershed_site/view/concept_index
+import watershed_site/view/concept_sheet
 import watershed_site/view/document
 import watershed_site/view/field_notes
 import watershed_site/view/guide as guide_view
@@ -126,6 +127,13 @@ pub fn render(
         "watershed — foundations",
         concept_index.view(body),
       ))
+    content.ConceptSheet(doc) ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        concept_sheet.title(doc),
+        concept_sheet.view(doc, body),
+      ))
   }
 }
 
@@ -173,7 +181,8 @@ fn render_document(
         False ->
           list.append(scripts, [document.Module("/scripts/field-notes.js")])
       }
-    content.GuideIndex | content.ConceptIndex -> scripts
+    content.GuideIndex | content.ConceptIndex | content.ConceptSheet(_) ->
+      scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -182,6 +191,7 @@ fn render_document(
     route.ConceptIndex ->
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
+    route.ConceptSheet -> scripts
   }
   document.view(document.Document(
     title:,

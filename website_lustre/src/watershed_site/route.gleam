@@ -18,6 +18,7 @@ pub type Layout {
   Guide
   GuideIndex
   ConceptIndex
+  ConceptSheet
 }
 
 pub type Analytics {
@@ -95,9 +96,22 @@ pub fn foundations_index() -> Route {
   )
 }
 
+pub fn foundation(slug: String) -> Route {
+  Route(
+    path: "/foundations/" <> slug,
+    layout: ConceptSheet,
+    content_path: "content/foundations/" <> slug <> ".djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn all() -> List(Route) {
   [
     foundations_index(),
+    foundation("schema"),
+    foundation("topology"),
+    foundation("lifecycle"),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -123,6 +137,7 @@ pub fn stylesheets(route: Route) -> List(String) {
       }
     GuideIndex -> ["/styles/site.css", "/styles/guide-index.css"]
     ConceptIndex -> ["/styles/site.css", "/styles/concept-index.css"]
+    ConceptSheet -> ["/styles/site.css", "/styles/concept-sheet.css"]
   }
 }
 

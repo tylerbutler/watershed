@@ -336,7 +336,7 @@
         "body": ""
       }
     ],
-    "fitsViewport": false,
+    "fitsViewport": true,
     "styles": {
       "hero": {
         "padding": "48px 20px 32px",

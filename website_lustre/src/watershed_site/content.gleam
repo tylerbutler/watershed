@@ -8,6 +8,7 @@ import lustre/ssg/djot
 import simplifile
 import tom
 import watershed_site/error.{type BuildError}
+import watershed_site/foundations
 import watershed_site/guide
 import watershed_site/practice
 import watershed_site/route
@@ -19,6 +20,7 @@ pub type PageKind {
   GuideStep(guide.Slug)
   GuideIndex
   ConceptIndex
+  ConceptSheet(foundations.Doc)
 }
 
 pub type Metadata {
@@ -93,7 +95,10 @@ fn decode_metadata(
     list.try_each(dict.keys(fields), fn(name) {
       case
         list.contains(
-          ["description", "layout", "guide_step", "og_title", "og_description"],
+          [
+            "description", "layout", "guide_step", "concept", "og_title",
+            "og_description",
+          ],
           name,
         )
       {
@@ -135,6 +140,32 @@ fn decode_metadata(
             "layout: The foundations index path must be /foundations.",
           ))
       }
+    "concept-sheet", route.ConceptSheet -> {
+      use _ <- result.try(case dict.has_key(fields, "guide_step") {
+        True ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "guide_step: A concept sheet cannot name a guide step.",
+          ))
+        False -> Ok(Nil)
+      })
+      use slug <- result.try(field(fields, "concept", path))
+      use doc <- result.try(
+        foundations.get(slug)
+        |> result.replace_error(error.InvalidFrontmatter(
+          path,
+          "concept: Unknown foundation: " <> slug,
+        )),
+      )
+      case route.path == "/foundations/" <> slug {
+        True -> Ok(ConceptSheet(doc))
+        False ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "concept: The path does not match " <> route.path,
+          ))
+      }
+    }
     _, _ ->
       Error(error.InvalidFrontmatter(
         path,

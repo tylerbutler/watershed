@@ -276,8 +276,10 @@ samp {
   display: inline-flex;
   align-items: center;
   gap: 0.5rem;
+  max-width: 100%;
   margin: var(--space-lg) 0 calc(-1 * var(--space-xs));
   padding: 0.28rem 0.6rem;
+  overflow-wrap: anywhere;
   border: 1px solid var(--hairline);
   background: var(--surface);
   font-family: var(--font-mono);

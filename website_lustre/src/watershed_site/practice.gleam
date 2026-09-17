@@ -324,6 +324,11 @@ pub fn all() -> List(Practice) {
   ]
 }
 
+pub fn related_to(path: String) -> List(Practice) {
+  all()
+  |> list.filter(fn(item) { list.contains(item.related, path) })
+}
+
 pub fn get(id: String) -> Result(Practice, Nil) {
   all()
   |> list.find(fn(item) { item.id == id })

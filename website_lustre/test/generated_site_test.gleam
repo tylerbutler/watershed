@@ -25,12 +25,38 @@ pub fn generated_route_and_assets_test() {
   let assert Ok(foundations_html) =
     simplifile.read(output <> "/foundations/index.html")
   let foundations_tree = html_parser.as_tree(foundations_html)
-  find(foundations_tree, "href", "/foundations/schema")
-  |> list.is_empty
-  |> should.be_false()
+  let assert False =
+    find(foundations_tree, "href", "/foundations/schema")
+    |> list.is_empty
+    as "foundations schema link"
   find(foundations_tree, "src", "/scripts/concept-index.js")
   |> list.length
   |> should.equal(1)
+  let assert Ok(schema_html) =
+    simplifile.read(output <> "/foundations/schema/index.html")
+  let schema_tree = html_parser.as_tree(schema_html)
+  let assert False =
+    find(schema_tree, "href", "/foundations/topology")
+    |> list.is_empty
+    as "schema next link"
+  let assert False =
+    find(schema_tree, "href", "/guide/notes#stamp-schema")
+    |> list.is_empty
+    as "schema related note link"
+  let assert Ok(topology_html) =
+    simplifile.read(output <> "/foundations/topology/index.html")
+  string.contains(
+    topology_html,
+    "examples/scoreboard_cli/src/scoreboard_cli.gleam (diagram)",
+  )
+  |> should.be_true()
+  let assert Ok(lifecycle_html) =
+    simplifile.read(output <> "/foundations/lifecycle/index.html")
+  string.contains(
+    lifecycle_html,
+    "class=\"fd-pager-cell fd-pager-next\" href=\"/guide\"",
+  )
+  |> should.be_true()
   let assert Ok(html) = simplifile.read(output <> "/guide/race/index.html")
   let tree = html_parser.as_tree(html)
   find(tree, "id", "guide-race-demo") |> list.length |> should.equal(1)
@@ -200,6 +226,7 @@ pub fn generated_route_and_assets_test() {
     "styles/guide-race.css",
     "styles/guide-index.css",
     "styles/concept-index.css",
+    "styles/concept-sheet.css",
     "fonts/archivo/wdth.css",
     "favicon.svg",
     "og.png",

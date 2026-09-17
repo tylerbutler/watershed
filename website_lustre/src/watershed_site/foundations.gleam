@@ -1,3 +1,5 @@
+import gleam/list
+
 pub type Doc {
   Doc(slug: String, title: String, gloss: String, concept: String)
 }
@@ -23,4 +25,18 @@ pub fn all() -> List(Doc) {
       "got_document · connected · ensure_* · subscribe",
     ),
   ]
+}
+
+pub fn get(slug: String) -> Result(Doc, Nil) {
+  list.find(all(), fn(item) { item.slug == slug })
+}
+
+pub fn neighbours(slug: String) -> #(Result(Doc, Nil), Result(Doc, Nil)) {
+  let assert [schema, topology, lifecycle] = all()
+  case slug {
+    "schema" -> #(Error(Nil), Ok(topology))
+    "topology" -> #(Ok(schema), Ok(lifecycle))
+    "lifecycle" -> #(Ok(topology), Error(Nil))
+    _ -> #(Error(Nil), Error(Nil))
+  }
 }

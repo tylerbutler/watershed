@@ -108,6 +108,24 @@ pub fn foundations_index_is_registered_as_a_static_page_test() {
   |> should.equal(["/styles/site.css", "/styles/concept-index.css"])
 }
 
+pub fn foundations_detail_routes_use_the_shared_concept_sheet_test() {
+  [
+    #("schema", "content/foundations/schema.djot"),
+    #("topology", "content/foundations/topology.djot"),
+    #("lifecycle", "content/foundations/lifecycle.djot"),
+  ]
+  |> list.each(fn(expected) {
+    let assert Ok(item) =
+      route.all()
+      |> list.find(fn(item) { item.path == "/foundations/" <> expected.0 })
+    item.layout |> should.equal(route.ConceptSheet)
+    item.content_path |> should.equal(expected.1)
+    item.client_script |> should.equal(None)
+    route.stylesheets(item)
+    |> should.equal(["/styles/site.css", "/styles/concept-sheet.css"])
+  })
+}
+
 pub fn duplicate_paths_report_both_sources_test() {
   let first = route.guide_race()
   let second = route.Route(..first, content_path: "other.djot")

@@ -98,6 +98,37 @@ pub fn invalid_metadata_has_file_and_field_test() {
     parse("description = [")
 }
 
+pub fn concept_sheet_metadata_matches_its_route_test() {
+  let page =
+    "---\ndescription = \"Schema.\"\nlayout = \"concept-sheet\"\nconcept = \"schema\"\n---\n\nA page."
+  content.parse(page, "schema.djot", route.foundation("schema"))
+  |> should.be_ok()
+  [
+    #(
+      string.replace(page, "concept = \"schema\"", "concept = \"unknown\""),
+      "concept",
+    ),
+    #(
+      string.replace(page, "concept = \"schema\"", "concept = \"topology\""),
+      "concept",
+    ),
+    #(string.replace(page, "concept-sheet", "guide"), "layout"),
+    #(
+      string.replace(
+        page,
+        "concept = \"schema\"",
+        "concept = \"schema\"\nguide_step = \"race\"",
+      ),
+      "guide_step",
+    ),
+  ]
+  |> list.each(fn(pair) {
+    let assert Error(error.InvalidFrontmatter("schema.djot", reason)) =
+      content.parse(pair.0, "schema.djot", route.foundation("schema"))
+    string.contains(reason, pair.1) |> should.be_true()
+  })
+}
+
 pub fn raw_html_and_unknown_components_are_rejected_test() {
   content.load(
     route.Route(

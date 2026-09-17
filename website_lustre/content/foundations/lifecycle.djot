@@ -1,0 +1,100 @@
+---
+description = "What happens between calling connect and having a document worth rendering: got_document arrives with a handle before the catch-up finishes, connected arrives once history has replayed, ensure_* idempotently creates or adopts every channel a schema needs, and a client only assembles its first render once every channel has reported back."
+layout = "concept-sheet"
+concept = "lifecycle"
+---
+
+::: g-block
+## Two callbacks, two different guarantees
+
+Connecting fires two separate messages, and conflating them is the most common first bug. `got_document` runs the instant you have a `Document` value to hold onto — before the server has caught you up on anything that happened before you joined. `connected` runs later, once the handshake and the full history replay are done and your local state genuinely matches everyone else's.
+
+{data-snippet="foundations-lifecycle-connect"}
+```gleam
+generated
+```
+
+You can start a root subscription the moment `got_document` fires — there's nothing to lose by watching for changes early. Creating a *new* channel is different, and the runtime enforces it rather than leaving it to convention: call `create_map`, or a channel-creating `ensure_*` like `ensure_map` or `ensure_or_map`, before `connected` reports success, and it returns an `Error` instead of a handle.
+
+`ensure_field` sits outside that gate, and never returns an `Error`, but a write it makes before `connected` doesn't survive either: the runtime drops an edit made before the connection is ready instead of queuing it. Batch it with the channel-creating calls. Wait for `connected` before running any bootstrap call, including `ensure_field`. That's a separate concern from two clients both creating a channel *after* the connection is ready — the next section covers that race, which `ensure_*` resolves on its own.
+:::
+
+::: g-block
+## `connected` always follows `got_document`
+
+The order here is fixed. `connect` hands back a `Document` value the instant you call it, and `got_document` fires on the next tick. `connected` only fires once the handshake and the history replay round-trip to the server and back, so it always lands after `got_document`, never before it.
+
+That fixed order doesn't let the model collapse into one message, though: the two callbacks still arrive on two separate ticks, and bootstrap needs what both of them confirm — a document to hold onto, and a caught-up connection to create channels against — before it can run. The tutorial app tracks both fields on the model and starts bootstrap once the second one lands, which reads the same whichever order you reason about it in.
+
+{data-snippet="foundations-lifecycle-readiness"}
+```gleam
+generated
+```
+:::
+
+::: g-block
+## `ensure_*` doesn't care who gets there first
+
+A fresh document has no channels in it yet, and every client that opens it runs the same bootstrap code — there's no leader, no one client responsible for creating things first. The channel-shaped members of the `ensure_*` family (`ensure_map`, `ensure_or_map`, and the rest) all follow one rule: if the field already holds a handle, adopt it; if it's empty, create a candidate, wait for your own write to sync, then re-read the field and adopt whatever handle is sitting there. `ensure_*` also keeps retrying that read for about five seconds while the handle it finds is still mid-attach, and gives up with an `Error` if nothing has shown up by then: the same `Error(reason)` arm that a failed creation reports. What resolves inside that window isn't final, either: a concurrent client's write can still land after yours and replace the field a moment later. `ensure_field` is simpler, because a plain field isn't a channel: it writes a default only when the key is absent, and last-writer-wins on that key settles any race without a candidate or a wait.
+
+{data-snippet="foundations-lifecycle-ensure-channel"}
+```gleam
+generated
+```
+
+:::
+
+::: g-note
+*Two clients racing to create the same channel both create one, but only one stays referenced — eventually.* If your board opens with nobody's notes list created yet, and two browser tabs load it at the same moment, both seed a candidate. Waiting for sync only confirms that *your own* candidate's write has been acknowledged (not that the other client's has arrived yet), so the handle you resolve right after your own sync can still be swapped out from under you a moment later, once the other client's write catches up. `ensure_*` doesn't referee that race: it has no way to know a second client is bootstrapping the same field, and it doesn't promise the handle it just handed you is the one that survives. What's guaranteed is the field itself: last-writer-wins on that key means every client converges on the same one handle eventually, even if nobody observes it on the same tick. The candidate that loses stays attached to the document, just unreferenced; nothing errors.
+
+A seeding call can spend about five seconds waiting for its candidate write to sync, then about five more resolving the handle that won the field. If the sync wait runs out, it proceeds to resolution; it reports an `Error` only if the handle still hasn't resolved when the second wait ends. That path can take up to about ten seconds in total. If your app needs the channel it's holding to track the field through a concurrent bootstrap, subscribe to the root and resolve again when the field changes: `ensure_*` gets you an attached channel, not a lock on being last.
+:::
+
+::: g-block
+## Bootstrap is just another effect
+
+One batch of effects fires once `got_document` and `connected` have both arrived: an `ensure_field` for a default value, an `ensure_or_map` for each nested channel the schema needs, and a subscription on the root.
+
+{data-snippet="foundations-lifecycle-bootstrap"}
+```gleam
+generated
+```
+:::
+
+::: g-block
+## Each `ensure_*` call reports back on its own
+
+A board with two nested channels gets two separate results, on two separate messages, and they essentially never arrive in the same tick. Render as soon as the first one shows up and you'll draw a board with half its state missing. So hold each result in the model as it comes in, and only assemble something worth rendering once every channel the schema needs is in hand.
+
+{data-snippet="foundations-lifecycle-ensured-arms"}
+```gleam
+generated
+```
+
+
+{data-snippet="foundations-lifecycle-assemble"}
+```gleam
+generated
+```
+:::
+
+::: g-block
+## A subscription remembers nothing from before it started
+
+Notice `assemble` does two separate things: it takes an explicit snapshot of the current state, and it subscribes to future changes on each channel. Neither substitutes for the other, and the order between the two calls doesn't matter — subscribing doesn't consume history, and reading doesn't consume the future. What matters is that you do both. A subscription only reports changes from the moment you register it forward; it never replays what a channel already held before you subscribed. Skip the snapshot and keep only the subscription, and your board boots up empty and stays empty until someone happens to make an edit while you're watching. Skip the subscription and keep only the snapshot, and your board renders once and never updates again.
+
+From here, events arrive the same way for the rest of the document's life: a local edit and a remote edit both land as the same event type, and both re-read through the same one render path. There's no separate "this was my own write" branch to maintain, at startup or afterward.
+:::
+
+::: g-block
+### Reconnecting later
+
+Everything above describes the first connection. A client that drops and rejoins later goes through a related but distinct path — pending edits get resubmitted, and a fresh bootstrap can rehydrate from a saved summary instead of replaying every event from the start. [Runtime · reconnect](/runtime/reconnect) covers that path in full.
+:::
+
+::: g-out
+{.annot}
+In short
+
+`got_document` gives you a handle; `connected` confirms you're caught up, always after. Every client runs the same idempotent `ensure_*` bootstrap, with no leader to coordinate it, and the field it writes to converges to one handle even when two clients race. Take an explicit snapshot and subscribe for what comes next (order between the two doesn't matter, having both does), and hold each channel's result until every one your schema needs has arrived before you render anything. Next: [how a host describes reusable component kinds without giving up their typed configuration](/component-model/components).
+:::
