@@ -119,6 +119,18 @@ pub fn component_model_index_uses_the_shared_concept_index_test() {
   |> should.equal(["/styles/site.css", "/styles/concept-index.css"])
 }
 
+pub fn structures_index_is_registered_as_the_field_atlas_test() {
+  let assert Ok(structures) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/structures" })
+  structures.layout |> should.equal(route.StructureIndex)
+  structures.content_path
+  |> should.equal("content/structures/index.djot")
+  structures.client_script |> should.equal(None)
+  route.stylesheets(structures)
+  |> should.equal(["/styles/site.css", "/styles/structures-index.css"])
+}
+
 pub fn foundations_detail_routes_use_the_shared_concept_sheet_test() {
   [
     #("schema", "content/foundations/schema.djot"),

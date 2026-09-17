@@ -19,6 +19,7 @@ pub type Layout {
   GuideIndex
   ConceptIndex
   ConceptSheet
+  StructureIndex
 }
 
 pub type Analytics {
@@ -116,6 +117,16 @@ pub fn runtime_index() -> Route {
   )
 }
 
+pub fn structures_index() -> Route {
+  Route(
+    path: "/structures",
+    layout: StructureIndex,
+    content_path: "content/structures/index.djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -162,6 +173,7 @@ pub fn all() -> List(Route) {
     runtime("redelivery"),
     runtime("presence"),
     runtime("p2p"),
+    structures_index(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -188,6 +200,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     GuideIndex -> ["/styles/site.css", "/styles/guide-index.css"]
     ConceptIndex -> ["/styles/site.css", "/styles/concept-index.css"]
     ConceptSheet -> ["/styles/site.css", "/styles/concept-sheet.css"]
+    StructureIndex -> ["/styles/site.css", "/styles/structures-index.css"]
   }
 }
 

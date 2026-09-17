@@ -18,6 +18,7 @@ import watershed_site/view/concept_index
 import watershed_site/view/guide_index
 import watershed_site/view/runtime_index
 import watershed_site/view/runtime_sheet
+import watershed_site/view/structures_index
 
 pub type PageKind {
   GuideStep(guide.Slug)
@@ -25,6 +26,7 @@ pub type PageKind {
   ConceptIndex
   ConceptSheet(foundations.Doc)
   RuntimeSheet(runtime.Doc)
+  StructureIndex
 }
 
 pub type Metadata {
@@ -194,6 +196,29 @@ fn decode_metadata(
         }
       }
     }
+    "structure-index", route.StructureIndex ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        route.path
+      {
+        False, False, "/structures" -> Ok(StructureIndex)
+        True, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "guide_step: The field atlas cannot name a guide step.",
+          ))
+        _, True, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "concept: The field atlas cannot name a concept.",
+          ))
+        _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The field atlas path must be /structures.",
+          ))
+      }
     _, _ ->
       Error(error.InvalidFrontmatter(
         path,
@@ -334,14 +359,16 @@ fn validate_blocks(
               guide_index.component(name),
               concept_index.component(name),
               runtime_index.component(name),
-              runtime_sheet.component(name)
+              runtime_sheet.component(name),
+              structures_index.component(name)
             {
-              Ok(_), _, _, _
-              | _, Ok(_), _, _
-              | _, _, Ok(_), _
-              | _, _, _, Ok(_)
+              Ok(_), _, _, _, _
+              | _, Ok(_), _, _, _
+              | _, _, Ok(_), _, _
+              | _, _, _, Ok(_), _
+              | _, _, _, _, Ok(_)
               -> Ok(Nil)
-              Error(Nil), Error(Nil), Error(Nil), Error(Nil) ->
+              Error(Nil), Error(Nil), Error(Nil), Error(Nil), Error(Nil) ->
                 Error(error.UnknownComponent(path, name))
             }
         })

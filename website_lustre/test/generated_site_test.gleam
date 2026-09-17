@@ -22,6 +22,15 @@ pub fn generated_route_and_assets_test() {
   |> should.equal(Ok(motion <> "\ninitReveals();\n"))
   simplifile.read(output <> "/scripts/concept-index.js")
   |> should.equal(Ok(motion <> "\ninitReveals();\n"))
+  let assert Ok(structures_html) =
+    simplifile.read(output <> "/structures/index.html")
+  let structures_tree = html_parser.as_tree(structures_html)
+  find(structures_tree, "class", "family")
+  |> list.length
+  |> should.equal(7)
+  find(structures_tree, "src", "/scripts/concept-index.js")
+  |> list.length
+  |> should.equal(1)
   let assert Ok(runtime_html) = simplifile.read(output <> "/runtime/index.html")
   let runtime_tree = html_parser.as_tree(runtime_html)
   let assert False =
@@ -296,6 +305,7 @@ pub fn generated_route_and_assets_test() {
     "styles/guide-index.css",
     "styles/concept-index.css",
     "styles/concept-sheet.css",
+    "styles/structures-index.css",
     "fonts/archivo/wdth.css",
     "favicon.svg",
     "og.png",

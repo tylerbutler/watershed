@@ -23,6 +23,7 @@ import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
 import watershed_site/view/runtime_index
 import watershed_site/view/runtime_sheet
+import watershed_site/view/structures_index
 
 pub type GuidePage(msg) {
   GuidePage(
@@ -84,7 +85,15 @@ pub fn render(
                         case runtime_sheet.component(name) {
                           Ok(component) ->
                             runtime_sheet.component_view(component)
-                          Error(Nil) -> default.div(attributes, children)
+                          Error(Nil) ->
+                            case structures_index.component(name) {
+                              Ok(component) ->
+                                structures_index.component_view(
+                                  component,
+                                  children,
+                                )
+                              Error(Nil) -> default.div(attributes, children)
+                            }
                         }
                     }
                 }
@@ -177,6 +186,13 @@ pub fn render(
         runtime_sheet.title(doc),
         runtime_sheet.view(doc, body),
       ))
+    content.StructureIndex ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — data structures",
+        structures_index.view(body),
+      ))
   }
 }
 
@@ -227,7 +243,8 @@ fn render_document(
     content.GuideIndex
     | content.ConceptIndex
     | content.ConceptSheet(_)
-    | content.RuntimeSheet(_) -> scripts
+    | content.RuntimeSheet(_)
+    | content.StructureIndex -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -237,6 +254,9 @@ fn render_document(
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
     route.ConceptSheet -> scripts
+    route.StructureIndex ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
   }
   document.view(document.Document(
     title:,
