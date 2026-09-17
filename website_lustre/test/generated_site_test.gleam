@@ -91,6 +91,27 @@ pub fn generated_route_and_assets_test() {
   |> should.equal(1)
   simplifile.read(output <> "/styles/sharedtree.css")
   |> should.be_ok()
+  let assert Ok(sudoku_html) = simplifile.read(output <> "/sudoku/index.html")
+  let sudoku_tree = html_parser.as_tree(sudoku_html)
+  let assert 1 = find(sudoku_tree, "id", "sudoku-mount") |> list.length
+    as "Sudoku mount"
+  let assert 1 = find(sudoku_tree, "data-testid", "client-a") |> list.length
+    as "Sudoku client"
+  let assert 1 = find(sudoku_tree, "src", "/sudoku.js") |> list.length
+    as "Sudoku client script"
+  let assert 1 =
+    find(sudoku_tree, "src", "/scripts/concept-index.js") |> list.length
+    as "Sudoku reveal script"
+  [
+    "SharedMap sudoku cells, live",
+    "Race the same cell",
+    "The live demo needs JavaScript",
+  ]
+  |> list.each(fn(text) {
+    string.contains(sudoku_html, text) |> should.be_true()
+  })
+  simplifile.read(output <> "/styles/sudoku.css")
+  |> should.be_ok()
   let assert Ok(runtime_html) = simplifile.read(output <> "/runtime/index.html")
   let runtime_tree = html_parser.as_tree(runtime_html)
   let assert False =
@@ -368,6 +389,8 @@ pub fn generated_route_and_assets_test() {
     "styles/structures-index.css",
     "styles/structure-sheet.css",
     "styles/models.css",
+    "styles/sudoku.css",
+    "sudoku.js",
     "fonts/archivo/wdth.css",
     "favicon.svg",
     "og.png",

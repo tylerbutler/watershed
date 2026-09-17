@@ -29,6 +29,7 @@ import watershed_site/view/runtime_sheet
 import watershed_site/view/sharedtree
 import watershed_site/view/structure_sheet
 import watershed_site/view/structures_index
+import watershed_site/view/sudoku
 
 pub type GuidePage(msg) {
   GuidePage(
@@ -236,6 +237,13 @@ pub fn render(
         "watershed — SharedTree and the schema layer",
         sharedtree.view(body),
       ))
+    content.Sudoku ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — SharedMap Sudoku demo",
+        sudoku.view(),
+      ))
   }
 }
 
@@ -292,7 +300,8 @@ fn render_document(
     | content.Models
     | content.Patterns
     | content.Examples
-    | content.SharedTree -> scripts
+    | content.SharedTree
+    | content.Sudoku -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -312,6 +321,9 @@ fn render_document(
     route.Patterns -> scripts
     route.Examples -> scripts
     route.SharedTree ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
+    route.Sudoku ->
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
   }

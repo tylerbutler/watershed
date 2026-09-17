@@ -193,6 +193,17 @@ pub fn sharedtree_route_is_registered_with_static_reveals_test() {
   |> should.equal(["/styles/site.css", "/styles/sharedtree.css"])
 }
 
+pub fn sudoku_route_is_registered_with_its_lustre_client_test() {
+  let assert Ok(sudoku) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/sudoku" })
+  sudoku.layout |> should.equal(route.Sudoku)
+  sudoku.content_path |> should.equal("content/sudoku.djot")
+  sudoku.client_script |> should.equal(Some("/sudoku.js"))
+  route.stylesheets(sudoku)
+  |> should.equal(["/styles/site.css", "/styles/sudoku.css"])
+}
+
 pub fn foundations_detail_routes_use_the_shared_concept_sheet_test() {
   [
     #("schema", "content/foundations/schema.djot"),

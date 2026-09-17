@@ -1,0 +1,736 @@
+{
+  "desktop": {
+    "title": "watershed — SharedMap Sudoku demo",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Three browser clients edit one Sudoku-flavored board through watershed's compiled map_kernel: JSON cell values, optimistic local writes, server-sequenced last-write-wins convergence, and a same-cell race over an in-page sequencer."
+      ],
+      [
+        "og:title",
+        "watershed — SharedMap Sudoku demo"
+      ],
+      [
+        "og:description",
+        "Three browser clients edit one Sudoku-flavored board through watershed's compiled map_kernel: JSON cell values, optimistic local writes, server-sequenced last-write-wins convergence, and a same-cell race over an in-page sequencer."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/sudoku/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "One board. Three clients. One cell value.",
+    "headingBreaks": 1,
+    "hero": [
+      "← MAPS · SHAREDMAP SUDOKU CELLS",
+      "The full Sudoku example layers SharedMap cell values with SharedOrSet pencil notes, SharedClaims givens, SharedCounter mistakes, and ephemeral signals for presence. This page isolates the cell layer: keys like r0c0 hold JSON digits, clears delete the key, and server-sequenced last-write-wins order makes concurrent edits converge."
+    ],
+    "heroLinks": [
+      [
+        "← MAPS",
+        "/structures/maps"
+      ],
+      [
+        "Sudoku example",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre"
+      ],
+      [
+        "Jump to the demo ↓",
+        "#sudoku-demo"
+      ],
+      [
+        "Read the full example",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre"
+      ]
+    ],
+    "demoHeading": "SharedMap sudoku cells, live",
+    "demoCopy": [
+      "Three watershed documents run the full runtime in your browser, wire codecs and pending queues included. The runtime is compiled to JavaScript. They talk to one sluice: the in-memory server that ships in the library, standing in for floodgate with no backend. A cell edit renders optimistically and pushes an op the sluice sequences; delivery is explicit, so state propagates one stamped hop at a time. Local edits are drawn in magenta until the sequencer stamps them; server-sequenced state is ink.",
+      "Click any cell to cycle its digit, type 1–9 to write directly, or press Delete or Shift-click to clear. Arrow keys move across each board. Press Race the same cell and A, B, and C write different digits to the center cell, r4c4, at the same instant. The sluice sequences those writes FIFO, and every replica converges on the last sequenced value."
+    ],
+    "clients": [
+      {
+        "label": "Client A replica",
+        "heading": "CLIENT A",
+        "note": "81 KEYS · R0C0–R8C8 · VALUES 1–9",
+        "cells": 81
+      },
+      {
+        "label": "Client B replica",
+        "heading": "CLIENT B",
+        "note": "81 KEYS · R0C0–R8C8 · VALUES 1–9",
+        "cells": 81
+      },
+      {
+        "label": "Client C replica",
+        "heading": "CLIENT C",
+        "note": "81 KEYS · R0C0–R8C8 · VALUES 1–9",
+        "cells": 81
+      }
+    ],
+    "controls": "ANIMATION SPEED 1× JITTER ±100 MS Race the same cell Place corner givens Reset CONVERGED all replicas identical · nothing pending",
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "viewportWidth": 1440,
+    "scrollWidth": 1440,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "120px 64.8px 80px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px",
+        "max-width": "1086.8px"
+      },
+      "demo": {
+        "padding": "129.6px 64.8px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "rig": {
+        "display": "grid",
+        "grid-template-areas": "\"a seq b\" \"c c c\"",
+        "grid-template-columns": "407.828px 224.328px 407.844px",
+        "gap": "24px"
+      },
+      "client": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "board": {
+        "display": "grid",
+        "width": "373.828px",
+        "border": "2px solid oklch(0.25 0.02 260)",
+        "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace"
+      },
+      "cell": {
+        "font-size": "21.6px",
+        "font-weight": "400",
+        "border-right-width": "1px",
+        "border-bottom-width": "1px"
+      },
+      "controls": {
+        "display": "flex",
+        "gap": "40px",
+        "margin-top": "40px"
+      },
+      "race": {
+        "padding": "10.4px 19.2px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-weight": "600"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — SharedMap Sudoku demo",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Three browser clients edit one Sudoku-flavored board through watershed's compiled map_kernel: JSON cell values, optimistic local writes, server-sequenced last-write-wins convergence, and a same-cell race over an in-page sequencer."
+      ],
+      [
+        "og:title",
+        "watershed — SharedMap Sudoku demo"
+      ],
+      [
+        "og:description",
+        "Three browser clients edit one Sudoku-flavored board through watershed's compiled map_kernel: JSON cell values, optimistic local writes, server-sequenced last-write-wins convergence, and a same-cell race over an in-page sequencer."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/sudoku/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "One board. Three clients. One cell value.",
+    "headingBreaks": 1,
+    "hero": [
+      "← MAPS · SHAREDMAP SUDOKU CELLS",
+      "The full Sudoku example layers SharedMap cell values with SharedOrSet pencil notes, SharedClaims givens, SharedCounter mistakes, and ephemeral signals for presence. This page isolates the cell layer: keys like r0c0 hold JSON digits, clears delete the key, and server-sequenced last-write-wins order makes concurrent edits converge."
+    ],
+    "heroLinks": [
+      [
+        "← MAPS",
+        "/structures/maps"
+      ],
+      [
+        "Sudoku example",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre"
+      ],
+      [
+        "Jump to the demo ↓",
+        "#sudoku-demo"
+      ],
+      [
+        "Read the full example",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre"
+      ]
+    ],
+    "demoHeading": "SharedMap sudoku cells, live",
+    "demoCopy": [
+      "Three watershed documents run the full runtime in your browser, wire codecs and pending queues included. The runtime is compiled to JavaScript. They talk to one sluice: the in-memory server that ships in the library, standing in for floodgate with no backend. A cell edit renders optimistically and pushes an op the sluice sequences; delivery is explicit, so state propagates one stamped hop at a time. Local edits are drawn in magenta until the sequencer stamps them; server-sequenced state is ink.",
+      "Click any cell to cycle its digit, type 1–9 to write directly, or press Delete or Shift-click to clear. Arrow keys move across each board. Press Race the same cell and A, B, and C write different digits to the center cell, r4c4, at the same instant. The sluice sequences those writes FIFO, and every replica converges on the last sequenced value."
+    ],
+    "clients": [
+      {
+        "label": "Client A replica",
+        "heading": "CLIENT A",
+        "note": "81 KEYS · R0C0–R8C8 · VALUES 1–9",
+        "cells": 81
+      },
+      {
+        "label": "Client B replica",
+        "heading": "CLIENT B",
+        "note": "81 KEYS · R0C0–R8C8 · VALUES 1–9",
+        "cells": 81
+      },
+      {
+        "label": "Client C replica",
+        "heading": "CLIENT C",
+        "note": "81 KEYS · R0C0–R8C8 · VALUES 1–9",
+        "cells": 81
+      }
+    ],
+    "controls": "ANIMATION SPEED 1× JITTER ±100 MS Race the same cell Place corner givens Reset CONVERGED all replicas identical · nothing pending",
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "viewportWidth": 390,
+    "scrollWidth": 390,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "56px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "43.2px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "42.768px",
+        "max-width": "543.3px"
+      },
+      "demo": {
+        "padding": "72px 20px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "rig": {
+        "display": "grid",
+        "grid-template-areas": "\"a\" \"seq\" \"b\" \"c\"",
+        "grid-template-columns": "324px",
+        "gap": "24px"
+      },
+      "client": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "board": {
+        "display": "grid",
+        "width": "298px",
+        "border": "2px solid oklch(0.25 0.02 260)",
+        "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace"
+      },
+      "cell": {
+        "font-size": "14.4px",
+        "font-weight": "400",
+        "border-right-width": "1px",
+        "border-bottom-width": "1px"
+      },
+      "controls": {
+        "display": "flex",
+        "gap": "40px",
+        "margin-top": "40px"
+      },
+      "race": {
+        "padding": "10.4px 19.2px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-weight": "600"
+      }
+    }
+  }
+}
