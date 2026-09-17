@@ -29,6 +29,7 @@ pub type PageKind {
   RuntimeSheet(runtime.Doc)
   StructureIndex
   StructureSheet(structures.Family)
+  Models
 }
 
 pub type Metadata {
@@ -247,6 +248,20 @@ fn decode_metadata(
           ))
       }
     }
+    "models", route.Models ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/models" -> Ok(Models)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The models page metadata is invalid.",
+          ))
+      }
     _, _ ->
       Error(error.InvalidFrontmatter(
         path,

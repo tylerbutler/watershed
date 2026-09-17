@@ -41,6 +41,11 @@ pub fn generated_route_and_assets_test() {
   find(maps_tree, "src", "/guide_race.js")
   |> list.is_empty
   |> should.be_true()
+  let assert Ok(models_html) = simplifile.read(output <> "/models/index.html")
+  string.contains(models_html, "Conflict-free Replicated Data Type")
+  |> should.be_true()
+  string.contains(models_html, "href=\"/structures/maps#map\"")
+  |> should.be_true()
   let assert Ok(runtime_html) = simplifile.read(output <> "/runtime/index.html")
   let runtime_tree = html_parser.as_tree(runtime_html)
   let assert False =
@@ -317,6 +322,7 @@ pub fn generated_route_and_assets_test() {
     "styles/concept-sheet.css",
     "styles/structures-index.css",
     "styles/structure-sheet.css",
+    "styles/models.css",
     "fonts/archivo/wdth.css",
     "favicon.svg",
     "og.png",

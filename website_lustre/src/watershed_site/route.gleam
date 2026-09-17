@@ -21,6 +21,7 @@ pub type Layout {
   ConceptSheet
   StructureIndex
   StructureSheet
+  Models
 }
 
 pub type Analytics {
@@ -138,6 +139,16 @@ pub fn structure_family(slug: String) -> Route {
   )
 }
 
+pub fn models() -> Route {
+  Route(
+    path: "/models",
+    layout: Models,
+    content_path: "content/models.djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -192,6 +203,7 @@ pub fn all() -> List(Route) {
     structure_family("sequences"),
     structure_family("coordination"),
     structure_family("transforms"),
+    models(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -220,6 +232,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     ConceptSheet -> ["/styles/site.css", "/styles/concept-sheet.css"]
     StructureIndex -> ["/styles/site.css", "/styles/structures-index.css"]
     StructureSheet -> ["/styles/site.css", "/styles/structure-sheet.css"]
+    Models -> ["/styles/site.css", "/styles/models.css"]
   }
 }
 

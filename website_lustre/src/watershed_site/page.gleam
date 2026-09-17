@@ -21,6 +21,7 @@ import watershed_site/view/document
 import watershed_site/view/field_notes
 import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
+import watershed_site/view/models
 import watershed_site/view/runtime_index
 import watershed_site/view/runtime_sheet
 import watershed_site/view/structure_sheet
@@ -201,6 +202,13 @@ pub fn render(
         "watershed — " <> string.lowercase(family.name),
         structure_sheet.view(family),
       ))
+    content.Models ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — DDS vs CRDT vs OT",
+        models.view(),
+      ))
   }
 }
 
@@ -253,7 +261,8 @@ fn render_document(
     | content.ConceptSheet(_)
     | content.RuntimeSheet(_)
     | content.StructureIndex
-    | content.StructureSheet(_) -> scripts
+    | content.StructureSheet(_)
+    | content.Models -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -267,6 +276,9 @@ fn render_document(
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
     route.StructureSheet -> scripts
+    route.Models ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
   }
   document.view(document.Document(
     title:,

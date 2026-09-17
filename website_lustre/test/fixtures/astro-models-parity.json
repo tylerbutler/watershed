@@ -1,0 +1,980 @@
+{
+  "desktop": {
+    "title": "watershed — DDS vs CRDT vs OT",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Three ways collaborative data converges: a distributed data structure over a server's total order, a conflict-free replicated data type that merges without order, and operational transform that rewrites concurrent ops. How they differ, and which watershed structures use each."
+      ],
+      [
+        "og:title",
+        "watershed — DDS vs CRDT vs OT"
+      ],
+      [
+        "og:description",
+        "Three ways collaborative data converges: a distributed data structure over a server's total order, a conflict-free replicated data type that merges without order, and operational transform that rewrites concurrent ops. How they differ, and which watershed structures use each."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/models/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Three ways to agree on state.",
+    "headingBreaks": 1,
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / CONVERGENCE MODELS",
+      "Every structure watershed ships has to answer one question: when two clients change the same thing at once, how does everyone end up in the same state? watershed has three answers: order it, merge it, or transform it. Each is the right one somewhere."
+    ],
+    "cards": [
+      {
+        "kind": "DDS",
+        "title": "Distributed Data Structure",
+        "gloss": "Converges by one server's total order.",
+        "body": [
+          "A DDS here follows Fluid Framework's collaborative-object model. Every client applies its own ops optimistically, sends them to a central sequencer, and receives one authoritative order back. Because every replica replays the same ordered stream, they all land in the same state.",
+          "The conflict policy applies on top of that order: last-write-wins for a map, first-writer-wins for a claim, FIFO for a queue, quorum for a pact. The order is the source of truth; the policy just decides what the order means.",
+          "Simple and cheap, but it needs a sequencer, and offline correctness is only as good as the policy you layer on."
+        ],
+        "memberText": [
+          "SharedCounter",
+          "RegisterCollection",
+          "SharedMap",
+          "SharedDirectory",
+          "Claims",
+          "OrderedCollection",
+          "TaskManager",
+          "PactMap"
+        ],
+        "memberHrefs": [
+          "/structures/counters#counter",
+          "/structures/registers#registers",
+          "/structures/maps#map",
+          "/structures/maps#directory",
+          "/structures/coordination#claims",
+          "/structures/coordination#ordered",
+          "/structures/coordination#tasks",
+          "/structures/coordination#pact"
+        ]
+      },
+      {
+        "kind": "CRDT",
+        "title": "Conflict-free Replicated Data Type",
+        "gloss": "Converges by a merge function, no order required.",
+        "body": [
+          "A CRDT is designed so its merge is commutative, associative, and idempotent. Feed two replicas the same set of updates in any order, any number of times, and they converge. No central authority is needed to referee.",
+          "watershed still delivers CRDT ops over the same sequenced stream, but their correctness does not depend on it. That is why the demo can feed a duplicate delta straight to the kernel and watch the merge absorb it with no double-count. Commutativity, associativity, and idempotence provide that safety; an order-based DDS relies on the runtime deduping by sequence number.",
+          "Its merge can tolerate duplicate and reordered state or deltas, but offline editing still needs durable local storage and a reconnect protocol. Metadata costs depend on the type: some keep per-replica counters, while removable collections retain tags or tombstones."
+        ],
+        "memberText": [
+          "GCounter",
+          "PnCounter",
+          "GSet",
+          "TwoPSet",
+          "OrSet",
+          "LWWRegister",
+          "MvRegister",
+          "LWWMap",
+          "OrMap",
+          "SharedSequence",
+          "SharedText"
+        ],
+        "memberHrefs": [
+          "/structures/counters#gcounter",
+          "/structures/counters#pn",
+          "/structures/sets#gset",
+          "/structures/sets#twopset",
+          "/structures/sets#orset",
+          "/structures/registers#lww-register",
+          "/structures/registers#mv-register",
+          "/structures/maps#lww-map",
+          "/structures/maps#ormap",
+          "/structures/sequences#sequence",
+          "/structures/sequences#text"
+        ]
+      },
+      {
+        "kind": "OT",
+        "title": "Operational Transform",
+        "gloss": "Converges by transforming ops past one another.",
+        "body": [
+          "OT takes the opposite tack from CRDTs. Instead of designing merges that commute, it transforms each op against the concurrent ops it did not see, rewriting indices and positions until any apply order lands in the same place.",
+          "watershed ships two OT kernels on the same single-op-in-flight client protocol. json_ot is a faithful port of the ottypes json0 algebra for structured JSON documents. SharedRichText runs that protocol over quill-delta's rich-text algebra (retain/insert/delete spans, attribute patches, embeds) for collaborative Quill editors. In both, concurrent ops have their positions transformed so every replica converges identically.",
+          "Minimal per-op metadata and a natural fit for ordered sequences and rich text (SharedSequence now covers similar ground by merge). The cost: transform functions must be correct for every pair of op types."
+        ],
+        "memberText": [
+          "JsonOt",
+          "SharedRichText"
+        ],
+        "memberHrefs": [
+          "/json-ot",
+          "/rich-text"
+        ]
+      }
+    ],
+    "table": [
+      [
+        "Property",
+        "DDS",
+        "CRDT",
+        "OT"
+      ],
+      [
+        "CONVERGES VIA",
+        "one server's total order",
+        "a commutative merge function",
+        "pairwise op transforms"
+      ],
+      [
+        "NEEDS A SEQUENCER",
+        "Yes: the order is the truth",
+        "No (watershed uses one anyway)",
+        "Yes: to assign the order to transform against"
+      ],
+      [
+        "DUPLICATE / REORDERED DELIVERY",
+        "runtime orders and deduplicates by sequence number",
+        "merge is designed to absorb repeats and reordering",
+        "client protocol buffers and transforms the ordered stream"
+      ],
+      [
+        "PER-ITEM METADATA",
+        "structure-dependent; often a value plus sequence data",
+        "type-dependent; may include replica slots, tags, or tombstones",
+        "document state plus in-flight and buffered ops"
+      ],
+      [
+        "OFFLINE / UNRELIABLE LINKS",
+        "policy and client persistence determine safety",
+        "merge supports it; storage and transport still required",
+        "requires buffered ops and ordered reconnect"
+      ],
+      [
+        "BEST FIT",
+        "clear authority, coordination",
+        "offline-first, at-least-once delivery",
+        "text and ordered sequences"
+      ]
+    ],
+    "guide": [
+      "Start with a DDS. If a central server is already in the loop and last-write-wins or explicit coordination is acceptable, an order-based DDS is the least machinery for the job. Use SharedMap, Claims, or PactMap.",
+      "Use a CRDT when delivery is unreliable. Offline edits backed by durable local storage, at-least-once delivery, or a counter that must survive a re-sent delta all call for a merge that does not care about order: PN counter, OR-set, or OR-map.",
+      "Use OT for ordered sequences and rich text. Collaborative text and lists, where positions shift as others edit, are what transform functions were built for. See the json_ot demo for structured JSON or the SharedRichText demo for a three-editor Quill session."
+    ],
+    "guideLinks": [
+      [
+        "SharedMap",
+        "/structures/maps#map"
+      ],
+      [
+        "Claims",
+        "/structures/coordination#claims"
+      ],
+      [
+        "PactMap",
+        "/structures/coordination#pact"
+      ],
+      [
+        "PN counter",
+        "/structures/counters#pn"
+      ],
+      [
+        "OR-set",
+        "/structures/sets#orset"
+      ],
+      [
+        "OR-map",
+        "/structures/maps#ormap"
+      ],
+      [
+        "json_ot demo",
+        "/json-ot"
+      ],
+      [
+        "SharedRichText demo",
+        "/rich-text"
+      ],
+      [
+        "Back to the field guide",
+        "/structures"
+      ],
+      [
+        "How the runtime behaves →",
+        "/runtime"
+      ],
+      [
+        "Fluid's SharedTree, compared →",
+        "/sharedtree"
+      ],
+      [
+        "Compare live merge policies ↓",
+        "/#demo"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "112px 64.8px 80px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "cards": {
+        "display": "grid",
+        "grid-template-columns": "324.797px 324.797px 324.812px",
+        "gap": "24px",
+        "padding": "64px 64.8px"
+      },
+      "card": {
+        "display": "flex",
+        "padding": "40px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "table": {
+        "overflow-x": "auto",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "guide": {
+        "padding": "129.6px 64.8px",
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — DDS vs CRDT vs OT",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Three ways collaborative data converges: a distributed data structure over a server's total order, a conflict-free replicated data type that merges without order, and operational transform that rewrites concurrent ops. How they differ, and which watershed structures use each."
+      ],
+      [
+        "og:title",
+        "watershed — DDS vs CRDT vs OT"
+      ],
+      [
+        "og:description",
+        "Three ways collaborative data converges: a distributed data structure over a server's total order, a conflict-free replicated data type that merges without order, and operational transform that rewrites concurrent ops. How they differ, and which watershed structures use each."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/models/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Three ways to agree on state.",
+    "headingBreaks": 1,
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / CONVERGENCE MODELS",
+      "Every structure watershed ships has to answer one question: when two clients change the same thing at once, how does everyone end up in the same state? watershed has three answers: order it, merge it, or transform it. Each is the right one somewhere."
+    ],
+    "cards": [
+      {
+        "kind": "DDS",
+        "title": "Distributed Data Structure",
+        "gloss": "Converges by one server's total order.",
+        "body": [
+          "A DDS here follows Fluid Framework's collaborative-object model. Every client applies its own ops optimistically, sends them to a central sequencer, and receives one authoritative order back. Because every replica replays the same ordered stream, they all land in the same state.",
+          "The conflict policy applies on top of that order: last-write-wins for a map, first-writer-wins for a claim, FIFO for a queue, quorum for a pact. The order is the source of truth; the policy just decides what the order means.",
+          "Simple and cheap, but it needs a sequencer, and offline correctness is only as good as the policy you layer on."
+        ],
+        "memberText": [
+          "SharedCounter",
+          "RegisterCollection",
+          "SharedMap",
+          "SharedDirectory",
+          "Claims",
+          "OrderedCollection",
+          "TaskManager",
+          "PactMap"
+        ],
+        "memberHrefs": [
+          "/structures/counters#counter",
+          "/structures/registers#registers",
+          "/structures/maps#map",
+          "/structures/maps#directory",
+          "/structures/coordination#claims",
+          "/structures/coordination#ordered",
+          "/structures/coordination#tasks",
+          "/structures/coordination#pact"
+        ]
+      },
+      {
+        "kind": "CRDT",
+        "title": "Conflict-free Replicated Data Type",
+        "gloss": "Converges by a merge function, no order required.",
+        "body": [
+          "A CRDT is designed so its merge is commutative, associative, and idempotent. Feed two replicas the same set of updates in any order, any number of times, and they converge. No central authority is needed to referee.",
+          "watershed still delivers CRDT ops over the same sequenced stream, but their correctness does not depend on it. That is why the demo can feed a duplicate delta straight to the kernel and watch the merge absorb it with no double-count. Commutativity, associativity, and idempotence provide that safety; an order-based DDS relies on the runtime deduping by sequence number.",
+          "Its merge can tolerate duplicate and reordered state or deltas, but offline editing still needs durable local storage and a reconnect protocol. Metadata costs depend on the type: some keep per-replica counters, while removable collections retain tags or tombstones."
+        ],
+        "memberText": [
+          "GCounter",
+          "PnCounter",
+          "GSet",
+          "TwoPSet",
+          "OrSet",
+          "LWWRegister",
+          "MvRegister",
+          "LWWMap",
+          "OrMap",
+          "SharedSequence",
+          "SharedText"
+        ],
+        "memberHrefs": [
+          "/structures/counters#gcounter",
+          "/structures/counters#pn",
+          "/structures/sets#gset",
+          "/structures/sets#twopset",
+          "/structures/sets#orset",
+          "/structures/registers#lww-register",
+          "/structures/registers#mv-register",
+          "/structures/maps#lww-map",
+          "/structures/maps#ormap",
+          "/structures/sequences#sequence",
+          "/structures/sequences#text"
+        ]
+      },
+      {
+        "kind": "OT",
+        "title": "Operational Transform",
+        "gloss": "Converges by transforming ops past one another.",
+        "body": [
+          "OT takes the opposite tack from CRDTs. Instead of designing merges that commute, it transforms each op against the concurrent ops it did not see, rewriting indices and positions until any apply order lands in the same place.",
+          "watershed ships two OT kernels on the same single-op-in-flight client protocol. json_ot is a faithful port of the ottypes json0 algebra for structured JSON documents. SharedRichText runs that protocol over quill-delta's rich-text algebra (retain/insert/delete spans, attribute patches, embeds) for collaborative Quill editors. In both, concurrent ops have their positions transformed so every replica converges identically.",
+          "Minimal per-op metadata and a natural fit for ordered sequences and rich text (SharedSequence now covers similar ground by merge). The cost: transform functions must be correct for every pair of op types."
+        ],
+        "memberText": [
+          "JsonOt",
+          "SharedRichText"
+        ],
+        "memberHrefs": [
+          "/json-ot",
+          "/rich-text"
+        ]
+      }
+    ],
+    "table": [
+      [
+        "Property",
+        "DDS",
+        "CRDT",
+        "OT"
+      ],
+      [
+        "CONVERGES VIA",
+        "one server's total order",
+        "a commutative merge function",
+        "pairwise op transforms"
+      ],
+      [
+        "NEEDS A SEQUENCER",
+        "Yes: the order is the truth",
+        "No (watershed uses one anyway)",
+        "Yes: to assign the order to transform against"
+      ],
+      [
+        "DUPLICATE / REORDERED DELIVERY",
+        "runtime orders and deduplicates by sequence number",
+        "merge is designed to absorb repeats and reordering",
+        "client protocol buffers and transforms the ordered stream"
+      ],
+      [
+        "PER-ITEM METADATA",
+        "structure-dependent; often a value plus sequence data",
+        "type-dependent; may include replica slots, tags, or tombstones",
+        "document state plus in-flight and buffered ops"
+      ],
+      [
+        "OFFLINE / UNRELIABLE LINKS",
+        "policy and client persistence determine safety",
+        "merge supports it; storage and transport still required",
+        "requires buffered ops and ordered reconnect"
+      ],
+      [
+        "BEST FIT",
+        "clear authority, coordination",
+        "offline-first, at-least-once delivery",
+        "text and ordered sequences"
+      ]
+    ],
+    "guide": [
+      "Start with a DDS. If a central server is already in the loop and last-write-wins or explicit coordination is acceptable, an order-based DDS is the least machinery for the job. Use SharedMap, Claims, or PactMap.",
+      "Use a CRDT when delivery is unreliable. Offline edits backed by durable local storage, at-least-once delivery, or a counter that must survive a re-sent delta all call for a merge that does not care about order: PN counter, OR-set, or OR-map.",
+      "Use OT for ordered sequences and rich text. Collaborative text and lists, where positions shift as others edit, are what transform functions were built for. See the json_ot demo for structured JSON or the SharedRichText demo for a three-editor Quill session."
+    ],
+    "guideLinks": [
+      [
+        "SharedMap",
+        "/structures/maps#map"
+      ],
+      [
+        "Claims",
+        "/structures/coordination#claims"
+      ],
+      [
+        "PactMap",
+        "/structures/coordination#pact"
+      ],
+      [
+        "PN counter",
+        "/structures/counters#pn"
+      ],
+      [
+        "OR-set",
+        "/structures/sets#orset"
+      ],
+      [
+        "OR-map",
+        "/structures/maps#ormap"
+      ],
+      [
+        "json_ot demo",
+        "/json-ot"
+      ],
+      [
+        "SharedRichText demo",
+        "/rich-text"
+      ],
+      [
+        "Back to the field guide",
+        "/structures"
+      ],
+      [
+        "How the runtime behaves →",
+        "/runtime"
+      ],
+      [
+        "Fluid's SharedTree, compared →",
+        "/sharedtree"
+      ],
+      [
+        "Compare live merge policies ↓",
+        "/#demo"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "56px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "33.15px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "32.8185px"
+      },
+      "cards": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px",
+        "padding": "64px 20px"
+      },
+      "card": {
+        "display": "flex",
+        "padding": "40px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "table": {
+        "overflow-x": "auto",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "guide": {
+        "padding": "72px 20px",
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      }
+    }
+  }
+}

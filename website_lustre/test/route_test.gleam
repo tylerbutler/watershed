@@ -149,6 +149,17 @@ pub fn structure_family_routes_use_the_shared_atlas_sheet_test() {
   })
 }
 
+pub fn models_route_is_registered_as_a_static_comparison_test() {
+  let assert Ok(models) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/models" })
+  models.layout |> should.equal(route.Models)
+  models.content_path |> should.equal("content/models.djot")
+  models.client_script |> should.equal(None)
+  route.stylesheets(models)
+  |> should.equal(["/styles/site.css", "/styles/models.css"])
+}
+
 pub fn foundations_detail_routes_use_the_shared_concept_sheet_test() {
   [
     #("schema", "content/foundations/schema.djot"),
