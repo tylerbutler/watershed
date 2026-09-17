@@ -144,6 +144,13 @@ pub fn component_model_index_metadata_matches_its_route_test() {
   |> should.be_ok()
 }
 
+pub fn component_model_sheet_metadata_matches_its_route_test() {
+  let page =
+    "---\ndescription = \"Components.\"\nlayout = \"concept-sheet\"\nconcept = \"components\"\n---\n\nA page."
+  content.parse(page, "components.djot", route.component_model("components"))
+  |> should.be_ok()
+}
+
 pub fn raw_html_and_unknown_components_are_rejected_test() {
   content.load(
     route.Route(

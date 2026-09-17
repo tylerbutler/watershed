@@ -4,6 +4,16 @@ pub type Doc {
   Doc(slug: String, title: String, gloss: String, concept: String)
 }
 
+pub type Section {
+  Section(
+    title: String,
+    path: String,
+    scope: String,
+    optional: Bool,
+    docs: List(Doc),
+  )
+}
+
 pub fn all() -> List(Doc) {
   [
     Doc(
@@ -58,15 +68,51 @@ pub fn for_path(path: String) -> List(Doc) {
 }
 
 pub fn get(slug: String) -> Result(Doc, Nil) {
-  list.find(all(), fn(item) { item.slug == slug })
+  list.find(list.append(all(), component_model()), fn(item) {
+    item.slug == slug
+  })
+}
+
+pub fn section(slug: String) -> Section {
+  case list.any(component_model(), fn(item) { item.slug == slug }) {
+    True ->
+      Section(
+        "Component model",
+        "/component-model",
+        "Optional · user-constructable apps",
+        True,
+        component_model(),
+      )
+    False ->
+      Section(
+        "Foundations",
+        "/foundations",
+        "Core · every watershed app",
+        False,
+        all(),
+      )
+  }
 }
 
 pub fn neighbours(slug: String) -> #(Result(Doc, Nil), Result(Doc, Nil)) {
-  let assert [schema, topology, lifecycle] = all()
-  case slug {
-    "schema" -> #(Error(Nil), Ok(topology))
-    "topology" -> #(Ok(schema), Ok(lifecycle))
-    "lifecycle" -> #(Ok(topology), Error(Nil))
-    _ -> #(Error(Nil), Error(Nil))
+  let Section(docs:, ..) = section(slug)
+  neighbours_in(docs, slug, Error(Nil))
+}
+
+fn neighbours_in(
+  docs: List(Doc),
+  slug: String,
+  previous: Result(Doc, Nil),
+) -> #(Result(Doc, Nil), Result(Doc, Nil)) {
+  case docs {
+    [] -> #(Error(Nil), Error(Nil))
+    [current, ..rest] ->
+      case current.slug == slug {
+        True -> #(previous, case rest {
+          [next, ..] -> Ok(next)
+          [] -> Error(Nil)
+        })
+        False -> neighbours_in(rest, slug, Ok(current))
+      }
   }
 }

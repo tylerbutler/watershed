@@ -1,0 +1,460 @@
+{
+  "desktop": {
+    "title": "watershed — ports and dispatch",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Watershed's port foundation uses payload types for direct connections, schema IDs for erased graph data, deterministic validation for an acyclic effective graph, and origin-aware dispatch planning."
+      ],
+      [
+        "og:title",
+        "watershed — ports and dispatch"
+      ],
+      [
+        "og:description",
+        "Watershed's port foundation uses payload types for direct connections, schema IDs for erased graph data, deterministic validation for an acyclic effective graph, and origin-aware dispatch planning."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/component-model/ports/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Ports and dispatch",
+    "hero": [
+      "← WATERSHED · COMPONENT MODEL / PORTS AND DISPATCH",
+      "COMPONENT MODEL",
+      "Optional · user-constructable apps",
+      "Let a user connect two parts that were written apart: a port is a named connection point a component publishes, typed while you write it, erased once it is stored, and checked again before every event it carries.",
+      "TRACES OUTPUT · INPUT · EFFECTIVEGRAPH · LOCALINTENT · DELIVERY",
+      "TRACES"
+    ],
+    "headings": [
+      "A port is a component's declared connection point",
+      "Local and collaborative describe the target effect",
+      "Validate the stored graph before dispatch",
+      "Dispatch local intent once",
+      "Planning checks the catalog again",
+      "Typed declarations stay inside component code",
+      "Erase payload types before storage",
+      "The browser runtime follows the whole trace"
+    ],
+    "prose": [
+      "Components are written apart from each other. A task list does not import a notes panel, and neither one knows the other exists. So the wiring between them cannot be code an author writes. It has to be data a user can edit while the application runs.",
+      "A port is what makes that possible. It is a named, typed connection point that a component publishes: an output it can send from, or an input it can receive on. A host reads those declarations, offers the user the connections that are legal, and stores the ones the user makes. Neither component ever names the other.",
+      "One port appears in three forms. A host meets the last two; only a component author meets the first:",
+      "Everything below wires the board from the last sheet, now with two more parts on it: a task list, the notes panel, and an activity log side by side. Click a task in the list, and two things should happen. The notes panel focuses that task. The activity log records that the task was touched.",
+      "A port has two audiences, and this sheet serves them in order. First you use ports: a host reads what the components declare, offers the user the connections that are legal, stores the ones they make, and routes each event. Then you declare them: the typed Gleam an author writes inside one component. Stop after part one if you are wiring components somebody else wrote.",
+      "PART ONE · USING PORTS",
+      "The board's two inputs do different kinds of work. Focusing the notes panel changes only the screen of the person who clicked. Appending to the activity log changes shared state that every peer must see. An input declares which of the two it is.",
+      "LocalInput changes presentation or controller state on the client where the event began: focus a subject, select a row, apply a filter. CollaborativeInput asks the target component on that same client to perform one of its own mutations. Watershed then replicates the resulting channel operation in the normal way.",
+      "The activity log's collaborative declaration lists capabilities such as sequence:insert. A host can show that shared-state effect before it stores a connection. The current foundation records the list. A separate authorization layer must enforce policy.",
+      "The origin client runs a collaborative input. It must submit the target mutation before it disconnects. The server cannot finish a job that no client submitted. Server-run retries would need a separate input class with execution records, idempotency, and authorization.",
+      "A stored connection carries no Gleam types: it is two PortRef values — an instance ID and a port ID each — plus an edge ID. By the time it is read back, the board may have moved on. The connection can name a deleted notes panel, a retired port, or two outputs. Its schemas may no longer match. Two people can also add edges that look safe alone and form a cycle once their connection sets merge.",
+      "port_graph.effective derives the graph a client may use. It applies five rules in order:",
+      "The order is what makes this safe. Two clients that read the same stored set derive the same acyclic result, with no agreement step between them.",
+      "Rejected edges stay in storage. The effective graph returns diagnostics for duplicates, missing instances or ports, wrong directions, schema mismatches, and cycles. A UI can explain the dropped connection without destroying data another client may still understand.",
+      "Now click the task. The click emits the task list's output on one client, and the replicated channel change then arrives at every other client. Both look like the same event. If both dispatch, every observer repeats the activity-log append.",
+      "dispatch.plan makes the origin explicit. A LocalIntent plan follows the effective graph's stable edge order and produces one delivery per edge.",
+      "A ReplicatedChange plan returns no deliveries at all. The echo stops at the graph.",
+      "Each Delivery records the trace, edge ID, target port, target input class, and encoded JSON payload. The trace lets a host join later diagnostics to the click that started them.",
+      "A graph can outlive the descriptor snapshot that validated it. Someone can remove the notes panel between validation and the next click. So dispatch.plan re-reads the source and each target before it creates deliveries.",
+      "A missing or redirected port becomes SourceUnavailable or TargetUnavailable. A changed schema becomes SchemaChanged. Valid sibling edges still produce deliveries, so the activity log still records the click.",
+      "PART TWO · DECLARING PORTS",
+      "From here on you are writing a component. Part one read ports as stored metadata. This is the typed Gleam that metadata comes from.",
+      "The task list sends a typed payload out through an output. The notes panel and the activity log each receive it through an input. Every declaration carries a stable port ID, a stable payload schema ID, and one side of the JSON codec. Gleam keeps the payload type attached while you hold the port.",
+      "The task list's selected output and the notes panel's focus_subject input both carry a String. Both name the same watershed/task-id@1 schema. The compiler rejects a direct connection to Input(Int). port.connect then checks the schema IDs. That catches two string-shaped payloads that mean different things, such as a task ID and a line of activity text.",
+      "The board's wiring outlives the session. It has to be stored, and stored data has no Gleam types. This is where the typed value above becomes the erased metadata part one read. output_descriptor and input_descriptor remove the payload type. They retain the port ID, direction, schema ID, and input class. A mixed component catalog lists this metadata, and a stored graph validates it. The typed input keeps the decoder a host uses when it executes a delivery.",
+      "A component descriptor carries that erased metadata for every port it declares. component.ports is what a host reads to list the notes panel's inputs or to check a stored edge against it, with no payload type in sight.",
+      "The typed values stay inside component code, and they are what actually crosses the boundary. component.emit runs the output's codec before the payload leaves. component.deliver finds the handler that matches the delivered port ID and decodes before component code sees anything.",
+      "Types protect code written together. Descriptors let the host validate data it reads back later — which is every check part one made.",
+      "Watershed's JavaScript component runtime takes the plan from data to execution. For each delivery it:",
+      "A local input changes only the origin's controller state. A collaborative input submits once on the origin. Ordinary channel replication carries the mutation to peers without sending it through the graph again. The workspace layer gives the runtime the persisted manifest and graph it keeps reconciled.",
+      "Gleam checks payload types for direct connections. After type erasure, the host checks schema IDs and descriptors. The effective graph turns an invalid stored edge set into one deterministic acyclic view. Dispatch plans ordered deliveries for local intent and suppresses a replicated echo. Next: how a workspace keeps instances, order, and wiring in one document without throwing unfamiliar data away."
+    ],
+    "lists": [
+      {
+        "type": "ul",
+        "items": [
+          "The typed declaration. An Output(String) or Input(String) that holds the payload type and its codec. Component code holds it.",
+          "The descriptor. The same port with the payload type erased, leaving the port ID, direction, schema ID, and input class. A catalog lists these and a stored graph validates against them.",
+          "The reference. Two strings, an instance ID and a port ID. A stored connection is a pair of these plus an edge ID."
+        ],
+        "height": 214.3
+      },
+      {
+        "type": "ol",
+        "items": [
+          "Sort the stored edges by edge ID.",
+          "Reject every duplicate ID.",
+          "Validate both endpoints against the current catalog.",
+          "Accept each surviving edge in that stable order.",
+          "Stop accepting an edge when it would close a cycle."
+        ],
+        "height": 183.9
+      },
+      {
+        "type": "ul",
+        "items": [
+          "decodes the target payload;",
+          "calls the typed component handler;",
+          "stores the handler's next running value;",
+          "queues any outputs the handler emitted;",
+          "remembers which edges this trace already crossed."
+        ],
+        "height": 183.9
+      }
+    ],
+    "noteGaps": [
+      64
+    ],
+    "links": [
+      [
+        "host",
+        "/component-model/components"
+      ],
+      [
+        "the last sheet",
+        "/component-model/components"
+      ],
+      [
+        "The workspace layer",
+        "/component-model/workspaces"
+      ],
+      [
+        "how a workspace keeps instances, order, and wiring in one document without throwing unfamiliar data away",
+        "/component-model/workspaces"
+      ]
+    ],
+    "pager": [
+      [
+        "← COMPONENTS AND CATALOGS Let users, not the author, decide what is on the page: package each part of the app behind a versioned descriptor so it can be rebuilt from a saved document, and keep unlike parts in one catalog.",
+        "/component-model/components"
+      ],
+      [
+        "WORKSPACES AND INSTANCES → Save the finished board — which parts exist, where they sit, how they are wired — and reopen it safely next year, without deleting the parts this build cannot understand.",
+        "/component-model/workspaces"
+      ]
+    ],
+    "labels": [
+      "src/watershed/port_graph.gleam",
+      "test/watershed/dispatch_test.gleam",
+      "test/watershed/dispatch_test.gleam",
+      "test/watershed/dispatch_test.gleam",
+      "src/watershed/dispatch.gleam",
+      "test/watershed/port_test.gleam",
+      "src/watershed/port.gleam",
+      "component port flow",
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam"
+    ],
+    "captions": [
+      "THE BOARD'S TWO EDGES, STORED AS INSTANCE AND PORT IDS",
+      "AUTHORS KEEP PAYLOAD TYPES; HOSTS STORE METADATA"
+    ],
+    "code": [
+      "/// Read a stored connection list and build the effective graph.\n///\n/// `ports_for` returns the ports of one instance, or `Error(Nil)` when the\n/// instance is not known. The function sorts the list by connection ID, drops\n/// any ID that repeats, checks each remaining connection, and keeps only the\n/// connections that pass and that do not make a cycle.\npub fn effective(\n  stored: List(Connection),\n  ports_for: fn(String) -> Result(List(port.Descriptor), Nil),\n) -> EffectiveGraph {\n  let sorted =\n    list.sort(stored, fn(left, right) {\n      canonical_json.compare(left.id, right.id)\n    })\n  let duplicates = duplicated_ids(sorted)\n  let final =\n    list.fold(sorted, new_state(), fn(state, connection) {\n      step(state, connection, duplicates, ports_for)\n    })\n  EffectiveGraph(\n    connections: list.reverse(final.accepted),\n    errors: list.reverse(final.errors),\n  )\n}",
+      "fn ports(instance_id: String) -> Result(List(port.Descriptor), Nil) {\n  case instance_id {\n    \"tasks\" -> Ok([port.Descriptor(\"completed\", port.OutputPort, \"task@1\")])\n    \"activity\" ->\n      Ok([\n        port.Descriptor(\n          \"append\",\n          port.InputPort(\n            port.CollaborativeInput(capabilities: [\"sequence:insert\"]),\n          ),\n          \"task@1\",\n        ),\n      ])\n    \"notes\" ->\n      Ok([port.Descriptor(\"focus\", port.InputPort(port.LocalInput), \"task@1\")])\n    _ -> Error(Nil)\n  }\n}\n\nfn graph() -> port_graph.EffectiveGraph {\n  port_graph.effective(\n    [\n      port_graph.connection(\n        \"activity\",\n        port_graph.PortRef(\"tasks\", \"completed\"),\n        port_graph.PortRef(\"activity\", \"append\"),\n      ),\n      port_graph.connection(\n        \"notes\",\n        port_graph.PortRef(\"tasks\", \"completed\"),\n        port_graph.PortRef(\"notes\", \"focus\"),\n      ),\n    ],\n    ports,\n  )\n}",
+      "pub fn local_intent_fans_out_in_edge_order_test() -> Nil {\n  let planned =\n    dispatch.plan(\n      trace_id: \"trace-1\",\n      origin: dispatch.LocalIntent,\n      source: port_graph.PortRef(\"tasks\", \"completed\"),\n      payload: json.string(\"task-42\"),\n      graph: graph(),\n      ports_for: ports,\n    )\n\n  dispatch.deliveries(planned)\n  |> list.map(fn(delivery) { delivery.edge_id })\n  |> expect.to_equal([\"activity\", \"notes\"])\n}",
+      "pub fn replicated_change_produces_no_deliveries_test() -> Nil {\n  dispatch.plan(\n    trace_id: \"trace-2\",\n    origin: dispatch.ReplicatedChange,\n    source: port_graph.PortRef(\"tasks\", \"completed\"),\n    payload: json.string(\"task-42\"),\n    graph: graph(),\n    ports_for: ports,\n  )\n  |> dispatch.deliveries\n  |> expect.to_equal([])\n}",
+      "/// Plan the deliveries for one payload at one output port.\n///\n/// `graph` supplies the effective connections in graph order. `ports_for`\n/// re-reads the current port descriptors for one instance, so the plan\n/// catches a port that a host catalog change removed or changed since the\n/// graph was built. The plan compares the current schema ID of the source\n/// port against the current schema ID of each target port, and it reports\n/// `SchemaChanged` for a target that no longer matches. Returns an empty\n/// plan without reading the graph when `origin` is `ReplicatedChange`.\npub fn plan(\n  trace_id trace_id: String,\n  origin origin: Origin,\n  source source: port_graph.PortRef,\n  payload payload: Json,\n  graph graph: port_graph.EffectiveGraph,\n  ports_for ports_for: fn(String) -> Result(List(port.Descriptor), Nil),\n) -> Plan {\n  case origin {\n    ReplicatedChange -> Plan(deliveries: [], errors: [])\n    LocalIntent ->\n      plan_local_intent(Trace(trace_id), source, payload, graph, ports_for)\n  }\n}",
+      "fn selected() -> port.Output(String) {\n  port.output(\"selected\", \"watershed/task-id@1\", json.string)\n}\n\nfn focus_subject() -> port.Input(String) {\n  port.local_input(\"focus-subject\", \"watershed/task-id@1\", decode.string)\n}\n\nfn append_activity() -> port.Input(String) {\n  port.collaborative_input(\n    \"append-entry\",\n    \"watershed/activity-text@1\",\n    decode.string,\n    [\"sequence:insert\"],\n  )\n}",
+      "/// Link an output port to an input port with the same payload type.\n///\n/// Returns `Error(SchemaMismatch(..))` when the two ports name different\n/// schema IDs, even though the compiler already checked the payload type.\npub fn connect(\n  output: Output(payload),\n  input: Input(payload),\n) -> Result(ConnectionTemplate, PortError) {\n  case output.schema_id == input.schema_id {\n    True ->\n      Ok(ConnectionTemplate(\n        source_port: output.id,\n        target_port: input.id,\n        schema_id: output.schema_id,\n      ))\n    False ->\n      Error(SchemaMismatch(source: output.schema_id, target: input.schema_id))\n  }\n}",
+      "typed component code             erased host boundary\n\nOutput(String) -- encode --> Json\n      |                         |\n      | output_descriptor       | PortRef + connection ID\n      v                         v\nDescriptor ---------> EffectiveGraph ---------> Delivery\n                                                   |\n                         target Input(String) <----+\n                                decode + execute: component runtime",
+      "/// The port metadata a descriptor lists.\npub fn ports(\n  descriptor: Descriptor(context, running),\n) -> List(port.Descriptor) {\n  descriptor.ports\n}",
+      "/// Deliver an encoded payload to one typed input handler.\npub fn deliver(\n  descriptor: Descriptor(context, running),\n  running: running,\n  input_id: String,\n  payload: Json,\n) -> Result(#(running, List(OutputEvent)), ComponentError) {\n  case matching_input(descriptor, input_id) {\n    None ->\n      Error(InputUnavailable(descriptor.kind, descriptor.version, input_id))\n    Some(handler) ->\n      handler.deliver(running, payload)\n      |> result.map_error(fn(reason) {\n        case reason {\n          HandlerInvalidPayload(reason) ->\n            InvalidInputPayload(\n              descriptor.kind,\n              descriptor.version,\n              input_id,\n              reason,\n            )\n          HandlerFailed(reason) ->\n            InputFailed(descriptor.kind, descriptor.version, input_id, reason)\n        }\n      })\n  }\n}"
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "scope": {
+        "display": "inline-block",
+        "padding": "4px 8.8px",
+        "border": "1px solid oklch(0.55 0.21 340)",
+        "color": "oklch(0.44 0.185 340)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "471.203px 471.203px",
+        "gap": "16px",
+        "padding": "64px 64.8px 129.6px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — ports and dispatch",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Watershed's port foundation uses payload types for direct connections, schema IDs for erased graph data, deterministic validation for an acyclic effective graph, and origin-aware dispatch planning."
+      ],
+      [
+        "og:title",
+        "watershed — ports and dispatch"
+      ],
+      [
+        "og:description",
+        "Watershed's port foundation uses payload types for direct connections, schema IDs for erased graph data, deterministic validation for an acyclic effective graph, and origin-aware dispatch planning."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/component-model/ports/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Ports and dispatch",
+    "hero": [
+      "← WATERSHED · COMPONENT MODEL / PORTS AND DISPATCH",
+      "COMPONENT MODEL",
+      "Optional · user-constructable apps",
+      "Let a user connect two parts that were written apart: a port is a named connection point a component publishes, typed while you write it, erased once it is stored, and checked again before every event it carries.",
+      "TRACES OUTPUT · INPUT · EFFECTIVEGRAPH · LOCALINTENT · DELIVERY",
+      "TRACES"
+    ],
+    "headings": [
+      "A port is a component's declared connection point",
+      "Local and collaborative describe the target effect",
+      "Validate the stored graph before dispatch",
+      "Dispatch local intent once",
+      "Planning checks the catalog again",
+      "Typed declarations stay inside component code",
+      "Erase payload types before storage",
+      "The browser runtime follows the whole trace"
+    ],
+    "prose": [
+      "Components are written apart from each other. A task list does not import a notes panel, and neither one knows the other exists. So the wiring between them cannot be code an author writes. It has to be data a user can edit while the application runs.",
+      "A port is what makes that possible. It is a named, typed connection point that a component publishes: an output it can send from, or an input it can receive on. A host reads those declarations, offers the user the connections that are legal, and stores the ones the user makes. Neither component ever names the other.",
+      "One port appears in three forms. A host meets the last two; only a component author meets the first:",
+      "Everything below wires the board from the last sheet, now with two more parts on it: a task list, the notes panel, and an activity log side by side. Click a task in the list, and two things should happen. The notes panel focuses that task. The activity log records that the task was touched.",
+      "A port has two audiences, and this sheet serves them in order. First you use ports: a host reads what the components declare, offers the user the connections that are legal, stores the ones they make, and routes each event. Then you declare them: the typed Gleam an author writes inside one component. Stop after part one if you are wiring components somebody else wrote.",
+      "PART ONE · USING PORTS",
+      "The board's two inputs do different kinds of work. Focusing the notes panel changes only the screen of the person who clicked. Appending to the activity log changes shared state that every peer must see. An input declares which of the two it is.",
+      "LocalInput changes presentation or controller state on the client where the event began: focus a subject, select a row, apply a filter. CollaborativeInput asks the target component on that same client to perform one of its own mutations. Watershed then replicates the resulting channel operation in the normal way.",
+      "The activity log's collaborative declaration lists capabilities such as sequence:insert. A host can show that shared-state effect before it stores a connection. The current foundation records the list. A separate authorization layer must enforce policy.",
+      "The origin client runs a collaborative input. It must submit the target mutation before it disconnects. The server cannot finish a job that no client submitted. Server-run retries would need a separate input class with execution records, idempotency, and authorization.",
+      "A stored connection carries no Gleam types: it is two PortRef values — an instance ID and a port ID each — plus an edge ID. By the time it is read back, the board may have moved on. The connection can name a deleted notes panel, a retired port, or two outputs. Its schemas may no longer match. Two people can also add edges that look safe alone and form a cycle once their connection sets merge.",
+      "port_graph.effective derives the graph a client may use. It applies five rules in order:",
+      "The order is what makes this safe. Two clients that read the same stored set derive the same acyclic result, with no agreement step between them.",
+      "Rejected edges stay in storage. The effective graph returns diagnostics for duplicates, missing instances or ports, wrong directions, schema mismatches, and cycles. A UI can explain the dropped connection without destroying data another client may still understand.",
+      "Now click the task. The click emits the task list's output on one client, and the replicated channel change then arrives at every other client. Both look like the same event. If both dispatch, every observer repeats the activity-log append.",
+      "dispatch.plan makes the origin explicit. A LocalIntent plan follows the effective graph's stable edge order and produces one delivery per edge.",
+      "A ReplicatedChange plan returns no deliveries at all. The echo stops at the graph.",
+      "Each Delivery records the trace, edge ID, target port, target input class, and encoded JSON payload. The trace lets a host join later diagnostics to the click that started them.",
+      "A graph can outlive the descriptor snapshot that validated it. Someone can remove the notes panel between validation and the next click. So dispatch.plan re-reads the source and each target before it creates deliveries.",
+      "A missing or redirected port becomes SourceUnavailable or TargetUnavailable. A changed schema becomes SchemaChanged. Valid sibling edges still produce deliveries, so the activity log still records the click.",
+      "PART TWO · DECLARING PORTS",
+      "From here on you are writing a component. Part one read ports as stored metadata. This is the typed Gleam that metadata comes from.",
+      "The task list sends a typed payload out through an output. The notes panel and the activity log each receive it through an input. Every declaration carries a stable port ID, a stable payload schema ID, and one side of the JSON codec. Gleam keeps the payload type attached while you hold the port.",
+      "The task list's selected output and the notes panel's focus_subject input both carry a String. Both name the same watershed/task-id@1 schema. The compiler rejects a direct connection to Input(Int). port.connect then checks the schema IDs. That catches two string-shaped payloads that mean different things, such as a task ID and a line of activity text.",
+      "The board's wiring outlives the session. It has to be stored, and stored data has no Gleam types. This is where the typed value above becomes the erased metadata part one read. output_descriptor and input_descriptor remove the payload type. They retain the port ID, direction, schema ID, and input class. A mixed component catalog lists this metadata, and a stored graph validates it. The typed input keeps the decoder a host uses when it executes a delivery.",
+      "A component descriptor carries that erased metadata for every port it declares. component.ports is what a host reads to list the notes panel's inputs or to check a stored edge against it, with no payload type in sight.",
+      "The typed values stay inside component code, and they are what actually crosses the boundary. component.emit runs the output's codec before the payload leaves. component.deliver finds the handler that matches the delivered port ID and decodes before component code sees anything.",
+      "Types protect code written together. Descriptors let the host validate data it reads back later — which is every check part one made.",
+      "Watershed's JavaScript component runtime takes the plan from data to execution. For each delivery it:",
+      "A local input changes only the origin's controller state. A collaborative input submits once on the origin. Ordinary channel replication carries the mutation to peers without sending it through the graph again. The workspace layer gives the runtime the persisted manifest and graph it keeps reconciled.",
+      "Gleam checks payload types for direct connections. After type erasure, the host checks schema IDs and descriptors. The effective graph turns an invalid stored edge set into one deterministic acyclic view. Dispatch plans ordered deliveries for local intent and suppresses a replicated echo. Next: how a workspace keeps instances, order, and wiring in one document without throwing unfamiliar data away."
+    ],
+    "lists": [
+      {
+        "type": "ul",
+        "items": [
+          "The typed declaration. An Output(String) or Input(String) that holds the payload type and its codec. Component code holds it.",
+          "The descriptor. The same port with the payload type erased, leaving the port ID, direction, schema ID, and input class. A catalog lists these and a stored graph validates against them.",
+          "The reference. Two strings, an instance ID and a port ID. A stored connection is a pair of these plus an edge ID."
+        ],
+        "height": 377.4
+      },
+      {
+        "type": "ol",
+        "items": [
+          "Sort the stored edges by edge ID.",
+          "Reject every duplicate ID.",
+          "Validate both endpoints against the current catalog.",
+          "Accept each surviving edge in that stable order.",
+          "Stop accepting an edge when it would close a cycle."
+        ],
+        "height": 265.5
+      },
+      {
+        "type": "ul",
+        "items": [
+          "decodes the target payload;",
+          "calls the typed component handler;",
+          "stores the handler's next running value;",
+          "queues any outputs the handler emitted;",
+          "remembers which edges this trace already crossed."
+        ],
+        "height": 211.1
+      }
+    ],
+    "noteGaps": [
+      64
+    ],
+    "links": [
+      [
+        "host",
+        "/component-model/components"
+      ],
+      [
+        "the last sheet",
+        "/component-model/components"
+      ],
+      [
+        "The workspace layer",
+        "/component-model/workspaces"
+      ],
+      [
+        "how a workspace keeps instances, order, and wiring in one document without throwing unfamiliar data away",
+        "/component-model/workspaces"
+      ]
+    ],
+    "pager": [
+      [
+        "← COMPONENTS AND CATALOGS Let users, not the author, decide what is on the page: package each part of the app behind a versioned descriptor so it can be rebuilt from a saved document, and keep unlike parts in one catalog.",
+        "/component-model/components"
+      ],
+      [
+        "WORKSPACES AND INSTANCES → Save the finished board — which parts exist, where they sit, how they are wired — and reopen it safely next year, without deleting the parts this build cannot understand.",
+        "/component-model/workspaces"
+      ]
+    ],
+    "labels": [
+      "src/watershed/port_graph.gleam",
+      "test/watershed/dispatch_test.gleam",
+      "test/watershed/dispatch_test.gleam",
+      "test/watershed/dispatch_test.gleam",
+      "src/watershed/dispatch.gleam",
+      "test/watershed/port_test.gleam",
+      "src/watershed/port.gleam",
+      "component port flow",
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam"
+    ],
+    "captions": [
+      "THE BOARD'S TWO EDGES, STORED AS INSTANCE AND PORT IDS",
+      "AUTHORS KEEP PAYLOAD TYPES; HOSTS STORE METADATA"
+    ],
+    "code": [
+      "/// Read a stored connection list and build the effective graph.\n///\n/// `ports_for` returns the ports of one instance, or `Error(Nil)` when the\n/// instance is not known. The function sorts the list by connection ID, drops\n/// any ID that repeats, checks each remaining connection, and keeps only the\n/// connections that pass and that do not make a cycle.\npub fn effective(\n  stored: List(Connection),\n  ports_for: fn(String) -> Result(List(port.Descriptor), Nil),\n) -> EffectiveGraph {\n  let sorted =\n    list.sort(stored, fn(left, right) {\n      canonical_json.compare(left.id, right.id)\n    })\n  let duplicates = duplicated_ids(sorted)\n  let final =\n    list.fold(sorted, new_state(), fn(state, connection) {\n      step(state, connection, duplicates, ports_for)\n    })\n  EffectiveGraph(\n    connections: list.reverse(final.accepted),\n    errors: list.reverse(final.errors),\n  )\n}",
+      "fn ports(instance_id: String) -> Result(List(port.Descriptor), Nil) {\n  case instance_id {\n    \"tasks\" -> Ok([port.Descriptor(\"completed\", port.OutputPort, \"task@1\")])\n    \"activity\" ->\n      Ok([\n        port.Descriptor(\n          \"append\",\n          port.InputPort(\n            port.CollaborativeInput(capabilities: [\"sequence:insert\"]),\n          ),\n          \"task@1\",\n        ),\n      ])\n    \"notes\" ->\n      Ok([port.Descriptor(\"focus\", port.InputPort(port.LocalInput), \"task@1\")])\n    _ -> Error(Nil)\n  }\n}\n\nfn graph() -> port_graph.EffectiveGraph {\n  port_graph.effective(\n    [\n      port_graph.connection(\n        \"activity\",\n        port_graph.PortRef(\"tasks\", \"completed\"),\n        port_graph.PortRef(\"activity\", \"append\"),\n      ),\n      port_graph.connection(\n        \"notes\",\n        port_graph.PortRef(\"tasks\", \"completed\"),\n        port_graph.PortRef(\"notes\", \"focus\"),\n      ),\n    ],\n    ports,\n  )\n}",
+      "pub fn local_intent_fans_out_in_edge_order_test() -> Nil {\n  let planned =\n    dispatch.plan(\n      trace_id: \"trace-1\",\n      origin: dispatch.LocalIntent,\n      source: port_graph.PortRef(\"tasks\", \"completed\"),\n      payload: json.string(\"task-42\"),\n      graph: graph(),\n      ports_for: ports,\n    )\n\n  dispatch.deliveries(planned)\n  |> list.map(fn(delivery) { delivery.edge_id })\n  |> expect.to_equal([\"activity\", \"notes\"])\n}",
+      "pub fn replicated_change_produces_no_deliveries_test() -> Nil {\n  dispatch.plan(\n    trace_id: \"trace-2\",\n    origin: dispatch.ReplicatedChange,\n    source: port_graph.PortRef(\"tasks\", \"completed\"),\n    payload: json.string(\"task-42\"),\n    graph: graph(),\n    ports_for: ports,\n  )\n  |> dispatch.deliveries\n  |> expect.to_equal([])\n}",
+      "/// Plan the deliveries for one payload at one output port.\n///\n/// `graph` supplies the effective connections in graph order. `ports_for`\n/// re-reads the current port descriptors for one instance, so the plan\n/// catches a port that a host catalog change removed or changed since the\n/// graph was built. The plan compares the current schema ID of the source\n/// port against the current schema ID of each target port, and it reports\n/// `SchemaChanged` for a target that no longer matches. Returns an empty\n/// plan without reading the graph when `origin` is `ReplicatedChange`.\npub fn plan(\n  trace_id trace_id: String,\n  origin origin: Origin,\n  source source: port_graph.PortRef,\n  payload payload: Json,\n  graph graph: port_graph.EffectiveGraph,\n  ports_for ports_for: fn(String) -> Result(List(port.Descriptor), Nil),\n) -> Plan {\n  case origin {\n    ReplicatedChange -> Plan(deliveries: [], errors: [])\n    LocalIntent ->\n      plan_local_intent(Trace(trace_id), source, payload, graph, ports_for)\n  }\n}",
+      "fn selected() -> port.Output(String) {\n  port.output(\"selected\", \"watershed/task-id@1\", json.string)\n}\n\nfn focus_subject() -> port.Input(String) {\n  port.local_input(\"focus-subject\", \"watershed/task-id@1\", decode.string)\n}\n\nfn append_activity() -> port.Input(String) {\n  port.collaborative_input(\n    \"append-entry\",\n    \"watershed/activity-text@1\",\n    decode.string,\n    [\"sequence:insert\"],\n  )\n}",
+      "/// Link an output port to an input port with the same payload type.\n///\n/// Returns `Error(SchemaMismatch(..))` when the two ports name different\n/// schema IDs, even though the compiler already checked the payload type.\npub fn connect(\n  output: Output(payload),\n  input: Input(payload),\n) -> Result(ConnectionTemplate, PortError) {\n  case output.schema_id == input.schema_id {\n    True ->\n      Ok(ConnectionTemplate(\n        source_port: output.id,\n        target_port: input.id,\n        schema_id: output.schema_id,\n      ))\n    False ->\n      Error(SchemaMismatch(source: output.schema_id, target: input.schema_id))\n  }\n}",
+      "typed component code             erased host boundary\n\nOutput(String) -- encode --> Json\n      |                         |\n      | output_descriptor       | PortRef + connection ID\n      v                         v\nDescriptor ---------> EffectiveGraph ---------> Delivery\n                                                   |\n                         target Input(String) <----+\n                                decode + execute: component runtime",
+      "/// The port metadata a descriptor lists.\npub fn ports(\n  descriptor: Descriptor(context, running),\n) -> List(port.Descriptor) {\n  descriptor.ports\n}",
+      "/// Deliver an encoded payload to one typed input handler.\npub fn deliver(\n  descriptor: Descriptor(context, running),\n  running: running,\n  input_id: String,\n  payload: Json,\n) -> Result(#(running, List(OutputEvent)), ComponentError) {\n  case matching_input(descriptor, input_id) {\n    None ->\n      Error(InputUnavailable(descriptor.kind, descriptor.version, input_id))\n    Some(handler) ->\n      handler.deliver(running, payload)\n      |> result.map_error(fn(reason) {\n        case reason {\n          HandlerInvalidPayload(reason) ->\n            InvalidInputPayload(\n              descriptor.kind,\n              descriptor.version,\n              input_id,\n              reason,\n            )\n          HandlerFailed(reason) ->\n            InputFailed(descriptor.kind, descriptor.version, input_id, reason)\n        }\n      })\n  }\n}"
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "33.15px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "32.8185px"
+      },
+      "scope": {
+        "display": "inline-block",
+        "padding": "4px 8.8px",
+        "border": "1px solid oklch(0.55 0.21 340)",
+        "color": "oklch(0.44 0.185 340)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "16px",
+        "padding": "64px 20px 72px"
+      }
+    }
+  }
+}

@@ -56,6 +56,11 @@
   letter-spacing: 0.03em;
 }
 
+.fd-scope-optional {
+  border-color: var(--overprint);
+  color: var(--overprint-deep);
+}
+
 .fd-concept {
   margin-top: var(--space-lg);
   color: var(--waterline);

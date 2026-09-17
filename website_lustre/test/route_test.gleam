@@ -137,6 +137,24 @@ pub fn foundations_detail_routes_use_the_shared_concept_sheet_test() {
   })
 }
 
+pub fn component_model_detail_routes_use_the_shared_concept_sheet_test() {
+  [
+    #("components", "content/component-model/components.djot"),
+    #("ports", "content/component-model/ports.djot"),
+    #("workspaces", "content/component-model/workspaces.djot"),
+  ]
+  |> list.each(fn(expected) {
+    let assert Ok(item) =
+      route.all()
+      |> list.find(fn(item) { item.path == "/component-model/" <> expected.0 })
+    item.layout |> should.equal(route.ConceptSheet)
+    item.content_path |> should.equal(expected.1)
+    item.client_script |> should.equal(None)
+    route.stylesheets(item)
+    |> should.equal(["/styles/site.css", "/styles/concept-sheet.css"])
+  })
+}
+
 pub fn duplicate_paths_report_both_sources_test() {
   let first = route.guide_race()
   let second = route.Route(..first, content_path: "other.djot")

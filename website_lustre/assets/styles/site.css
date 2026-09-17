@@ -247,6 +247,12 @@ samp {
   line-height: 1.6;
 }
 
+.doc-body li > p {
+  margin: 0;
+  max-width: none;
+  line-height: inherit;
+}
+
 .doc-body li::marker {
   color: var(--overprint);
 }
@@ -330,6 +336,10 @@ samp {
 
 .doc-body .g-note strong {
   color: var(--overprint-deep);
+}
+
+.doc-body .g-note + .g-block {
+  margin-top: var(--space-2xl);
 }
 
 /* outcome: the "you can now" close of a sheet */

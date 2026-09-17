@@ -157,7 +157,9 @@ fn decode_metadata(
           "concept: Unknown foundation: " <> slug,
         )),
       )
-      case route.path == "/foundations/" <> slug {
+      let foundations.Section(path: section_path, ..) =
+        foundations.section(slug)
+      case route.path == section_path <> "/" <> slug {
         True -> Ok(ConceptSheet(doc))
         False ->
           Error(error.InvalidFrontmatter(

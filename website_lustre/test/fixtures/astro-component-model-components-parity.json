@@ -1,0 +1,442 @@
+{
+  "desktop": {
+    "title": "watershed — components and catalogs",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "A component is one self-contained part of an application. Watershed describes reusable component kinds with versioned descriptors that hide config types behind decoders and start closures, while one catalog gives the host a common context, running value, port list, and precise lookup errors."
+      ],
+      [
+        "og:title",
+        "watershed — components and catalogs"
+      ],
+      [
+        "og:description",
+        "A component is one self-contained part of an application. Watershed describes reusable component kinds with versioned descriptors that hide config types behind decoders and start closures, while one catalog gives the host a common context, running value, port list, and precise lookup errors."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/component-model/components/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Components and catalogs",
+    "hero": [
+      "← WATERSHED · COMPONENT MODEL / COMPONENTS AND CATALOGS",
+      "COMPONENT MODEL",
+      "Optional · user-constructable apps",
+      "Let users, not the author, decide what is on the page: package each part of the app behind a versioned descriptor so it can be rebuilt from a saved document, and keep unlike parts in one catalog.",
+      "TRACES DESCRIPTOR · CATALOG · REGISTER · FIND · START",
+      "TRACES"
+    ],
+    "headings": [
+      "Why a components layer exists",
+      "One catalog, exact versions",
+      "Validation and startup stay separate",
+      "A descriptor is the catalog boundary",
+      "Each component keeps its config type",
+      "The workspace carries the definitions forward"
+    ],
+    "prose": [
+      "Picture a board that two people build together while they watch it: one of them drops a notes panel on the left, puts a vote counter beside it, and connects the counter to the panel. Nobody wrote that arrangement in code. The people using the application made it, and it must look the same to everyone who opens the board tomorrow.",
+      "A component is one part of a board like that: a notes panel, a counter, a task list. It keeps its own state in its own channel of the shared document, draws its own view, and knows nothing about what else is on screen. The same kind can appear many times with different settings — one counter that steps by 5, another that steps by 1 — and every copy of the board converges the same way the rest of watershed does.",
+      "A part like that cannot be a function the author calls. The arrangement is data the users edit, and it outlives the session that made it. So the application must build each part from stored JSON, months later, from code that has changed since.",
+      "A descriptor is that recipe: everything needed to turn stored JSON into one running part, and back. Package a component once, and the rest of watershed can:",
+      "One word runs through this sheet and the two after it: the host. The host is the program that embeds watershed and puts the board on screen, meaning your application shell, not a server. It owns the set of component kinds it can build, decides which versions it accepts, mounts the views, and supplies whatever context every component needs to start. Watershed defines the contract. The host is the program around it.",
+      "That makes two jobs, and this sheet does them in that order. First you use components: the host holds a catalog of kinds and builds instances from stored config. Then you write one: a single component packaged so a host it never meets can build it. Stop after part one if you are assembling a board out of components somebody else wrote.",
+      "This board carries through three sheets. Here it gets its parts: the next sheet adds a task list and an activity log and wires them together, and the one after saves the finished board so tomorrow's tab opens it.",
+      "If your application ships one screen that you lay out yourself, you do not need any of this: declare your channels in the schema and stop there. All three sheets are for the case where the user, not the author, decides what is on the page.",
+      "PART ONE · USING COMPONENTS",
+      "A host holds one descriptor for each kind it can build. Treat a descriptor as opaque for now: it is one component kind packaged so the host can build it without knowing what it is. Part two writes one.",
+      "A catalog keys each descriptor by its stable kind and integer format version. Several versions of one kind can coexist. Registering the same pair twice returns DuplicateRegistration.",
+      "Registration is where the notes panel and the counter land in the same structure for the first time.",
+      "Lookup requires the requested version, and that exactness buys two useful failure states. NotRegistered(kind) means the host knows no version of the kind at all. UnsupportedVersion(kind, requested, available) means it can name the versions it does know. A host can report the missing kind or the unsupported version without guessing which one went wrong.",
+      "The catalog requires an exact version. Register an older descriptor when a host still supports it. The host owns migration and any fallback or code-loading policy.",
+      "Checking that stored config is readable and actually running a component are different jobs. A manifest reader wants the first without the second.",
+      "validate_config runs the descriptor's decoder and stops there. A builder or manifest reader can check stored JSON without opening subscriptions or creating a running component.",
+      "start decodes the same JSON, then calls the typed start closure. Readiness waits for that closure's callback, so channel bootstrap and subscriptions can finish first.",
+      "Because the two stay separate, the error tells you which side failed:",
+      "Input decoding, input handling, output validation, and cleanup keep their own errors too. The runtime never has to flatten a lifecycle failure into “component failed.”",
+      "PART TWO · WRITING A COMPONENT",
+      "From here on you are writing a component, not placing one. Everything above treated the descriptor as opaque. This is what is inside it, and why it has to hide what it hides.",
+      "Two kinds run through this sheet: a notes panel and a counter. A host that holds both descriptors can build either one from stored JSON, without knowing what either one is.",
+      "Their configuration is where the uniformity breaks. Notes needs a placeholder string. The counter needs an integer step. Gleam requires one type for all values in a catalog, and a broad config union would expose each component's private choices to the host.",
+      "Descriptor(context, running) keeps the config type out of its public type. The descriptor holds the decoder, callback-completed start closure, typed input handlers, and cleanup closure that know that type. The catalog sees only the two types every component in one host must share: what the host passes in, and what it gets back. It also carries erased port metadata, which the next sheet picks up.",
+      "You still write ordinary typed Gleam inside a component. The notes definition decodes JSON into NotesConfig, then starts with that exact type. component.descriptor closes over both functions and removes the config type from the host-facing API.",
+      "The two String parameters in the return type are the host contract in this test. A string context goes in and a string running value comes back. The counter descriptor hides a different config type behind the same two parameters.",
+      "Use this module to define descriptors, build catalogs, validate config, look up versions, start and stop instances, and execute typed handlers. The workspace layer persists instances and assigns their child maps. The JavaScript component runtime reconciles those definitions, owns their lifecycle, and executes port deliveries. The host still mounts views and owns migration policy.",
+      "A descriptor hides one component's config type behind its decoder and start and cleanup closures. A catalog keeps those unlike definitions together under one host contract, looks them up by exact kind and version, and exposes their erased port metadata and typed handlers. Next: how those ports become a checked graph and an origin-aware dispatch trace."
+    ],
+    "lists": [
+      {
+        "type": "ul",
+        "items": [
+          "Rebuild it from a saved board, with the settings the user chose.",
+          "Check a stored board before it runs anything, and name the exact part that is wrong.",
+          "Run last year's version beside this year's, because each descriptor states its own format version.",
+          "Let a user connect two parts that were written apart, because their ports are listed data."
+        ],
+        "height": 226.3
+      },
+      {
+        "type": "ul",
+        "items": [
+          "InvalidConfig reports the kind, version, and JSON decode error. The stored config is wrong.",
+          "StartFailed reports the same identity plus the reason component code returned. The config was fine and the component could not start."
+        ],
+        "height": 120.8
+      }
+    ],
+    "noteGaps": [
+      64
+    ],
+    "links": [
+      [
+        "ports",
+        "/component-model/ports"
+      ],
+      [
+        "the next sheet",
+        "/component-model/ports"
+      ],
+      [
+        "the one after",
+        "/component-model/workspaces"
+      ],
+      [
+        "the schema",
+        "/foundations/schema"
+      ],
+      [
+        "the next sheet",
+        "/component-model/ports"
+      ],
+      [
+        "The workspace layer",
+        "/component-model/workspaces"
+      ],
+      [
+        "how those ports become a checked graph and an origin-aware dispatch trace",
+        "/component-model/ports"
+      ]
+    ],
+    "pager": [
+      [
+        "← INDEX All component model sheets",
+        "/component-model"
+      ],
+      [
+        "PORTS AND DISPATCH → Let a user connect two parts that were written apart: a port is a named connection point a component publishes, typed while you write it, erased once it is stored, and checked again before every event it carries.",
+        "/component-model/ports"
+      ]
+    ],
+    "labels": [
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam",
+      "test/watershed/component_test.gleam",
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam",
+      "test/watershed/component_test.gleam"
+    ],
+    "captions": [
+      "NOTES AND COUNTER CONFIGS DIFFER; THE HOST CONTRACT MATCHES"
+    ],
+    "code": [
+      "/// A set of registered descriptors, keyed by kind and version.\n///\n/// Every descriptor in one catalog shares the same `context` and `running`\n/// types, but each descriptor can hide a different config type.\npub opaque type Catalog(context, running) {\n  Catalog(entries: Dict(#(String, Int), Descriptor(context, running)))\n}",
+      "/// Add a descriptor to a catalog.\n///\n/// Returns `Error(DuplicateRegistration(..))` when the catalog already\n/// holds a descriptor with the same kind and version.\npub fn register(\n  catalog: Catalog(context, running),\n  descriptor: Descriptor(context, running),\n) -> Result(Catalog(context, running), RegistrationError) {\n  let key = #(descriptor.kind, descriptor.version)\n  case dict.has_key(catalog.entries, key) {\n    True -> Error(DuplicateRegistration(descriptor.kind, descriptor.version))\n    False -> Ok(Catalog(entries: dict.insert(catalog.entries, key, descriptor)))\n  }\n}",
+      "pub fn catalog_holds_different_config_types_test() -> Nil {\n  let assert Ok(with_notes) =\n    component.register(component.new_catalog(), notes_descriptor())\n  let assert Ok(catalog) = component.register(with_notes, counter_descriptor())\n\n  component.find(catalog, \"watershed/notes\", 1)\n  |> result.map(component.kind)\n  |> expect.to_equal(Ok(\"watershed/notes\"))\n}",
+      "/// Find a descriptor in a catalog by kind and version.\n///\n/// Returns `Error(NotRegistered(kind))` when the catalog holds no version of\n/// the kind. Returns `Error(UnsupportedVersion(..))` when the catalog holds\n/// the kind at other versions. The two errors let a caller show the correct\n/// cause to a user: this host does not know the kind, or this host does not\n/// register the requested version.\npub fn find(\n  catalog: Catalog(context, running),\n  kind: String,\n  version: Int,\n) -> Result(Descriptor(context, running), LookupError) {\n  case dict.get(catalog.entries, #(kind, version)) {\n    Ok(descriptor) -> Ok(descriptor)\n    Error(Nil) ->\n      case registered_versions(catalog, kind) {\n        [] -> Error(NotRegistered(kind))\n        available -> Error(UnsupportedVersion(kind, version, available))\n      }\n  }\n}",
+      "/// Check config JSON against a descriptor's decoder, without starting the\n/// component.\npub fn validate_config(\n  descriptor: Descriptor(context, running),\n  config: Json,\n) -> Result(Nil, ComponentError) {\n  descriptor.validate_config(config)\n}",
+      "/// Decode config JSON and start one running instance of a descriptor's\n/// component.\n///\n/// Returns `Error(InvalidConfig(..))` when the config JSON does not match\n/// the descriptor's decoder, or `Error(StartFailed(..))` when the decoded\n/// config is valid but the component's start function fails.\npub fn start(\n  descriptor: Descriptor(context, running),\n  context: context,\n  config: Json,\n  done: fn(Result(running, ComponentError)) -> Nil,\n) -> Nil {\n  descriptor.start(context, config, done)\n}",
+      "/// Build an executable descriptor for one component kind.\n///\n/// `start_component` calls `done` after the component has bootstrapped its\n/// channels and installed its required subscriptions. The runtime does not\n/// mark the instance ready before that callback.\n///\n/// `inputs` must contain the handlers for the input descriptors in `ports`.\n/// Delivery rejects a missing handler or metadata that does not match the\n/// handler's typed port.\npub fn executable_descriptor(\n  kind kind: String,\n  version version: Int,\n  config_decoder config_decoder: Decoder(config),\n  start start_component: fn(context, config, fn(Result(running, String)) -> Nil) ->\n    Nil,\n  inputs inputs: List(InputHandler(running)),\n  stop stop_component: fn(running) -> Result(Nil, String),\n  ports ports: List(port.Descriptor),\n) -> Descriptor(context, running) {\n  let decode_config = fn(encoded: Json) {\n    case json.parse(json.to_string(encoded), config_decoder) {\n      Ok(config) -> Ok(config)\n      Error(reason) -> Error(InvalidConfig(kind, version, reason))\n    }\n  }\n\n  Descriptor(\n    kind: kind,\n    version: version,\n    ports: ports,\n    validate_config: fn(encoded) {\n      decode_config(encoded)\n      |> result.map(fn(_) { Nil })\n    },\n    start: fn(context, encoded, done) {\n      case decode_config(encoded) {\n        Error(reason) -> done(Error(reason))\n        Ok(config) ->\n          start_component(context, config, fn(started) {\n            done(\n              started\n              |> result.map_error(fn(reason) {\n                StartFailed(kind, version, reason)\n              }),\n            )\n          })\n      }\n    },\n    inputs: inputs,\n    stop: fn(running) {\n      stop_component(running)\n      |> result.map_error(fn(reason) { StopFailed(kind, version, reason) })\n    },\n  )\n}",
+      "/// One component kind's start function, port list, and config decoder.\n///\n/// The `config` type parameter stays hidden: two descriptors with\n/// different config types can share one `Catalog(context, running)`, because\n/// `config` never appears in this type's public signature.\npub opaque type Descriptor(context, running) {\n  Descriptor(\n    kind: String,\n    version: Int,\n    ports: List(port.Descriptor),\n    validate_config: fn(Json) -> Result(Nil, ComponentError),\n    start: fn(context, Json, fn(Result(running, ComponentError)) -> Nil) -> Nil,\n    inputs: List(InputHandler(running)),\n    stop: fn(running) -> Result(Nil, ComponentError),\n  )\n}",
+      "fn notes_decoder() -> decode.Decoder(NotesConfig) {\n  use placeholder <- decode.field(\"placeholder\", decode.string)\n  decode.success(NotesConfig(placeholder: placeholder))\n}\n\nfn notes_descriptor() -> component.Descriptor(String, String) {\n  component.descriptor(\n    kind: \"watershed/notes\",\n    version: 1,\n    config_decoder: notes_decoder(),\n    start: fn(context, config) { Ok(context <> \":\" <> config.placeholder) },\n    ports: [\n      port.output_descriptor(port.output(\"selected\", \"subject@1\", json.string)),\n    ],\n  )\n}"
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "scope": {
+        "display": "inline-block",
+        "padding": "4px 8.8px",
+        "border": "1px solid oklch(0.55 0.21 340)",
+        "color": "oklch(0.44 0.185 340)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "471.203px 471.203px",
+        "gap": "16px",
+        "padding": "64px 64.8px 129.6px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — components and catalogs",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "A component is one self-contained part of an application. Watershed describes reusable component kinds with versioned descriptors that hide config types behind decoders and start closures, while one catalog gives the host a common context, running value, port list, and precise lookup errors."
+      ],
+      [
+        "og:title",
+        "watershed — components and catalogs"
+      ],
+      [
+        "og:description",
+        "A component is one self-contained part of an application. Watershed describes reusable component kinds with versioned descriptors that hide config types behind decoders and start closures, while one catalog gives the host a common context, running value, port list, and precise lookup errors."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/component-model/components/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Components and catalogs",
+    "hero": [
+      "← WATERSHED · COMPONENT MODEL / COMPONENTS AND CATALOGS",
+      "COMPONENT MODEL",
+      "Optional · user-constructable apps",
+      "Let users, not the author, decide what is on the page: package each part of the app behind a versioned descriptor so it can be rebuilt from a saved document, and keep unlike parts in one catalog.",
+      "TRACES DESCRIPTOR · CATALOG · REGISTER · FIND · START",
+      "TRACES"
+    ],
+    "headings": [
+      "Why a components layer exists",
+      "One catalog, exact versions",
+      "Validation and startup stay separate",
+      "A descriptor is the catalog boundary",
+      "Each component keeps its config type",
+      "The workspace carries the definitions forward"
+    ],
+    "prose": [
+      "Picture a board that two people build together while they watch it: one of them drops a notes panel on the left, puts a vote counter beside it, and connects the counter to the panel. Nobody wrote that arrangement in code. The people using the application made it, and it must look the same to everyone who opens the board tomorrow.",
+      "A component is one part of a board like that: a notes panel, a counter, a task list. It keeps its own state in its own channel of the shared document, draws its own view, and knows nothing about what else is on screen. The same kind can appear many times with different settings — one counter that steps by 5, another that steps by 1 — and every copy of the board converges the same way the rest of watershed does.",
+      "A part like that cannot be a function the author calls. The arrangement is data the users edit, and it outlives the session that made it. So the application must build each part from stored JSON, months later, from code that has changed since.",
+      "A descriptor is that recipe: everything needed to turn stored JSON into one running part, and back. Package a component once, and the rest of watershed can:",
+      "One word runs through this sheet and the two after it: the host. The host is the program that embeds watershed and puts the board on screen, meaning your application shell, not a server. It owns the set of component kinds it can build, decides which versions it accepts, mounts the views, and supplies whatever context every component needs to start. Watershed defines the contract. The host is the program around it.",
+      "That makes two jobs, and this sheet does them in that order. First you use components: the host holds a catalog of kinds and builds instances from stored config. Then you write one: a single component packaged so a host it never meets can build it. Stop after part one if you are assembling a board out of components somebody else wrote.",
+      "This board carries through three sheets. Here it gets its parts: the next sheet adds a task list and an activity log and wires them together, and the one after saves the finished board so tomorrow's tab opens it.",
+      "If your application ships one screen that you lay out yourself, you do not need any of this: declare your channels in the schema and stop there. All three sheets are for the case where the user, not the author, decides what is on the page.",
+      "PART ONE · USING COMPONENTS",
+      "A host holds one descriptor for each kind it can build. Treat a descriptor as opaque for now: it is one component kind packaged so the host can build it without knowing what it is. Part two writes one.",
+      "A catalog keys each descriptor by its stable kind and integer format version. Several versions of one kind can coexist. Registering the same pair twice returns DuplicateRegistration.",
+      "Registration is where the notes panel and the counter land in the same structure for the first time.",
+      "Lookup requires the requested version, and that exactness buys two useful failure states. NotRegistered(kind) means the host knows no version of the kind at all. UnsupportedVersion(kind, requested, available) means it can name the versions it does know. A host can report the missing kind or the unsupported version without guessing which one went wrong.",
+      "The catalog requires an exact version. Register an older descriptor when a host still supports it. The host owns migration and any fallback or code-loading policy.",
+      "Checking that stored config is readable and actually running a component are different jobs. A manifest reader wants the first without the second.",
+      "validate_config runs the descriptor's decoder and stops there. A builder or manifest reader can check stored JSON without opening subscriptions or creating a running component.",
+      "start decodes the same JSON, then calls the typed start closure. Readiness waits for that closure's callback, so channel bootstrap and subscriptions can finish first.",
+      "Because the two stay separate, the error tells you which side failed:",
+      "Input decoding, input handling, output validation, and cleanup keep their own errors too. The runtime never has to flatten a lifecycle failure into “component failed.”",
+      "PART TWO · WRITING A COMPONENT",
+      "From here on you are writing a component, not placing one. Everything above treated the descriptor as opaque. This is what is inside it, and why it has to hide what it hides.",
+      "Two kinds run through this sheet: a notes panel and a counter. A host that holds both descriptors can build either one from stored JSON, without knowing what either one is.",
+      "Their configuration is where the uniformity breaks. Notes needs a placeholder string. The counter needs an integer step. Gleam requires one type for all values in a catalog, and a broad config union would expose each component's private choices to the host.",
+      "Descriptor(context, running) keeps the config type out of its public type. The descriptor holds the decoder, callback-completed start closure, typed input handlers, and cleanup closure that know that type. The catalog sees only the two types every component in one host must share: what the host passes in, and what it gets back. It also carries erased port metadata, which the next sheet picks up.",
+      "You still write ordinary typed Gleam inside a component. The notes definition decodes JSON into NotesConfig, then starts with that exact type. component.descriptor closes over both functions and removes the config type from the host-facing API.",
+      "The two String parameters in the return type are the host contract in this test. A string context goes in and a string running value comes back. The counter descriptor hides a different config type behind the same two parameters.",
+      "Use this module to define descriptors, build catalogs, validate config, look up versions, start and stop instances, and execute typed handlers. The workspace layer persists instances and assigns their child maps. The JavaScript component runtime reconciles those definitions, owns their lifecycle, and executes port deliveries. The host still mounts views and owns migration policy.",
+      "A descriptor hides one component's config type behind its decoder and start and cleanup closures. A catalog keeps those unlike definitions together under one host contract, looks them up by exact kind and version, and exposes their erased port metadata and typed handlers. Next: how those ports become a checked graph and an origin-aware dispatch trace."
+    ],
+    "lists": [
+      {
+        "type": "ul",
+        "items": [
+          "Rebuild it from a saved board, with the settings the user chose.",
+          "Check a stored board before it runs anything, and name the exact part that is wrong.",
+          "Run last year's version beside this year's, because each descriptor states its own format version.",
+          "Let a user connect two parts that were written apart, because their ports are listed data."
+        ],
+        "height": 335.1
+      },
+      {
+        "type": "ul",
+        "items": [
+          "InvalidConfig reports the kind, version, and JSON decode error. The stored config is wrong.",
+          "StartFailed reports the same identity plus the reason component code returned. The config was fine and the component could not start."
+        ],
+        "height": 202.3
+      }
+    ],
+    "noteGaps": [
+      64
+    ],
+    "links": [
+      [
+        "ports",
+        "/component-model/ports"
+      ],
+      [
+        "the next sheet",
+        "/component-model/ports"
+      ],
+      [
+        "the one after",
+        "/component-model/workspaces"
+      ],
+      [
+        "the schema",
+        "/foundations/schema"
+      ],
+      [
+        "the next sheet",
+        "/component-model/ports"
+      ],
+      [
+        "The workspace layer",
+        "/component-model/workspaces"
+      ],
+      [
+        "how those ports become a checked graph and an origin-aware dispatch trace",
+        "/component-model/ports"
+      ]
+    ],
+    "pager": [
+      [
+        "← INDEX All component model sheets",
+        "/component-model"
+      ],
+      [
+        "PORTS AND DISPATCH → Let a user connect two parts that were written apart: a port is a named connection point a component publishes, typed while you write it, erased once it is stored, and checked again before every event it carries.",
+        "/component-model/ports"
+      ]
+    ],
+    "labels": [
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam",
+      "test/watershed/component_test.gleam",
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam",
+      "src/watershed/component.gleam",
+      "test/watershed/component_test.gleam"
+    ],
+    "captions": [
+      "NOTES AND COUNTER CONFIGS DIFFER; THE HOST CONTRACT MATCHES"
+    ],
+    "code": [
+      "/// A set of registered descriptors, keyed by kind and version.\n///\n/// Every descriptor in one catalog shares the same `context` and `running`\n/// types, but each descriptor can hide a different config type.\npub opaque type Catalog(context, running) {\n  Catalog(entries: Dict(#(String, Int), Descriptor(context, running)))\n}",
+      "/// Add a descriptor to a catalog.\n///\n/// Returns `Error(DuplicateRegistration(..))` when the catalog already\n/// holds a descriptor with the same kind and version.\npub fn register(\n  catalog: Catalog(context, running),\n  descriptor: Descriptor(context, running),\n) -> Result(Catalog(context, running), RegistrationError) {\n  let key = #(descriptor.kind, descriptor.version)\n  case dict.has_key(catalog.entries, key) {\n    True -> Error(DuplicateRegistration(descriptor.kind, descriptor.version))\n    False -> Ok(Catalog(entries: dict.insert(catalog.entries, key, descriptor)))\n  }\n}",
+      "pub fn catalog_holds_different_config_types_test() -> Nil {\n  let assert Ok(with_notes) =\n    component.register(component.new_catalog(), notes_descriptor())\n  let assert Ok(catalog) = component.register(with_notes, counter_descriptor())\n\n  component.find(catalog, \"watershed/notes\", 1)\n  |> result.map(component.kind)\n  |> expect.to_equal(Ok(\"watershed/notes\"))\n}",
+      "/// Find a descriptor in a catalog by kind and version.\n///\n/// Returns `Error(NotRegistered(kind))` when the catalog holds no version of\n/// the kind. Returns `Error(UnsupportedVersion(..))` when the catalog holds\n/// the kind at other versions. The two errors let a caller show the correct\n/// cause to a user: this host does not know the kind, or this host does not\n/// register the requested version.\npub fn find(\n  catalog: Catalog(context, running),\n  kind: String,\n  version: Int,\n) -> Result(Descriptor(context, running), LookupError) {\n  case dict.get(catalog.entries, #(kind, version)) {\n    Ok(descriptor) -> Ok(descriptor)\n    Error(Nil) ->\n      case registered_versions(catalog, kind) {\n        [] -> Error(NotRegistered(kind))\n        available -> Error(UnsupportedVersion(kind, version, available))\n      }\n  }\n}",
+      "/// Check config JSON against a descriptor's decoder, without starting the\n/// component.\npub fn validate_config(\n  descriptor: Descriptor(context, running),\n  config: Json,\n) -> Result(Nil, ComponentError) {\n  descriptor.validate_config(config)\n}",
+      "/// Decode config JSON and start one running instance of a descriptor's\n/// component.\n///\n/// Returns `Error(InvalidConfig(..))` when the config JSON does not match\n/// the descriptor's decoder, or `Error(StartFailed(..))` when the decoded\n/// config is valid but the component's start function fails.\npub fn start(\n  descriptor: Descriptor(context, running),\n  context: context,\n  config: Json,\n  done: fn(Result(running, ComponentError)) -> Nil,\n) -> Nil {\n  descriptor.start(context, config, done)\n}",
+      "/// Build an executable descriptor for one component kind.\n///\n/// `start_component` calls `done` after the component has bootstrapped its\n/// channels and installed its required subscriptions. The runtime does not\n/// mark the instance ready before that callback.\n///\n/// `inputs` must contain the handlers for the input descriptors in `ports`.\n/// Delivery rejects a missing handler or metadata that does not match the\n/// handler's typed port.\npub fn executable_descriptor(\n  kind kind: String,\n  version version: Int,\n  config_decoder config_decoder: Decoder(config),\n  start start_component: fn(context, config, fn(Result(running, String)) -> Nil) ->\n    Nil,\n  inputs inputs: List(InputHandler(running)),\n  stop stop_component: fn(running) -> Result(Nil, String),\n  ports ports: List(port.Descriptor),\n) -> Descriptor(context, running) {\n  let decode_config = fn(encoded: Json) {\n    case json.parse(json.to_string(encoded), config_decoder) {\n      Ok(config) -> Ok(config)\n      Error(reason) -> Error(InvalidConfig(kind, version, reason))\n    }\n  }\n\n  Descriptor(\n    kind: kind,\n    version: version,\n    ports: ports,\n    validate_config: fn(encoded) {\n      decode_config(encoded)\n      |> result.map(fn(_) { Nil })\n    },\n    start: fn(context, encoded, done) {\n      case decode_config(encoded) {\n        Error(reason) -> done(Error(reason))\n        Ok(config) ->\n          start_component(context, config, fn(started) {\n            done(\n              started\n              |> result.map_error(fn(reason) {\n                StartFailed(kind, version, reason)\n              }),\n            )\n          })\n      }\n    },\n    inputs: inputs,\n    stop: fn(running) {\n      stop_component(running)\n      |> result.map_error(fn(reason) { StopFailed(kind, version, reason) })\n    },\n  )\n}",
+      "/// One component kind's start function, port list, and config decoder.\n///\n/// The `config` type parameter stays hidden: two descriptors with\n/// different config types can share one `Catalog(context, running)`, because\n/// `config` never appears in this type's public signature.\npub opaque type Descriptor(context, running) {\n  Descriptor(\n    kind: String,\n    version: Int,\n    ports: List(port.Descriptor),\n    validate_config: fn(Json) -> Result(Nil, ComponentError),\n    start: fn(context, Json, fn(Result(running, ComponentError)) -> Nil) -> Nil,\n    inputs: List(InputHandler(running)),\n    stop: fn(running) -> Result(Nil, ComponentError),\n  )\n}",
+      "fn notes_decoder() -> decode.Decoder(NotesConfig) {\n  use placeholder <- decode.field(\"placeholder\", decode.string)\n  decode.success(NotesConfig(placeholder: placeholder))\n}\n\nfn notes_descriptor() -> component.Descriptor(String, String) {\n  component.descriptor(\n    kind: \"watershed/notes\",\n    version: 1,\n    config_decoder: notes_decoder(),\n    start: fn(context, config) { Ok(context <> \":\" <> config.placeholder) },\n    ports: [\n      port.output_descriptor(port.output(\"selected\", \"subject@1\", json.string)),\n    ],\n  )\n}"
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "33.15px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "32.8185px"
+      },
+      "scope": {
+        "display": "inline-block",
+        "padding": "4px 8.8px",
+        "border": "1px solid oklch(0.55 0.21 340)",
+        "color": "oklch(0.44 0.185 340)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "16px",
+        "padding": "64px 20px 72px"
+      }
+    }
+  }
+}

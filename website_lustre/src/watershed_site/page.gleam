@@ -92,6 +92,14 @@ pub fn render(
           _ -> default.paragraph(attributes, children)
         }
       },
+      bullet_list: fn(_, style, items) {
+        let items = list.map(items, fn(item) { html.li([], item) })
+        // Jot 8 has no ordered-list node. Star markers select ordered lists.
+        case style {
+          "*" -> html.ol([], items)
+          _ -> html.ul([], items)
+        }
+      },
       heading: fn(attributes, level, children) {
         // Jot replaces explicit heading IDs with its generated IDs.
         let attributes = case dict.get(attributes, "data-heading-id") {

@@ -32,6 +32,18 @@ pub fn generated_route_and_assets_test() {
   find(component_model_tree, "src", "/scripts/concept-index.js")
   |> list.length
   |> should.equal(1)
+  let assert Ok(components_html) =
+    simplifile.read(output <> "/component-model/components/index.html")
+  string.contains(components_html, "/component-model/ports")
+  |> should.be_true()
+  let assert Ok(ports_html) =
+    simplifile.read(output <> "/component-model/ports/index.html")
+  string.contains(ports_html, "component port flow")
+  |> should.be_true()
+  let assert Ok(workspaces_html) =
+    simplifile.read(output <> "/component-model/workspaces/index.html")
+  string.contains(workspaces_html, "src/watershed/workspace.gleam")
+  |> should.be_true()
   let assert Ok(foundations_html) =
     simplifile.read(output <> "/foundations/index.html")
   let foundations_tree = html_parser.as_tree(foundations_html)
