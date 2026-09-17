@@ -7,6 +7,7 @@ import lustre/element.{type Element}
 import lustre/element/html
 import lustre/ssg/djot
 import smalto
+import smalto/grammar.{type Grammar}
 import smalto/languages/gleam as gleam_language
 import smalto/languages/javascript
 import smalto/token
@@ -81,11 +82,17 @@ fn block(
 
 pub fn highlighted(language: String, source: String) -> List(Element(msg)) {
   case language {
-    "gleam" ->
-      smalto.to_tokens(source, gleam_language.grammar()) |> list.map(token_view)
-    "js" | "javascript" ->
-      smalto.to_tokens(source, javascript.grammar()) |> list.map(token_view)
+    "gleam" -> highlight(source, gleam_language.grammar())
+    "js" | "javascript" -> highlight(source, javascript.grammar())
     _ -> [element.text(source)]
+  }
+}
+
+fn highlight(source: String, grammar: Grammar) -> List(Element(msg)) {
+  let tokens = smalto.to_tokens(source, grammar)
+  case tokens |> list.map(token.value) |> string.concat == source {
+    True -> list.map(tokens, token_view)
+    False -> [element.text(source)]
   }
 }
 
@@ -103,8 +110,9 @@ pub fn renderer(
   manifest: snippet.Manifest,
   _revision: String,
 ) -> djot.Renderer(Element(msg)) {
+  let default = djot.default_renderer()
   djot.Renderer(
-    ..djot.default_renderer(),
+    ..default,
     codeblock: fn(attributes, language, source) {
       case dict.get(attributes, "data-snippet") {
         Ok(id) -> {
@@ -124,6 +132,13 @@ pub fn renderer(
             attribute_value(attributes, "data-caption"),
           )
         }
+      }
+    },
+    link: fn(destination, attributes, content) {
+      case destination {
+        // Jot cannot nest inline code inside strong emphasis.
+        Some("strong-code:") -> html.strong([], [html.code([], content)])
+        _ -> default.link(destination, attributes, content)
       }
     },
     raw_html: fn(_) { element.text("Raw HTML is not permitted.") },

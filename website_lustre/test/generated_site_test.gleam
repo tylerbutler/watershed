@@ -61,6 +61,14 @@ pub fn generated_route_and_assets_test() {
   |> should.be_true()
   string.contains(presence_html, "href=\"/runtime/p2p\"")
   |> should.be_true()
+  let assert Ok(p2p_html) = simplifile.read(output <> "/runtime/p2p/index.html")
+  string.contains(
+    p2p_html,
+    "tools/website-samples/src/website_samples/p2p_sample.gleam",
+  )
+  |> should.be_true()
+  string.contains(p2p_html, "href=\"/guide\"")
+  |> should.be_true()
   let assert Ok(component_model_html) =
     simplifile.read(output <> "/component-model/index.html")
   let component_model_tree = html_parser.as_tree(component_model_html)

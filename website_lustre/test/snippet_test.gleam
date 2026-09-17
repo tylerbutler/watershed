@@ -116,6 +116,17 @@ pub fn unknown_language_escapes_source_test() {
   )
 }
 
+pub fn highlighting_never_drops_source_text_test() {
+  let source =
+    "crdt_js.with_sequencer(crdt_js.sequencer(\"wss://relay.example/room\"))"
+  code.highlighted("gleam", source)
+  |> element.fragment
+  |> element.to_string
+  |> should.equal(
+    "<!-- lustre:fragment -->crdt_js.with_sequencer(crdt_js.sequencer(&quot;wss://relay.example/room&quot;))<!-- /lustre:fragment -->",
+  )
+}
+
 pub fn missing_snippet_stops_validation_test() {
   let manifest = snippet.Manifest(1, dict.new())
   content.validate_snippets(

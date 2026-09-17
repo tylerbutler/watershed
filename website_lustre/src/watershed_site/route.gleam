@@ -161,6 +161,7 @@ pub fn all() -> List(Route) {
     runtime("reconnect"),
     runtime("redelivery"),
     runtime("presence"),
+    runtime("p2p"),
     Route(
       path: "/guide",
       layout: GuideIndex,

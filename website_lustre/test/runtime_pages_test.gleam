@@ -145,3 +145,35 @@ pub fn presence_renders_the_configuration_example_test() {
     let assert False = string.contains(html, absent) as absent
   })
 }
+
+pub fn p2p_renders_the_crdt_configuration_and_final_pager_test() {
+  let assert Ok(doc) = runtime.get("p2p")
+  let assert #(Ok(previous), Error(Nil)) = runtime.neighbours("p2p")
+  previous.slug |> should.equal("presence")
+
+  let page_route = route.runtime("p2p")
+  let assert Ok(source) = content.load(page_route)
+  source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
+  let assert Ok(manifest) =
+    snippet.load("../website/src/generated/snippets.json")
+  let assert Ok(document) = page.render(source, page_route, manifest, "test")
+  let html = element.to_document_string(document)
+  [
+    "<title>watershed — peer-to-peer over webrtc</title>",
+    "A document that doesn&#39;t need a sequencer",
+    "tools/website-samples/src/website_samples/p2p_sample.gleam",
+    "<strong><code>Auto</code></strong>",
+    "<strong><code>P2pOnly</code></strong>",
+    "<strong><code>SequencedOnly</code></strong>",
+    "href=\"/runtime/presence\"",
+    "href=\"/guide\"",
+    "Put these behaviors to work",
+  ]
+  |> list.each(fn(expected) {
+    let assert True = string.contains(html, expected) as expected
+  })
+  ["/guide_race.js", "astro-island", "/_astro/", "@vite", "data-component"]
+  |> list.each(fn(absent) {
+    let assert False = string.contains(html, absent) as absent
+  })
+}
