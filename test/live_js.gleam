@@ -40,8 +40,6 @@ import gleam/string
 
 @target(javascript)
 import watershed.{type Document, type SharedMap, WatershedConfig}
-@target(javascript)
-import watershed/summary_policy
 
 @target(javascript)
 const url = "ws://127.0.0.1:4000/socket/websocket?vsn=2.0.0"
@@ -86,11 +84,13 @@ fn run() -> Nil {
     use empty <- promise.await(reconnect_with_nothing_missed())
     use offline <- promise.await(offline_edits_flush_on_go_online())
     use summary <- promise.await(a_policy_summarizes_without_being_asked())
+    use history <- promise.await(manual_summary_returns_published_version())
     report([
       #("reconnect_into_a_quiet_room", quiet),
       #("reconnect_with_nothing_missed", empty),
       #("offline_edits_flush_on_go_online", offline),
       #("a_policy_summarizes_without_being_asked", summary),
+      #("manual_summary_returns_published_version", history),
     ])
     promise.resolve(Nil)
   }
@@ -213,35 +213,18 @@ fn offline_edits_flush_on_go_online() -> Promise(Bool) {
 }
 
 @target(javascript)
-/// The summary path on the JS runtime, which nothing has ever exercised
-/// live — `sluice_js` serves no `summaryContext` and its documents carry no
-/// token, so every in-memory test stops at the first gate.
-///
-/// Nothing here calls `summarize`. A is given a policy, writes past its
-/// threshold, and the checkpoint moves on its own; then a fresh client joins
-/// and has to bootstrap from a blob nobody asked for.
+/// The default policy must upload a summary without configuration.
+/// A fresh client must load that checkpoint and replay subsequent messages.
 fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   use #(document_id, document_a, document_b, map_a, map_b) <- promise.await(
     room_named("sm"),
   )
   use settled <- promise.await(settle(map_a, map_b))
 
-  watershed.auto_summarize(
-    document_a,
-    summary_policy.policy()
-      |> summary_policy.with_threshold(4)
-      |> summary_policy.with_jitter_milliseconds(0),
-  )
+  watershed.stop_auto_summarize(document_b)
+  use written <- promise.await(write_summary_messages(document_a, map_a, 501))
 
-  // The drift falling back under the threshold is the observable: only a
-  // checkpoint moves it, and nothing here calls `summarize`.
-  //
-  // Traffic-until-it-happens rather than write-then-wait: the policy arms on a
-  // sequenced message, so a document that falls quiet just over the threshold
-  // stays there until the next one arrives. And the count is of *sequenced
-  // messages*, not edits — floodgate sequences a submitted batch as one, so
-  // writes issued back to back move it by far less than their number.
-  use summarized <- promise.await(summarizes_within(document_a, map_a, 20, 4))
+  use summarized <- promise.await(summarizes_within(document_a, map_a, 50, 500))
 
   // A post-checkpoint edit, so the joiner applies a delta on top of the blob
   // rather than landing on it exactly.
@@ -262,17 +245,66 @@ fn a_policy_summarizes_without_being_asked() -> Promise(Bool) {
   // It seeded from the checkpoint rather than replaying from zero: its drift
   // counts only what followed the summary it loaded.
   let from_checkpoint =
-    watershed.operations_since_summary(document_c)
-    <= watershed.operations_since_summary(document_a)
+    watershed.operations_since_summary(document_c) < 500
+    && watershed.get(map_c, "tick") == Ok(json.int(1))
+    && watershed.get(map_c, "k1") == Ok(json.int(1))
 
   watershed.close(document_c)
   finish("a_policy_summarizes_without_being_asked", document_a, document_b, [
     #("settled", settled),
+    #("written", written),
     #("summarized", summarized),
     #("delivered", delivered),
     #("joined", joined),
     #("from_checkpoint", from_checkpoint),
   ])
+}
+
+@target(javascript)
+fn manual_summary_returns_published_version() -> Promise(Bool) {
+  use #(_document_id, document_a, document_b, map_a, map_b) <- promise.await(
+    room_named("vh"),
+  )
+  watershed.stop_auto_summarize(document_a)
+  watershed.stop_auto_summarize(document_b)
+  use settled <- promise.await(settle(map_a, map_b))
+  watershed.set(map_a, "version", json.int(1))
+  use synced <- promise.await(
+    wait_until(fn() { watershed.is_synced(document_a) }),
+  )
+  use published <- promise.await(watershed.summarize(document_a))
+  use versions <- promise.await(watershed.get_versions(document_a, count: 1))
+  let published_version = case published, versions {
+    Ok(version_id), Ok([version]) ->
+      version.id == version_id && version.tree_id != version_id
+    _, _ -> False
+  }
+  finish("manual_summary_returns_published_version", document_a, document_b, [
+    #("settled", settled),
+    #("synced", synced),
+    #("published_version", published_version),
+  ])
+}
+
+@target(javascript)
+fn write_summary_messages(
+  document: Document(root),
+  map: SharedMap,
+  remaining: Int,
+) -> Promise(Bool) {
+  case remaining {
+    0 -> promise.resolve(True)
+    _ -> {
+      watershed.set(map, "tick", json.int(remaining))
+      use synced <- promise.await(
+        wait_until(fn() { watershed.is_synced(document) }),
+      )
+      case synced {
+        False -> promise.resolve(False)
+        True -> write_summary_messages(document, map, remaining - 1)
+      }
+    }
+  }
 }
 
 @target(javascript)

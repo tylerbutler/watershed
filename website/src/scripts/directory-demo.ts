@@ -11,7 +11,8 @@ import * as runtime from "../../../build/dev/javascript/watershed/watershed/runt
 import * as handle from "../../../build/dev/javascript/watershed/watershed/handle.mjs";
 import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
 import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
-import { createSluiceRig, some, type RigClient } from "./demo/sluice-rig.ts";
+import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
+import { expectOk } from "./demo/gleam-values.ts";
 
 const CLIENT_IDS = ["a", "b", "c"];
 const CLIENT_LABEL: Record<string, string> = {
@@ -31,7 +32,7 @@ const RACE_FOLDER = "kettle-run";
 const DIR_ADDRESS = "tree"; // root-map key holding the shared directory handle
 
 interface Handle {
-  runtime: unknown;
+  runtime: ReturnType<typeof watershed.runtime_of>;
   address: string;
 }
 
@@ -48,10 +49,6 @@ function baseName(path: string): string {
 function unquote(raw: string): string {
   return raw.length >= 2 && raw.startsWith('"') && raw.endsWith('"') ? raw.slice(1, -1) : raw;
 }
-function okValue<T>(result: unknown): T {
-  return (result as { 0: T })[0];
-}
-
 function h(client: RigClient): Handle {
   return client.handle as Handle;
 }
@@ -225,7 +222,10 @@ export function initDirectoryDemo() {
       // the others resolve the shared handle once the attach has propagated.
       const a = clients["a"];
       const runtimeA = watershed.runtime_of(a.doc);
-      const address = okValue<string>(runtime.create_directory(runtimeA));
+      const address = expectOk(
+        runtime.create_directory(runtimeA),
+        "directory creation failed",
+      );
       runtime.set(runtimeA, "root", DIR_ADDRESS, handle.encode_handle(address));
       a.handle = { runtime: runtimeA, address };
       a.data = { folderCursor: 0, readingCursor: 0 };
@@ -233,8 +233,14 @@ export function initDirectoryDemo() {
       CLIENT_IDS.slice(1).forEach((id, i) => {
         const client = clients[id];
         const rt = watershed.runtime_of(client.doc);
-        const stored = some<unknown>(runtime.get(rt, "root", DIR_ADDRESS));
-        const addr = okValue<string>(handle.parse_handle(stored));
+        const stored = expectOk(
+          runtime.get(rt, "root", DIR_ADDRESS),
+          "directory handle lookup failed",
+        );
+        const addr = expectOk(
+          handle.parse_handle(stored),
+          "directory handle parse failed",
+        );
         runtime.resolve_address(rt, addr);
         client.handle = { runtime: rt, address: addr };
         client.data = { folderCursor: i + 1, readingCursor: i + 1 };

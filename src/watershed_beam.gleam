@@ -59,6 +59,8 @@ import watershed/counter_kernel
 @target(erlang)
 import watershed/directory_kernel
 @target(erlang)
+import watershed/g_counter_kernel
+@target(erlang)
 import watershed/g_set_kernel
 @target(erlang)
 import watershed/git_storage.{type SummaryVersion}
@@ -69,7 +71,13 @@ import watershed/json_ot
 @target(erlang)
 import watershed/json_ot_kernel
 @target(erlang)
+import watershed/lww_map_kernel
+@target(erlang)
+import watershed/lww_register_kernel
+@target(erlang)
 import watershed/map_kernel
+@target(erlang)
+import watershed/mv_register_kernel
 @target(erlang)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(erlang)
@@ -78,7 +86,6 @@ import watershed/or_set_kernel
 import watershed/ordered_collection_kernel
 @target(erlang)
 import watershed/pact_map_kernel
-@target(erlang)
 import watershed/pn_counter_kernel
 @target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
@@ -184,6 +191,175 @@ pub opaque type SharedDirectory {
 @target(erlang)
 pub opaque type PnCounter {
   PnCounter(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type GCounter {
+  GCounter(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type LwwRegister {
+  LwwRegister(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+pub opaque type LwwMap {
+  LwwMap(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+/// Create an empty detached map. Store its handle in an attached container
+/// to replicate it.
+pub fn create_lww_map(document: Document(root)) -> Result(LwwMap, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: runtime_beam.CreateLwwMap,
+  )
+  |> result.map(fn(address) { LwwMap(document.runtime, address) })
+}
+
+@target(erlang)
+pub fn lww_map_handle_of(map: LwwMap) -> Json {
+  handle.encode_handle(map.address)
+}
+
+@target(erlang)
+pub fn resolve_lww_map(
+  document: Document(root),
+  value: Json,
+) -> Result(LwwMap, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_milliseconds,
+        sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) { LwwMap(document.runtime, address) })
+  }
+}
+
+@target(erlang)
+pub fn set_lww_map_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+  map: LwwMap,
+) -> Nil {
+  put_channel_field(typed_map, field, lww_map_handle_of(map))
+}
+
+@target(erlang)
+pub fn resolve_lww_map_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+) -> Result(Option(LwwMap), String) {
+  get_channel_field(document, typed_map, field, resolve_lww_map)
+}
+
+@target(erlang)
+/// Wait for synchronization, then adopt the map or create one.
+pub fn ensure_lww_map(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+) -> Result(LwwMap, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use map <- result.map(create_lww_map(document))
+      set_lww_map_field(typed_map, field, map)
+    },
+    fn() { resolve_lww_map_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Set a string with the runtime clock. Return channel and clock errors.
+pub fn lww_map_set(
+  map: LwwMap,
+  key: String,
+  value: String,
+) -> Result(Nil, String) {
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.SetLwwMap(map.address, key, value, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// Retain a tombstone even if the key is absent.
+pub fn lww_map_remove(map: LwwMap, key: String) -> Result(Nil, String) {
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.RemoveLwwMap(map.address, key, reply) },
+  )
+}
+
+@target(erlang)
+pub fn lww_map_get(map: LwwMap, key: String) -> Result(String, Nil) {
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetLwwMap(map.address, key, reply) },
+  )
+}
+
+@target(erlang)
+/// Read visible entries in key order.
+pub fn lww_map_entries(map: LwwMap) -> List(#(String, String)) {
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetLwwMapEntries(map.address, reply) },
+  )
+}
+
+@target(erlang)
+pub fn lww_map_keys(map: LwwMap) -> List(String) {
+  process.call(
+    map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) { runtime_beam.GetLwwMapKeys(map.address, reply) },
+  )
+}
+
+@target(erlang)
+/// Subscribe the calling process to visible changes.
+pub fn subscribe_lww_map(map: LwwMap) -> Subject(lww_map_kernel.LwwMapEvent) {
+  use event <- subscribe_narrowed(map.runtime, map.address)
+  case event {
+    channel.LwwMapEvent(inner) -> Some(inner)
+    channel.LwwRegisterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
 }
 
 @target(erlang)
@@ -918,6 +1094,16 @@ pub fn set_pn_counter_field(
 }
 
 @target(erlang)
+/// Store a handle to `g_counter` under a typed channel field.
+pub fn set_g_counter_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+  g_counter: GCounter,
+) -> Nil {
+  put_channel_field(typed_map, field, g_counter_handle_of(g_counter))
+}
+
+@target(erlang)
 /// Resolve the PN-counter referenced by a typed channel field.
 pub fn resolve_pn_counter_field(
   document: Document(root),
@@ -925,6 +1111,16 @@ pub fn resolve_pn_counter_field(
   field: ChannelField(s, schema.PnCounterChannel),
 ) -> Result(Option(PnCounter), String) {
   get_channel_field(document, typed_map, field, resolve_pn_counter)
+}
+
+@target(erlang)
+/// Read the grow-only counter that `field` points at.
+pub fn resolve_g_counter_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+) -> Result(Option(GCounter), String) {
+  get_channel_field(document, typed_map, field, resolve_g_counter)
 }
 
 @target(erlang)
@@ -970,12 +1166,11 @@ pub fn resolve_ordered_collection_field(
 // ─────────────────────────────────────────────────────────────────────────────
 // Declarative bootstrap (ensure_*)
 //
-// Each `ensure_*` gives a typed slot a guaranteed channel: adopt the sequenced
-// LWW winner if the key is already set, otherwise seed a candidate channel,
-// wait for sync, and adopt whichever handle the sequencer ordered first (losing
-// candidates stay attached but unreferenced — orphan GC is out of scope). This
-// subsumes the seed + wait-synced + bounded-retry-resolve loop every app used
-// to hand-roll. `ensure_field` is the set-if-absent primitive for plain values.
+// Each channel `ensure_*` waits for synchronization before it reads the slot.
+// It adopts an existing handle, or seeds a candidate and waits for its write
+// to synchronize before resolving. A later write can still replace the field.
+// Losing candidates stay attached but unreferenced; orphan GC is out of scope.
+// `ensure_field` is the set-if-absent primitive for plain values.
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
@@ -985,12 +1180,17 @@ const resolve_retry_milliseconds = 200
 const resolve_attempts = 25
 
 @target(erlang)
-/// Block until every local edit is acked (the confirmed root is stable),
-/// bounded by the resolve budget, then return regardless.
-fn await_synced(document: Document(root), attempts: Int) -> Nil {
-  case attempts <= 0 || is_synced(document) {
-    True -> Nil
-    False -> {
+/// Wait for synchronization within the resolve budget. Report a timeout if the
+/// document does not synchronize.
+fn await_synced(
+  document: Document(root),
+  attempts: Int,
+) -> Result(Nil, String) {
+  case is_synced(document), attempts <= 0 {
+    True, _ -> Ok(Nil)
+    False, True ->
+      Error("ensure: timed out waiting for document synchronization")
+    False, False -> {
       process.sleep(resolve_retry_milliseconds)
       await_synced(document, attempts - 1)
     }
@@ -1017,10 +1217,10 @@ fn resolve_with_retry(
 }
 
 @target(erlang)
-/// Adopt the channel under `key`. If the key holds a value, the function
-/// resolves the sequenced winner. If the key is empty, the function calls `seed`
-/// to create a candidate, waits for the synchronization, and then resolves the
-/// channel that won.
+/// Wait for synchronization before reading `key`. Adopt an existing channel,
+/// or seed a candidate and wait for its write to synchronize before resolving.
+/// Either wait can return a timeout. A timeout does not undo a submitted seed.
+/// A later write from another client can still replace the field.
 fn ensure_channel(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1028,11 +1228,12 @@ fn ensure_channel(
   seed: fn() -> Result(Nil, String),
   resolve: fn() -> Result(Option(shared), String),
 ) -> Result(shared, String) {
+  use _ <- result.try(await_synced(document, resolve_attempts))
   case has(typed_map.map, key) {
     True -> resolve_with_retry(resolve, resolve_attempts)
     False -> {
       use _ <- result.try(seed())
-      await_synced(document, resolve_attempts)
+      use _ <- result.try(await_synced(document, resolve_attempts))
       resolve_with_retry(resolve, resolve_attempts)
     }
   }
@@ -1328,6 +1529,26 @@ pub fn ensure_pn_counter(
 }
 
 @target(erlang)
+/// Make sure that a grow-only counter exists under `field`. If the slot is
+/// empty, the function creates one.
+pub fn ensure_g_counter(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+) -> Result(GCounter, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use g_counter <- result.map(create_g_counter(document))
+      set_g_counter_field(typed_map, field, g_counter)
+    },
+    fn() { resolve_g_counter_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
 /// Make sure that a PactMap exists under `field`.
 pub fn ensure_pact_map(
   document: Document(root),
@@ -1503,9 +1724,12 @@ pub fn subscribe_counter(
 ) -> Subject(counter_kernel.CounterEvent) {
   use event <- subscribe_narrowed(counter.runtime, counter.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.CounterEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -1601,10 +1825,13 @@ pub fn subscribe_json_ot(
 ) -> Subject(json_ot_kernel.JsonOtEvent) {
   use event <- subscribe_narrowed(json_ot.runtime, json_ot.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.JsonOtEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -1705,10 +1932,13 @@ pub fn subscribe_rich_text(
 ) -> Subject(rich_text_kernel.RichTextEvent) {
   use event <- subscribe_narrowed(rich_text.runtime, rich_text.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.RichTextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -1730,7 +1960,7 @@ pub fn subscribe_rich_text(
 // ─────────────────────────────────────────────────────────────────────────────
 
 @target(erlang)
-/// Create a new OR-map channel, in tally mode or in register mode. The detached
+/// Create a new OR-map channel in tally, register, or string-set mode. The detached
 /// lifecycle is the same as for `create_map`. The channel is local only, until
 /// a caller stores its handle into an attached container.
 pub fn create_or_map(
@@ -1791,8 +2021,80 @@ pub fn or_map_set_json(or_map: OrMap, key: String, value: Json) -> Nil {
 }
 
 @target(erlang)
+/// Replace the observed alternatives of an MV-register key.
+pub fn or_map_set_mv_register(
+  or_map: OrMap,
+  key: String,
+  value: String,
+) -> Nil {
+  process.send(
+    or_map.runtime,
+    runtime_beam.SetMvRegisterOrMapKey(or_map.address, key, value),
+  )
+}
+
+@target(erlang)
+/// Read MV-register alternatives. An absent key or another mode returns an error.
+pub fn or_map_values(or_map: OrMap, key: String) -> Result(List(String), Nil) {
+  case or_map_value(or_map, key) {
+    Ok(or_map_kernel.MvRegister(values)) -> Ok(values)
+    Ok(or_map_kernel.Tally(_))
+    | Ok(or_map_kernel.Register(_))
+    | Ok(or_map_kernel.SetMembers(_))
+    | Error(Nil) -> Error(Nil)
+  }
+}
+
+@target(erlang)
 pub fn or_map_remove(or_map: OrMap, key: String) -> Nil {
   process.send(or_map.runtime, runtime_beam.RemoveOrMapKey(or_map.address, key))
+}
+
+@target(erlang)
+/// Add a string member in `OrSetMode`. An absent key becomes present.
+/// A duplicate add replicates a fresh tag without a visible-value event.
+pub fn or_map_add_member(
+  or_map: OrMap,
+  key: String,
+  member: String,
+) -> Result(Nil, String) {
+  process.call(
+    or_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.AddOrMapMember(or_map.address, key, member, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// Remove observed member tags in `OrSetMode`. An absent member is a no-op.
+/// Removing the last member keeps the key present with `SetMembers([])`.
+pub fn or_map_remove_member(
+  or_map: OrMap,
+  key: String,
+  member: String,
+) -> Result(Nil, String) {
+  process.call(
+    or_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.RemoveOrMapMember(or_map.address, key, member, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// Remove a key and return edit failures. In `OrSetMode`, this also clears
+/// observed members. Concurrent unobserved additions survive.
+pub fn or_map_remove_key(or_map: OrMap, key: String) -> Result(Nil, String) {
+  process.call(
+    or_map.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.RemoveOrMapKeyWithResult(or_map.address, key, reply)
+    },
+  )
 }
 
 @target(erlang)
@@ -1828,10 +2130,13 @@ pub fn or_map_keys(or_map: OrMap) -> List(String) {
 pub fn subscribe_or_map(or_map: OrMap) -> Subject(or_map_kernel.OrMapEvent) {
   use event <- subscribe_narrowed(or_map.runtime, or_map.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
     | channel.TwoPSetEvent(_)
@@ -1927,10 +2232,13 @@ pub fn or_set_values(or_set: OrSet) -> List(String) {
 pub fn subscribe_or_set(or_set: OrSet) -> Subject(or_set_kernel.OrSetEvent) {
   use event <- subscribe_narrowed(or_set.runtime, or_set.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.GSetEvent(_)
     | channel.TwoPSetEvent(_)
@@ -2085,10 +2393,13 @@ pub fn subscribe_sequence(
 ) -> Subject(sequence_kernel.SequenceEvent) {
   use event <- subscribe_narrowed(sequence.runtime, sequence.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.SequenceEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2312,10 +2623,13 @@ pub fn text_anchor_from_json(
 pub fn subscribe_text(text: SharedText) -> Subject(text_kernel.TextEvent) {
   use event <- subscribe_narrowed(text.runtime, text.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2442,10 +2756,13 @@ pub fn subscribe_register_collection(
 ) -> Subject(register_collection_kernel.RegisterEvent) {
   use event <- subscribe_narrowed(collection.runtime, collection.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.RegisterCollectionEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2534,10 +2851,13 @@ pub fn has_claim(claims: Claims, key: String) -> Bool {
 pub fn subscribe_claims(claims: Claims) -> Subject(claims_kernel.ClaimEvent) {
   use event <- subscribe_narrowed(claims.runtime, claims.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.ClaimsEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2638,10 +2958,13 @@ pub fn subscribe_task_manager(
 ) -> Subject(task_manager_kernel.TaskManagerEvent) {
   use event <- subscribe_narrowed(manager.runtime, manager.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TaskManagerEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2738,10 +3061,13 @@ pub fn g_set_values(set: GSet) -> List(String) {
 pub fn subscribe_g_set(set: GSet) -> Subject(g_set_kernel.GSetEvent) {
   use event <- subscribe_narrowed(set.runtime, set.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.GSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.TwoPSetEvent(_)
@@ -2856,10 +3182,13 @@ pub fn subscribe_two_p_set(
 ) -> Subject(two_p_set_kernel.TwoPSetEvent) {
   use event <- subscribe_narrowed(set.runtime, set.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TwoPSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -3068,10 +3397,13 @@ pub fn subscribe_directory(
 ) -> Subject(directory_kernel.DirectoryEvent) {
   use event <- subscribe_narrowed(directory.runtime, directory.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.DirectoryEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -3091,6 +3423,105 @@ pub fn subscribe_directory(
 // ─────────────────────────────────────────────────────────────────────────────
 // PN-counters (increment and decrement)
 // ─────────────────────────────────────────────────────────────────────────────
+
+@target(erlang)
+/// Create a new grow-only counter channel. The detached lifecycle is the same
+/// as for `create_map`.
+pub fn create_g_counter(document: Document(root)) -> Result(GCounter, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: runtime_beam.CreateGCounter,
+  )
+  |> result.map(fn(address) {
+    GCounter(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn g_counter_handle_of(g_counter: GCounter) -> Json {
+  handle.encode_handle(g_counter.address)
+}
+
+@target(erlang)
+pub fn resolve_g_counter(
+  document: Document(root),
+  value: Json,
+) -> Result(GCounter, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_milliseconds,
+        sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        GCounter(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+/// Add `amount` optimistically. The amount must not be negative. The result is
+/// an error with a description for a negative amount, and the counter does not
+/// change.
+pub fn g_counter_increment(
+  g_counter: GCounter,
+  amount: Int,
+) -> Result(Nil, String) {
+  process.call(
+    g_counter.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.IncrementGCounter(g_counter.address, amount, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// The current optimistic value of the counter. The result is `Error(Nil)`
+/// when the address does not name a grow-only counter channel.
+pub fn g_counter_value(g_counter: GCounter) -> Result(Int, Nil) {
+  process.call(
+    g_counter.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetGCounterValue(g_counter.address, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// Subscribe the calling process to this grow-only counter's local and remote
+/// change events.
+pub fn subscribe_g_counter(
+  g_counter: GCounter,
+) -> Subject(g_counter_kernel.GCounterEvent) {
+  use event <- subscribe_narrowed(g_counter.runtime, g_counter.address)
+  case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
+    channel.GCounterEvent(inner) -> Some(inner)
+    channel.PnCounterEvent(_)
+    | channel.MvRegisterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
 
 @target(erlang)
 /// Create a new PN-counter channel. The detached lifecycle is the same as for
@@ -3163,7 +3594,10 @@ pub fn subscribe_pn_counter(
 ) -> Subject(pn_counter_kernel.PnCounterEvent) {
   use event <- subscribe_narrowed(pn_counter.runtime, pn_counter.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.PnCounterEvent(inner) -> Some(inner)
+    channel.MvRegisterEvent(_) -> None
+    channel.GCounterEvent(_) -> None
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.OrMapEvent(_)
@@ -3283,10 +3717,13 @@ pub fn subscribe_pact_map(
 ) -> Subject(pact_map_kernel.PactMapEvent) {
   use event <- subscribe_narrowed(pact_map.runtime, pact_map.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.PactMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -3532,10 +3969,13 @@ pub fn subscribe_ordered_collection(
 ) -> Subject(ordered_collection_kernel.OrderedEvent) {
   use event <- subscribe_narrowed(collection.runtime, collection.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrderedCollectionEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -3660,21 +4100,21 @@ pub fn client_id(document: Document(root)) -> Option(String) {
 @target(erlang)
 /// Summarize the current confirmed state of the document to the storage of
 /// floodgate. A later client can then start from that snapshot, and it does not
-/// replay the full operation history. The function returns the summary handle,
-/// which is a git tree SHA. The connection must be synchronized, and the token
-/// must carry the `summary:write` scope.
+/// replay the full operation history. The function returns after publication
+/// with the Git commit ID from `summaryAck`. The connection must be synchronized,
+/// and the token must carry the `summary:write` scope.
 pub fn summarize(document: Document(root)) -> Result(String, String) {
   runtime_beam.summarize(document.runtime)
 }
 
 @target(erlang)
-/// Let this client summarize the document without a request, under `policy`.
+/// Set or re-enable the automatic summary policy for this client.
 ///
-/// Without this function nothing summarizes, and every client that joins
-/// replays the whole log. You must then call `summarize` by hand. With this
-/// function, the runtime writes a checkpoint after the document moves past the
-/// threshold of the policy and this client is settled. A later join thus costs
-/// the recent history, and not all of it.
+/// New connections use `summary_policy.policy()`: a threshold of 500 sequenced
+/// messages and a 3 second delay window. This function replaces that policy.
+/// The runtime attempts a checkpoint when the threshold is reached and this
+/// client is settled. A later client can load the checkpoint and replay the
+/// subsequent messages.
 ///
 /// It is safe to install the policy on every client in a room. The attempts
 /// spread across a delay window, and the first summary that sequences stops the
@@ -3692,14 +4132,16 @@ pub fn auto_summarize(
 @target(erlang)
 /// Stop the automatic summaries. An attempt that is already scheduled still
 /// checks again before it acts, and it then finds no policy.
+/// An upload that has already started can finish. Other clients keep their
+/// policies.
 pub fn stop_auto_summarize(document: Document(root)) -> Nil {
   runtime_beam.auto_summarize(document.runtime, None)
 }
 
 @target(erlang)
-/// The number of operations that sequenced after the newest summary that this
+/// The number of messages that sequenced after the newest summary that this
 /// client knows about. An automatic policy compares that number with its
-/// threshold, and a client that joins replays those operations on top of the
+/// threshold, and a client that joins replays those messages on top of the
 /// checkpoint.
 ///
 /// On a document that no client has summarized, this number is the whole
@@ -3717,9 +4159,9 @@ pub fn is_synced(document: Document(root)) -> Bool {
 }
 
 @target(erlang)
-/// List the stored summary versions of the document, newest first. This is the
-/// client half of the `getVersions` function of Fluid. Each `summarize` call
-/// stores one version, and a new connection starts from the newest one. The
+/// List the published summary commits of the document, newest first. This is
+/// the client half of the `getVersions` function of Fluid. Each successful
+/// `summarize` call publishes one version. A new connection starts from the newest one. The
 /// token must carry the `doc:read` scope.
 pub fn get_versions(
   document: Document(root),
@@ -3729,9 +4171,9 @@ pub fn get_versions(
 }
 
 @target(erlang)
-/// Read the confirmed state that a summary version captured, by the handle of
-/// that version. `get_versions` and the return value of `summarize` both give a
-/// handle. The function returns the stored snapshot blob, which holds the
+/// Read the confirmed state that a published summary commit captured.
+/// `get_versions` and the return value of `summarize` both give the commit ID.
+/// The function returns the stored snapshot blob, which holds the
 /// entries in insertion order with the sequence number that the writer captured
 /// them at. The read is at one point in time, and it does not change the live
 /// document.
@@ -3818,9 +4260,12 @@ pub fn size(map: SharedMap) -> Int {
 pub fn subscribe(map: SharedMap) -> Subject(map_kernel.MapEvent) {
   use event <- subscribe_narrowed(map.runtime, map.address)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MapEvent(inner) -> Some(inner)
     channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -3856,6 +4301,7 @@ fn field_change(
   event: ChannelEvent,
 ) -> Option(FieldChange(a)) {
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MapEvent(map_kernel.ValueChanged(k, previous, value, local))
       if k == key
     ->
@@ -3869,6 +4315,8 @@ fn field_change(
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -3976,3 +4424,274 @@ type TimeUnit {
 @target(erlang)
 @external(erlang, "os", "system_time")
 fn system_time(unit: TimeUnit) -> Int
+
+@target(erlang)
+pub fn create_mv_register(
+  document: Document(root),
+) -> Result(MvRegister, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: runtime_beam.CreateMvRegister,
+  )
+  |> result.map(fn(address) {
+    MvRegister(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn mv_register_handle_of(mv_register: MvRegister) -> Json {
+  handle.encode_handle(mv_register.address)
+}
+
+@target(erlang)
+pub fn resolve_mv_register(
+  document: Document(root),
+  value: Json,
+) -> Result(MvRegister, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) -> {
+      use _ <- result.try(
+        process.call(
+          document.runtime,
+          waiting: call_timeout_milliseconds,
+          sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
+        ),
+      )
+      let register = MvRegister(runtime: document.runtime, address: address)
+      mv_register_values(register)
+      |> result.replace_error("address does not name an MV-register channel")
+      |> result.map(fn(_) { register })
+    }
+  }
+}
+
+@target(erlang)
+pub fn set_mv_register_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+  mv_register: MvRegister,
+) -> Nil {
+  put_channel_field(typed_map, field, mv_register_handle_of(mv_register))
+}
+
+@target(erlang)
+pub fn resolve_mv_register_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+) -> Result(Option(MvRegister), String) {
+  get_channel_field(document, typed_map, field, resolve_mv_register)
+}
+
+@target(erlang)
+pub fn ensure_mv_register(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+) -> Result(MvRegister, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use mv_register <- result.map(create_mv_register(document))
+      set_mv_register_field(typed_map, field, mv_register)
+    },
+    fn() { resolve_mv_register_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+pub fn mv_register_set(mv_register: MvRegister, value: String) -> Nil {
+  process.send(
+    mv_register.runtime,
+    runtime_beam.SetMvRegister(mv_register.address, value),
+  )
+}
+
+@target(erlang)
+pub fn mv_register_values(
+  mv_register: MvRegister,
+) -> Result(List(String), Nil) {
+  process.call(
+    mv_register.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetMvRegisterValues(mv_register.address, reply)
+    },
+  )
+}
+
+@target(erlang)
+pub fn subscribe_mv_register(
+  mv_register: MvRegister,
+) -> Subject(mv_register_kernel.MvRegisterEvent) {
+  use event <- subscribe_narrowed(mv_register.runtime, mv_register.address)
+  case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
+    channel.MvRegisterEvent(inner) -> Some(inner)
+    channel.PnCounterEvent(_) -> None
+    channel.GCounterEvent(_) -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+@target(erlang)
+pub opaque type MvRegister {
+  MvRegister(runtime: Subject(runtime_beam.Msg), address: String)
+}
+
+@target(erlang)
+/// Create a detached string register. Store its handle in an attached
+/// container to replicate it.
+pub fn create_lww_register(
+  document: Document(root),
+) -> Result(LwwRegister, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: runtime_beam.CreateLwwRegister,
+  )
+  |> result.map(fn(address) {
+    LwwRegister(runtime: document.runtime, address: address)
+  })
+}
+
+@target(erlang)
+pub fn lww_register_handle_of(register: LwwRegister) -> Json {
+  handle.encode_handle(register.address)
+}
+
+@target(erlang)
+pub fn resolve_lww_register(
+  document: Document(root),
+  value: Json,
+) -> Result(LwwRegister, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      process.call(
+        document.runtime,
+        waiting: call_timeout_milliseconds,
+        sending: fn(reply) { runtime_beam.ResolveAddress(address, reply) },
+      )
+      |> result.map(fn(_) {
+        LwwRegister(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(erlang)
+pub fn set_lww_register_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+  register: LwwRegister,
+) -> Nil {
+  put_channel_field(typed_map, field, lww_register_handle_of(register))
+}
+
+@target(erlang)
+pub fn resolve_lww_register_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+) -> Result(Option(LwwRegister), String) {
+  get_channel_field(document, typed_map, field, resolve_lww_register)
+}
+
+@target(erlang)
+/// Adopt an existing register or create one. Wait for synchronization before
+/// reading the field and after creating a candidate.
+pub fn ensure_lww_register(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+) -> Result(LwwRegister, String) {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use register <- result.map(create_lww_register(document))
+      set_lww_register_field(typed_map, field, register)
+    },
+    fn() { resolve_lww_register_field(document, typed_map, field) },
+  )
+}
+
+@target(erlang)
+/// Write optimistically with the runtime clock. Clock and channel errors
+/// return to the caller. A same-value write replicates newer metadata without
+/// a visible-value event.
+pub fn lww_register_set(
+  register: LwwRegister,
+  value: String,
+) -> Result(Nil, String) {
+  process.call(
+    register.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.SetLwwRegister(register.address, value, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// Read the optimistic value. Return `Error(Nil)` for a channel-kind mismatch.
+pub fn lww_register_value(register: LwwRegister) -> Result(String, Nil) {
+  process.call(
+    register.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: fn(reply) {
+      runtime_beam.GetLwwRegisterValue(register.address, reply)
+    },
+  )
+}
+
+@target(erlang)
+/// Subscribe the calling process to local and remote visible-value changes.
+pub fn subscribe_lww_register(
+  register: LwwRegister,
+) -> Subject(lww_register_kernel.LwwRegisterEvent) {
+  use event <- subscribe_narrowed(register.runtime, register.address)
+  case event {
+    channel.LwwRegisterEvent(inner) -> Some(inner)
+    channel.LwwMapEvent(_) -> None
+    channel.MvRegisterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}

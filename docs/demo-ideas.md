@@ -2,24 +2,27 @@
 
 **Started:** 2026-08-08
 
-Candidate example apps for `examples/`, kept here so they survive between sessions. Seven have been promoted to full plans:
+Candidate example apps for `examples/`, kept here so they survive between sessions.
+Status reconciled against the repository on 2026-09-08:
 
-- `docs/plans/2026-08-08-pixel-canvas-demo-plan.md` — `OrMap` register mode, zero prerequisites
-- `docs/plans/2026-08-08-retro-board-demo-plan.md` — `OrMap` both modes + `SharedSequence` + presence, zero prerequisites
+- `docs/plans/2026-08-08-pixel-canvas-demo-plan.md` — `OrMap` register mode, **shipped**
+- `docs/plans/2026-08-08-retro-board-demo-plan.md` — `OrMap` both modes + `SharedSequence` + presence, **shipped**
 - `docs/plans/2026-08-08-grocery-triptych-demo-plan.md` — `GSet` | `TwoPSet` | `OrSet`, **shipped, GT1–GT6**, `examples/grocery_triptych_lustre/`
 - `docs/plans/2026-08-08-work-queue-demo-plan.md` — `OrderedCollection` + `TaskManager`, **shipped, WQ1–WQ7**, `examples/work_queue_lustre/`
 - `docs/plans/2026-08-08-drum-machine-demo-plan.md` — `OrSet` + `PactMap`, **shipped, DM1–DM7**
 - `docs/plans/2026-08-19-json-workspace-demo-plan.md` — `SharedDirectory` + `JsonOt` + presence, **shipped, JW1–JW7**, `examples/json_workspace_lustre/`; retired the "one site only" row's directory/JSON OT entry
-- `docs/plans/2026-08-19-rfc-room-demo-plan.md` — `SharedRichText` + `PactMap` + presence, RR1–RR8, zero prerequisites; retires the "one site only" row's `SharedRichText` entry
+- `docs/plans/2026-08-19-rfc-room-demo-plan.md` — `SharedRichText` + `PactMap` + presence, **open**; Project Room has reusable rich-document and Quill modules, but not the RFC draft-to-publication workflow
+- `docs/plans/2026-08-19-markdown-notes-demo-plan.md` — **shipped**, including its P2P port and durable IndexedDB persistence
+- [MV-register integration](superpowers/plans/2026-09-07-mv-register-integration.md#review-checkpoints-and-execution-record) — **shipped**; the shared revision slate runs on `/structures/maps` and `/mv-register`, with concurrent alternatives, ordinary-write resolution, and stale-delta replay
 
 And the gaps those plans surfaced have their own plan:
 
 - `docs/plans/2026-08-08-facade-parity-sweep-plan.md` — FP1–FP6, **shipped**
-- `docs/plans/2026-08-09-consensus-replay-quorum-plan.md` — **client half fixed**; a replaying client no longer rebuilds a consensus quorum from its present-day roster. What remains is the roster at a summary checkpoint, which is a floodgate change. `TaskManager` turned out never to have been affected.
+- `docs/plans/2026-08-09-consensus-replay-quorum-plan.md` — **complete**, including checkpoint membership and reconnect-roster follow-ups delivered by the summary-bootstrap plan
 
 One plan is not a demo but a way of presenting them:
 
-- `docs/plans/2026-08-08-showcase-composition-plan.md` — SC1–SC8, existing examples composed as nested child maps in one document, one connection, one presence roster. Zero prerequisites; the work is refactoring examples into MVU components.
+- `docs/plans/2026-08-08-showcase-composition-plan.md` — **shipped, SC0-SC8**; four panels share a document and roster. Its v2 panels remain deferred.
 
 ## Why this list exists: kind coverage
 
@@ -28,10 +31,11 @@ Coverage across `examples/` and the website demos as of 2026-08-08, updated 2026
 | State | Kinds |
 |---|---|
 | Well demoed | `SharedMap`, typed maps, `SharedSequence`, `SharedText`, `SharedCounter`, presence, ripples, `OrSet`, `GSet`, `TwoPSet`, `OrderedCollection`, `TaskManager`, `PactMap`, `RegisterCollection`, `OrMap` (pixel canvas, retro board), `PnCounter` (clap counter), `Claims` (sudoku, release checklist), `SharedDirectory` + `JsonOt` (JSON workspace) |
-| One site only | `SharedRichText` (website only) |
+| Reusable example code; standalone app pending | `SharedRichText` (Project Room headless component and Quill bridge; RFC publishing room still open) |
+| Website conflict-resolution demo | `MvRegister` (shared revision slate, with typed sequenced and CRDT samples) |
 | **No demo** | none |
 
-`PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively; `Claims` moved from "one site only" to "well demoed" with the release checklist's captain seat and compare-and-set take-over; `SharedDirectory` and `JsonOt` moved there with the JSON workspace's tree of folders and live documents. Every kind now has at least one example — the remaining gap is `SharedRichText` (getting its own proper Lustre example) and the unwired `GCounter` primitive noted under the clap counter below, which is a library gap rather than a demo gap.
+`PactMap` came off the bottom row with the drum machine; `OrMap` and `PnCounter` came off it with the pixel canvas / retro board and the clap counter respectively; `Claims` moved from "one site only" to "well demoed" with the release checklist's captain seat and compare-and-set take-over; `SharedDirectory` and `JsonOt` moved there with the JSON workspace's tree of folders and live documents. Every kind now has at least one example — the remaining gap is `SharedRichText` (getting its own proper Lustre example). `GCounter` is no longer the exception it was: `g_counter_kernel` now ships across both facades, the CRDT runtime, and Lustre, and the website's inspection-tally demo runs on it rather than on a hand-rolled lattice wrapper.
 
 ## Two corrections worth not re-learning
 
@@ -44,7 +48,15 @@ Both of these were mis-assumed during the brainstorm that produced this list, an
 
 All of FP1–FP6 shipped on 2026-08-08 (`docs/plans/2026-08-08-facade-parity-sweep-plan.md`): the real quorum roster, rich text on the JS facade, the three missing subscribes, the pending-signoff accessors, and the `watershed_lustre` fill-in. Both facades also expose `client_id` now, so a client can find itself in a list a kernel reports about the room.
 
-One gap remains, and it is not a facade gap: **the roster at a summary checkpoint** — `docs/plans/2026-08-09-consensus-replay-quorum-plan.md`.
+The checkpoint roster, reconnect-roster, channel `ensure_*` readiness, and
+default automatic-summary gaps are closed, including the summary docs (SB8).
+The MV-register channel is shipped across the sequenced JS/BEAM facades, the
+CRDT runtime, and Lustre, with source-backed website examples. See its
+[execution record](superpowers/plans/2026-09-07-mv-register-integration.md#review-checkpoints-and-execution-record).
+Summary version history is shipped: both runtimes return published commit IDs,
+list document history, and load historical snapshots. `GCounter` has since
+shipped on the same path; RFC Room and BEAM component-host parity are still
+open.
 
 **Correction worth not re-learning:** an earlier version of this section claimed the `OrderedCollection` op surface and `complete_task` were missing from the facades. They were present on both. That came from grepping by prefix guess (`ordered_collection_*`, `task_*`), which misses `ordered_*` and `complete_task`. Audit by full `pub fn` inventory diff — the command is at the end of the parity plan, and `facade_parity_test.gleam` now enforces it mechanically.
 
@@ -104,7 +116,7 @@ Medium-style claps. Trivially small, and the most direct possible stress test of
 
 Closed the `subscribe_pn_counter` demo gap: `PnCounter` was fully present on both facades but exercised by nothing in `examples/` until this shipped. The smoke test's headline assertion is concurrent, uncoordinated increments from two clients converging on the true sum with no lost update, surviving a forced reconnect.
 
-**`PnCounter`, not a grow-only counter.** `lattice_counters` (the vendored CRDT library) ships `g_counter.gleam`, but nothing in `src/watershed/` wires it up — there's no `g_counter_kernel.gleam`, no `GCounter` type on either facade, no schema `ChannelField` variant, no runtime dispatch. Claps only ever go up; the app calls `pn_counter_update` with positive amounts only and never exercises the decrement path, but the kernel underneath is the full P/N lattice. Wiring up a real `GCounter` kind is its own small plan, not a prerequisite for this one — see `docs/demo-ideas.md`'s own history below for that discussion.
+**`PnCounter`, not a grow-only counter.** Claps only ever go up, but this app calls `pn_counter_update` with positive amounts and never touches the decrement path, so the kernel underneath is the full P/N lattice. When it was written that was the only option: nothing in `src/watershed/` wired up `lattice_counters`' `g_counter.gleam`. A real `GCounter` kind has since shipped as its own small plan, so the clap counter could now be rebuilt on `g_counter_increment` and lose the decrement it never wanted.
 
 Not yet done: wiring the same widget onto the website's `counter-bug` page (broken-vs-correct side by side) — left as follow-on, low cost.
 

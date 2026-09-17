@@ -1,7 +1,8 @@
+import gleam/dynamic/decode
 import gleam/int
-import gleam/io
 import gleam/json
 import gleam/list
+import gleam/result
 import gleam/string
 import lattice_sets/g_set.{type GSet}
 import startest/expect
@@ -10,7 +11,11 @@ import watershed/channel
 import watershed/crdt_core
 import watershed/crdt_sim
 import watershed/crdt_wire
+import watershed/g_counter_kernel
 import watershed/g_set_kernel
+import watershed/lww_map_kernel
+import watershed/lww_register_kernel
+import watershed/mv_register_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/p2p
@@ -23,6 +28,791 @@ import watershed/two_p_set_kernel
 const room = "trip-planning"
 
 const compatibility = "watershed-crdt-1"
+
+fn set_map_document(replica: String) -> crdt_core.Document {
+  let assert Ok(document) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: compatibility,
+      replica: replica,
+      session: replica <> "-session",
+      root: channel.InitOrMap(or_map_kernel.OrSetMode),
+    ))
+  document
+}
+
+pub fn or_map_set_metadata_only_edits_replicate_and_change_digest_test() -> Nil {
+  crdt_core.digest(set_map_document("a"))
+  |> expect.to_equal(crdt_core.digest(set_map_document("b")))
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      set_map_document("a"),
+      root(),
+      channel.OrMapAddMemberEdit("doc", "draft"),
+    )
+  let assert Ok(#(duplicate, outcome)) =
+    crdt_core.edit(source, root(), channel.OrMapAddMemberEdit("doc", "draft"))
+  outcome.events |> expect.to_equal([])
+  list.length(outcome.broadcast) |> expect.to_equal(1)
+  crdt_core.digest(duplicate) |> expect.to_not_equal(crdt_core.digest(source))
+  let assert Ok(#(receiver, _)) =
+    crdt_core.receive(
+      set_map_document("b"),
+      crdt_core.envelope(source, crdt_core.state_message(source)),
+    )
+  crdt_core.digest(receiver) |> expect.to_equal(crdt_core.digest(source))
+  let assert [message] = outcome.broadcast
+  let assert Ok(#(receiver, outcome)) =
+    crdt_core.receive_encoded(receiver, crdt_core.encode(duplicate, message))
+  outcome.events |> expect.to_equal([])
+  crdt_core.digest(receiver) |> expect.to_equal(crdt_core.digest(duplicate))
+  let assert Ok(#(removed, _)) =
+    crdt_core.edit(
+      duplicate,
+      root(),
+      channel.OrMapRemoveMemberEdit("doc", "draft"),
+    )
+  let assert Ok(#(readded, _)) =
+    crdt_core.edit(removed, root(), channel.OrMapAddMemberEdit("doc", "draft"))
+  crdt_core.digest(readded) |> expect.to_not_equal(crdt_core.digest(duplicate))
+  let assert Ok(#(same, outcome)) =
+    crdt_core.edit(
+      readded,
+      root(),
+      channel.OrMapRemoveMemberEdit("doc", "absent"),
+    )
+  outcome.events |> expect.to_equal([])
+  crdt_core.digest(same) |> expect.to_equal(crdt_core.digest(readded))
+}
+
+pub fn or_map_set_digest_excludes_cursors_but_preserves_tombstones_and_generations_test() -> Nil {
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      set_map_document("a"),
+      root(),
+      channel.OrMapAddMemberEdit("doc", "draft"),
+    )
+  let assert crdt_wire.State([entry]) = crdt_core.state_message(source)
+  let raw = channel.encode_snapshot(entry.snapshot) |> json.to_string
+  let assert Ok([#(membership, leaf)]) =
+    json.parse(
+      raw,
+      decode.at(
+        ["state", "entries"],
+        decode.list({
+          use membership <- decode.field("membership", decode.string)
+          use leaf <- decode.field("value", decode.string)
+          decode.success(#(membership, leaf))
+        }),
+      ),
+    )
+  let cursors = [
+    string.replace(raw, "\"replica_id\":\"a\"", "\"replica_id\":\"loader\""),
+    string.replace(raw, "\"clock\":1", "\"clock\":100"),
+    ..list.flat_map([membership, leaf], fn(nested) {
+      let assert Ok(replica) =
+        json.parse(nested, decode.at(["state", "replica_id"], decode.string))
+      [
+        replace_embedded(
+          raw,
+          nested,
+          string.replace(
+            nested,
+            "\"replica_id\":" <> { json.string(replica) |> json.to_string },
+            "\"replica_id\":\"loader\"",
+          ),
+        ),
+        replace_embedded(
+          raw,
+          nested,
+          string.replace(nested, "\"counter\":1", "\"counter\":100"),
+        ),
+      ]
+    })
+  ]
+  list.each(cursors, fn(changed) {
+    let other = load_root_snapshot(source, set_map_document("b"), changed)
+    crdt_core.digest_canonical_json(other)
+    |> expect.to_equal(crdt_core.digest_canonical_json(source))
+    crdt_core.digest(other) |> expect.to_equal(crdt_core.digest(source))
+  })
+  let history = [
+    string.replace(
+      raw,
+      "\"generation\":{\"clock\":0,\"creator\":null}",
+      "\"generation\":{\"clock\":1,\"creator\":\"historical\"}",
+    ),
+    ..list.map([membership, leaf], fn(nested) {
+      replace_embedded(
+        raw,
+        nested,
+        string.replace(
+          nested,
+          "\"tombstones\":[]",
+          "\"tombstones\":[{\"r\":\"historical\",\"c\":1}]",
+        ),
+      )
+    })
+  ]
+  list.each(history, fn(changed) {
+    let other = load_root_snapshot(source, set_map_document("b"), changed)
+    let assert Ok(channel.OrMapState(state)) =
+      crdt_core.channel_state(other, root())
+    or_map_kernel.entries(state)
+    |> expect.to_equal([#("doc", or_map_kernel.SetMembers(["draft"]))])
+    crdt_core.digest(other) |> expect.to_not_equal(crdt_core.digest(source))
+  })
+}
+
+fn replace_embedded(raw: String, before: String, after: String) -> String {
+  after |> expect.to_not_equal(before)
+  string.replace(
+    raw,
+    json.string(before) |> json.to_string,
+    json.string(after) |> json.to_string,
+  )
+}
+
+fn load_root_snapshot(
+  source: crdt_core.Document,
+  target: crdt_core.Document,
+  raw: String,
+) -> crdt_core.Document {
+  let assert crdt_wire.State([entry]) = crdt_core.state_message(source)
+  raw
+  |> expect.to_not_equal(
+    channel.encode_snapshot(entry.snapshot) |> json.to_string,
+  )
+  let assert Ok(snapshot) =
+    json.parse(raw, channel.snapshot_decoder(entry.descriptor.channel_type))
+  merge_into(target, source, [
+    crdt_wire.ChannelEntry(..entry, snapshot: snapshot),
+  ])
+}
+
+pub fn or_map_set_digest_orders_v3_entries_and_tags_test() -> Nil {
+  let source =
+    [#("z", "last"), #("a", "first"), #("z", "first"), #("z", "last")]
+    |> list.append(list.repeat(#("z", "last"), 8))
+    |> list.fold(set_map_document("a"), fn(document, edit) {
+      let assert Ok(#(document, _)) =
+        crdt_core.edit(
+          document,
+          root(),
+          channel.OrMapAddMemberEdit(edit.0, edit.1),
+        )
+      document
+    })
+  let assert Ok(#(other, _)) =
+    crdt_core.import_snapshot(
+      set_map_document("b"),
+      crdt_core.canonical_json(source),
+    )
+  crdt_core.digest_canonical_json(other)
+  |> expect.to_equal(crdt_core.digest_canonical_json(source))
+  let assert Ok([leaves]) =
+    json.parse(
+      crdt_core.digest_canonical_json(source),
+      decode.at(
+        ["channels"],
+        decode.list(decode.at(
+          ["state", "state", "entries"],
+          decode.list({
+            use key <- decode.field("key", decode.string)
+            use leaf <- decode.field("value", decode.string)
+            decode.success(#(key, leaf))
+          }),
+        )),
+      ),
+    )
+  list.map(leaves, fn(leaf) { leaf.0 }) |> expect.to_equal(["a", "z"])
+  let assert Ok(z) = list.key_find(leaves, "z")
+  let assert Ok(members) =
+    json.parse(
+      z,
+      decode.at(
+        ["state", "entries"],
+        decode.list({
+          use value <- decode.field("value", decode.string)
+          use tags <- decode.field(
+            "tags",
+            decode.list(decode.field("c", decode.int, decode.success)),
+          )
+          decode.success(#(value, tags))
+        }),
+      ),
+    )
+  members
+  |> expect.to_equal([
+    #("first", [3]),
+    #("last", [1, 10, 11, 12, 4, 5, 6, 7, 8, 9]),
+  ])
+}
+
+pub fn or_map_set_snapshot_import_preserves_empty_key_and_removed_leaf_history_test() -> Nil {
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      set_map_document("a"),
+      root(),
+      channel.OrMapAddMemberEdit("empty", "draft"),
+    )
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      source,
+      root(),
+      channel.OrMapRemoveMemberEdit("empty", "draft"),
+    )
+  let assert Ok(#(source, outcome)) =
+    crdt_core.edit(source, root(), channel.OrMapAddMemberEdit("removed", "old"))
+  let assert [old] = outcome.broadcast
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(source, root(), channel.OrMapRemoveEdit("removed"))
+  let assert Ok(#(restored, _)) =
+    crdt_core.import_snapshot(
+      set_map_document("b"),
+      crdt_core.canonical_json(source),
+    )
+  crdt_core.digest(restored) |> expect.to_equal(crdt_core.digest(source))
+  let assert Ok(channel.OrMapState(state)) =
+    crdt_core.channel_state(restored, root())
+  or_map_kernel.get(state, "empty")
+  |> expect.to_equal(Ok(or_map_kernel.SetMembers([])))
+  or_map_kernel.get(state, "removed") |> expect.to_equal(Error(Nil))
+  let assert Ok(#(restored, _)) =
+    crdt_core.edit(
+      restored,
+      root(),
+      channel.OrMapAddMemberEdit("removed", "new"),
+    )
+  let assert Ok(#(restored, outcome)) =
+    crdt_core.receive_encoded(restored, crdt_core.encode(source, old))
+  outcome.events |> expect.to_equal([])
+  let assert Ok(channel.OrMapState(state)) =
+    crdt_core.channel_state(restored, root())
+  or_map_kernel.entries(state)
+  |> expect.to_equal([
+    #("empty", or_map_kernel.SetMembers([])),
+    #("removed", or_map_kernel.SetMembers(["new"])),
+  ])
+}
+
+pub fn or_map_set_snapshot_checks_declared_mode_and_native_spec_test() -> Nil {
+  let set_state = channel.new(channel.InitOrMap(or_map_kernel.OrSetMode), "a")
+  let tally_state = channel.new(channel.InitOrMap(or_map_kernel.TallyMode), "a")
+  let register_state =
+    channel.new(channel.InitOrMap(or_map_kernel.RegisterMode), "a")
+  let assert channel.OrMapSnapshot(_, native_set) = channel.snapshot(set_state)
+  let assert channel.OrMapSnapshot(_, native_tally) =
+    channel.snapshot(tally_state)
+  let assert channel.OrMapSnapshot(_, native_register) =
+    channel.snapshot(register_state)
+  list.each(
+    [
+      #(set_state, channel.OrMapSnapshot(or_map_kernel.TallyMode, native_set)),
+      #(set_state, channel.OrMapSnapshot(or_map_kernel.OrSetMode, native_tally)),
+      #(
+        tally_state,
+        channel.OrMapSnapshot(or_map_kernel.OrSetMode, native_tally),
+      ),
+      #(
+        register_state,
+        channel.OrMapSnapshot(or_map_kernel.TallyMode, native_register),
+      ),
+    ],
+    fn(pair) {
+      channel.merge_p2p_snapshot(pair.0, pair.1)
+      |> result.is_error
+      |> expect.to_be_true
+      channel.from_snapshot(pair.1, "loader")
+      |> result.is_error
+      |> expect.to_be_true
+    },
+  )
+}
+
+pub fn or_map_set_three_peer_transport_preserves_remove_readd_and_replay_test() -> Nil {
+  let mesh =
+    crdt_sim.new()
+    |> crdt_sim.add("a", set_map_document("a"))
+    |> crdt_sim.add("b", set_map_document("b"))
+    |> crdt_sim.add("c", set_map_document("c"))
+    |> crdt_sim.connect("a", "b")
+    |> crdt_sim.connect("b", "c")
+    |> crdt_sim.settle
+    |> crdt_sim.edit("a", root(), channel.OrMapAddMemberEdit("doc", "draft"))
+  let #(mesh, old) = crdt_sim.take_queue(mesh)
+  let assert [packet] = old
+  let assert Ok(envelope) =
+    crdt_wire.decode_envelope(packet.raw, crdt_wire.default_limits())
+  let mesh =
+    mesh
+    |> crdt_sim.enqueue(old)
+    |> crdt_sim.settle
+    |> crdt_sim.send("b", "c", [envelope.message])
+    |> crdt_sim.settle
+  let assert Ok(channel.OrMapState(observed)) =
+    crdt_core.channel_state(crdt_sim.document(mesh, "c"), root())
+  or_map_kernel.get(observed, "doc")
+  |> expect.to_equal(Ok(or_map_kernel.SetMembers(["draft"])))
+  let mesh =
+    mesh
+    |> crdt_sim.edit("c", root(), channel.OrMapRemoveEdit("doc"))
+    |> crdt_sim.settle
+    |> crdt_sim.edit("b", root(), channel.OrMapAddMemberEdit("doc", "reviewed"))
+    |> crdt_sim.settle
+    |> crdt_sim.enqueue(old)
+    |> crdt_sim.settle
+    |> crdt_sim.gossip_state
+    |> crdt_sim.gossip_state
+  converged(mesh)
+  list.each(["a", "b", "c"], fn(replica) {
+    let assert Ok(channel.OrMapState(state)) =
+      crdt_core.channel_state(crdt_sim.document(mesh, replica), root())
+    or_map_kernel.entries(state)
+    |> expect.to_equal([#("doc", or_map_kernel.SetMembers(["reviewed"]))])
+  })
+}
+
+fn lww_document(replica: String) -> crdt_core.Document {
+  let assert Ok(document) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: "watershed-lww-register-1",
+      replica: replica,
+      session: replica <> "-session",
+      root: channel.InitLwwRegister,
+    ))
+  document
+}
+
+pub fn lww_register_duplicate_and_reordered_delivery_is_idempotent_test() -> Nil {
+  let assert Ok(#(source, first)) =
+    crdt_core.edit(
+      lww_document("a"),
+      root(),
+      channel.LwwRegisterSetEdit("first", 100),
+    )
+  let assert Ok(#(source, second)) =
+    crdt_core.edit(source, root(), channel.LwwRegisterSetEdit("second", 101))
+  let assert [first] = first.broadcast
+  let assert [second] = second.broadcast
+  [
+    #([first, second], [
+      #(
+        root(),
+        channel.LwwRegisterEvent(lww_register_kernel.Changed("", "first")),
+      ),
+      #(
+        root(),
+        channel.LwwRegisterEvent(lww_register_kernel.Changed("first", "second")),
+      ),
+    ]),
+    #([second, first], [
+      #(
+        root(),
+        channel.LwwRegisterEvent(lww_register_kernel.Changed("", "second")),
+      ),
+    ]),
+  ]
+  |> list.each(fn(scenario) {
+    let #(received, events) =
+      list.fold(scenario.0, #(lww_document("b"), []), fn(acc, message) {
+        let assert Ok(#(document, outcome)) =
+          crdt_core.receive_encoded(acc.0, crdt_core.encode(source, message))
+        #(document, list.append(acc.1, outcome.events))
+      })
+    events |> expect.to_equal(scenario.1)
+    crdt_core.digest(received) |> expect.to_equal(crdt_core.digest(source))
+    list.each(scenario.0, fn(message) {
+      let assert crdt_wire.Delta(id, address, kind, operation) = message
+      // A new message ID also tests the merge without duplicate suppression.
+      let replay =
+        crdt_wire.Delta(
+          crdt_wire.MessageId(id.replica, id.counter + 10),
+          address,
+          kind,
+          operation,
+        )
+      list.each([message, replay], fn(duplicate) {
+        let assert Ok(#(document, outcome)) =
+          crdt_core.receive_encoded(
+            received,
+            crdt_core.encode(source, duplicate),
+          )
+        outcome.events |> expect.to_equal([])
+        crdt_core.digest(document) |> expect.to_equal(crdt_core.digest(source))
+        view(document) |> expect.to_equal([#(root(), "second")])
+      })
+    })
+  })
+}
+
+pub fn lww_register_digest_preserves_winner_timestamp_and_author_test() -> Nil {
+  crdt_core.digest(lww_document("a"))
+  |> expect.to_equal(crdt_core.digest(lww_document("b")))
+  let assert Ok(#(a, _)) =
+    crdt_core.edit(
+      lww_document("a"),
+      root(),
+      channel.LwwRegisterSetEdit("same", 100),
+    )
+  let assert Ok(#(b, _)) =
+    crdt_core.edit(
+      lww_document("b"),
+      root(),
+      channel.LwwRegisterSetEdit("same", 100),
+    )
+  let assert Ok(#(later, outcome)) =
+    crdt_core.edit(a, root(), channel.LwwRegisterSetEdit("same", 101))
+  outcome.events |> expect.to_equal([])
+  list.length(outcome.broadcast) |> expect.to_equal(1)
+  crdt_core.digest(a) |> expect.to_not_equal(crdt_core.digest(b))
+  crdt_core.digest(a) |> expect.to_not_equal(crdt_core.digest(later))
+  let assert Ok(#(a, outcome)) =
+    crdt_core.receive(a, crdt_core.envelope(b, crdt_core.state_message(b)))
+  outcome.events |> expect.to_equal([])
+  crdt_core.digest(a) |> expect.to_equal(crdt_core.digest(b))
+  let assert Ok(#(b, outcome)) =
+    crdt_core.receive(
+      b,
+      crdt_core.envelope(later, crdt_core.state_message(later)),
+    )
+  outcome.events |> expect.to_equal([])
+  crdt_core.digest(b) |> expect.to_equal(crdt_core.digest(later))
+}
+
+pub fn lww_register_three_peer_anti_entropy_repairs_dropped_metadata_test() -> Nil {
+  let mesh =
+    crdt_sim.new()
+    |> crdt_sim.add("a", lww_document("a"))
+    |> crdt_sim.add("b", lww_document("b"))
+    |> crdt_sim.add("c", lww_document("c"))
+    |> crdt_sim.connect("a", "b")
+    |> crdt_sim.connect("b", "c")
+    |> crdt_sim.settle
+    |> crdt_sim.edit("a", root(), channel.LwwRegisterSetEdit("left", 100))
+    |> crdt_sim.edit("c", root(), channel.LwwRegisterSetEdit("right", 100))
+  let #(mesh, original) = crdt_sim.take_queue(mesh)
+  let mesh =
+    crdt_sim.enqueue(mesh, list.append(list.reverse(original), original))
+    |> crdt_sim.settle
+    |> crdt_sim.gossip_state
+    |> crdt_sim.gossip_state
+  converged(mesh)
+  view(crdt_sim.document(mesh, "b")) |> expect.to_equal([#(root(), "right")])
+  let before = crdt_core.digest(crdt_sim.document(mesh, "b"))
+  let mesh =
+    crdt_sim.edit(mesh, "a", root(), channel.LwwRegisterSetEdit("right", 0))
+  let #(mesh, _dropped) = crdt_sim.take_queue(mesh)
+  crdt_core.digest(crdt_sim.document(mesh, "a")) |> expect.to_not_equal(before)
+  let mesh = mesh |> crdt_sim.gossip_state |> crdt_sim.gossip_state
+  converged(mesh)
+  let mesh = mesh |> crdt_sim.enqueue(original) |> crdt_sim.settle
+  converged(mesh)
+  view(crdt_sim.document(mesh, "c")) |> expect.to_equal([#(root(), "right")])
+}
+
+pub fn lww_register_persistence_import_restores_clock_and_local_writer_test() -> Nil {
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      lww_document("z"),
+      root(),
+      channel.LwwRegisterSetEdit("saved", 100),
+    )
+  let assert Ok(#(source, created)) =
+    crdt_core.create_channel(source, channel.InitLwwRegister)
+  let assert [descriptor] = created.created
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      source,
+      descriptor.address,
+      channel.LwwRegisterSetEdit("child", 200),
+    )
+  let assert Ok(#(loaded, _)) =
+    crdt_core.import_snapshot(
+      lww_document("a"),
+      crdt_core.canonical_json(source),
+    )
+  crdt_core.digest(loaded) |> expect.to_equal(crdt_core.digest(source))
+  let assert Ok(#(loaded, _)) =
+    crdt_core.import_snapshot(loaded, crdt_core.canonical_json(source))
+  view(loaded)
+  |> expect.to_equal([#("root", "saved"), #(descriptor.address, "child")])
+  [#(root(), 101), #(descriptor.address, 201)]
+  |> list.each(fn(entry) {
+    let assert Ok(#(edited, outcome)) =
+      crdt_core.edit(loaded, entry.0, channel.LwwRegisterSetEdit("new", 0))
+    let assert [
+      crdt_wire.Delta(_, _, _, channel.LwwRegisterOperation(operation)),
+    ] = outcome.broadcast
+    let lww_register_kernel.Set(_, timestamp, _) = operation
+    timestamp |> expect.to_equal(entry.1)
+    let assert Ok(channel.LwwRegisterState(kernel)) =
+      crdt_core.channel_state(edited, entry.0)
+    lww_register_kernel.summary(kernel)
+    |> json.to_string
+    |> string.contains("\"replica_id\":\"a\"")
+    |> expect.to_be_true()
+  })
+}
+
+fn lww_map_document(replica: String) -> crdt_core.Document {
+  let assert Ok(document) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: "watershed-lww-map-1",
+      replica: replica,
+      session: replica <> "-session",
+      root: channel.InitLwwMap,
+    ))
+  document
+}
+
+pub fn lww_map_digest_sorts_entries_and_retains_invisible_metadata_test() -> Nil {
+  crdt_core.digest(lww_map_document("a"))
+  |> expect.to_equal(crdt_core.digest(lww_map_document("b")))
+  let assert Ok(#(a, _)) =
+    crdt_core.edit(
+      lww_map_document("a"),
+      root(),
+      channel.LwwMapSetEdit("z", "last", 100),
+    )
+  let assert Ok(#(a, _)) =
+    crdt_core.edit(a, root(), channel.LwwMapRemoveEdit("a", 10))
+  let assert Ok(#(b, _)) =
+    crdt_core.edit(
+      lww_map_document("b"),
+      root(),
+      channel.LwwMapRemoveEdit("a", 10),
+    )
+  let assert Ok(#(b, _)) =
+    crdt_core.edit(b, root(), channel.LwwMapSetEdit("z", "last", 100))
+  view(a) |> expect.to_equal(view(b))
+  crdt_core.digest(a) |> expect.to_not_equal(crdt_core.digest(b))
+  let assert Ok(#(b, _)) =
+    crdt_core.import_snapshot(
+      lww_map_document("b"),
+      crdt_core.canonical_json(a),
+    )
+  crdt_core.digest(a) |> expect.to_equal(crdt_core.digest(b))
+  crdt_core.digest_canonical_json(a)
+  |> string.contains(
+    "\"entries\":[{\"key\":\"a\",\"provenance\":{\"kind\":\"modern\",\"writer\":\"a\"},\"timestamp\":10,\"value\":null},{\"key\":\"z\"",
+  )
+  |> expect.to_be_true()
+  let assert Ok(#(later, outcome)) =
+    crdt_core.edit(a, root(), channel.LwwMapRemoveEdit("a", 11))
+  outcome.events |> expect.to_equal([])
+  list.length(outcome.broadcast) |> expect.to_equal(1)
+  crdt_core.digest(a) |> expect.to_not_equal(crdt_core.digest(later))
+  let assert Ok(#(same_value, outcome)) =
+    crdt_core.edit(a, root(), channel.LwwMapSetEdit("z", "last", 101))
+  outcome.events |> expect.to_equal([])
+  crdt_core.digest(a) |> expect.to_not_equal(crdt_core.digest(same_value))
+  let assert crdt_wire.State([entry]) = crdt_core.state_message(a)
+  let raw = channel.encode_snapshot(entry.snapshot) |> json.to_string
+  [
+    string.replace(raw, "\"writer\":\"a\"", "\"writer\":\"historical\""),
+    string.replace(
+      raw,
+      "\\\"replica_id\\\":\\\"a\\\"",
+      "\\\"replica_id\\\":\\\"historical\\\"",
+    ),
+    string.replace(raw, "\\\"timestamp\\\":100", "\\\"timestamp\\\":101"),
+  ]
+  |> list.each(fn(changed) {
+    let other = load_root_snapshot(a, lww_map_document("b"), changed)
+    view(other) |> expect.to_equal(view(a))
+    crdt_core.digest(other) |> expect.to_not_equal(crdt_core.digest(a))
+  })
+}
+
+pub fn lww_map_three_peer_chain_propagates_eventless_tombstones_test() -> Nil {
+  let mesh =
+    crdt_sim.new()
+    |> crdt_sim.add("a", lww_map_document("a"))
+    |> crdt_sim.add("b", lww_map_document("b"))
+    |> crdt_sim.add("c", lww_map_document("c"))
+    |> crdt_sim.connect("a", "b")
+    |> crdt_sim.connect("b", "c")
+    |> crdt_sim.settle
+    |> crdt_sim.edit("a", root(), channel.LwwMapRemoveEdit("gone", 100))
+    |> crdt_sim.settle
+    |> crdt_sim.gossip_state
+    |> crdt_sim.gossip_state
+  converged(mesh)
+  let c = crdt_sim.document(mesh, "c")
+  let assert Ok(#(_, outcome)) =
+    crdt_core.edit(c, root(), channel.LwwMapSetEdit("gone", "restored", 0))
+  let assert [
+    crdt_wire.Delta(
+      _,
+      _,
+      _,
+      channel.LwwMapOperation(lww_map_kernel.Set("gone", "restored", 101, _)),
+    ),
+  ] = outcome.broadcast
+  let mesh =
+    crdt_sim.edit(mesh, "a", root(), channel.LwwMapRemoveEdit("gone", 200))
+  let #(mesh, _dropped) = crdt_sim.take_queue(mesh)
+  let mesh = mesh |> crdt_sim.gossip_state |> crdt_sim.gossip_state
+  converged(mesh)
+  let assert Ok(#(_, outcome)) =
+    crdt_core.edit(
+      crdt_sim.document(mesh, "c"),
+      root(),
+      channel.LwwMapSetEdit("gone", "new", 0),
+    )
+  let assert [
+    crdt_wire.Delta(
+      _,
+      _,
+      _,
+      channel.LwwMapOperation(lww_map_kernel.Set("gone", "new", 201, _)),
+    ),
+  ] = outcome.broadcast
+  Nil
+}
+
+pub fn lww_map_import_and_late_channel_announcement_restore_clocks_test() -> Nil {
+  let assert Ok(#(source, created)) =
+    crdt_core.create_channel(lww_map_document("a"), channel.InitLwwMap)
+  let assert [descriptor] = created.created
+  let assert Ok(#(source, outcome)) =
+    crdt_core.edit(
+      source,
+      descriptor.address,
+      channel.LwwMapRemoveEdit("gone", 100),
+    )
+  let assert [delta] = outcome.broadcast
+  let assert Ok(#(late, _)) =
+    crdt_core.receive(lww_map_document("b"), crdt_core.envelope(source, delta))
+  let assert Ok(#(late, _)) =
+    crdt_core.receive(
+      late,
+      crdt_core.envelope(source, crdt_core.state_message(source)),
+    )
+  let assert Ok(#(loaded, _)) =
+    crdt_core.import_snapshot(
+      lww_map_document("c"),
+      crdt_core.canonical_json(source),
+    )
+  [late, loaded]
+  |> list.each(fn(document) {
+    crdt_core.digest(document) |> expect.to_equal(crdt_core.digest(source))
+    let assert Ok(#(_, outcome)) =
+      crdt_core.edit(
+        document,
+        descriptor.address,
+        channel.LwwMapSetEdit("gone", "restored", 0),
+      )
+    let assert [
+      crdt_wire.Delta(
+        _,
+        _,
+        _,
+        channel.LwwMapOperation(lww_map_kernel.Set("gone", "restored", 101, _)),
+      ),
+    ] = outcome.broadcast
+    Nil
+  })
+}
+
+pub fn lww_map_reordered_and_duplicate_deltas_keep_remove_winner_test() -> Nil {
+  let assert Ok(#(a, set)) =
+    crdt_core.edit(
+      lww_map_document("a"),
+      root(),
+      channel.LwwMapSetEdit("k", "value", 10),
+    )
+  let assert Ok(#(b, remove)) =
+    crdt_core.edit(
+      lww_map_document("b"),
+      root(),
+      channel.LwwMapRemoveEdit("k", 10),
+    )
+  let assert [set] = set.broadcast
+  let assert [remove] = remove.broadcast
+  [[#(a, set), #(b, remove)], [#(b, remove), #(a, set)]]
+  |> list.each(fn(messages) {
+    let received =
+      list.fold(
+        list.append(messages, messages),
+        lww_map_document("c"),
+        fn(document, pair) {
+          let assert Ok(#(document, _)) =
+            crdt_core.receive_encoded(
+              document,
+              crdt_core.encode(pair.0, pair.1),
+            )
+          document
+        },
+      )
+    let assert Ok(channel.LwwMapState(state)) =
+      crdt_core.channel_state(received, root())
+    lww_map_kernel.entries(state) |> expect.to_equal([])
+    crdt_core.digest(received) |> expect.to_equal(crdt_core.digest(b))
+  })
+}
+
+fn mv_document(replica: String) -> crdt_core.Document {
+  let assert Ok(document) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: compatibility,
+      replica: replica,
+      session: replica <> "-session",
+      root: channel.InitMvRegister,
+    ))
+  document
+}
+
+pub fn mv_register_repairs_causal_state_and_survives_duplicate_delivery_test() -> Nil {
+  let mesh =
+    crdt_sim.new()
+    |> crdt_sim.add("a", mv_document("a"))
+    |> crdt_sim.add("b", mv_document("b"))
+    |> crdt_sim.add("c", mv_document("c"))
+    |> crdt_sim.connect("a", "b")
+    |> crdt_sim.connect("b", "c")
+    |> crdt_sim.settle
+    |> crdt_sim.edit("a", root(), channel.MvRegisterEdit("raise crest"))
+    |> crdt_sim.edit("b", root(), channel.MvRegisterEdit("arm pump"))
+  let #(mesh, original) = crdt_sim.take_queue(mesh)
+  let mesh =
+    crdt_sim.enqueue(mesh, list.append(list.reverse(original), original))
+    |> crdt_sim.settle
+    |> crdt_sim.gossip_state
+    |> crdt_sim.gossip_state
+  converged(mesh)
+  view(crdt_sim.document(mesh, "a"))
+  |> expect.to_equal([#(root(), "arm pump,raise crest")])
+  let mesh =
+    crdt_sim.edit(mesh, "a", root(), channel.MvRegisterEdit("resolved"))
+    |> crdt_sim.settle
+    |> crdt_sim.gossip_state
+    |> crdt_sim.gossip_state
+    |> crdt_sim.enqueue(original)
+    |> crdt_sim.settle
+  converged(mesh)
+  view(crdt_sim.document(mesh, "c")) |> expect.to_equal([#(root(), "resolved")])
+  let before = crdt_core.digest(crdt_sim.document(mesh, "b"))
+  let mesh =
+    crdt_sim.edit(mesh, "a", root(), channel.MvRegisterEdit("resolved"))
+  let #(mesh, _dropped) = crdt_sim.take_queue(mesh)
+  crdt_core.digest(crdt_sim.document(mesh, "a")) |> expect.to_not_equal(before)
+  let mesh = mesh |> crdt_sim.gossip_state |> crdt_sim.gossip_state
+  converged(mesh)
+}
+
+pub fn mv_register_digest_pins_full_causal_projection_test() -> Nil {
+  let assert Ok(#(document, _)) =
+    crdt_core.edit(mv_document("a"), root(), channel.MvRegisterEdit("x"))
+  crdt_core.digest_canonical_json(document)
+  |> expect.to_equal(
+    "{\"channels\":[{\"descriptor\":{\"address\":\"root\",\"channelType\":\"mv-register\",\"createdBy\":\"\"},\"state\":{\"state\":{\"entries\":[{\"tag\":{\"c\":1,\"r\":\"a\"},\"value\":\"x\"}],\"vclock\":{\"a\":1}},\"type\":\"mv_register\",\"v\":1}}],\"compatibility\":\"watershed-crdt-1\",\"room\":\"trip-planning\",\"root\":\"mv-register\",\"v\":1}",
+  )
+}
 
 fn config(replica: String) -> crdt_core.Config {
   crdt_core.config(
@@ -92,6 +882,15 @@ fn render(state: channel.ChannelState) -> String {
   case state {
     channel.PnCounterState(kernel) ->
       int.to_string(pn_counter_kernel.value(kernel))
+    channel.GCounterState(kernel) ->
+      int.to_string(g_counter_kernel.value(kernel))
+    channel.MvRegisterState(kernel) ->
+      string.join(mv_register_kernel.values(kernel), ",")
+    channel.LwwRegisterState(kernel) -> lww_register_kernel.value(kernel)
+    channel.LwwMapState(kernel) ->
+      lww_map_kernel.entries(kernel)
+      |> list.map(fn(entry) { entry.0 <> "=" <> entry.1 })
+      |> string.join(",")
     channel.OrSetState(kernel) -> string.join(or_set_kernel.values(kernel), ",")
     channel.GSetState(kernel) -> string.join(g_set_kernel.values(kernel), ",")
     channel.TwoPSetState(kernel) ->
@@ -104,6 +903,9 @@ fn render(state: channel.ChannelState) -> String {
         <> case entry.1 {
           or_map_kernel.Tally(value) -> int.to_string(value)
           or_map_kernel.Register(value) -> value
+          or_map_kernel.SetMembers(members) ->
+            json.array(members, json.string) |> json.to_string
+          or_map_kernel.MvRegister(values) -> string.join(values, "|")
         }
       })
       |> string.join(",")
@@ -753,6 +1555,34 @@ pub fn importing_the_same_snapshot_twice_changes_nothing_test() -> Nil {
   Nil
 }
 
+/// A grow-only counter keys its counts by replica, and it also remembers which
+/// replica the local peer is. That local marker is private, so the digest must
+/// leave it out. Two peers that hold the same counts must agree, even though
+/// each one writes under its own replica key.
+pub fn g_counter_peers_agree_although_the_local_replica_differs_test() -> Nil {
+  let mesh = full_mesh(["peer-a", "peer-b"])
+  let #(mesh, address) = crdt_sim.create(mesh, "peer-a", channel.InitGCounter)
+  let mesh = crdt_sim.settle(mesh)
+  let mesh =
+    crdt_sim.edit(mesh, "peer-a", address, channel.GCounterIncrementEdit(3))
+  let mesh =
+    crdt_sim.edit(mesh, "peer-b", address, channel.GCounterIncrementEdit(5))
+  let mesh = crdt_sim.settle(mesh)
+
+  let a = crdt_sim.document(mesh, "peer-a")
+  let b = crdt_sim.document(mesh, "peer-b")
+
+  let assert Ok(channel.GCounterState(kernel_a)) =
+    crdt_core.channel_state(a, address)
+  let assert Ok(channel.GCounterState(kernel_b)) =
+    crdt_core.channel_state(b, address)
+  g_counter_kernel.value(kernel_a) |> expect.to_equal(8)
+  g_counter_kernel.value(kernel_b) |> expect.to_equal(8)
+
+  crdt_core.digest(a) |> expect.to_equal(crdt_core.digest(b))
+  Nil
+}
+
 pub fn a_digest_is_lowercase_sha256_hex_test() -> Nil {
   let digest = sha256.hex("watershed")
   string.length(digest) |> expect.to_equal(64)
@@ -806,12 +1636,12 @@ pub fn each_channel_type_pins_its_digest_projection_test() -> Nil {
     #(
       channel.InitOrMap(or_map_kernel.TallyMode),
       channel.OrMapIncrementEdit("votes", 2),
-      "ed14587690180b1ab5bd13772f4c6aba53a2f6ccd78af483cf7ec935539f08ee",
+      "d62d9186146628bb720cf9d5512a7632e7bb76f2e57392710a32ade3e5ab5601",
     ),
     #(
       channel.InitOrMap(or_map_kernel.RegisterMode),
       channel.OrMapSetRegisterEdit("city", "Oslo", 9),
-      "8fe2a610d6f37fea15d031a73ffb04283b8c12b1c5faa35138c45b5ef63136f6",
+      "98b9d3914637f460f3acc50bbd688d7fb317c4dbd1987fd0ef143b2f2e419111",
     ),
     #(
       channel.InitOrSet,
@@ -831,12 +1661,12 @@ pub fn each_channel_type_pins_its_digest_projection_test() -> Nil {
     #(
       channel.InitSequence,
       channel.SequenceInsertEdit(0, json.string("fig")),
-      "6cb5a3c8e7fda40061b830f39c67364c58b00ade4bcc4e5133ebeeae7eecaac1",
+      "ad55fec128e4480bd00e4f59c304ab31a733e0c6d966194c85befb3d856bf941",
     ),
     #(
       channel.InitText,
       channel.TextAppendEdit("fig"),
-      "4256362bbb48fd0daefbb607c294d5e7a3f81a33cacceca900c2127bc7c1a461",
+      "e0a11ff2a67086a673e7063ca7195dabd6118603f67d9a8614a46dbbbcc6a034",
     ),
   ]
   |> list.each(fn(fixture) {
@@ -860,7 +1690,7 @@ pub fn a_pinned_document_digest_is_identical_on_every_target_test() -> Nil {
 
   crdt_core.digest(document)
   |> expect.to_equal(
-    "29a2003f235159dc130cd16720289e99b2c6bed079755b87279a1533846b93df",
+    "6282f124d7a1bcf4574bf6dca4d305ad26b266e9890a64228d462aa6a1fe23c5",
   )
 
   // What the hash is made of, spelled out: one canonical form per value,

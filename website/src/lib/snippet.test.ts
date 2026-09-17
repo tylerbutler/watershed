@@ -226,8 +226,11 @@ test("the marker list is frozen too — one page cannot edit it for every page",
   const snippet = sourceSnippet("homepage-beam");
   assert.equal(snippet.origin.kind, "source");
   if (snippet.origin.kind !== "source") return;
-  assert.ok(Object.isFrozen(snippet.origin.markers));
-  assert.throws(() => (snippet.origin as { markers: string[] }).markers.push("x"));
+  const markers = snippet.origin.markers;
+  assert.ok(Object.isFrozen(markers));
+  assert.throws(() =>
+    Reflect.apply(Array.prototype.push, markers, ["x"])
+  );
 });
 
 test("the marker list is typed readonly, so the freeze is not a surprise", () => {

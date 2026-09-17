@@ -1,7 +1,9 @@
 # Plan: Gleam-only SharedMap client for Levee
 
 **Date:** 2026-07-01
-**Status:** In progress — reviewed 2026-07-01 against `document_channel.ex`,
+**Status (2026-09-06):** M1-M7 complete. The milestone notes below record their
+outcomes; the old runtime and file-name sketches are historical.
+Originally reviewed 2026-07-01 against `document_channel.ex`,
 `session.ex`, `leveeDeltaConnection.ts`, and spillway/dewdrop sources; wire
 contract and runtime sections updated with confirmed payload shapes.
 **Repo:** `claude-workspace/watershed` (new sibling repo, water theme).

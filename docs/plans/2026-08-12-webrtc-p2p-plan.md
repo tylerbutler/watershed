@@ -1,6 +1,13 @@
 # WebRTC peer-to-peer mode plan
 
 **Date:** 2026-08-12
+**Status (2026-09-06):** the CRDT runtime, WebRTC transport, signaling adapter,
+anti-entropy, relay driver, and Lustre bindings ship. The relay reference
+implementation lives in `tools/relay/`; the original Floodgate deployment
+sketch below should not be read as evidence that Floodgate implements it.
+IndexedDB persistence also shipped in the later durable-persistence plan.
+Use the follow-up section for remaining capabilities, not the original rungs.
+
 **Builds on:** the lattice-backed PN counter, OR-map, OR-set, G-set, 2P-set,
 sequence, and text kernels; the JavaScript runtime transport seam; summary
 snapshots; and the deterministic sluice test pattern.
@@ -666,7 +673,10 @@ including them in its exit criteria.
 
 ### Highest priority
 
-- **IndexedDB persistence.** Save the latest p2p snapshot and local replica
+- **IndexedDB persistence (shipped).** `persist_js`, `persist_controller_js`,
+  and `watershed_lustre/crdt.open` provide snapshot storage, save scheduling,
+  and disk-first startup. See `2026-08-19-durable-persistence-plan.md` and the
+  notes README. Original scope: save the latest p2p snapshot and local replica
   identity, restore them after refresh, and merge restored state with connected
   peers. Specify transaction boundaries, quota errors, schema migration, and
   whether closing a room deletes local state. This changes the promise that a
@@ -676,10 +686,16 @@ including them in its exit criteria.
   payload so a new room can start from known state without a persistent peer.
   Keep signaling credentials outside the snapshot and authenticate imported
   application tags before merge.
-- **Sync observability.** Expose peer count, ICE state, selected candidate type,
+- **Sync observability (partial).** `crdt_js` exposes peer count, bootstrap
+  state, repair count, and last digest match; the transport has ICE diagnostics.
+  Structured selected-candidate and byte counters remain follow-up work.
+  Original scope: expose peer count, ICE state, selected candidate type,
   bootstrap progress, last digest match, repair count, bytes sent, and bytes
   received. Add these to status events before adding a telemetry backend.
-- **Reference signaling service.** Provide authenticated room admission,
+- **Reference signaling service (partial).** `tools/signaling/` provides
+  bounded membership and protocol-only routing, with integration coverage.
+  It does not authenticate room admission beyond room and peer names.
+  Remaining deployment work: provide authenticated room admission,
   bounded room membership, and opaque offer, answer, and ICE routing. Pin an
   integration test that proves document envelopes never enter the signaling
   process.

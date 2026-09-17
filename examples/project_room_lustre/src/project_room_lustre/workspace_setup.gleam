@@ -19,6 +19,7 @@ import project_room_lustre/document_schema
 import project_room_lustre/inspector
 import project_room_lustre/notes
 import project_room_lustre/ownership_slots
+import project_room_lustre/room_agreement
 import project_room_lustre/tally
 import project_room_lustre/task_collection
 
@@ -55,7 +56,7 @@ pub fn create_from_preset(
   }
 }
 
-/// Add the eight fixed instances and five connections that are not present.
+/// Add the nine seeded instances and six connections that are not present.
 ///
 /// The function reads before each write, so it is safe to call after a partial
 /// attempt. Concurrent cold clients can still create competing child maps;
@@ -136,6 +137,15 @@ pub fn seed(
     catalog.tally_version,
     tally.encode_config(tally.Config(title: "Completion events", target: 10)),
     tally.initialize,
+  ))
+  use _ <- result.try(ensure_instance(
+    store,
+    room_catalog,
+    catalog.room_agreement_instance_id,
+    catalog.room_agreement_kind,
+    catalog.room_agreement_version,
+    room_agreement.encode_config(room_agreement.Config(title: "Room Agreement")),
+    room_agreement.initialize,
   ))
   list.try_fold(catalog.persisted_connections(), Nil, fn(_, connection) {
     ensure_connection(store, room_catalog, connection)

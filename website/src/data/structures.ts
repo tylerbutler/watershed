@@ -72,7 +72,7 @@ const counters: Structure[] = [
   {
     id: "gcounter",
     name: "GCounter",
-    module: "lattice_counters/g_counter",
+    module: "g_counter_kernel",
     kind: "CRDT",
     onHomepage: true,
     tagline: "A count-up-only counter that stays correct even if an update arrives twice.",
@@ -191,13 +191,37 @@ const maps: Structure[] = [
       "your writes show instantly, then lock in once the server confirms them",
     summary: "confirmed entries reload with their keys and insertion order intact",
     how: [
-      "watershed's flagship DDS follows Fluid Framework's SharedMap kernel design. Keys map to JSON values. Each set is sequenced, and for a given key the write with the highest sequence number wins. Its inner set, delete, and clear payloads match the @fluidframework/map operation encoding.",
+      "watershed's flagship DDS follows Fluid Framework's SharedMap kernel design. Keys map to JSON values, including supported encoded handles. Each set is sequenced, and for a given key the write with the highest sequence number wins. Its inner set, delete, and clear payloads match the @fluidframework/map operation encoding.",
       "Concurrent writes resolve deterministically by server order rather than by a merge function. A local write renders immediately; the ack promotes it, and if a higher-SN write to the same key arrives it replaces the value. Reference-generated corpus tests cover map state, events, and convergence. Attach and summary formats remain watershed's own, so this does not imply drop-in Fluid container interoperability.",
+      "Choose SharedMap for server-ordered JSON or handle state. Its summary keeps confirmed entries in insertion order, with no CRDT tombstones. LWWMap instead keeps strings, per-key timestamps, and tombstones, and reads keys in sorted order. Both can overwrite a concurrent losing value; neither preserves the disagreement for you.",
     ],
     useCases: [
       "Shared application state and settings objects edited by many clients",
       "Learning and testing server-ordered last-write-wins collaboration",
       "Key-value collaboration where a clear last-writer-wins rule is acceptable",
+    ],
+  },
+  {
+    id: "lww-map",
+    name: "LWWMap",
+    module: "lww_map_kernel",
+    kind: "CRDT",
+    onHomepage: true,
+    tagline: "Shared string settings where a newer timestamp can beat a later server write.",
+    rule: "the greater per-key timestamp wins; at equal time, a tombstone beats a value and writer ID breaks a set/set tie",
+    optimistic: "your set or remove appears in magenta while confirmed entries stay in ink",
+    summary: "values, timestamps, and retained tombstones reload together; visible entries read in sorted-key order",
+    how: [
+      "Try racing two gate settings. A writes open with a newer timestamp, then B's closed gets the later server sequence number. LWWMap keeps open. SharedMap would keep closed: it follows server order, while LWWMap follows each key's timestamp through the sequenced runtime or the existing JavaScript CRDT mesh and relay paths.",
+      "At equal time, the greater writer ID wins: B's closed beats A's open even though the values point the other way alphabetically. A tombstone still beats a value at the same time. That's different from OR-map's observed-remove, add-wins rule. Removal isn't unconditional remove-wins: an older write can't resurrect a tombstone, but a newer write can restore the key.",
+      "The runtime supplies wall-clock time; the kernel advances it beyond the timestamp already observed or issued for that key, including pending edits and tombstones. Clock skew can still favor the writer whose clock is ahead. Last doesn't promise the most recent human action.",
+      "You get string keys and string values, with set and remove. An empty string is a value. Unlike SharedMap's JSON values and supported encoded handles, LWWMap has no nested JSON or handle traversal, no clear, and no tombstone-pruning API. SharedMap reloads insertion order; LWWMap retains timestamped removals and returns visible entries sorted by key.",
+      "Choose it when offline shared string settings need one deterministic winner and you can afford to lose another concurrent value. SharedMap also loses concurrent losing values. Neither is an MV register or a field-wise merge; use MvRegister when someone needs to read and resolve the disagreement.",
+    ],
+    useCases: [
+      "Offline shared string settings with an acceptable deterministic single winner",
+      "Per-key labels and modes that reconcile across the JavaScript mesh or relay",
+      "String state where timestamps, rather than server sequence, should choose the winner",
     ],
   },
   {
@@ -208,14 +232,19 @@ const maps: Structure[] = [
     onHomepage: true,
     tagline: "A map where editing a key and deleting it at once won't lose the edit.",
     rule: "delete a key while someone else edits it, and the edit survives (the write wins)",
-    optimistic: "deleted rows stay readable until the delete is confirmed",
+    optimistic: "edits and removals show locally at once, with confirmed set members alongside",
     summary: "entries remember their edit history, not just the current value",
     how: [
       "An OR-map applies the OR-set's observed-remove semantics to keyed entries. Each entry records causal dots; removing a key only tombstones the dots it has observed, so a concurrent write to the same key survives a delete (add-wins).",
       "Values can themselves be additive tallies, which turns the map into a keyed CRDT ledger. In the demo it appears as a stockpile ledger where striking a row hides it and re-opening submits a +0 delta to surface the retained tally.",
+      "Switch the demo to string sets and each document gets a checklist. A adds draft while B adds reviewed: both members survive. Put those edits in SharedMap as separate JSON arrays instead and, in the same server order, only B's later whole array remains. A channel has one fixed, homogeneous mode: tallies, LWW registers, MV registers, or sets of strings. Switching between tallies and sets starts fresh OR-map replicas.",
+      "In set mode, removing a member clears its observed add tags; removing a key also clears its observed members. An unseen concurrent addition survives. Removing the last member keeps a present empty set, while removing an absent member creates nothing. Add a removed key again and only its new members appear, even after an old delta is replayed. Causal metadata stays behind to enforce those removals; this is different from the tally mode's retained ledger.",
+      "The ledger / string sets and MV registers views run separate instances of this same structure. Switching to MV registers preserves the ledger or checklist you've been editing.",
+      "In MV-register mode, race two revisions under gate-mode and you'll see both answers. The OR-map keeps the key alive through remove/write concurrency; the MV register keeps alternatives inside that key. Resolve observed combines the selected client's alternatives in an ordinary write. It replaces only those observed revisions, so an unseen offline writer can still bring another answer.",
     ],
     useCases: [
       "Keyed ledgers edited offline or concurrently (stockpiles, inventories, per-key counters)",
+      "Per-document string labels and checklists where concurrent member edits must merge",
       "Maps where deleting and concurrently updating a key must not lose the update",
       "A CRDT-correct alternative to SharedMap when last-write-wins would drop data",
     ],
@@ -239,6 +268,70 @@ const maps: Structure[] = [
       "Nested, collaboratively-edited state: document trees, project/site hierarchies, scene graphs",
       "Studying hierarchical identity and server-ordered folder collaboration",
       "Anywhere a flat map's keys want structure (folders of readings, grouped settings)",
+    ],
+  },
+];
+
+const registers: Structure[] = [
+  {
+    id: "lww-register",
+    name: "LWWRegister",
+    module: "lww_register_kernel",
+    kind: "CRDT",
+    onHomepage: true,
+    tagline: "One shared string where the newest timestamp wins—and the author breaks a tie.",
+    rule: "the highest timestamp wins; equal timestamps break by replica ID, not arrival order",
+    optimistic: "your revision appears immediately while its timestamp waits to merge",
+    summary: "the winning value, timestamp, and author reload together",
+    how: [
+      "A last-writer-wins register stores one string plus the timestamp and replica ID that wrote it. Every replica merges by choosing the greater timestamp; if two writers use the same timestamp, the greater replica ID breaks the tie.",
+      "That makes delivery order irrelevant, but it also makes the clock part of the data. The demo races two equal-time revisions, then re-delivers the winning delta: every client keeps the same winner and the duplicate changes nothing.",
+    ],
+    useCases: [
+      "Offline settings where one deterministic winner is preferable to preserving every conflict",
+      "Small shared labels, modes, or status fields with trustworthy logical clocks",
+      "Cases where arrival order must not decide the winner",
+    ],
+  },
+  {
+    id: "mv-register",
+    name: "MvRegister",
+    module: "mv_register_kernel",
+    kind: "CRDT",
+    onHomepage: true,
+    tagline: "One cell, several answers: concurrent revisions stay until someone resolves them.",
+    rule: "keep concurrent writes; a new write replaces only the history its author has seen",
+    optimistic: "your revision appears in magenta while the confirmed alternatives stay in ink",
+    summary: "tagged alternatives and the full causal clock survive reload, including retired history",
+    how: [
+      "Last-write-wins picks a winner. A multi-value register keeps the disagreement: two offline authors can write different revisions and every replica converges on both. The returned list is sorted for display, not ranked by time or preference.",
+      "Resolution is an ordinary write after reading the alternatives. It replaces those observed revisions, not an unseen third writer. Equal text from concurrent authors still occupies two entries; an empty string is a value, not deletion.",
+    ],
+    useCases: [
+      "Offline settings where silently dropping a revision would be a mistake",
+      "Review workflows that ask a person to combine concurrent answers",
+      "One shared string with an explicit conflict-resolution step",
+    ],
+  },
+  {
+    id: "registers",
+    name: "RegisterCollection",
+    module: "register_collection_kernel",
+    kind: "DDS",
+    onHomepage: true,
+    tagline: "Single-value cells you can read as first-writer-wins or most-recent-wins.",
+    rule: "read the first uncontested write, or the most recent one (your choice, per read)",
+    optimistic:
+      "writes stay hidden until confirmed, then settle as the winner or a kept version",
+    summary: "every competing version is kept, so either read rule still works later",
+    how: [
+      "A register holds a single value with two read strategies. An atomic read resolves the first non-concurrent writer (a consensus-flavored pick). A last-write-wins read returns the most recent version by sequence number.",
+      "Concurrent versions are retained with their sequence numbers, so either policy can be applied at read time. Writes stay invisible until sequenced, then resolve as atomic winners or as retained versions.",
+    ],
+    useCases: [
+      "Single-value cells that need a choice of conflict policy per read",
+      "Config or setpoint values where you sometimes want first-writer, sometimes latest",
+      "A coordination building block where retained versions matter",
     ],
   },
 ];
@@ -362,27 +455,6 @@ const coordination: Structure[] = [
     ],
   },
   {
-    id: "registers",
-    name: "RegisterCollection",
-    module: "register_collection_kernel",
-    kind: "DDS",
-    onHomepage: true,
-    tagline: "Single-value cells you can read as first-writer-wins or most-recent-wins.",
-    rule: "read the first uncontested write, or the most recent one (your choice, per read)",
-    optimistic:
-      "writes stay hidden until confirmed, then settle as the winner or a kept version",
-    summary: "every competing version is kept, so either read rule still works later",
-    how: [
-      "A register holds a single value with two read strategies. An atomic read resolves the first non-concurrent writer (a consensus-flavored pick). A last-write-wins read returns the most recent version by sequence number.",
-      "Concurrent versions are retained with their sequence numbers, so either policy can be applied at read time. Writes stay invisible until sequenced, then resolve as atomic winners or as retained versions.",
-    ],
-    useCases: [
-      "Single-value cells that need a choice of conflict policy per read",
-      "Config or setpoint values where you sometimes want first-writer, sometimes latest",
-      "A coordination building block where retained versions matter",
-    ],
-  },
-  {
     id: "ordered",
     name: "OrderedCollection",
     module: "ordered_collection_kernel",
@@ -467,12 +539,22 @@ export const categories: Category[] = [
     structures: sets,
   },
   {
+    slug: "registers",
+    name: "Registers",
+    tagline: "One shared value, and three different answers to a race.",
+    lede: [
+      "A register is the smallest place collaboration can still go wrong: one cell, two writers, and no neutral meaning of “last.” The interesting part isn't storage. It's the rule that decides what survives.",
+      "LWWRegister trusts timestamp and replica identity to select one winner without caring about delivery order. MvRegister refuses the forced choice and keeps concurrent answers until a writer who has seen them resolves them. RegisterCollection keeps every server-sequenced version so each read can choose the first uncontested write or the latest one.",
+    ],
+    structures: registers,
+  },
+  {
     slug: "maps",
     name: "Maps",
-    tagline: "Keyed state, resolved two different ways.",
+    tagline: "Keyed state that picks a winner, keeps an edit, or grows into a tree.",
     lede: [
       "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed's maps span that choice.",
-      "SharedMap resolves each key by server order, following the last-write-wins design used by Fluid Framework. OR-map keeps causal dots per entry so a concurrent write survives a delete (correctness over simplicity when last-write-wins would drop data). SharedDirectory makes SharedMap recursive: folders of keys and nested folders, with a hierarchical identity that survives concurrent creation and delete-then-recreate.",
+      "SharedMap resolves JSON and encoded-handle values by server order, following the last-write-wins design used by Fluid Framework. LWWMap lets each string key's timestamp outrank a later server SN, and keeps removals as tombstones. OR-map keeps causal dots per entry so a concurrent write survives a delete. SharedDirectory makes SharedMap recursive, with hierarchical identity that survives concurrent creation and delete-then-recreate.",
     ],
     structures: maps,
   },
@@ -492,7 +574,7 @@ export const categories: Category[] = [
     tagline: "Deciding who owns what, and agreeing before acting.",
     lede: [
       "The last family arbitrates decisions rather than merging values: who holds a resource, who runs a task, what everyone has agreed to. Reads here are often non-optimistic, because showing an outcome you might lose is worse than showing nothing.",
-      "They ascend from first-writer-wins ownership through versioned registers, FIFO queues, and task failover to a quorum-consensus map that will not commit a value until every required client signs off.",
+      "They ascend from first-writer-wins ownership through FIFO queues and task failover to a quorum-consensus map that won't commit a value until every required client signs off.",
     ],
     structures: coordination,
   },

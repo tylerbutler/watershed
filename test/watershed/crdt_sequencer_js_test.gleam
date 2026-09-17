@@ -84,6 +84,156 @@ fn spawn(hub: Hub, clock: Clock) -> Client {
 }
 
 @target(javascript)
+pub fn construction_callbacks_wait_for_a_writable_relay_and_keep_fifo_test() -> Nil {
+  let reference = transport_js.new_cell(None)
+  let events = transport_js.new_cell([])
+  let sends = transport_js.new_cell([])
+  let callbacks = transport_js.new_cell(None)
+  let relay =
+    crdt_sequencer_js.start(
+      url: "ws://inline.test",
+      scheduler: relay_fake.scheduler(relay_fake.new_clock()),
+      driver: crdt_sequencer_js.Driver(open: fn(_, handlers) {
+        transport_js.set_cell(callbacks, Some(handlers))
+        handlers.on_message(
+          crdt_relay.server_to_string(crdt_relay.Connected(True, 1000)),
+        )
+        handlers.on_message(crdt_relay.server_to_string(crdt_relay.Synced(0)))
+        Ok(
+          crdt_sequencer_js.Connection(
+            send: fn(raw) {
+              note(sends, raw)
+              handlers.on_message(
+                crdt_relay.server_to_string(crdt_relay.Attested(0, "response")),
+              )
+              True
+            },
+            close: fn() { Nil },
+          ),
+        )
+      }),
+      events: inline_events(events, fn() {
+        let assert Some(relay) = transport_js.get_cell(reference)
+        crdt_sequencer_js.send_envelope(relay, "hello")
+        |> expect.to_equal(Ok(Nil))
+        note(events, "ready")
+      }),
+    )
+  transport_js.set_cell(reference, Some(relay))
+  crdt_sequencer_js.connect(relay)
+  transport_js.get_cell(sends) |> expect.to_equal(["hello"])
+  transport_js.get_cell(events)
+  |> list.reverse
+  |> expect.to_equal(["ready", "synced", "response"])
+  crdt_sequencer_js.close(relay)
+  let assert Some(handlers) = transport_js.get_cell(callbacks)
+  handlers.on_message(
+    crdt_relay.server_to_string(crdt_relay.Connected(True, 1000)),
+  )
+  handlers.on_close("late")
+  transport_js.get_cell(events) |> list.length |> expect.to_equal(3)
+}
+
+@target(javascript)
+fn inline_events(
+  events: Cell(List(String)),
+  on_ready: fn() -> Nil,
+) -> crdt_sequencer_js.Events {
+  crdt_sequencer_js.Events(
+    on_connecting: fn() { Nil },
+    on_ready: on_ready,
+    on_envelope: fn(_) { True },
+    on_synced: fn() { note(events, "synced") },
+    on_attested: fn(digest) { note(events, digest) },
+    on_checkpoint_requested: fn() { Nil },
+    on_unsupported: fn(_) { note(events, "unsupported") },
+    on_dropped: fn(_) { note(events, "dropped") },
+    on_retry: fn(_) { note(events, "retry") },
+    on_error: fn(_) { note(events, "error") },
+  )
+}
+
+@target(javascript)
+pub fn an_owner_close_during_open_releases_the_returned_connection_test() -> Nil {
+  let reference = transport_js.new_cell(None)
+  let closes = transport_js.new_cell([])
+  let events = transport_js.new_cell([])
+  let relay =
+    crdt_sequencer_js.start(
+      url: "ws://inline.test",
+      scheduler: relay_fake.scheduler(relay_fake.new_clock()),
+      driver: crdt_sequencer_js.Driver(open: fn(_, handlers) {
+        let assert Some(relay) = transport_js.get_cell(reference)
+        crdt_sequencer_js.close(relay)
+        handlers.on_message(
+          crdt_relay.server_to_string(crdt_relay.Connected(True, 1000)),
+        )
+        Ok(
+          crdt_sequencer_js.Connection(send: fn(_) { True }, close: fn() {
+            note(closes, "closed")
+          }),
+        )
+      }),
+      events: inline_events(events, fn() { note(events, "ready") }),
+    )
+  transport_js.set_cell(reference, Some(relay))
+  crdt_sequencer_js.connect(relay)
+  transport_js.get_cell(closes) |> expect.to_equal(["closed"])
+  transport_js.get_cell(events) |> expect.to_equal([])
+  crdt_sequencer_js.is_closed(relay) |> expect.to_equal(True)
+}
+
+@target(javascript)
+pub fn failed_construction_discards_callbacks_and_closed_construction_stays_closed_test() -> Nil {
+  list.each([True, False], fn(fails) {
+    let events = transport_js.new_cell([])
+    let closes = transport_js.new_cell([])
+    let clock = relay_fake.new_clock()
+    let relay =
+      crdt_sequencer_js.start(
+        url: "ws://inline.test",
+        scheduler: relay_fake.scheduler(clock),
+        driver: crdt_sequencer_js.Driver(open: fn(_, handlers) {
+          case fails {
+            True -> {
+              handlers.on_message(
+                crdt_relay.server_to_string(crdt_relay.Connected(True, 1000)),
+              )
+              Error("construction failed")
+            }
+            False -> {
+              handlers.on_close("closed during open")
+              handlers.on_message(
+                crdt_relay.server_to_string(crdt_relay.Connected(True, 1000)),
+              )
+              Ok(
+                crdt_sequencer_js.Connection(send: fn(_) { True }, close: fn() {
+                  note(closes, "closed")
+                }),
+              )
+            }
+          }
+        }),
+        events: inline_events(events, fn() { note(events, "ready") }),
+      )
+    crdt_sequencer_js.connect(relay)
+    crdt_sequencer_js.is_ready(relay) |> expect.to_equal(False)
+    transport_js.get_cell(events)
+    |> list.reverse
+    |> expect.to_equal(case fails {
+      True -> ["error", "dropped", "retry"]
+      False -> ["dropped", "retry"]
+    })
+    crdt_sequencer_js.close(relay)
+    transport_js.get_cell(closes)
+    |> expect.to_equal(case fails {
+      True -> []
+      False -> ["closed"]
+    })
+  })
+}
+
+@target(javascript)
 fn note(cell: Cell(List(String)), entry: String) -> Nil {
   transport_js.set_cell(cell, [entry, ..transport_js.get_cell(cell)])
 }

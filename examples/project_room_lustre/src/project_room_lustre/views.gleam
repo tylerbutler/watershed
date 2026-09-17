@@ -19,6 +19,7 @@ import project_room_lustre/decision_poll
 import project_room_lustre/governance_payload
 import project_room_lustre/inspector
 import project_room_lustre/ownership_slots
+import project_room_lustre/room_agreement
 import project_room_lustre/tally
 import project_room_lustre/task_collection
 
@@ -862,6 +863,55 @@ pub fn tally(
           [html.text("+1")],
         ),
       ]),
+    ],
+  )
+}
+
+pub fn room_agreement(
+  instance_id: String,
+  running: room_agreement.Running,
+  draft_changed: fn(String) -> msg,
+  propose: msg,
+) -> Element(msg) {
+  html.section(
+    [
+      attribute.class("component room-agreement"),
+      attribute.data("component", instance_id),
+      attribute.data("component-kind", "room-agreement"),
+      attribute.data("instance-id", instance_id),
+    ],
+    [
+      html.h2([], [html.text(room_agreement.config(running).title)]),
+      html.p([attribute.data("agreement-accepted", "")], [
+        html.text(case room_agreement.accepted(running) {
+          None -> "No agreement accepted yet."
+          Some(proposal) -> proposal.text
+        }),
+      ]),
+      html.p([attribute.data("agreement-pending", "")], [
+        html.text(case room_agreement.pending(running) {
+          None -> "No proposal pending."
+          Some(proposal) -> proposal.text
+        }),
+      ]),
+      html.p([attribute.data("agreement-signoffs", "")], [
+        html.text(
+          "Pending signoffs: "
+          <> int.to_string(room_agreement.pending_signoffs(running)),
+        ),
+      ]),
+      html.input([
+        attribute.data("agreement-draft", ""),
+        attribute.aria_label("Agreement proposal"),
+        attribute.value(room_agreement.draft(running)),
+        event.on_input(draft_changed),
+      ]),
+      html.button(
+        [attribute.data("action", "propose-agreement"), event.on_click(propose)],
+        [
+          html.text("Propose"),
+        ],
+      ),
     ],
   )
 }

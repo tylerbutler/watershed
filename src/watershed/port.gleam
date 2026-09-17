@@ -86,6 +86,9 @@ pub type PortError {
 /// `id` names the port inside its component. `schema_id` names the payload
 /// schema, and it must match the schema ID of any input port this output
 /// connects to. `encode` turns one payload into JSON.
+///
+/// The codec module owns the namespaced schema ID. Use a new schema version
+/// for an incompatible payload change. Equal IDs do not prove codec agreement.
 pub fn output(
   id: String,
   schema_id: String,
@@ -121,6 +124,8 @@ pub fn local_input(
 /// example `["sequence:insert"]`. A host reads this list to show the
 /// shared-state effect of a connection before it stores the connection. No
 /// function in this release rejects a connection because of capabilities.
+/// These strings are not authorization. A mutable channel handle remains
+/// mutable regardless of the capabilities listed here.
 pub fn collaborative_input(
   id: String,
   schema_id: String,

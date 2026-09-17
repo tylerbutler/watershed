@@ -1,10 +1,29 @@
-# `ensure_*` cannot seed a channel before the handshake lands
+# Channel `ensure_*` readiness: fixed
 
 **Date:** 2026-08-09
 **Found by:** building `examples/pixel_canvas_lustre`, whose document did not exist yet.
-**Status:** reproduced; worked around in the example, not fixed in the library.
+**Status (2026-09-06):** fixed in both `watershed` (JavaScript) and
+`watershed_beam`. Channel ensures wait for synchronization before inspecting
+the root field, then adopt the replayed handle or seed a new candidate. They
+also wait for the candidate's write to synchronize before returning it.
 
-## The defect
+Each synchronization wait uses the existing 25-retry, 200 ms polling budget.
+Exhausting it returns `Error("ensure: timed out waiting for document synchronization")`;
+it no longer continues as though the wait succeeded. A pre-seed timeout makes
+no channel or field write. A post-seed timeout does not roll back an operation
+already submitted. `ensure_field` remains synchronous set-if-absent and does
+not use this channel-bootstrap path.
+
+The regression suites are `test/watershed/ensure_js_test.gleam` and
+`test/watershed/sluice/driver_test.gleam`. They cover fresh-document seeding,
+adoption after handshake replay, timeout, closure during a wait, and refusal
+to report an unacknowledged seed as success. The BEAM rich-text fixture now
+delivers acknowledgements while its blocking ensure runs; previously it
+depended on the helper silently succeeding when its wait expired.
+
+The sections below record the original defect and workaround.
+
+## Original defect
 
 `ensure_channel` retries while *resolving* a channel someone else published, but
 seeding a new one is a single attempt with no retry and no wait
@@ -52,22 +71,23 @@ create_or_map requires a ready document connection
 The canvas then paints locally and shares nothing, because the app's write path
 is guarded on holding a resolved channel.
 
-## The workaround
+## Original workaround
 
 `examples/pixel_canvas_lustre` bootstraps from `Connected(Ok(_))` instead of
 `GotHandle`, which is the arm that means "the handshake landed". `GotHandle`
 only stores the handle and starts the diagnostics poll. This costs nothing and
 is arguably the clearer place for it regardless.
 
-The other Lustre examples still bootstrap from `GotHandle` and would fail the
-same way on a fresh document. Moving them is a small, mechanical change.
+Other examples that bootstrapped from `GotHandle` had the same fresh-document
+hazard. The shared library fix removes the need to migrate those callers.
+Starting from `Connected(Ok(_))` remains a valid application convention.
 
-## The fix
+## Implemented fix
 
-Make seeding wait for the connection the way resolving retries for the handle —
-`await_synced` already exists and is used immediately *after* `seed()` succeeds.
-Hoisting it above the `has` check would make `ensure_*` correct from any arm and
-remove the ordering trap from the API rather than from each caller.
+Both facades call `await_synced` before the `has` check. The helper returns a
+`Result`, and both the pre-seed and post-seed paths propagate its error. This
+also closes the coupled timeout bug: an expired post-seed wait used to resolve
+the optimistic local handle and report success without an acknowledgement.
 
-Worth a test that seeds a channel on a genuinely fresh document from a
-not-yet-ready connection; the current suites never do, on either target.
+Public channel-ensure signatures are unchanged. The JavaScript facade uses
+callbacks; the BEAM facade blocks and returns the same result shape.

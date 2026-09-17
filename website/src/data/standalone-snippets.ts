@@ -15,6 +15,9 @@ import { snippetFromLiteral, sourceSnippet, type Snippet } from "../lib/snippet.
 
 /** Every standalone Gleam snippet, keyed by generated id. */
 export const standaloneSnippets: Record<string, Snippet> = {
+  "mv-register-sequenced": sourceSnippet("mv-register-sequenced"),
+  "mv-register-p2p": sourceSnippet("mv-register-p2p"),
+  "mv-register-concurrent-resolution": sourceSnippet("mv-register-concurrent-resolution"),
   // Homepage BEAM sample — the full connect → root → subscribe → set → loop
   // flow from the dice CLI example.
   "homepage-beam": sourceSnippet("homepage-beam"),

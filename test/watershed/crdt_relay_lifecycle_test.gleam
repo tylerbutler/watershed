@@ -2179,6 +2179,55 @@ fn spawn_kind(
 }
 
 @target(javascript)
+pub fn mv_register_relay_replays_conflict_and_resolved_checkpoint_test() -> Nil {
+  let environment = setup(SequencedOnly)
+  let hub = hub_of(environment)
+  let #(alpha, alpha_connection) =
+    spawn_kind(environment, "alpha", SequencedOnly, p2p.mv_register_root())
+  let #(beta, beta_connection) =
+    spawn_kind(environment, "beta", SequencedOnly, p2p.mv_register_root())
+  settle(environment)
+  let assert Ok(Nil) =
+    crdt_js.mv_register_set(crdt_js.root(alpha), "raise crest")
+  let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(beta), "arm pump")
+  settle(environment)
+  crdt_js.mv_register_values(crdt_js.root(beta))
+  |> expect.to_equal(Ok(["arm pump", "raise crest"]))
+  let #(late, late_connection) =
+    spawn_kind(environment, "late", SequencedOnly, p2p.mv_register_root())
+  settle(environment)
+  crdt_js.mv_register_values(crdt_js.root(late))
+  |> expect.to_equal(Ok(["arm pump", "raise crest"]))
+  let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(late), "resolved")
+  settle(environment)
+  crdt_js.digest(alpha) |> expect.to_equal(crdt_js.digest(late))
+  crdt_js.mv_register_values(crdt_js.root(alpha))
+  |> expect.to_equal(Ok(["resolved"]))
+  list.each(list.repeat(Nil, crdt_relay.max_room_records + 20), fn(_) {
+    let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(late), "resolved")
+    settle(environment)
+  })
+  converge(environment)
+  { relay_fake.checkpoint_requests(hub, room) > 0 } |> expect.to_be_true()
+  { relay_fake.checkpoint_order(hub, room) > 0 } |> expect.to_be_true()
+  { relay_fake.log_size(hub, room) < crdt_relay.max_room_records }
+  |> expect.to_be_true()
+  let digest = crdt_js.digest(late)
+  crdt_js.close(alpha_connection)
+  crdt_js.close(beta_connection)
+  crdt_js.close(late_connection)
+  relay_fake.stop(hub)
+  relay_fake.restart(hub)
+  let #(restored, restored_connection) =
+    spawn_kind(environment, "restored", SequencedOnly, p2p.mv_register_root())
+  converge(environment)
+  crdt_js.mv_register_values(crdt_js.root(restored))
+  |> expect.to_equal(Ok(["resolved"]))
+  crdt_js.digest(restored) |> expect.to_equal(digest)
+  crdt_js.close(restored_connection)
+}
+
+@target(javascript)
 /// An OR-set edit authored while the relay is primary reaches a mesh-only
 /// peer the moment the relay drops.
 ///

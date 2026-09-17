@@ -1,5 +1,11 @@
 # Runtime Component Palette Implementation Plan
 
+**Status (2026-09-06):** all five implementation tasks shipped. Checklist
+(`f6a44e0`), Tally (`827a20a`), presets (`3b1db81`), the palette (`f489d13`),
+acceptance coverage (`c8d7300`), and the completion pass (`d8397d8`) are on main.
+Room Agreement later added a third creation preset. The unchecked step lists
+below are the original recipe, not an outstanding task list.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let project-room users add, move, and remove Checklist and Tally component instances while the room is running.
@@ -23,9 +29,8 @@
 - Use ASD-STE100 in Gleam docs, comments, and error strings.
 - Use normal prose in Markdown and website copy.
 - Do not edit `website/src/generated/snippets.json`.
-- The current branch has six pre-existing website snippet drift failures in
-  `just test`. Do not treat those failures as regressions from this plan, and
-  do not fix them in these tasks.
+- The planning baseline had six website snippet drift failures. That report
+  describes the old branch only; it is not a current exemption from the gates.
 
 ## File structure
 
@@ -1229,10 +1234,8 @@ just build
 ```
 
 Expected component-model result: all Gleam, JavaScript, compile-fail, and
-project-room suites pass. `just test` can still report the six pre-existing
-website snippet drift failures listed in Global Constraints. If it does,
-record that exact baseline in the handoff and do not claim the full repository
-gate passes.
+project-room suites pass. Record any current failure from the actual output;
+do not assume the planning baseline's six snippet failures still apply.
 
 - [ ] **Step 9: Commit acceptance and docs**
 

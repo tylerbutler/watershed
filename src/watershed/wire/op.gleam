@@ -27,12 +27,17 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/result
 
 import lattice_core/replica_id
 import lattice_core/version_vector
+import lattice_counters/g_counter
 import lattice_counters/pn_counter
 import lattice_maps/crdt
+import lattice_maps/lww_map
 import lattice_maps/or_map
+import lattice_registers/lww_register
+import lattice_registers/mv_register
 import lattice_sequence/sequence
 import lattice_sets/g_set
 import lattice_sets/or_set
@@ -42,11 +47,16 @@ import watershed/channel
 import watershed/claims_kernel.{type ClaimOperation, Claim}
 import watershed/counter_kernel.{type CounterOperation, Increment}
 import watershed/directory_kernel.{type DirectoryOperation}
+import watershed/g_counter_kernel.{type GCounterOperation}
 import watershed/g_set_kernel.{type GSetOperation}
 import watershed/json_ot
 import watershed/json_ot_kernel.{type JsonOtWireOperation, JsonOtWireOperation}
+import watershed/lww_map_kernel.{type LwwMapOperation}
+import watershed/lww_register_kernel.{type LwwRegisterOperation}
 import watershed/map_kernel.{type MapOperation, Clear, Delete, Set}
+import watershed/mv_register_kernel.{type MvRegisterOperation}
 import watershed/or_map_kernel.{type OrMapOperation}
+import watershed/or_map_set_leaf
 import watershed/or_set_kernel.{type OrSetOperation}
 import watershed/ordered_collection_kernel.{type OrderedOperation}
 import watershed/pact_map_kernel
@@ -119,11 +129,10 @@ pub fn outbound_attach_operation(
 }
 
 /// A `"summarize"` operation that announces a stored snapshot. The contents
-/// carry the fields that the `validate_summarize_contents` function of the
-/// server needs: `handle`, the storage handle of the snapshot; `message`, the
-/// commit message; `parents`, the handles of the parent summaries; and `head`,
-/// the git tree SHA that the client uploaded. The client sets `handle` equal to
-/// `head`, so a client that loads the summary can fetch the tree by its handle.
+/// carry the fields that the server needs. `handle` is the staged tree SHA.
+/// `head` is the current published commit SHA, or an empty string for the first
+/// summary. `parents` is empty for the first summary and otherwise contains
+/// only `head`.
 pub fn outbound_summarize_operation(
   client_sequence_number client_sequence_number: Int,
   reference_sequence_number reference_sequence_number: Int,
@@ -163,6 +172,13 @@ pub fn encode_channel_operation(operation: channel.ChannelOperation) -> Json {
     channel.CounterOperation(operation) -> encode_counter_operation(operation)
     channel.PnCounterOperation(operation) ->
       encode_pn_counter_operation(operation)
+    channel.GCounterOperation(operation) ->
+      encode_g_counter_operation(operation)
+    channel.MvRegisterOperation(operation) ->
+      encode_mv_register_operation(operation)
+    channel.LwwRegisterOperation(operation) ->
+      encode_lww_register_operation(operation)
+    channel.LwwMapOperation(operation) -> encode_lww_map_operation(operation)
     channel.OrMapOperation(operation) -> encode_or_map_operation(operation)
     channel.OrSetOperation(operation) -> encode_or_set_operation(operation)
     channel.GSetOperation(operation) -> encode_g_set_operation(operation)
@@ -198,6 +214,16 @@ pub fn channel_operation_decoder(
       counter_operation_decoder() |> decode.map(channel.CounterOperation)
     channel.PnCounterChannel ->
       pn_counter_operation_decoder() |> decode.map(channel.PnCounterOperation)
+    channel.GCounterChannel ->
+      g_counter_operation_decoder() |> decode.map(channel.GCounterOperation)
+    channel.MvRegisterChannel ->
+      mv_register_operation_decoder() |> decode.map(channel.MvRegisterOperation)
+    channel.LwwRegisterChannel ->
+      lww_register_operation_decoder()
+      |> decode.map(channel.LwwRegisterOperation)
+    channel.LwwMapChannel ->
+      lww_map_operation_decoder()
+      |> decode.map(channel.LwwMapOperation)
     channel.OrMapChannel ->
       or_map_operation_decoder() |> decode.map(channel.OrMapOperation)
     channel.OrSetChannel ->
@@ -306,6 +332,242 @@ pub fn encode_pn_counter_operation(operation: PnCounterOperation) -> Json {
   }
 }
 
+/// The `{address, contents}` document envelope around a GCounter operation.
+pub fn encode_g_counter_envelope(
+  address: String,
+  operation: GCounterOperation,
+) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_g_counter_operation(operation)),
+  ])
+}
+
+pub fn encode_g_counter_operation(operation: GCounterOperation) -> Json {
+  case operation {
+    g_counter_kernel.Increment(amount, delta) ->
+      json.object([
+        #("type", json.string("gCounterIncrement")),
+        #("amount", json.int(amount)),
+        #("delta", g_counter_delta_json(delta)),
+      ])
+  }
+}
+
+pub fn encode_lww_register_envelope(
+  address: String,
+  operation: LwwRegisterOperation,
+) -> Json {
+  encode_channel_envelope(address, channel.LwwRegisterOperation(operation))
+}
+
+pub fn encode_lww_map_envelope(
+  address: String,
+  operation: LwwMapOperation,
+) -> Json {
+  encode_channel_envelope(address, channel.LwwMapOperation(operation))
+}
+
+pub fn encode_lww_map_operation(operation: LwwMapOperation) -> Json {
+  let #(tag, key, timestamp, delta, value) = case operation {
+    lww_map_kernel.Set(key, value, timestamp, delta) -> #(
+      "lwwMapSet",
+      key,
+      timestamp,
+      delta,
+      [#("value", json.string(value))],
+    )
+    lww_map_kernel.Remove(key, timestamp, delta) -> #(
+      "lwwMapRemove",
+      key,
+      timestamp,
+      delta,
+      [],
+    )
+  }
+  json.object(list.append(
+    [
+      #("type", json.string(tag)),
+      #("key", json.string(key)),
+      #("timestamp", json.int(timestamp)),
+      #("delta", json.string(lww_map.to_json(delta) |> json.to_string)),
+    ],
+    value,
+  ))
+}
+
+pub fn decode_lww_map_envelope(
+  contents: Dynamic,
+) -> Result(#(String, LwwMapOperation), List(decode.DecodeError)) {
+  decode.run(contents, lww_map_envelope_decoder())
+}
+
+pub fn lww_map_envelope_decoder() -> Decoder(#(String, LwwMapOperation)) {
+  use address <- decode.field("address", decode.string)
+  use operation <- decode.field("contents", lww_map_operation_decoder())
+  decode.success(#(address, operation))
+}
+
+pub fn lww_map_operation_decoder() -> Decoder(LwwMapOperation) {
+  use tag <- decode.field("type", decode.string)
+  use key <- decode.field("key", decode.string)
+  use timestamp <- decode.field("timestamp", decode.int)
+  use encoded <- decode.field("delta", decode.string)
+  case json.parse(encoded, lww_map_kernel.decoder()) {
+    Error(_) ->
+      decode.failure(
+        lww_map_kernel.Remove(
+          key,
+          timestamp,
+          lww_map.new(replica_id.new(""), crdt.LwwRegisterSpec("")),
+        ),
+        "LwwMapDelta",
+      )
+    Ok(delta) -> {
+      use operation <- decode.then(case tag {
+        "lwwMapSet" -> {
+          use value <- decode.field("value", decode.string)
+          decode.success(lww_map_kernel.Set(key, value, timestamp, delta))
+        }
+        "lwwMapRemove" ->
+          decode.success(lww_map_kernel.Remove(key, timestamp, delta))
+        _ ->
+          decode.failure(
+            lww_map_kernel.Remove(key, timestamp, delta),
+            "lwwMapSet or lwwMapRemove",
+          )
+      })
+      case lww_map_kernel.validate_operation(operation) {
+        Ok(Nil) -> decode.success(operation)
+        Error(_) ->
+          decode.failure(operation, "matching single-key LWW map fragment")
+      }
+    }
+  }
+}
+
+pub fn encode_lww_register_operation(operation: LwwRegisterOperation) -> Json {
+  let lww_register_kernel.Set(value, timestamp, delta) = operation
+  json.object([
+    #("type", json.string("lwwRegisterSet")),
+    #("value", json.string(value)),
+    #("timestamp", json.int(timestamp)),
+    #("delta", json.string(lww_register.to_json(delta) |> json.to_string)),
+  ])
+}
+
+pub fn decode_lww_register_envelope(
+  contents: Dynamic,
+) -> Result(#(String, LwwRegisterOperation), List(decode.DecodeError)) {
+  decode.run(contents, lww_register_envelope_decoder())
+}
+
+pub fn lww_register_envelope_decoder() -> Decoder(
+  #(String, LwwRegisterOperation),
+) {
+  use address <- decode.field("address", decode.string)
+  use operation <- decode.field("contents", lww_register_operation_decoder())
+  decode.success(#(address, operation))
+}
+
+pub fn lww_register_operation_decoder() -> Decoder(LwwRegisterOperation) {
+  use tag <- decode.field("type", decode.string)
+  use value <- decode.field("value", decode.string)
+  use timestamp <- decode.field("timestamp", decode.int)
+  use encoded <- decode.field("delta", decode.string)
+  case json.parse(encoded, channel.lww_register_decoder()) {
+    Ok(delta) -> {
+      let operation = lww_register_kernel.Set(value, timestamp, delta)
+      // Structural equality checks both intent fields without exposing the
+      // opaque register. A write cannot use the empty bottom author.
+      let metadata = {
+        use stamp <- decode.then(decode.at(["state", "timestamp"], decode.int))
+        use author <- decode.then(decode.at(
+          ["state", "replica_id"],
+          decode.string,
+        ))
+        decode.success(#(stamp, author))
+      }
+      case json.parse(encoded, metadata) {
+        Ok(#(stamp, author))
+          if tag == "lwwRegisterSet" && author != "" && timestamp == stamp
+        ->
+          case lww_register.value(delta) == value {
+            True -> decode.success(operation)
+            False -> decode.failure(operation, "matching LWW register value")
+          }
+        _ ->
+          decode.failure(
+            operation,
+            "matching LWW register timestamp and author",
+          )
+      }
+    }
+    Error(_) ->
+      decode.failure(
+        lww_register_kernel.Set(
+          value,
+          timestamp,
+          lww_register.new("", 0, replica_id.new("")),
+        ),
+        "LwwRegisterDelta",
+      )
+  }
+}
+
+pub fn encode_mv_register_envelope(
+  address: String,
+  operation: MvRegisterOperation,
+) -> Json {
+  json.object([
+    #("address", json.string(address)),
+    #("contents", encode_mv_register_operation(operation)),
+  ])
+}
+
+pub fn encode_mv_register_operation(operation: MvRegisterOperation) -> Json {
+  let mv_register_kernel.Set(value, delta) = operation
+  json.object([
+    #("type", json.string("mvRegisterSet")),
+    #("value", json.string(value)),
+    #("delta", json.string(mv_register.to_json(delta) |> json.to_string)),
+  ])
+}
+
+pub fn decode_mv_register_envelope(
+  contents: Dynamic,
+) -> Result(#(String, MvRegisterOperation), List(decode.DecodeError)) {
+  decode.run(contents, mv_register_envelope_decoder())
+}
+
+pub fn mv_register_envelope_decoder() -> Decoder(#(String, MvRegisterOperation)) {
+  use address <- decode.field("address", decode.string)
+  use operation <- decode.field("contents", mv_register_operation_decoder())
+  decode.success(#(address, operation))
+}
+
+pub fn mv_register_operation_decoder() -> Decoder(MvRegisterOperation) {
+  use tag <- decode.field("type", decode.string)
+  use value <- decode.field("value", decode.string)
+  use encoded <- decode.field("delta", decode.string)
+  case mv_register_kernel.decode_crdt(encoded) {
+    Ok(delta) ->
+      case tag == "mvRegisterSet" && mv_register.value(delta) == [value] {
+        True -> decode.success(mv_register_kernel.Set(value, delta))
+        False ->
+          decode.failure(
+            mv_register_kernel.Set(value, delta),
+            "one matching MV-register write",
+          )
+      }
+    Error(_) ->
+      decode.failure(
+        mv_register_kernel.Set(value, mv_register.new(replica_id.new(""))),
+        "MvRegisterDelta",
+      )
+  }
+}
+
 /// The `{address, contents}` document envelope around an OrMap operation.
 pub fn encode_or_map_envelope(
   address: String,
@@ -319,6 +581,20 @@ pub fn encode_or_map_envelope(
 
 pub fn encode_or_map_operation(operation: OrMapOperation) -> Json {
   case operation {
+    or_map_kernel.AddMember(key, member, delta) ->
+      json.object([
+        #("type", json.string("orMapAddMember")),
+        #("key", json.string(key)),
+        #("member", json.string(member)),
+        #("delta", delta_json(delta)),
+      ])
+    or_map_kernel.RemoveMember(key, member, delta) ->
+      json.object([
+        #("type", json.string("orMapRemoveMember")),
+        #("key", json.string(key)),
+        #("member", json.string(member)),
+        #("delta", delta_json(delta)),
+      ])
     or_map_kernel.Increment(key, amount, delta) ->
       json.object([
         #("type", json.string("orMapIncrement")),
@@ -332,6 +608,13 @@ pub fn encode_or_map_operation(operation: OrMapOperation) -> Json {
         #("key", json.string(key)),
         #("value", json.string(value)),
         #("timestamp", json.int(timestamp)),
+        #("delta", delta_json(delta)),
+      ])
+    or_map_kernel.SetMvRegister(key, value, delta) ->
+      json.object([
+        #("type", json.string("orMapSetMvRegister")),
+        #("key", json.string(key)),
+        #("value", json.string(value)),
         #("delta", delta_json(delta)),
       ])
     or_map_kernel.Remove(key, delta) ->
@@ -919,7 +1202,7 @@ pub fn encode_text_operation(operation: TextOperation) -> Json {
   }
 }
 
-fn delta_json(delta: or_map.ORMapDelta) -> Json {
+fn delta_json(delta: or_map_kernel.ORMapDelta) -> Json {
   json.string(json.to_string(or_map.delta_to_json(delta)))
 }
 
@@ -937,6 +1220,10 @@ fn two_p_set_delta_json(delta: two_p_set.TwoPSet(String)) -> Json {
 
 fn pn_counter_delta_json(delta: pn_counter.PNCounter) -> Json {
   json.string(json.to_string(pn_counter.to_json(delta)))
+}
+
+fn g_counter_delta_json(delta: g_counter.GCounter) -> Json {
+  json.string(json.to_string(g_counter.to_json(delta)))
 }
 
 fn sequence_delta_json(delta: sequence.Sequence(Json)) -> Json {
@@ -1033,14 +1320,68 @@ pub fn pn_counter_operation_decoder() -> Decoder(PnCounterOperation) {
   }
 }
 
+/// Decode the `contents` of a sequenced `"op"` message into
+/// `#(address, GCounterOperation)`.
+pub fn decode_g_counter_envelope(
+  contents: Dynamic,
+) -> Result(#(String, GCounterOperation), List(decode.DecodeError)) {
+  decode.run(contents, g_counter_envelope_decoder())
+}
+
+pub fn g_counter_envelope_decoder() -> Decoder(#(String, GCounterOperation)) {
+  use address <- decode.field("address", decode.string)
+  use operation <- decode.field("contents", g_counter_operation_decoder())
+  decode.success(#(address, operation))
+}
+
+/// The grow-only counter accepts one operation type. The decoder rejects a
+/// negative intent amount, because the public API cannot produce one, and a
+/// fragment whose per-replica counts do not decode. It does not require the
+/// count of the fragment to equal the intent amount: the fragment is
+/// cumulative, and it thus carries the total of that replica.
+pub fn g_counter_operation_decoder() -> Decoder(GCounterOperation) {
+  use operation_type <- decode.field("type", decode.string)
+  case operation_type {
+    "gCounterIncrement" -> {
+      use amount <- decode.field("amount", non_negative_int_decoder())
+      use delta <- decode.field("delta", g_counter_delta_decoder())
+      decode.success(g_counter_kernel.Increment(amount, delta))
+    }
+    _ ->
+      decode.failure(
+        g_counter_kernel.Increment(0, default_g_counter_delta()),
+        "GCounterOp",
+      )
+  }
+}
+
+fn non_negative_int_decoder() -> Decoder(Int) {
+  use value <- decode.then(decode.int)
+  case value >= 0 {
+    True -> decode.success(value)
+    False -> decode.failure(0, "a non-negative integer")
+  }
+}
+
 pub fn or_map_operation_decoder() -> Decoder(OrMapOperation) {
+  use operation <- decode.then(or_map_intent_decoder())
+  case or_map_kernel.validate_operation_intent(operation) {
+    Ok(Nil) -> decode.success(operation)
+    Error(_) -> decode.failure(operation, "OR-map intent matching its delta")
+  }
+}
+
+fn or_map_intent_decoder() -> Decoder(OrMapOperation) {
   use operation_type <- decode.field("type", decode.string)
   case operation_type {
     "orMapIncrement" -> {
       use key <- decode.field("key", decode.string)
       use amount <- decode.field("amount", decode.int)
       use delta <- decode.field("delta", or_map_delta_decoder())
-      decode.success(or_map_kernel.Increment(key, amount, delta))
+      checked_or_map_operation(
+        or_map_kernel.Increment(key, amount, delta),
+        delta,
+      )
     }
 
     "orMapSet" -> {
@@ -1048,12 +1389,40 @@ pub fn or_map_operation_decoder() -> Decoder(OrMapOperation) {
       use value <- decode.field("value", decode.string)
       use timestamp <- decode.field("timestamp", decode.int)
       use delta <- decode.field("delta", or_map_delta_decoder())
-      decode.success(or_map_kernel.SetRegister(key, value, timestamp, delta))
+      checked_or_map_operation(
+        or_map_kernel.SetRegister(key, value, timestamp, delta),
+        delta,
+      )
+    }
+    "orMapSetMvRegister" -> {
+      use key <- decode.field("key", decode.string)
+      use value <- decode.field("value", decode.string)
+      use delta <- decode.field("delta", or_map_delta_decoder())
+      decode.success(or_map_kernel.SetMvRegister(key, value, delta))
     }
     "orMapRemove" -> {
       use key <- decode.field("key", decode.string)
       use delta <- decode.field("delta", or_map_delta_decoder())
-      decode.success(or_map_kernel.Remove(key, delta))
+      checked_or_map_operation(or_map_kernel.Remove(key, delta), delta)
+    }
+    "orMapAddMember" | "orMapRemoveMember" -> {
+      use key <- decode.field("key", decode.string)
+      use member <- decode.field("member", decode.string)
+      use encoded <- decode.field("delta", decode.string)
+      case or_map_set_leaf.decode_delta(encoded) {
+        Error(_) ->
+          decode.failure(
+            or_map_kernel.Remove("", default_or_map_delta()),
+            "ORMap set delta",
+          )
+        Ok(delta) -> {
+          let operation = case operation_type {
+            "orMapAddMember" -> or_map_kernel.AddMember(key, member, delta)
+            _ -> or_map_kernel.RemoveMember(key, member, delta)
+          }
+          validated_set_operation(operation)
+        }
+      }
     }
     _ ->
       decode.failure(
@@ -1191,15 +1560,52 @@ pub fn task_manager_operation_decoder() -> Decoder(TaskManagerOperation) {
   }
 }
 
-fn or_map_delta_decoder() -> Decoder(or_map.ORMapDelta) {
+fn or_map_delta_decoder() -> Decoder(or_map_kernel.ORMapDelta) {
   use encoded <- decode.then(decode.string)
-  case or_map.delta_from_json(encoded) {
+  let decoded = case or_map_spec_name(encoded) {
+    Ok("or_set") ->
+      or_map_set_leaf.decode_delta(encoded) |> result.map_error(fn(_) { Nil })
+    Ok(_) -> or_map.delta_from_json(encoded) |> result.map_error(fn(_) { Nil })
+    Error(_) -> Error(Nil)
+  }
+  case decoded {
     Ok(delta) -> decode.success(delta)
     Error(_) -> decode.failure(default_or_map_delta(), "ORMapDelta")
   }
 }
 
-fn default_or_map_delta() -> or_map.ORMapDelta {
+fn or_map_spec_name(encoded: String) -> Result(String, Nil) {
+  use spec <- result.try(
+    json.parse(encoded, decode.at(["state", "spec"], decode.string))
+    |> result.map_error(fn(_) { Nil }),
+  )
+  json.parse(spec, {
+    use name <- decode.field("type", decode.string)
+    decode.success(name)
+  })
+  |> result.map_error(fn(_) { Nil })
+}
+
+fn checked_or_map_operation(
+  operation: OrMapOperation,
+  delta: or_map_kernel.ORMapDelta,
+) -> Decoder(OrMapOperation) {
+  case or_map_spec_name(or_map.delta_to_json(delta) |> json.to_string) {
+    Ok("or_set") -> validated_set_operation(operation)
+    _ -> decode.success(operation)
+  }
+}
+
+fn validated_set_operation(
+  operation: OrMapOperation,
+) -> Decoder(OrMapOperation) {
+  case or_map_kernel.validate_operation(or_map_kernel.OrSetMode, operation) {
+    Ok(Nil) -> decode.success(operation)
+    Error(_) -> decode.failure(operation, "ORMap set operation intent")
+  }
+}
+
+fn default_or_map_delta() -> or_map_kernel.ORMapDelta {
   or_map.new(replica_id.new(""), crdt.PnCounterSpec)
   |> or_map.empty_delta
 }
@@ -1241,6 +1647,14 @@ fn pn_counter_delta_decoder() -> Decoder(pn_counter.PNCounter) {
   case pn_counter.from_json(encoded) {
     Ok(delta) -> decode.success(delta)
     Error(_) -> decode.failure(default_pn_counter_delta(), "PNCounterDelta")
+  }
+}
+
+fn g_counter_delta_decoder() -> Decoder(g_counter.GCounter) {
+  use encoded <- decode.then(decode.string)
+  case g_counter.from_json(encoded) {
+    Ok(delta) -> decode.success(delta)
+    Error(_) -> decode.failure(default_g_counter_delta(), "GCounterDelta")
   }
 }
 
@@ -1305,6 +1719,10 @@ fn text_delta_decoder() -> Decoder(text.Text) {
 
 fn default_pn_counter_delta() -> pn_counter.PNCounter {
   pn_counter.new(replica_id.new(""))
+}
+
+fn default_g_counter_delta() -> g_counter.GCounter {
+  g_counter.new(replica_id.new(""))
 }
 
 fn default_sequence_delta() -> sequence.Sequence(Json) {

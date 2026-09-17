@@ -16,21 +16,24 @@ import * as jsonOt from "../../../build/dev/javascript/watershed/watershed/json_
 import * as handle from "../../../build/dev/javascript/watershed/watershed/handle.mjs";
 import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
 import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
-import { createSluiceRig, some, type RigClient } from "./demo/sluice-rig.ts";
+import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
+import { expectOk, resultValue } from "./demo/gleam-values.ts";
 
 const S = (s: string) => new jsonOt.VString(s);
 const N = (n: number) => new jsonOt.VNumber(new jsonOt.NInt(n));
 const K = (k: string) => new jsonOt.Key(k);
 const IDX = (i: number) => new jsonOt.Index(i);
-const path = (...keys: unknown[]) => toList(keys);
-const op = (...components: unknown[]) => toList(components);
+const path = (...keys: jsonOt.PathKey$[]) => toList(keys);
+const op = (...components: jsonOt.Component$[]) => toList(components);
 
 function vArray(values: string[]) {
   return new jsonOt.VArray(toList(values.map(S)));
 }
-function vObject(pairs: Array<[string, unknown]>) {
+function vObject(pairs: Array<[string, jsonOt.JsonValue$]>) {
   const sorted = [...pairs].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return new jsonOt.VObject(toList(sorted.map(([k, v]) => [k, v])));
+  return new jsonOt.VObject(
+    toList(sorted.map(([k, v]): [string, jsonOt.JsonValue$] => [k, v])),
+  );
 }
 
 const CREW_BASE = ["Ada", "Ben"];
@@ -49,37 +52,76 @@ const CLIENT_LABEL: Record<string, string> = {
   c: "Client C",
 };
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function toPlain(v: any): any {
+type PlainJson =
+  | null
+  | boolean
+  | number
+  | string
+  | PlainJson[]
+  | { [key: string]: PlainJson };
+
+interface DemoDocument {
+  [key: string]: PlainJson;
+  crew: string[];
+  gauge: {
+    [key: string]: PlainJson;
+    stage: number;
+    trend: string;
+  };
+  site: string;
+}
+
+function toPlain(v: jsonOt.JsonValue$): PlainJson {
   if (v instanceof jsonOt.VNull) return null;
   if (v instanceof jsonOt.VBool) return v[0];
   if (v instanceof jsonOt.VNumber) return v[0][0];
   if (v instanceof jsonOt.VString) return v[0];
   if (v instanceof jsonOt.VArray) return v[0].toArray().map(toPlain);
   if (v instanceof jsonOt.VObject) {
-    const out: Record<string, unknown> = {};
+    const out: { [key: string]: PlainJson } = {};
     for (const [k, val] of v[0].toArray()) out[k] = toPlain(val);
     return out;
   }
   return null;
 }
 
+function isPlainObject(
+  value: PlainJson,
+): value is { [key: string]: PlainJson } {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function isDemoDocument(value: PlainJson): value is DemoDocument {
+  if (!isPlainObject(value)) return false;
+  const crew = value.crew;
+  const gauge = value.gauge;
+  return (
+    Array.isArray(crew) &&
+    crew.every((name) => typeof name === "string") &&
+    isPlainObject(gauge) &&
+    typeof gauge.stage === "number" &&
+    typeof gauge.trend === "string" &&
+    typeof value.site === "string"
+  );
+}
+
 interface Handle {
-  runtime: unknown;
+  runtime: ReturnType<typeof watershed.runtime_of>;
   address: string;
 }
 function h(client: RigClient): Handle {
   return client.handle as Handle;
 }
-function okValue<T>(result: unknown): T {
-  return (result as { 0: T })[0];
-}
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function optimistic(client: RigClient): any {
+function optimistic(client: RigClient): DemoDocument | null {
   const hd = h(client);
-  const view = some<unknown>(runtime.json_ot_view(hd.runtime, hd.address));
-  return view == null ? null : toPlain(view);
+  const view = resultValue(runtime.json_ot_view(hd.runtime, hd.address));
+  if (view === null) return null;
+  const document = toPlain(view);
+  if (!isDemoDocument(document)) {
+    throw new Error("json-ot view did not match the demo document");
+  }
+  return document;
 }
 
 export function initJsonOtDemo() {
@@ -89,7 +131,12 @@ export function initJsonOtDemo() {
     return client.data as { name: number; site: number; trend: number };
   }
 
-  function submit(client: RigClient, marker: string, components: unknown, label: string) {
+  function submit(
+    client: RigClient,
+    marker: string,
+    components: ReturnType<typeof op>,
+    label: string,
+  ) {
     if (!rig) return;
     const hd = h(client);
     rig.submit(
@@ -114,7 +161,9 @@ export function initJsonOtDemo() {
   function localTrend(clientId: string) {
     if (!rig) return;
     const client = rig.clients[clientId];
-    const current = optimistic(client).gauge.trend;
+    const document = optimistic(client);
+    if (!document) return;
+    const current = document.gauge.trend;
     const c = cursors(client);
     const next = TREND_NAMES[c.trend % TREND_NAMES.length];
     c.trend += 1;
@@ -129,7 +178,9 @@ export function initJsonOtDemo() {
   function localSite(clientId: string) {
     if (!rig) return;
     const client = rig.clients[clientId];
-    const current = optimistic(client).site;
+    const document = optimistic(client);
+    if (!document) return;
+    const current = document.site;
     const c = cursors(client);
     const next = SITE_NAMES[c.site % SITE_NAMES.length];
     c.site += 1;
@@ -157,7 +208,9 @@ export function initJsonOtDemo() {
   function localCrewDelete(clientId: string, index: number) {
     if (!rig) return;
     const client = rig.clients[clientId];
-    const name = optimistic(client).crew[index];
+    const document = optimistic(client);
+    if (!document) return;
+    const name = document.crew[index];
     submit(
       client,
       "field:crew",
@@ -244,7 +297,10 @@ export function initJsonOtDemo() {
     }
   }
 
-  function seedInto(rt: unknown, address: string) {
+  function seedInto(
+    rt: ReturnType<typeof watershed.runtime_of>,
+    address: string,
+  ) {
     runtime.submit_json_ot(
       rt,
       address,
@@ -273,7 +329,10 @@ export function initJsonOtDemo() {
     setup: (clients, server) => {
       const a = clients["a"];
       const rtA = watershed.runtime_of(a.doc);
-      const address = okValue<string>(runtime.create_json_ot(rtA));
+      const address = expectOk(
+        runtime.create_json_ot(rtA),
+        "json-ot channel creation failed",
+      );
       // Seed the baseline while the channel is detached; the snapshot rides the
       // attach op, so late joiners bootstrap from it.
       seedInto(rtA, address);
@@ -284,8 +343,14 @@ export function initJsonOtDemo() {
       CLIENT_IDS.slice(1).forEach((id) => {
         const client = clients[id];
         const rt = watershed.runtime_of(client.doc);
-        const stored = some<unknown>(runtime.get(rt, "root", DOC_KEY));
-        const addr = okValue<string>(handle.parse_handle(stored));
+        const stored = expectOk(
+          runtime.get(rt, "root", DOC_KEY),
+          "json-ot handle lookup failed",
+        );
+        const addr = expectOk(
+          handle.parse_handle(stored),
+          "json-ot handle parse failed",
+        );
         runtime.resolve_address(rt, addr);
         client.handle = { runtime: rt, address: addr };
         client.data = { name: 0, site: 0, trend: 0 };

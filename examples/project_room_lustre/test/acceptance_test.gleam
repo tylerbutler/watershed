@@ -3,7 +3,9 @@
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import gleeunit/should
+import lustre/element
 
 import watershed
 import watershed/component
@@ -12,6 +14,7 @@ import watershed/sluice_js
 import watershed/transport_js
 import watershed/workspace_js
 
+import project_room_lustre as app
 import project_room_lustre/activity
 import project_room_lustre/catalog
 import project_room_lustre/checklist
@@ -21,8 +24,10 @@ import project_room_lustre/governance_payload
 import project_room_lustre/inspector
 import project_room_lustre/notes
 import project_room_lustre/ownership_slots
+import project_room_lustre/room_agreement
 import project_room_lustre/tally
 import project_room_lustre/task_collection
+import project_room_lustre/views
 import project_room_lustre/workspace_setup
 
 type RoomRuntime =
@@ -66,6 +71,7 @@ pub fn two_clients_inspect_independently_and_complete_collaboratively_test() -> 
     catalog.activity_instance_id,
     catalog.checklist_instance_id,
     catalog.tally_instance_id,
+    catalog.room_agreement_instance_id,
   ])
   component_runtime_js.layout(runtime_b)
   |> should.equal(component_runtime_js.layout(runtime_a))
@@ -246,6 +252,216 @@ pub fn runtime_created_checklist_converges_and_stops_test() -> Nil {
   |> should.equal(Error(Nil))
 }
 
+pub fn agreement_acceptance_dispatches_only_from_origin_and_settles_test() -> Nil {
+  let #(sluice, document_a, document_b, store_a, store_b) =
+    two_client_workspace("agreement-runtime-acceptance")
+  let reports_a = transport_js.new_cell([])
+  let reports_b = transport_js.new_cell([])
+  let runtime_a =
+    start_runtime(sluice, document_a, store_a, "user-a", "A", reports_a)
+  let runtime_b =
+    start_runtime(sluice, document_b, store_b, "user-b", "B", reports_b)
+  let _ = settle_agreements(sluice, [runtime_a, runtime_b], 8)
+  run_agreement(runtime_a, "agreement", fn(inner) {
+    room_agreement.propose(room_agreement.set_draft(inner, "Review together"))
+  })
+  let _ = settle_agreements(sluice, [runtime_a, runtime_b], 8)
+  list.each([runtime_a, runtime_b], fn(runtime) {
+    let assert Some(accepted) =
+      room_agreement.accepted(agreement(runtime, "agreement"))
+    accepted.text |> should.equal("Review together")
+    let assert [activity.ComponentEvent(event)] = activity_entries(runtime)
+    event.source_instance_id |> should.equal("agreement")
+    event.detail |> should.equal("Accepted agreement: Review together")
+  })
+  let mutations = fn(reports) {
+    list.count(reports, fn(report) {
+      case report {
+        component_runtime_js.MutationSubmitted(
+          _,
+          "agreement-accepted-to-activity",
+          _,
+        ) -> True
+        _ -> False
+      }
+    })
+  }
+  mutations(transport_js.get_cell(reports_a)) |> should.equal(1)
+  mutations(transport_js.get_cell(reports_b)) |> should.equal(0)
+  settle_agreements(sluice, [runtime_a, runtime_b], 8) |> should.equal(0)
+  component_runtime_js.stop(runtime_b) |> should.equal([])
+  let reopened = start_test_runtime(sluice, document_b, store_b, "user-b")
+  let _ = settle_agreements(sluice, [runtime_a, reopened], 8)
+  room_agreement.accepted(agreement(reopened, "agreement"))
+  |> should.equal(room_agreement.accepted(agreement(runtime_a, "agreement")))
+  activity_entries(reopened) |> list.length |> should.equal(1)
+  component_runtime_js.stop(runtime_a) |> should.equal([])
+  component_runtime_js.stop(reopened) |> should.equal([])
+}
+
+pub fn dynamic_agreements_keep_drafts_local_and_reopen_without_replaying_test() -> Nil {
+  let #(sluice, document_a, document_b, store_a, store_b) =
+    two_client_workspace("agreement-runtime-created")
+  let runtime_a = start_test_runtime(sluice, document_a, store_a, "user-a")
+  let runtime_b = start_test_runtime(sluice, document_b, store_b, "user-b")
+  let assert Ok(preset) =
+    catalog.find_creation_preset(catalog.room_agreement_kind)
+  list.each(["agreement-one", "agreement-two"], fn(id) {
+    workspace_setup.create_from_preset(
+      store_a,
+      catalog.catalog(),
+      preset,
+      id,
+      id,
+    )
+    |> should.equal(Ok(Nil))
+  })
+  let _ = settle_agreements(sluice, [runtime_a, runtime_b], 8)
+  run_agreement(runtime_a, "agreement-one", fn(inner) {
+    Ok(room_agreement.set_draft(inner, "First draft"))
+  })
+  run_agreement(runtime_a, "agreement-two", fn(inner) {
+    Ok(room_agreement.set_draft(inner, "Second draft"))
+  })
+  list.each(["agreement-one", "agreement-two"], fn(id) {
+    room_agreement.draft(agreement(runtime_b, id)) |> should.equal("")
+    let rendered =
+      views.room_agreement(id, agreement(runtime_a, id), fn(_) { Nil }, Nil)
+      |> element.to_string
+    string.contains(rendered, "data-instance-id=\"" <> id <> "\"")
+    |> should.be_true
+    string.contains(rendered, room_agreement.draft(agreement(runtime_a, id)))
+    |> should.be_true
+  })
+  room_agreement.draft(agreement(runtime_a, "agreement-one"))
+  |> should.equal("First draft")
+  room_agreement.draft(agreement(runtime_a, "agreement-two"))
+  |> should.equal("Second draft")
+  run_agreement(runtime_a, "agreement-one", room_agreement.propose)
+  let _ = settle_agreements(sluice, [runtime_a, runtime_b], 8)
+  let assert Some(accepted) =
+    room_agreement.accepted(agreement(runtime_b, "agreement-one"))
+  accepted.text |> should.equal("First draft")
+  room_agreement.accepted(agreement(runtime_b, "agreement-two"))
+  |> should.equal(None)
+  activity_entries(runtime_a) |> should.equal([])
+  activity_entries(runtime_b) |> should.equal([])
+  workspace_js.move_instance(store_a, catalog.catalog(), "agreement-one", 0)
+  |> should.equal(Ok(Nil))
+  let _ = settle_agreements(sluice, [runtime_a, runtime_b], 8)
+  list.each([runtime_a, runtime_b], fn(runtime) {
+    let assert [first, ..] = component_runtime_js.layout(runtime)
+    first |> should.equal("agreement-one")
+  })
+  component_runtime_js.stop(runtime_a) |> should.equal([])
+  let reopened = start_test_runtime(sluice, document_a, store_a, "user-a")
+  let _ = settle_agreements(sluice, [reopened, runtime_b], 8)
+  room_agreement.accepted(agreement(reopened, "agreement-one"))
+  |> should.equal(Some(accepted))
+  room_agreement.draft(agreement(reopened, "agreement-two")) |> should.equal("")
+  activity_entries(reopened) |> should.equal([])
+  workspace_js.delete_instance(store_a, catalog.catalog(), "agreement-one")
+  |> should.equal(Ok(Nil))
+  let _ = settle_agreements(sluice, [reopened, runtime_b], 8)
+  list.each([reopened, runtime_b], fn(runtime) {
+    component_runtime_js.running(runtime, "agreement-one")
+    |> should.equal(Error(Nil))
+    let _ = agreement(runtime, "agreement-two")
+    component_runtime_js.stop(runtime) |> should.equal([])
+  })
+}
+
+pub fn invalidation_during_agreement_refresh_survives_test() -> Nil {
+  let #(sluice, document, _, store, _) =
+    two_client_workspace("agreement-refresh-invalidation")
+  let invalidate = transport_js.new_cell(fn() { Nil })
+  let runtime =
+    start_runtime_with_hooks(
+      sluice,
+      document,
+      store,
+      "user-a",
+      "A",
+      transport_js.new_cell([]),
+      fn(instance_id, subtree) {
+        case instance_id == "agreement" {
+          True ->
+            transport_js.set_cell(invalidate, fn() {
+              room_agreement.initialize(document, subtree)
+              |> should.equal(Ok(Nil))
+            })
+          False -> Nil
+        }
+      },
+      fn() { Nil },
+    )
+  let _ = settle_agreements(sluice, [runtime], 8)
+  component_runtime_js.command(runtime, "agreement", fn(running) {
+    use next <- result.try(catalog.refresh_room_agreement(running))
+    transport_js.get_cell(invalidate)()
+    Ok(next)
+  })
+  |> should.equal(Ok(Nil))
+  app.agreement_refresh_ids(runtime) |> should.equal(["agreement"])
+  settle_agreements(sluice, [runtime], 8) |> should.equal(1)
+  settle_agreements(sluice, [runtime], 8) |> should.equal(0)
+  component_runtime_js.stop(runtime) |> should.equal([])
+}
+
+fn agreement(runtime: RoomRuntime, id: String) -> room_agreement.Running {
+  let assert Ok(inner) =
+    component_runtime_js.running(runtime, id)
+    |> result_then(catalog.as_room_agreement)
+  inner
+}
+
+fn run_agreement(
+  runtime: RoomRuntime,
+  id: String,
+  action: fn(room_agreement.Running) -> Result(room_agreement.Running, String),
+) -> Nil {
+  component_runtime_js.command(runtime, id, fn(running) {
+    let assert catalog.RoomAgreement(inner, pending) = running
+    action(inner)
+    |> result.map(fn(next) { #(catalog.RoomAgreement(next, pending), []) })
+  })
+  |> should.equal(Ok(Nil))
+}
+
+fn activity_entries(runtime: RoomRuntime) -> List(activity.Entry) {
+  let assert Ok(inner) =
+    component_runtime_js.running(runtime, catalog.activity_instance_id)
+    |> result_then(catalog.as_activity)
+  activity.entries(inner)
+}
+
+fn settle_agreements(
+  sluice: sluice_js.Sluice,
+  runtimes: List(RoomRuntime),
+  rounds: Int,
+) -> Int {
+  case rounds {
+    0 -> 0
+    _ -> {
+      settle_runtime(sluice)
+      let count =
+        list.fold(runtimes, 0, fn(count, runtime) {
+          let pending = app.agreement_refresh_ids(runtime)
+          list.each(pending, fn(id) {
+            component_runtime_js.command(
+              runtime,
+              id,
+              catalog.refresh_room_agreement,
+            )
+            |> should.equal(Ok(Nil))
+          })
+          count + list.length(pending)
+        })
+      count + settle_agreements(sluice, runtimes, rounds - 1)
+    }
+  }
+}
+
 fn two_client_workspace(
   name: String,
 ) -> #(
@@ -318,6 +534,28 @@ fn start_runtime(
   participant_label: String,
   reports: transport_js.Cell(List(component_runtime_js.DispatchReport)),
 ) -> RoomRuntime {
+  start_runtime_with_hooks(
+    sluice,
+    document,
+    store,
+    participant_id,
+    participant_label,
+    reports,
+    fn(_, _) { Nil },
+    fn() { Nil },
+  )
+}
+
+fn start_runtime_with_hooks(
+  sluice: sluice_js.Sluice,
+  document: watershed.Document(document_schema.ProjectRoom),
+  store: workspace_js.Workspace(document_schema.ProjectRoom),
+  participant_id: String,
+  participant_label: String,
+  reports: transport_js.Cell(List(component_runtime_js.DispatchReport)),
+  on_context: fn(String, watershed.SharedMap) -> Nil,
+  on_change: fn() -> Nil,
+) -> RoomRuntime {
   component_runtime_js.start(
     document: document,
     root: watershed.root_typed(document),
@@ -325,6 +563,7 @@ fn start_runtime(
     store: store,
     catalog: catalog.catalog(),
     context_for: fn(entry, subtree, invalidate, emitter) {
+      on_context(entry.instance_id, subtree)
       catalog.context(
         document,
         subtree,
@@ -336,7 +575,7 @@ fn start_runtime(
       )
     },
     scheduler: sluice_js.scheduler(sluice),
-    on_change: fn() { Nil },
+    on_change: on_change,
     on_report: fn(report) {
       transport_js.set_cell(reports, [report, ..transport_js.get_cell(reports)])
     },

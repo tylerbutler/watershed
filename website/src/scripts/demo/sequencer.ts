@@ -103,6 +103,7 @@ export function createSequencer<C extends SeqClient>(
         controls.paced(hopLatency),
         true,
         label,
+        hopLatency,
       );
       const tNow = performance.now();
       const tArrival = Math.max(
@@ -144,10 +145,10 @@ export function createSequencer<C extends SeqClient>(
         controls.paced(originLatency),
         false,
         opts.label,
+        originLatency,
       );
 
-      // FIFO into the sequencer: an op may not overtake an earlier one even if
-      // the latency slider moved while it was in flight.
+      // FIFO into the sequencer: an op may not overtake an earlier one.
       const now = performance.now();
       const arrival = Math.max(
         now + controls.paced(originLatency),

@@ -20,6 +20,8 @@ import spillway/message
 import spillway/types
 
 import lattice_core/replica_id
+import lattice_maps/crdt
+import lattice_maps/or_map
 import lattice_sequence/sequence.{After, Before}
 import watershed/channel
 import watershed/claims_kernel
@@ -225,6 +227,16 @@ fn apply_tagged(
 ) -> #(Core, List(#(String, channel.ChannelEvent))) {
   case runtime_core.handle_sequenced(core, sequenced) {
     Ok(#(core, ingested)) -> #(core, ingested.events)
+    Error(_) -> panic as "expected handle_sequenced to succeed"
+  }
+}
+
+fn apply_summary(
+  core: Core,
+  sequenced: types.SequencedDocumentMessage,
+) -> #(Core, List(runtime_core.SummaryEvent)) {
+  case runtime_core.handle_sequenced(core, sequenced) {
+    Ok(#(core, ingested)) -> #(core, ingested.summary_events)
     Error(_) -> panic as "expected handle_sequenced to succeed"
   }
 }
@@ -448,11 +460,15 @@ fn is_ack_mismatch(core_error: runtime_core.CoreError) -> Bool {
     | runtime_core.DuplicateAttach(..)
     | runtime_core.WrongChannelType(..)
     | runtime_core.OrMapModeMismatch(..)
+    | runtime_core.OrMapOperationFailed(..)
     | runtime_core.TaskNotAssigned(..)
     | runtime_core.DirectoryOperationFailed(..)
     | runtime_core.SequenceOperationFailed(..)
+    | runtime_core.GCounterOperationFailed(..)
     | runtime_core.TextOperationFailed(..)
-    | runtime_core.BadSummaryChannel(..) -> False
+    | runtime_core.BadSummaryChannel(..)
+    | runtime_core.LwwRegisterOperationFailed(..)
+    | runtime_core.LwwMapOperationFailed(..) -> False
   }
 }
 
@@ -2563,6 +2579,197 @@ pub fn detached_or_map_increment_produces_no_outbound_test() -> Nil {
   |> expect.to_equal(Ok(or_map_kernel.Tally(3)))
 }
 
+pub fn or_map_set_detached_promotion_and_member_ack_test() -> Nil {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core =
+    runtime_core.create_detached(
+      core,
+      "sets",
+      channel.InitOrMap(or_map_kernel.OrSetMode),
+    )
+  let assert Ok(#(core, [], [])) =
+    runtime_core.or_map_remove_member(core, "sets", "missing", "draft")
+  runtime_core.or_map_value(core, "sets", "missing")
+  |> expect.to_equal(Error(Nil))
+  let assert Ok(#(core, events, [])) =
+    runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+  events
+  |> expect.to_equal([
+    #(
+      "sets",
+      channel.OrMapEvent(or_map_kernel.SetMembersUpdated("doc", ["draft"])),
+    ),
+  ])
+  let assert Ok(#(core, _, [attach, _])) =
+    runtime_core.set(core, "root", "sets", handle.encode_handle("sets"))
+  let assert DecodedAttach("sets", snapshot) = decode_outbound_contents(attach)
+  or_map_snapshot_entries(snapshot)
+  |> expect.to_equal([#("doc", or_map_kernel.SetMembers(["draft"]))])
+  let #(core, _) =
+    apply_tagged(
+      core,
+      or_map_attach_message(
+        client_id: our_client_id,
+        sequence_number: 2,
+        client_sequence_number: 1,
+        address: "sets",
+        snapshot: snapshot,
+      ),
+    )
+  let #(core, _) =
+    apply_tagged(
+      core,
+      channel_operation_message(
+        address: "root",
+        client_id: our_client_id,
+        sequence_number: 3,
+        client_sequence_number: 2,
+        operation: Set("sets", handle.encode_handle("sets")),
+      ),
+    )
+  let assert Ok(#(core, [], [duplicate])) =
+    runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+  duplicate.client_sequence_number |> expect.to_equal(3)
+  let assert DecodedChannelOperation("sets", channel.OrMapOperation(operation)) =
+    decode_outbound_contents(duplicate)
+  let assert #(core, []) =
+    apply_tagged(
+      core,
+      or_map_operation_message(
+        address: "sets",
+        client_id: our_client_id,
+        sequence_number: 4,
+        client_sequence_number: 3,
+        operation: operation,
+      ),
+    )
+  core.in_flight |> expect.to_equal([])
+  let assert Ok(#(core, events, [remove])) =
+    runtime_core.or_map_remove_member(core, "sets", "doc", "draft")
+  events
+  |> expect.to_equal([
+    #("sets", channel.OrMapEvent(or_map_kernel.SetMembersUpdated("doc", []))),
+  ])
+  let assert DecodedChannelOperation("sets", channel.OrMapOperation(operation)) =
+    decode_outbound_contents(remove)
+  let assert #(core, []) =
+    apply_tagged(
+      core,
+      or_map_operation_message(
+        address: "sets",
+        client_id: our_client_id,
+        sequence_number: 5,
+        client_sequence_number: 4,
+        operation: operation,
+      ),
+    )
+  core.in_flight |> expect.to_equal([])
+  runtime_core.or_map_value(core, "sets", "doc")
+  |> expect.to_equal(Ok(or_map_kernel.SetMembers([])))
+}
+
+pub fn or_map_member_edits_keep_wrong_mode_and_wrong_channel_errors_test() -> Nil {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core =
+    runtime_core.create_detached(
+      core,
+      "tally",
+      channel.InitOrMap(or_map_kernel.TallyMode),
+    )
+  let assert Error(runtime_core.OrMapModeMismatch(address: "tally", ..)) =
+    runtime_core.or_map_add_member(core, "tally", "doc", "draft")
+  let assert Error(runtime_core.OrMapModeMismatch(address: "tally", ..)) =
+    runtime_core.or_map_remove_member(core, "tally", "doc", "draft")
+  let assert Error(runtime_core.WrongChannelType(
+    address: "root",
+    expected: channel.OrMapChannel,
+    actual: channel.MapChannel,
+  )) = runtime_core.or_map_add_member(core, "root", "doc", "draft")
+  let assert Error(runtime_core.WrongChannelType(
+    address: "root",
+    expected: channel.OrMapChannel,
+    actual: channel.MapChannel,
+  )) = runtime_core.or_map_remove_member(core, "root", "doc", "draft")
+  Nil
+}
+
+pub fn or_map_member_clock_exhaustion_has_address_in_attached_and_detached_core_test() -> Nil {
+  let empty =
+    or_map_kernel.new(replica_id.new(our_client_id), or_map_kernel.OrSetMode)
+  let raw = or_map.to_json(empty.sequenced) |> json.to_string
+  let exhausted =
+    string.replace(raw, "\"clock\":0", "\"clock\":9007199254740991")
+  exhausted |> expect.to_not_equal(raw)
+  let assert Ok(kernel) =
+    or_map_kernel.from_summary(exhausted, replica_id.new(our_client_id))
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let detached =
+    runtime_core.Core(
+      ..core,
+      detached: dict.insert(core.detached, "sets", channel.OrMapState(kernel)),
+    )
+  let attached =
+    runtime_core.Core(
+      ..core,
+      channels: dict.insert(core.channels, "sets", channel.OrMapState(kernel)),
+    )
+  list.each([detached, attached], fn(core) {
+    let assert Error(runtime_core.OrMapOperationFailed(
+      address: "sets",
+      detail: detail,
+    )) = runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+    string.is_empty(detail) |> expect.to_be_false
+  })
+}
+
+pub fn or_map_invalid_set_state_error_survives_remote_and_ack_dispatch_test() -> Nil {
+  let empty =
+    or_map_kernel.new(replica_id.new(our_client_id), or_map_kernel.OrSetMode)
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let core =
+    runtime_core.Core(
+      ..core,
+      channels: dict.insert(core.channels, "sets", channel.OrMapState(empty)),
+    )
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+  let assert DecodedChannelOperation("sets", channel.OrMapOperation(operation)) =
+    decode_outbound_contents(outbound)
+  list.each([#(core, other_client_id), #(pending, our_client_id)], fn(pair) {
+    let assert Ok(channel.OrMapState(kernel)) =
+      dict.get(pair.0.channels, "sets")
+    let corrupt =
+      or_map_kernel.OrMapState(
+        ..kernel,
+        sequenced: or_map.new(replica_id.new(our_client_id), crdt.PnCounterSpec),
+      )
+    let core =
+      runtime_core.Core(
+        ..pair.0,
+        channels: dict.insert(
+          pair.0.channels,
+          "sets",
+          channel.OrMapState(corrupt),
+        ),
+      )
+    let assert Error(runtime_core.OrMapOperationFailed(
+      address: "sets",
+      detail: detail,
+    )) =
+      runtime_core.handle_sequenced(
+        core,
+        or_map_operation_message(
+          address: "sets",
+          client_id: pair.1,
+          sequence_number: 2,
+          client_sequence_number: 1,
+          operation: operation,
+        ),
+      )
+    string.is_empty(detail) |> expect.to_be_false
+  })
+}
+
 pub fn or_map_attach_via_handle_then_operations_round_trip_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core =
@@ -2679,10 +2886,14 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.WrongChannelType(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
+    | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected increment on RegisterMode to be rejected"
   }
@@ -2703,13 +2914,141 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.WrongChannelType(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
+    | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected set on TallyMode to be rejected"
   }
+}
+
+fn ack_mv_or_map_outbound(
+  core: Core,
+  outbound: wire.OutboundOperation,
+) -> Core {
+  let #(core, events) =
+    apply_tagged(
+      core,
+      sequenced_message(
+        client_id: Some(core.client_id),
+        sequence_number: core.last_seen_sequence_number + 1,
+        client_sequence_number: outbound.client_sequence_number,
+        message_type: outbound.operation_type,
+        contents: json_to_dynamic(outbound.contents),
+      ),
+    )
+  events |> expect.to_equal([])
+  core
+}
+
+pub fn mv_or_map_runtime_submit_ack_resubmit_and_summary_test() -> Nil {
+  let core =
+    bootstrap([], 1)
+    |> runtime_core.create_detached(
+      "revisions",
+      channel.InitOrMap(or_map_kernel.MvRegisterMode),
+    )
+  let assert Ok(#(core, events, [])) =
+    runtime_core.or_map_set_mv_register(core, "revisions", "gate", "initial")
+  events
+  |> expect.to_equal([
+    #(
+      "revisions",
+      channel.OrMapEvent(or_map_kernel.MvRegisterUpdated("gate", ["initial"])),
+    ),
+  ])
+  let assert Ok(#(core, _, [attach, reference])) =
+    runtime_core.set(
+      core,
+      "root",
+      "revisions",
+      handle.encode_handle("revisions"),
+    )
+  let core =
+    core |> ack_mv_or_map_outbound(attach) |> ack_mv_or_map_outbound(reference)
+  let assert Ok(#(core, _, [outbound])) =
+    runtime_core.or_map_set_mv_register(core, "revisions", "gate", "local")
+  let assert Ok(#(_, _, remote)) =
+    or_map_kernel.p2p_set_mv_register(
+      or_map_kernel.new(replica_id.new("remote"), or_map_kernel.MvRegisterMode),
+      "gate",
+      "remote",
+    )
+  let #(core, events) =
+    apply_tagged(
+      core,
+      or_map_operation_message("revisions", other_client_id, 4, 1, remote),
+    )
+  events
+  |> expect.to_equal([
+    #(
+      "revisions",
+      channel.OrMapEvent(
+        or_map_kernel.MvRegisterUpdated("gate", ["local", "remote"]),
+      ),
+    ),
+  ])
+  let assert #(core, [resubmitted]) =
+    core
+    |> runtime_core.adopt_reconnect(reconnect_connected("new-client", 4))
+    |> runtime_core.resubmit
+  json.to_string(resubmitted.contents)
+  |> expect.to_equal(json.to_string(outbound.contents))
+  let core = ack_mv_or_map_outbound(core, resubmitted)
+  runtime_core.or_map_values(core, "revisions", "gate")
+  |> expect.to_equal(Ok(["local", "remote"]))
+  let assert Ok(blob) =
+    summary_blob.encode_channels(
+      core.last_seen_sequence_number,
+      runtime_core.summary_members(core),
+      runtime_core.summary_channels(core),
+    )
+    |> json.to_string
+    |> summary_blob.decode
+  let assert Ok(runtime_core.Complete(loaded)) =
+    runtime_core.bootstrap(
+      connected_message([], core.last_seen_sequence_number),
+      summary: Some(runtime_core.summary_from_blob(blob)),
+    )
+  runtime_core.or_map_values(loaded, "revisions", "gate")
+  |> expect.to_equal(Ok(["local", "remote"]))
+  let assert Ok(#(loaded, _, [resolution])) =
+    runtime_core.or_map_set_mv_register(loaded, "revisions", "gate", "resolved")
+  let loaded = ack_mv_or_map_outbound(loaded, resolution)
+  runtime_core.or_map_values(loaded, "revisions", "gate")
+  |> expect.to_equal(Ok(["resolved"]))
+}
+
+pub fn mv_or_map_runtime_typed_reads_and_mode_errors_test() -> Nil {
+  let core =
+    bootstrap([], 1)
+    |> runtime_core.create_detached(
+      "tally",
+      channel.InitOrMap(or_map_kernel.TallyMode),
+    )
+    |> runtime_core.create_detached(
+      "mv",
+      channel.InitOrMap(or_map_kernel.MvRegisterMode),
+    )
+  let assert Ok(#(core, _, [])) =
+    runtime_core.or_map_increment(core, "tally", "k", 1)
+  runtime_core.or_map_values(core, "tally", "k") |> expect.to_equal(Error(Nil))
+  runtime_core.or_map_values(core, "mv", "missing")
+  |> expect.to_equal(Error(Nil))
+  let assert Error(runtime_core.OrMapModeMismatch("tally", _)) =
+    runtime_core.or_map_set_mv_register(core, "tally", "k", "wrong")
+  let assert Error(runtime_core.OrMapModeMismatch("mv", _)) =
+    runtime_core.or_map_set(core, "mv", "k", "wrong", 0)
+  let assert Error(runtime_core.OrMapModeMismatch("mv", _)) =
+    runtime_core.or_map_increment(core, "mv", "k", 1)
+  let assert Error(runtime_core.UnknownChannel(..)) =
+    runtime_core.or_map_set_mv_register(core, "absent", "k", "wrong")
+  Nil
 }
 
 pub fn or_map_register_set_attaches_handle_dependencies_test() -> Nil {
@@ -2749,8 +3088,11 @@ pub fn or_map_register_set_attaches_handle_dependencies_test() -> Nil {
     or_map_kernel.SetRegister("child", value, 99, _) ->
       value |> expect.to_equal(encoded_handle)
     or_map_kernel.SetRegister(..)
+    | or_map_kernel.SetMvRegister(..)
     | or_map_kernel.Increment(..)
     | or_map_kernel.Remove(..) -> panic as "expected register set op"
+    or_map_kernel.AddMember(..) | or_map_kernel.RemoveMember(..) ->
+      panic as "expected register set op"
   }
 }
 
@@ -2773,10 +3115,14 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.WrongChannelType(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
+    | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected set on a counter channel to be rejected"
   }
@@ -2789,10 +3135,14 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.UnknownChannel(..))
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
+    | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected delete on a counter channel to be rejected"
   }
@@ -2805,10 +3155,14 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.UnknownChannel(..))
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
+    | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected clear on a counter channel to be rejected"
   }
@@ -2827,10 +3181,14 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.DuplicateAttach(..))
     | Error(runtime_core.WrongChannelType(..))
     | Error(runtime_core.OrMapModeMismatch(..))
+    | Error(runtime_core.OrMapOperationFailed(..))
     | Error(runtime_core.TaskNotAssigned(..))
     | Error(runtime_core.DirectoryOperationFailed(..))
     | Error(runtime_core.SequenceOperationFailed(..))
+    | Error(runtime_core.GCounterOperationFailed(..))
     | Error(runtime_core.TextOperationFailed(..))
+    | Error(runtime_core.LwwRegisterOperationFailed(..))
+    | Error(runtime_core.LwwMapOperationFailed(..))
     | Error(runtime_core.BadSummaryChannel(..)) ->
       panic as "expected increment on a map channel to be rejected"
   }
@@ -3844,14 +4202,42 @@ fn summarize_message(
   sequenced_message(
     client_id: Some(by),
     sequence_number: sequence_number,
-    client_sequence_number: -1,
+    client_sequence_number: 7,
     message_type: "summarize",
     contents: json_to_dynamic(
       json.object([
-        #("handle", json.string("deadbeef")),
+        #("handle", json.string("tree-1")),
         #("message", json.string("watershed summary")),
         #("parents", json.array([], json.string)),
-        #("head", json.string("deadbeef")),
+        #("head", json.string("")),
+      ]),
+    ),
+  )
+}
+
+fn summary_response_message(
+  sequence_number: Int,
+  proposal_sequence_number: Int,
+  response: String,
+) -> types.SequencedDocumentMessage {
+  let fields = case response {
+    "summaryAck" -> [#("handle", json.string("commit-1"))]
+    _ -> [#("message", json.string("Summary parent is not the published head"))]
+  }
+  sequenced_message(
+    client_id: None,
+    sequence_number: sequence_number,
+    client_sequence_number: -1,
+    message_type: response,
+    contents: json_to_dynamic(
+      json.object([
+        #(
+          "summaryProposal",
+          json.object([
+            #("summarySequenceNumber", json.int(proposal_sequence_number)),
+          ]),
+        ),
+        ..fields
       ]),
     ),
   )
@@ -3892,62 +4278,98 @@ pub fn bootstrap_without_a_summary_counts_from_zero_test() -> Nil {
   runtime_core.operations_since_summary(core) |> expect.to_equal(3)
 }
 
-pub fn an_observed_summarize_advances_the_local_checkpoint_test() -> Nil {
-  // A peer's summarize operation is sequenced like any other message. The core
-  // has no use for its contents, but its sequence number is what stops every
-  // other client in the room from summarizing the same state again.
+pub fn bootstrap_summary_context_seeds_the_published_head_test() -> Nil {
+  let connected =
+    message.ConnectedMessage(
+      ..connected_message([], 5),
+      summary_context: Some(message.SummaryContext("commit-1", 5)),
+    )
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap(connected, summary: Some(root_summary(5, [])))
+  core.summary_head |> expect.to_equal(Some("commit-1"))
+}
+
+pub fn building_a_first_summary_uses_no_parent_test() -> Nil {
+  let core = bootstrap(initial_messages: [], checkpoint: 12)
+  let #(core, outbound) =
+    runtime_core.build_summarize(
+      core,
+      handle: "tree-1",
+      message: "watershed summary",
+    )
+  runtime_core.operations_since_summary(core) |> expect.to_equal(12)
+  decode.run(
+    json_to_dynamic(outbound.contents),
+    decode.at(["head"], decode.string),
+  )
+  |> expect.to_equal(Ok(""))
+  decode.run(
+    json_to_dynamic(outbound.contents),
+    decode.at(["parents"], decode.list(decode.string)),
+  )
+  |> expect.to_equal(Ok([]))
+}
+
+pub fn building_a_later_summary_uses_the_published_head_test() -> Nil {
+  let core =
+    runtime_core.Core(
+      ..bootstrap(initial_messages: [], checkpoint: 12),
+      summary_head: Some("commit-1"),
+    )
+  let #(_, outbound) =
+    runtime_core.build_summarize(
+      core,
+      handle: "tree-2",
+      message: "watershed summary",
+    )
+  decode.run(
+    json_to_dynamic(outbound.contents),
+    decode.at(["head"], decode.string),
+  )
+  |> expect.to_equal(Ok("commit-1"))
+  decode.run(
+    json_to_dynamic(outbound.contents),
+    decode.at(["parents"], decode.list(decode.string)),
+  )
+  |> expect.to_equal(Ok(["commit-1"]))
+}
+
+pub fn summary_proposal_waits_for_publication_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 3)
-  runtime_core.operations_since_summary(core) |> expect.to_equal(3)
+  let #(core, events) =
+    apply_summary(
+      core,
+      summarize_message(sequence_number: 4, by: our_client_id),
+    )
+  events
+  |> expect.to_equal([
+    runtime_core.SummaryProposalSequenced(Some(our_client_id), 7, 4),
+  ])
+  runtime_core.operations_since_summary(core) |> expect.to_equal(4)
 
   let #(core, events) =
-    apply(core, summarize_message(sequence_number: 4, by: other_client_id))
-  events |> expect.to_equal([])
-  runtime_core.operations_since_summary(core) |> expect.to_equal(0)
-
-  let #(core, _) =
-    apply(
-      core,
-      map_operation_message(
-        client_id: other_client_id,
-        sequence_number: 5,
-        client_sequence_number: 1,
-        operation: Set("after", json.int(1)),
-      ),
-    )
+    apply_summary(core, summary_response_message(5, 4, "summaryAck"))
+  events
+  |> expect.to_equal([runtime_core.SummaryPublished(4, "commit-1")])
+  core.summary_head |> expect.to_equal(Some("commit-1"))
   runtime_core.operations_since_summary(core) |> expect.to_equal(1)
 }
 
-pub fn a_stale_summarize_does_not_move_the_checkpoint_backwards_test() -> Nil {
-  // Replaying an old log after loading a newer summary must not un-summarize
-  // the document.
-  let summary = root_summary(10, [])
-  let core = case
-    runtime_core.bootstrap(connected_message([], 10), summary: Some(summary))
-  {
-    Ok(runtime_core.Complete(core)) -> core
-    Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
-      panic as "expected summary bootstrap to succeed"
-  }
-
+pub fn rejected_summary_does_not_advance_the_checkpoint_test() -> Nil {
+  let core = bootstrap(initial_messages: [], checkpoint: 3)
   let #(core, _) =
-    apply(core, summarize_message(sequence_number: 4, by: other_client_id))
-  runtime_core.operations_since_summary(core) |> expect.to_equal(0)
-}
-
-pub fn building_a_summarize_operation_advances_the_local_checkpoint_test() -> Nil {
-  // Our own summarize operation is fire-and-forget — no ack, no in-flight entry
-  // — so the checkpoint moves when the operation is built rather than when it
-  // lands. Without this a client re-arms on every operation until its own echo
-  // returns.
-  let core = bootstrap(initial_messages: [], checkpoint: 12)
-  let #(core, _outbound) =
-    runtime_core.build_summarize(
+    apply_summary(
       core,
-      handle: "deadbeef",
-      message: "watershed summary",
-      head: "deadbeef",
+      summarize_message(sequence_number: 4, by: our_client_id),
     )
-  runtime_core.operations_since_summary(core) |> expect.to_equal(0)
+  let #(core, events) =
+    apply_summary(core, summary_response_message(5, 4, "summaryNack"))
+  events
+  |> expect.to_equal([
+    runtime_core.SummaryRejected(4, "Summary parent is not the published head"),
+  ])
+  core.summary_head |> expect.to_equal(None)
+  runtime_core.operations_since_summary(core) |> expect.to_equal(5)
 }
 
 pub fn wants_summary_crosses_at_the_threshold_test() -> Nil {

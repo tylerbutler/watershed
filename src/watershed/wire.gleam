@@ -43,6 +43,14 @@ pub const channel_type_counter = "counter"
 
 pub const channel_type_pn_counter = "pnCounter"
 
+pub const channel_type_g_counter = "gCounter"
+
+pub const channel_type_lww_register = "lwwRegister"
+
+pub const channel_type_lww_map = "lwwMap"
+
+pub const channel_type_mv_register = "mv-register"
+
 pub const channel_type_or_map = "ormap"
 
 pub const channel_type_or_set = "orset"

@@ -1,35 +1,109 @@
 # Product
 
-## Register
+<!-- impeccable:product-schema 1 -->
 
-brand
+## Platform
+
+web
 
 ## Users
 
-BEAM and Gleam developers evaluating real-time collaborative data sync for their apps. They know OTP, Phoenix Channels, and distributed-systems tradeoffs; they are skeptical of sync magic and respect visible rigor (property tests, convergence proofs, protocol detail). Context: they land here from GitHub, the Gleam Discord, or a conference talk, deciding in under a minute whether watershed is credible enough to try.
+BEAM and Gleam developers evaluating real-time collaborative data sync for
+their applications. They know OTP, Phoenix Channels, and distributed-systems
+tradeoffs. They distrust sync magic and value visible rigor such as property
+tests, convergence guarantees, and protocol detail.
+
+They often arrive from GitHub, the Gleam Discord, or a conference talk. They
+want to decide within a minute whether watershed is credible enough to try.
 
 ## Product Purpose
 
-watershed is a Gleam (BEAM) DDS client toolkit for Fluid Framework-compatible sequencing services (floodgate, levee, and Fluid Framework's own routerlicious): collaborative data structures (SharedMap first) with optimistic local edits, server-sequenced convergence, and reconnect safety. The pure core is target-agnostic and compiles to both Erlang and JavaScript. The website's job is to make that credibility legible fast — and to *show* convergence live in the browser rather than claim it. Success: a visiting Gleam dev stars the repo, runs an example, or reads the architecture.
+watershed gives Gleam applications collaborative data structures with
+optimistic local edits, server-sequenced convergence, and reconnect safety. It
+works with Fluid Framework-compatible sequencing services, including
+floodgate, levee, and routerlicious.
 
-## Brand Personality
+The pure core compiles to Erlang and JavaScript. Success means that a developer
+stars the repository, runs an example, reads the architecture, or starts
+integrating watershed into an application.
 
-Hydrological engineering: calm, precise, systems-confidence. The ecosystem naming (watershed, floodgate, spillway, aquamarine, roost) is a literal water-infrastructure family — the brand treats that metaphor as foundational, not decorative. Voice like a well-written engineering document about river control: measured, exact, quietly authoritative. Three words: **precise, fluid, grounded**.
+## Positioning
 
-## Anti-references
+A Gleam-native collaborative data toolkit whose shared core runs on BEAM and
+JavaScript, speaks the Fluid wire protocol, and exposes convergence behavior
+directly instead of hiding it behind sync magic.
 
-- Generic SaaS landing grammar: gradient hero, metric rows, identical feature-card grids, uppercase eyebrow labels on every section.
-- Dark-terminal "hacker tool" aesthetic; monospace-everything as a costume for "technical."
-- Editorial-magazine lane (display serif italics, drop caps, ruled columns) — this is infrastructure, not a periodical.
-- Cream/beige default neutrals; timid restraint that reads as unfinished.
+## Operating Context
 
-## Design Principles
+Developers evaluate watershed through the website, repository documentation,
+live browser demos, and runnable examples. They compare data structures by
+their merge rules, optimistic behavior, saved state, and response to concurrent
+or offline edits.
 
-1. **Show, don't claim.** Convergence is demonstrated live on the page (two in-browser clients over the JS-compiled core), not asserted in copy.
-2. **The metaphor is structural.** Water-system visuals (flow, contour, sequencing) illustrate the actual architecture — every decorative element maps to a real concept (ops flowing downstream, the server as sequencer, reconnect as rejoining the flow).
-3. **Rigor is content.** Property-test counts, the convergence guarantee, byte-compatibility with Fluid Framework's wire format — specifics over adjectives.
-4. **Calm surface, deep water.** Composed, unhurried presentation; density lives in the diagrams and code, not in visual noise.
+Application developers use the Erlang facade in OTP systems and the JavaScript
+facade in browser applications. Lustre applications use the
+`watershed_lustre` bindings. Documents connect to a compatible sequencing
+service or use the peer-to-peer runtime where that model fits.
+
+## Capabilities and Constraints
+
+- The core supports Erlang and JavaScript from one Gleam codebase.
+- The toolkit includes server-ordered DDSs, CRDTs, operational transforms,
+  presence, reconnect handling, summaries, and typed document schemas.
+- All structures in a document share the same sequenced stream.
+- The wire protocol is compatible with Fluid Framework sequencing services.
+- Browser demos run the compiled Gleam kernels rather than a separate
+  simulation of their merge behavior.
+- `watershed` and `watershed_lustre` are installed from a pinned Git commit.
+  They are not published to Hex.
+- The project must preserve the established terms `watershed`, `floodgate`,
+  `sluice`, `ripple`, `gauge`, `field atlas`, `adjoining sheets`, and
+  `the survey procedure`.
+
+## Brand Commitments
+
+The name and product language belong to a family of water-infrastructure
+projects: watershed, floodgate, spillway, aquamarine, and roost. The metaphor
+describes real system behavior. It is not decorative naming.
+
+The voice is measured, exact, and quietly authoritative, like a clear
+engineering document about river control. The three defining traits are
+**precise, fluid, grounded**.
+
+Avoid generic SaaS landing-page patterns, dark-terminal hacker styling,
+editorial-magazine styling, and timid cream or beige presentation. Do not use
+monospace type as a generic signal for technical credibility.
+
+## Evidence on Hand
+
+- `README.md` documents installation, both target-specific facades, supported
+  structures, and executable examples.
+- `website/src/pages/` contains the guide, architecture material, model
+  comparisons, structure references, and dedicated demonstrations.
+- `website/src/components/Demo.astro` runs live multi-client demonstrations
+  against the JavaScript-compiled kernels.
+- `examples/` contains BEAM, browser, CLI, Lustre, peer-to-peer, persistence,
+  and collaborative application examples.
+- `test/` and the browser smoke suites exercise convergence, wire behavior,
+  reconnects, summaries, transports, and target parity.
+- The repository contains no testimonials, production customer logos, press
+  coverage, or independent performance benchmarks. Future work must not
+  fabricate them.
+
+## Product Principles
+
+1. **Show, do not claim.** Let developers witness convergence in live demos.
+2. **Make the mechanism legible.** Show sequencing, pending state, reconnects,
+   and merge rules instead of presenting collaboration as magic.
+3. **Use rigor as evidence.** Prefer protocol details, tests, and concrete
+   behavior over adjectives.
+4. **Keep one shared core.** Erlang and JavaScript should expose the same
+   underlying semantics.
+5. **Match the structure to the conflict rule.** Help developers choose a data
+   type by what concurrent edits must mean.
 
 ## Accessibility & Inclusion
 
-WCAG AA contrast throughout (body ≥4.5:1). Ambitious, orchestrated motion is welcome — page-load choreography and flow animation — but every animation has a `prefers-reduced-motion` alternative. Fully keyboard accessible; the live demo must be operable without a pointer.
+The website targets WCAG AA contrast, including at least 4.5:1 for body text.
+Interactive demonstrations must work with a keyboard. Every animation must
+provide an intentional `prefers-reduced-motion` alternative.

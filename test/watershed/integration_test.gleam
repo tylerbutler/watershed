@@ -223,7 +223,40 @@ pub fn summary_bootstrap_test() -> Nil {
 /// bootstraps from it.
 pub fn auto_summary_writes_without_an_explicit_call_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
-    Ok("1") -> run_auto_summary_test()
+    Ok("1") -> run_auto_summary_test(default_policy: False)
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+/// SB6: the default policy writes a checkpoint without configuration.
+pub fn default_auto_summary_writes_without_configuration_test() -> Nil {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_auto_summary_test(default_policy: True)
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+pub fn stopping_auto_summary_prevents_checkpoint_test() -> Nil {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> {
+      let document_id =
+        "watershed-no-auto-" <> int.to_string(system_time(Second))
+      let document = connect_or_panic(document_id, "user-a")
+      watershed_beam.auto_summarize(
+        document,
+        summary_policy.policy()
+          |> summary_policy.with_threshold(4)
+          |> summary_policy.with_jitter_milliseconds(0),
+      )
+      watershed_beam.stop_auto_summarize(document)
+      write_keys_drained(document, watershed_beam.root(document), 1, 5)
+      process.sleep(200)
+      { watershed_beam.operations_since_summary(document) >= 5 }
+      |> expect.to_be_true()
+      watershed_beam.close(document)
+    }
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
   }
 }
@@ -266,6 +299,14 @@ pub fn large_history_bootstrap_test() -> Nil {
 pub fn summary_versions_test() -> Nil {
   case envoy.get("WATERSHED_INTEGRATION") {
     Ok("1") -> run_versions_test()
+    _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
+  }
+}
+
+@target(erlang)
+pub fn competing_summaries_retry_from_the_winning_head_test() -> Nil {
+  case envoy.get("WATERSHED_INTEGRATION") {
+    Ok("1") -> run_competing_summaries_test()
     _ -> io.println("  (skipped: set WATERSHED_INTEGRATION=1 to run live)")
   }
 }
@@ -904,12 +945,11 @@ fn run_versions_test() -> Nil {
     Error(reason) -> panic as { "second summarize failed: " <> reason }
   }
 
-  // The server registers a version per summarize operation (async relative to
-  // the summarize reply), newest first.
+  // Published commit versions are newest first.
   wait_until(50, fn() {
     case watershed_beam.get_versions(document, count: 10) {
       Ok(versions) ->
-        list.map(versions, fn(v: git_storage.SummaryVersion) { v.handle })
+        list.map(versions, fn(v: git_storage.SummaryVersion) { v.id })
         == [handle_2, handle_1]
       Error(_) -> False
     }
@@ -918,11 +958,13 @@ fn run_versions_test() -> Nil {
 
   let assert Ok([latest, previous]) =
     watershed_beam.get_versions(document, count: 10)
-  { latest.sequence_number > previous.sequence_number } |> expect.to_be_true()
+  latest.id |> expect.to_equal(handle_2)
+  previous.id |> expect.to_equal(handle_1)
+  { latest.tree_id != latest.id } |> expect.to_be_true()
 
   // `count` keeps only the newest versions.
   let assert Ok([only]) = watershed_beam.get_versions(document, count: 1)
-  only.handle |> expect.to_equal(handle_2)
+  only.id |> expect.to_equal(handle_2)
 
   // Historical snapshot reads by handle: each version returns exactly the
   // confirmed state it captured, without affecting the live document.
@@ -959,11 +1001,71 @@ fn run_versions_test() -> Nil {
 }
 
 @target(erlang)
+fn run_competing_summaries_test() -> Nil {
+  let document_id = "watershed-race-" <> int.to_string(system_time(Second))
+  let document_a = connect_or_panic(document_id, "user-a")
+  let document_b = connect_or_panic(document_id, "user-b")
+  watershed_beam.stop_auto_summarize(document_a)
+  watershed_beam.stop_auto_summarize(document_b)
+  let map_a = watershed_beam.root(document_a)
+  let map_b = watershed_beam.root(document_b)
+
+  watershed_beam.set(map_a, "base", json.int(1))
+  wait_until(50, fn() {
+    watershed_beam.get(map_b, "base") == Ok(json.int(1))
+    && watershed_beam.is_synced(document_a)
+    && watershed_beam.is_synced(document_b)
+  })
+  |> expect.to_be_true()
+  let assert Ok(base_id) = watershed_beam.summarize(document_a)
+
+  watershed_beam.set(map_b, "race", json.int(2))
+  wait_until(50, fn() {
+    watershed_beam.get(map_a, "race") == Ok(json.int(2))
+    && watershed_beam.is_synced(document_a)
+    && watershed_beam.is_synced(document_b)
+  })
+  |> expect.to_be_true()
+
+  let replies = process.new_subject()
+  let _ =
+    process.spawn(fn() {
+      process.send(replies, #("a", watershed_beam.summarize(document_a)))
+    })
+  let _ =
+    process.spawn(fn() {
+      process.send(replies, #("b", watershed_beam.summarize(document_b)))
+    })
+  let assert Ok(first) = process.receive(from: replies, within: 12_000)
+  let assert Ok(second) = process.receive(from: replies, within: 12_000)
+  let #(winning_id, loser) = case first, second {
+    #(_, Ok(version_id)), #(loser, Error(_)) -> #(version_id, loser)
+    #(loser, Error(_)), #(_, Ok(version_id)) -> #(version_id, loser)
+    _, _ -> panic as { "expected one summary acknowledgement and one rejection" }
+  }
+
+  let loser_document = case loser {
+    "a" -> document_a
+    _ -> document_b
+  }
+  let assert Ok(retry_id) =
+    wait_until_ok(50, fn() { watershed_beam.summarize(loser_document) })
+  let assert Ok(versions) =
+    watershed_beam.get_versions(loser_document, count: 10)
+  list.map(versions, fn(version) { version.id })
+  |> expect.to_equal([retry_id, winning_id, base_id])
+
+  watershed_beam.close(document_a)
+  watershed_beam.close(document_b)
+}
+
+@target(erlang)
 fn run_large_history_test() -> Nil {
   let document_id = "watershed-lh-" <> int.to_string(system_time(Second))
   let operation_count = 1050
 
   let document_a = connect_or_panic(document_id, "user-a")
+  watershed_beam.stop_auto_summarize(document_a)
   let map_a = watershed_beam.root(document_a)
 
   // Write more distinct keys than the history window holds. The earliest
@@ -1087,27 +1189,35 @@ fn run_summary_test() -> Nil {
 }
 
 @target(erlang)
-fn run_auto_summary_test() -> Nil {
-  let document_id = "watershed-auto-" <> int.to_string(system_time(Second))
+fn run_auto_summary_test(default_policy default_policy: Bool) -> Nil {
+  let threshold = case default_policy {
+    True -> 500
+    False -> 4
+  }
+  let document_id =
+    "watershed-auto-"
+    <> int.to_string(threshold)
+    <> "-"
+    <> int.to_string(system_time(Second))
 
   let document_a = connect_or_panic(document_id, "user-a")
   let map_a = watershed_beam.root(document_a)
 
-  watershed_beam.auto_summarize(
-    document_a,
-    summary_policy.policy()
-      |> summary_policy.with_threshold(4)
-      |> summary_policy.with_jitter_milliseconds(0),
-  )
+  case default_policy {
+    True -> Nil
+    False ->
+      watershed_beam.auto_summarize(
+        document_a,
+        summary_policy.policy()
+          |> summary_policy.with_threshold(threshold)
+          |> summary_policy.with_jitter_milliseconds(0),
+      )
+  }
 
-  // Nothing here calls `summarize`. The drift falling back under the threshold
-  // is the observable: only a checkpoint moves it.
-  //
-  // Written as traffic-until-it-happens rather than write-then-wait, because
-  // the policy arms on a sequenced message. A document that falls quiet just
-  // over the threshold stays there until the next one arrives — correct, and
-  // invisible in an app, but a test that stopped writing could wait forever.
-  summarizes_within(document_a, map_a, 20, 4) |> expect.to_be_true()
+  // Each drained write sequences separately. A lower count after this many
+  // messages proves that a checkpoint moved, not that the room is still new.
+  write_keys_drained(document_a, map_a, 1, threshold + 1)
+  summarizes_within(document_a, map_a, 50, threshold) |> expect.to_be_true()
 
   // A post-checkpoint edit, so the fresh client has to apply a delta on top of
   // the summary rather than landing on it exactly.
@@ -1124,6 +1234,8 @@ fn run_auto_summary_test() -> Nil {
   |> expect.to_be_true()
   watershed_beam.get(map_b, "post")
   |> expect.to_equal(Ok(json.string("after-summary")))
+  { watershed_beam.operations_since_summary(document_b) < threshold }
+  |> expect.to_be_true()
 
   watershed_beam.close(document_a)
   watershed_beam.close(document_b)
@@ -1179,7 +1291,9 @@ fn run_peer_summary_visibility_test() -> Nil {
     Ok(_) -> Nil
     Error(reason) -> panic as { "summarize failed: " <> reason }
   }
-  watershed_beam.operations_since_summary(document_a) |> expect.to_equal(0)
+  // The acknowledgement follows the proposal by one sequence number. The
+  // published checkpoint records the proposal sequence number.
+  watershed_beam.operations_since_summary(document_a) |> expect.to_equal(1)
 
   // B never called `summarize` and never will — its checkpoint can only move
   // because the room was told. Compared against `drift_before`, since both
@@ -2113,6 +2227,8 @@ fn is_register(value: Result(or_map_kernel.OrMapValue, Nil)) -> Bool {
   case value {
     Ok(Register(_)) -> True
     Ok(Tally(_)) -> False
+    Ok(or_map_kernel.SetMembers(_)) -> False
+    Ok(or_map_kernel.MvRegister(_)) -> False
     Error(Nil) -> False
   }
 }

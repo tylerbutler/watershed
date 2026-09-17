@@ -5,10 +5,10 @@
 // page (it renders inside the global Ecosystem footer). Data-driven from the
 // catalogs so new families, concept sheets, guide steps, and runtime sheets
 // appear here automatically.
-import { categories } from "../data/structures";
-import { steps } from "../data/guide";
-import { runtimeDocs } from "../data/runtime";
-import { componentModelDocs, foundationsDocs } from "../data/foundations";
+import {
+  footerNavigationSections,
+  navigationSections,
+} from "../data/navigation";
 
 interface Link {
   label: string;
@@ -25,64 +25,46 @@ interface Column {
   links: Link[];
 }
 
+const sectionColumns: Column[] = footerNavigationSections.map((section) => ({
+  title: section.footerTitle ?? section.fullLabel ?? section.label,
+  href: section.href,
+  links: [
+    {
+      label: section.footerHubLabel,
+      href: section.href,
+      hub: true,
+    },
+    ...section.links.map((link) => ({
+      label: link.footerLabel ?? link.label,
+      href: link.href,
+    })),
+  ],
+}));
+
 const columns: Column[] = [
-  {
-    title: "Data structures",
-    href: "/structures",
-    links: [
-      { label: "Field atlas", href: "/structures", hub: true },
-      ...categories.map((c) => ({ label: c.name, href: `/structures/${c.slug}` })),
-    ],
-  },
-  {
-    title: "Foundations",
-    href: "/foundations",
-    links: [
-      { label: "Overview", href: "/foundations", hub: true },
-      ...foundationsDocs.map((d) => ({ label: d.title, href: `/foundations/${d.slug}` })),
-    ],
-  },
-  {
-    title: "Component model",
-    href: "/component-model",
-    links: [
-      { label: "Overview", href: "/component-model", hub: true },
-      ...componentModelDocs.map((d) => ({
-        label: d.title,
-        href: `/component-model/${d.slug}`,
-      })),
-    ],
-  },
-  {
-    title: "Build guide",
-    href: "/guide",
-    links: [
-      { label: "Overview", href: "/guide", hub: true },
-      ...steps.map((s) => ({ label: `${s.n} · ${s.title}`, href: `/guide/${s.slug}` })),
-    ],
-  },
-  {
-    title: "Runtime",
-    href: "/runtime",
-    links: [
-      { label: "Behaviors", href: "/runtime", hub: true },
-      ...runtimeDocs.map((d) => ({ label: d.title, href: `/runtime/${d.slug}` })),
-    ],
-  },
+  ...sectionColumns,
   {
     title: "Reference & demos",
-    href: "/examples",
+    href: navigationSections.examples.href,
     links: [
-      { label: "Browser examples", href: "/examples", hub: true },
+      {
+        label: "Browser examples",
+        href: navigationSections.examples.href,
+        hub: true,
+      },
       { label: "Patterns", href: "/patterns" },
-      { label: "Convergence models", href: "/models" },
+      { label: "Convergence models", href: navigationSections.models.href },
       { label: "SharedTree comparison", href: "/sharedtree" },
       { label: "The counter bug", href: "/counter-bug" },
       { label: "Shared directory", href: "/directory" },
       { label: "JsonOt", href: "/json-ot" },
       { label: "Rich text", href: "/rich-text" },
       { label: "Sudoku", href: "/sudoku" },
-      { label: "Source ↗", href: "https://github.com/tylerbutler/watershed", external: true },
+      {
+        label: "Source ↗",
+        href: navigationSections.source.href,
+        external: true,
+      },
     ],
   },
 ];
@@ -156,7 +138,7 @@ const isCurrent = (href: string) => path === href;
 
   .adjoining-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(min(12rem, 100%), 1fr));
+    grid-template-columns: repeat(auto-fit, minmax(min(10rem, 100%), 1fr));
     gap: var(--space-xl) var(--space-lg);
   }
 

@@ -17,6 +17,7 @@ import { register } from "../../../watershed_lustre/build/dev/javascript/watersh
 import * as watershed from "../../../watershed_lustre/build/dev/javascript/watershed/watershed.mjs";
 import * as runtime from "../../../watershed_lustre/build/dev/javascript/watershed/watershed/runtime.mjs";
 import * as sluice from "../../../watershed_lustre/build/dev/javascript/watershed/watershed/sluice_js.mjs";
+import { expectOk, type ResultValue } from "./demo/gleam-values.ts";
 
 const SEED =
   "Select a few words here, then look at the other pane. Type in one editor while your caret is in the other — it stays on its text.";
@@ -36,24 +37,18 @@ const PANES: Pane[] = [
   { id: "b", label: "Client B", token: "--waterline", fallback: "#2563eb" },
 ];
 
-function isOk(result: unknown): boolean {
-  return !!result && typeof (result as { isOk?: () => boolean }).isOk ===
-    "function" && (result as { isOk: () => boolean }).isOk();
+type SharedText = ResultValue<ReturnType<typeof watershed.create_text>>;
+
+interface Peer {
+  id: string;
+  label: string;
+  colour: string;
+  cursor: unknown;
 }
 
-function okValue<T>(result: unknown): T {
-  if (!isOk(result)) {
-    throw new Error(`expected Ok, got ${JSON.stringify(result)}`);
-  }
-  return (result as { 0: T })[0];
-}
-
-// Gleam `Some(x)` carries the value at index 0; `None` has no such field.
-function some<T>(option: unknown): T | null {
-  if (option && typeof option === "object" && 0 in option) {
-    return (option as { 0: T })[0];
-  }
-  return null;
+interface WatershedTextareaElement extends HTMLElement {
+  channel: SharedText;
+  peers: Peer[];
 }
 
 export function initTextElementDemo(): void {
@@ -71,14 +66,17 @@ export function initTextElementDemo(): void {
   // One in-memory sluice, two real documents. `connect` handshakes through
   // queued frames, so settle before creating anything.
   const server = sluice.start("demo-tenant", "text-element-demo");
-  const docs: Record<string, unknown> = {};
+  const docs: Record<string, ReturnType<typeof sluice.connect>> = {};
   for (const pane of PANES) docs[pane.id] = sluice.connect(server, pane.id);
   sluice.settle(server);
 
   // Client A creates the text, attaches its handle under the root map, and
   // seeds it; client B resolves the same handle — the same bootstrap as the
   // rig demo, all drained before anything is visible.
-  const textA = okValue<unknown>(watershed.create_text(docs["a"]));
+  const textA = expectOk(
+    watershed.create_text(docs["a"]),
+    "text element channel creation failed",
+  );
   runtime.set(
     watershed.runtime_of(docs["a"]),
     "root",
@@ -87,23 +85,28 @@ export function initTextElementDemo(): void {
   );
   watershed.text_insert(textA, 0, SEED);
   sluice.settle(server);
-  const stored = some<unknown>(
+  const stored = expectOk(
     runtime.get(watershed.runtime_of(docs["b"]), "root", TEXT_ADDRESS),
+    "text element handle lookup failed",
   );
-  const channels: Record<string, unknown> = {
+  const channels: Record<string, SharedText> = {
     a: textA,
-    b: okValue<unknown>(watershed.resolve_text(docs["b"], stored)),
+    b: expectOk(
+      watershed.resolve_text(docs["b"], stored),
+      "text element channel resolve failed",
+    ),
   };
 
   // Wire each pane: channel in, events out, the other pane's cursor back in.
-  const editors: Record<string, HTMLElement> = {};
+  const editors: Record<string, WatershedTextareaElement> = {};
   const cursors: Record<string, unknown> = { a: null, b: null };
 
   const pushPeers = () => {
     for (const pane of PANES) {
-      const other = PANES.find((p) => p.id !== pane.id)!;
+      const other = PANES.find((p) => p.id !== pane.id);
+      if (!other) continue;
       const cursor = cursors[other.id];
-      (editors[pane.id] as unknown as { peers: unknown[] }).peers = cursor
+      editors[pane.id].peers = cursor
         ? [
             {
               id: other.id,
@@ -117,30 +120,51 @@ export function initTextElementDemo(): void {
   };
 
   for (const pane of PANES) {
-    const el = section.querySelector(`[data-pane="${pane.id}"] watershed-textarea`);
+    const el = section.querySelector<WatershedTextareaElement>(
+      `[data-pane="${pane.id}"] watershed-textarea`,
+    );
     const count = section.querySelector(`[data-pane="${pane.id}"] [data-count]`);
     const error = section.querySelector(`[data-pane="${pane.id}"] [data-error]`);
     if (!(el instanceof HTMLElement)) return;
     editors[pane.id] = el;
 
-    el.addEventListener("change", (event) => {
-      const detail = (event as CustomEvent<{ length: number }>).detail;
+    el.addEventListener("change", (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail = event.detail;
+      if (
+        !detail ||
+        typeof detail !== "object" ||
+        !("length" in detail) ||
+        typeof detail.length !== "number"
+      ) {
+        return;
+      }
       if (count instanceof HTMLElement) {
         count.textContent = `${detail.length} graphemes`;
       }
     });
-    el.addEventListener("error", (event) => {
-      const detail = (event as CustomEvent<{ message: string | null }>).detail;
+    el.addEventListener("error", (event: Event) => {
+      if (!(event instanceof CustomEvent)) return;
+      const detail = event.detail;
+      if (
+        !detail ||
+        typeof detail !== "object" ||
+        !("message" in detail) ||
+        (typeof detail.message !== "string" && detail.message !== null)
+      ) {
+        return;
+      }
       if (error instanceof HTMLElement) error.textContent = detail.message ?? "";
     });
     // The element announces its own selection as content-bound anchors; this
     // page's "presence transport" is a property assignment on the other pane.
     el.addEventListener("cursor", (event) => {
-      cursors[pane.id] = (event as CustomEvent<unknown>).detail;
+      if (!(event instanceof CustomEvent)) return;
+      cursors[pane.id] = event.detail;
       pushPeers();
     });
 
-    (el as unknown as { channel: unknown }).channel = channels[pane.id];
+    el.channel = channels[pane.id];
   }
 
   // Sequence queued edits on a short heartbeat — long enough that an edit is

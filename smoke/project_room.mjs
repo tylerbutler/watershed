@@ -527,8 +527,9 @@ async function main() {
       "notes",
       "activity",
       "checklist",
-      checklistId,
       "tally",
+      checklistId,
+      "agreement",
     ].join(",");
     for (const [name, pageEndpoint] of [
       ["first", first],
@@ -569,9 +570,28 @@ async function main() {
       await assertNoRuntimeError(pageEndpoint, name);
     }
 
+    await evaluate(first, `(() => {
+      const panel = document.querySelector('[data-component="agreement"]');
+      const draft = panel.querySelector('[data-agreement-draft]');
+      draft.value = "Review together";
+      draft.dispatchEvent(new Event("input", { bubbles: true }));
+    })()`);
+    await evaluate(first, `document.querySelector(
+      '[data-component="agreement"] [data-action="propose-agreement"]'
+    ).click()`);
+    for (const [name, pageEndpoint] of [["first", first], ["second", second]]) {
+      await waitFor(pageEndpoint, `document.querySelector(
+        '[data-component="agreement"] [data-agreement-accepted]'
+      )?.textContent === "Review together"`, name + " tab to accept the agreement");
+      await waitFor(pageEndpoint, `document.querySelectorAll(
+        '[data-component="activity"] [data-action="agreement-accepted"]'
+      ).length === 1`, name + " tab to record exactly one agreement event");
+      await assertNoRuntimeError(pageEndpoint, name);
+    }
+
     console.log(
       "PASS: local views stayed independent while tasks, poll threshold, " +
-        "ownership handoff, notes, activity, and a runtime-created Checklist " +
+        "ownership handoff, notes, agreement, activity, and a runtime-created Checklist " +
         "converged across two tabs.",
     );
     exitCode = 0;

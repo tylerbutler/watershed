@@ -100,8 +100,17 @@ pub type Handlers {
 /// A value that opens sockets. An `Error` result means that the environment
 /// refused to construct the socket at all. That is a failure of this attempt,
 /// and not an exception out of `start`.
+///
+/// Callbacks raised during `open` wait until the returned connection is
+/// installed. A failed construction discards those callbacks.
 pub type Driver {
   Driver(open: fn(String, Handlers) -> Result(Connection, String))
+}
+
+@target(javascript)
+type DriverEvent {
+  DriverMessage(raw: String)
+  DriverClosed(detail: String)
 }
 
 @target(javascript)
@@ -370,35 +379,106 @@ fn open(cell: Cell(State)) -> Nil {
       case announced.closed || announced.generation != generation {
         True -> Nil
         False -> {
+          let constructing = transport_js.new_cell(Some([]))
           let handlers =
             Handlers(
-              on_message: fn(raw) { receive(cell, generation, raw) },
-              on_close: fn(detail) { dropped(cell, generation, detail) },
+              on_message: fn(raw) {
+                driver_event(cell, generation, constructing, DriverMessage(raw))
+              },
+              on_close: fn(detail) {
+                driver_event(
+                  cell,
+                  generation,
+                  constructing,
+                  DriverClosed(detail),
+                )
+              },
             )
           case state.driver.open(state.url, handlers) {
             Error(detail) -> {
-              emit_error(cell, p2p.SequencerUnavailable(detail))
-              dropped(cell, generation, detail)
+              transport_js.set_cell(constructing, None)
+              case current(cell, generation) {
+                True -> {
+                  emit_error(cell, p2p.SequencerUnavailable(detail))
+                  dropped(cell, generation, detail)
+                }
+                False -> Nil
+              }
             }
             Ok(connection) -> {
               let opened = transport_js.get_cell(cell)
-              // A driver that delivered its whole conversation from
-              // inside `open` — a fake, or a socket that failed
-              // synchronously — has already retired this generation.
-              // Storing the connection now would resurrect it.
+              // The owner can close the relay during construction.
+              // Do not restore a connection from a retired generation.
               case opened.generation == generation && !opened.closed {
-                False -> connection.close()
-                True ->
+                False -> {
+                  transport_js.set_cell(constructing, None)
+                  connection.close()
+                }
+                True -> {
                   transport_js.set_cell(
                     cell,
                     State(..opened, connection: Some(connection)),
                   )
+                  drain_driver_start(cell, generation, constructing)
+                }
               }
             }
           }
         }
       }
     }
+  }
+}
+
+@target(javascript)
+fn driver_event(
+  cell: Cell(State),
+  generation: Int,
+  constructing: Cell(Option(List(DriverEvent))),
+  event: DriverEvent,
+) -> Nil {
+  case transport_js.get_cell(constructing) {
+    Some(events) -> transport_js.set_cell(constructing, Some([event, ..events]))
+    None -> deliver_driver_event(cell, generation, event, False)
+  }
+}
+
+@target(javascript)
+fn drain_driver_start(
+  cell: Cell(State),
+  generation: Int,
+  constructing: Cell(Option(List(DriverEvent))),
+) -> Nil {
+  case transport_js.get_cell(constructing) {
+    None -> Nil
+    Some([]) -> transport_js.set_cell(constructing, None)
+    Some(events) -> {
+      transport_js.set_cell(constructing, Some([]))
+      events
+      |> list.reverse
+      |> list.each(fn(event) {
+        deliver_driver_event(cell, generation, event, True)
+      })
+      drain_driver_start(cell, generation, constructing)
+    }
+  }
+}
+
+@target(javascript)
+fn deliver_driver_event(
+  cell: Cell(State),
+  generation: Int,
+  event: DriverEvent,
+  constructing: Bool,
+) -> Nil {
+  case current(cell, generation), event {
+    False, _ -> Nil
+    True, DriverMessage(raw) -> receive(cell, generation, raw)
+    True, DriverClosed(detail) ->
+      case constructing {
+        True -> hang_up(cell, generation, detail)
+        False -> dropped(cell, generation, detail)
+      }
   }
 }
 

@@ -6,10 +6,10 @@
 // component's own template — nodes created later in the browser never get it,
 // so any style written as a bare `.gr-note { ... }` silently stops matching
 // (see task-3 → task-7 final-review fix wave). This script boots the built
-// site, drives one real race on both /guide/ and /guide/race/, and asserts
-// the *computed* style of a dynamically-created pending card and a
-// dynamically-created sequenced card actually differ — which only happens if
-// the scoped selectors are still reaching the JS-created nodes.
+// site, drives one real race on /guide/race/, and asserts the *computed* style
+// of a dynamically-created pending card and a dynamically-created sequenced
+// card actually differ — which only happens if the scoped selectors are still
+// reaching the JS-created nodes.
 //
 // Usage: node scripts/check-guide-race-styles.mjs
 // Requires `pnpm build` to have already produced dist/.
@@ -76,6 +76,7 @@ async function checkPage(browser, base, path) {
   const page = await browser.newPage();
   page.setDefaultTimeout(15000);
   await page.goto(`${base}${path}`, { waitUntil: "networkidle0" });
+  await page.$eval("[data-guide-race-add]", (el) => el.scrollIntoView());
   await page.waitForSelector("[data-guide-race-add]:not([disabled])");
 
   // The starter note renders sequenced (never pending) as soon as the demo
@@ -93,13 +94,27 @@ async function checkPage(browser, base, path) {
     );
   }
 
-  // Push latency up so the add race leaves a card visibly pending on the
-  // slower replica long enough to read its computed style.
-  await page.$eval("[data-guide-race-latency]", (el) => {
-    el.value = "2000";
+  // Slow playback so the add race leaves a card visibly pending long enough
+  // to read its computed style.
+  await page.$eval("[data-guide-race-pace]", (el) => {
+    el.value = "0.25";
     el.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  await page.evaluate(() => {
+    Math.random = () => 1;
+  });
+  await page.click("[data-guide-race-latency-variance]");
   await page.click("[data-guide-race-add]");
+  await page.waitForSelector("[data-flow-layer] .flow-dot-label");
+  const flowLabel = await page.$eval(
+    "[data-flow-layer] .flow-dot-label",
+    (el) => el.textContent,
+  );
+  if (!/\b1100 ms\b/.test(flowLabel ?? "")) {
+    throw new Error(
+      `${path}: request marker does not show the expected 1000 + 100 ms jitter sample`,
+    );
+  }
   await page.waitForSelector('[data-client="a"] .gr-note.is-note-pending');
   const pendingStyle = await page.$eval(
     '[data-client="a"] .gr-note.is-note-pending',
@@ -131,7 +146,7 @@ async function checkPage(browser, base, path) {
   );
 
   await page.close();
-  console.log(`ok  ${path} — dynamic .gr-note / .gr-vote styles reach JS-created nodes`);
+  console.log(`ok  ${path} — dynamic .gr-note styles reach JS-created nodes`);
 }
 
 const server = await serveDist();
@@ -145,7 +160,6 @@ const browser = await puppeteer.launch({
 });
 
 try {
-  await checkPage(browser, base, "/guide/");
   await checkPage(browser, base, "/guide/race/");
 } finally {
   await browser.close();

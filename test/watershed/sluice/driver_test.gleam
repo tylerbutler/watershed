@@ -57,6 +57,9 @@ type RichTextFields
 @target(erlang)
 type TextFields
 
+@target(erlang)
+type CounterFields
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Helpers
 // ─────────────────────────────────────────────────────────────────────────────
@@ -74,6 +77,70 @@ fn connect(
 ) -> watershed_beam.Document(root) {
   let assert Ok(document) = sluice.connect(sluice, user)
   document
+}
+
+@target(erlang)
+fn settle_until(
+  sluice: sluice.Sluice,
+  reply: process.Subject(a),
+  attempts: Int,
+) -> a {
+  sluice.settle(sluice)
+  case process.receive(reply, 20) {
+    Ok(outcome) -> outcome
+    Error(Nil) if attempts > 0 -> settle_until(sluice, reply, attempts - 1)
+    Error(Nil) -> panic as "operation did not complete after delivery"
+  }
+}
+
+@target(erlang)
+pub fn ensure_waits_for_a_fresh_document_before_seeding_test() -> Nil {
+  let sluice = start("ensure-fresh-beam")
+  let document = connect(sluice, "author")
+  let field: schema.ChannelField(CounterFields, schema.CounterChannel) =
+    schema.channel_field("counter")
+  let root = watershed_beam.typed(watershed_beam.root(document))
+  let reply = process.new_subject()
+  let started = process.new_subject()
+  let _worker =
+    process.spawn(fn() {
+      process.send(started, Nil)
+      process.send(reply, watershed_beam.ensure_counter(document, root, field))
+    })
+  let assert Ok(Nil) = process.receive(started, 1000)
+  process.receive(reply, 50) |> expect.to_equal(Error(Nil))
+  let assert Ok(counter) = settle_until(sluice, reply, 100)
+  watershed_beam.increment(counter, 3)
+  sluice.settle(sluice)
+  let peer = connect(sluice, "reader")
+  sluice.settle(sluice)
+  let assert Ok(Some(peer_counter)) =
+    watershed_beam.resolve_counter_field(
+      peer,
+      watershed_beam.typed(watershed_beam.root(peer)),
+      field,
+    )
+  watershed_beam.counter_value(peer_counter) |> expect.to_equal(Ok(3))
+  watershed_beam.close(document)
+  watershed_beam.close(peer)
+}
+
+@target(erlang)
+pub fn ensure_does_not_report_an_unacknowledged_seed_as_success_test() -> Nil {
+  let sluice = start("ensure-unacked-beam")
+  let document = connect(sluice, "author")
+  let field: schema.ChannelField(CounterFields, schema.CounterChannel) =
+    schema.channel_field("counter")
+  sluice.settle(sluice)
+  let outcome =
+    watershed_beam.ensure_counter(
+      document,
+      watershed_beam.typed(watershed_beam.root(document)),
+      field,
+    )
+  watershed_beam.close(document)
+  let assert Error(_) = outcome
+  Nil
 }
 
 @target(erlang)
@@ -461,8 +528,15 @@ pub fn typed_rich_text_field_set_resolve_and_ensure_test() -> Nil {
 
   let empty_field: schema.ChannelField(RichTextFields, schema.RichTextChannel) =
     schema.channel_field("ensured")
-  let assert Ok(ensured) =
-    watershed_beam.ensure_rich_text(document_b, root_b, empty_field)
+  let reply = process.new_subject()
+  let _worker =
+    process.spawn(fn() {
+      process.send(
+        reply,
+        watershed_beam.ensure_rich_text(document_b, root_b, empty_field),
+      )
+    })
+  let assert Ok(ensured) = settle_until(sluice, reply, 100)
   let assert Ok(Some(resolved)) =
     watershed_beam.resolve_rich_text_field(document_b, root_b, empty_field)
   watershed_beam.rich_text_view(ensured)

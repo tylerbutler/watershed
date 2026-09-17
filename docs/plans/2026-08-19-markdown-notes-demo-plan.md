@@ -1,6 +1,17 @@
 # Markdown notes demo plan — offline-first notes on `SharedText`
 
 **Date:** 2026-08-19
+**Status (2026-09-06):** shipped in `examples/markdown_notes_lustre/`, including
+MN1-MN9 and both follow-ons: the CRDT/P2P port and durable offline storage
+(`0614c09`). The app now opens saved documents from IndexedDB before attaching
+to the network. See its README for the current root schema and recovery UI.
+
+The decisions and rungs below preserve the original sequenced v1 design.
+Its `SharedMap` bootstrap and "cannot open documents offline" limitation no
+longer describe the app. The current root is a register-mode OR-map; notes,
+tags, and order use CRDT handles directly. Rename, formatting toggle-off, and
+preview remain optional follow-ons.
+
 **Builds on:** `2026-08-03-shared-textarea-component-plan.md` (shipped — the collaborative textarea this app is built around), `2026-08-19-json-workspace-demo-plan.md` (the handle-as-map-value pattern for the note list), `2026-08-09-ensure-channel-seed-needs-a-ready-connection.md` (the bootstrap-arm workaround this must follow), `examples/text_lustre` (single shared textarea, this app's starting point), `2026-08-12-webrtc-p2p-plan.md` (shipped — the p2p mode the follow-on targets and the reason for the CRDT-only constraint).
 **Benchmark:** a minimal Obsidian — a note list beside a plain-markdown editor — where several people type in the same note at once.
 
@@ -73,10 +84,20 @@ App state is `OR-Map` + `SharedText` + `OR-Set` + `SharedSequence` only (decisio
 - **Sidebar render-rule unit test:** decision 8's reconciler is a pure function from (map names, sequence entries) to display order — feed it duplicates, sequence-only names, and map-only names, no channel involved.
 - **Smoke test** end-to-end against a real relay, per the template. The PWA gate (MN6) stays a scripted manual check unless the smoke harness can drive a service worker cheaply; do not build harness machinery for it.
 
-## Follow-ons (separate plans, enabled by decision 2)
+## Completed follow-ons (reconciled 2026-09-06)
 
-Neither of these blocks v1, and v1's data model was chosen so neither forces a remodel. Together they complete the claim the app's name makes: notes that work with no server and survive a reload.
+Both follow-ons shipped. The original v1 data model kept the application state
+on CRDT-capable kinds, so the port replaced the sequenced root bootstrap without
+changing the note-list, tag, or order semantics.
 
-**P2p transport.** Swap `connect_dev` for `crdt_js.connect` with an OR-Map root initializer (p2p mode has no `SharedMap` root, which is why decision 2 keeps `SharedMap` out of app state), point at the shipped signaling + coturn stack (`just p2p-up`, `?signaling=`/`?ice=` params as in `clap_counter_lustre`), and port the editor binding to the il textarea counterpart in `watershed_lustre/crdt.gleam`. Two things to verify before writing that plan, not assume: that the textarea component (or its il counterpart) binds a `crdt_js` text handle, and that shared cursors have a presence path in p2p mode — if not, the p2p build drops cursors and says so.
+**P2p transport.** The app uses the CRDT Lustre bindings with an OR-map root,
+shared-text editing, and peer cursors. Signaling defaults to Nostr; query
+parameters select the reference signaling service, ICE servers, and optional
+relay. See `examples/markdown_notes_lustre/README.md`.
 
-**Durable document persistence.** Planned: `2026-08-19-durable-persistence-plan.md`. It ships on the crdt runtime only — `export_snapshot`/`import_snapshot`/`attach` already form the loop, and a disk snapshot is just another replica joining — which confirms the ordering this section implies: the p2p port comes first, persistence lands on top of it, and the sequenced root `SharedMap` question dissolves because in crdt mode the OR-Map is the root. When both ship, this app's only change is deleting MN6's "notes need a connection to open" state.
+**Durable document persistence.** `watershed_lustre/crdt.open` loads the saved
+snapshot first; `persist_controller_js` schedules saves. The app reports
+storage durability separately from connectivity and enters a visible read-only
+recovery state on persistence failure. Download and explicit overwrite actions
+protect unreadable stored data. The persistence plan records the implementation
+and its departures from the original sketch.

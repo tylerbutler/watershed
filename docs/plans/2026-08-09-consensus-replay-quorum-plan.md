@@ -3,7 +3,11 @@
 **Date:** 2026-08-09
 **Found by:** building DM6/DM7 of `docs/plans/2026-08-08-drum-machine-demo-plan.md`. The demo works with three tabs open and breaks the moment a fourth opens — or the moment any tab reloads.
 **Severity:** correctness, and worse than FP1. FP1 made a quorum accept too early; this made a document **unjoinable** once a `PactMap` key had been agreed.
-**Status:** **client half fixed** (CR1–CR4 below). One server-side piece remains — the roster at a checkpoint — plus the reconnect gap that shares its missing input. See "What remains".
+**Status (2026-09-06):** complete. CR1-CR4 shipped here; the summary-bootstrap
+work then closed both follow-ups: checkpoint membership in blob v4 (`c7e096d`,
+SB2) and reconnect replay against the historical roster (`7250f59`, SB7).
+Automatic summaries remain opt-in; SB5 version history and SB6/SB8 rollout/docs
+belong to the summary-bootstrap plan, not this correctness fix.
 
 ## The bug
 
@@ -56,13 +60,24 @@ Regression tests:
 
 `settle_bootstrap` adopts the handshake roster on `Complete` — once, however many pages the history took — which bounds the damage from the still-missing checkpoint roster to the replay window.
 
-## What remains
+## Follow-ups completed by the summary-bootstrap plan
 
-**The checkpoint roster — now a prerequisite for enabling summaries at all**, see CR4 below. Carried forward as SB2 of `2026-08-09-summary-bootstrap-plan.md`, which is where the goal all of this serves is written down. `Summary.members` is plumbed but the summary blob does not carry it, so both runtimes pass `[]`. Replay from sequence number zero is exact (nobody had joined at zero); replay from a checkpoint under-reports the room by everyone already present, and a proposal sequenced after the checkpoint but before the joiner arrives still reconstructs against a too-small quorum. Since summaries are the intended steady state — replay from zero grows without bound — **this is the piece that matters**, and it is a floodgate + `git_storage` change: write the connected roster at the checkpoint SN alongside the per-kernel snapshots that are already there.
+Both gaps described below are historical. SB2 now stores the checkpoint roster
+in the summary blob, and SB7 preserves `members` at `last_seen_sn` until the
+reconnect gap closes. Retain this explanation to show why those changes were
+required; do not treat the old descriptions as current runtime behavior.
+
+**The checkpoint roster, completed as SB2.** Before blob v4, `Summary.members`
+was plumbed but the summary blob did not carry it, so both runtimes passed `[]`.
+Replay from zero was exact; replay from a checkpoint under-reported the room by
+everyone already present. The summary now carries the roster at its own
+sequence number alongside the kernel snapshots.
 
 One thing that makes the remaining window narrow: `pact_map_kernel.summary_entries` returns the whole `Pact`, *including* `pending` with its `expected_signoffs` (`:63-65`), and `channel.gleam:461` snapshots it. A frozen signoff list already survives summarization. Only proposals sequenced after the checkpoint need the roster.
 
-**The reconnect gap.** `adopt_reconnect` still replaces the roster immediately, so ops sequenced during a disconnect are replayed against the post-reconnect room. Same time-shift, much shorter window, and it needs the same missing input — the roster at `last_seen_sn`. Deliberately left alone rather than half-fixed; carried as SB7 of the summary bootstrap plan, which is where that input arrives.
+**The reconnect gap, completed as SB7.** `adopt_reconnect` keeps the roster at
+`last_seen_sn` while replay advances it through the gap. The runtime adopts the
+handshake roster when catch-up completes.
 
 ## Blast radius
 

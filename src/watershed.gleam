@@ -72,6 +72,8 @@ import watershed/counter_kernel
 @target(javascript)
 import watershed/directory_kernel
 @target(javascript)
+import watershed/g_counter_kernel
+@target(javascript)
 import watershed/g_set_kernel
 @target(javascript)
 import watershed/git_storage.{type SummaryVersion}
@@ -82,7 +84,13 @@ import watershed/json_ot
 @target(javascript)
 import watershed/json_ot_kernel
 @target(javascript)
+import watershed/lww_map_kernel
+@target(javascript)
+import watershed/lww_register_kernel
+@target(javascript)
 import watershed/map_kernel
+@target(javascript)
+import watershed/mv_register_kernel
 @target(javascript)
 import watershed/or_map_kernel.{type OrMapMode, type OrMapValue}
 @target(javascript)
@@ -91,7 +99,6 @@ import watershed/or_set_kernel
 import watershed/ordered_collection_kernel
 @target(javascript)
 import watershed/pact_map_kernel
-@target(javascript)
 import watershed/pn_counter_kernel
 @target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}
@@ -194,6 +201,21 @@ pub opaque type TaskManager {
 @target(javascript)
 pub opaque type PnCounter {
   PnCounter(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type GCounter {
+  GCounter(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type LwwRegister {
+  LwwRegister(runtime: runtime.Runtime, address: String)
+}
+
+@target(javascript)
+pub opaque type LwwMap {
+  LwwMap(runtime: runtime.Runtime, address: String)
 }
 
 @target(javascript)
@@ -860,6 +882,16 @@ pub fn set_pn_counter_field(
 }
 
 @target(javascript)
+/// Store a handle to `g_counter` under a typed channel field.
+pub fn set_g_counter_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+  g_counter: GCounter,
+) -> Nil {
+  put_channel_field(typed_map, field, g_counter_handle_of(g_counter))
+}
+
+@target(javascript)
 /// Resolve the PN-counter referenced by a typed channel field.
 pub fn resolve_pn_counter_field(
   document: Document(root),
@@ -867,6 +899,36 @@ pub fn resolve_pn_counter_field(
   field: ChannelField(s, schema.PnCounterChannel),
 ) -> Result(Option(PnCounter), String) {
   get_channel_field(document, typed_map, field, resolve_pn_counter)
+}
+
+@target(javascript)
+/// Read the grow-only counter that `field` points at.
+pub fn resolve_g_counter_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+) -> Result(Option(GCounter), String) {
+  get_channel_field(document, typed_map, field, resolve_g_counter)
+}
+
+@target(javascript)
+/// Store a register handle under a typed channel field.
+pub fn set_lww_register_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+  register: LwwRegister,
+) -> Nil {
+  put_channel_field(typed_map, field, lww_register_handle_of(register))
+}
+
+@target(javascript)
+/// Resolve the register referenced by a typed channel field.
+pub fn resolve_lww_register_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+) -> Result(Option(LwwRegister), String) {
+  get_channel_field(document, typed_map, field, resolve_lww_register)
 }
 
 @target(javascript)
@@ -1011,19 +1073,15 @@ pub fn resolve_directory_field(
 
 // ── Declarative bootstrap (ensure_*) ─────────────────────────────────────────
 //
-// Each `ensure_*` gives a typed slot a channel: adopt the handle already
-// under the key, or seed a candidate, wait for the caller's own write to
+// Each channel `ensure_*` waits for synchronization before it reads the slot:
+// adopt the handle under the key, or seed a candidate, wait for its write to
 // sync, and resolve the handle visible under the key at that point. The
 // field is last-writer-wins, and `ensure_*` does not coordinate across
 // clients: a concurrent client's later write can still replace the field
 // after this call resolves. Losing candidates stay attached but
 // unreferenced — orphan GC is out of scope. The browser cannot block, so
-// each takes a `done` continuation and waits/retries on a library-owned
-// timer; the BEAM facade blocks and returns instead.
-
-@target(javascript)
-@external(javascript, "./watershed_ffi.mjs", "set_timeout")
-fn set_timeout(action: fn() -> Nil, milliseconds: Int) -> Nil
+// each takes a `done` continuation and waits/retries on the runtime
+// scheduler; the BEAM facade blocks and returns instead.
 
 @target(javascript)
 const resolve_retry_milliseconds = 200
@@ -1032,17 +1090,20 @@ const resolve_retry_milliseconds = 200
 const resolve_attempts = 25
 
 @target(javascript)
-/// Read `is_synced` at intervals until the confirmed root is stable, and then
-/// call `next`. The resolve budget limits the number of reads.
+/// Wait for synchronization within the resolve budget. Report a timeout if the
+/// document does not synchronize.
 fn await_synced(
   document: Document(root),
   attempts: Int,
-  next: fn() -> Nil,
+  next: fn(Result(Nil, String)) -> Nil,
 ) -> Nil {
-  case attempts <= 0 || is_synced(document) {
-    True -> next()
-    False ->
-      set_timeout(
+  case is_synced(document), attempts <= 0 {
+    True, _ -> next(Ok(Nil))
+    False, True ->
+      next(Error("ensure: timed out waiting for document synchronization"))
+    False, False ->
+      runtime.schedule(
+        document.runtime,
         fn() { await_synced(document, attempts - 1, next) },
         resolve_retry_milliseconds,
       )
@@ -1054,6 +1115,7 @@ fn await_synced(
 /// handle is absent, and while the attach operation of the channel that it
 /// references is still in flight.
 fn resolve_with_retry(
+  document: Document(root),
   resolve: fn() -> Result(Option(shared), String),
   attempts: Int,
   done: fn(Result(shared, String)) -> Nil,
@@ -1064,8 +1126,9 @@ fn resolve_with_retry(
       done(Error("ensure: no channel handle appeared under the field"))
     Error(reason), n if n <= 1 -> done(Error(reason))
     _, _ ->
-      set_timeout(
-        fn() { resolve_with_retry(resolve, attempts - 1, done) },
+      runtime.schedule(
+        document.runtime,
+        fn() { resolve_with_retry(document, resolve, attempts - 1, done) },
         resolve_retry_milliseconds,
       )
   }
@@ -1073,11 +1136,10 @@ fn resolve_with_retry(
 
 // docs:snippet-start watershed-ensure-channel
 @target(javascript)
-/// Adopt the channel under `key`. If the key already holds a value, the
-/// function resolves the handle currently there. If the key is empty, the
-/// function calls `seed` to create a candidate, waits for the caller's own
-/// write to sync, and then resolves the handle the field shows at that
-/// point. A later write from another client can still replace the field.
+/// Wait for synchronization before reading `key`. Adopt an existing channel,
+/// or seed a candidate and wait for its write to synchronize before resolving.
+/// Either wait can return a timeout. A timeout does not undo a submitted seed.
+/// A later write from another client can still replace the field.
 fn ensure_channel(
   document: Document(root),
   typed_map: TypedMap(s),
@@ -1086,15 +1148,24 @@ fn ensure_channel(
   resolve: fn() -> Result(Option(shared), String),
   done: fn(Result(shared, String)) -> Nil,
 ) -> Nil {
-  case has(typed_map.map, key) {
-    True -> resolve_with_retry(resolve, resolve_attempts, done)
-    False ->
-      case seed() {
-        Error(reason) -> done(Error(reason))
-        Ok(Nil) ->
-          await_synced(document, resolve_attempts, fn() {
-            resolve_with_retry(resolve, resolve_attempts, done)
-          })
+  use synced <- await_synced(document, resolve_attempts)
+  case synced {
+    Error(reason) -> done(Error(reason))
+    Ok(Nil) ->
+      case has(typed_map.map, key) {
+        True -> resolve_with_retry(document, resolve, resolve_attempts, done)
+        False ->
+          case seed() {
+            Error(reason) -> done(Error(reason))
+            Ok(Nil) -> {
+              use synced <- await_synced(document, resolve_attempts)
+              case synced {
+                Error(reason) -> done(Error(reason))
+                Ok(Nil) ->
+                  resolve_with_retry(document, resolve, resolve_attempts, done)
+              }
+            }
+          }
       }
   }
 }
@@ -1311,6 +1382,50 @@ pub fn ensure_pn_counter(
       set_pn_counter_field(typed_map, field, pn_counter)
     },
     fn() { resolve_pn_counter_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Make sure that a grow-only counter exists under `field`. If the slot is
+/// empty, the function creates one.
+pub fn ensure_g_counter(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.GCounterChannel),
+  done: fn(Result(GCounter, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use g_counter <- result.map(create_g_counter(document))
+      set_g_counter_field(typed_map, field, g_counter)
+    },
+    fn() { resolve_g_counter_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Wait for synchronization, then adopt the register under `field`.
+/// Create one if the field is empty.
+pub fn ensure_lww_register(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwRegisterChannel),
+  done: fn(Result(LwwRegister, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use register <- result.map(create_lww_register(document))
+      set_lww_register_field(typed_map, field, register)
+    },
+    fn() { resolve_lww_register_field(document, typed_map, field) },
     done,
   )
 }
@@ -1596,9 +1711,12 @@ pub fn subscribe_counter(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(counter.runtime, counter.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.CounterEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -1619,8 +1737,8 @@ pub fn subscribe_counter(
 // ── OR-maps ──────────────────────────────────────────────────────────────────
 
 @target(javascript)
-/// Create a new OR-map channel, in tally mode or in register mode. The detached
-/// lifecycle is the same as for `create_map`.
+/// Create an OR-map with tally, LWW-register, string-set, or MV-register values.
+/// The detached lifecycle is the same as for `create_map`.
 pub fn create_or_map(
   document: Document(root),
   mode: OrMapMode,
@@ -1665,8 +1783,53 @@ pub fn or_map_set_json(or_map: OrMap, key: String, value: Json) -> Nil {
 }
 
 @target(javascript)
+/// Replace the observed alternatives of an MV-register key.
+pub fn or_map_set_mv_register(
+  or_map: OrMap,
+  key: String,
+  value: String,
+) -> Nil {
+  runtime.or_map_set_mv_register(or_map.runtime, or_map.address, key, value)
+}
+
+@target(javascript)
+/// Read MV-register alternatives. An absent key or another mode returns an error.
+pub fn or_map_values(or_map: OrMap, key: String) -> Result(List(String), Nil) {
+  runtime.or_map_values(or_map.runtime, or_map.address, key)
+}
+
+@target(javascript)
 pub fn or_map_remove(or_map: OrMap, key: String) -> Nil {
   runtime.or_map_remove(or_map.runtime, or_map.address, key)
+}
+
+@target(javascript)
+/// Add a string member in `OrSetMode`. An absent key becomes present.
+/// A duplicate add replicates a fresh tag without a visible-value event.
+pub fn or_map_add_member(
+  or_map: OrMap,
+  key: String,
+  member: String,
+) -> Result(Nil, String) {
+  runtime.or_map_add_member(or_map.runtime, or_map.address, key, member)
+}
+
+@target(javascript)
+/// Remove observed member tags in `OrSetMode`. An absent member is a no-op.
+/// Removing the last member keeps the key present with `SetMembers([])`.
+pub fn or_map_remove_member(
+  or_map: OrMap,
+  key: String,
+  member: String,
+) -> Result(Nil, String) {
+  runtime.or_map_remove_member(or_map.runtime, or_map.address, key, member)
+}
+
+@target(javascript)
+/// Remove a key and return edit failures. In `OrSetMode`, this also clears
+/// observed members. Concurrent unobserved additions survive.
+pub fn or_map_remove_key(or_map: OrMap, key: String) -> Result(Nil, String) {
+  runtime.or_map_remove_key(or_map.runtime, or_map.address, key)
 }
 
 @target(javascript)
@@ -1691,10 +1854,13 @@ pub fn subscribe_or_map(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(or_map.runtime, or_map.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
     | channel.TwoPSetEvent(_)
@@ -1767,10 +1933,13 @@ pub fn subscribe_or_set(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(or_set.runtime, or_set.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.GSetEvent(_)
     | channel.TwoPSetEvent(_)
@@ -1884,10 +2053,13 @@ pub fn subscribe_sequence(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(sequence.runtime, sequence.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.SequenceEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2062,10 +2234,13 @@ pub fn subscribe_text(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(text.runtime, text.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2164,10 +2339,13 @@ pub fn subscribe_register_collection(
     handler,
   )
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.RegisterCollectionEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2249,10 +2427,13 @@ pub fn subscribe_claims(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(claims.runtime, claims.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.ClaimsEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2344,10 +2525,13 @@ pub fn subscribe_task_manager(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(manager.runtime, manager.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TaskManagerEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2424,7 +2608,10 @@ pub fn subscribe_pn_counter(
     handler,
   )
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.PnCounterEvent(inner) -> Some(inner)
+    channel.GCounterEvent(_) -> None
+    channel.MvRegisterEvent(_) -> None
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.OrMapEvent(_)
@@ -2444,8 +2631,308 @@ pub fn subscribe_pn_counter(
   }
 }
 
-// ── PactMaps ─────────────────────────────────────────────────────────────────
+// ── Grow-only counters ───────────────────────────────────────────────────────
 
+@target(javascript)
+/// Create a new grow-only counter channel. The detached lifecycle is the same
+/// as for `create_map`.
+pub fn create_g_counter(document: Document(root)) -> Result(GCounter, String) {
+  runtime.create_g_counter(document.runtime)
+  |> result.map(fn(address) {
+    GCounter(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn g_counter_handle_of(g_counter: GCounter) -> Json {
+  handle.encode_handle(g_counter.address)
+}
+
+@target(javascript)
+pub fn resolve_g_counter(
+  document: Document(root),
+  value: Json,
+) -> Result(GCounter, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        GCounter(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Add `amount` optimistically. The amount must not be negative. The result is
+/// an error with a description for a negative amount, and the counter does not
+/// change.
+pub fn g_counter_increment(
+  g_counter: GCounter,
+  amount: Int,
+) -> Result(Nil, String) {
+  runtime.g_counter_increment(g_counter.runtime, g_counter.address, amount)
+}
+
+@target(javascript)
+/// The current optimistic value of the counter. The result is `Error(Nil)`
+/// when the address does not name a grow-only counter channel.
+pub fn g_counter_value(g_counter: GCounter) -> Result(Int, Nil) {
+  runtime.g_counter_value(g_counter.runtime, g_counter.address)
+}
+
+@target(javascript)
+/// Register a callback for every local change and remote change to this
+/// grow-only counter.
+pub fn subscribe_g_counter(
+  g_counter: GCounter,
+  handler: fn(g_counter_kernel.GCounterEvent) -> Nil,
+) -> SubscriptionToken {
+  use event <- subscribe_narrowed(g_counter.runtime, g_counter.address, handler)
+  case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
+    channel.GCounterEvent(inner) -> Some(inner)
+    channel.PnCounterEvent(_)
+    | channel.MvRegisterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+// Last-writer-wins maps
+
+@target(javascript)
+/// Create an empty detached map. Store its handle in an attached container
+/// to replicate it.
+pub fn create_lww_map(document: Document(root)) -> Result(LwwMap, String) {
+  runtime.create_lww_map(document.runtime)
+  |> result.map(fn(address) { LwwMap(document.runtime, address) })
+}
+
+@target(javascript)
+pub fn lww_map_handle_of(map: LwwMap) -> Json {
+  handle.encode_handle(map.address)
+}
+
+@target(javascript)
+pub fn resolve_lww_map(
+  document: Document(root),
+  value: Json,
+) -> Result(LwwMap, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) { LwwMap(document.runtime, address) })
+  }
+}
+
+@target(javascript)
+pub fn set_lww_map_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+  map: LwwMap,
+) -> Nil {
+  put_channel_field(typed_map, field, lww_map_handle_of(map))
+}
+
+@target(javascript)
+pub fn resolve_lww_map_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+) -> Result(Option(LwwMap), String) {
+  get_channel_field(document, typed_map, field, resolve_lww_map)
+}
+
+@target(javascript)
+/// Wait for synchronization, then adopt the map or create one.
+pub fn ensure_lww_map(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.LwwMapChannel),
+  done: fn(Result(LwwMap, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use map <- result.map(create_lww_map(document))
+      set_lww_map_field(typed_map, field, map)
+    },
+    fn() { resolve_lww_map_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+/// Set a string with the runtime clock. Return channel and clock errors.
+pub fn lww_map_set(
+  map: LwwMap,
+  key: String,
+  value: String,
+) -> Result(Nil, String) {
+  runtime.lww_map_set(map.runtime, map.address, key, value)
+}
+
+@target(javascript)
+/// Retain a tombstone even if the key is absent.
+pub fn lww_map_remove(map: LwwMap, key: String) -> Result(Nil, String) {
+  runtime.lww_map_remove(map.runtime, map.address, key)
+}
+
+@target(javascript)
+/// Read the optimistic value. Missing keys and wrong channel kinds return an error.
+pub fn lww_map_get(map: LwwMap, key: String) -> Result(String, Nil) {
+  runtime.lww_map_get(map.runtime, map.address, key)
+}
+
+@target(javascript)
+/// Read visible entries in key order.
+pub fn lww_map_entries(map: LwwMap) -> List(#(String, String)) {
+  runtime.lww_map_entries(map.runtime, map.address)
+}
+
+@target(javascript)
+pub fn lww_map_keys(map: LwwMap) -> List(String) {
+  runtime.lww_map_keys(map.runtime, map.address)
+}
+
+@target(javascript)
+/// Subscribe to visible changes. Metadata-only edits emit no event.
+pub fn subscribe_lww_map(
+  map: LwwMap,
+  handler: fn(lww_map_kernel.LwwMapEvent) -> Nil,
+) -> SubscriptionToken {
+  use event <- subscribe_narrowed(map.runtime, map.address, handler)
+  case event {
+    channel.LwwMapEvent(inner) -> Some(inner)
+    channel.LwwRegisterEvent(_)
+    | channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+// Last-writer-wins registers
+
+@target(javascript)
+/// Create a detached string register with an empty initial value.
+/// The lifecycle is the same as for `create_map`.
+pub fn create_lww_register(
+  document: Document(root),
+) -> Result(LwwRegister, String) {
+  runtime.create_lww_register(document.runtime)
+  |> result.map(fn(address) {
+    LwwRegister(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+/// Encode the register address as a handle.
+pub fn lww_register_handle_of(register: LwwRegister) -> Json {
+  handle.encode_handle(register.address)
+}
+
+@target(javascript)
+/// Resolve a handle marker and its address. Reads and writes report a
+/// channel-kind mismatch.
+pub fn resolve_lww_register(
+  document: Document(root),
+  value: Json,
+) -> Result(LwwRegister, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) ->
+      runtime.resolve_address(document.runtime, address)
+      |> result.map(fn(_) {
+        LwwRegister(runtime: document.runtime, address: address)
+      })
+  }
+}
+
+@target(javascript)
+/// Set the value optimistically with a timestamp from the runtime.
+/// A same-value write replicates newer metadata without a change event.
+/// Return channel and clock failures to the caller.
+pub fn lww_register_set(
+  register: LwwRegister,
+  value: String,
+) -> Result(Nil, String) {
+  runtime.lww_register_set(register.runtime, register.address, value)
+}
+
+@target(javascript)
+/// Read the optimistic value. Return `Error(Nil)` if the address does not
+/// name an LWW-register channel.
+pub fn lww_register_value(register: LwwRegister) -> Result(String, Nil) {
+  runtime.lww_register_value(register.runtime, register.address)
+}
+
+@target(javascript)
+/// Register a callback for local and remote visible-value changes.
+pub fn subscribe_lww_register(
+  register: LwwRegister,
+  handler: fn(lww_register_kernel.LwwRegisterEvent) -> Nil,
+) -> SubscriptionToken {
+  use event <- subscribe_narrowed(register.runtime, register.address, handler)
+  case event {
+    channel.LwwRegisterEvent(inner) -> Some(inner)
+    channel.LwwMapEvent(_) -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+// ── PactMaps ─────────────────────────────────────────────────────────────────
 @target(javascript)
 /// Create a new PactMap channel. The detached lifecycle is the same as for
 /// `create_map`.
@@ -2519,10 +3006,13 @@ pub fn subscribe_pact_map(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(pact_map.runtime, pact_map.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.PactMapEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2706,10 +3196,13 @@ pub fn subscribe_ordered_collection(
     handler,
   )
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.OrderedCollectionEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2786,10 +3279,13 @@ pub fn subscribe_json_ot(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(json_ot.runtime, json_ot.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.JsonOtEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2873,10 +3369,13 @@ pub fn subscribe_rich_text(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(rich_text.runtime, rich_text.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.RichTextEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -2954,10 +3453,13 @@ pub fn subscribe_g_set(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(set.runtime, set.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.GSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.TwoPSetEvent(_)
@@ -3047,10 +3549,13 @@ pub fn subscribe_two_p_set(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(set.runtime, set.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.TwoPSetEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -3221,10 +3726,13 @@ pub fn subscribe_directory(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(directory.runtime, directory.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.DirectoryEvent(inner) -> Some(inner)
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -3389,21 +3897,21 @@ pub fn diagnostics(document: Document(root)) -> Diagnostics {
 @target(javascript)
 /// Summarize the current confirmed state of the document to the storage of
 /// floodgate. A later client can then start from that snapshot, and it does not
-/// replay the full operation history. The promise resolves with the summary
-/// handle, which is a git tree SHA. The connection must be synchronized, and
-/// the token must carry the `summary:write` scope.
+/// replay the full operation history. The promise resolves after publication
+/// with the Git commit ID from `summaryAck`. The connection must be synchronized,
+/// and the token must carry the `summary:write` scope.
 pub fn summarize(document: Document(root)) -> Promise(Result(String, String)) {
   runtime.summarize(document.runtime)
 }
 
 @target(javascript)
-/// Let this client summarize the document without a request, under `policy`.
+/// Set or re-enable the automatic summary policy for this client.
 ///
-/// Without this function nothing summarizes, and every client that joins
-/// replays the whole log. You must then call `summarize` by hand. With this
-/// function, the runtime writes a checkpoint after the document moves past the
-/// threshold of the policy and this client is settled. A later join thus costs
-/// the recent history, and not all of it.
+/// New connections use `summary_policy.policy()`: a threshold of 500 sequenced
+/// messages and a 3 second delay window. This function replaces that policy.
+/// The runtime attempts a checkpoint when the threshold is reached and this
+/// client is settled. A later client can load the checkpoint and replay the
+/// subsequent messages.
 ///
 /// It is safe to install the policy on every client in a room. The attempts
 /// spread across a delay window, and the first summary that sequences stops the
@@ -3421,14 +3929,16 @@ pub fn auto_summarize(
 @target(javascript)
 /// Stop the automatic summaries. An attempt that is already scheduled still
 /// checks again before it acts, and it then finds no policy.
+/// An upload that has already started can finish. Other clients keep their
+/// policies.
 pub fn stop_auto_summarize(document: Document(root)) -> Nil {
   runtime.auto_summarize(document.runtime, None)
 }
 
 @target(javascript)
-/// The number of operations that sequenced after the newest summary that this
+/// The number of messages that sequenced after the newest summary that this
 /// client knows about. An automatic policy compares that number with its
-/// threshold, and a client that joins replays those operations on top of the
+/// threshold, and a client that joins replays those messages on top of the
 /// checkpoint.
 ///
 /// On a document that no client has summarized, this number is the whole
@@ -3438,9 +3948,9 @@ pub fn operations_since_summary(document: Document(root)) -> Int {
 }
 
 @target(javascript)
-/// List the stored summary versions of the document, newest first. This is the
-/// client half of the `getVersions` function of Fluid. Each `summarize` call
-/// stores one version, and a new connection starts from the newest one. The
+/// List the published summary commits of the document, newest first. This is
+/// the client half of the `getVersions` function of Fluid. Each successful
+/// `summarize` call publishes one version. A new connection starts from the newest one. The
 /// token must carry the `doc:read` scope.
 pub fn get_versions(
   document: Document(root),
@@ -3450,9 +3960,9 @@ pub fn get_versions(
 }
 
 @target(javascript)
-/// Read the confirmed state that a summary version captured, by the handle of
-/// that version. `get_versions` and the resolution of `summarize` both give a
-/// handle. The function returns the stored snapshot blob, which holds the
+/// Read the confirmed state that a published summary commit captured.
+/// `get_versions` and the resolution of `summarize` both give the commit ID.
+/// The function returns the stored snapshot blob, which holds the
 /// entries in insertion order with the sequence number that the writer captured
 /// them at. The read is at one point in time, and it does not change the live
 /// document.
@@ -3519,9 +4029,12 @@ pub fn subscribe(
 ) -> SubscriptionToken {
   use event <- subscribe_narrowed(map.runtime, map.address, handler)
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MapEvent(inner) -> Some(inner)
     channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -3561,6 +4074,7 @@ fn field_change(
   event: ChannelEvent,
 ) -> Option(FieldChange(a)) {
   case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
     channel.MapEvent(map_kernel.ValueChanged(k, previous, value, local))
       if k == key
     ->
@@ -3574,6 +4088,8 @@ fn field_change(
     channel.MapEvent(_)
     | channel.CounterEvent(_)
     | channel.PnCounterEvent(_)
+    | channel.GCounterEvent(_)
+    | channel.MvRegisterEvent(_)
     | channel.OrMapEvent(_)
     | channel.OrSetEvent(_)
     | channel.GSetEvent(_)
@@ -3633,4 +4149,125 @@ pub fn dev_token(
   user_id user_id: String,
 ) -> Promise(String) {
   transport_js.mint_dev_token(secret, tenant, document, user_id)
+}
+
+@target(javascript)
+pub fn create_mv_register(
+  document: Document(root),
+) -> Result(MvRegister, String) {
+  runtime.create_mv_register(document.runtime)
+  |> result.map(fn(address) {
+    MvRegister(runtime: document.runtime, address: address)
+  })
+}
+
+@target(javascript)
+pub fn mv_register_handle_of(mv_register: MvRegister) -> Json {
+  handle.encode_handle(mv_register.address)
+}
+
+@target(javascript)
+pub fn resolve_mv_register(
+  document: Document(root),
+  value: Json,
+) -> Result(MvRegister, String) {
+  case handle.parse_handle(value) {
+    Error(Nil) -> Error("value is not a handle marker")
+    Ok(address) -> {
+      use _ <- result.try(runtime.resolve_address(document.runtime, address))
+      let register = MvRegister(runtime: document.runtime, address: address)
+      mv_register_values(register)
+      |> result.replace_error("address does not name an MV-register channel")
+      |> result.map(fn(_) { register })
+    }
+  }
+}
+
+@target(javascript)
+pub fn set_mv_register_field(
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+  mv_register: MvRegister,
+) -> Nil {
+  put_channel_field(typed_map, field, mv_register_handle_of(mv_register))
+}
+
+@target(javascript)
+pub fn resolve_mv_register_field(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+) -> Result(Option(MvRegister), String) {
+  get_channel_field(document, typed_map, field, resolve_mv_register)
+}
+
+@target(javascript)
+pub fn ensure_mv_register(
+  document: Document(root),
+  typed_map: TypedMap(s),
+  field: ChannelField(s, schema.MvRegisterChannel),
+  done: fn(Result(MvRegister, String)) -> Nil,
+) -> Nil {
+  ensure_channel(
+    document,
+    typed_map,
+    schema.channel_field_key(field),
+    fn() {
+      use mv_register <- result.map(create_mv_register(document))
+      set_mv_register_field(typed_map, field, mv_register)
+    },
+    fn() { resolve_mv_register_field(document, typed_map, field) },
+    done,
+  )
+}
+
+@target(javascript)
+pub fn mv_register_set(mv_register: MvRegister, value: String) -> Nil {
+  runtime.mv_register_set(mv_register.runtime, mv_register.address, value)
+}
+
+@target(javascript)
+pub fn mv_register_values(
+  mv_register: MvRegister,
+) -> Result(List(String), Nil) {
+  runtime.mv_register_values(mv_register.runtime, mv_register.address)
+}
+
+@target(javascript)
+pub fn subscribe_mv_register(
+  mv_register: MvRegister,
+  handler: fn(mv_register_kernel.MvRegisterEvent) -> Nil,
+) -> SubscriptionToken {
+  use event <- subscribe_narrowed(
+    mv_register.runtime,
+    mv_register.address,
+    handler,
+  )
+  case event {
+    channel.LwwRegisterEvent(_) | channel.LwwMapEvent(_) -> None
+    channel.MvRegisterEvent(inner) -> Some(inner)
+    channel.PnCounterEvent(_) -> None
+    channel.GCounterEvent(_) -> None
+    channel.MapEvent(_)
+    | channel.CounterEvent(_)
+    | channel.OrMapEvent(_)
+    | channel.OrSetEvent(_)
+    | channel.GSetEvent(_)
+    | channel.TwoPSetEvent(_)
+    | channel.RegisterCollectionEvent(_)
+    | channel.ClaimsEvent(_)
+    | channel.TaskManagerEvent(_)
+    | channel.PactMapEvent(_)
+    | channel.JsonOtEvent(_)
+    | channel.DirectoryEvent(_)
+    | channel.OrderedCollectionEvent(_)
+    | channel.SequenceEvent(_)
+    | channel.RichTextEvent(_)
+    | channel.TextEvent(_) -> None
+  }
+}
+
+@target(javascript)
+pub opaque type MvRegister {
+  MvRegister(runtime: runtime.Runtime, address: String)
 }

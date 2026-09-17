@@ -129,6 +129,15 @@ pub type MapChannel
 
 pub type CounterChannel
 
+/// A string cell whose greatest timestamp and replica ID select one winner.
+pub type LwwRegisterChannel
+
+/// A string-valued last-writer-wins map channel.
+pub type LwwMapChannel
+
+/// A string cell that retains concurrent alternatives.
+pub type MvRegisterChannel
+
 pub type OrMapChannel
 
 pub type OrSetChannel
@@ -157,6 +166,9 @@ pub type DirectoryChannel
 
 /// A counter that supports an increment and a decrement.
 pub type PnCounterChannel
+
+/// The phantom type for a grow-only counter channel field.
+pub type GCounterChannel
 
 /// A consensus map. Each write is a proposal, and the server sequencing
 /// settles it.

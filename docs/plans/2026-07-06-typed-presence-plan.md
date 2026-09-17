@@ -1,6 +1,11 @@
 # Typed presence plan — promote sudoku's presence into the library
 
 **Date:** 2026-07-06
+**Status (2026-09-06):** the typed presence core, JavaScript driver, and example
+integration shipped. The server-backed presence plan later replaced the
+`Peer`/`announce` API sketched here with session-aware `PresenceEntry`/`Event`
+and `update`. Treat PS1-PS4 as the historical first implementation.
+
 **Builds on:** `examples/sudoku_lustre/src/presence.gleam` (the prototype this plan promotes), commit `298490a` (`feat(runtime): add ephemeral signal broadcast`), `2026-07-06-typed-layer-dx-plan.md` (codec idiom; no hard dependency).
 **Benchmark:** Fluid's `@fluidframework/presence` — typed per-user ephemeral state with liveness, as a package, not per-app boilerplate.
 
@@ -86,7 +91,10 @@ Deleted from the app: `presence.gleam`'s state machine + envelope handling, the 
 
 ## Deferred
 
-- **Erlang runtime signal support** (decision 2) — small standalone effort when a BEAM consumer needs it: handle the `"signal"` socket event in `runtime.gleam`'s message loop, add `submit_signal` push, port `presence_js`'s driver shape onto a heartbeat process. The PS1 core is already target-agnostic.
+- **Erlang presence driver** remains deferred. The underlying signal transport
+  is already implemented (`142711c`), and `runtime_beam` also has the server
+  presence lane. A BEAM equivalent of `presence_js` would build on those APIs;
+  do not reimplement transport support.
 - **Sub-presence keys / partial updates** (Fluid's `LatestMap`) — one payload per user is enough until an app outgrows it.
 - **Presence over multiple signal kinds** — the `kind` envelope field already reserves the namespace.
 

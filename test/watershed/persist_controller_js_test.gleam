@@ -7,12 +7,20 @@
 //// JavaScript target only.
 
 @target(javascript)
+import gleam/json
+@target(javascript)
 import gleam/list
 @target(javascript)
 import startest/expect
 
 @target(javascript)
+import watershed/channel
+@target(javascript)
+import watershed/crdt_core
+@target(javascript)
 import watershed/crdt_js.{type Config, type CrdtDocument}
+@target(javascript)
+import watershed/or_map_kernel
 @target(javascript)
 import watershed/p2p
 @target(javascript)
@@ -27,10 +35,71 @@ import watershed/relay_fake
 import watershed/schema.{type GSetChannel}
 @target(javascript)
 import watershed/transport_js
+@target(javascript)
+import watershed/wire
 
 const room = "persist-controller-room"
 
 const compatibility = "persist-controller-test/v1"
+
+@target(javascript)
+pub fn set_map_controller_saves_eventless_metadata_and_stops_test() -> Nil {
+  let assert Ok(document) =
+    crdt_js.new_document(crdt_js.config(
+      room_id: room,
+      replica_label: "set-map-controller",
+      compatibility_tag: compatibility,
+      root: p2p.or_map_root(or_map_kernel.OrSetMode),
+      signaling: p2p_fake.signaling(p2p_fake.new_world()),
+    ))
+  let map = crdt_js.root(document)
+  crdt_js.or_map_add_member(map, "doc", "draft") |> expect.to_equal(Ok(Nil))
+  let assert Ok(initial) = crdt_js.export_snapshot(document)
+  let snapshots = transport_js.new_cell([])
+  let events = transport_js.new_cell([])
+  let subscription =
+    crdt_js.subscribe_or_map(map, fn(event) {
+      transport_js.set_cell(events, [event, ..transport_js.get_cell(events)])
+    })
+  let clock = relay_fake.new_clock()
+  let removed_listener = transport_js.new_cell(False)
+  let controller =
+    persist_controller_js.start_with_save(
+      document,
+      fn(_) { Nil },
+      relay_fake.scheduler(clock),
+      fn(_) { fn() { transport_js.set_cell(removed_listener, True) } },
+      fn(document, done) {
+        let assert Ok(snapshot) = crdt_js.export_snapshot(document)
+        transport_js.set_cell(snapshots, [
+          snapshot,
+          ..transport_js.get_cell(snapshots)
+        ])
+        done(Ok(crdt_js.digest(document)))
+      },
+    )
+  relay_fake.advance(clock, 500)
+  transport_js.get_cell(snapshots) |> expect.to_equal([initial])
+  let before = crdt_js.digest(document)
+  crdt_js.or_map_add_member(map, "doc", "draft") |> expect.to_equal(Ok(Nil))
+  crdt_js.digest(document) |> expect.to_not_equal(before)
+  transport_js.get_cell(events) |> expect.to_equal([])
+  let assert Ok(updated) = crdt_js.export_snapshot(document)
+  // No visible callback calls changed; the digest sweep must find the tag.
+  relay_fake.advance(clock, 5000)
+  transport_js.get_cell(snapshots) |> expect.to_equal([updated, initial])
+  crdt_js.or_map_remove_member(map, "missing", "draft")
+  |> expect.to_equal(Ok(Nil))
+  persist_controller_js.changed(controller)
+  relay_fake.advance(clock, 500)
+  transport_js.get_cell(snapshots) |> expect.to_equal([updated, initial])
+  persist_controller_js.stop(controller)
+  transport_js.get_cell(removed_listener) |> expect.to_be_true()
+  crdt_js.or_map_remove_key(map, "doc") |> expect.to_equal(Ok(Nil))
+  relay_fake.advance(clock, 10_000)
+  transport_js.get_cell(snapshots) |> expect.to_equal([updated, initial])
+  crdt_js.unsubscribe(subscription)
+}
 
 @target(javascript)
 type Attempt {
@@ -222,4 +291,53 @@ pub fn pagehide_during_an_active_save_skips_a_redundant_followup_test() -> Nil {
   attempts(deferred) |> expect.to_equal([["only"]])
   pending_count(deferred) |> expect.to_equal(0)
   statuses(harness) |> expect.to_equal(["saving", "saved"])
+}
+
+@target(javascript)
+pub fn lww_map_metadata_only_remote_merge_is_saved_by_digest_sweep_test() -> Nil {
+  let document = new_document()
+  let assert Ok(source) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: compatibility,
+      replica: "source",
+      session: "source-session",
+      root: channel.InitGSet,
+    ))
+  let assert Ok(#(source, created)) =
+    crdt_core.create_channel(source, channel.InitLwwMap)
+  let assert [descriptor] = created.created
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      source,
+      descriptor.address,
+      channel.LwwMapRemoveEdit("gone", 100),
+    )
+  let assert Ok(snapshot) =
+    json.parse(crdt_core.canonical_json(source), wire.json_value_decoder())
+  let assert Ok(_) = crdt_js.merge_snapshot(document, snapshot)
+  let deferred = deferred_save()
+  let harness = start_harness(document, deferred)
+  relay_fake.advance(harness.clock, 500)
+  release_saved(deferred)
+  let before = crdt_js.digest(document)
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      source,
+      descriptor.address,
+      channel.LwwMapRemoveEdit("gone", 200),
+    )
+  let assert Ok(snapshot) =
+    json.parse(crdt_core.canonical_json(source), wire.json_value_decoder())
+  let assert Ok(outcome) = crdt_js.merge_snapshot(document, snapshot)
+  outcome.events |> expect.to_equal([])
+  crdt_js.digest(document) |> expect.to_not_equal(before)
+  // No event calls `changed`; the periodic digest sweep must find this edit.
+  relay_fake.advance(harness.clock, 5000)
+  attempts(deferred) |> expect.to_equal([[], []])
+  let DeferredSave(pending:, ..) = deferred
+  let assert [Pending(digest:, ..)] = transport_js.get_cell(pending)
+  digest |> expect.to_equal(crdt_js.digest(document))
+  release_saved(deferred)
+  persist_controller_js.stop(harness.controller)
 }

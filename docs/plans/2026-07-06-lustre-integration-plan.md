@@ -1,6 +1,11 @@
 # Lustre integration plan — `watershed_lustre`, the framework-native binding
 
 **Date:** 2026-07-06
+**Status (2026-09-06):** LU1-LU3 shipped in `watershed_lustre`. The package now
+also includes the textarea components, CRDT/P2P and persistence effects, and
+component-runtime bindings. The presence signatures below predate the
+session-aware API from the server-backed presence plan.
+
 **Builds on:** `2026-07-06-typed-layer-dx-plan.md` (TX3 typed subscriptions, TX4 `ensure_*` — LU2 wraps them), `2026-07-06-typed-presence-plan.md` (PS2 driver — LU3 wraps it), the repeated glue in `examples/dice_lustre` and `examples/sudoku_lustre` (the evidence and the proof).
 **Benchmark:** Fluid's React bindings — the shared-state framework meets the UI framework in a package, so apps declare instead of wire.
 
@@ -90,7 +95,9 @@ The driver's `on_change` gets the same microtask deferral as every other inbound
 ## Deferred
 
 - **Hex publication** — with watershed itself, not before.
-- **A `watershed_lustre` server-components story** (Lustre's erlang target) — blocked on erlang signals and appetite; nothing here precludes it.
+- **A `watershed_lustre` server-components story** (Lustre's Erlang target)
+  remains deferred. Erlang signals now exist, so they are no longer a blocker;
+  the Lustre package still targets JavaScript.
 - **Selector/memoization helpers** (Fluid React's fine-grained re-render tooling) — Lustre's vdom diffing makes this less pressing; revisit if a real app shows render-cost pain.
 
 ## Milestones (one commit each)

@@ -5,13 +5,12 @@
   "type": "module",
   "description": "Tutorial retro board example for watershed Lustre",
   "scripts": {
-    "build": "gleam build --target javascript && node build.mjs",
+    "build": "gleam build --target javascript && esbuild build/dev/javascript/retro_tutorial_lustre/retro_tutorial_lustre.mjs --bundle --format=esm --outfile=dist/retro_tutorial_lustre.mjs",
     "serve": "python3 -m http.server 8080"
   },
   "dependencies": {
     "esbuild": "^0.28.1",
-    "phoenix": "^1.8.8",
-    "ws": "^8.21.0"
+    "phoenix": "^1.8.8"
   },
   "packageManager": "pnpm@11.13.1"
 }

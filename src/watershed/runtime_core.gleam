@@ -33,11 +33,15 @@ import watershed/claims_kernel
 import watershed/client_id
 import watershed/counter_kernel
 import watershed/directory_kernel
+import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/handle
 import watershed/json_ot
 import watershed/json_ot_kernel
+import watershed/lww_map_kernel
+import watershed/lww_register_kernel
 import watershed/map_kernel
+import watershed/mv_register_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/ordered_collection_kernel
@@ -53,6 +57,7 @@ import watershed/text_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
 import watershed/wire/op as wire_op
+import watershed/wire/summary as wire_summary
 import watershed/wire/summary_blob.{type SummaryBlob}
 
 const root_address = "root"
@@ -110,25 +115,13 @@ pub type Core {
     /// incorrect. To add *self* to the quorum of an operation that sequenced
     /// before this client joined puts the client in a room that it was not in.
     ingest: IngestPosition,
-    /// The sequence number of the newest checkpoint that this client knows
-    /// about. That checkpoint is the blob that the client started from, a
-    /// summarize operation that it saw after that, or one that it wrote itself.
-    /// The value is zero on a document that no client has summarized.
-    ///
-    /// The value is an upper bound, and not the exact capture point. A
-    /// summarize operation that the client sees reports the sequence number of
-    /// the *operation*, which is at or after the point at which the writer
-    /// captured the contents of the blob. The two numbers differ by the traffic
-    /// that the room wrote during the upload. That difference makes the policy
-    /// a little slower, and it never makes the policy summarize two times,
-    /// which is the safe direction. `summary_from_blob` is the exception. A
-    /// client that loads a blob takes the number of that blob, because there
-    /// the seeded state matters, and not the pointer to it.
-    ///
-    /// The correctness of the document does not depend on this value. It exists
-    /// so that `wants_summary` can measure the drift after the last checkpoint
-    /// without a request to the server.
+    /// The proposal sequence number of the newest published checkpoint that
+    /// this client knows. Floodgate reports it in the bootstrap context and in
+    /// each summary acknowledgement. A proposal or rejection does not change
+    /// it. The value is zero before the first published summary.
     last_summary_sequence_number: Int,
+    /// The commit SHA of the newest published summary that this client knows.
+    summary_head: Option(String),
     /// A buffer for each channel, which holds the *owed* follow-up operations
     /// that a kernel released while it applied a sequenced operation. One
     /// example is a consensus `Accept` operation in reaction to a `Set`
@@ -172,12 +165,19 @@ pub type CoreError {
     actual: channel.ChannelType,
   )
   OrMapModeMismatch(address: String, detail: String)
+  OrMapOperationFailed(address: String, detail: String)
   TaskNotAssigned(address: String, task_id: String)
   /// The kernel refused a directory edit, because the path is unknown or the
   /// subdirectory name is invalid. This is incorrect use of the API, and the
   /// caller can retry. The document is not corrupt.
   DirectoryOperationFailed(address: String, detail: String)
   SequenceOperationFailed(address: String, detail: String)
+  /// The kernel refused a local grow-only counter edit, because the amount is
+  /// negative. This is incorrect use of the API, and the caller can retry. The
+  /// document is not corrupt, and no operation goes out.
+  GCounterOperationFailed(address: String, detail: String)
+  LwwRegisterOperationFailed(address: String, detail: String)
+  LwwMapOperationFailed(address: String, detail: String)
   /// The kernel refused a local text edit, because the insert index is out of
   /// bounds, or the delete range or replace range is invalid. This is
   /// incorrect use of the API, and the caller can retry. The document is not
@@ -194,10 +194,21 @@ pub type Bootstrapped {
   MissingPrefix(core: Core, checkpoint: Int, from: Int, to: Int)
 }
 
+pub type SummaryEvent {
+  SummaryProposalSequenced(
+    client_id: Option(String),
+    client_sequence_number: Int,
+    sequence_number: Int,
+  )
+  SummaryPublished(proposal_sequence_number: Int, version_id: String)
+  SummaryRejected(proposal_sequence_number: Int, reason: String)
+}
+
 pub type Ingested {
   Ingested(
     events: List(#(String, ChannelEvent)),
     resolutions: List(#(String, Resolution)),
+    summary_events: List(SummaryEvent),
     request_operations_from: Option(Int),
     /// The operations that a one-operation-in-flight kernel, which is json0,
     /// released onto the wire while the runtime acked its own operation. The
@@ -283,10 +294,14 @@ pub fn bootstrap(
       detached: dict.new(),
       next_client_sequence_number: 1,
       last_seen_sequence_number: last_seen,
-      // The blob we loaded *is* the newest checkpoint we know of; a document
-      // with no summary has none, and every operation in its log is
-      // outstanding.
-      last_summary_sequence_number: last_seen,
+      last_summary_sequence_number: case connected.summary_context {
+        Some(context) -> context.sequence_number
+        None -> last_seen
+      },
+      summary_head: case connected.summary_context {
+        Some(context) -> Some(context.handle)
+        None -> None
+      },
       in_flight: [],
       out_of_order: [],
       // Seeded from the checkpoint, **not** from the handshake's roster, and
@@ -477,28 +492,26 @@ pub fn build_summarize(
   core: Core,
   handle handle: String,
   message message: String,
-  head head: String,
 ) -> #(Core, wire.OutboundOperation) {
   let client_sequence_number = core.next_client_sequence_number
+  let head = case core.summary_head {
+    Some(head) -> head
+    None -> ""
+  }
   let outbound =
     wire_op.outbound_summarize_operation(
       client_sequence_number: client_sequence_number,
       reference_sequence_number: core.last_seen_sequence_number,
       handle: handle,
       message: message,
-      parents: [],
+      parents: case core.summary_head {
+        Some(head) -> [head]
+        None -> []
+      },
       head: head,
     )
-  // Our own checkpoint moves here rather than when the operation is echoed
-  // back: a summarize operation carries no ack and no in-flight entry, so
-  // waiting for the echo would leave the policy re-arming on every operation in
-  // between.
   #(
-    Core(
-      ..core,
-      next_client_sequence_number: client_sequence_number + 1,
-      last_summary_sequence_number: core.last_seen_sequence_number,
-    ),
+    Core(..core, next_client_sequence_number: client_sequence_number + 1),
     outbound,
   )
 }
@@ -923,7 +936,7 @@ pub fn handle_sequenced(
   let next = core.last_seen_sequence_number + 1
   case msg.sequence_number {
     sequence_number if sequence_number < next ->
-      Ok(#(core, Ingested([], [], None, [])))
+      Ok(#(core, Ingested([], [], [], None, [])))
     sequence_number if sequence_number > next -> {
       let request = case core.out_of_order {
         [] -> Some(core.last_seen_sequence_number)
@@ -931,11 +944,16 @@ pub fn handle_sequenced(
       }
       let core =
         Core(..core, out_of_order: buffer_insert(core.out_of_order, msg))
-      Ok(#(core, Ingested([], [], request, [])))
+      Ok(#(core, Ingested([], [], [], request, [])))
     }
     _ -> {
-      use #(core, events, resolutions) <- result.try(apply_one(core, msg))
-      use #(core, drained, drained_resolutions) <- result.try(drain_buffer(core))
+      use #(core, events, resolutions, summary_events) <- result.try(apply_one(
+        core,
+        msg,
+      ))
+      use #(core, drained, drained_resolutions, drained_summary_events) <- result.try(
+        drain_buffer(core),
+      )
       // A single-in-flight kernel (json0 or rich text) may have promoted a
       // buffered operation to the wire while acking its own operation; collect
       // and stamp those now, after every operation in this batch has been
@@ -946,6 +964,7 @@ pub fn handle_sequenced(
         Ingested(
           events: list.append(events, drained),
           resolutions: list.append(resolutions, drained_resolutions),
+          summary_events: list.append(summary_events, drained_summary_events),
           request_operations_from: None,
           outbound: outbound,
         ),
@@ -1055,35 +1074,86 @@ fn apply_one(
   core: Core,
   msg: SequencedDocumentMessage,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(SummaryEvent),
+  ),
   CoreError,
 ) {
   let core = Core(..core, last_seen_sequence_number: msg.sequence_number)
   case msg.message_type {
-    "op" -> handle_operation(core, msg)
-    "join" -> handle_join(core, msg)
-    "leave" -> handle_leave(core, msg)
-    // Someone summarized. The contents are a storage handle this client has no
-    // use for — it is already caught up — but the sequence number tells the
-    // automatic policy that the document has a fresher checkpoint than it
-    // thought, which is how a room writes one summary per crossing rather than
-    // one per client. `int.max` because a summarize operation replayed out of
-    // an old log must not un-summarize a document loaded from a newer blob.
+    "op" -> without_summary_events(handle_operation(core, msg))
+    "join" -> without_summary_events(handle_join(core, msg))
+    "leave" -> without_summary_events(handle_leave(core, msg))
     "summarize" ->
       Ok(
-        #(
+        #(core, [], [], [
+          SummaryProposalSequenced(
+            msg.client_id,
+            msg.client_sequence_number,
+            msg.sequence_number,
+          ),
+        ]),
+      )
+    "summaryAck" | "summaryNack" -> apply_summary_response(core, msg)
+    _ -> Ok(#(core, [], [], []))
+  }
+}
+
+fn without_summary_events(
+  outcome: Result(
+    #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+    CoreError,
+  ),
+) -> Result(
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(SummaryEvent),
+  ),
+  CoreError,
+) {
+  result.map(outcome, fn(outcome) {
+    let #(core, events, resolutions) = outcome
+    #(core, events, resolutions, [])
+  })
+}
+
+fn apply_summary_response(
+  core: Core,
+  msg: SequencedDocumentMessage,
+) -> Result(
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(SummaryEvent),
+  ),
+  CoreError,
+) {
+  case wire_summary.decode_message(msg.message_type, msg.contents) {
+    Error(Nil) -> Error(BadOperationContents(msg.sequence_number))
+    Ok(wire_summary.Ack(proposal_sequence_number, version_id)) -> {
+      let core = case
+        proposal_sequence_number >= core.last_summary_sequence_number
+      {
+        True ->
           Core(
             ..core,
-            last_summary_sequence_number: int.max(
-              core.last_summary_sequence_number,
-              msg.sequence_number,
-            ),
-          ),
-          [],
-          [],
-        ),
+            last_summary_sequence_number: proposal_sequence_number,
+            summary_head: Some(version_id),
+          )
+        False -> core
+      }
+      Ok(
+        #(core, [], [], [SummaryPublished(proposal_sequence_number, version_id)]),
       )
-    _ -> Ok(#(core, [], []))
+    }
+    Ok(wire_summary.Nack(proposal_sequence_number, reason)) ->
+      Ok(#(core, [], [], [SummaryRejected(proposal_sequence_number, reason)]))
   }
 }
 
@@ -1181,7 +1251,12 @@ fn system_payload(
 fn drain_buffer(
   core: Core,
 ) -> Result(
-  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  #(
+    Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(SummaryEvent),
+  ),
   CoreError,
 ) {
   case core.out_of_order {
@@ -1190,18 +1265,21 @@ fn drain_buffer(
     [head, ..rest]
       if head.sequence_number == core.last_seen_sequence_number + 1
     -> {
-      use #(core, events, resolutions) <- result.try(apply_one(
+      use #(core, events, resolutions, summary_events) <- result.try(apply_one(
         Core(..core, out_of_order: rest),
         head,
       ))
-      use #(core, more, more_resolutions) <- result.try(drain_buffer(core))
+      use #(core, more, more_resolutions, more_summary_events) <- result.try(
+        drain_buffer(core),
+      )
       Ok(#(
         core,
         list.append(events, more),
         list.append(resolutions, more_resolutions),
+        list.append(summary_events, more_summary_events),
       ))
     }
-    _ -> Ok(#(core, [], []))
+    _ -> Ok(#(core, [], [], []))
   }
 }
 
@@ -1365,6 +1443,8 @@ fn apply_remote_channel(
           [],
         ),
       )
+    Error(channel.OrMapOperationFailed(detail)) ->
+      Error(OrMapOperationFailed(address, detail))
     Error(channel.UnexpectedAck(detail))
     | Error(channel.WrongChannelType(detail))
     | Error(channel.CorruptRemoteOperation(detail))
@@ -1530,6 +1610,8 @@ fn ack_own_operation(
                           [],
                         ),
                       )
+                    Error(channel.OrMapOperationFailed(detail)) ->
+                      Error(OrMapOperationFailed(address, detail))
                     Error(channel.UnexpectedAck(detail))
                     | Error(channel.WrongChannelType(detail))
                     | Error(channel.CorruptRemoteOperation(detail))
@@ -1550,6 +1632,8 @@ fn ack_own_operation(
                         tag_events(address, events),
                         tag_resolution(address, resolution),
                       ))
+                    Error(channel.OrMapOperationFailed(detail)) ->
+                      Error(OrMapOperationFailed(address, detail))
                     Error(channel.UnexpectedAck(detail))
                     | Error(channel.WrongChannelType(detail))
                     | Error(channel.CorruptRemoteOperation(detail))
@@ -1768,6 +1852,7 @@ pub fn pn_counter_update(
         ),
       )
     }
+
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation, message_id) =
         pn_counter_kernel.update(kernel, amount)
@@ -1780,6 +1865,279 @@ pub fn pn_counter_update(
         channel.PnCounterMeta(message_id),
       ))
     }
+  }
+}
+
+/// Increment the grow-only counter at `address` optimistically. The amount
+/// must not be negative. A refused edit changes nothing and sends nothing.
+pub fn g_counter_increment(
+  core: Core,
+  address: String,
+  amount: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use located <- result.try(locate_g_counter(core, address))
+  case located {
+    Detached(kernel) -> {
+      use #(kernel, events, _operation, _message_id) <- result.try(
+        g_counter_kernel.increment(kernel, amount)
+        |> result.map_error(fn(error) {
+          GCounterOperationFailed(
+            address,
+            g_counter_kernel.edit_error_text(error),
+          )
+        }),
+      )
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.GCounterState(kernel)),
+          tag_g_counter_events(address, events),
+          [],
+        ),
+      )
+    }
+
+    Attached(kernel) -> {
+      use #(kernel, events, operation, message_id) <- result.try(
+        g_counter_kernel.increment(kernel, amount)
+        |> result.map_error(fn(error) {
+          GCounterOperationFailed(
+            address,
+            g_counter_kernel.edit_error_text(error),
+          )
+        }),
+      )
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.GCounterState(kernel),
+        tag_g_counter_events(address, events),
+        channel.GCounterOperation(operation),
+        channel.GCounterMeta(message_id),
+      ))
+    }
+  }
+}
+
+/// Set the register optimistically. The timestamp is a wall-clock input;
+/// the kernel advances it past every timestamp that this writer has seen.
+pub fn lww_register_set(
+  core: Core,
+  address: String,
+  value: String,
+  timestamp: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use located <- result.try(locate_channel(core, address))
+  let state = case located {
+    Detached(state) | Attached(state) -> state
+  }
+  use kernel <- result.try(case state {
+    channel.LwwRegisterState(kernel) -> Ok(kernel)
+    other ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.LwwRegisterChannel,
+        actual: channel.channel_type(other),
+      ))
+  })
+  use #(kernel, events, operation, message_id) <- result.try(
+    lww_register_kernel.set(kernel, value, timestamp)
+    |> result.map_error(fn(error) {
+      LwwRegisterOperationFailed(
+        address,
+        channel.lww_register_error_detail(error),
+      )
+    }),
+  )
+  let state = channel.LwwRegisterState(kernel)
+  let events =
+    list.map(events, fn(event) { #(address, channel.LwwRegisterEvent(event)) })
+  case located {
+    Detached(_) -> Ok(#(put_detached_channel(core, address, state), events, []))
+    Attached(_) ->
+      Ok(stamp_attached(
+        core,
+        address,
+        state,
+        events,
+        channel.LwwRegisterOperation(operation),
+        channel.LwwRegisterMeta(message_id),
+      ))
+  }
+}
+
+pub fn lww_register_value(core: Core, address: String) -> Result(String, Nil) {
+  case find_channel(core, address) {
+    Ok(channel.LwwRegisterState(kernel)) ->
+      Ok(lww_register_kernel.value(kernel))
+    Ok(_) | Error(Nil) -> Error(Nil)
+  }
+}
+
+pub fn lww_map_set(
+  core: Core,
+  address: String,
+  key: String,
+  value: String,
+  timestamp: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  edit_lww_map(core, address, fn(kernel) {
+    lww_map_kernel.set(kernel, key, value, timestamp)
+  })
+}
+
+pub fn lww_map_remove(
+  core: Core,
+  address: String,
+  key: String,
+  timestamp: Int,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  edit_lww_map(core, address, fn(kernel) {
+    lww_map_kernel.remove(kernel, key, timestamp)
+  })
+}
+
+fn edit_lww_map(
+  core: Core,
+  address: String,
+  edit: fn(lww_map_kernel.LwwMapState) ->
+    Result(
+      #(
+        lww_map_kernel.LwwMapState,
+        List(lww_map_kernel.LwwMapEvent),
+        lww_map_kernel.LwwMapOperation,
+        Int,
+      ),
+      lww_map_kernel.KernelError,
+    ),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use located <- result.try(locate_channel(core, address))
+  let state = case located {
+    Detached(state) | Attached(state) -> state
+  }
+  use kernel <- result.try(case state {
+    channel.LwwMapState(kernel) -> Ok(kernel)
+    other ->
+      Error(WrongChannelType(
+        address,
+        channel.LwwMapChannel,
+        channel.channel_type(other),
+      ))
+  })
+  use #(kernel, events, operation, message_id) <- result.try(
+    edit(kernel)
+    |> result.map_error(fn(error) {
+      LwwMapOperationFailed(address, channel.lww_map_error_detail(error))
+    }),
+  )
+  let state = channel.LwwMapState(kernel)
+  let events =
+    list.map(events, fn(event) { #(address, channel.LwwMapEvent(event)) })
+  case located {
+    Detached(_) -> Ok(#(put_detached_channel(core, address, state), events, []))
+    Attached(_) ->
+      Ok(stamp_attached(
+        core,
+        address,
+        state,
+        events,
+        channel.LwwMapOperation(operation),
+        channel.LwwMapMeta(message_id),
+      ))
+  }
+}
+
+pub fn lww_map_get(
+  core: Core,
+  address: String,
+  key: String,
+) -> Result(String, Nil) {
+  case find_channel(core, address) {
+    Ok(channel.LwwMapState(kernel)) -> lww_map_kernel.get(kernel, key)
+    Ok(_) | Error(Nil) -> Error(Nil)
+  }
+}
+
+pub fn lww_map_entries(core: Core, address: String) -> List(#(String, String)) {
+  case find_channel(core, address) {
+    Ok(channel.LwwMapState(kernel)) -> lww_map_kernel.entries(kernel)
+    Ok(_) | Error(Nil) -> []
+  }
+}
+
+pub fn lww_map_keys(core: Core, address: String) -> List(String) {
+  case find_channel(core, address) {
+    Ok(channel.LwwMapState(kernel)) -> lww_map_kernel.keys(kernel)
+    Ok(_) | Error(Nil) -> []
+  }
+}
+
+pub fn mv_register_set(
+  core: Core,
+  address: String,
+  value: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.MvRegisterState(kernel)) -> {
+      let #(kernel, events, _, _) = mv_register_kernel.set(kernel, value)
+      Ok(
+        #(
+          put_detached_channel(core, address, channel.MvRegisterState(kernel)),
+          list.map(events, fn(event) {
+            #(address, channel.MvRegisterEvent(event))
+          }),
+          [],
+        ),
+      )
+    }
+    Attached(channel.MvRegisterState(kernel)) -> {
+      let #(kernel, events, operation, message_id) =
+        mv_register_kernel.set(kernel, value)
+      Ok(stamp_attached(
+        core,
+        address,
+        channel.MvRegisterState(kernel),
+        list.map(events, fn(event) {
+          #(address, channel.MvRegisterEvent(event))
+        }),
+        channel.MvRegisterOperation(operation),
+        channel.MvRegisterMeta(message_id),
+      ))
+    }
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.MvRegisterChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
+pub fn mv_register_values(
+  core: Core,
+  address: String,
+) -> Result(List(String), Nil) {
+  case find_channel(core, address) {
+    Ok(channel.MvRegisterState(kernel)) -> Ok(mv_register_kernel.values(kernel))
+    Ok(_) | Error(Nil) -> Error(Nil)
   }
 }
 
@@ -2447,13 +2805,7 @@ pub fn or_map_increment(
               [],
             ),
           )
-        Error(or_map_kernel.ModeMismatch(detail)) ->
-          Error(OrMapModeMismatch(address, detail))
-        Error(or_map_kernel.UnexpectedAck(detail))
-        | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail))
-        | Error(or_map_kernel.NegativeTally(detail)) ->
-          Error(AckMismatch(detail))
+        Error(error) -> Error(or_map_kernel_error(address, error))
       }
     Ok(Attached(kernel)) ->
       case or_map_kernel.increment(kernel, key, amount) {
@@ -2466,13 +2818,7 @@ pub fn or_map_increment(
             channel.OrMapOperation(operation),
             channel.OrMapMeta(message_id),
           ))
-        Error(or_map_kernel.ModeMismatch(detail)) ->
-          Error(OrMapModeMismatch(address, detail))
-        Error(or_map_kernel.UnexpectedAck(detail))
-        | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail))
-        | Error(or_map_kernel.NegativeTally(detail)) ->
-          Error(AckMismatch(detail))
+        Error(error) -> Error(or_map_kernel_error(address, error))
       }
   }
 }
@@ -2499,13 +2845,7 @@ pub fn or_map_set(
               [],
             ),
           )
-        Error(or_map_kernel.ModeMismatch(detail)) ->
-          Error(OrMapModeMismatch(address, detail))
-        Error(or_map_kernel.UnexpectedAck(detail))
-        | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail))
-        | Error(or_map_kernel.NegativeTally(detail)) ->
-          Error(AckMismatch(detail))
+        Error(error) -> Error(or_map_kernel_error(address, error))
       }
     Ok(Attached(_)) -> {
       let #(core, attach_outbound) =
@@ -2529,15 +2869,85 @@ pub fn or_map_set(
             )
           Ok(#(core, events, list.append(attach_outbound, outbound)))
         }
-        Error(or_map_kernel.ModeMismatch(detail)) ->
-          Error(OrMapModeMismatch(address, detail))
-        Error(or_map_kernel.UnexpectedAck(detail))
-        | Error(or_map_kernel.UnexpectedRollback(detail))
-        | Error(or_map_kernel.CorruptDelta(detail))
-        | Error(or_map_kernel.NegativeTally(detail)) ->
-          Error(AckMismatch(detail))
+        Error(error) -> Error(or_map_kernel_error(address, error))
       }
     }
+  }
+}
+
+pub fn or_map_add_member(
+  core: Core,
+  address: String,
+  key: String,
+  member: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  edit_or_map(core, address, or_map_kernel.add_member(_, key, member))
+}
+
+pub fn or_map_remove_member(
+  core: Core,
+  address: String,
+  key: String,
+  member: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  edit_or_map(core, address, or_map_kernel.remove_member(_, key, member))
+}
+
+pub fn or_map_set_mv_register(
+  core: Core,
+  address: String,
+  key: String,
+  value: String,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  edit_or_map(core, address, or_map_kernel.set_mv_register(_, key, value))
+}
+
+fn edit_or_map(
+  core: Core,
+  address: String,
+  edit: fn(or_map_kernel.OrMapState) ->
+    Result(
+      #(
+        or_map_kernel.OrMapState,
+        List(or_map_kernel.OrMapEvent),
+        or_map_kernel.OrMapOperation,
+        Int,
+      ),
+      or_map_kernel.KernelError,
+    ),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use located <- result.try(locate_or_map(core, address))
+  let kernel = case located {
+    Detached(kernel) | Attached(kernel) -> kernel
+  }
+  use #(kernel, events, operation, message_id) <- result.try(
+    edit(kernel) |> result.map_error(or_map_kernel_error(address, _)),
+  )
+  let state = channel.OrMapState(kernel)
+  let events = tag_or_map_events(address, events)
+  case located {
+    Detached(_) -> Ok(#(put_detached_channel(core, address, state), events, []))
+    Attached(_) ->
+      Ok(stamp_attached(
+        core,
+        address,
+        state,
+        events,
+        channel.OrMapOperation(operation),
+        channel.OrMapMeta(message_id),
+      ))
   }
 }
 
@@ -2581,14 +2991,17 @@ pub fn or_map_remove(
 }
 
 /// Convert an error of the or-map kernel into a `CoreError` value. A mode
-/// mismatch is incorrect use of the API. Every other error means the pending
-/// queue and the acks no longer agree.
+/// mismatch is incorrect use of the API. Set-state and clock failures retain
+/// the channel address. Legacy errors retain their existing mapping.
 fn or_map_kernel_error(
   address: String,
   error: or_map_kernel.KernelError,
 ) -> CoreError {
   case error {
     or_map_kernel.ModeMismatch(detail) -> OrMapModeMismatch(address, detail)
+    or_map_kernel.InvalidSetState(detail)
+    | or_map_kernel.CounterExhausted(detail) ->
+      OrMapOperationFailed(address, detail)
     or_map_kernel.UnexpectedAck(detail)
     | or_map_kernel.UnexpectedRollback(detail)
     | or_map_kernel.CorruptDelta(detail)
@@ -3452,6 +3865,23 @@ fn locate_pn_counter(
   }
 }
 
+fn locate_g_counter(
+  core: Core,
+  address: String,
+) -> Result(Located(g_counter_kernel.GCounterState), CoreError) {
+  use located <- result.try(locate_channel(core, address))
+  case located {
+    Detached(channel.GCounterState(kernel)) -> Ok(Detached(kernel))
+    Attached(channel.GCounterState(kernel)) -> Ok(Attached(kernel))
+    Detached(other) | Attached(other) ->
+      Error(WrongChannelType(
+        address,
+        expected: channel.GCounterChannel,
+        actual: channel.channel_type(other),
+      ))
+  }
+}
+
 fn locate_pact_map(
   core: Core,
   address: String,
@@ -3893,6 +4323,13 @@ fn tag_pn_counter_events(
   list.map(events, fn(event) { #(address, channel.PnCounterEvent(event)) })
 }
 
+fn tag_g_counter_events(
+  address: String,
+  events: List(g_counter_kernel.GCounterEvent),
+) -> List(#(String, ChannelEvent)) {
+  list.map(events, fn(event) { #(address, channel.GCounterEvent(event)) })
+}
+
 fn tag_json_ot_events(
   address: String,
   events: List(json_ot_kernel.JsonOtEvent),
@@ -4035,6 +4472,16 @@ pub fn pn_counter_value(core: Core, address: String) -> Result(Int, Nil) {
   }
 }
 
+/// The current optimistic value of the grow-only counter. The result is
+/// `Error(Nil)` when the address does not exist, and when it does not name a
+/// GCounter channel.
+pub fn g_counter_value(core: Core, address: String) -> Result(Int, Nil) {
+  case find_channel(core, address) {
+    Ok(channel.GCounterState(kernel)) -> Ok(g_counter_kernel.value(kernel))
+    Ok(_) | Error(Nil) -> Error(Nil)
+  }
+}
+
 /// The accepted value for `key` in the PactMap at `address`. The result is
 /// `Error(Nil)` when the key has no accepted value, because it is still pending or it
 /// is absent, and when the address does not name a PactMap channel.
@@ -4140,6 +4587,20 @@ pub fn or_map_value(
   case find_channel(core, address) {
     Ok(channel.OrMapState(kernel)) -> or_map_kernel.get(kernel, key)
     Ok(_) | Error(Nil) -> Error(Nil)
+  }
+}
+
+pub fn or_map_values(
+  core: Core,
+  address: String,
+  key: String,
+) -> Result(List(String), Nil) {
+  case or_map_value(core, address, key) {
+    Ok(or_map_kernel.MvRegister(values)) -> Ok(values)
+    Ok(or_map_kernel.Tally(_))
+    | Ok(or_map_kernel.Register(_))
+    | Ok(or_map_kernel.SetMembers(_))
+    | Error(Nil) -> Error(Nil)
   }
 }
 

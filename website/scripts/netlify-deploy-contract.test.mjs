@@ -235,13 +235,57 @@ describe("Netlify deploy contract", () => {
 
   it("the prebuild generates the manifest before Astro reads it", () => {
     const prebuild = websitePackage.scripts?.prebuild ?? "";
+    const checkTypes = websitePackage.scripts?.["check:types"] ?? "";
+    const buildGleam = websitePackage.scripts?.["build:gleam"] ?? "";
+    const generate = websitePackage.scripts?.["generate:snippets"] ?? "";
+
     assert.match(
       prebuild,
-      /generate:snippets/,
-      "the prebuild hook must generate the snippet manifest; without it the build reads a stale or absent file",
+      /check:types/,
+      "the prebuild hook must run check:types before Astro reads generated modules",
     );
 
-    const generate = websitePackage.scripts?.["generate:snippets"] ?? "";
+    assert.match(
+      checkTypes,
+      /build:gleam/,
+      "check:types must compile the Gleam modules and declarations",
+    );
+    assert.match(
+      checkTypes,
+      /generate:snippets/,
+      "check:types must generate the snippet manifest before TypeScript reads it",
+    );
+    assert.match(
+      checkTypes,
+      /astro sync/,
+      "check:types must generate Astro's TypeScript declarations",
+    );
+    assert.match(
+      checkTypes,
+      /tsc --noEmit/,
+      "check:types must run the TypeScript compiler",
+    );
+    assert.match(
+      buildGleam,
+      /gleam build --target javascript/,
+      "build:gleam must compile the Gleam kernel to JavaScript",
+    );
+    const rootBuild = buildGleam.indexOf("gleam build --target javascript");
+    const lustreBuild = buildGleam.indexOf("cd watershed_lustre");
+    assert.notEqual(
+      lustreBuild,
+      -1,
+      "build:gleam must also compile watershed_lustre declarations",
+    );
+    assert.ok(
+      rootBuild < lustreBuild,
+      "build the root package before watershed_lustre consumes its generated modules",
+    );
+    assert.match(
+      buildGleam.slice(lustreBuild),
+      /gleam build --target javascript/,
+      "build:gleam must compile watershed_lustre after entering its package directory",
+    );
     assert.match(
       generate,
       /tools\/source-snippets/,
@@ -254,13 +298,18 @@ describe("Netlify deploy contract", () => {
       "build must be plain `astro build`, so npm's prebuild hook is what orders generation before it",
     );
 
-    const kernel = prebuild.indexOf("gleam build --target javascript");
-    const snippets = prebuild.indexOf("generate:snippets");
-    assert.notEqual(kernel, -1, "the prebuild must compile the Gleam kernel to JavaScript for the live demo");
+    const kernel = checkTypes.indexOf("build:gleam");
+    const snippets = checkTypes.indexOf("generate:snippets");
+    const astroTypes = checkTypes.indexOf("astro sync");
+    const typescript = checkTypes.indexOf("tsc --noEmit");
     assert.ok(
       kernel < snippets,
       "compile the kernel before generating snippets; the generator scans sources, not build output, " +
         "but a failed compile should stop the deploy at the compiler, not at a manifest error",
+    );
+    assert.ok(
+      snippets < astroTypes && astroTypes < typescript,
+      "generate snippets and Astro declarations before TypeScript resolves them",
     );
   });
 

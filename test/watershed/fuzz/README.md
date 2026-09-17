@@ -6,6 +6,10 @@ this file covers day-to-day reproduction and CI usage (F4).
 
 ## Running
 
+`mv_register_model` checks causal alternatives, retained tags, and full version
+vectors against an independent logged-write oracle. Its scripts cover rollback,
+stash replay, reconnect, duplicate writes, and summary joins.
+
 - `gleam test` — fast profile, 200 iterations per suite (`counter_fuzz_test`,
   `map_fuzz_test`). Good for the inner dev loop and pre-commit checks.
 - `just fuzz` — deep profile, 5000 iterations per suite. Use for CI/nightly

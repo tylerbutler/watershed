@@ -1,4 +1,6 @@
 @target(javascript)
+import gleam/json
+@target(javascript)
 import gleam/list
 @target(javascript)
 import gleam/option.{type Option, None, Some}
@@ -6,7 +8,17 @@ import gleam/option.{type Option, None, Some}
 import startest/expect
 
 @target(javascript)
+import watershed/channel
+@target(javascript)
+import watershed/crdt_core
+@target(javascript)
 import watershed/crdt_js.{type Config, type CrdtDocument}
+@target(javascript)
+import watershed/crdt_wire
+@target(javascript)
+import watershed/lww_map_kernel
+@target(javascript)
+import watershed/or_map_kernel
 @target(javascript)
 import watershed/p2p
 @target(javascript)
@@ -18,9 +30,13 @@ import watershed/persist_js
 @target(javascript)
 import watershed/relay_fake
 @target(javascript)
-import watershed/schema.{type GSetChannel}
+import watershed/schema.{
+  type GSetChannel, type MvRegisterChannel, type OrMapChannel,
+}
 @target(javascript)
 import watershed/transport_js.{type Cell}
+@target(javascript)
+import watershed/wire
 
 @target(javascript)
 const room = "persist-room"
@@ -29,9 +45,268 @@ const room = "persist-room"
 const compatibility = "persist-test/v1"
 
 @target(javascript)
+fn set_map_config() -> Config(OrMapChannel) {
+  crdt_js.config(
+    room_id: room,
+    replica_label: "set-map-persist",
+    compatibility_tag: compatibility,
+    root: p2p.or_map_root(or_map_kernel.OrSetMode),
+    signaling: p2p_fake.signaling(p2p_fake.new_world()),
+  )
+}
+
+@target(javascript)
+pub fn set_map_persistence_retains_empty_keys_tombstones_and_new_author_test() -> Nil {
+  let store = memory(None, False)
+  let assert Ok(document) = crdt_js.new_document(set_map_config())
+  let map = crdt_js.root(document)
+  crdt_js.or_map_add_member(map, "empty", "draft") |> expect.to_equal(Ok(Nil))
+  crdt_js.or_map_add_member(map, "removed", "old") |> expect.to_equal(Ok(Nil))
+  let assert Ok(stale) = crdt_js.export_snapshot(document)
+  crdt_js.or_map_remove_member(map, "empty", "draft")
+  |> expect.to_equal(Ok(Nil))
+  crdt_js.or_map_remove_key(map, "removed") |> expect.to_equal(Ok(Nil))
+  let saved = transport_js.new_cell(None)
+  persist_js.save(memory_storage(store), document, fn(value) {
+    transport_js.set_cell(saved, Some(value))
+  })
+  let assert Some(Ok(digest)) = transport_js.get_cell(saved)
+  digest |> expect.to_equal(crdt_js.digest(document))
+  let loaded = transport_js.new_cell(None)
+  persist_js.load(memory_storage(store), set_map_config(), fn(value) {
+    transport_js.set_cell(loaded, Some(value))
+  })
+  let assert Some(Ok(Some(restored))) = transport_js.get_cell(loaded)
+  crdt_js.replica_id(restored)
+  |> expect.to_not_equal(crdt_js.replica_id(document))
+  crdt_js.digest(restored) |> expect.to_equal(digest)
+  let restored_map = crdt_js.root(restored)
+  crdt_js.or_map_value(restored_map, "empty")
+  |> expect.to_equal(Ok(Ok(or_map_kernel.SetMembers([]))))
+  crdt_js.or_map_value(restored_map, "removed")
+  |> expect.to_equal(Ok(Error(Nil)))
+  let assert Ok(_) = crdt_js.merge_snapshot(restored, stale)
+  crdt_js.digest(restored) |> expect.to_equal(digest)
+  crdt_js.or_map_add_member(restored_map, "removed", "new")
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(_) = crdt_js.merge_snapshot(restored, stale)
+  crdt_js.or_map_entries(restored_map)
+  |> expect.to_equal(
+    Ok([
+      #("empty", or_map_kernel.SetMembers([])),
+      #("removed", or_map_kernel.SetMembers(["new"])),
+    ]),
+  )
+  persist_js.save(memory_storage(store), restored, fn(value) {
+    transport_js.set_cell(saved, Some(value))
+  })
+  let assert Some(Ok(_)) = transport_js.get_cell(saved)
+  persist_js.load(memory_storage(store), set_map_config(), fn(value) {
+    transport_js.set_cell(loaded, Some(value))
+  })
+  let assert Some(Ok(Some(reloaded))) = transport_js.get_cell(loaded)
+  crdt_js.digest(reloaded) |> expect.to_equal(crdt_js.digest(restored))
+  let assert Ok(_) = crdt_js.merge_snapshot(reloaded, stale)
+  crdt_js.or_map_entries(crdt_js.root(reloaded))
+  |> expect.to_equal(
+    Ok([
+      #("empty", or_map_kernel.SetMembers([])),
+      #("removed", or_map_kernel.SetMembers(["new"])),
+    ]),
+  )
+}
+
+@target(javascript)
+pub fn mv_or_map_persistence_retains_conflicts_and_retired_history_test() -> Nil {
+  let config =
+    crdt_js.config(
+      room,
+      "mv-map",
+      compatibility,
+      p2p.or_map_root(or_map_kernel.MvRegisterMode),
+      p2p_fake.signaling(p2p_fake.new_world()),
+    )
+  let store = memory(None, False)
+  let assert Ok(a) = crdt_js.new_document(config)
+  let assert Ok(b) = crdt_js.new_document(config)
+  let assert Ok(Nil) =
+    crdt_js.or_map_set_mv_register(crdt_js.root(a), "gate", "a")
+  let assert Ok(Nil) =
+    crdt_js.or_map_set_mv_register(crdt_js.root(b), "gate", "b")
+  let assert Ok(old_b) = crdt_js.export_snapshot(b)
+  let assert Ok(_) = crdt_js.merge_snapshot(a, old_b)
+  let saved = transport_js.new_cell(None)
+  let loaded = transport_js.new_cell(None)
+  persist_js.save(memory_storage(store), a, fn(value) {
+    transport_js.set_cell(saved, Some(value))
+  })
+  let assert Some(Ok(_)) = transport_js.get_cell(saved)
+  persist_js.load(memory_storage(store), config, fn(value) {
+    transport_js.set_cell(loaded, Some(value))
+  })
+  let assert Some(Ok(Some(restored))) = transport_js.get_cell(loaded)
+  crdt_js.or_map_values(crdt_js.root(restored), "gate")
+  |> expect.to_equal(Ok(Ok(["a", "b"])))
+  let assert Ok(Nil) =
+    crdt_js.or_map_set_mv_register(crdt_js.root(restored), "gate", "a")
+  persist_js.save(memory_storage(store), restored, fn(value) {
+    transport_js.set_cell(saved, Some(value))
+  })
+  let assert Some(Ok(_)) = transport_js.get_cell(saved)
+  persist_js.load(memory_storage(store), config, fn(value) {
+    transport_js.set_cell(loaded, Some(value))
+  })
+  let assert Some(Ok(Some(reloaded))) = transport_js.get_cell(loaded)
+  crdt_js.digest(reloaded) |> expect.to_equal(crdt_js.digest(restored))
+  let assert Ok(_) = crdt_js.merge_snapshot(reloaded, old_b)
+  crdt_js.or_map_values(crdt_js.root(reloaded), "gate")
+  |> expect.to_equal(Ok(Ok(["a"])))
+  let before = crdt_js.digest(reloaded)
+  let assert Ok(Nil) =
+    crdt_js.or_map_set_mv_register(crdt_js.root(reloaded), "gate", "a")
+  crdt_js.digest(reloaded) |> expect.to_not_equal(before)
+}
+
+@target(javascript)
+fn mv_config() -> Config(MvRegisterChannel) {
+  crdt_js.config(
+    room_id: room,
+    replica_label: "mv-persist",
+    compatibility_tag: compatibility,
+    root: p2p.mv_register_root(),
+    signaling: p2p_fake.signaling(p2p_fake.new_world()),
+  )
+}
+
+@target(javascript)
+pub fn mv_register_persistence_retains_conflicts_and_eventless_causal_changes_test() -> Nil {
+  let store = memory(None, False)
+  let assert Ok(a) = crdt_js.new_document(mv_config())
+  let assert Ok(b) = crdt_js.new_document(mv_config())
+  let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(a), "a")
+  let assert Ok(Nil) = crdt_js.mv_register_set(crdt_js.root(b), "b")
+  let assert Ok(old_b) = crdt_js.export_snapshot(b)
+  let assert Ok(_) = crdt_js.merge_snapshot(a, old_b)
+  let saved = transport_js.new_cell(None)
+  persist_js.save(memory_storage(store), a, fn(value) {
+    transport_js.set_cell(saved, Some(value))
+  })
+  let assert Some(Ok(_)) = transport_js.get_cell(saved)
+  let loaded = transport_js.new_cell(None)
+  persist_js.load(memory_storage(store), mv_config(), fn(value) {
+    transport_js.set_cell(loaded, Some(value))
+  })
+  let assert Some(Ok(Some(restored))) = transport_js.get_cell(loaded)
+  crdt_js.replica_id(restored) |> expect.to_not_equal(crdt_js.replica_id(a))
+  crdt_js.mv_register_values(crdt_js.root(restored))
+  |> expect.to_equal(Ok(["a", "b"]))
+  let assert Ok(Nil) =
+    crdt_js.mv_register_set(crdt_js.root(restored), "resolved")
+  let assert Ok(snapshot) = crdt_js.export_snapshot(restored)
+  let assert Ok(_) = crdt_js.merge_snapshot(a, snapshot)
+  let assert Ok(Nil) =
+    crdt_js.mv_register_set(crdt_js.root(restored), "resolved")
+  let assert Ok(snapshot) = crdt_js.export_snapshot(restored)
+  let assert Ok(outcome) = crdt_js.merge_snapshot(a, snapshot)
+  outcome.events |> expect.to_equal([])
+  persist_js.save(memory_storage(store), a, fn(value) {
+    transport_js.set_cell(saved, Some(value))
+  })
+  let assert Some(Ok(_)) = transport_js.get_cell(saved)
+  persist_js.load(memory_storage(store), mv_config(), fn(value) {
+    transport_js.set_cell(loaded, Some(value))
+  })
+  let assert Some(Ok(Some(reloaded))) = transport_js.get_cell(loaded)
+  crdt_js.digest(reloaded) |> expect.to_equal(crdt_js.digest(restored))
+  let assert Ok(_) = crdt_js.merge_snapshot(reloaded, old_b)
+  crdt_js.mv_register_values(crdt_js.root(reloaded))
+  |> expect.to_equal(Ok(["resolved"]))
+}
+
+@target(javascript)
 type UpdateMode {
   RunImmediately
   QueueManually
+}
+
+@target(javascript)
+pub fn lww_map_persistence_retains_eventless_tombstones_and_restores_clocks_test() -> Nil {
+  let document = new_document()
+  let assert Ok(source) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: compatibility,
+      replica: "source",
+      session: "source-session",
+      root: channel.InitGSet,
+    ))
+  let assert Ok(#(source, created)) =
+    crdt_core.create_channel(source, channel.InitLwwMap)
+  let assert [descriptor] = created.created
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      source,
+      descriptor.address,
+      channel.LwwMapRemoveEdit("gone", 100),
+    )
+  let assert Ok(snapshot) =
+    json.parse(crdt_core.canonical_json(source), wire.json_value_decoder())
+  let assert Ok(outcome) = crdt_js.merge_snapshot(document, snapshot)
+  outcome.events |> expect.to_equal([])
+  let store = memory(None, False)
+  let saved = transport_js.new_cell(None)
+  persist_js.save(memory_storage(store), document, fn(value) {
+    transport_js.set_cell(saved, Some(value))
+  })
+  let assert Some(Ok(_)) = transport_js.get_cell(saved)
+  let before = crdt_js.digest(document)
+  let assert Ok(#(source, _)) =
+    crdt_core.edit(
+      source,
+      descriptor.address,
+      channel.LwwMapRemoveEdit("gone", 200),
+    )
+  let assert Ok(snapshot) =
+    json.parse(crdt_core.canonical_json(source), wire.json_value_decoder())
+  let assert Ok(outcome) = crdt_js.merge_snapshot(document, snapshot)
+  outcome.events |> expect.to_equal([])
+  crdt_js.digest(document) |> expect.to_not_equal(before)
+  persist_js.save(memory_storage(store), document, fn(value) {
+    transport_js.set_cell(saved, Some(value))
+  })
+  let assert Some(Ok(_)) = transport_js.get_cell(saved)
+  let loaded = transport_js.new_cell(None)
+  persist_js.load(memory_storage(store), config(), fn(value) {
+    transport_js.set_cell(loaded, Some(value))
+  })
+  let assert Some(Ok(Some(restored))) = transport_js.get_cell(loaded)
+  crdt_js.digest(restored) |> expect.to_equal(crdt_js.digest(document))
+  let assert Ok(raw) = crdt_js.export_snapshot(restored)
+  let assert Ok(inspector) =
+    crdt_core.new(crdt_core.config(
+      room: room,
+      compatibility: compatibility,
+      replica: "inspector",
+      session: "inspect",
+      root: channel.InitGSet,
+    ))
+  let assert Ok(#(inspector, _)) =
+    crdt_core.import_snapshot(inspector, json.to_string(raw))
+  let assert Ok(#(_, outcome)) =
+    crdt_core.edit(
+      inspector,
+      descriptor.address,
+      channel.LwwMapSetEdit("gone", "restored", 0),
+    )
+  let assert [
+    crdt_wire.Delta(
+      _,
+      _,
+      _,
+      channel.LwwMapOperation(lww_map_kernel.Set("gone", "restored", 201, _)),
+    ),
+  ] = outcome.broadcast
+  Nil
 }
 
 @target(javascript)

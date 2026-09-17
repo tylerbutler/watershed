@@ -8,8 +8,20 @@
 //// no OTP. The state is in a mutable cell, and the Phoenix transport delivers
 //// its events through callbacks.
 ////
+//// A bootstrap retains validated live operations through summary and prefix
+//// loads. Each bootstrap permits at most 10,000 operations and 16 MiB of
+//// UTF-8 payloads before readiness. An overflow fails the connection.
+//// These limits count live catch-up traffic across all bootstrap drain batches.
+//// Rejoin, close, and failure invalidate pending HTTP completions.
+////
+//// Subscriber and outcome callbacks observe committed state. Their exceptions
+//// go to the platform error reporter and do not stop protocol processing or
+//// other observers.
+////
 //// JavaScript target only. `@target(javascript)` gates the module.
 
+@target(javascript)
+import gleam/bool
 @target(javascript)
 import gleam/dict.{type Dict}
 @target(javascript)
@@ -41,6 +53,8 @@ import spillway/nack.{type Nack}
 @target(javascript)
 import spillway/types.{type SequencedDocumentMessage}
 
+@target(javascript)
+import watershed/callback_js
 @target(javascript)
 import watershed/channel.{
   type ChannelEvent, type Resolution, AcquireResolved, ClaimResolved,
@@ -135,8 +149,20 @@ pub type TransportCallbacks {
 /// A replaceable connection to a floodgate-shaped server. `connect` opens the
 /// link, connects the callbacks, and returns the handle for the outbound
 /// frames.
+///
+/// Callbacks raised during `connect` are processed in arrival order after the
+/// returned handle is installed.
+/// Synchronous replies during that drain remain in the same queue. Normal
+/// traffic uses direct callbacks after construction finishes.
 pub type Transport {
   Transport(connect: fn(TransportCallbacks) -> TransportHandle)
+}
+
+@target(javascript)
+type TransportEvent {
+  TransportJoined
+  TransportClosed
+  TransportReceived(event: String, payload: String)
 }
 
 @target(javascript)
@@ -192,6 +218,16 @@ type Phase {
 }
 
 @target(javascript)
+type PendingSummary {
+  PendingSummary(
+    tree_id: String,
+    client_sequence_number: Int,
+    proposal_sequence_number: Option(Int),
+    resolve: fn(Result(String, String)) -> Nil,
+  )
+}
+
+@target(javascript)
 type State {
   State(
     connect_message: ConnectMessage,
@@ -227,19 +263,32 @@ type State {
     ),
     on_ready: fn(Result(Nil, String)) -> Nil,
     ready_fired: Bool,
-    /// The automatic summarization policy. The value is `None` unless an
-    /// application asked for one. This field is on `State`, and not on the
+    bootstrap_generation: Int,
+    bootstrap: Option(Bootstrap),
+    /// The automatic summarization policy. The value is `None` when disabled.
+    /// This field is on `State`, and not on the
     /// core, because it is part of the configuration of this client, and not
     /// part of the document.
     auto_summary: Option(summary_policy.Policy),
     /// Whether a summarization wake-up is scheduled already. Without this flag,
     /// a busy document would arm a new timer for every sequenced operation.
     summary_armed: Bool,
+    pending_summary: Option(PendingSummary),
     /// How the runtime schedules delayed work. In production it uses the real
     /// `setTimeout` function. The in-memory hub substitutes its logical clock,
     /// so `sluice_js.advance` drives the delay window of the policy, and not
     /// the elapsed time.
     scheduler: transport_js.Scheduler,
+  )
+}
+
+@target(javascript)
+type Bootstrap {
+  Bootstrap(
+    batches: List(List(SequencedDocumentMessage)),
+    operation_count: Int,
+    payload_bytes: Int,
+    draining: Bool,
   )
 }
 
@@ -327,22 +376,72 @@ pub fn start_with_transport(
       acquire_waiters: dict.new(),
       on_ready: on_ready,
       ready_fired: False,
-      auto_summary: None,
+      bootstrap_generation: 0,
+      bootstrap: None,
+      auto_summary: Some(summary_policy.policy()),
       summary_armed: False,
+      pending_summary: None,
       scheduler: transport_js.real_scheduler(),
     ))
 
+  let constructing = transport_js.new_cell(Some([]))
   let handle =
     transport.connect(
       TransportCallbacks(
-        on_event: fn(event, payload) { on_event(cell, event, payload) },
-        on_join: fn() { on_join(cell) },
-        on_close: fn() { on_close(cell) },
+        on_event: fn(event, payload) {
+          transport_event(cell, constructing, TransportReceived(event, payload))
+        },
+        on_join: fn() { transport_event(cell, constructing, TransportJoined) },
+        on_close: fn() { transport_event(cell, constructing, TransportClosed) },
       ),
     )
 
   cell_set(cell, State(..cell_get(cell), channel: Some(handle)))
+  drain_transport_start(cell, constructing)
   Runtime(cell: cell)
+}
+
+@target(javascript)
+fn transport_event(
+  cell: Cell(State),
+  constructing: Cell(Option(List(TransportEvent))),
+  event: TransportEvent,
+) -> Nil {
+  case transport_js.get_cell(constructing) {
+    Some(events) -> transport_js.set_cell(constructing, Some([event, ..events]))
+    None -> deliver_transport_event(cell, event)
+  }
+}
+
+@target(javascript)
+fn drain_transport_start(
+  cell: Cell(State),
+  constructing: Cell(Option(List(TransportEvent))),
+) -> Nil {
+  case transport_js.get_cell(constructing) {
+    None -> Nil
+    Some([]) -> transport_js.set_cell(constructing, None)
+    Some(events) -> {
+      transport_js.set_cell(constructing, Some([]))
+      events
+      |> list.reverse
+      |> list.each(fn(event) { deliver_transport_event(cell, event) })
+      drain_transport_start(cell, constructing)
+    }
+  }
+}
+
+@target(javascript)
+fn deliver_transport_event(cell: Cell(State), event: TransportEvent) -> Nil {
+  case cell_get(cell).phase {
+    Failed(_) -> Nil
+    _ ->
+      case event {
+        TransportJoined -> on_join(cell)
+        TransportClosed -> on_close(cell)
+        TransportReceived(event, payload) -> on_event(cell, event, payload)
+      }
+  }
 }
 
 @target(javascript)
@@ -456,6 +555,116 @@ pub fn pn_counter_update(
 /// address does not exist, and when it does not name a PN-counter channel.
 pub fn pn_counter_value(runtime: Runtime, address: String) -> Result(Int, Nil) {
   read(runtime.cell, Error(Nil), runtime_core.pn_counter_value(_, address))
+}
+
+@target(javascript)
+/// Add `amount` to the grow-only counter at `address`. The result is an error
+/// with a description when the amount is negative.
+pub fn g_counter_increment(
+  runtime: Runtime,
+  address: String,
+  amount: Int,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.g_counter_increment(core, address, amount)
+  })
+}
+
+@target(javascript)
+/// The optimistic value of the grow-only counter. The result is `Error(Nil)`
+/// when the address does not exist, and when it does not name a GCounter
+/// channel.
+pub fn g_counter_value(runtime: Runtime, address: String) -> Result(Int, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.g_counter_value(_, address))
+}
+
+@target(javascript)
+/// Set the register with the runtime wall clock. Return channel and clock
+/// failures to the caller.
+pub fn lww_register_set(
+  runtime: Runtime,
+  address: String,
+  value: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.lww_register_set(
+      core,
+      address,
+      value,
+      transport_js.now_milliseconds(),
+    )
+  })
+}
+
+@target(javascript)
+/// Read the optimistic value. Return `Error(Nil)` if the address does not
+/// name an LWW-register channel.
+pub fn lww_register_value(
+  runtime: Runtime,
+  address: String,
+) -> Result(String, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.lww_register_value(_, address))
+}
+
+@target(javascript)
+pub fn create_lww_map(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitLwwMap, "create_lww_map")
+}
+
+@target(javascript)
+pub fn lww_map_set(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.lww_map_set(
+      core,
+      address,
+      key,
+      value,
+      transport_js.now_milliseconds(),
+    )
+  })
+}
+
+@target(javascript)
+pub fn lww_map_remove(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.lww_map_remove(
+      core,
+      address,
+      key,
+      transport_js.now_milliseconds(),
+    )
+  })
+}
+
+@target(javascript)
+pub fn lww_map_get(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Result(String, Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.lww_map_get(_, address, key))
+}
+
+@target(javascript)
+pub fn lww_map_entries(
+  runtime: Runtime,
+  address: String,
+) -> List(#(String, String)) {
+  read(runtime.cell, [], runtime_core.lww_map_entries(_, address))
+}
+
+@target(javascript)
+pub fn lww_map_keys(runtime: Runtime, address: String) -> List(String) {
+  read(runtime.cell, [], runtime_core.lww_map_keys(_, address))
 }
 
 @target(javascript)
@@ -584,21 +793,22 @@ pub fn ordered_acquire_with_outcome(
         // names another kernel. The runtime resolves the waiter at once and
         // changes nothing, because a client library must not panic.
         Error(_) -> {
-          on_outcome(ordered_collection_kernel.Aborted)
+          observe("acquire outcome", fn() {
+            on_outcome(ordered_collection_kernel.Aborted)
+          })
           acquire_id
         }
         Ok(#(core, events, outbound, immediate_outcome)) -> {
-          let state =
-            register_acquire_waiter(
-              state,
-              address,
-              acquire_id,
-              on_outcome,
-              immediate_outcome,
-            )
           cell_set(
             runtime.cell,
             State(..state, phase: Ready(core, resubmit_at)),
+          )
+          register_acquire_waiter(
+            runtime.cell,
+            address,
+            acquire_id,
+            on_outcome,
+            immediate_outcome,
           )
           case resubmit_at {
             None -> send_outbound(state.channel, core.client_id, outbound)
@@ -614,25 +824,28 @@ pub fn ordered_acquire_with_outcome(
         // names another kernel. The runtime resolves the waiter at once and
         // changes nothing, because a client library must not panic.
         Error(_) -> {
-          on_outcome(ordered_collection_kernel.Aborted)
+          observe("acquire outcome", fn() {
+            on_outcome(ordered_collection_kernel.Aborted)
+          })
           acquire_id
         }
         Ok(#(core, events, _outbound, immediate_outcome)) -> {
-          let state =
-            register_acquire_waiter(
-              state,
-              address,
-              acquire_id,
-              on_outcome,
-              immediate_outcome,
-            )
           cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
+          register_acquire_waiter(
+            runtime.cell,
+            address,
+            acquire_id,
+            on_outcome,
+            immediate_outcome,
+          )
           fan_out(state.subscribers, events)
           acquire_id
         }
       }
     Connecting | Failed(_) -> {
-      on_outcome(ordered_collection_kernel.Aborted)
+      observe("acquire outcome", fn() {
+        on_outcome(ordered_collection_kernel.Aborted)
+      })
       acquire_id
     }
   }
@@ -766,6 +979,62 @@ pub fn or_map_set(
 @target(javascript)
 pub fn or_map_remove(runtime: Runtime, address: String, key: String) -> Nil {
   edit(runtime.cell, fn(core) { runtime_core.or_map_remove(core, address, key) })
+}
+
+@target(javascript)
+pub fn or_map_add_member(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  member: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.or_map_add_member(core, address, key, member)
+  })
+}
+
+@target(javascript)
+pub fn or_map_set_mv_register(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  value: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.or_map_set_mv_register(core, address, key, value)
+  })
+}
+
+@target(javascript)
+pub fn or_map_remove_member(
+  runtime: Runtime,
+  address: String,
+  key: String,
+  member: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.or_map_remove_member(core, address, key, member)
+  })
+}
+
+@target(javascript)
+pub fn or_map_remove_key(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Result(Nil, String) {
+  edit_sequence_with_result(runtime.cell, fn(core) {
+    runtime_core.or_map_remove(core, address, key)
+  })
+}
+
+@target(javascript)
+pub fn or_map_values(
+  runtime: Runtime,
+  address: String,
+  key: String,
+) -> Result(List(String), Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.or_map_values(_, address, key))
 }
 
 @target(javascript)
@@ -1431,6 +1700,20 @@ pub fn create_pn_counter(runtime: Runtime) -> Result(String, String) {
 }
 
 @target(javascript)
+/// Create a new detached grow-only counter channel. The lifecycle is the same
+/// as for `create_map`.
+pub fn create_g_counter(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitGCounter, "create_g_counter")
+}
+
+@target(javascript)
+/// Create a detached LWW-register channel. The lifecycle is the same as for
+/// `create_map`.
+pub fn create_lww_register(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitLwwRegister, "create_lww_register")
+}
+
+@target(javascript)
 /// Create a new detached PactMap channel, which is a consensus map. The
 /// lifecycle is the same as for `create_map`.
 pub fn create_pact_map(runtime: Runtime) -> Result(String, String) {
@@ -1537,15 +1820,14 @@ fn claim_submit(
         Ok(runtime_core.ClaimAlreadyPendingLocally) -> AlreadyPendingLocally
         Ok(runtime_core.ClaimPending(core, outbound, immediate_outcome)) -> {
           let #(promise_outcome, resolve_outcome) = promise.start()
-          let state =
-            register_claim_waiter(
-              state,
-              address,
-              key,
-              resolve_outcome,
-              immediate_outcome,
-            )
           cell_set(cell, State(..state, phase: Ready(core, resubmit_at)))
+          register_claim_waiter(
+            cell,
+            address,
+            key,
+            resolve_outcome,
+            immediate_outcome,
+          )
           case resubmit_at {
             None -> send_outbound(state.channel, core.client_id, outbound)
             Some(_) -> Nil
@@ -1564,15 +1846,14 @@ fn claim_submit(
         Ok(runtime_core.ClaimAlreadyPendingLocally) -> AlreadyPendingLocally
         Ok(runtime_core.ClaimPending(core, _outbound, immediate_outcome)) -> {
           let #(promise_outcome, resolve_outcome) = promise.start()
-          let state =
-            register_claim_waiter(
-              state,
-              address,
-              key,
-              resolve_outcome,
-              immediate_outcome,
-            )
           cell_set(cell, State(..state, phase: Reconnecting(core)))
+          register_claim_waiter(
+            cell,
+            address,
+            key,
+            resolve_outcome,
+            immediate_outcome,
+          )
           Pending(promise_outcome)
         }
       }
@@ -1866,8 +2147,23 @@ pub fn go_online(runtime: Runtime) -> Nil {
 
 @target(javascript)
 pub fn close(runtime: Runtime) -> Nil {
-  let state = abort_outcome_waiters(cell_get(runtime.cell))
-  cell_set(runtime.cell, State(..state, phase: Failed("runtime closed")))
+  let state = cell_get(runtime.cell)
+  use <- bool.guard(state.channel == None, Nil)
+  cell_set(
+    runtime.cell,
+    State(
+      ..state,
+      phase: Failed("runtime closed"),
+      channel: None,
+      claim_waiters: dict.new(),
+      acquire_waiters: dict.new(),
+      pending_summary: None,
+      bootstrap: None,
+      bootstrap_generation: state.bootstrap_generation + 1,
+    ),
+  )
+  abort_outcome_waiters(state)
+  abort_pending_summary(state)
   notify_session_lost(runtime.cell, state.phase)
   case state.channel {
     Some(channel) -> channel.close()
@@ -1879,7 +2175,9 @@ pub fn close(runtime: Runtime) -> Nil {
 /// Whether the document is caught up, which is true when the server acked every
 /// local edit. The confirmed state is then complete and stable.
 pub fn is_synced(runtime: Runtime) -> Bool {
-  case cell_get(runtime.cell).phase {
+  let state = cell_get(runtime.cell)
+  use <- bool.guard(state.bootstrap != None, False)
+  case state.phase {
     Ready(core, None) -> runtime_core.is_synced(core)
     Ready(_, Some(_)) | Connecting | Reconnecting(_) | Failed(_) -> False
   }
@@ -1910,13 +2208,18 @@ pub fn diagnostics(runtime: Runtime) -> Diagnostics {
     Ready(core, Some(checkpoint)) ->
       diagnostics_from_core(core, "catching-up", Some(checkpoint), False, state)
     Ready(core, None) ->
-      diagnostics_from_core(
-        core,
-        "ready",
-        None,
-        runtime_core.is_synced(core),
-        state,
-      )
+      case state.bootstrap {
+        Some(_) ->
+          diagnostics_from_core(core, "catching-up", None, False, state)
+        None ->
+          diagnostics_from_core(
+            core,
+            "ready",
+            None,
+            runtime_core.is_synced(core),
+            state,
+          )
+      }
     Failed(reason) ->
       Diagnostics(
         phase: "failed: " <> reason,
@@ -1951,7 +2254,7 @@ fn diagnostics_from_core(
     resubmit_checkpoint: checkpoint,
     synced: synced,
     operations_since_summary: runtime_core.operations_since_summary(core),
-    summary_pending: state.summary_armed,
+    summary_pending: state.summary_armed || state.pending_summary != None,
   )
 }
 
@@ -1959,13 +2262,23 @@ fn diagnostics_from_core(
 /// Replace the scheduler of the runtime. This is a test seam for the in-memory
 /// hub, which binds the delayed work to its logical clock. A production runtime
 /// keeps the real `setTimeout` function that it started with. You can call this
-/// function at any time before the first sequenced operation, which is the
-/// earliest moment at which the runtime schedules anything.
+/// function before the first delayed operation is scheduled.
 pub fn set_scheduler(
   runtime: Runtime,
   scheduler: transport_js.Scheduler,
 ) -> Nil {
   cell_set(runtime.cell, State(..cell_get(runtime.cell), scheduler: scheduler))
+}
+
+@target(javascript)
+/// Schedule delayed work with the runtime clock.
+pub fn schedule(
+  runtime: Runtime,
+  action: fn() -> Nil,
+  milliseconds: Int,
+) -> Nil {
+  let _cancel = cell_get(runtime.cell).scheduler.schedule(action, milliseconds)
+  Nil
 }
 
 @target(javascript)
@@ -1997,14 +2310,14 @@ pub fn operations_since_summary(runtime: Runtime) -> Int {
 ///
 /// The delay keeps the cost of a room low. Every client crosses the threshold
 /// on the same operation. Each client then waits for a different interval,
-/// which comes from its id. The first summary that sequences advances
-/// `last_summary_sequence_number` on every client, and the rest of the room
-/// checks again on its wake-up and stops. A lost race costs one unnecessary
+/// which comes from its id. The first published summary advances
+/// `last_summary_sequence_number` on every client. The rest of the room checks
+/// again on its wake-up and stops. A lost race costs one unnecessary
 /// upload, and nothing more.
 fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
   let state = cell_get(cell)
-  case state.auto_summary, state.summary_armed {
-    Some(policy), False ->
+  case state.auto_summary, state.summary_armed, state.pending_summary {
+    Some(policy), False, None ->
       case runtime_core.wants_summary(core, policy) {
         False -> Nil
         True -> {
@@ -2017,7 +2330,7 @@ fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
           Nil
         }
       }
-    _, _ -> Nil
+    _, _, _ -> Nil
   }
 }
 
@@ -2028,23 +2341,23 @@ fn arm_summary(cell: Cell(State), core: runtime_core.Core) -> Nil {
 fn attempt_summary(cell: Cell(State)) -> Nil {
   let state = cell_get(cell)
   cell_set(cell, State(..state, summary_armed: False))
-  case state.phase, state.auto_summary {
-    Ready(core, None), Some(policy) ->
+  case state.phase, state.auto_summary, state.pending_summary {
+    Ready(core, None), Some(policy), None ->
       case runtime_core.wants_summary(core, policy) {
         False -> Nil
         True -> {
-          // A summarize operation carries no ack, so there is nothing to
-          // reconcile on failure: the checkpoint did not move, and the next
-          // sequenced operation arms another attempt.
+          // Publication failure leaves the checkpoint unchanged. The next
+          // sequenced operation can arm another attempt.
           let _ = summarize(Runtime(cell: cell))
           Nil
         }
       }
-    Ready(_, None), None
-    | Ready(_, Some(_)), _
-    | Connecting, _
-    | Reconnecting(_), _
-    | Failed(_), _
+    Ready(_, None), None, _
+    | Ready(_, None), Some(_), Some(_)
+    | Ready(_, Some(_)), _, _
+    | Connecting, _, _
+    | Reconnecting(_), _, _
+    | Failed(_), _, _
     -> Nil
   }
 }
@@ -2052,54 +2365,78 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
 @target(javascript)
 /// Summarize the current confirmed state of the document to the storage of
 /// floodgate. A later client can then start from that snapshot, and it does not
-/// replay the full operation history. The promise resolves with the summary
-/// handle, which is a git tree SHA. The connection must be synchronized, and
+/// replay the full operation history. The promise resolves after `summaryAck`
+/// with the published Git commit ID. The connection must be synchronized, and
 /// the token must carry the `summary:write` scope.
 ///
-/// The upload is asynchronous, so the promise settles after the storage holds
-/// the blob and the runtime pushes the summarize operation. The sequence number
+/// The upload is asynchronous. The sequence number
 /// of that operation comes from the live core at push time, and not at the
 /// start of the upload, so a concurrent local edit cannot collide with it.
 pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
   let cell = runtime.cell
   let state = cell_get(cell)
-  case state.phase, state.channel {
-    Ready(core, None), Some(_) ->
-      case state.connect_message.token {
-        None -> promise.resolve(Error("summarize requires an auth token"))
-        Some(token) ->
-          case runtime_core.is_synced(core) {
-            False ->
-              promise.resolve(Error(
-                "summarize requires the client to be caught up; retry once "
-                <> "in-flight edits have been acknowledged",
-              ))
-            True ->
-              git_storage.upload_summary(
-                base_url: state.http_base_url,
-                tenant: state.connect_message.tenant_id,
-                token: token,
-                sequence_number: core.last_seen_sequence_number,
-                members: runtime_core.summary_members(core),
-                channels: runtime_core.summary_channels(core),
-              )
-              |> promise.map(fn(result) {
-                case result {
-                  Error(error) -> Error(git_storage.error_to_string(error))
-                  Ok(tree_sha) -> finish_summarize(cell, tree_sha)
+  case state.pending_summary {
+    Some(_) ->
+      promise.resolve(Error("a summary publication is already pending"))
+    None ->
+      case state.phase, state.channel {
+        Ready(core, None), Some(_) ->
+          case state.connect_message.token {
+            None -> promise.resolve(Error("summarize requires an auth token"))
+            Some(token) ->
+              case runtime_core.is_synced(core) {
+                False ->
+                  promise.resolve(Error(
+                    "summarize requires the client to be caught up; retry once "
+                    <> "in-flight edits have been acknowledged",
+                  ))
+                True -> {
+                  let #(published, resolve) = promise.start()
+                  cell_set(
+                    cell,
+                    State(
+                      ..state,
+                      pending_summary: Some(PendingSummary(
+                        "",
+                        -1,
+                        None,
+                        resolve,
+                      )),
+                    ),
+                  )
+                  let _ =
+                    git_storage.upload_summary(
+                      base_url: state.http_base_url,
+                      tenant: state.connect_message.tenant_id,
+                      token: token,
+                      sequence_number: core.last_seen_sequence_number,
+                      members: runtime_core.summary_members(core),
+                      channels: runtime_core.summary_channels(core),
+                    )
+                    |> promise.map(fn(result) {
+                      case result {
+                        Error(error) ->
+                          resolve_pending_summary(
+                            cell,
+                            Error(git_storage.error_to_string(error)),
+                          )
+                        Ok(tree_sha) -> finish_summarize(cell, tree_sha)
+                      }
+                    })
+                  published
                 }
-              })
+              }
           }
+        Ready(_, None), None
+        | Ready(_, Some(_)), _
+        | Connecting, _
+        | Reconnecting(_), _
+        | Failed(_), _
+        ->
+          promise.resolve(Error(
+            "summarize is only available once the connection is fully synced",
+          ))
       }
-    Ready(_, None), None
-    | Ready(_, Some(_)), _
-    | Connecting, _
-    | Reconnecting(_), _
-    | Failed(_), _
-    ->
-      promise.resolve(Error(
-        "summarize is only available once the connection is fully synced",
-      ))
   }
 }
 
@@ -2127,9 +2464,9 @@ pub fn get_versions(
 }
 
 @target(javascript)
-/// Read the snapshot that a summary version captured, by the handle of that
-/// version. `get_versions` and the resolution of `summarize` both give a
-/// handle. The function does not change the live document. It reads the stored
+/// Read the snapshot that a published summary commit captured.
+/// `get_versions` and the resolution of `summarize` both give the commit ID.
+/// The function does not change the live document. It reads the stored
 /// blob at one point in time.
 pub fn load_version(
   runtime: Runtime,
@@ -2155,34 +2492,62 @@ pub fn load_version(
 /// operation from the current core. The client sequence number of that
 /// operation thus stays above the number of every edit that arrived during the
 /// asynchronous upload.
-fn finish_summarize(
-  cell: Cell(State),
-  tree_sha: String,
-) -> Result(String, String) {
+fn finish_summarize(cell: Cell(State), tree_sha: String) -> Nil {
   let state = cell_get(cell)
-  case state.phase, state.channel {
-    Ready(core, None), Some(channel) -> {
+  case state.phase, state.channel, state.pending_summary {
+    Ready(core, None), Some(channel), Some(pending) -> {
       let #(core, outbound) =
         runtime_core.build_summarize(
           core,
           handle: tree_sha,
           message: "watershed summary",
-          head: tree_sha,
         )
+      cell_set(
+        cell,
+        State(
+          ..state,
+          phase: Ready(core, None),
+          pending_summary: Some(
+            PendingSummary(
+              ..pending,
+              tree_id: tree_sha,
+              client_sequence_number: outbound.client_sequence_number,
+            ),
+          ),
+        ),
+      )
       push_json(
         channel,
         "submitOp",
         socket.encode_submit_operation(core.client_id, [[outbound]]),
       )
-      cell_set(cell, State(..state, phase: Ready(core, None)))
-      Ok(tree_sha)
     }
-    Ready(_, None), None
-    | Ready(_, Some(_)), _
-    | Connecting, _
-    | Reconnecting(_), _
-    | Failed(_), _
-    -> Error("connection changed during summarize; retry")
+    Ready(_, None), Some(_), None -> Nil
+    Ready(_, None), None, _
+    | Ready(_, Some(_)), _, _
+    | Connecting, _, _
+    | Reconnecting(_), _, _
+    | Failed(_), _, _
+    ->
+      resolve_pending_summary(
+        cell,
+        Error("summary publication was interrupted"),
+      )
+  }
+}
+
+@target(javascript)
+fn resolve_pending_summary(
+  cell: Cell(State),
+  outcome: Result(String, String),
+) -> Nil {
+  let state = cell_get(cell)
+  case state.pending_summary {
+    None -> Nil
+    Some(pending) -> {
+      cell_set(cell, State(..state, pending_summary: None))
+      observe("summary publication", fn() { pending.resolve(outcome) })
+    }
   }
 }
 
@@ -2196,6 +2561,7 @@ fn finish_summarize(
 /// starts the handshake again, with the last sequence number that this client
 /// saw, so the server pushes the delta only.
 fn on_join(cell: Cell(State)) -> Nil {
+  invalidate_bootstrap(cell)
   let state = cell_get(cell)
   case state.channel {
     None -> Nil
@@ -2212,6 +2578,11 @@ fn on_join(cell: Cell(State)) -> Nil {
           // Rejoin without an intervening close event; treat as reconnect.
           cell_set(cell, State(..state, phase: Reconnecting(core)))
           notify_session_lost(cell, state.phase)
+          let current = cell_get(cell)
+          use <- bool.guard(
+            current.bootstrap_generation != state.bootstrap_generation,
+            Nil,
+          )
           push_connect(
             channel,
             state.connect_message,
@@ -2225,11 +2596,16 @@ fn on_join(cell: Cell(State)) -> Nil {
 
 @target(javascript)
 fn on_close(cell: Cell(State)) -> Nil {
+  invalidate_bootstrap(cell)
   let state = cell_get(cell)
   case state.phase {
     // Preserve the core so kernel/pending/in-flight survive the reconnect.
     Ready(core, _) | Reconnecting(core) -> {
-      cell_set(cell, State(..state, phase: Reconnecting(core)))
+      cell_set(
+        cell,
+        State(..state, phase: Reconnecting(core), pending_summary: None),
+      )
+      abort_pending_summary(state)
       notify_session_lost(cell, state.phase)
     }
     // Not yet connected: Phoenix will retry the join, which re-fires on_join.
@@ -2269,15 +2645,7 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
       )
       let state = cell_get(cell)
       case state.phase {
-        Connecting ->
-          // A never-summarized document bootstraps synchronously from
-          // `initialMessages`. A summarized document first fetches its summary
-          // blob over HTTP (async), then bootstraps seeded from that state.
-          case connected.summary_context {
-            None -> finish_bootstrap(cell, connected, None)
-            Some(context) ->
-              load_summary_then_bootstrap(cell, state, connected, context)
-          }
+        Connecting -> begin_bootstrap(cell, connected)
         Reconnecting(core) -> {
           let core = runtime_core.adopt_reconnect(core, connected)
           let checkpoint =
@@ -2288,33 +2656,39 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
           // Ask for the gap. Nothing else will: no server pushes it unprompted,
           // and the reactive `requestOps` in `on_operation` needs an operation
           // to react to. See `runtime_core.catch_up_from`.
+          settle_reconnect(cell, core, checkpoint)
           maybe_request_operations(
             state.channel,
             runtime_core.catch_up_from(core, checkpoint),
           )
-          settle_reconnect(cell, core, checkpoint)
           // Presence is unsequenced, so it does not wait for the operation
           // catch-up `settle_reconnect` may still be pending — rejoining now is
           // both correct and the fastest way back to a roster.
-          notify_presence_session(cell, core)
+          case session_current(cell, state.bootstrap_generation) {
+            True -> notify_presence_session(cell, core)
+            False -> Nil
+          }
         }
-        Ready(_, _) | Failed(_) -> Nil
+        Ready(_, _) ->
+          case state.bootstrap {
+            Some(_) -> begin_bootstrap(cell, connected)
+            None -> Nil
+          }
+        Failed(_) -> Nil
       }
     }
   }
 }
 
 @target(javascript)
-/// Fetch the summary blob that `context` references, and then bootstrap the core
-/// from it. The runtime drops a real-time operation that arrives during the
-/// asynchronous fetch, while the phase is still `Connecting`. The gap that those
-/// drops create repairs itself: the first operation after the bootstrap that is
-/// not contiguous starts a `requestOps` catch-up.
+/// Fetch the summary under the current bootstrap generation. Live operations
+/// remain buffered until the summary and all prefix pages have loaded.
 fn load_summary_then_bootstrap(
   cell: Cell(State),
   state: State,
   connected: ConnectedMessage,
   context: SummaryContext,
+  generation: Int,
 ) -> Nil {
   case state.connect_message.token {
     None -> fail(cell, "loading a summarized document requires an auth token")
@@ -2327,6 +2701,7 @@ fn load_summary_then_bootstrap(
           handle: context.handle,
         )
         |> promise.map(fn(result) {
+          use <- bool.guard(!bootstrap_current(cell, generation), Nil)
           case result {
             Error(error) ->
               fail(
@@ -2342,6 +2717,7 @@ fn load_summary_then_bootstrap(
                 cell,
                 connected,
                 Some(runtime_core.summary_from_blob(blob)),
+                generation,
               )
           }
         })
@@ -2356,9 +2732,11 @@ fn finish_bootstrap(
   cell: Cell(State),
   connected: ConnectedMessage,
   summary: Option(runtime_core.Summary),
+  generation: Int,
 ) -> Nil {
+  use <- bool.guard(!bootstrap_current(cell, generation), Nil)
   case runtime_core.bootstrap(connected, summary: summary) {
-    Ok(bootstrapped) -> continue_bootstrap(cell, bootstrapped)
+    Ok(bootstrapped) -> continue_bootstrap(cell, bootstrapped, generation)
     Error(error) -> fail(cell, "bootstrap failed: " <> string.inspect(error))
   }
 }
@@ -2372,14 +2750,13 @@ fn finish_bootstrap(
 fn continue_bootstrap(
   cell: Cell(State),
   bootstrapped: runtime_core.Bootstrapped,
+  generation: Int,
 ) -> Nil {
+  use <- bool.guard(!bootstrap_current(cell, generation), Nil)
   case bootstrapped {
     runtime_core.Complete(core) -> {
       cell_set(cell, State(..cell_get(cell), phase: Ready(core, None)))
-      fire_ready(cell, Ok(Nil))
-      // The one completion point shared by the synchronous and
-      // summary-fetching bootstrap paths.
-      notify_presence_session(cell, core)
+      drain_bootstrap(cell, generation)
     }
     runtime_core.MissingPrefix(core, checkpoint, from, to) -> {
       let state = cell_get(cell)
@@ -2396,6 +2773,7 @@ fn continue_bootstrap(
               to: to,
             )
             |> promise.map(fn(result) {
+              use <- bool.guard(!bootstrap_current(cell, generation), Nil)
               case result {
                 Error(error) ->
                   fail(
@@ -2411,7 +2789,7 @@ fn continue_bootstrap(
                       deltas: deltas,
                     )
                   {
-                    Ok(next) -> continue_bootstrap(cell, next)
+                    Ok(next) -> continue_bootstrap(cell, next, generation)
                     Error(error) ->
                       fail(cell, "bootstrap failed: " <> string.inspect(error))
                   }
@@ -2421,6 +2799,142 @@ fn continue_bootstrap(
         }
       }
     }
+  }
+}
+
+@target(javascript)
+fn begin_bootstrap(cell: Cell(State), connected: ConnectedMessage) -> Nil {
+  let state = cell_get(cell)
+  let generation = state.bootstrap_generation + 1
+  let state =
+    State(
+      ..state,
+      phase: Connecting,
+      bootstrap_generation: generation,
+      bootstrap: Some(Bootstrap([], 0, 0, False)),
+    )
+  cell_set(cell, state)
+  case connected.summary_context {
+    None -> finish_bootstrap(cell, connected, None, generation)
+    Some(context) ->
+      load_summary_then_bootstrap(cell, state, connected, context, generation)
+  }
+}
+
+@target(javascript)
+fn invalidate_bootstrap(cell: Cell(State)) -> Nil {
+  let state = cell_get(cell)
+  let phase = case state.bootstrap, state.phase {
+    Some(_), Ready(_, _) -> Connecting
+    _, phase -> phase
+  }
+  cell_set(
+    cell,
+    State(
+      ..state,
+      phase: phase,
+      bootstrap: None,
+      bootstrap_generation: state.bootstrap_generation + 1,
+    ),
+  )
+}
+
+@target(javascript)
+fn bootstrap_current(cell: Cell(State), generation: Int) -> Bool {
+  let state = cell_get(cell)
+  state.bootstrap_generation == generation && state.bootstrap != None
+}
+
+@target(javascript)
+@external(javascript, "./ws_ffi.mjs", "byteSize")
+fn payload_byte_size(payload: String) -> Int
+
+@target(javascript)
+fn buffer_bootstrap(
+  cell: Cell(State),
+  state: State,
+  bootstrap: Bootstrap,
+  payload: String,
+) -> Nil {
+  let bytes = bootstrap.payload_bytes + payload_byte_size(payload)
+  case bytes > 16 * 1024 * 1024 {
+    True -> fail(cell, "bootstrap payload byte limit exceeded")
+    False ->
+      case json.parse(payload, socket.operation_message_decoder()) {
+        Error(_) -> fail(cell, "malformed op payload")
+        Ok(message) -> {
+          let count = bootstrap.operation_count + list.length(message.ops)
+          case count > 10_000 {
+            True -> fail(cell, "bootstrap operation limit exceeded")
+            False -> {
+              cell_set(
+                cell,
+                State(
+                  ..state,
+                  bootstrap: Some(
+                    Bootstrap(
+                      ..bootstrap,
+                      batches: [message.ops, ..bootstrap.batches],
+                      operation_count: count,
+                      payload_bytes: bytes,
+                    ),
+                  ),
+                ),
+              )
+              drain_bootstrap(cell, state.bootstrap_generation)
+            }
+          }
+        }
+      }
+  }
+}
+
+@target(javascript)
+fn drain_bootstrap(cell: Cell(State), generation: Int) -> Nil {
+  use <- bool.guard(!bootstrap_current(cell, generation), Nil)
+  let state = cell_get(cell)
+  case state.bootstrap, state.phase {
+    Some(bootstrap), Ready(_, _) if !bootstrap.draining -> {
+      cell_set(
+        cell,
+        State(
+          ..state,
+          bootstrap: Some(Bootstrap(..bootstrap, batches: [], draining: True)),
+        ),
+      )
+      bootstrap.batches
+      |> list.reverse
+      |> list.each(fn(operations) {
+        use <- bool.guard(!bootstrap_current(cell, generation), Nil)
+        apply_received_operations(cell, operations)
+      })
+      use <- bool.guard(!bootstrap_current(cell, generation), Nil)
+      let state = cell_get(cell)
+      let assert Some(bootstrap) = state.bootstrap
+      cell_set(
+        cell,
+        State(..state, bootstrap: Some(Bootstrap(..bootstrap, draining: False))),
+      )
+      case bootstrap.batches, state.phase {
+        [], Ready(core, _) ->
+          case core.out_of_order {
+            [] -> {
+              cell_set(cell, State(..cell_get(cell), bootstrap: None))
+              fire_ready(cell, Ok(Nil))
+              let current = cell_get(cell)
+              case current.phase {
+                Ready(core, _) if current.bootstrap_generation == generation ->
+                  notify_presence_session(cell, core)
+                _ -> Nil
+              }
+            }
+            [_, ..] -> Nil
+          }
+        [_, ..], _ -> drain_bootstrap(cell, generation)
+        _, _ -> Nil
+      }
+    }
+    _, _ -> Nil
   }
 }
 
@@ -2435,45 +2949,80 @@ fn on_connect_error(cell: Cell(State), payload: String) -> Nil {
 @target(javascript)
 fn on_operation(cell: Cell(State), payload: String) -> Nil {
   let state = cell_get(cell)
+  case state.bootstrap {
+    Some(bootstrap) -> buffer_bootstrap(cell, state, bootstrap, payload)
+    None ->
+      case state.phase {
+        Ready(_, _) ->
+          case json.parse(payload, socket.operation_message_decoder()) {
+            Error(_) -> fail(cell, "malformed op payload")
+            Ok(message) -> apply_received_operations(cell, message.ops)
+          }
+        Connecting | Reconnecting(_) | Failed(_) -> Nil
+      }
+  }
+}
+
+@target(javascript)
+fn apply_received_operations(
+  cell: Cell(State),
+  operations: List(SequencedDocumentMessage),
+) -> Nil {
+  let state = cell_get(cell)
   case state.phase {
     Ready(core, resubmit_at) ->
-      case json.parse(payload, socket.operation_message_decoder()) {
-        Error(_) -> fail(cell, "malformed op payload")
-        Ok(message) ->
-          case apply_operations(core, message.ops) {
-            Ok(#(core, events, resolutions, request_from, released)) -> {
-              let state = resolve_claim_waiters(state, resolutions)
-              let state = resolve_acquire_waiters(state, resolutions)
-              // Commit the new core before fan-out (see fan_out's contract).
-              case resubmit_at {
-                Some(checkpoint) -> {
-                  cell_set(cell, state)
-                  settle_reconnect(cell, core, checkpoint)
-                }
-                None -> cell_set(cell, State(..state, phase: Ready(core, None)))
-              }
-              fan_out(state.subscribers, events)
-              maybe_request_operations(state.channel, request_from)
-              case resubmit_at {
-                // Mid-reconnect these are already in the in-flight queue, and
-                // `settle_reconnect` restamps that whole queue with fresh
-                // client sequence numbers and sends it. Sending them here as
-                // well puts two copies of each on the wire; the server
-                // sequences both and the stale ack fails the FIFO match.
-                Some(_) -> Nil
-                None -> send_outbound(state.channel, core.client_id, released)
-              }
-              case resubmit_at {
-                Some(_) -> Nil
-                None -> arm_summary(cell, core)
-              }
+      case apply_operations(core, operations) {
+        Ok(#(core, events, resolutions, summary_events, request_from, released)) -> {
+          let #(state, outcomes) = take_outcome_waiters(state, resolutions)
+          let #(state, summary_outcomes) =
+            take_summary_outcomes(state, summary_events)
+          // Commit the new core before fan-out (see fan_out's contract).
+          case resubmit_at {
+            Some(checkpoint) -> {
+              cell_set(cell, state)
+              settle_reconnect(cell, core, checkpoint)
             }
-            Error(core_error) ->
-              fail(
-                cell,
-                "sequenced op processing failed: " <> string.inspect(core_error),
-              )
+            None -> cell_set(cell, State(..state, phase: Ready(core, None)))
           }
+          list.each(outcomes, fn(outcome) {
+            observe("operation outcome", outcome)
+          })
+          list.each(summary_outcomes, fn(outcome) {
+            observe("summary publication", outcome)
+          })
+          fan_out(state.subscribers, events)
+          use <- bool.guard(
+            !session_current(cell, state.bootstrap_generation),
+            Nil,
+          )
+          maybe_request_operations(state.channel, request_from)
+          use <- bool.guard(
+            !session_current(cell, state.bootstrap_generation),
+            Nil,
+          )
+          case resubmit_at {
+            // Mid-reconnect these are already in the in-flight queue, and
+            // `settle_reconnect` restamps that whole queue with fresh
+            // client sequence numbers and sends it. Sending them here as
+            // well puts two copies of each on the wire; the server
+            // sequences both and the stale ack fails the FIFO match.
+            Some(_) -> Nil
+            None -> send_outbound(state.channel, core.client_id, released)
+          }
+          case resubmit_at {
+            Some(_) -> Nil
+            None ->
+              case cell_get(cell).phase {
+                Ready(current, _) -> arm_summary(cell, current)
+                _ -> Nil
+              }
+          }
+        }
+        Error(core_error) ->
+          fail(
+            cell,
+            "sequenced op processing failed: " <> string.inspect(core_error),
+          )
       }
     // Operations before a connected session (or while reconnecting) carry no
     // state we can trust; ignore them.
@@ -2521,8 +3070,8 @@ fn settle_reconnect(
   case core.last_seen_sequence_number >= checkpoint {
     True -> {
       let #(core, outbound) = runtime_core.resubmit(runtime_core.go_live(core))
-      send_outbound(state.channel, core.client_id, outbound)
       cell_set(cell, State(..state, phase: Ready(core, None)))
+      send_outbound(state.channel, core.client_id, outbound)
     }
     False ->
       cell_set(cell, State(..state, phase: Ready(core, Some(checkpoint))))
@@ -2538,12 +3087,13 @@ fn apply_operations(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
+    List(runtime_core.SummaryEvent),
     Option(Int),
     List(wire.OutboundOperation),
   ),
   runtime_core.CoreError,
 ) {
-  do_apply_operations(core, operations, [], [], None, [])
+  do_apply_operations(core, operations, [], [], [], None, [])
 }
 
 @target(javascript)
@@ -2552,6 +3102,7 @@ fn do_apply_operations(
   operations: List(SequencedDocumentMessage),
   events: List(List(#(String, ChannelEvent))),
   resolutions: List(List(#(String, Resolution))),
+  summary_events: List(List(runtime_core.SummaryEvent)),
   request_from: Option(Int),
   released: List(wire.OutboundOperation),
 ) -> Result(
@@ -2559,6 +3110,7 @@ fn do_apply_operations(
     runtime_core.Core,
     List(#(String, ChannelEvent)),
     List(#(String, Resolution)),
+    List(runtime_core.SummaryEvent),
     Option(Int),
     List(wire.OutboundOperation),
   ),
@@ -2570,6 +3122,7 @@ fn do_apply_operations(
         core,
         list.reverse(events) |> list.flatten,
         list.reverse(resolutions) |> list.flatten,
+        list.reverse(summary_events) |> list.flatten,
         request_from,
         released,
       ))
@@ -2581,6 +3134,7 @@ fn do_apply_operations(
             rest,
             [ingested.events, ..events],
             [ingested.resolutions, ..resolutions],
+            [ingested.summary_events, ..summary_events],
             option.or(request_from, ingested.request_operations_from),
             list.append(released, ingested.outbound),
           )
@@ -2590,110 +3144,173 @@ fn do_apply_operations(
 }
 
 @target(javascript)
-fn register_claim_waiter(
+fn take_summary_outcomes(
   state: State,
+  events: List(runtime_core.SummaryEvent),
+) -> #(State, List(fn() -> Nil)) {
+  list.fold(events, #(state, []), fn(acc, event) {
+    let #(state, outcomes) = acc
+    case state.pending_summary, event {
+      Some(pending),
+        runtime_core.SummaryProposalSequenced(
+          _,
+          client_sequence_number,
+          sequence_number,
+        )
+        if client_sequence_number == pending.client_sequence_number
+      -> #(
+        State(
+          ..state,
+          pending_summary: Some(
+            PendingSummary(
+              ..pending,
+              proposal_sequence_number: Some(sequence_number),
+            ),
+          ),
+        ),
+        outcomes,
+      )
+      Some(pending), runtime_core.SummaryPublished(sequence_number, version_id)
+        if pending.proposal_sequence_number == Some(sequence_number)
+      -> #(State(..state, pending_summary: None), [
+        fn() { pending.resolve(Ok(version_id)) },
+        ..outcomes
+      ])
+      Some(pending), runtime_core.SummaryRejected(sequence_number, reason)
+        if pending.proposal_sequence_number == Some(sequence_number)
+      -> #(State(..state, pending_summary: None), [
+        fn() { pending.resolve(Error(reason)) },
+        ..outcomes
+      ])
+      _, _ -> #(state, outcomes)
+    }
+  })
+}
+
+@target(javascript)
+fn register_claim_waiter(
+  cell: Cell(State),
   address: String,
   key: String,
   resolve_outcome: fn(claims_kernel.ClaimOutcome) -> Nil,
   immediate_outcome: Option(claims_kernel.ClaimOutcome),
-) -> State {
+) -> Nil {
+  let state = cell_get(cell)
   case immediate_outcome {
     Some(outcome) -> {
-      resolve_outcome(outcome)
-      state
+      observe("claim outcome", fn() { resolve_outcome(outcome) })
     }
     None ->
-      State(
-        ..state,
-        claim_waiters: dict.insert(
-          state.claim_waiters,
-          #(address, key),
-          resolve_outcome,
+      cell_set(
+        cell,
+        State(
+          ..state,
+          claim_waiters: dict.insert(
+            state.claim_waiters,
+            #(address, key),
+            resolve_outcome,
+          ),
         ),
       )
   }
 }
 
 @target(javascript)
-fn resolve_claim_waiters(
+fn take_outcome_waiters(
   state: State,
   resolutions: List(#(String, Resolution)),
-) -> State {
-  let claim_waiters =
-    list.fold(resolutions, state.claim_waiters, fn(acc, item) {
+) -> #(State, List(fn() -> Nil)) {
+  let #(state, callbacks) =
+    list.fold(resolutions, #(state, []), fn(acc, item) {
+      let #(state, callbacks) = acc
       let #(address, resolution) = item
       case resolution {
         ClaimResolved(key, outcome) ->
-          case dict.get(acc, #(address, key)) {
+          case dict.get(state.claim_waiters, #(address, key)) {
             Ok(resolve_outcome) -> {
-              resolve_outcome(outcome)
-              dict.delete(acc, #(address, key))
+              #(
+                State(
+                  ..state,
+                  claim_waiters: dict.delete(state.claim_waiters, #(
+                    address,
+                    key,
+                  )),
+                ),
+                [fn() { resolve_outcome(outcome) }, ..callbacks],
+              )
             }
             Error(_) -> acc
           }
-        AcquireResolved(_, _) -> acc
+        AcquireResolved(acquire_id, outcome) ->
+          case dict.get(state.acquire_waiters, #(address, acquire_id)) {
+            Ok(resolve_outcome) -> #(
+              State(
+                ..state,
+                acquire_waiters: dict.delete(state.acquire_waiters, #(
+                  address,
+                  acquire_id,
+                )),
+              ),
+              [fn() { resolve_outcome(outcome) }, ..callbacks],
+            )
+            Error(_) -> acc
+          }
       }
     })
-  State(..state, claim_waiters: claim_waiters)
+  #(state, list.reverse(callbacks))
 }
 
 @target(javascript)
-fn abort_outcome_waiters(state: State) -> State {
+fn abort_pending_summary(state: State) -> Nil {
+  case state.pending_summary {
+    None -> Nil
+    Some(pending) ->
+      observe("summary publication", fn() {
+        pending.resolve(Error("summary publication was interrupted"))
+      })
+  }
+}
+
+@target(javascript)
+fn abort_outcome_waiters(state: State) -> Nil {
   dict.values(state.claim_waiters)
-  |> list.each(fn(resolve_outcome) { resolve_outcome(claims_kernel.Aborted) })
+  |> list.each(fn(resolve_outcome) {
+    observe("claim aborted", fn() { resolve_outcome(claims_kernel.Aborted) })
+  })
   dict.values(state.acquire_waiters)
   |> list.each(fn(resolve_outcome) {
-    resolve_outcome(ordered_collection_kernel.Aborted)
+    observe("acquire aborted", fn() {
+      resolve_outcome(ordered_collection_kernel.Aborted)
+    })
   })
-  State(..state, claim_waiters: dict.new(), acquire_waiters: dict.new())
 }
 
 @target(javascript)
 fn register_acquire_waiter(
-  state: State,
+  cell: Cell(State),
   address: String,
   acquire_id: String,
   resolve_outcome: fn(ordered_collection_kernel.AcquireOutcome) -> Nil,
   immediate_outcome: Option(ordered_collection_kernel.AcquireOutcome),
-) -> State {
+) -> Nil {
+  let state = cell_get(cell)
   case immediate_outcome {
     Some(outcome) -> {
-      resolve_outcome(outcome)
-      state
+      observe("acquire outcome", fn() { resolve_outcome(outcome) })
     }
     None ->
-      State(
-        ..state,
-        acquire_waiters: dict.insert(
-          state.acquire_waiters,
-          #(address, acquire_id),
-          resolve_outcome,
+      cell_set(
+        cell,
+        State(
+          ..state,
+          acquire_waiters: dict.insert(
+            state.acquire_waiters,
+            #(address, acquire_id),
+            resolve_outcome,
+          ),
         ),
       )
   }
-}
-
-@target(javascript)
-fn resolve_acquire_waiters(
-  state: State,
-  resolutions: List(#(String, Resolution)),
-) -> State {
-  let acquire_waiters =
-    list.fold(resolutions, state.acquire_waiters, fn(acc, item) {
-      let #(address, resolution) = item
-      case resolution {
-        AcquireResolved(acquire_id, outcome) ->
-          case dict.get(acc, #(address, acquire_id)) {
-            Ok(resolve_outcome) -> {
-              resolve_outcome(outcome)
-              dict.delete(acc, #(address, acquire_id))
-            }
-            Error(_) -> acc
-          }
-        ClaimResolved(_, _) -> acc
-      }
-    })
-  State(..state, acquire_waiters: acquire_waiters)
 }
 
 @target(javascript)
@@ -2776,7 +3393,9 @@ fn edit_sequence_with_result(
           fan_out(state.subscribers, events)
           Ok(Nil)
         }
-        Error(runtime_core.SequenceOperationFailed(_, detail)) -> Error(detail)
+        Error(runtime_core.SequenceOperationFailed(_, detail))
+        | Error(runtime_core.GCounterOperationFailed(_, detail)) ->
+          Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
     Reconnecting(core) ->
@@ -2786,7 +3405,9 @@ fn edit_sequence_with_result(
           fan_out(state.subscribers, events)
           Ok(Nil)
         }
-        Error(runtime_core.SequenceOperationFailed(_, detail)) -> Error(detail)
+        Error(runtime_core.SequenceOperationFailed(_, detail))
+        | Error(runtime_core.GCounterOperationFailed(_, detail)) ->
+          Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
     Connecting | Failed(_) ->
@@ -2965,7 +3586,10 @@ fn fan_out(
     let #(address, event) = event
     list.each(subscribers, fn(subscriber) {
       case subscriber.address == address {
-        True -> subscriber.handler(event)
+        True ->
+          observe("subscriber " <> subscriber.id <> " at " <> address, fn() {
+            subscriber.handler(event)
+          })
         False -> Nil
       }
     })
@@ -2982,7 +3606,9 @@ fn on_ripple(cell: Cell(State), payload: String) -> Nil {
     Error(_) -> Nil
     Ok(ripple) -> {
       let state = cell_get(cell)
-      list.each(state.ripple_subscribers, fn(handler) { handler(ripple) })
+      list.each(state.ripple_subscribers, fn(handler) {
+        observe("ripple subscriber", fn() { handler(ripple) })
+      })
     }
   }
 }
@@ -2990,7 +3616,9 @@ fn on_ripple(cell: Cell(State), payload: String) -> Nil {
 @target(javascript)
 fn notify_presence(cell: Cell(State), frame: PresenceFrame) -> Nil {
   let state = cell_get(cell)
-  list.each(state.presence_subscribers, fn(handler) { handler(frame) })
+  list.each(state.presence_subscribers, fn(handler) {
+    observe("presence subscriber", fn() { handler(frame) })
+  })
 }
 
 @target(javascript)
@@ -3024,9 +3652,22 @@ fn notify_session_lost(cell: Cell(State), previous: Phase) -> Nil {
 
 @target(javascript)
 fn fail(cell: Cell(State), reason: String) -> Nil {
-  let state = abort_outcome_waiters(cell_get(cell))
+  let state = cell_get(cell)
+  cell_set(
+    cell,
+    State(
+      ..state,
+      phase: Failed(reason),
+      claim_waiters: dict.new(),
+      acquire_waiters: dict.new(),
+      pending_summary: None,
+      bootstrap: None,
+      bootstrap_generation: state.bootstrap_generation + 1,
+    ),
+  )
+  abort_outcome_waiters(state)
+  abort_pending_summary(state)
   fire_ready(cell, Error(reason))
-  cell_set(cell, State(..state, phase: Failed(reason)))
   notify_session_lost(cell, state.phase)
 }
 
@@ -3038,8 +3679,26 @@ fn fire_ready(cell: Cell(State), result: Result(Nil, String)) -> Nil {
     True -> Nil
     False -> {
       cell_set(cell, State(..state, ready_fired: True))
-      state.on_ready(result)
+      observe("on_ready", fn() { state.on_ready(result) })
     }
+  }
+}
+
+@target(javascript)
+fn observe(context: String, callback: fn() -> Nil) -> Nil {
+  case callback_js.capture(callback) {
+    Ok(Nil) -> Nil
+    Error(reason) ->
+      callback_js.report("sequenced runtime " <> context <> ": " <> reason)
+  }
+}
+
+@target(javascript)
+fn session_current(cell: Cell(State), generation: Int) -> Bool {
+  let state = cell_get(cell)
+  case state.phase {
+    Ready(_, _) -> state.bootstrap_generation == generation
+    _ -> False
   }
 }
 
@@ -3051,4 +3710,28 @@ fn cell_get(cell: Cell(State)) -> State {
 @target(javascript)
 fn cell_set(cell: Cell(State), state: State) -> Nil {
   transport_js.set_cell(cell, state)
+}
+
+@target(javascript)
+pub fn create_mv_register(runtime: Runtime) -> Result(String, String) {
+  create_channel(runtime, channel.InitMvRegister, "create_mv_register")
+}
+
+@target(javascript)
+pub fn mv_register_set(
+  runtime: Runtime,
+  address: String,
+  value: String,
+) -> Nil {
+  edit(runtime.cell, fn(core) {
+    runtime_core.mv_register_set(core, address, value)
+  })
+}
+
+@target(javascript)
+pub fn mv_register_values(
+  runtime: Runtime,
+  address: String,
+) -> Result(List(String), Nil) {
+  read(runtime.cell, Error(Nil), runtime_core.mv_register_values(_, address))
 }

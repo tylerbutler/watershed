@@ -28,47 +28,61 @@ import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
 import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
 import { prefersReducedMotion, wait } from "./demo/timing.ts";
 import { createOpLog } from "./demo/op-log.ts";
+import { resultValue } from "./demo/gleam-values.ts";
 
 const KEY = "boats-locked";
 const BASE = 41; // both houses agree the day started at 41 boats locked through
 const BASE_A = 20; // fix rig: A's column …
 const BASE_B = 21; // … plus B's column sums to 41
 
-const jsonInt = (n) => json.int(n);
+const CLIENT_IDS = ["a", "b"] as const;
+type ClientId = (typeof CLIENT_IDS)[number];
+type JsonValue = ReturnType<typeof json.int>;
 
-function readInt(optionValue) {
-  // `get` returns Option(Json); Some carries its payload at [0]. The gleam
-  // encoder stringifies ints, so they round-trip through Number().
-  if (optionValue && optionValue[0] !== undefined) {
-    return Number(json.to_string(optionValue[0]));
-  }
-  return null;
+const jsonInt = (n: number): JsonValue => json.int(n);
+
+function readInt(result: ReturnType<typeof mapKernel.get>): number | null {
+  const value = resultValue(result);
+  return value === null ? null : Number(json.to_string(value));
 }
 
-const cssVar = (name) =>
+const cssVar = (name: string): string =>
   getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+function required<T extends Element>(
+  root: ParentNode,
+  selector: string,
+): T {
+  const element = root.querySelector<T>(selector);
+  if (!element) throw new Error(`Missing demo element: ${selector}`);
+  return element;
+}
 
 // ── shared rig chrome ───────────────────────────────────────────────────────
 // The UI plumbing every rig shares: value cells, op log, caption, sequencer
 // track, playback-speed slider, and rough-notation bookkeeping.
-function makeChrome(root) {
+function makeChrome(root: HTMLElement) {
   const cells = {
-    a: root.querySelector('[data-cell="a"]'),
-    b: root.querySelector('[data-cell="b"]'),
+    a: required<HTMLElement>(root, '[data-cell="a"]'),
+    b: required<HTMLElement>(root, '[data-cell="b"]'),
   };
-  const log = root.querySelector("[data-log]");
+  const log = required<HTMLElement>(root, "[data-log]");
   const opLog = createOpLog(log, { mode: "append" });
-  const caption = root.querySelector("[data-caption]");
-  const seqTrack = root.querySelector("[data-seq]");
+  const caption = required<HTMLElement>(root, "[data-caption]");
+  const seqTrack = required<HTMLElement>(root, "[data-seq]");
 
   // Animation-speed slider. Lower speed → longer on-screen delays; the outcome
   // is identical at any speed. Defaults to 0.5× (half speed) so the race is
   // easy to follow.
   const paceInput = root.querySelector("[data-cb-pace]");
   const paceOut = root.querySelector("[data-cb-pace-out]");
-  let animSpeed = paceInput ? Number(paceInput.value) : 0.5;
-  if (paceInput && paceOut) {
-    const fmt = (v) => `${v}×`;
+  let animSpeed =
+    paceInput instanceof HTMLInputElement ? Number(paceInput.value) : 0.5;
+  if (
+    paceInput instanceof HTMLInputElement &&
+    paceOut instanceof HTMLElement
+  ) {
+    const fmt = (v: number) => `${v}×`;
     paceOut.textContent = fmt(animSpeed);
     paceInput.addEventListener("input", () => {
       animSpeed = Number(paceInput.value);
@@ -76,11 +90,14 @@ function makeChrome(root) {
     });
   }
   // Scale a base delay to wall-clock ms at the current playback speed.
-  const pacedWait = (ms) => wait(ms / animSpeed);
+  const pacedWait = (ms: number) => wait(ms / animSpeed);
 
   // A live registry of rough-notation annotations so we can clear them on reset.
-  let annotations = [];
-  function mark(el, config) {
+  let annotations: Array<ReturnType<typeof annotate>> = [];
+  function mark(
+    el: HTMLElement | null,
+    config: Parameters<typeof annotate>[1],
+  ) {
     if (!el) return null;
     const a = annotate(el, { animate: !prefersReducedMotion(), ...config });
     annotations.push(a);
@@ -92,7 +109,7 @@ function makeChrome(root) {
     annotations = [];
   }
 
-  function logLine(text, tone = "") {
+  function logLine(text: string, tone = "") {
     const li = document.createElement("li");
     li.textContent = text;
     if (tone) li.dataset.tone = tone;
@@ -100,7 +117,7 @@ function makeChrome(root) {
     return li;
   }
 
-  function seqTick(label) {
+  function seqTick(label: string) {
     const chip = document.createElement("span");
     chip.className = "cb-seq-chip";
     chip.textContent = label;
@@ -112,7 +129,7 @@ function makeChrome(root) {
     clearMarks();
     opLog.clear();
     seqTrack.replaceChildren();
-    const verdict = root.querySelector("[data-verdict]");
+    const verdict = root.querySelector<HTMLElement>("[data-verdict]");
     if (verdict) verdict.hidden = true;
     caption.textContent = root.dataset.captionIdle || "";
     root.dataset.state = "idle";
@@ -133,35 +150,44 @@ function makeChrome(root) {
 // ── the map engine ──────────────────────────────────────────────────────────
 // One `map_kernel` state per client, plus a FIFO sequencer. `mode` decides
 // whether the two houses write the same key (bug) or their own key (fix).
-function makeRig(root, mode) {
+interface MapClient {
+  id: ClientId;
+  map: mapKernel.MapState$;
+  pending: number | null;
+}
+
+function makeRig(root: HTMLElement, mode: "bug" | "fix") {
   const chrome = makeChrome(root);
   const { cells } = chrome;
   const totals = {
-    a: root.querySelector('[data-total="a"]'),
-    b: root.querySelector('[data-total="b"]'),
+    a: root.querySelector<HTMLElement>('[data-total="a"]'),
+    b: root.querySelector<HTMLElement>('[data-total="b"]'),
   };
   // Fix rig only: the small per-column readout under each house's big number.
   const subcols = {
-    a: root.querySelector('[data-subcol="a"]'),
-    b: root.querySelector('[data-subcol="b"]'),
+    a: root.querySelector<HTMLElement>('[data-subcol="a"]'),
+    b: root.querySelector<HTMLElement>('[data-subcol="b"]'),
   };
 
-  const keyFor = (id) => (mode === "fix" ? `${KEY}/${id}` : KEY);
+  const keyFor = (id: ClientId) => (mode === "fix" ? `${KEY}/${id}` : KEY);
 
-  const seedEntries = (id) =>
-    mode === "fix"
-      ? toList([
+  const seedEntries = () => {
+    const entries: Array<[string, JsonValue]> =
+      mode === "fix"
+        ? [
           [`${KEY}/a`, jsonInt(BASE_A)],
           [`${KEY}/b`, jsonInt(BASE_B)],
-        ])
-      : toList([[KEY, jsonInt(BASE)]]);
-
-  const clients = {
-    a: { id: "a", map: mapKernel.from_sequenced(seedEntries("a")), pending: null },
-    b: { id: "b", map: mapKernel.from_sequenced(seedEntries("b")), pending: null },
+          ]
+        : [[KEY, jsonInt(BASE)]];
+    return toList(entries);
   };
 
-  function total(client) {
+  const clients: Record<ClientId, MapClient> = {
+    a: { id: "a", map: mapKernel.from_sequenced(seedEntries()), pending: null },
+    b: { id: "b", map: mapKernel.from_sequenced(seedEntries()), pending: null },
+  };
+
+  function total(client: MapClient) {
     if (mode === "fix") {
       const a = readInt(mapKernel.get(client.map, `${KEY}/a`)) ?? 0;
       const b = readInt(mapKernel.get(client.map, `${KEY}/b`)) ?? 0;
@@ -171,7 +197,7 @@ function makeRig(root, mode) {
   }
 
   function render() {
-    for (const id of ["a", "b"]) {
+    for (const id of CLIENT_IDS) {
       const client = clients[id];
       const cell = cells[id];
       const pending = client.pending;
@@ -190,12 +216,12 @@ function makeRig(root, mode) {
   }
 
   // The visible cell shows the value this house last read/holds for its own key.
-  function cellValue(client, id) {
+  function cellValue(client: MapClient, id: ClientId) {
     return readInt(mapKernel.get(client.map, keyFor(id))) ?? 0;
   }
 
   // Read-modify-write: read the current value, write value+1 as a local set.
-  function readModifyWrite(id) {
+  function readModifyWrite(id: ClientId) {
     const client = clients[id];
     const key = keyFor(id);
     const read = readInt(mapKernel.get(client.map, key)) ?? 0;
@@ -210,10 +236,14 @@ function makeRig(root, mode) {
   }
 
   // Deliver a sequenced op to a replica: the author acks, peers apply remotely.
-  function deliver(target, originId, op) {
+  function deliver(
+    target: MapClient,
+    originId: ClientId,
+    op: mapKernel.MapOperation$,
+  ) {
     if (target.id === originId) {
-      const result = mapKernel.ack_local(target.map, op);
-      if (result.isOk()) target.map = result[0];
+      const state = resultValue(mapKernel.ack_local(target.map, op));
+      if (state !== null) target.map = state;
     } else {
       const [state] = mapKernel.apply_remote(target.map, op);
       target.map = state;
@@ -221,8 +251,8 @@ function makeRig(root, mode) {
   }
 
   function reset() {
-    clients.a.map = mapKernel.from_sequenced(seedEntries("a"));
-    clients.b.map = mapKernel.from_sequenced(seedEntries("b"));
+    clients.a.map = mapKernel.from_sequenced(seedEntries());
+    clients.b.map = mapKernel.from_sequenced(seedEntries());
     clients.a.pending = null;
     clients.b.pending = null;
     chrome.resetChrome();
@@ -247,16 +277,22 @@ function makeRig(root, mode) {
 // One real `counter_kernel` (SharedCounter) state per client. There is no key
 // and no read: a local `increment(delta)` applies optimistically and emits the
 // delta as the wire op; acks retire pending ops, remote deltas just add.
-function makeCounterRig(root) {
+interface CounterClient {
+  id: ClientId;
+  state: counterKernel.CounterState$;
+  pendingOps: number;
+}
+
+function makeCounterRig(root: HTMLElement) {
   const chrome = makeChrome(root);
 
-  const clients = {
+  const clients: Record<ClientId, CounterClient> = {
     a: { id: "a", state: counterKernel.from_summary(BASE), pendingOps: 0 },
     b: { id: "b", state: counterKernel.from_summary(BASE), pendingOps: 0 },
   };
 
   function render() {
-    for (const id of ["a", "b"]) {
+    for (const id of CLIENT_IDS) {
       const client = clients[id];
       const cell = chrome.cells[id];
       // `state.value` already includes optimistic local increments.
@@ -266,7 +302,7 @@ function makeCounterRig(root) {
   }
 
   // Ship a signed delta. No read of the current tally happens anywhere here.
-  function increment(id, delta) {
+  function increment(id: ClientId, delta: number) {
     const client = clients[id];
     const [state, , op] = counterKernel.increment(client.state, delta);
     client.state = state;
@@ -276,11 +312,15 @@ function makeCounterRig(root) {
 
   // Deliver a sequenced op: the author acks (retiring its pending entry, value
   // unchanged — it already applied optimistically), peers add the delta.
-  function deliver(target, originId, op) {
+  function deliver(
+    target: CounterClient,
+    originId: ClientId,
+    op: counterKernel.CounterOperation$,
+  ) {
     if (target.id === originId) {
-      const result = counterKernel.ack_local(target.state, op);
-      if (result.isOk()) {
-        target.state = result[0];
+      const state = resultValue(counterKernel.ack_local(target.state, op));
+      if (state !== null) {
+        target.state = state;
         target.pendingOps -= 1;
       }
     } else {
@@ -301,8 +341,12 @@ function makeCounterRig(root) {
   return { ...chrome, root, clients, render, reset, increment, deliver };
 }
 
+type MapRig = ReturnType<typeof makeRig>;
+type CounterRig = ReturnType<typeof makeCounterRig>;
+type DemoRig = MapRig | CounterRig;
+
 // ── choreography: the buggy race ────────────────────────────────────────────
-async function playBug(rig) {
+async function playBug(rig: MapRig) {
   const magenta = cssVar("--overprint");
   const blue = cssVar("--waterline");
   const ink = cssVar("--ink");
@@ -352,10 +396,10 @@ async function playBug(rig) {
   await rig.wait(500);
 
   // 5 — the verdict, drawn in
-  const verdict = rig.root.querySelector("[data-verdict]");
+  const verdict = required<HTMLElement>(rig.root, "[data-verdict]");
   verdict.hidden = false;
-  const recorded = rig.root.querySelector("[data-recorded]");
-  const expected = rig.root.querySelector("[data-expected]");
+  const recorded = required<HTMLElement>(rig.root, "[data-recorded]");
+  const expected = required<HTMLElement>(rig.root, "[data-expected]");
   recorded.textContent = String(rig.total(rig.clients.a)); // real converged value
   expected.textContent = String(BASE + 2); // two boats actually locked through
   rig.mark(expected, { type: "crossed-off", color: magenta, strokeWidth: 3, padding: 4 });
@@ -368,7 +412,7 @@ async function playBug(rig) {
 }
 
 // ── choreography: the fix, same race, correct total ─────────────────────────
-async function playFix(rig) {
+async function playFix(rig: MapRig) {
   const blue = cssVar("--waterline");
   const ink = cssVar("--ink");
   rig.reset();
@@ -405,9 +449,9 @@ async function playFix(rig) {
   rig.render();
   await rig.wait(450);
 
-  const verdict = rig.root.querySelector("[data-verdict]");
+  const verdict = required<HTMLElement>(rig.root, "[data-verdict]");
   verdict.hidden = false;
-  const recorded = rig.root.querySelector("[data-recorded]");
+  const recorded = required<HTMLElement>(rig.root, "[data-recorded]");
   recorded.textContent = String(rig.total(rig.clients.a)); // 21 + 22 = 43
   rig.mark(recorded, { type: "circle", color: blue, strokeWidth: 3, padding: 8 });
   rig.logLine("converged: 21 + 22 = 43", "seq");
@@ -418,7 +462,7 @@ async function playFix(rig) {
 
 // ── choreography: the SharedCounter fix — signed deltas through the real
 // counter_kernel ────────────────────────────────────────────────────────────
-async function playCounter(rig) {
+async function playCounter(rig: CounterRig) {
   const blue = cssVar("--waterline");
   const magenta = cssVar("--overprint");
   const ink = cssVar("--ink");
@@ -449,7 +493,11 @@ async function playCounter(rig) {
   rig.seqTick("SN 2 · B inc +1");
   await rig.wait(700);
 
-  for (const [origin, op] of [["a", a1], ["b", b1]]) {
+  const firstRace: Array<[ClientId, counterKernel.CounterOperation$]> = [
+    ["a", a1],
+    ["b", b1],
+  ];
+  for (const [origin, op] of firstRace) {
     rig.deliver(rig.clients.a, origin, op);
     rig.deliver(rig.clients.b, origin, op);
   }
@@ -479,16 +527,20 @@ async function playCounter(rig) {
   rig.seqTick("SN 4 · A inc +1");
   await rig.wait(700);
 
-  for (const [origin, op] of [["b", b2], ["a", a2]]) {
+  const secondRace: Array<[ClientId, counterKernel.CounterOperation$]> = [
+    ["b", b2],
+    ["a", a2],
+  ];
+  for (const [origin, op] of secondRace) {
     rig.deliver(rig.clients.a, origin, op);
     rig.deliver(rig.clients.b, origin, op);
   }
   rig.render();
   await rig.wait(500);
 
-  const verdict = rig.root.querySelector("[data-verdict]");
+  const verdict = required<HTMLElement>(rig.root, "[data-verdict]");
   verdict.hidden = false;
-  const recorded = rig.root.querySelector("[data-recorded]");
+  const recorded = required<HTMLElement>(rig.root, "[data-recorded]");
   recorded.textContent = String(rig.clients.a.state.value); // real converged value
   rig.mark(recorded, { type: "circle", color: ink, strokeWidth: 3, padding: 8 });
   rig.logLine("converged: 43 + 1 − 1 = 43", "seq");
@@ -501,35 +553,62 @@ export function initCounterBug() {
   const bugRoot = document.querySelector('[data-counter-bug="bug"]');
   const fixRoot = document.querySelector('[data-counter-bug="fix"]');
   const counterRoot = document.querySelector('[data-counter-bug="counter"]');
-  if (!bugRoot) return;
+  if (!(bugRoot instanceof HTMLElement)) return;
 
   const bug = makeRig(bugRoot, "bug");
-  const fix = fixRoot ? makeRig(fixRoot, "fix") : null;
-  const counter = counterRoot ? makeCounterRig(counterRoot) : null;
-  const rigs = [bug, fix, counter].filter(Boolean);
+  const fix =
+    fixRoot instanceof HTMLElement ? makeRig(fixRoot, "fix") : null;
+  const counter =
+    counterRoot instanceof HTMLElement ? makeCounterRig(counterRoot) : null;
+  const rigs: DemoRig[] = [bug];
+  if (fix) rigs.push(fix);
+  if (counter) rigs.push(counter);
   for (const rig of rigs) rig.reset();
 
   let running = false;
-  async function run(fn, rig) {
+  async function run<R extends DemoRig>(
+    fn: (rig: R) => Promise<void>,
+    rig: R,
+  ) {
     if (running) return;
     running = true;
-    for (const r of rigs) r.root.querySelectorAll("button").forEach((b) => (b.disabled = true));
+    for (const r of rigs) {
+      for (const button of r.root.querySelectorAll("button")) {
+        button.disabled = true;
+      }
+    }
     try {
       await fn(rig);
     } catch (error) {
       console.error("watershed counter-bug demo failed", error);
     } finally {
-      for (const r of rigs) r.root.querySelectorAll("button").forEach((b) => (b.disabled = false));
+      for (const r of rigs) {
+        for (const button of r.root.querySelectorAll("button")) {
+          button.disabled = false;
+        }
+      }
       running = false;
     }
   }
 
   bugRoot.querySelector("[data-play]")?.addEventListener("click", () => run(playBug, bug));
   bugRoot.querySelector("[data-reset]")?.addEventListener("click", () => bug.reset());
-  fixRoot?.querySelector("[data-play]")?.addEventListener("click", () => run(playFix, fix));
-  fixRoot?.querySelector("[data-reset]")?.addEventListener("click", () => fix.reset());
-  counterRoot?.querySelector("[data-play]")?.addEventListener("click", () => run(playCounter, counter));
-  counterRoot?.querySelector("[data-reset]")?.addEventListener("click", () => counter.reset());
+  if (fix) {
+    fix.root
+      .querySelector("[data-play]")
+      ?.addEventListener("click", () => run(playFix, fix));
+    fix.root
+      .querySelector("[data-reset]")
+      ?.addEventListener("click", () => fix.reset());
+  }
+  if (counter) {
+    counter.root
+      .querySelector("[data-play]")
+      ?.addEventListener("click", () => run(playCounter, counter));
+    counter.root
+      .querySelector("[data-reset]")
+      ?.addEventListener("click", () => counter.reset());
+  }
 
   // Reposition annotations if the viewport changes mid-view (rough-notation
   // draws to absolute page coordinates). Cheapest safe response: clear them.

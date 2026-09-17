@@ -1512,6 +1512,46 @@ pub fn operations_since_summary_counts_the_unsummarized_log_test() -> Nil {
 }
 
 @target(javascript)
+pub fn automatic_summaries_are_enabled_by_default_test() -> Nil {
+  let sluice =
+    sluice_js.start(tenant: "default", document: "summary-default-js")
+  let document = sluice_js.connect(sluice, "user-a")
+  sluice_js.settle(sluice)
+
+  let remaining = 499 - watershed.operations_since_summary(document)
+  list.repeat(Nil, remaining)
+  |> list.each(fn(_) {
+    watershed.set(watershed.root(document), "tick", json.int(1))
+    sluice_js.settle(sluice)
+  })
+  watershed.operations_since_summary(document) |> expect.to_equal(499)
+  watershed.diagnostics(document).summary_pending |> expect.to_be_false()
+
+  watershed.set(watershed.root(document), "tick", json.int(2))
+  sluice_js.settle(sluice)
+  watershed.operations_since_summary(document) |> expect.to_equal(500)
+  watershed.diagnostics(document).summary_pending |> expect.to_be_true()
+
+  watershed.stop_auto_summarize(document)
+  sluice_js.advance(sluice, 3000)
+  watershed.diagnostics(document).summary_pending |> expect.to_be_false()
+  watershed.set(watershed.root(document), "tick", json.int(3))
+  sluice_js.settle(sluice)
+  watershed.diagnostics(document).summary_pending |> expect.to_be_false()
+
+  watershed.auto_summarize(
+    document,
+    summary_policy.policy()
+      |> summary_policy.with_threshold(1)
+      |> summary_policy.with_jitter_milliseconds(0),
+  )
+  watershed.set(watershed.root(document), "tick", json.int(4))
+  sluice_js.settle(sluice)
+  watershed.diagnostics(document).summary_pending |> expect.to_be_true()
+  watershed.close(document)
+}
+
+@target(javascript)
 pub fn an_armed_summary_waits_out_its_jitter_window_test() -> Nil {
   // The wake-up is scheduled, not immediate: on the sluice's logical clock
   // nothing happens until `advance` reaches the delay. This is the only place

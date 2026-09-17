@@ -187,7 +187,7 @@ pub fn insert(
   index: Int,
   value: String,
 ) -> Result(#(TextState, List(TextEvent), Option(Submission)), EditError) {
-  case text.try_insert_with_delta(state.optimistic, index, value) {
+  case text.insert_with_delta(state.optimistic, index, value) {
     Error(sequence.IndexOutOfBounds(index, length)) ->
       Error(InsertOutOfBounds(index, length))
     Ok(#(optimistic, delta)) ->
@@ -214,7 +214,7 @@ pub fn delete_range(
   start: Int,
   end: Int,
 ) -> Result(#(TextState, List(TextEvent), Option(Submission)), EditError) {
-  case text.try_delete_range_with_delta(state.optimistic, start, end) {
+  case text.delete_range_with_delta(state.optimistic, start, end) {
     Error(text.RangeOutOfBounds(start, end, length)) ->
       Error(DeleteRangeOutOfBounds(start, end, length))
     Ok(#(optimistic, delta)) ->
@@ -244,7 +244,7 @@ pub fn replace_range(
   end: Int,
   value: String,
 ) -> Result(#(TextState, List(TextEvent), Option(Submission)), EditError) {
-  case text.try_replace_range_with_delta(state.optimistic, start, end, value) {
+  case text.replace_range_with_delta(state.optimistic, start, end, value) {
     Error(text.RangeOutOfBounds(start, end, length)) ->
       Error(ReplaceRangeOutOfBounds(start, end, length))
     Ok(#(optimistic, delta)) ->
@@ -271,7 +271,9 @@ pub fn append(
   case value {
     "" -> no_operation(state)
     _ -> {
-      let #(optimistic, delta) = text.append_with_delta(state.optimistic, value)
+      // Append inserts at the current length, so its index is always valid.
+      let assert Ok(#(optimistic, delta)) =
+        text.append_with_delta(state.optimistic, value)
       submitted(finish_local(state, optimistic, Append(value, delta)))
     }
   }
@@ -294,8 +296,8 @@ fn commit_p2p(
   let state =
     TextState(
       ..state,
-      sequenced: text.merge(state.sequenced, delta),
-      optimistic: text.merge(state.optimistic, delta),
+      sequenced: text.merge(state.sequenced, delta, state.replica_id),
+      optimistic: text.merge(state.optimistic, delta, state.replica_id),
     )
   #(state, changed_event(before, value(state)), operation)
 }
@@ -308,7 +310,7 @@ pub fn p2p_insert(
   index: Int,
   value: String,
 ) -> Result(#(TextState, List(TextEvent), TextOperation), EditError) {
-  case text.try_insert_with_delta(state.optimistic, index, value) {
+  case text.insert_with_delta(state.optimistic, index, value) {
     Error(sequence.IndexOutOfBounds(index, length)) ->
       Error(InsertOutOfBounds(index, length))
     Ok(#(_, delta)) -> Ok(commit_p2p(state, Insert(index, value, delta)))
@@ -321,7 +323,7 @@ pub fn p2p_delete_range(
   start: Int,
   end: Int,
 ) -> Result(#(TextState, List(TextEvent), TextOperation), EditError) {
-  case text.try_delete_range_with_delta(state.optimistic, start, end) {
+  case text.delete_range_with_delta(state.optimistic, start, end) {
     Error(text.RangeOutOfBounds(start, end, length)) ->
       Error(DeleteRangeOutOfBounds(start, end, length))
     Ok(#(_, delta)) -> Ok(commit_p2p(state, DeleteRange(start, end, delta)))
@@ -335,7 +337,7 @@ pub fn p2p_replace_range(
   end: Int,
   value: String,
 ) -> Result(#(TextState, List(TextEvent), TextOperation), EditError) {
-  case text.try_replace_range_with_delta(state.optimistic, start, end, value) {
+  case text.replace_range_with_delta(state.optimistic, start, end, value) {
     Error(text.RangeOutOfBounds(start, end, length)) ->
       Error(ReplaceRangeOutOfBounds(start, end, length))
     Ok(#(_, delta)) ->
@@ -349,7 +351,8 @@ pub fn p2p_append(
   state: TextState,
   value: String,
 ) -> #(TextState, List(TextEvent), TextOperation) {
-  let #(_, delta) = text.append_with_delta(state.optimistic, value)
+  // Append inserts at the current length, so its index is always valid.
+  let assert Ok(#(_, delta)) = text.append_with_delta(state.optimistic, value)
   commit_p2p(state, Append(value, delta))
 }
 
@@ -364,8 +367,8 @@ pub fn p2p_merge(
   other: Text,
 ) -> #(TextState, List(TextEvent)) {
   let before = value(state)
-  let sequenced = text.merge(state.sequenced, other)
-  let optimistic = replay_pending(sequenced, state.pending)
+  let sequenced = text.merge(state.sequenced, other, state.replica_id)
+  let optimistic = replay_pending(sequenced, state.pending, state.replica_id)
   let state = TextState(..state, sequenced: sequenced, optimistic: optimistic)
   #(state, changed_event(before, value(state)))
 }
@@ -375,8 +378,9 @@ pub fn apply_remote(
   operation: TextOperation,
 ) -> #(TextState, List(TextEvent)) {
   let before = value(state)
-  let sequenced = text.merge(state.sequenced, operation_delta(operation))
-  let optimistic = replay_pending(sequenced, state.pending)
+  let sequenced =
+    text.merge(state.sequenced, operation_delta(operation), state.replica_id)
+  let optimistic = replay_pending(sequenced, state.pending, state.replica_id)
   let state = TextState(..state, sequenced: sequenced, optimistic: optimistic)
   #(state, changed_event(before, value(state)))
 }
@@ -413,7 +417,11 @@ fn do_ack(
           Ok(
             TextState(
               ..state,
-              sequenced: text.merge(state.sequenced, operation_delta(operation)),
+              sequenced: text.merge(
+                state.sequenced,
+                operation_delta(operation),
+                state.replica_id,
+              ),
               pending: rest,
             ),
           )
@@ -445,7 +453,8 @@ pub fn rollback(
           ))
         True -> {
           let before = value(state)
-          let optimistic = replay_pending(state.sequenced, rest)
+          let optimistic =
+            replay_pending(state.sequenced, rest, state.replica_id)
           let state = TextState(..state, optimistic: optimistic, pending: rest)
           Ok(#(state, changed_event(before, value(state))))
         }
@@ -462,7 +471,8 @@ pub fn apply_stashed_operation(
   state: TextState,
   operation: TextOperation,
 ) -> #(TextState, List(TextEvent), TextOperation, Int) {
-  let optimistic = text.merge(state.optimistic, operation_delta(operation))
+  let optimistic =
+    text.merge(state.optimistic, operation_delta(operation), state.replica_id)
   finish_local(state, optimistic, operation)
 }
 
@@ -491,7 +501,7 @@ pub fn from_summary(
 }
 
 pub fn from_sequenced(sequenced: Text, replica_id: ReplicaId) -> TextState {
-  let rebranded = text.merge(text.new(replica_id), sequenced)
+  let rebranded = text.bind(sequenced, replica_id)
   TextState(
     replica_id: replica_id,
     sequenced: rebranded,
@@ -502,7 +512,10 @@ pub fn from_sequenced(sequenced: Text, replica_id: ReplicaId) -> TextState {
 }
 
 pub fn check_cache_coherence(state: TextState) -> Result(Nil, String) {
-  case replay_pending(state.sequenced, state.pending) == state.optimistic {
+  case
+    replay_pending(state.sequenced, state.pending, state.replica_id)
+    == state.optimistic
+  {
     True -> Ok(Nil)
     False -> Error("optimistic cache diverged from sequenced + pending")
   }
@@ -558,7 +571,7 @@ pub fn anchor_at(
   index: Int,
   bias: Bias,
 ) -> Result(TextAnchor, AnchorError) {
-  case text.try_anchor_at(state.optimistic, index, bias) {
+  case text.anchor_at(state.optimistic, index, bias) {
     Ok(anchor) -> Ok(TextAnchor(anchor))
     Error(sequence.AnchorIndexOutOfBounds(index, length)) ->
       Error(AnchorOutOfBounds(index, length))
@@ -573,7 +586,7 @@ pub fn resolve_anchor(
   anchor: TextAnchor,
 ) -> Result(Int, AnchorError) {
   let TextAnchor(inner) = anchor
-  case text.try_resolve_anchor(state.optimistic, inner) {
+  case text.resolve_anchor(state.optimistic, inner) {
     Ok(index) -> Ok(index)
     Error(sequence.AnchorIndexOutOfBounds(index, length)) ->
       Error(AnchorOutOfBounds(index, length))
@@ -617,9 +630,13 @@ fn operation_delta(operation: TextOperation) -> Text {
   }
 }
 
-fn replay_pending(sequenced: Text, pending: List(PendingOperation)) -> Text {
+fn replay_pending(
+  sequenced: Text,
+  pending: List(PendingOperation),
+  replica_id: ReplicaId,
+) -> Text {
   list.fold(pending, sequenced, fn(acc, pending) {
-    text.merge(acc, operation_delta(pending.operation))
+    text.merge(acc, operation_delta(pending.operation), replica_id)
   })
 }
 

@@ -3,7 +3,9 @@
 **Date:** 2026-08-09
 **Builds on:** `2026-08-09-consensus-replay-quorum-plan.md` (the replay-membership fix this depends on, and whose two open pieces are folded in here), `tylerbutler/levee#85` (the floodgate half).
 **Benchmark:** Fluid Framework's summarizer. Fluid elects a dedicated summarizer client and has the server prompt it; the design question below is how much of that we want.
-**Status:** SB1, SB2, SB3, SB4, SB7 shipped. Documents now summarize themselves when asked to — the policy exists, both runtimes drive it, and it is on in the drum machine. What is left is turning it on by default (SB6) and the docs (SB8). SB5 is an unimplemented server feature, not a broken test. Rungs below carry their outcomes.
+**Status:** Complete. SB1–SB8 have shipped. JavaScript and BEAM enable automatic summaries by default with a 500-message threshold and a 3000ms jitter window. Both runtimes publish parent-linked commits, wait for `summaryAck`, list document history newest first, and load historical snapshots by commit ID.
+
+**Completed 2026-09-09:** Watershed uses Floodgate's Routerlicious-style commit history instead of the discarded custom `/versions/:tenant/:document` route. Floodgate validates the published parent, serializes competing proposals, recovers acknowledgements and refs, scopes history by document, and accepts Routerlicious tree entries that omit `mode`. Watershed commits `5fa1d4a` through `eca20db` implement bootstrap, history reads, lifecycle tracking, and acknowledgement waiters. Floodgate completes the server side through `af88942`.
 
 ## Why
 
@@ -13,7 +15,11 @@ This is the only statement of the goal anywhere in the repo, and until now it li
 
 **Summary bootstrap makes joining cost proportional to ops-since-checkpoint instead of ops-ever.** That is the whole goal. This plan is about turning it on.
 
-## Where it actually stands
+## Original inventory and design
+
+The investigation through "Data model" below is historical. The rungs and
+execution records describe what shipped; statements there about missing callers
+or discarded sequence numbers are the original defects, not current behavior.
 
 The surprising part, and the reason this plan exists rather than a one-line ticket: **the machinery is built and nothing uses it.**
 
@@ -28,7 +34,7 @@ The surprising part, and the reason this plan exists rather than a one-line tick
 | Checkpoint roster in the blob | ✅ blob v4, SB2 |
 | Load point matches the blob | ✅ SB1 |
 | Durable log with matched join/leave | ✅ floodgate `0b24bbd`, levee#85 closed |
-| `get_versions` / `load_version` | ❌ no server implements `/versions` — see SB5 |
+| `get_versions` / `load_version` | ✅ published commit history and historical snapshot loading, SB5 |
 
 *(Written when `summarize` had no caller in `src/`, `examples/`, `website/`, or any test outside the gated ones — so every document replayed from sequence number zero, paging through `fetch_deltas` past floodgate's 1000-op `initialMessages` cap. That is what SB3 closed. Floodgate still never asks for a summary: there is no summarizer election and no nack prompting one — it accepts summarize ops, stores what it is given, and broadcasts the op to the room.)*
 
@@ -104,14 +110,14 @@ json.object([
 
 - **SB1 — ✅ done.** Settled by construction rather than by proving the race: `runtime_core.summary_from_blob` now takes the load point from the blob's own `sequenceNumber`, and both runtimes call it. Correct either way — when the two numbers agree it is identical, and when they differ the window surfaces as a `MissingPrefix` that the existing `fetch_deltas` → `resume_bootstrap` path fills. See "How SB1 was actually settled" below.
 - **SB2 — ✅ done.** Blob v4 carries `members`; `git_storage.upload_summary` takes it, `runtime_core.summary_members` supplies it, both load points seed from it. v3 and a v4 without `members` are both refused rather than read as an empty room. Gate met in `roster_test`: a proposal sequenced after the checkpoint reconstructs the signoff list a present client froze, and the same test fails with an empty checkpoint roster.
-- **SB3 — ✅ done.** `watershed/summary_policy` carries the knobs (threshold 500, jitter 3000ms), `runtime_core` carries the decision (`last_summary_sn`, `ops_since_summary`, `wants_summary`, `summary_jitter_ms`), and both runtimes arm a wake-up from their sequenced-op path and re-take the decision on arrival. Off unless `auto_summarize` installs a policy. Two departures from the plan as written, both recorded below: the trigger is not *only* threshold + jitter, and the knob is not a connect option.
-- **SB4 — ✅ done, verified against floodgate.** The policy is on in both live suites (`auto_summary_writes_without_an_explicit_call_test`, `a_peers_summary_resets_the_local_threshold_test`, and a fourth `live_js` scenario) and in the drum machine, app and smoke. A document summarizes itself with nothing calling `summarize`, and a fresh client bootstraps from that checkpoint and applies the post-checkpoint delta — on both targets. The only live summary failure left is `summary_versions_test`'s 404, which is SB5.
-- **SB5 — ⛔ rescoped: not a broken test, an unimplemented feature.** See "What SB5 turned out to be" below.
-- **SB6 — enable by default. Unblocked:** levee#85 is closed by floodgate `0b24bbd`, which sequences durable leaves for unmatched joins before the first post-restart connection. The client half is verified by `ghost_members_do_not_survive_a_server_restart_test` (`WATERSHED_INTEGRATION_RESTART=1`, `just integration-restart`), verified to fail against floodgate at `63a1996` with the three pre-restart ids still in the reconstructed `TaskManager` queue. What remains in SB6 is the default flip itself, which depends on SB3.
+- **SB3 — ✅ done.** `watershed/summary_policy` carries the knobs (threshold 500, jitter 3000ms), `runtime_core` carries the decision (`last_summary_sn`, `ops_since_summary`, `wants_summary`, `summary_jitter_ms`), and both runtimes arm a wake-up from their sequenced-op path and re-take the decision on arrival. Initially opt-in; SB6 enabled the default policy. Two departures from the plan as written, both recorded below: the trigger is not *only* threshold + jitter, and the knob is not a connect option.
+- **SB4 — ✅ done, verified against floodgate.** The policy is on in both live suites (`auto_summary_writes_without_an_explicit_call_test`, `a_peers_summary_resets_the_local_threshold_test`, and a fourth `live_js` scenario) and in the drum machine, app and smoke. A document summarizes itself with nothing calling `summarize`, and a fresh client bootstraps from that checkpoint and applies the post-checkpoint delta — on both targets.
+- **SB5 — ⏳ planned, not started.** Version history will use Floodgate's Routerlicious-compatible commit/ref model, not the obsolete custom `/versions` route. See "What SB5 requires now" below and `../superpowers/plans/2026-09-09-summary-version-history.md`.
+- **SB6 — ✅ done.** Both runtimes start with `Some(summary_policy.policy())`: 500 sequenced messages, 3000ms jitter. `stop_auto_summarize` disables it per client; `auto_summarize` tunes or re-enables it. JavaScript's logical-clock regression covers the threshold, an opted-out wake-up, and re-enabling. Both live suites now require enough separately sequenced writes to cross the default threshold and then prove a fresh client bootstraps from the resulting checkpoint. The BEAM suite also covers explicit tuning and opt-out. The prerequisite remains floodgate `0b24bbd` (tylerbutler/levee#85): durable leaves for unmatched joins after restart, previously exercised by `ghost_members_do_not_survive_a_server_restart_test`.
 - **SB7 — ✅ done.** `adopt_reconnect` now keeps `members` at `last_seen_sn` and defers the handshake roster to `live_members`, which `settle_bootstrap` already adopts when the gap closes. The gap's own `join`/`leave` messages — including the leave for the dropped id and the join for the new one — walk the roster to the post-reconnect room. Gate met in `roster_test`.
-- **SB8 — docs.** Update `website/src/pages/runtime/reconnect.astro` from "an application can explicitly call" to whatever SB3 makes true, and say what the checkpoint boundary guarantees.
+- **SB8 — ✅ done.** The reconnect page, root and Lustre READMEs, policy module, and facade docs describe default scheduling, tuning, per-client opt-out, storage/auth requirements, and retry behavior. The checkpoint boundary is confirmed channel state and membership at the blob's own sequence number. Bootstrap replays later messages, including the upload interval; pending local edits remain outside the checkpoint and reconnect resubmits them. The threshold is not a hard replay bound.
 
-**Remaining: SB6's default flip, SB8.** SB5 stays unimplemented (server-side). SB6 is unblocked as far as watershed is concerned — the whole path is green against floodgate — but pick the default threshold knowing it counts sequenced messages, not edits.
+**Remaining: SB5 only.** Its server/storage design is now settled: published versions are a linear first-parent commit history under the document summary ref. Implementation remains separate from the default-policy rollout.
 
 ## What SB3 changed about its own design
 
@@ -136,10 +142,12 @@ imagining single edits far too high, and it is why the live tests write one key
 at a time and why they assert "the drift fell back under the threshold" rather
 than counting.
 
-**The policy arms on a sequenced message, so a document that falls quiet just
-over the threshold stays there until the next one arrives.** Correct, invisible
-in an app (the next edit summarizes), and a trap for a test that stops writing
-and waits — both live tests generate traffic until the checkpoint moves instead.
+**The policy arms on a sequenced message, not a periodic timer.** A scheduled
+attempt can run while the room is quiet. If it fails or finds the client no
+longer eligible, it needs another sequenced message to schedule a retry. The
+live tests generate traffic until the checkpoint moves. SB6 also corrected a
+gap in those tests: a low initial drift cannot count as success before enough
+messages have sequenced to cross the threshold.
 
 **A client's own summarize op is itself a sequenced message**, so the drift
 settles at 1 rather than 0 after a checkpoint. Harmless at any sane threshold;
@@ -157,8 +165,8 @@ put it: the BEAM `connect` takes six required labelled arguments, and JS
 site including raw JS (`examples/text_lustre/element_host.mjs`). A sixth field
 would be a source break everywhere. `auto_summarize(document, policy)` follows
 `presence_js.start` instead, and `summary_policy.Policy` copies
-`presence.Config`'s opaque-record + `with_*` + accessor shape. SB6's default flip
-becomes a one-line change to the runtime's initial `auto_summary`.
+`presence.Config`'s opaque-record + `with_*` + accessor shape. SB6 changed each
+runtime's initial `auto_summary` without changing connection configuration.
 
 **The BEAM upload still blocks the actor**, deliberately (the plan's decision,
 confirmed on execution). One bounded stall per summary, no new concurrency, and
@@ -196,16 +204,19 @@ The hazard is real, and wider on the JS target than this plan first assumed. On 
 
 Rather than reproduce it, the fix removes the possibility: the blob is self-describing, so the load point comes from the blob. The decision was extracted into a pure function precisely so it could be tested without a server.
 
-## What SB5 turned out to be
+## How SB5 shipped
 
-`summary_versions_test` does not fail because of the checkpoint boundary. It fails because **`GET /versions/:tenant/:document` does not exist on any server** — it 404s on floodgate, while `/repos/:tenant/commits` and `/deltas/...` 401 (present, auth required). That is why it failed against levee too.
+Watershed discarded the custom `GET /versions/:tenant/:document` design and uses Floodgate's Historian routes:
 
-There is no small fix, because there is nothing to list:
+- `summarize` uploads a staging tree, submits the current published commit as `head` and first parent, then waits for `summaryAck` or `summaryNack`.
+- A successful call returns the published commit ID. It does not return the uploaded tree ID.
+- `get_versions` reads `GET /repos/:tenant/commits?sha=<document>&count=<count>` and returns the first-parent history newest first.
+- `load_version` resolves a published commit to its tree and reads the `header` blob. It retries a supplied ID as a legacy tree only when commit lookup returns 404.
+- The blob's `sequence_number` remains the snapshot capture point.
+- Competing proposals produce one winner. A rejected client observes the winning head and can retry on top of it.
+- Floodgate recovers the published pointer and document ref after restart, so acknowledged commits stay discoverable.
 
-- Floodgate stores exactly **one** summary pointer per document (`doc_state.Doc.summary: #(String, Int)`, a single overwritten key). No history is retained.
-- The endpoint that *does* exist, `GET /repos/:tenant/commits?sha=&count=`, walks a git commit chain. Watershed's `upload_summary` posts a blob and a tree and never a commit, and `outbound_summarize_op` always sends `parents: []`. So there is no chain to walk.
-
-Closing this means choosing a direction and implementing it end to end — either watershed starts writing real git commits so version history falls out of the commit chain (changing what `handle` means, and touching `fetch_summary`), or floodgate adds a versions endpoint over retained pointers (changing what it stores). Both are cross-repo feature work, not a repair, and neither belongs in a correctness pass. `get_versions` / `load_version` should be treated as unimplemented until then.
+The task-by-task execution record is `../superpowers/plans/2026-09-09-summary-version-history.md`.
 
 ## Found on the way: reconnect after a server restart — both fixed
 

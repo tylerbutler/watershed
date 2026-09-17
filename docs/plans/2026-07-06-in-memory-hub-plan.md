@@ -7,8 +7,9 @@ gate maps onto the explicit `step`/`pause` delivery control). HM1a/HM1b
 round-trip tests), HM3 (erlang driver + ungated convergence subset: map LWW,
 counter sum, claims first-writer, pause/step), HM4 (`sluice_js` + example app
 test) all landed. HM5 = this doc + README "Testing your app" section + module
-docs. Deferred within scope: `disconnect`/`reconnect` driver controls and
-JS-side `pause` (needs runtime identity); summary joins (decision 5).
+docs. As of 2026-09-06, both drivers also provide `disconnect`, `reconnect`,
+`drop`/`rejoin`, and `pause`/`resume`. Those controls are no longer deferred.
+Summary joins remain outside the sluice's scope (decision 5).
 
 **Date:** 2026-07-06
 **Builds on:** `2026-07-03-kernel-fuzz-harness-plan.md` (the pure `Sim`/`Client` inbox-log split this generalizes to the document level), `wire/socket.gleam` (the codec inventory), the `WATERSHED_INTEGRATION`-gated suite in `test/watershed/integration_test.gleam` (the tests this un-gates).

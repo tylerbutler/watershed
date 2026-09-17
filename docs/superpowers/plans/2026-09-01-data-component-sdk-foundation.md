@@ -1,5 +1,11 @@
 # Data Component SDK Foundation Implementation Plan
 
+**Status (2026-09-06):** all five foundation tasks shipped. Typed ports
+(`611158f`), the component catalog (`5320681`), port graphs (`5692765`), and
+dispatch (`7d179e0`) are in `src/watershed/`; `335ae37` closed the final review.
+The unchecked step lists below preserve the original implementation recipe.
+They do not identify unfinished foundation work.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the target-independent types and pure functions for typed component ports, versioned catalog registration, deterministic connection graphs, and origin-aware dispatch planning.
@@ -34,21 +40,20 @@
 
 ## Plan series
 
-This is the first of four implementation plans. The approved design spans
-several subsystems with separate review and test boundaries:
+The original design split delivery into four areas. Their current status is:
 
-1. **SDK foundation, this plan:** ports, catalog descriptors, graph validation,
-   and dispatch planning.
-2. **Workspace persistence and lifecycle:** manifest, layout, graph channels,
-   instance child maps, startup states, stop, and explicit deletion semantics.
-3. **Runtime component execution:** erased running instances, JS and BEAM
-   shells, local input execution, collaborative mutation submission, and
-   dispatch reporting.
-4. **Catalog and reference app:** five headless components, Lustre adapters,
-   project-room composition, presence, and two-client acceptance tests.
+1. **SDK foundation, this plan:** complete.
+2. **Workspace persistence and lifecycle:** shipped in `59d5c05`, with
+   JavaScript and BEAM workspace APIs.
+3. **Runtime component execution:** JavaScript host shipped in `f60a3cf` and
+   hardened by the Gnome Village follow-up. BEAM execution-host parity remains
+   deferred; workspace support on BEAM does not provide that host.
+4. **Catalog and reference app:** shipped and expanded to nine seeded
+   components. The shell owns view selection; generic heterogeneous Lustre
+   mounting remains deferred.
 
-Each plan must pass its own target-independent or target-specific test gate
-before the next plan starts.
+See `2026-09-02-runtime-component-palette.md` and
+`2026-09-06-gnome-village-follow-up.md` for the subsequent delivery records.
 
 ## File structure
 

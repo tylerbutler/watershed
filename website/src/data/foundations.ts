@@ -59,7 +59,7 @@ export const componentModelDocs: FoundationDoc[] = [
     slug: "workspaces",
     title: "Workspaces and instances",
     gloss:
-      "Save the finished board — which parts exist, where they sit, how they are wired — and reopen it safely next year, without deleting the parts this build cannot understand.",
+      "Save component instances, presentation order, and wiring in a workspace within your document — and reopen it safely next year, without deleting the parts this build cannot understand.",
     concept: "ManifestEntry · Snapshot · Prepared · delete_instance",
   },
 ];

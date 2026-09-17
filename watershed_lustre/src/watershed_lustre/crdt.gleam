@@ -80,7 +80,11 @@ import watershed/crdt_js.{
   type Config, type CrdtConnection, type CrdtDocument, type Handle, type Status,
   type Subscription,
 }
+import watershed/g_counter_kernel
 import watershed/g_set_kernel
+import watershed/lww_map_kernel
+import watershed/lww_register_kernel
+import watershed/mv_register_kernel
 import watershed/or_map_kernel
 import watershed/or_set_kernel
 import watershed/p2p.{type P2pError}
@@ -347,7 +351,47 @@ pub fn subscribe_pn_counter(
   subscribe(crdt_js.subscribe_pn_counter(handle, _), subscribed, event)
 }
 
-/// Subscribe to a peer-to-peer OR-map.
+/// Subscribe to a peer-to-peer grow-only counter. `event` receives every local
+/// and remote `g_counter_kernel.GCounterEvent` value.
+pub fn subscribe_g_counter(
+  handle: Handle(schema.GCounterChannel),
+  subscribed subscribed: fn(Subscription) -> msg,
+  event event: fn(g_counter_kernel.GCounterEvent) -> msg,
+) -> Effect(msg) {
+  subscribe(crdt_js.subscribe_g_counter(handle, _), subscribed, event)
+}
+
+/// Subscribe to visible map changes. Metadata-only edits emit no event.
+pub fn subscribe_lww_map(
+  handle: Handle(schema.LwwMapChannel),
+  subscribed subscribed: fn(Subscription) -> msg,
+  event event: fn(lww_map_kernel.LwwMapEvent) -> msg,
+) -> Effect(msg) {
+  subscribe(crdt_js.subscribe_lww_map(handle, _), subscribed, event)
+}
+
+/// Subscribe to local and remote visible-value changes in a peer-to-peer LWW
+/// register.
+pub fn subscribe_lww_register(
+  handle: Handle(schema.LwwRegisterChannel),
+  subscribed subscribed: fn(Subscription) -> msg,
+  event event: fn(lww_register_kernel.LwwRegisterEvent) -> msg,
+) -> Effect(msg) {
+  subscribe(crdt_js.subscribe_lww_register(handle, _), subscribed, event)
+}
+
+/// Subscribe to changes in the peer-to-peer register alternatives.
+pub fn subscribe_mv_register(
+  handle: Handle(schema.MvRegisterChannel),
+  subscribed subscribed: fn(Subscription) -> msg,
+  event event: fn(mv_register_kernel.MvRegisterEvent) -> msg,
+) -> Effect(msg) {
+  subscribe(crdt_js.subscribe_mv_register(handle, _), subscribed, event)
+}
+
+/// Subscribe to a peer-to-peer OR-map. In `OrSetMode`, `SetMembersUpdated`
+/// carries sorted members. A metadata-only add emits no visible-value event.
+/// Retain the delivered subscription for `unsubscribe`.
 pub fn subscribe_or_map(
   handle: Handle(schema.OrMapChannel),
   subscribed subscribed: fn(Subscription) -> msg,
@@ -428,13 +472,33 @@ pub fn unsubscribe(subscription: Subscription) -> Effect(msg) {
 /// and the fan-out to the subscribers all happen in the effect phase, and not
 /// while `update` still runs.
 ///
-/// This function is the whole mutation surface. Compose it with the typed
-/// `crdt_js` edit directly. Do not look for a wrapper for each edit.
+/// Compose this function with a typed `crdt_js` edit.
+/// The `or_map_set_mv_register` convenience function uses this helper.
 ///
 /// ```gleam
 /// crdt.perform(fn() { crdt_js.pn_counter_update(counter, 1) }, Clapped)
 /// crdt.perform(fn() { crdt_js.or_map_set(map, key: "k", value: "v") }, Wrote)
 /// ```
+///
+/// A string-set map uses the same handle and subscription with `OrSetMode`:
+///
+/// ```gleam
+/// crdt.perform(
+///   fn() { crdt_js.or_map_add_member(map, "inspection-brief", "reviewed") },
+///   Outcome,
+/// )
+/// crdt.perform(
+///   fn() { crdt_js.or_map_remove_member(map, "inspection-brief", "draft") },
+///   Outcome,
+/// )
+/// crdt.perform(
+///   fn() { crdt_js.or_map_remove_key(map, "inspection-brief") },
+///   Outcome,
+/// )
+/// ```
+///
+/// Removing the last member retains an empty key. Key removal also clears
+/// observed members. Concurrent unobserved additions survive.
 ///
 /// The function passes the `Result` value through without a change. An edit
 /// that the channel does not support, or that is invalid, stays an `Error`. It
@@ -446,6 +510,16 @@ pub fn perform(
   use dispatch <- effect.from
   let result = operation()
   queue_microtask(fn() { dispatch(outcome(result)) })
+}
+
+/// Replace observed alternatives in the effect phase and defer the result.
+pub fn or_map_set_mv_register(
+  handle: Handle(schema.OrMapChannel),
+  key: String,
+  value: String,
+  outcome outcome: fn(Result(Nil, P2pError)) -> msg,
+) -> Effect(msg) {
+  perform(fn() { crdt_js.or_map_set_mv_register(handle, key, value) }, outcome)
 }
 
 // ── Snapshots ────────────────────────────────────────────────────────────────

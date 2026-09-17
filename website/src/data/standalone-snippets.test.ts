@@ -30,6 +30,9 @@ const repoRoot = resolve(__dirname, "../../..");
 
 describe("standalone snippet registry", () => {
   const EXPECTED_KEYS = [
+    "mv-register-sequenced",
+    "mv-register-p2p",
+    "mv-register-concurrent-resolution",
     "homepage-beam",
     "optimistic-local",
     "p2p-config",
@@ -110,6 +113,12 @@ describe("standalone snippet registry", () => {
   it("sharedtree-nest contains SudokuDocument", () => {
     assert.match(standaloneSnippets["sharedtree-nest"].code, /SudokuDocument/);
   });
+
+  it("MV examples quote typed facades and the executable merge regression", () => {
+    assert.match(standaloneSnippets["mv-register-sequenced"].code, /watershed\.ensure_mv_register/);
+    assert.match(standaloneSnippets["mv-register-p2p"].code, /p2p\.mv_register_root/);
+    assert.match(standaloneSnippets["mv-register-concurrent-resolution"].code, /expect\.to_equal\(\["arm pump", "raise crest"\]\)/);
+  });
 });
 
 // ── 2. SharedTree TypeScript literals are syntactically valid ──────────────
@@ -162,6 +171,7 @@ describe("no handwritten Gleam literals in migrated pages", () => {
     "src/components/CodeSample.astro",
     "src/pages/runtime/optimistic.astro",
     "src/pages/runtime/p2p.astro",
+    "src/pages/mv-register.astro",
     "src/pages/sharedtree.astro",
   ];
 

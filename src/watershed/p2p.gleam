@@ -41,6 +41,25 @@ pub fn pn_counter_root() -> CrdtKind(schema.PnCounterChannel) {
   CrdtKind(channel.InitPnCounter)
 }
 
+/// The root kind for a peer-to-peer grow-only counter document.
+pub fn g_counter_root() -> CrdtKind(schema.GCounterChannel) {
+  CrdtKind(channel.InitGCounter)
+}
+
+pub fn mv_register_root() -> CrdtKind(schema.MvRegisterChannel) {
+  CrdtKind(channel.InitMvRegister)
+}
+
+/// The root kind for a peer-to-peer last-writer-wins register document.
+pub fn lww_register_root() -> CrdtKind(schema.LwwRegisterChannel) {
+  CrdtKind(channel.InitLwwRegister)
+}
+
+/// The root kind for a string-valued peer-to-peer LWW map.
+pub fn lww_map_root() -> CrdtKind(schema.LwwMapChannel) {
+  CrdtKind(channel.InitLwwMap)
+}
+
 pub fn or_map_root(mode: OrMapMode) -> CrdtKind(schema.OrMapChannel) {
   CrdtKind(channel.InitOrMap(mode))
 }
