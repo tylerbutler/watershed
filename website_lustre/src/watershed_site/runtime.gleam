@@ -1,3 +1,5 @@
+import gleam/list
+
 pub type Doc {
   Doc(slug: String, title: String, gloss: String, concept: String)
 }
@@ -35,4 +37,30 @@ pub fn all() -> List(Doc) {
       "CrdtDocument · Auto / SequencedOnly / P2pOnly · crdt_relay_v1",
     ),
   ]
+}
+
+pub fn get(slug: String) -> Result(Doc, Nil) {
+  list.find(all(), fn(item) { item.slug == slug })
+}
+
+pub fn neighbours(slug: String) -> #(Result(Doc, Nil), Result(Doc, Nil)) {
+  neighbours_in(all(), slug, Error(Nil))
+}
+
+fn neighbours_in(
+  docs: List(Doc),
+  slug: String,
+  previous: Result(Doc, Nil),
+) -> #(Result(Doc, Nil), Result(Doc, Nil)) {
+  case docs {
+    [] -> #(Error(Nil), Error(Nil))
+    [current, ..rest] ->
+      case current.slug == slug {
+        True -> #(previous, case rest {
+          [next, ..] -> Ok(next)
+          [] -> Error(Nil)
+        })
+        False -> neighbours_in(rest, slug, Ok(current))
+      }
+  }
 }

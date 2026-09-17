@@ -31,6 +31,15 @@ pub fn generated_route_and_assets_test() {
   find(runtime_tree, "src", "/scripts/concept-index.js")
   |> list.length
   |> should.equal(1)
+  let assert Ok(optimistic_html) =
+    simplifile.read(output <> "/runtime/optimistic/index.html")
+  string.contains(optimistic_html, "href=\"/runtime/reconnect\"")
+  |> should.be_true()
+  string.contains(
+    optimistic_html,
+    "tools/website-samples/src/website_samples/optimistic_sample.gleam",
+  )
+  |> should.be_true()
   let assert Ok(component_model_html) =
     simplifile.read(output <> "/component-model/index.html")
   let component_model_tree = html_parser.as_tree(component_model_html)

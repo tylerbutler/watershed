@@ -12,6 +12,7 @@ import watershed_site/foundations
 import watershed_site/guide
 import watershed_site/practice
 import watershed_site/route
+import watershed_site/runtime
 import watershed_site/snippet
 import watershed_site/view/concept_index
 import watershed_site/view/guide_index
@@ -22,6 +23,7 @@ pub type PageKind {
   GuideIndex
   ConceptIndex
   ConceptSheet(foundations.Doc)
+  RuntimeSheet(runtime.Doc)
 }
 
 pub type Metadata {
@@ -152,22 +154,43 @@ fn decode_metadata(
         False -> Ok(Nil)
       })
       use slug <- result.try(field(fields, "concept", path))
-      use doc <- result.try(
-        foundations.get(slug)
-        |> result.replace_error(error.InvalidFrontmatter(
-          path,
-          "concept: Unknown foundation: " <> slug,
-        )),
-      )
-      let foundations.Section(path: section_path, ..) =
-        foundations.section(slug)
-      case route.path == section_path <> "/" <> slug {
-        True -> Ok(ConceptSheet(doc))
-        False ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "concept: The path does not match " <> route.path,
-          ))
+      case string.starts_with(route.path, "/runtime/") {
+        True -> {
+          use doc <- result.try(
+            runtime.get(slug)
+            |> result.replace_error(error.InvalidFrontmatter(
+              path,
+              "concept: Unknown runtime behavior: " <> slug,
+            )),
+          )
+          case route.path == "/runtime/" <> slug {
+            True -> Ok(RuntimeSheet(doc))
+            False ->
+              Error(error.InvalidFrontmatter(
+                path,
+                "concept: The path does not match " <> route.path,
+              ))
+          }
+        }
+        False -> {
+          use doc <- result.try(
+            foundations.get(slug)
+            |> result.replace_error(error.InvalidFrontmatter(
+              path,
+              "concept: Unknown foundation: " <> slug,
+            )),
+          )
+          let foundations.Section(path: section_path, ..) =
+            foundations.section(slug)
+          case route.path == section_path <> "/" <> slug {
+            True -> Ok(ConceptSheet(doc))
+            False ->
+              Error(error.InvalidFrontmatter(
+                path,
+                "concept: The path does not match " <> route.path,
+              ))
+          }
+        }
       }
     }
     _, _ ->

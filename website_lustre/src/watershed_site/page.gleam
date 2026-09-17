@@ -22,6 +22,7 @@ import watershed_site/view/field_notes
 import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
 import watershed_site/view/runtime_index
+import watershed_site/view/runtime_sheet
 
 pub type GuidePage(msg) {
   GuidePage(
@@ -164,6 +165,13 @@ pub fn render(
         concept_sheet.title(doc),
         concept_sheet.view(doc, body),
       ))
+    content.RuntimeSheet(doc) ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        runtime_sheet.title(doc),
+        runtime_sheet.view(doc, body),
+      ))
   }
 }
 
@@ -211,8 +219,10 @@ fn render_document(
         False ->
           list.append(scripts, [document.Module("/scripts/field-notes.js")])
       }
-    content.GuideIndex | content.ConceptIndex | content.ConceptSheet(_) ->
-      scripts
+    content.GuideIndex
+    | content.ConceptIndex
+    | content.ConceptSheet(_)
+    | content.RuntimeSheet(_) -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
