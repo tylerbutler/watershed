@@ -1,0 +1,5 @@
+---
+description = "Registers in watershed: One shared value, and three different answers to a race. LWWRegister, MvRegister, RegisterCollection. How each works, its merge rule, and what it is best for."
+layout = "structure-sheet"
+family = "registers"
+---

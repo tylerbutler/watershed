@@ -23,6 +23,7 @@ import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
 import watershed_site/view/runtime_index
 import watershed_site/view/runtime_sheet
+import watershed_site/view/structure_sheet
 import watershed_site/view/structures_index
 
 pub type GuidePage(msg) {
@@ -193,6 +194,13 @@ pub fn render(
         "watershed — data structures",
         structures_index.view(body),
       ))
+    content.StructureSheet(family) ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — " <> string.lowercase(family.name),
+        structure_sheet.view(family),
+      ))
   }
 }
 
@@ -244,7 +252,8 @@ fn render_document(
     | content.ConceptIndex
     | content.ConceptSheet(_)
     | content.RuntimeSheet(_)
-    | content.StructureIndex -> scripts
+    | content.StructureIndex
+    | content.StructureSheet(_) -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -257,6 +266,7 @@ fn render_document(
     route.StructureIndex ->
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
+    route.StructureSheet -> scripts
   }
   document.view(document.Document(
     title:,

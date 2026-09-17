@@ -131,6 +131,24 @@ pub fn structures_index_is_registered_as_the_field_atlas_test() {
   |> should.equal(["/styles/site.css", "/styles/structures-index.css"])
 }
 
+pub fn structure_family_routes_use_the_shared_atlas_sheet_test() {
+  [
+    "counters", "sets", "registers", "maps", "sequences", "coordination",
+    "transforms",
+  ]
+  |> list.each(fn(slug) {
+    let assert Ok(item) =
+      route.all()
+      |> list.find(fn(item) { item.path == "/structures/" <> slug })
+    item.layout |> should.equal(route.StructureSheet)
+    item.content_path
+    |> should.equal("content/structures/" <> slug <> ".djot")
+    item.client_script |> should.equal(None)
+    route.stylesheets(item)
+    |> should.equal(["/styles/site.css", "/styles/structure-sheet.css"])
+  })
+}
+
 pub fn foundations_detail_routes_use_the_shared_concept_sheet_test() {
   [
     #("schema", "content/foundations/schema.djot"),

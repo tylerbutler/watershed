@@ -1,0 +1,932 @@
+{
+  "desktop": {
+    "title": "watershed — counters",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Counters in watershed: Numbers that many hands move at once. SharedCounter, GCounter, PnCounter. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — counters"
+      ],
+      [
+        "og:description",
+        "Counters in watershed: Numbers that many hands move at once. SharedCounter, GCounter, PnCounter. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/counters/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Counters",
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / COUNTERS",
+      "FAMILY 01",
+      "Numbers that many hands move at once.",
+      "Counters are the gentlest introduction to convergence, because addition does not care about order. Send each change as a signed delta instead of a new total, and simultaneous edits simply add up; there is nothing to overwrite.",
+      "They climb in guarantee: a server-sequenced scalar, then a grow-only lattice that stays correct even when a delta is delivered twice, then a signed counter built from two of those lattices so it can move in both directions offline."
+    ],
+    "jump": [
+      [
+        "SharedCounter DDS",
+        "#counter"
+      ],
+      [
+        "GCounter CRDT",
+        "#gcounter"
+      ],
+      [
+        "PnCounter CRDT",
+        "#pn"
+      ]
+    ],
+    "plates": [
+      {
+        "id": "counter",
+        "number": "NO. 01",
+        "title": "SharedCounter",
+        "kind": "DDS",
+        "module": "counter_kernel",
+        "tagline": "One number that many people can add to at once, without conflicts.",
+        "prose": [
+          "A shared counter holds a single integer. Each client submits a signed delta (+5, −1) rather than a new absolute value. Addition commutes, so the server can sequence deltas in any order and every replica lands on the same total.",
+          "Shipping the change instead of the result is the whole trick: two clients incrementing at the same instant never clobber one another. A local delta renders immediately as an unsequenced Δ beside the committed value. When the sequencer stamps it, the pending delta folds into the total."
+        ],
+        "uses": [
+          "Live tallies: votes, reactions, attendees, items in a shared cart",
+          "Running totals where concurrent +/− must never be lost and order does not matter",
+          "Inventory or quota counters that many clients adjust at once"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "everyone sends +/− changes instead of overwriting, so simultaneous edits just add up"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your change shows next to the confirmed total right away"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "only one number needs saving, since every change is an add"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "gcounter",
+        "number": "NO. 02",
+        "title": "GCounter",
+        "kind": "CRDT",
+        "module": "g_counter_kernel",
+        "tagline": "A count-up-only counter that stays correct even if an update arrives twice.",
+        "prose": [
+          "A grow-only counter keeps one monotone count per replica. Client A only ever raises A's slot; client B only B's. The visible value is the sum of every slot.",
+          "Merging two states takes the larger count for each replica. That pairwise maximum is idempotent, so a delta delivered twice (after a reconnect, say) changes nothing the second time. The price: a G-counter can only increase. It has no decrement."
+        ],
+        "uses": [
+          "Idempotent counters over at-least-once or unreliable delivery",
+          "Distributed metrics where the same increment may arrive more than once",
+          "The building block beneath the PN counter and other lattice counters"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "each client keeps its own tally; the totals combine safely even if a change arrives twice"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your increment overlays the total in magenta until it's confirmed"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "each client's running tally reloads intact"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "pn",
+        "number": "NO. 03",
+        "title": "PnCounter",
+        "kind": "CRDT",
+        "module": "pn_counter_kernel",
+        "tagline": "A counter that goes up and down and survives duplicate or out-of-order updates.",
+        "prose": [
+          "A single G-counter can only grow, which rules out decrements. A PN counter restores them by pairing two G-counters: a positive ledger and a negative ledger, each keyed by replica. The value you read is the positive sum minus the negative sum.",
+          "Each half is a max-merge CRDT, so the whole thing is order- and duplicate-independent. A decrement re-delivered after reconnect is absorbed idempotently. The demo frames this as a cut-and-fill earthwork balance and lets you re-send a sequenced delta to watch the merge shrug it off. An op-based counter needs the runtime's sequence-number dedup to survive that; here the merge alone is enough."
+        ],
+        "uses": [
+          "Counters that go up and down under unreliable delivery (reserve/release, like/unlike)",
+          "Collaborative budgets or capacity that both grows and shrinks concurrently",
+          "Offline-first counters that reconcile on reconnect without dropping edits"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "keeps separate up and down tallies, so it can move both ways and still shrug off duplicates"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "adds and subtractions can be re-sent without being counted twice"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "per-client tallies survive reconnect and repeated delivery"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      }
+    ],
+    "notes": [
+      {
+        "title": "Treat the server as an optional decorator",
+        "href": "/guide/connect#relay-decorator",
+        "rule": "A peer-to-peer app may use a relay for durability, but it should not need one to start.",
+        "example": "CLAP COUNTER"
+      }
+    ],
+    "pager": [
+      [
+        "← PREVIOUS FAMILY Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "All families",
+        "/structures"
+      ],
+      [
+        "DDS vs CRDT vs OT →",
+        "/models"
+      ],
+      [
+        "See it live ↓",
+        "/#demo"
+      ],
+      [
+        "NEXT FAMILY → Sets",
+        "/structures/sets"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "104px 64.8px 64px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "jump": {
+        "display": "flex",
+        "padding": "6.4px 12px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "plate": {
+        "padding": "43.2px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "body": {
+        "display": "grid",
+        "grid-template-columns": "493.828px 318.594px",
+        "gap": "57.6px"
+      },
+      "spec": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "380.672px 149.062px 380.672px",
+        "gap": "24px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — counters",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Counters in watershed: Numbers that many hands move at once. SharedCounter, GCounter, PnCounter. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — counters"
+      ],
+      [
+        "og:description",
+        "Counters in watershed: Numbers that many hands move at once. SharedCounter, GCounter, PnCounter. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/counters/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Counters",
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / COUNTERS",
+      "FAMILY 01",
+      "Numbers that many hands move at once.",
+      "Counters are the gentlest introduction to convergence, because addition does not care about order. Send each change as a signed delta instead of a new total, and simultaneous edits simply add up; there is nothing to overwrite.",
+      "They climb in guarantee: a server-sequenced scalar, then a grow-only lattice that stays correct even when a delta is delivered twice, then a signed counter built from two of those lattices so it can move in both directions offline."
+    ],
+    "jump": [
+      [
+        "SharedCounter DDS",
+        "#counter"
+      ],
+      [
+        "GCounter CRDT",
+        "#gcounter"
+      ],
+      [
+        "PnCounter CRDT",
+        "#pn"
+      ]
+    ],
+    "plates": [
+      {
+        "id": "counter",
+        "number": "NO. 01",
+        "title": "SharedCounter",
+        "kind": "DDS",
+        "module": "counter_kernel",
+        "tagline": "One number that many people can add to at once, without conflicts.",
+        "prose": [
+          "A shared counter holds a single integer. Each client submits a signed delta (+5, −1) rather than a new absolute value. Addition commutes, so the server can sequence deltas in any order and every replica lands on the same total.",
+          "Shipping the change instead of the result is the whole trick: two clients incrementing at the same instant never clobber one another. A local delta renders immediately as an unsequenced Δ beside the committed value. When the sequencer stamps it, the pending delta folds into the total."
+        ],
+        "uses": [
+          "Live tallies: votes, reactions, attendees, items in a shared cart",
+          "Running totals where concurrent +/− must never be lost and order does not matter",
+          "Inventory or quota counters that many clients adjust at once"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "everyone sends +/− changes instead of overwriting, so simultaneous edits just add up"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your change shows next to the confirmed total right away"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "only one number needs saving, since every change is an add"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "gcounter",
+        "number": "NO. 02",
+        "title": "GCounter",
+        "kind": "CRDT",
+        "module": "g_counter_kernel",
+        "tagline": "A count-up-only counter that stays correct even if an update arrives twice.",
+        "prose": [
+          "A grow-only counter keeps one monotone count per replica. Client A only ever raises A's slot; client B only B's. The visible value is the sum of every slot.",
+          "Merging two states takes the larger count for each replica. That pairwise maximum is idempotent, so a delta delivered twice (after a reconnect, say) changes nothing the second time. The price: a G-counter can only increase. It has no decrement."
+        ],
+        "uses": [
+          "Idempotent counters over at-least-once or unreliable delivery",
+          "Distributed metrics where the same increment may arrive more than once",
+          "The building block beneath the PN counter and other lattice counters"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "each client keeps its own tally; the totals combine safely even if a change arrives twice"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your increment overlays the total in magenta until it's confirmed"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "each client's running tally reloads intact"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "pn",
+        "number": "NO. 03",
+        "title": "PnCounter",
+        "kind": "CRDT",
+        "module": "pn_counter_kernel",
+        "tagline": "A counter that goes up and down and survives duplicate or out-of-order updates.",
+        "prose": [
+          "A single G-counter can only grow, which rules out decrements. A PN counter restores them by pairing two G-counters: a positive ledger and a negative ledger, each keyed by replica. The value you read is the positive sum minus the negative sum.",
+          "Each half is a max-merge CRDT, so the whole thing is order- and duplicate-independent. A decrement re-delivered after reconnect is absorbed idempotently. The demo frames this as a cut-and-fill earthwork balance and lets you re-send a sequenced delta to watch the merge shrug it off. An op-based counter needs the runtime's sequence-number dedup to survive that; here the merge alone is enough."
+        ],
+        "uses": [
+          "Counters that go up and down under unreliable delivery (reserve/release, like/unlike)",
+          "Collaborative budgets or capacity that both grows and shrinks concurrently",
+          "Offline-first counters that reconcile on reconnect without dropping edits"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "keeps separate up and down tallies, so it can move both ways and still shrug off duplicates"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "adds and subtractions can be re-sent without being counted twice"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "per-client tallies survive reconnect and repeated delivery"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      }
+    ],
+    "notes": [
+      {
+        "title": "Treat the server as an optional decorator",
+        "href": "/guide/connect#relay-decorator",
+        "rule": "A peer-to-peer app may use a relay for durability, but it should not need one to start.",
+        "example": "CLAP COUNTER"
+      }
+    ],
+    "pager": [
+      [
+        "← PREVIOUS FAMILY Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "All families",
+        "/structures"
+      ],
+      [
+        "DDS vs CRDT vs OT →",
+        "/models"
+      ],
+      [
+        "See it live ↓",
+        "/#demo"
+      ],
+      [
+        "NEXT FAMILY → Sets",
+        "/structures/sets"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      },
+      "heading": {
+        "font-size": "39px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "38.61px"
+      },
+      "jump": {
+        "display": "flex",
+        "padding": "6.4px 12px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "plate": {
+        "padding": "24px 16px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "body": {
+        "display": "grid",
+        "grid-template-columns": "290px",
+        "gap": "24px"
+      },
+      "spec": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px"
+      }
+    }
+  }
+}

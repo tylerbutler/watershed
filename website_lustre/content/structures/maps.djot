@@ -1,0 +1,5 @@
+---
+description = "Maps in watershed: Keyed state that picks a winner, keeps an edit, or grows into a tree. SharedMap, LWWMap, OrMap, SharedDirectory. How each works, its merge rule, and what it is best for."
+layout = "structure-sheet"
+family = "maps"
+---

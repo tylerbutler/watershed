@@ -31,6 +31,16 @@ pub fn generated_route_and_assets_test() {
   find(structures_tree, "src", "/scripts/concept-index.js")
   |> list.length
   |> should.equal(1)
+  let assert Ok(maps_html) =
+    simplifile.read(output <> "/structures/maps/index.html")
+  let maps_tree = html_parser.as_tree(maps_html)
+  find(maps_tree, "id", "map") |> list.length |> should.equal(1)
+  find(maps_tree, "id", "lww-map") |> list.length |> should.equal(1)
+  find(maps_tree, "id", "ormap") |> list.length |> should.equal(1)
+  find(maps_tree, "id", "directory") |> list.length |> should.equal(1)
+  find(maps_tree, "src", "/guide_race.js")
+  |> list.is_empty
+  |> should.be_true()
   let assert Ok(runtime_html) = simplifile.read(output <> "/runtime/index.html")
   let runtime_tree = html_parser.as_tree(runtime_html)
   let assert False =
@@ -306,6 +316,7 @@ pub fn generated_route_and_assets_test() {
     "styles/concept-index.css",
     "styles/concept-sheet.css",
     "styles/structures-index.css",
+    "styles/structure-sheet.css",
     "fonts/archivo/wdth.css",
     "favicon.svg",
     "og.png",

@@ -1,0 +1,5 @@
+---
+description = "Counters in watershed: Numbers that many hands move at once. SharedCounter, GCounter, PnCounter. How each works, its merge rule, and what it is best for."
+layout = "structure-sheet"
+family = "counters"
+---

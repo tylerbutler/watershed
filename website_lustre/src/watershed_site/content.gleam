@@ -14,6 +14,7 @@ import watershed_site/practice
 import watershed_site/route
 import watershed_site/runtime
 import watershed_site/snippet
+import watershed_site/structures
 import watershed_site/view/concept_index
 import watershed_site/view/guide_index
 import watershed_site/view/runtime_index
@@ -27,6 +28,7 @@ pub type PageKind {
   ConceptSheet(foundations.Doc)
   RuntimeSheet(runtime.Doc)
   StructureIndex
+  StructureSheet(structures.Family)
 }
 
 pub type Metadata {
@@ -103,7 +105,7 @@ fn decode_metadata(
         list.contains(
           [
             "description", "layout", "guide_step", "concept", "og_title",
-            "og_description",
+            "og_description", "family",
           ],
           name,
         )
@@ -219,6 +221,32 @@ fn decode_metadata(
             "layout: The field atlas path must be /structures.",
           ))
       }
+    "structure-sheet", route.StructureSheet -> {
+      use _ <- result.try(case dict.has_key(fields, "guide_step") {
+        True ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "guide_step: A field atlas sheet cannot name a guide step.",
+          ))
+        False -> Ok(Nil)
+      })
+      use slug <- result.try(field(fields, "family", path))
+      use family <- result.try(
+        structures.get(slug)
+        |> result.replace_error(error.InvalidFrontmatter(
+          path,
+          "family: Unknown structure family: " <> slug,
+        )),
+      )
+      case route.path == "/structures/" <> slug {
+        True -> Ok(StructureSheet(family))
+        False ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "family: The path does not match " <> route.path,
+          ))
+      }
+    }
     _, _ ->
       Error(error.InvalidFrontmatter(
         path,

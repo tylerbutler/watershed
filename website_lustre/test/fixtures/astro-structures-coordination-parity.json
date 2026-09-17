@@ -1,0 +1,1060 @@
+{
+  "desktop": {
+    "title": "watershed — coordination",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Coordination in watershed: Deciding who owns what, and agreeing before acting. Claims, OrderedCollection, TaskManager, PactMap. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — coordination"
+      ],
+      [
+        "og:description",
+        "Coordination in watershed: Deciding who owns what, and agreeing before acting. Claims, OrderedCollection, TaskManager, PactMap. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/coordination/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Coordination",
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / COORDINATION",
+      "FAMILY 06",
+      "Deciding who owns what, and agreeing before acting.",
+      "The last family arbitrates decisions rather than merging values: who holds a resource, who runs a task, what everyone has agreed to. Reads here are often non-optimistic, because showing an outcome you might lose is worse than showing nothing.",
+      "They ascend from first-writer-wins ownership through FIFO queues and task failover to a quorum-consensus map that won't commit a value until every required client signs off."
+    ],
+    "jump": [
+      [
+        "Claims DDS",
+        "#claims"
+      ],
+      [
+        "OrderedCollection DDS",
+        "#ordered"
+      ],
+      [
+        "TaskManager DDS",
+        "#tasks"
+      ],
+      [
+        "PactMap DDS",
+        "#pact"
+      ]
+    ],
+    "plates": [
+      {
+        "id": "claims",
+        "number": "NO. 01",
+        "title": "Claims",
+        "kind": "DDS",
+        "module": "claims_kernel",
+        "tagline": "First come, first served ownership of named slots (no takebacks).",
+        "prose": [
+          "A claims register assigns exclusive ownership of named slots. The first client whose claim is sequenced becomes the holder; every later claim is refused against the sequenced holder and its reference sequence number.",
+          "Reads are non-optimistic by design: a filed claim never shows as the holder until it wins, so the UI can never display a claim you might lose. Magenta annotates only the in-flight claim. There is no unclaim op; releasing means tearing off a fresh sheet."
+        ],
+        "uses": [
+          "Exclusive resource ownership: locks, seat or room assignment, leader election",
+          "Uniqueness constraints (one owner per key, arbitrated by the server)",
+          "‘First one wins, no takebacks' allocation"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "the first client to claim a slot owns it; every later claim is refused"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "a claim only shows as yours once it has actually won, never before"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "who owns what reloads intact"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "ordered",
+        "number": "NO. 02",
+        "title": "OrderedCollection",
+        "kind": "DDS",
+        "module": "ordered_collection_kernel",
+        "tagline": "A shared queue where the first client to grab an item holds it.",
+        "prose": [
+          "An ordered collection is a shared FIFO queue. Items are added, and clients acquire (dequeue) them; add, acquire, complete, and release are non-optimistic and resolve strictly in sequence order.",
+          "When two clients race to acquire the same item, the first sequenced acquire holds it and the second resolves empty. The server order is the sole arbiter, so an item is never double-held."
+        ],
+        "uses": [
+          "Work queues and job dispatch with exactly-one-owner semantics",
+          "Turn-taking and ordered task handoff between collaborators",
+          "Anything needing deterministic FIFO ordering across clients"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "items come out in the order the server received them; first to grab one holds it"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "queue changes stay hidden until the server confirms them"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "the queue and who holds what reload intact"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "tasks",
+        "number": "NO. 03",
+        "title": "TaskManager",
+        "kind": "DDS",
+        "module": "task_manager_kernel",
+        "tagline": "Task assignment with a volunteer queue and automatic failover.",
+        "prose": [
+          "TaskManager builds on ordered semantics to coordinate who does what. Clients volunteer for named tasks; the first sequenced volunteer is assigned and later volunteers queue behind them in sequence order.",
+          "If the assignee drops, the next queued volunteer takes over automatically. It is the coordination primitive for dividing exclusive work across an unreliable set of collaborators."
+        ],
+        "uses": [
+          "Distributing exclusive tasks across peers (leader-per-task, sharded work)",
+          "Failover assignment where a backup should take over automatically",
+          "Collaborative apps dividing responsibilities across clients"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "the first client to volunteer gets the task; the rest wait in line"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "volunteering only shows once it's confirmed; one client wins and the rest queue"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "assignments and the waiting list survive reconnect"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "pact",
+        "number": "NO. 04",
+        "title": "PactMap",
+        "kind": "DDS",
+        "module": "pact_map_kernel",
+        "tagline": "A map where a value takes effect only after everyone required agrees.",
+        "prose": [
+          "PactMap has watershed's strictest coordination rule: it reaches agreement before committing. Proposing a value and sequencing that set freezes the list of clients who must sign off, and each connected client auto-submits the accept ops it owes.",
+          "The value becomes accepted only once the signoff list drains. Concurrent proposals for the same pact resolve to the first sequenced one; the competitor is dropped. The design is modeled after Fluid's quorum-consensus primitive."
+        ],
+        "uses": [
+          "Agreement before action: schema upgrades, feature-flag flips everyone must honor",
+          "Config that must be consistent across all clients before it takes effect",
+          "Decisions requiring explicit quorum rather than last-write-wins"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "a value takes effect only once every required client has signed off"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "a pending proposal blocks competing ones until it's accepted or dropped"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "accepted values and pending sign-offs save and restore together"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": []
+      }
+    ],
+    "notes": [
+      {
+        "title": "Propose on release, render the pending signoff",
+        "href": "/guide/votes#quorum-pending-roster",
+        "rule": "Send one consensus proposal per gesture, then show whose approval is still missing.",
+        "example": "DRUM MACHINE"
+      },
+      {
+        "title": "When a move is not atomic, crown one channel authoritative",
+        "href": "/guide/notes#authoritative-channel",
+        "rule": "A move across channels is not atomic. Choose one source of truth and reconcile the rest while rendering.",
+        "example": "RETRO BOARD (FULL)"
+      },
+      {
+        "title": "Seed idempotently with Claims",
+        "href": "/guide/connect#claims-seeding",
+        "rule": "Let every client seed the same initial values through first-writer-wins claims.",
+        "example": "COLLABORATIVE SUDOKU"
+      },
+      {
+        "title": "Show writes that have not settled",
+        "href": "/guide/votes#unsettled-writes",
+        "rule": "When writes are not optimistic, show them as pending until the confirming event arrives.",
+        "example": "TOURNAMENT BRACKET"
+      },
+      {
+        "title": "Test client death deterministically",
+        "href": "/guide/testing#deterministic-death",
+        "rule": "Test a client dying mid-job with an in-process disconnect that produces the same leave event as the server.",
+        "example": "WORK QUEUE"
+      }
+    ],
+    "pager": [
+      [
+        "← PREVIOUS FAMILY Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "All families",
+        "/structures"
+      ],
+      [
+        "DDS vs CRDT vs OT →",
+        "/models"
+      ],
+      [
+        "See it live ↓",
+        "/#demo"
+      ],
+      [
+        "NEXT FAMILY → Transforms",
+        "/structures/transforms"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "104px 64.8px 64px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "jump": {
+        "display": "flex",
+        "padding": "6.4px 12px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "plate": {
+        "padding": "43.2px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "body": {
+        "display": "grid",
+        "grid-template-columns": "493.828px 318.594px",
+        "gap": "57.6px"
+      },
+      "spec": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "380.672px 149.062px 380.672px",
+        "gap": "24px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — coordination",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Coordination in watershed: Deciding who owns what, and agreeing before acting. Claims, OrderedCollection, TaskManager, PactMap. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — coordination"
+      ],
+      [
+        "og:description",
+        "Coordination in watershed: Deciding who owns what, and agreeing before acting. Claims, OrderedCollection, TaskManager, PactMap. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/coordination/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Coordination",
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / COORDINATION",
+      "FAMILY 06",
+      "Deciding who owns what, and agreeing before acting.",
+      "The last family arbitrates decisions rather than merging values: who holds a resource, who runs a task, what everyone has agreed to. Reads here are often non-optimistic, because showing an outcome you might lose is worse than showing nothing.",
+      "They ascend from first-writer-wins ownership through FIFO queues and task failover to a quorum-consensus map that won't commit a value until every required client signs off."
+    ],
+    "jump": [
+      [
+        "Claims DDS",
+        "#claims"
+      ],
+      [
+        "OrderedCollection DDS",
+        "#ordered"
+      ],
+      [
+        "TaskManager DDS",
+        "#tasks"
+      ],
+      [
+        "PactMap DDS",
+        "#pact"
+      ]
+    ],
+    "plates": [
+      {
+        "id": "claims",
+        "number": "NO. 01",
+        "title": "Claims",
+        "kind": "DDS",
+        "module": "claims_kernel",
+        "tagline": "First come, first served ownership of named slots (no takebacks).",
+        "prose": [
+          "A claims register assigns exclusive ownership of named slots. The first client whose claim is sequenced becomes the holder; every later claim is refused against the sequenced holder and its reference sequence number.",
+          "Reads are non-optimistic by design: a filed claim never shows as the holder until it wins, so the UI can never display a claim you might lose. Magenta annotates only the in-flight claim. There is no unclaim op; releasing means tearing off a fresh sheet."
+        ],
+        "uses": [
+          "Exclusive resource ownership: locks, seat or room assignment, leader election",
+          "Uniqueness constraints (one owner per key, arbitrated by the server)",
+          "‘First one wins, no takebacks' allocation"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "the first client to claim a slot owns it; every later claim is refused"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "a claim only shows as yours once it has actually won, never before"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "who owns what reloads intact"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "ordered",
+        "number": "NO. 02",
+        "title": "OrderedCollection",
+        "kind": "DDS",
+        "module": "ordered_collection_kernel",
+        "tagline": "A shared queue where the first client to grab an item holds it.",
+        "prose": [
+          "An ordered collection is a shared FIFO queue. Items are added, and clients acquire (dequeue) them; add, acquire, complete, and release are non-optimistic and resolve strictly in sequence order.",
+          "When two clients race to acquire the same item, the first sequenced acquire holds it and the second resolves empty. The server order is the sole arbiter, so an item is never double-held."
+        ],
+        "uses": [
+          "Work queues and job dispatch with exactly-one-owner semantics",
+          "Turn-taking and ordered task handoff between collaborators",
+          "Anything needing deterministic FIFO ordering across clients"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "items come out in the order the server received them; first to grab one holds it"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "queue changes stay hidden until the server confirms them"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "the queue and who holds what reload intact"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "tasks",
+        "number": "NO. 03",
+        "title": "TaskManager",
+        "kind": "DDS",
+        "module": "task_manager_kernel",
+        "tagline": "Task assignment with a volunteer queue and automatic failover.",
+        "prose": [
+          "TaskManager builds on ordered semantics to coordinate who does what. Clients volunteer for named tasks; the first sequenced volunteer is assigned and later volunteers queue behind them in sequence order.",
+          "If the assignee drops, the next queued volunteer takes over automatically. It is the coordination primitive for dividing exclusive work across an unreliable set of collaborators."
+        ],
+        "uses": [
+          "Distributing exclusive tasks across peers (leader-per-task, sharded work)",
+          "Failover assignment where a backup should take over automatically",
+          "Collaborative apps dividing responsibilities across clients"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "the first client to volunteer gets the task; the rest wait in line"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "volunteering only shows once it's confirmed; one client wins and the rest queue"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "assignments and the waiting list survive reconnect"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "pact",
+        "number": "NO. 04",
+        "title": "PactMap",
+        "kind": "DDS",
+        "module": "pact_map_kernel",
+        "tagline": "A map where a value takes effect only after everyone required agrees.",
+        "prose": [
+          "PactMap has watershed's strictest coordination rule: it reaches agreement before committing. Proposing a value and sequencing that set freezes the list of clients who must sign off, and each connected client auto-submits the accept ops it owes.",
+          "The value becomes accepted only once the signoff list drains. Concurrent proposals for the same pact resolve to the first sequenced one; the competitor is dropped. The design is modeled after Fluid's quorum-consensus primitive."
+        ],
+        "uses": [
+          "Agreement before action: schema upgrades, feature-flag flips everyone must honor",
+          "Config that must be consistent across all clients before it takes effect",
+          "Decisions requiring explicit quorum rather than last-write-wins"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "a value takes effect only once every required client has signed off"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "a pending proposal blocks competing ones until it's accepted or dropped"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "accepted values and pending sign-offs save and restore together"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": []
+      }
+    ],
+    "notes": [
+      {
+        "title": "Propose on release, render the pending signoff",
+        "href": "/guide/votes#quorum-pending-roster",
+        "rule": "Send one consensus proposal per gesture, then show whose approval is still missing.",
+        "example": "DRUM MACHINE"
+      },
+      {
+        "title": "When a move is not atomic, crown one channel authoritative",
+        "href": "/guide/notes#authoritative-channel",
+        "rule": "A move across channels is not atomic. Choose one source of truth and reconcile the rest while rendering.",
+        "example": "RETRO BOARD (FULL)"
+      },
+      {
+        "title": "Seed idempotently with Claims",
+        "href": "/guide/connect#claims-seeding",
+        "rule": "Let every client seed the same initial values through first-writer-wins claims.",
+        "example": "COLLABORATIVE SUDOKU"
+      },
+      {
+        "title": "Show writes that have not settled",
+        "href": "/guide/votes#unsettled-writes",
+        "rule": "When writes are not optimistic, show them as pending until the confirming event arrives.",
+        "example": "TOURNAMENT BRACKET"
+      },
+      {
+        "title": "Test client death deterministically",
+        "href": "/guide/testing#deterministic-death",
+        "rule": "Test a client dying mid-job with an in-process disconnect that produces the same leave event as the server.",
+        "example": "WORK QUEUE"
+      }
+    ],
+    "pager": [
+      [
+        "← PREVIOUS FAMILY Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "All families",
+        "/structures"
+      ],
+      [
+        "DDS vs CRDT vs OT →",
+        "/models"
+      ],
+      [
+        "See it live ↓",
+        "/#demo"
+      ],
+      [
+        "NEXT FAMILY → Transforms",
+        "/structures/transforms"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      },
+      "heading": {
+        "font-size": "39px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "38.61px"
+      },
+      "jump": {
+        "display": "flex",
+        "padding": "6.4px 12px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "plate": {
+        "padding": "24px 16px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "body": {
+        "display": "grid",
+        "grid-template-columns": "290px",
+        "gap": "24px"
+      },
+      "spec": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px"
+      }
+    }
+  }
+}

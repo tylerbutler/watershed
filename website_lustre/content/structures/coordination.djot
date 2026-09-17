@@ -1,0 +1,5 @@
+---
+description = "Coordination in watershed: Deciding who owns what, and agreeing before acting. Claims, OrderedCollection, TaskManager, PactMap. How each works, its merge rule, and what it is best for."
+layout = "structure-sheet"
+family = "coordination"
+---

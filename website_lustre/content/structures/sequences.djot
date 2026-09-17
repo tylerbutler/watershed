@@ -1,0 +1,5 @@
+---
+description = "Sequences in watershed: Ordered lists that stay ordered while everyone rearranges them. SharedSequence, SharedText. How each works, its merge rule, and what it is best for."
+layout = "structure-sheet"
+family = "sequences"
+---

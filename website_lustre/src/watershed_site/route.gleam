@@ -20,6 +20,7 @@ pub type Layout {
   ConceptIndex
   ConceptSheet
   StructureIndex
+  StructureSheet
 }
 
 pub type Analytics {
@@ -127,6 +128,16 @@ pub fn structures_index() -> Route {
   )
 }
 
+pub fn structure_family(slug: String) -> Route {
+  Route(
+    path: "/structures/" <> slug,
+    layout: StructureSheet,
+    content_path: "content/structures/" <> slug <> ".djot",
+    client_script: None,
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -174,6 +185,13 @@ pub fn all() -> List(Route) {
     runtime("presence"),
     runtime("p2p"),
     structures_index(),
+    structure_family("counters"),
+    structure_family("sets"),
+    structure_family("registers"),
+    structure_family("maps"),
+    structure_family("sequences"),
+    structure_family("coordination"),
+    structure_family("transforms"),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -201,6 +219,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     ConceptIndex -> ["/styles/site.css", "/styles/concept-index.css"]
     ConceptSheet -> ["/styles/site.css", "/styles/concept-sheet.css"]
     StructureIndex -> ["/styles/site.css", "/styles/structures-index.css"]
+    StructureSheet -> ["/styles/site.css", "/styles/structure-sheet.css"]
   }
 }
 
