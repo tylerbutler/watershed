@@ -125,6 +125,16 @@ pub fn generated_route_and_assets_test() {
   |> should.be_true()
   simplifile.read(output <> "/styles/directory.css")
   |> should.be_ok()
+  let assert Ok(counter_bug_html) =
+    simplifile.read(output <> "/counter-bug/index.html")
+  string.contains(counter_bug_html, "id=\"counter-bug-mount\"")
+  |> should.be_true()
+  string.contains(counter_bug_html, "Demonstrate the bug")
+  |> should.be_true()
+  string.contains(counter_bug_html, "/counter_bug.js")
+  |> should.be_true()
+  simplifile.read(output <> "/styles/counter-bug.css")
+  |> should.be_ok()
   simplifile.read(output <> "/_redirects")
   |> should.equal(Ok(
     "/foundations/components /component-model/components 301\n"
@@ -410,8 +420,10 @@ pub fn generated_route_and_assets_test() {
     "styles/models.css",
     "styles/sudoku.css",
     "styles/directory.css",
+    "styles/counter-bug.css",
     "sudoku.js",
     "directory.js",
+    "counter_bug.js",
     "fonts/archivo/wdth.css",
     "favicon.svg",
     "og.png",

@@ -35,6 +35,7 @@ pub type PageKind {
   SharedTree
   Sudoku
   Directory
+  CounterBug
 }
 
 pub type Metadata {
@@ -335,6 +336,20 @@ fn decode_metadata(
           Error(error.InvalidFrontmatter(
             path,
             "layout: The directory page metadata is invalid.",
+          ))
+      }
+    "counter-bug", route.CounterBug ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/counter-bug" -> Ok(CounterBug)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The counter bug page metadata is invalid.",
           ))
       }
     _, _ ->

@@ -27,6 +27,7 @@ pub type Layout {
   SharedTree
   Sudoku
   Directory
+  CounterBug
 }
 
 pub type Analytics {
@@ -204,6 +205,16 @@ pub fn directory() -> Route {
   )
 }
 
+pub fn counter_bug() -> Route {
+  Route(
+    path: "/counter-bug",
+    layout: CounterBug,
+    content_path: "content/counter-bug.djot",
+    client_script: Some("/counter_bug.js"),
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -264,6 +275,7 @@ pub fn all() -> List(Route) {
     sharedtree(),
     sudoku(),
     directory(),
+    counter_bug(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -298,6 +310,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     SharedTree -> ["/styles/site.css", "/styles/sharedtree.css"]
     Sudoku -> ["/styles/site.css", "/styles/sudoku.css"]
     Directory -> ["/styles/site.css", "/styles/directory.css"]
+    CounterBug -> ["/styles/site.css", "/styles/counter-bug.css"]
   }
 }
 

@@ -182,6 +182,17 @@ pub fn examples_route_is_registered_as_a_static_index_test() {
   |> should.equal(["/styles/site.css", "/styles/examples.css"])
 }
 
+pub fn counter_bug_route_runs_the_compiled_kernel_demo_test() {
+  let assert Ok(item) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/counter-bug" })
+  item.layout |> should.equal(route.CounterBug)
+  item.content_path |> should.equal("content/counter-bug.djot")
+  item.client_script |> should.equal(Some("/counter_bug.js"))
+  route.stylesheets(item)
+  |> should.equal(["/styles/site.css", "/styles/counter-bug.css"])
+}
+
 pub fn sharedtree_route_is_registered_with_static_reveals_test() {
   let assert Ok(sharedtree) =
     route.all()

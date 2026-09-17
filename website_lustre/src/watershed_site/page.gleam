@@ -17,6 +17,7 @@ import watershed_site/route
 import watershed_site/snippet
 import watershed_site/view/concept_index
 import watershed_site/view/concept_sheet
+import watershed_site/view/counter_bug
 import watershed_site/view/directory
 import watershed_site/view/document
 import watershed_site/view/examples
@@ -252,6 +253,13 @@ pub fn render(
         "watershed — SharedDirectory demo",
         directory.view(),
       ))
+    content.CounterBug ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — a counter is not a map cell",
+        counter_bug.view(),
+      ))
   }
 }
 
@@ -310,7 +318,8 @@ fn render_document(
     | content.Examples
     | content.SharedTree
     | content.Sudoku
-    | content.Directory -> scripts
+    | content.Directory
+    | content.CounterBug -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -338,6 +347,7 @@ fn render_document(
     route.Directory ->
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
+    route.CounterBug -> scripts
   }
   document.view(document.Document(
     title:,

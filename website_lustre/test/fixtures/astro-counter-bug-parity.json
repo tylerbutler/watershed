@@ -1,0 +1,324 @@
+{
+  "desktop": {
+    "title": "watershed — a counter is not a map cell",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "The classic distributed-systems bug, shown live: store a counter as an integer in a last-write-wins SharedMap, and concurrent read-modify-write increments silently overwrite each other. Watch it happen through watershed's compiled map_kernel, then see the fix."
+      ],
+      [
+        "og:title",
+        "watershed — a counter is not a map cell"
+      ],
+      [
+        "og:description",
+        "The classic distributed-systems bug, shown live: store a counter as an integer in a last-write-wins SharedMap, and concurrent read-modify-write increments silently overwrite each other. Watch it happen through watershed's compiled map_kernel, then see the fix."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/counter-bug/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "A counter is not a map cell.",
+    "headingBreaks": 1,
+    "hero": [
+      "← WATERSHED · SHAREDMAP · A COMMON MISWIRING",
+      "SharedMap resolves each key to the write with the higher server sequence number. That gives every replica the same value, but it does not preserve read-modify-write intent. If two clients read the same count and each writes count + 1, both submit the same replacement value, and the later write adds nothing. Here it is, live, through watershed's compiled map_kernel."
+    ],
+    "heroLinks": [
+      [
+        "← WATERSHED",
+        "/#demo"
+      ],
+      [
+        "See the bug ↓",
+        "#counter-bug"
+      ],
+      [
+        "SharedCounter, the fix →",
+        "/structures/counters"
+      ]
+    ],
+    "intro": "Two gauge houses at one lock keep the day's boats-locked tally in one shared map cell. Run the race and watch a boat vanish, then run the fix.",
+    "labels": [
+      "SHAREDMAP · ONE SHARED KEY map_kernel · boats-locked",
+      "PER-REPLICA KEYS · SUM map_kernel · boats-locked/a + boats-locked/b",
+      "SHAREDCOUNTER · SIGNED DELTA OPS counter_kernel · boats-locked"
+    ],
+    "houses": [
+      {
+        "heading": "UPSTREAM HOUSE",
+        "client": "CLIENT A",
+        "value": "41"
+      },
+      {
+        "heading": "DOWNSTREAM HOUSE",
+        "client": "CLIENT B",
+        "value": "41"
+      },
+      {
+        "heading": "UPSTREAM HOUSE",
+        "client": "CLIENT A",
+        "value": "41"
+      },
+      {
+        "heading": "DOWNSTREAM HOUSE",
+        "client": "CLIENT B",
+        "value": "41"
+      },
+      {
+        "heading": "UPSTREAM HOUSE",
+        "client": "CLIENT A",
+        "value": "41"
+      },
+      {
+        "heading": "DOWNSTREAM HOUSE",
+        "client": "CLIENT B",
+        "value": "41"
+      }
+    ],
+    "fixCopy": [
+      "FIX ONE · MAKE THE WRITES COMMUTE Nothing is wrong with the map: a counter just is not a single mutable cell. Give each replica its own key and sum them, and the two writes never contend. The same race now converges on the right total, through the same map_kernel. This layout (one positive-only column per replica) is the shape of a G-counter. A true G-counter also merges those columns by pairwise maximum, so duplicate delivery is idempotent.",
+      "FIX TWO · SHIP THE DELTA Watershed's SharedCounter goes further: the op is the delta. A client never reads the tally to write it back. It sends increment(+1), or increment(−1) for a correction, and signed deltas sum the same in any order. This rig runs the compiled counter_kernel, the SharedCounter engine itself, not a map at all."
+    ],
+    "controls": [
+      "SPEED 0.5× Demonstrate the bug Reset",
+      "SPEED 0.5× Play the fix Reset",
+      "SPEED 0.5× Play the SharedCounter fix Reset"
+    ],
+    "viewportWidth": 1440,
+    "scrollWidth": 1440,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "120px 64.8px 80px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px",
+        "max-width": "1022.87px"
+      },
+      "section": {
+        "padding": "64px 64.8px 129.6px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-size": "56px 56px, 56px 56px, 56px 56px"
+      },
+      "rig": {
+        "margin-top": "40px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "padding": "24px"
+      },
+      "stage": {
+        "display": "grid",
+        "grid-template-columns": "363px 136px 363px",
+        "gap": "40px"
+      },
+      "house": {
+        "border": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "value": {
+        "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace",
+        "font-size": "60.8px",
+        "line-height": "60.8px"
+      },
+      "button": {
+        "padding": "12px 24px",
+        "border": "1px solid oklch(0.55 0.21 340)",
+        "font-weight": "500"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — a counter is not a map cell",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "The classic distributed-systems bug, shown live: store a counter as an integer in a last-write-wins SharedMap, and concurrent read-modify-write increments silently overwrite each other. Watch it happen through watershed's compiled map_kernel, then see the fix."
+      ],
+      [
+        "og:title",
+        "watershed — a counter is not a map cell"
+      ],
+      [
+        "og:description",
+        "The classic distributed-systems bug, shown live: store a counter as an integer in a last-write-wins SharedMap, and concurrent read-modify-write increments silently overwrite each other. Watch it happen through watershed's compiled map_kernel, then see the fix."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/counter-bug/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "A counter is not a map cell.",
+    "headingBreaks": 1,
+    "hero": [
+      "← WATERSHED · SHAREDMAP · A COMMON MISWIRING",
+      "SharedMap resolves each key to the write with the higher server sequence number. That gives every replica the same value, but it does not preserve read-modify-write intent. If two clients read the same count and each writes count + 1, both submit the same replacement value, and the later write adds nothing. Here it is, live, through watershed's compiled map_kernel."
+    ],
+    "heroLinks": [
+      [
+        "← WATERSHED",
+        "/#demo"
+      ],
+      [
+        "See the bug ↓",
+        "#counter-bug"
+      ],
+      [
+        "SharedCounter, the fix →",
+        "/structures/counters"
+      ]
+    ],
+    "intro": "Two gauge houses at one lock keep the day's boats-locked tally in one shared map cell. Run the race and watch a boat vanish, then run the fix.",
+    "labels": [
+      "SHAREDMAP · ONE SHARED KEY map_kernel · boats-locked",
+      "PER-REPLICA KEYS · SUM map_kernel · boats-locked/a + boats-locked/b",
+      "SHAREDCOUNTER · SIGNED DELTA OPS counter_kernel · boats-locked"
+    ],
+    "houses": [
+      {
+        "heading": "UPSTREAM HOUSE",
+        "client": "CLIENT A",
+        "value": "41"
+      },
+      {
+        "heading": "DOWNSTREAM HOUSE",
+        "client": "CLIENT B",
+        "value": "41"
+      },
+      {
+        "heading": "UPSTREAM HOUSE",
+        "client": "CLIENT A",
+        "value": "41"
+      },
+      {
+        "heading": "DOWNSTREAM HOUSE",
+        "client": "CLIENT B",
+        "value": "41"
+      },
+      {
+        "heading": "UPSTREAM HOUSE",
+        "client": "CLIENT A",
+        "value": "41"
+      },
+      {
+        "heading": "DOWNSTREAM HOUSE",
+        "client": "CLIENT B",
+        "value": "41"
+      }
+    ],
+    "fixCopy": [
+      "FIX ONE · MAKE THE WRITES COMMUTE Nothing is wrong with the map: a counter just is not a single mutable cell. Give each replica its own key and sum them, and the two writes never contend. The same race now converges on the right total, through the same map_kernel. This layout (one positive-only column per replica) is the shape of a G-counter. A true G-counter also merges those columns by pairwise maximum, so duplicate delivery is idempotent.",
+      "FIX TWO · SHIP THE DELTA Watershed's SharedCounter goes further: the op is the delta. A client never reads the tally to write it back. It sends increment(+1), or increment(−1) for a correction, and signed deltas sum the same in any order. This rig runs the compiled counter_kernel, the SharedCounter engine itself, not a map at all."
+    ],
+    "controls": [
+      "SPEED 0.5× Demonstrate the bug Reset",
+      "SPEED 0.5× Play the fix Reset",
+      "SPEED 0.5× Play the SharedCounter fix Reset"
+    ],
+    "viewportWidth": 390,
+    "scrollWidth": 499,
+    "fitsViewport": false,
+    "styles": {
+      "hero": {
+        "padding": "56px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "43.2px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "42.768px",
+        "max-width": "511.341px"
+      },
+      "section": {
+        "padding": "64px 20px 72px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-size": "56px 56px, 56px 56px, 56px 56px"
+      },
+      "rig": {
+        "margin-top": "40px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "padding": "24px"
+      },
+      "stage": {
+        "display": "grid",
+        "grid-template-columns": "274px",
+        "gap": "16px"
+      },
+      "house": {
+        "border": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "value": {
+        "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace",
+        "font-size": "41.6px",
+        "line-height": "41.6px"
+      },
+      "button": {
+        "padding": "12px 24px",
+        "border": "1px solid oklch(0.55 0.21 340)",
+        "font-weight": "500"
+      }
+    }
+  }
+}
