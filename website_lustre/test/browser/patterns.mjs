@@ -1,0 +1,97 @@
+import assert from "node:assert/strict";
+import { readFile, writeFile } from "node:fs/promises";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { withBrowserSite } from "./site.mjs";
+
+const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
+const record = process.argv.includes("--record-baseline");
+const site = resolve(root, record ? "../website/dist" : "dist");
+const fixture = resolve(root, "test/fixtures/astro-patterns-parity.json");
+
+async function snapshot(page) {
+  return page.evaluate(() => {
+    const text = (node) => (node.innerText ?? node.textContent).replace(/\s+/g, " ").trim();
+    const links = (selector) => [...document.querySelectorAll(`${selector} a`)]
+      .map((node) => [text(node), node.getAttribute("href")]);
+    const style = (selector, properties) => {
+      const computed = getComputedStyle(document.querySelector(selector));
+      return Object.fromEntries(properties.map((key) => [key, computed.getPropertyValue(key)]));
+    };
+    return {
+      title: document.title,
+      metadata: [...document.head.querySelectorAll("meta[name], meta[property]")]
+        .map((node) => [node.getAttribute("name") || node.getAttribute("property"), node.content]),
+      heading: text(document.querySelector("h1")),
+      headingBreaks: document.querySelectorAll("h1 br").length,
+      hero: [...document.querySelectorAll(".p-hero p")].map(text),
+      actions: links(".p-actions"),
+      sections: [...document.querySelectorAll(".p-step")].map((section) => ({
+        heading: text(section.querySelector("h2")),
+        intro: [...section.querySelectorAll(".p-step-head p")].map(text),
+        rules: [...section.querySelectorAll(".p-rules li")].map((item) => ({
+          title: text(item.querySelector(".p-rule-link")),
+          href: item.querySelector(".p-rule-link").getAttribute("href"),
+          rule: text(item.querySelector(".p-rule")),
+          source: text(item.querySelector(".p-rule-src")),
+        })),
+      })),
+      boundary: text(document.querySelector(".p-boundary")),
+      boundaryLinks: links(".p-boundary"),
+      primary: links('nav[aria-label="Sheet index"]'),
+      adjoining: links('nav[aria-labelledby="adjoining-title"]'),
+      viewportWidth: innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      fitsViewport: document.documentElement.scrollWidth <= innerWidth,
+      styles: {
+        hero: style(".p-hero", ["padding", "border-bottom"]),
+        heading: style("h1", ["font-size", "font-weight", "font-stretch", "line-height"]),
+        main: style(".p-main", ["padding", "max-width"]),
+        section: style(".p-step", ["display", "grid-template-columns", "gap", "border-top"]),
+        rule: style(".p-rule", ["margin-top", "max-width", "color", "line-height"]),
+        boundary: style(".p-boundary", ["padding", "border-top", "background-image"]),
+      },
+    };
+  });
+}
+
+await withBrowserSite(site, async (browser, origin) => {
+  const errors = [];
+  const page = await browser.newPage();
+  page.on("pageerror", (error) => errors.push(error.message));
+  page.on("console", (message) => {
+    if (message.type() === "error") errors.push(message.text());
+  });
+  await page.setRequestInterception(true);
+  page.on("request", (request) => {
+    if (request.url().startsWith("https://tinylytics.app/")) {
+      request.respond({ status: 200, contentType: "text/javascript", body: "" });
+    } else request.continue();
+  });
+  await page.setJavaScriptEnabled(false);
+  await page.setViewport({ width: 1440, height: 1000 });
+  assert.equal((await page.goto(`${origin}/patterns/`)).status(), 200);
+  await page.evaluate(() => document.fonts.ready);
+  const desktop = await snapshot(page);
+  await page.setViewport({ width: 390, height: 844 });
+  const mobile = await snapshot(page);
+  if (record) {
+    assert.deepEqual(errors, [], "baseline browser errors");
+    await writeFile(fixture, JSON.stringify({ desktop, mobile }, null, 2) + "\n");
+    console.log("Recorded Astro patterns parity baseline.");
+    return;
+  }
+  const baseline = JSON.parse(await readFile(fixture, "utf8"));
+  assert.deepEqual({ desktop, mobile }, baseline);
+  assert.equal(mobile.fitsViewport, true, "mobile overflow");
+  assert.equal(await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"), null);
+  assert.deepEqual(await page.$$eval('script[type="module"]', (nodes) =>
+    nodes.map((node) => new URL(node.src).pathname)), []);
+  await page.focus(".p-rule-link");
+  assert.notEqual(
+    await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle),
+    "none",
+  );
+  assert.deepEqual(errors, [], "browser errors");
+  console.log("PASS: patterns Astro parity, mobile layout, and keyboard focus.");
+});

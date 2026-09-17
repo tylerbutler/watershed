@@ -22,6 +22,7 @@ import watershed_site/view/field_notes
 import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
 import watershed_site/view/models
+import watershed_site/view/patterns
 import watershed_site/view/runtime_index
 import watershed_site/view/runtime_sheet
 import watershed_site/view/structure_sheet
@@ -209,6 +210,15 @@ pub fn render(
         "watershed — DDS vs CRDT vs OT",
         models.view(),
       ))
+    content.Patterns -> {
+      use body <- result.try(patterns.view(manifest))
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — patterns from the examples",
+        body,
+      ))
+    }
   }
 }
 
@@ -262,7 +272,8 @@ fn render_document(
     | content.RuntimeSheet(_)
     | content.StructureIndex
     | content.StructureSheet(_)
-    | content.Models -> scripts
+    | content.Models
+    | content.Patterns -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -279,6 +290,7 @@ fn render_document(
     route.Models ->
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
+    route.Patterns -> scripts
   }
   document.view(document.Document(
     title:,

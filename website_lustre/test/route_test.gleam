@@ -160,6 +160,17 @@ pub fn models_route_is_registered_as_a_static_comparison_test() {
   |> should.equal(["/styles/site.css", "/styles/models.css"])
 }
 
+pub fn patterns_route_is_registered_as_a_static_index_test() {
+  let assert Ok(patterns) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/patterns" })
+  patterns.layout |> should.equal(route.Patterns)
+  patterns.content_path |> should.equal("content/patterns.djot")
+  patterns.client_script |> should.equal(None)
+  route.stylesheets(patterns)
+  |> should.equal(["/styles/site.css", "/styles/patterns.css"])
+}
+
 pub fn foundations_detail_routes_use_the_shared_concept_sheet_test() {
   [
     #("schema", "content/foundations/schema.djot"),

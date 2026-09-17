@@ -324,6 +324,37 @@ pub fn all() -> List(Practice) {
   ]
 }
 
+pub fn themes() -> List(Theme) {
+  [Architecture, Conflicts, Coordination, Testing]
+}
+
+pub fn theme_title(theme: Theme) -> String {
+  case theme {
+    Architecture -> "Architecture & composition"
+    Conflicts -> "Conflicts & consistency"
+    Coordination -> "Presence & coordination"
+    Testing -> "Testing & diagnostics"
+  }
+}
+
+pub fn theme_blurb(theme: Theme) -> String {
+  case theme {
+    Architecture ->
+      "Decide what the shell owns, what a component may touch, and which work must stay outside the app."
+    Conflicts ->
+      "Two clients change the same state at once. Keep the UI honest while the shared structure settles the result."
+    Coordination ->
+      "Some facts belong to the session, not the document: who's here, who drives, and what they need to tell each other."
+    Testing ->
+      "Reproduce the failures that matter, and read the runtime's own diagnostics before you guess at a sync bug."
+  }
+}
+
+pub fn by_theme(theme: Theme) -> List(Practice) {
+  all()
+  |> list.filter(fn(item) { item.theme == theme })
+}
+
 pub fn related_to(path: String) -> List(Practice) {
   all()
   |> list.filter(fn(item) { list.contains(item.related, path) })

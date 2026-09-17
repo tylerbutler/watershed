@@ -46,6 +46,20 @@ pub fn generated_route_and_assets_test() {
   |> should.be_true()
   string.contains(models_html, "href=\"/structures/maps#map\"")
   |> should.be_true()
+  let assert Ok(patterns_html) =
+    simplifile.read(output <> "/patterns/index.html")
+  let patterns_tree = html_parser.as_tree(patterns_html)
+  find(patterns_tree, "class", "p-step")
+  |> list.length
+  |> should.equal(4)
+  find(patterns_tree, "class", "p-rule-link")
+  |> list.length
+  |> should.equal(17)
+  find(patterns_tree, "src", "/guide_race.js")
+  |> list.is_empty
+  |> should.be_true()
+  simplifile.read(output <> "/styles/patterns.css")
+  |> should.be_ok()
   let assert Ok(runtime_html) = simplifile.read(output <> "/runtime/index.html")
   let runtime_tree = html_parser.as_tree(runtime_html)
   let assert False =
