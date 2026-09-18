@@ -135,6 +135,13 @@ pub fn generated_route_and_assets_test() {
   |> should.be_true()
   simplifile.read(output <> "/styles/counter-bug.css")
   |> should.be_ok()
+  let assert Ok(json_ot_html) = simplifile.read(output <> "/json-ot/index.html")
+  string.contains(json_ot_html, "data-jot-rig")
+  |> should.be_true()
+  string.contains(json_ot_html, "/json_ot.js")
+  |> should.be_true()
+  simplifile.read(output <> "/styles/json-ot.css")
+  |> should.be_ok()
   simplifile.read(output <> "/_redirects")
   |> should.equal(Ok(
     "/foundations/components /component-model/components 301\n"
@@ -421,9 +428,11 @@ pub fn generated_route_and_assets_test() {
     "styles/sudoku.css",
     "styles/directory.css",
     "styles/counter-bug.css",
+    "styles/json-ot.css",
     "sudoku.js",
     "directory.js",
     "counter_bug.js",
+    "json_ot.js",
     "fonts/archivo/wdth.css",
     "favicon.svg",
     "og.png",

@@ -59,7 +59,6 @@ pub fn migration_inventory_accounts_for_every_production_route_test() {
     )
   let pending = [
     "/",
-    "/json-ot",
     "/mv-register",
     "/rich-text",
     "/sequence",
@@ -67,7 +66,7 @@ pub fn migration_inventory_accounts_for_every_production_route_test() {
   ]
   list.sort(list.append(actual, pending), by: string_order)
   |> should.equal(list.sort(expected, by: string_order))
-  pending |> list.length |> should.equal(6)
+  pending |> list.length |> should.equal(5)
 }
 
 fn string_order(left: String, right: String) {

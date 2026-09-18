@@ -28,6 +28,7 @@ pub type Layout {
   Sudoku
   Directory
   CounterBug
+  JsonOt
 }
 
 pub type Analytics {
@@ -215,6 +216,16 @@ pub fn counter_bug() -> Route {
   )
 }
 
+pub fn json_ot() -> Route {
+  Route(
+    path: "/json-ot",
+    layout: JsonOt,
+    content_path: "content/json-ot.djot",
+    client_script: Some("/json_ot.js"),
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -276,6 +287,7 @@ pub fn all() -> List(Route) {
     sudoku(),
     directory(),
     counter_bug(),
+    json_ot(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -311,6 +323,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     Sudoku -> ["/styles/site.css", "/styles/sudoku.css"]
     Directory -> ["/styles/site.css", "/styles/directory.css"]
     CounterBug -> ["/styles/site.css", "/styles/counter-bug.css"]
+    JsonOt -> ["/styles/site.css", "/styles/json-ot.css"]
   }
 }
 

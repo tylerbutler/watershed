@@ -192,18 +192,22 @@ export function initJsonOtDemo() {
       `set .site "${next}"`,
     );
   }
-  function localCrewAdd(clientId: string) {
-    if (!rig) return;
+  function localCrewAdd(clientId: string, excludedName?: string) {
+    if (!rig) return null;
     const client = rig.clients[clientId];
     const c = cursors(client);
-    const name = NEW_NAMES[c.name % NEW_NAMES.length];
-    c.name += 1;
+    let name: string;
+    do {
+      name = NEW_NAMES[c.name % NEW_NAMES.length];
+      c.name += 1;
+    } while (name === excludedName);
     submit(
       client,
       "field:crew",
       op(jsonOt.list_insert(path(K("crew"), IDX(0)), S(name))),
       `insert .crew[0] "${name}"`,
     );
+    return name;
   }
   function localCrewDelete(clientId: string, index: number) {
     if (!rig) return;
@@ -340,7 +344,7 @@ export function initJsonOtDemo() {
       a.handle = { runtime: rtA, address };
       a.data = { name: 0, site: 0, trend: 0 };
       sluice.settle(server);
-      CLIENT_IDS.slice(1).forEach((id) => {
+      CLIENT_IDS.slice(1).forEach((id, index) => {
         const client = clients[id];
         const rt = watershed.runtime_of(client.doc);
         const stored = expectOk(
@@ -353,7 +357,7 @@ export function initJsonOtDemo() {
         );
         runtime.resolve_address(rt, addr);
         client.handle = { runtime: rt, address: addr };
-        client.data = { name: 0, site: 0, trend: 0 };
+        client.data = { name: index + 1, site: 0, trend: 0 };
       });
     },
     render,
@@ -371,8 +375,8 @@ export function initJsonOtDemo() {
   }
 
   document.querySelector("[data-jot-race]")?.addEventListener("click", () => {
-    localCrewAdd("a");
-    localCrewAdd("b");
+    const firstName = localCrewAdd("a");
+    if (firstName) localCrewAdd("b", firstName);
   });
   document.querySelector("[data-jot-reset]")?.addEventListener("click", () => rig?.reset());
 }

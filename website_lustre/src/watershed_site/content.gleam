@@ -36,6 +36,7 @@ pub type PageKind {
   Sudoku
   Directory
   CounterBug
+  JsonOt
 }
 
 pub type Metadata {
@@ -350,6 +351,20 @@ fn decode_metadata(
           Error(error.InvalidFrontmatter(
             path,
             "layout: The counter bug page metadata is invalid.",
+          ))
+      }
+    "json-ot", route.JsonOt ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/json-ot" -> Ok(JsonOt)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The JSON OT page metadata is invalid.",
           ))
       }
     _, _ ->

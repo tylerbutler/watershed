@@ -24,6 +24,7 @@ import watershed_site/view/examples
 import watershed_site/view/field_notes
 import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
+import watershed_site/view/json_ot
 import watershed_site/view/models
 import watershed_site/view/patterns
 import watershed_site/view/runtime_index
@@ -260,6 +261,13 @@ pub fn render(
         "watershed — a counter is not a map cell",
         counter_bug.view(),
       ))
+    content.JsonOt ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — JSON operational transform demo",
+        json_ot.view(),
+      ))
   }
 }
 
@@ -319,7 +327,8 @@ fn render_document(
     | content.SharedTree
     | content.Sudoku
     | content.Directory
-    | content.CounterBug -> scripts
+    | content.CounterBug
+    | content.JsonOt -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -348,6 +357,7 @@ fn render_document(
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
     route.CounterBug -> scripts
+    route.JsonOt -> scripts
   }
   document.view(document.Document(
     title:,

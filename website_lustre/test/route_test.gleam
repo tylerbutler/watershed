@@ -193,6 +193,17 @@ pub fn counter_bug_route_runs_the_compiled_kernel_demo_test() {
   |> should.equal(["/styles/site.css", "/styles/counter-bug.css"])
 }
 
+pub fn json_ot_route_runs_the_existing_runtime_demo_test() {
+  let assert Ok(item) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/json-ot" })
+  item.layout |> should.equal(route.JsonOt)
+  item.content_path |> should.equal("content/json-ot.djot")
+  item.client_script |> should.equal(Some("/json_ot.js"))
+  route.stylesheets(item)
+  |> should.equal(["/styles/site.css", "/styles/json-ot.css"])
+}
+
 pub fn sharedtree_route_is_registered_with_static_reveals_test() {
   let assert Ok(sharedtree) =
     route.all()

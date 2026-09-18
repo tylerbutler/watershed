@@ -107,7 +107,8 @@ _website-lustre-tools:
 
 _build-website-lustre: snippets _website-lustre-tools
     rm -rf website_lustre/build/static
-    cd website_lustre && ../tools/website-lustre-build/website_lustre_tools build watershed_site/client/guide_race watershed_site/client/sudoku watershed_site/client/directory watershed_site/client/counter_bug
+    gleam build --target javascript
+    cd website_lustre && ../tools/website-lustre-build/website_lustre_tools build watershed_site/client/guide_race watershed_site/client/sudoku watershed_site/client/directory watershed_site/client/counter_bug watershed_site/client/json_ot
     cd website_lustre && gleam run -m watershed_site/build
 
 website-lustre: _build-website-lustre
