@@ -24,6 +24,7 @@ import watershed_site/view/examples
 import watershed_site/view/field_notes
 import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
+import watershed_site/view/home
 import watershed_site/view/json_ot
 import watershed_site/view/models
 import watershed_site/view/mv_register
@@ -149,6 +150,13 @@ pub fn render(
     )
   let body = djot.render(source.body, renderer)
   case source.metadata.kind {
+    content.Home ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — collaborative data structures for Gleam",
+        home.view(body),
+      ))
     content.GuideStep(slug) -> {
       use notes <- result.try(field_notes.view(slug, manifest))
       Ok(
@@ -341,6 +349,7 @@ fn render_document(
       option.Some(src) -> [document.Module(src)]
     })
   let scripts = case metadata.kind {
+    content.Home -> scripts
     content.GuideStep(slug) ->
       case list.is_empty(practice.by_step(slug)) {
         True -> scripts
@@ -367,6 +376,9 @@ fn render_document(
     | content.Text -> scripts
   }
   let scripts = case page_route.layout {
+    route.Home ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
     route.Guide -> scripts
     route.GuideIndex ->
       list.append(scripts, [document.Module("/scripts/guide-index.js")])

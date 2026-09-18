@@ -248,6 +248,17 @@ pub fn text_route_runs_both_shared_text_demos_test() {
   |> should.equal(["/styles/site.css", "/styles/text.css"])
 }
 
+pub fn home_route_runs_the_shared_map_demo_test() {
+  let assert Ok(item) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/" })
+  item.layout |> should.equal(route.Home)
+  item.content_path |> should.equal("content/home.djot")
+  item.client_script |> should.equal(Some("/home.js"))
+  route.stylesheets(item)
+  |> should.equal(["/styles/site.css", "/styles/home.css"])
+}
+
 pub fn sharedtree_route_is_registered_with_static_reveals_test() {
   let assert Ok(sharedtree) =
     route.all()

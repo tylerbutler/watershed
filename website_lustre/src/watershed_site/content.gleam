@@ -22,6 +22,7 @@ import watershed_site/view/runtime_sheet
 import watershed_site/view/structures_index
 
 pub type PageKind {
+  Home
   GuideStep(guide.Slug)
   GuideIndex
   ConceptIndex
@@ -131,6 +132,20 @@ fn decode_metadata(
   use description <- result.try(field(fields, "description", path))
   use layout <- result.try(field(fields, "layout", path))
   use kind <- result.try(case layout, route.layout {
+    "home", route.Home ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/" -> Ok(Home)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The home page metadata is invalid.",
+          ))
+      }
     "guide", route.Guide -> decode_step(fields, path, route)
     "guide-index", route.GuideIndex ->
       case dict.has_key(fields, "guide_step"), route.path {

@@ -3,6 +3,14 @@ import lustre/element.{type Element}
 import lustre/element/html as h
 
 pub fn static() -> Element(Nil) {
+  static_variant(False)
+}
+
+pub fn map_static() -> Element(Nil) {
+  static_variant(True)
+}
+
+fn static_variant(map: Bool) -> Element(Nil) {
   h.section(
     [
       a.id("demo"),
@@ -15,19 +23,28 @@ pub fn static() -> Element(Nil) {
       ]),
       h.div([a.class("demo-head")], [
         h.h2([a.id("demo-title")], [
-          h.text("One slate, three field crews"),
+          h.text(case map {
+            True -> "Watch three clients converge"
+            False -> "One slate, three field crews"
+          }),
         ]),
         h.div([a.class("demo-head-grid")], [
           h.div([a.class("demo-intro")], [
             h.p([], [
-              h.text(
-                "Confirmed alternatives stay in ink; your pending revision appears in magenta. Cut Client B's link, write on both sides, then restore it. Agreement means every crew sees the same alternatives, not necessarily a single answer.",
-              ),
+              h.text(case map {
+                True ->
+                  "On a photorevised survey sheet, magenta marks updates not yet field-checked. This demo borrows that color code: edits that aren't confirmed yet are drawn in magenta, confirmed state in ink. All three clients run watershed's compiled map_kernel Gleam code and share one ordered list of changes. That is a shared map, the structure most collaborative apps start with."
+                False ->
+                  "Confirmed alternatives stay in ink; your pending revision appears in magenta. Cut Client B's link, write on both sides, then restore it. Agreement means every crew sees the same alternatives, not necessarily a single answer."
+              }),
             ]),
             h.p([], [
-              h.text(
-                "Re-deliver keeps an earlier delta even after resolution. The old revision stays retired. Reset tears off a fresh slate and discards delayed work from the previous one.",
-              ),
+              h.text(case map {
+                True ->
+                  "Nudge a gauge, have two clients write at once, stretch the network delay. The copies agree once queued writes arrive; the most recent write to a key wins. Try cutting Client B's link mid-edit: its writes park locally, the others keep converging, and restoring the link catches B up."
+                False ->
+                  "Re-deliver keeps an earlier delta even after resolution. The old revision stays retired. Reset tears off a fresh slate and discards delayed work from the previous one."
+              }),
             ]),
           ]),
           h.ol(
@@ -61,13 +78,28 @@ pub fn static() -> Element(Nil) {
       h.p(
         [
           a.class("merge-rule"),
-          a.attribute("data-merge-rule", "mv-register"),
+          a.attribute("data-merge-rule", case map {
+            True -> "map"
+            False -> "mv-register"
+          }),
         ],
         [
-          h.strong([], [h.text("Merge rule: keep concurrent alternatives.")]),
-          h.text(
-            " Two revisions can converge without agreeing on one answer. After both arrive, write a combined revision to replace the alternatives you've seen.",
-          ),
+          case map {
+            True ->
+              h.strong([], [
+                h.text(
+                  "Merge rule: the latest sequenced write to each key wins.",
+                ),
+              ])
+            False ->
+              h.strong([], [h.text("Merge rule: keep concurrent alternatives.")])
+          },
+          h.text(case map {
+            True ->
+              " Different keys merge independently. Concurrent writes to one key follow the server's final sequence."
+            False ->
+              " Two revisions can converge without agreeing on one answer. After both arrive, write a combined revision to replace the alternatives you've seen."
+          }),
         ],
       ),
       h.p([a.attribute("data-ormap-tally-note", ""), a.hidden(True)], []),
@@ -108,8 +140,14 @@ pub fn static() -> Element(Nil) {
         [
           a.class("rig"),
           a.attribute("data-demo-rig", ""),
-          a.attribute("data-dds", "mv-register"),
-          a.attribute("data-views", "mv-register"),
+          a.attribute("data-dds", case map {
+            True -> "map"
+            False -> "mv-register"
+          }),
+          a.attribute("data-views", case map {
+            True -> "map"
+            False -> "mv-register"
+          }),
         ],
         [
           client("a", "Client A", "raise crest"),
@@ -176,7 +214,10 @@ pub fn static() -> Element(Nil) {
         [
           a.class("demo-noscript"),
           a.attribute("data-demo-fallback", ""),
-          a.attribute("data-testid", "mv-register-fallback"),
+          a.attribute("data-testid", case map {
+            True -> "home-fallback"
+            False -> "mv-register-fallback"
+          }),
           a.hidden(True),
         ],
         [
@@ -241,6 +282,16 @@ fn client(id: String, label: String, revision: String) -> Element(Nil) {
           )
         _ -> h.text("")
       },
+      h.table([a.class("gauge-table dds-map")], [
+        h.caption([a.class("visually-hidden")], [
+          h.text("Shared map replica on " <> label),
+        ]),
+        h.tbody([], [
+          gauge("mill-race", "24", label),
+          gauge("kettle-run", "61", label),
+          gauge("low-ford", "42", label),
+        ]),
+      ]),
       h.div([a.class("mv-register-panel dds-mv-register")], [
         h.h3([a.class("annot")], [h.text("Revision slate")]),
         h.p([a.class("annot")], [h.text("Confirmed alternatives")]),
@@ -313,6 +364,35 @@ fn client(id: String, label: String, revision: String) -> Element(Nil) {
       ]),
     ],
   )
+}
+
+fn gauge(key: String, value: String, label: String) -> Element(Nil) {
+  h.tr([a.attribute("data-key", key)], [
+    h.th([a.attribute("scope", "row")], [h.code([], [h.text(key)])]),
+    h.td([a.class("gauge-value"), a.attribute("data-value", "")], [
+      h.text(value),
+    ]),
+    h.td([a.class("gauge-actions")], [
+      h.button(
+        [
+          a.type_("button"),
+          a.attribute("data-step", "-1"),
+          a.attribute("aria-label", "Lower " <> key <> " on " <> label),
+          a.disabled(True),
+        ],
+        [h.text("−")],
+      ),
+      h.button(
+        [
+          a.type_("button"),
+          a.attribute("data-step", "1"),
+          a.attribute("aria-label", "Raise " <> key <> " on " <> label),
+          a.disabled(True),
+        ],
+        [h.text("+")],
+      ),
+    ]),
+  ])
 }
 
 fn controls() -> Element(Nil) {

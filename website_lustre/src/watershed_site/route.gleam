@@ -15,6 +15,7 @@ pub type Route {
 }
 
 pub type Layout {
+  Home
   Guide
   GuideIndex
   ConceptIndex
@@ -33,6 +34,16 @@ pub type Layout {
   RichText
   Sequence
   Text
+}
+
+pub fn home() -> Route {
+  Route(
+    path: "/",
+    layout: Home,
+    content_path: "content/home.djot",
+    client_script: Some("/home.js"),
+    analytics: Tinylytics,
+  )
 }
 
 pub type Analytics {
@@ -302,6 +313,7 @@ pub fn runtime(slug: String) -> Route {
 
 pub fn all() -> List(Route) {
   [
+    home(),
     foundations_index(),
     foundation("schema"),
     foundation("topology"),
@@ -354,6 +366,7 @@ pub fn all() -> List(Route) {
 
 pub fn stylesheets(route: Route) -> List(String) {
   case route.layout {
+    Home -> ["/styles/site.css", "/styles/home.css"]
     Guide ->
       case route.path {
         "/guide/race" -> ["/styles/site.css", "/styles/guide-race.css"]
