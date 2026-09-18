@@ -1,0 +1,4 @@
+---
+layout = "text"
+description = "Three browser clients type into one string through watershed's compiled text_kernel: a CRDT text where every grapheme keeps a stable identity, so concurrent insertions and overlapping edits merge without fighting over character offsets. Grapheme indexing, optimistic edits, anchors, server-sequenced convergence."
+---

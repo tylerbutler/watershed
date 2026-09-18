@@ -1,0 +1,40 @@
+{
+  "desktop": {
+    "title": "watershed — SharedText demo",
+    "description": "Three browser clients type into one string through watershed's compiled text_kernel: a CRDT text where every grapheme keeps a stable identity, so concurrent insertions and overlapping edits merge without fighting over character offsets. Grapheme indexing, optimistic edits, anchors, server-sequenced convergence.",
+    "hero": "← SEQUENCES · SHAREDTEXT Graphemes keep their place. A character offset only means something against one version of a string. The instant two people type in the same word, “index 6” names different characters on different screens. SharedText gives every grapheme a stable identity beneath its index: you say insert at 6 or replace 0..5, but the delta that ships names the graphemes, not the offsets. Two people can type into the same word at once: concurrent inserts both land, overlapping edits merge, and every replica converges on the same text. Indexing is by grapheme, never UTF-16 code unit, so an emoji or a combining accent is one indivisible character. watershed's text_kernel models that identity and converges. Jump to the demo ↓ Compare SharedRichText → Read the source",
+    "headings": [
+      "One shared string, live",
+      "All of that, as one tag"
+    ],
+    "clients": [
+      "Client A replica",
+      "Client B replica",
+      "Client C replica"
+    ],
+    "panes": [
+      "Client A editor",
+      "Client B editor"
+    ],
+    "fitsViewport": true
+  },
+  "mobile": {
+    "title": "watershed — SharedText demo",
+    "description": "Three browser clients type into one string through watershed's compiled text_kernel: a CRDT text where every grapheme keeps a stable identity, so concurrent insertions and overlapping edits merge without fighting over character offsets. Grapheme indexing, optimistic edits, anchors, server-sequenced convergence.",
+    "hero": "← SEQUENCES · SHAREDTEXT Graphemes keep their place. A character offset only means something against one version of a string. The instant two people type in the same word, “index 6” names different characters on different screens. SharedText gives every grapheme a stable identity beneath its index: you say insert at 6 or replace 0..5, but the delta that ships names the graphemes, not the offsets. Two people can type into the same word at once: concurrent inserts both land, overlapping edits merge, and every replica converges on the same text. Indexing is by grapheme, never UTF-16 code unit, so an emoji or a combining accent is one indivisible character. watershed's text_kernel models that identity and converges. Jump to the demo ↓ Compare SharedRichText → Read the source",
+    "headings": [
+      "One shared string, live",
+      "All of that, as one tag"
+    ],
+    "clients": [
+      "Client A replica",
+      "Client B replica",
+      "Client C replica"
+    ],
+    "panes": [
+      "Client A editor",
+      "Client B editor"
+    ],
+    "fitsViewport": true
+  }
+}

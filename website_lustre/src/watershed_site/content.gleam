@@ -40,6 +40,7 @@ pub type PageKind {
   MvRegister
   RichText
   Sequence
+  Text
 }
 
 pub type Metadata {
@@ -410,6 +411,20 @@ fn decode_metadata(
           Error(error.InvalidFrontmatter(
             path,
             "layout: The sequence page metadata is invalid.",
+          ))
+      }
+    "text", route.Text ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/text" -> Ok(Text)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The text page metadata is invalid.",
           ))
       }
     _, _ ->

@@ -1,0 +1,126 @@
+@import url("/styles/rich-text.css");
+
+.counts,
+.pane-actions,
+.element-rig,
+.pane-head {
+  display: flex;
+}
+
+.counts {
+  gap: var(--space-sm);
+}
+
+.text-editor {
+  box-sizing: border-box;
+  width: calc(100% - 2 * var(--space-md));
+  margin: var(--space-sm) var(--space-md) 0;
+  padding: var(--space-sm);
+  border: 1px solid var(--hairline);
+  background: var(--bg);
+  color: var(--ink);
+  font: 0.95rem/1.6 var(--font-mono);
+  resize: vertical;
+}
+
+.client.pending .text-editor {
+  border-color: var(--overprint);
+  box-shadow: 0 0 0 1px var(--overprint);
+}
+
+.client.pending .editor-label,
+.anchor-readout.is-pinned {
+  color: var(--overprint-deep);
+}
+
+.node-action {
+  padding: 0.2rem 0.55rem;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: var(--bg);
+  color: var(--muted);
+  font: 0.78rem/1.2 var(--font-mono);
+}
+
+.race-btn,
+.reset-btn {
+  padding: 0.65rem 1.2rem;
+  background: var(--bg);
+  cursor: pointer;
+}
+
+.race-btn {
+  border: 1px solid var(--ink);
+  font-weight: 600;
+}
+
+.reset-btn {
+  border: 1px solid var(--hairline);
+  color: var(--muted);
+}
+
+.pane-actions {
+  gap: var(--space-xs);
+  padding: var(--space-sm) var(--space-md);
+}
+
+.anchor-readout {
+  padding: 0 var(--space-md) var(--space-sm);
+  color: var(--muted);
+}
+
+.element-rig {
+  max-width: 68rem;
+  margin: var(--space-xl) auto 0;
+  gap: var(--space-lg);
+}
+
+.pane {
+  flex: 1;
+  border: 1px solid var(--ink);
+}
+
+.pane-head {
+  justify-content: space-between;
+  padding: var(--space-sm) var(--space-md);
+  border-bottom: 1px solid var(--hairline);
+}
+
+watershed-textarea {
+  display: block;
+  margin: var(--space-sm) var(--space-md);
+}
+
+watershed-textarea::part(textarea) {
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 7rem;
+  padding: var(--space-sm);
+  border: 1px solid var(--hairline);
+  background: var(--bg);
+  color: var(--ink);
+  font: 0.95rem/1.6 var(--font-mono);
+}
+
+.pane-error {
+  min-height: 1.1em;
+  margin: 0 var(--space-md) var(--space-sm);
+  color: var(--overprint-deep);
+}
+
+@media (scripting: enabled) {
+  #text-demo:not([data-mounted]) [data-text-fallback][hidden],
+  #text-element-demo:not([data-mounted]) [data-text-element-fallback][hidden] {
+    display: block;
+    visibility: hidden;
+    animation: text-fallback-reveal 0s 3s forwards;
+  }
+}
+
+@keyframes text-fallback-reveal {
+  to { visibility: visible; }
+}
+
+@media (max-width: 900px) {
+  .element-rig { flex-direction: column; }
+}

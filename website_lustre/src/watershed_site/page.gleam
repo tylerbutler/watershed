@@ -36,6 +36,7 @@ import watershed_site/view/sharedtree
 import watershed_site/view/structure_sheet
 import watershed_site/view/structures_index
 import watershed_site/view/sudoku
+import watershed_site/view/text
 
 pub type GuidePage(msg) {
   GuidePage(
@@ -292,6 +293,13 @@ pub fn render(
         "watershed — SharedSequence demo",
         sequence.view(),
       ))
+    content.Text ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — SharedText demo",
+        text.view(),
+      ))
   }
 }
 
@@ -355,7 +363,8 @@ fn render_document(
     | content.JsonOt
     | content.MvRegister
     | content.RichText
-    | content.Sequence -> scripts
+    | content.Sequence
+    | content.Text -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -392,6 +401,9 @@ fn render_document(
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
     route.Sequence ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
+    route.Text ->
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
   }

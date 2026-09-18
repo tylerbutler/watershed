@@ -57,13 +57,10 @@ pub fn migration_inventory_accounts_for_every_production_route_test() {
       route.all() |> list.map(fn(item) { item.path }),
       redirect.all() |> list.map(fn(item) { item.from }),
     )
-  let pending = [
-    "/",
-    "/text",
-  ]
+  let pending = ["/"]
   list.sort(list.append(actual, pending), by: string_order)
   |> should.equal(list.sort(expected, by: string_order))
-  pending |> list.length |> should.equal(2)
+  pending |> list.length |> should.equal(1)
 }
 
 fn string_order(left: String, right: String) {

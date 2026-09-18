@@ -237,6 +237,17 @@ pub fn sequence_route_runs_the_shared_sequence_demo_test() {
   |> should.equal(["/styles/site.css", "/styles/sequence.css"])
 }
 
+pub fn text_route_runs_both_shared_text_demos_test() {
+  let assert Ok(item) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/text" })
+  item.layout |> should.equal(route.Text)
+  item.content_path |> should.equal("content/text.djot")
+  item.client_script |> should.equal(Some("/text.js"))
+  route.stylesheets(item)
+  |> should.equal(["/styles/site.css", "/styles/text.css"])
+}
+
 pub fn sharedtree_route_is_registered_with_static_reveals_test() {
   let assert Ok(sharedtree) =
     route.all()

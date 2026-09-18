@@ -32,6 +32,7 @@ pub type Layout {
   MvRegister
   RichText
   Sequence
+  Text
 }
 
 pub type Analytics {
@@ -259,6 +260,16 @@ pub fn sequence() -> Route {
   )
 }
 
+pub fn text() -> Route {
+  Route(
+    path: "/text",
+    layout: Text,
+    content_path: "content/text.djot",
+    client_script: Some("/text.js"),
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -324,6 +335,7 @@ pub fn all() -> List(Route) {
     mv_register(),
     rich_text(),
     sequence(),
+    text(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -363,6 +375,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     MvRegister -> ["/styles/site.css", "/styles/mv-register.css"]
     RichText -> ["/styles/site.css", "/styles/rich-text.css"]
     Sequence -> ["/styles/site.css", "/styles/sequence.css"]
+    Text -> ["/styles/site.css", "/styles/text.css"]
   }
 }
 
