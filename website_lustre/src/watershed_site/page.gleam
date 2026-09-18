@@ -353,12 +353,13 @@ fn render_document(
         False ->
           list.append(scripts, [document.Module("/scripts/field-notes.js")])
       }
+    content.StructureSheet(_) ->
+      list.append(scripts, [document.Module("/structure_sheet.js")])
     content.GuideIndex
     | content.ConceptIndex
     | content.ConceptSheet(_)
     | content.RuntimeSheet(_)
     | content.StructureIndex
-    | content.StructureSheet(_)
     | content.Models
     | content.Patterns
     | content.Examples

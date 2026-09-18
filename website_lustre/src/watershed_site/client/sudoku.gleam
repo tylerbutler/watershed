@@ -1,6 +1,6 @@
 import gleam/dynamic.{type Dynamic}
 import gleam/int
-import gleam/option.{None, Some}
+import gleam/option.{Some}
 import lustre
 import lustre/effect
 import watershed_site/sudoku/runtime
@@ -20,15 +20,23 @@ pub fn main() {
       init: fn(_) { runtime.init() },
       update: fn(model, message) {
         let #(model, effects) = runtime.update(model, message)
-        let focus_id = case model.focus {
-          None -> ""
-          Some(runtime.Focus(replica, row, column)) ->
+        let request_focus = case message {
+          runtime.SetCell(_, _, _, _)
+          | runtime.ClearCell(_, _, _)
+          | runtime.CycleCell(_, _, _)
+          | runtime.CellKey(_, _, _, _)
+          | runtime.MoveFocus(_, _, _) -> True
+          _ -> False
+        }
+        let focus_id = case request_focus, model.focus {
+          True, Some(runtime.Focus(replica, row, column)) ->
             "cell-"
             <> runtime.replica_id(replica)
             <> "-"
             <> int.to_string(row)
             <> "-"
             <> int.to_string(column)
+          _, _ -> ""
         }
         #(
           model,

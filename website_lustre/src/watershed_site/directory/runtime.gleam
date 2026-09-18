@@ -318,34 +318,43 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         }
       }
     Land(_, delivery, replica) -> {
-      let trees = land_tree(model.trees, delivery.trees, replica)
-      let pending = case replica == delivery.author {
-        True ->
-          list.filter(model.pending, fn(item) {
-            item.sequence_number != delivery.sequence_number
-          })
-        False -> model.pending
+      case model.rig {
+        None -> failed(model, UnexpectedDelivery("The rig is not available."))
+        Some(rig) ->
+          case project_all(rig) {
+            Error(reason) -> failed(model, reason)
+            Ok(projected) -> {
+              let trees = land_tree(model.trees, projected, replica)
+              let pending = case replica == delivery.author {
+                True ->
+                  list.filter(model.pending, fn(item) {
+                    item.sequence_number != delivery.sequence_number
+                  })
+                False -> model.pending
+              }
+              let in_flight = int.max(0, model.in_flight - 1)
+              let converged =
+                !model.delivery_active
+                && in_flight == 0
+                && trees_equal(trees)
+                && list.is_empty(pending)
+              #(
+                Model(
+                  ..model,
+                  phase: case converged {
+                    True -> Ready
+                    False -> Delivering
+                  },
+                  trees:,
+                  pending:,
+                  in_flight:,
+                  converged:,
+                ),
+                effect.none(),
+              )
+            }
+          }
       }
-      let in_flight = int.max(0, model.in_flight - 1)
-      let converged =
-        !model.delivery_active
-        && in_flight == 0
-        && trees_equal(trees)
-        && list.is_empty(pending)
-      #(
-        Model(
-          ..model,
-          phase: case converged {
-            True -> Ready
-            False -> Delivering
-          },
-          trees:,
-          pending:,
-          in_flight:,
-          converged:,
-        ),
-        effect.none(),
-      )
     }
     ClearFlow(_, id) -> #(
       Model(

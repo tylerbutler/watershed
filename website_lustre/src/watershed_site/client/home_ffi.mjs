@@ -5,9 +5,12 @@ function initGaugeStrip() {
   const strip = document.querySelector("[data-gauge-strip]");
   const rig = document.querySelector("[data-demo-rig]");
   if (!strip || !rig) return;
-  strip.querySelector("[data-strip-race]")?.addEventListener("click", () => {
-    document.querySelector("[data-race]")?.click();
-  });
+  const proxy = strip.querySelector("[data-strip-race]");
+  const race = document.querySelector("[data-race]");
+  if (proxy instanceof HTMLButtonElement && race instanceof HTMLButtonElement) {
+    proxy.addEventListener("click", () => race.click());
+    proxy.disabled = false;
+  }
   const sync = () => {
     for (const cell of strip.querySelectorAll("[data-strip-client]")) {
       const client = rig.querySelector(

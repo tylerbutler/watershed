@@ -90,6 +90,10 @@ await withBrowserSite(site, async (browser, origin) => {
     ),
     values[0],
   );
+  assert.equal(
+    await page.$eval("[data-strip-race]", (button) => button.disabled),
+    false,
+  );
   assert.notEqual(await page.$("#after-demo"), null);
 
   const reduced = await browser.newPage();

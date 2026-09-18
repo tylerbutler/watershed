@@ -169,6 +169,16 @@ await withBrowserSite(site, async (browser, origin) => {
     ),
     ["1", "1", "1"],
   );
+  await page.focus(selector("pace"));
+  await page.$eval(selector("pace"), (input) => {
+    input.value = "1";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await pause(10);
+  assert.equal(
+    await page.evaluate(() => document.activeElement.dataset.testid),
+    "pace",
+  );
 
   await page.focus(selector("cell-a-0-0"));
   await page.keyboard.press("ArrowRight");

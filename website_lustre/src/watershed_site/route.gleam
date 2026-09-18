@@ -228,7 +228,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     CounterBug -> ["/styles/site.css", "/styles/counter-bug.css"]
     JsonOt -> ["/styles/site.css", "/styles/json-ot.css"]
     MvRegister -> ["/styles/site.css", "/styles/mv-register.css"]
-    RichText -> ["/styles/site.css", "/styles/rich-text.css"]
+    RichText -> ["/styles/site.css", "/rich_text.css", "/styles/rich-text.css"]
     Sequence -> ["/styles/site.css", "/styles/sequence.css"]
     Text -> ["/styles/site.css", "/styles/text.css"]
   }

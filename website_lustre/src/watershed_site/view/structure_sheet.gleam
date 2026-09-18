@@ -5,19 +5,33 @@ import gleam/result
 import lustre/attribute as a
 import lustre/element.{type Element}
 import lustre/element/html as h
+import watershed_site/mv_register/view as demo
 import watershed_site/structures
 import watershed_site/view/ecosystem
 import watershed_site/view/field_notes
 import watershed_site/view/sheet
 
-pub fn view(family: structures.Family) -> Element(msg) {
+pub fn view(family: structures.Family) -> Element(Nil) {
   let #(previous, next) = structures.neighbours(family.slug)
+  let demo_entries =
+    list.filter(family.entries, fn(entry) { entry.demo_href == None })
   sheet.view("/structures/" <> family.slug <> "/", [
     hero(family),
     h.main(
       [a.id("content"), a.class("plates")],
       list.index_map(family.entries, plate),
     ),
+    case demo_entries {
+      [] -> h.text("")
+      [first, ..] ->
+        h.div([a.attribute("data-family-demo", ""), a.hidden(True)], [
+          demo.family_static(
+            list.map(demo_entries, fn(entry) { entry.id }),
+            first.id,
+            "Live " <> family.name <> " demo",
+          ),
+        ])
+    },
     field_notes.related("/structures/" <> family.slug),
     navigation(previous, next),
     ecosystem.view("/structures/" <> family.slug <> "/"),
@@ -98,7 +112,7 @@ fn plate(entry: structures.Entry, index: Int) -> Element(msg) {
         ]),
         h.code([a.class("plate-module")], [h.text(entry.module_name)]),
         h.p([a.class("plate-tagline")], [h.text(entry.tagline)]),
-        ..demo_links(entry)
+        ..list.append(demo_links(entry), demo_toggle(entry))
       ]),
       h.div([a.class("plate-body")], [
         h.div(
@@ -123,6 +137,7 @@ fn plate(entry: structures.Entry, index: Int) -> Element(msg) {
           specification("Model", structures.model_description(entry.kind)),
         ]),
       ]),
+      ..demo_panel(entry)
     ],
   )
 }
@@ -150,6 +165,52 @@ fn demo_links(entry: structures.Entry) -> List(Element(msg)) {
         ]),
       ])
     _ -> dedicated
+  }
+}
+
+fn demo_toggle(entry: structures.Entry) -> List(Element(msg)) {
+  case entry.demo_href {
+    Some(_) -> []
+    None -> [
+      h.div(
+        [
+          a.class("plate-viewbar"),
+          a.attribute("data-structure-controls", ""),
+          a.hidden(True),
+        ],
+        [
+          h.button(
+            [
+              a.type_("button"),
+              a.class("plate-toggle"),
+              a.attribute("data-structure-toggle", entry.id),
+              a.attribute("aria-controls", entry.id <> "-demo"),
+              a.attribute("aria-describedby", entry.id <> "-title"),
+              a.attribute("aria-expanded", "false"),
+            ],
+            [h.text("Try the live demo ↓")],
+          ),
+        ],
+      ),
+    ]
+  }
+}
+
+fn demo_panel(entry: structures.Entry) -> List(Element(msg)) {
+  case entry.demo_href {
+    Some(_) -> []
+    None -> [
+      h.div(
+        [
+          a.class("plate-live"),
+          a.id(entry.id <> "-demo"),
+          a.attribute("data-structure-demo", ""),
+          a.hidden(True),
+        ],
+        [],
+      ),
+      h.div([a.id(entry.id <> "-after-demo"), a.tabindex(-1)], []),
+    ]
   }
 }
 

@@ -209,7 +209,7 @@ pub fn registry_matches_expected_routes_test() {
       route.RichText,
       "content/rich-text.djot",
       Some("/rich_text.js"),
-      ["/styles/site.css", "/styles/rich-text.css"],
+      ["/styles/site.css", "/rich_text.css", "/styles/rich-text.css"],
     ),
     #(
       "/sequence",

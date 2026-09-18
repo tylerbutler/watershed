@@ -77,6 +77,43 @@ pub fn same_folder_race_merges_one_node_test() {
   complete.converged |> should.be_true()
 }
 
+pub fn stale_landing_does_not_replace_newer_tree_test() {
+  let #(model, rig) = ready()
+  let assert Ok(first) =
+    directory.create_folder(rig, directory.ClientA, "/", "surveys")
+  let first_pending =
+    directory.update(model, directory.MutationSubmitted(0, Ok(first))).0
+  let assert Ok(first_delivery) = directory.deliver_group(rig)
+  let first_returning =
+    directory.update(first_pending, directory.Delivered(0, Ok(first_delivery))).0
+
+  let assert Ok(second) =
+    directory.create_folder(rig, directory.ClientA, "/", "later")
+  let second_pending =
+    directory.update(
+      first_returning,
+      directory.MutationSubmitted(0, Ok(second)),
+    ).0
+  let assert Ok(second_delivery) = directory.deliver_group(rig)
+  let second_returning =
+    directory.update(
+      second_pending,
+      directory.Delivered(0, Ok(second_delivery)),
+    ).0
+  let newest =
+    directory.update(
+      second_returning,
+      directory.Land(0, second_delivery, directory.ClientA),
+    ).0
+  let stale =
+    directory.update(
+      newest,
+      directory.Land(0, first_delivery, directory.ClientA),
+    ).0
+
+  directory.node(stale, directory.ClientA, "/later") |> should.be_some()
+}
+
 pub fn sample_tree_and_delete_converge_test() {
   let #(model, rig) = ready()
   let assert Ok(seed) = directory.seed_tree(rig)

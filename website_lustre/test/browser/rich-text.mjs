@@ -91,6 +91,10 @@ await withBrowserSite(site, async (browser, origin) => {
       document.querySelectorAll(".ql-editor").length === 3 &&
       !document.querySelector("[data-rt-race-type]").disabled,
   );
+  assert.notEqual(
+    await page.$('link[rel="stylesheet"][href="/rich_text.css"]'),
+    null,
+  );
   assert.deepEqual(errors, [], "startup browser errors");
   const desktop = await snapshot(page);
   await page.setViewport({ width: 390, height: 844 });
