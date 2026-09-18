@@ -3,6 +3,7 @@ import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import lustre/element
+import support
 import watershed_site/content
 import watershed_site/guide
 import watershed_site/page
@@ -10,7 +11,7 @@ import watershed_site/route
 
 pub fn fixture() -> page.GuidePage(Nil) {
   page.GuidePage(
-    route.guide_race(),
+    support.route("/guide/race"),
     content.Metadata(
       "A guide description.",
       content.GuideStep(guide.Race),
@@ -54,19 +55,15 @@ pub fn document_preserves_metadata_and_navigation_test() {
   |> list.each(fn(absent) { string.contains(html, absent) |> should.be_false() })
 }
 
-pub fn analytics_and_client_entry_follow_route_policy_test() {
+pub fn analytics_is_site_policy_and_client_entry_follows_route_test() {
   let original = fixture()
-  let without_scripts =
+  let without_client =
     page.GuidePage(
       ..original,
-      route: route.Route(
-        ..original.route,
-        analytics: route.NoAnalytics,
-        client_script: None,
-      ),
+      route: route.Route(..original.route, client_script: None),
     )
-  let html = page.view(without_scripts) |> element.to_document_string
-  string.contains(html, "tinylytics") |> should.be_false()
+  let html = page.view(without_client) |> element.to_document_string
+  string.contains(html, "tinylytics") |> should.be_true()
   string.contains(html, "type=\"module\"") |> should.be_false()
 }
 

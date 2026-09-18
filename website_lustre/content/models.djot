@@ -1,4 +1,3 @@
 ---
 description = "Three ways collaborative data converges: a distributed data structure over a server's total order, a conflict-free replicated data type that merges without order, and operational transform that rewrites concurrent ops. How they differ, and which watershed structures use each."
-layout = "models"
 ---

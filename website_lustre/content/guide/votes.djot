@@ -1,7 +1,5 @@
 ---
 description = "Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other."
-layout = "guide"
-guide_step = "votes"
 ---
 
 ::: g-block

@@ -1,6 +1,5 @@
 ---
 description = "How watershed behaves at runtime: optimistic edits and rollback, reconnect and resync from a summary, idempotent delta re-delivery, the ephemeral presence tier, and peer-to-peer documents that run over WebRTC with no sequencer at all. The field notes behind the convergence guarantee."
-layout = "concept-index"
 ---
 
 {data-component="runtime-intro"}

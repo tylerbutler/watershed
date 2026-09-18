@@ -1,6 +1,5 @@
 ---
 description = "Fluid Framework's SharedTree puts a stored schema inside the document and enforces it in each client. watershed's typed layer puts its schema in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, and an honest list of what SharedTree has that watershed does not."
-layout = "sharedtree"
 ---
 
 ::::: g-block

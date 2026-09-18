@@ -1,6 +1,5 @@
 ---
 description = "The core model behind every watershed document: typed schemas, channel topology, and startup."
-layout = "concept-index"
 ---
 
 {data-component="concept-intro"}

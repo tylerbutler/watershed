@@ -1,9 +1,9 @@
 import gleam/list
 import gleam/string
 import lustre/element
+import support
 import watershed_site/content
 import watershed_site/page
-import watershed_site/route
 import watershed_site/snippet
 
 pub fn component_model_pages_render_shared_layout_and_snippets_test() {
@@ -30,7 +30,7 @@ pub fn component_model_pages_render_shared_layout_and_snippets_test() {
     ),
   ]
   |> list.each(fn(expected) {
-    let page_route = route.component_model(expected.0)
+    let page_route = support.route("/component-model/" <> expected.0)
     let assert Ok(source) = content.load(page_route)
     let assert Ok(document) = page.render(source, page_route, manifest, "test")
     let html = element.to_document_string(document)

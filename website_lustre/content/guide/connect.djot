@@ -1,7 +1,5 @@
 ---
 description = "Step one of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render."
-layout = "guide"
-guide_step = "connect"
 ---
 
 ::: g-block

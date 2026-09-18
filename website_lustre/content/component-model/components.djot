@@ -1,7 +1,5 @@
 ---
 description = "A component is one self-contained part of an application. Watershed describes reusable component kinds with versioned descriptors that hide config types behind decoders and start closures, while one catalog gives the host a common context, running value, port list, and precise lookup errors."
-layout = "concept-sheet"
-concept = "components"
 ---
 
 ::: g-block

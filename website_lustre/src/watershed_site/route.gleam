@@ -10,7 +10,6 @@ pub type Route {
     layout: Layout,
     content_path: String,
     client_script: Option(String),
-    analytics: Analytics,
   )
 }
 
@@ -36,331 +35,174 @@ pub type Layout {
   Text
 }
 
-pub fn home() -> Route {
-  Route(
-    path: "/",
-    layout: Home,
-    content_path: "content/home.djot",
-    client_script: Some("/home.js"),
-    analytics: Tinylytics,
-  )
-}
-
-pub type Analytics {
-  NoAnalytics
-  Tinylytics
-}
-
-pub fn guide_race() -> Route {
-  Route(
-    path: "/guide/race",
-    layout: Guide,
-    content_path: "content/guide/race.djot",
-    client_script: Some("/guide_race.js"),
-    analytics: Tinylytics,
-  )
-}
-
-pub fn guide_connect() -> Route {
-  Route(
-    path: "/guide/connect",
-    layout: Guide,
-    content_path: "content/guide/connect.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn guide_notes() -> Route {
-  Route(
-    path: "/guide/notes",
-    layout: Guide,
-    content_path: "content/guide/notes.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn guide_votes() -> Route {
-  Route(
-    path: "/guide/votes",
-    layout: Guide,
-    content_path: "content/guide/votes.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn guide_presence() -> Route {
-  Route(
-    path: "/guide/presence",
-    layout: Guide,
-    content_path: "content/guide/presence.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn guide_testing() -> Route {
-  Route(
-    path: "/guide/testing",
-    layout: Guide,
-    content_path: "content/guide/testing.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn foundations_index() -> Route {
-  Route(
-    path: "/foundations",
-    layout: ConceptIndex,
-    content_path: "content/foundations/index.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn component_model_index() -> Route {
-  Route(
-    path: "/component-model",
-    layout: ConceptIndex,
-    content_path: "content/component-model/index.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn runtime_index() -> Route {
-  Route(
-    path: "/runtime",
-    layout: ConceptIndex,
-    content_path: "content/runtime/index.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn structures_index() -> Route {
-  Route(
-    path: "/structures",
-    layout: StructureIndex,
-    content_path: "content/structures/index.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn structure_family(slug: String) -> Route {
-  Route(
-    path: "/structures/" <> slug,
-    layout: StructureSheet,
-    content_path: "content/structures/" <> slug <> ".djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn models() -> Route {
-  Route(
-    path: "/models",
-    layout: Models,
-    content_path: "content/models.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn patterns() -> Route {
-  Route(
-    path: "/patterns",
-    layout: Patterns,
-    content_path: "content/patterns.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn examples() -> Route {
-  Route(
-    path: "/examples",
-    layout: Examples,
-    content_path: "content/examples.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn sharedtree() -> Route {
-  Route(
-    path: "/sharedtree",
-    layout: SharedTree,
-    content_path: "content/sharedtree.djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn sudoku() -> Route {
-  Route(
-    path: "/sudoku",
-    layout: Sudoku,
-    content_path: "content/sudoku.djot",
-    client_script: Some("/sudoku.js"),
-    analytics: Tinylytics,
-  )
-}
-
-pub fn directory() -> Route {
-  Route(
-    path: "/directory",
-    layout: Directory,
-    content_path: "content/directory.djot",
-    client_script: Some("/directory.js"),
-    analytics: Tinylytics,
-  )
-}
-
-pub fn counter_bug() -> Route {
-  Route(
-    path: "/counter-bug",
-    layout: CounterBug,
-    content_path: "content/counter-bug.djot",
-    client_script: Some("/counter_bug.js"),
-    analytics: Tinylytics,
-  )
-}
-
-pub fn json_ot() -> Route {
-  Route(
-    path: "/json-ot",
-    layout: JsonOt,
-    content_path: "content/json-ot.djot",
-    client_script: Some("/json_ot.js"),
-    analytics: Tinylytics,
-  )
-}
-
-pub fn mv_register() -> Route {
-  Route(
-    path: "/mv-register",
-    layout: MvRegister,
-    content_path: "content/mv-register.djot",
-    client_script: Some("/mv_register.js"),
-    analytics: Tinylytics,
-  )
-}
-
-pub fn rich_text() -> Route {
-  Route(
-    path: "/rich-text",
-    layout: RichText,
-    content_path: "content/rich-text.djot",
-    client_script: Some("/rich_text.js"),
-    analytics: Tinylytics,
-  )
-}
-
-pub fn sequence() -> Route {
-  Route(
-    path: "/sequence",
-    layout: Sequence,
-    content_path: "content/sequence.djot",
-    client_script: Some("/sequence.js"),
-    analytics: Tinylytics,
-  )
-}
-
-pub fn text() -> Route {
-  Route(
-    path: "/text",
-    layout: Text,
-    content_path: "content/text.djot",
-    client_script: Some("/text.js"),
-    analytics: Tinylytics,
-  )
-}
-
-pub fn foundation(slug: String) -> Route {
-  Route(
-    path: "/foundations/" <> slug,
-    layout: ConceptSheet,
-    content_path: "content/foundations/" <> slug <> ".djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn component_model(slug: String) -> Route {
-  Route(
-    path: "/component-model/" <> slug,
-    layout: ConceptSheet,
-    content_path: "content/component-model/" <> slug <> ".djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
-}
-
-pub fn runtime(slug: String) -> Route {
-  Route(
-    path: "/runtime/" <> slug,
-    layout: ConceptSheet,
-    content_path: "content/runtime/" <> slug <> ".djot",
-    client_script: None,
-    analytics: Tinylytics,
-  )
+fn page(
+  path: String,
+  layout: Layout,
+  content_path: String,
+  client_script: Option(String),
+) -> Route {
+  Route(path, layout, content_path, client_script)
 }
 
 pub fn all() -> List(Route) {
   [
-    home(),
-    foundations_index(),
-    foundation("schema"),
-    foundation("topology"),
-    foundation("lifecycle"),
-    component_model_index(),
-    component_model("components"),
-    component_model("ports"),
-    component_model("workspaces"),
-    runtime_index(),
-    runtime("optimistic"),
-    runtime("reconnect"),
-    runtime("redelivery"),
-    runtime("presence"),
-    runtime("p2p"),
-    structures_index(),
-    structure_family("counters"),
-    structure_family("sets"),
-    structure_family("registers"),
-    structure_family("maps"),
-    structure_family("sequences"),
-    structure_family("coordination"),
-    structure_family("transforms"),
-    models(),
-    patterns(),
-    examples(),
-    sharedtree(),
-    sudoku(),
-    directory(),
-    counter_bug(),
-    json_ot(),
-    mv_register(),
-    rich_text(),
-    sequence(),
-    text(),
-    Route(
-      path: "/guide",
-      layout: GuideIndex,
-      content_path: "content/guide/index.djot",
-      client_script: None,
-      analytics: Tinylytics,
+    page("/", Home, "content/home.djot", Some("/home.js")),
+    page("/foundations", ConceptIndex, "content/foundations/index.djot", None),
+    page(
+      "/foundations/schema",
+      ConceptSheet,
+      "content/foundations/schema.djot",
+      None,
     ),
-    guide_connect(),
-    guide_notes(),
-    guide_race(),
-    guide_votes(),
-    guide_presence(),
-    guide_testing(),
+    page(
+      "/foundations/topology",
+      ConceptSheet,
+      "content/foundations/topology.djot",
+      None,
+    ),
+    page(
+      "/foundations/lifecycle",
+      ConceptSheet,
+      "content/foundations/lifecycle.djot",
+      None,
+    ),
+    page(
+      "/component-model",
+      ConceptIndex,
+      "content/component-model/index.djot",
+      None,
+    ),
+    page(
+      "/component-model/components",
+      ConceptSheet,
+      "content/component-model/components.djot",
+      None,
+    ),
+    page(
+      "/component-model/ports",
+      ConceptSheet,
+      "content/component-model/ports.djot",
+      None,
+    ),
+    page(
+      "/component-model/workspaces",
+      ConceptSheet,
+      "content/component-model/workspaces.djot",
+      None,
+    ),
+    page("/runtime", ConceptIndex, "content/runtime/index.djot", None),
+    page(
+      "/runtime/optimistic",
+      ConceptSheet,
+      "content/runtime/optimistic.djot",
+      None,
+    ),
+    page(
+      "/runtime/reconnect",
+      ConceptSheet,
+      "content/runtime/reconnect.djot",
+      None,
+    ),
+    page(
+      "/runtime/redelivery",
+      ConceptSheet,
+      "content/runtime/redelivery.djot",
+      None,
+    ),
+    page(
+      "/runtime/presence",
+      ConceptSheet,
+      "content/runtime/presence.djot",
+      None,
+    ),
+    page("/runtime/p2p", ConceptSheet, "content/runtime/p2p.djot", None),
+    page("/structures", StructureIndex, "content/structures/index.djot", None),
+    page(
+      "/structures/counters",
+      StructureSheet,
+      "content/structures/counters.djot",
+      None,
+    ),
+    page(
+      "/structures/sets",
+      StructureSheet,
+      "content/structures/sets.djot",
+      None,
+    ),
+    page(
+      "/structures/registers",
+      StructureSheet,
+      "content/structures/registers.djot",
+      None,
+    ),
+    page(
+      "/structures/maps",
+      StructureSheet,
+      "content/structures/maps.djot",
+      None,
+    ),
+    page(
+      "/structures/sequences",
+      StructureSheet,
+      "content/structures/sequences.djot",
+      None,
+    ),
+    page(
+      "/structures/coordination",
+      StructureSheet,
+      "content/structures/coordination.djot",
+      None,
+    ),
+    page(
+      "/structures/transforms",
+      StructureSheet,
+      "content/structures/transforms.djot",
+      None,
+    ),
+    page("/models", Models, "content/models.djot", None),
+    page("/patterns", Patterns, "content/patterns.djot", None),
+    page("/examples", Examples, "content/examples.djot", None),
+    page("/sharedtree", SharedTree, "content/sharedtree.djot", None),
+    page("/sudoku", Sudoku, "content/sudoku.djot", Some("/sudoku.js")),
+    page(
+      "/directory",
+      Directory,
+      "content/directory.djot",
+      Some("/directory.js"),
+    ),
+    page(
+      "/counter-bug",
+      CounterBug,
+      "content/counter-bug.djot",
+      Some("/counter_bug.js"),
+    ),
+    page("/json-ot", JsonOt, "content/json-ot.djot", Some("/json_ot.js")),
+    page(
+      "/mv-register",
+      MvRegister,
+      "content/mv-register.djot",
+      Some("/mv_register.js"),
+    ),
+    page(
+      "/rich-text",
+      RichText,
+      "content/rich-text.djot",
+      Some("/rich_text.js"),
+    ),
+    page("/sequence", Sequence, "content/sequence.djot", Some("/sequence.js")),
+    page("/text", Text, "content/text.djot", Some("/text.js")),
+    page("/guide", GuideIndex, "content/guide/index.djot", None),
+    page("/guide/connect", Guide, "content/guide/connect.djot", None),
+    page("/guide/notes", Guide, "content/guide/notes.djot", None),
+    page(
+      "/guide/race",
+      Guide,
+      "content/guide/race.djot",
+      Some("/guide_race.js"),
+    ),
+    page("/guide/votes", Guide, "content/guide/votes.djot", None),
+    page("/guide/presence", Guide, "content/guide/presence.djot", None),
+    page("/guide/testing", Guide, "content/guide/testing.djot", None),
   ]
 }
 
@@ -403,4 +245,8 @@ pub fn validate(routes: List(Route)) -> Result(List(Route), BuildError) {
     }),
   )
   Ok(routes)
+}
+
+pub fn find(path: String) -> Result(Route, Nil) {
+  list.find(all(), fn(route) { route.path == path })
 }

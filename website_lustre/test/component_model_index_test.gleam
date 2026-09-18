@@ -3,13 +3,13 @@ import gleam/string
 import gleeunit/should
 import html_parser
 import lustre/element
+import support
 import watershed_site/content
 import watershed_site/page
-import watershed_site/route
 import watershed_site/snippet
 
 pub fn component_model_index_renders_its_catalog_test() {
-  let component_model = route.component_model_index()
+  let component_model = support.route("/component-model")
   let assert Ok(source) = content.load(component_model)
   let assert Ok(manifest) =
     snippet.load("../website/src/generated/snippets.json")

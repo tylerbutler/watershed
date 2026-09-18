@@ -5,6 +5,7 @@ import gleeunit/should
 import html_parser
 import lustre/element
 import simplifile
+import support
 import watershed_site/content
 import watershed_site/page
 import watershed_site/route
@@ -32,14 +33,13 @@ pub fn runtime_catalog_matches_astro_test() {
 }
 
 pub fn runtime_index_renders_the_catalog_without_a_client_test() {
-  let runtime_route = route.runtime_index()
+  let runtime_route = support.route("/runtime")
   runtime_route
   |> should.equal(route.Route(
     path: "/runtime",
     layout: route.ConceptIndex,
     content_path: "content/runtime/index.djot",
     client_script: None,
-    analytics: route.Tinylytics,
   ))
   route.stylesheets(runtime_route)
   |> should.equal(["/styles/site.css", "/styles/concept-index.css"])

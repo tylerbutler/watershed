@@ -1,4 +1,3 @@
 ---
 description = "Three browser clients edit one ordered portage route through watershed's compiled sequence_kernel: a CRDT sequence where items keep stable identity, so concurrent inserts, moves, and deletes merge without renumbering fights. Optimistic edits, server-sequenced convergence."
-layout = "sequence"
 ---

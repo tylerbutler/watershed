@@ -3,13 +3,13 @@ import gleam/string
 import gleeunit/should
 import html_parser
 import lustre/element
+import support
 import watershed_site/content
 import watershed_site/page
-import watershed_site/route
 import watershed_site/snippet
 
 pub fn patterns_page_renders_every_practice_test() {
-  let patterns = route.patterns()
+  let patterns = support.route("/patterns")
   let assert Ok(source) = content.load(patterns)
   let assert Ok(manifest) =
     snippet.load("../website/src/generated/snippets.json")

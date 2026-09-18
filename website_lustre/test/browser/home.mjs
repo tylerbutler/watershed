@@ -1,13 +1,7 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { withBrowserSite } from "./site.mjs";
+import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const record = process.argv.includes("--record-baseline");
-const site = resolve(root, record ? "../website/dist" : "dist");
-const fixture = resolve(root, "test/fixtures/astro-home-parity.json");
+const { record, site, fixture } = parity(import.meta.url, "astro-home-parity.json");
 
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -46,18 +40,7 @@ async function snapshot(page) {
 }
 
 await withBrowserSite(site, async (browser, origin) => {
-  const errors = [];
-  const page = await browser.newPage();
-  page.on("pageerror", (error) => errors.push(error.message));
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
-  });
-  await page.setRequestInterception(true);
-  page.on("request", (request) => {
-    if (request.url().startsWith("https://tinylytics.app/")) {
-      request.respond({ status: 200, contentType: "text/javascript", body: "" });
-    } else request.continue();
-  });
+  const { page, errors } = await openPage(browser);
   await page.setViewport({ width: 1440, height: 1000 });
   assert.equal((await page.goto(`${origin}/`)).status(), 200);
   await page.waitForFunction(
@@ -72,13 +55,13 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.setViewport({ width: 390, height: 844 });
   const mobile = await snapshot(page);
   if (record) {
-    await writeFile(fixture, JSON.stringify({ desktop, mobile }, null, 2) + "\n");
+    await writeParity(fixture, { desktop, mobile });
     console.log("Recorded Astro homepage parity baseline.");
     return;
   }
   assert.deepEqual(
     { desktop, mobile },
-    JSON.parse(await readFile(fixture, "utf8")),
+    await readParity(fixture),
   );
   assert.deepEqual(errors, []);
   assert.equal(await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"), null);

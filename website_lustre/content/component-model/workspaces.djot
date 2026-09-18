@@ -1,7 +1,5 @@
 ---
 description = "A workspace stores component instances, presentation order, and connections within a document. Watershed persists all three beneath one child map, then the browser runtime reconciles that state without discarding data the local host cannot use."
-layout = "concept-sheet"
-concept = "workspaces"
 ---
 
 ::: g-block

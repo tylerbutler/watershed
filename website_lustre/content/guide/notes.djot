@@ -1,7 +1,5 @@
 ---
 description = "Step two of the watershed build guide: add a note to the board, keyed by its own id in a register OR-map, stored as one JSON value, and read back through a decoder that shows a broken note instead of crashing the board."
-layout = "guide"
-guide_step = "notes"
 ---
 
 ::: g-block

@@ -334,15 +334,12 @@ fn render_document(
   title: String,
   body: Element(Nil),
 ) -> Element(Nil) {
-  let scripts = case page_route.analytics {
-    route.NoAnalytics -> []
-    route.Tinylytics -> [
-      document.Deferred(
-        "https://tinylytics.app/embed/uhk_zvSq2fBb_T2hTaLx/min.js?hits&events&beacon",
-        [],
-      ),
-    ]
-  }
+  let scripts = [
+    document.Deferred(
+      "https://tinylytics.app/embed/uhk_zvSq2fBb_T2hTaLx/min.js?hits&events&beacon",
+      [],
+    ),
+  ]
   let scripts =
     list.append(scripts, case page_route.client_script {
       option.None -> []
@@ -376,48 +373,27 @@ fn render_document(
     | content.Text -> scripts
   }
   let scripts = case page_route.layout {
-    route.Home ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
+    route.Home
+    | route.ConceptIndex
+    | route.StructureIndex
+    | route.Models
+    | route.SharedTree
+    | route.Sudoku
+    | route.Directory
+    | route.MvRegister
+    | route.RichText
+    | route.Sequence
+    | route.Text ->
+      list.append(scripts, [document.Module("/scripts/concept-index.js")])
     route.Guide -> scripts
     route.GuideIndex ->
       list.append(scripts, [document.Module("/scripts/guide-index.js")])
-    route.ConceptIndex ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
     route.ConceptSheet -> scripts
-    route.StructureIndex ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
     route.StructureSheet -> scripts
-    route.Models ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
     route.Patterns -> scripts
     route.Examples -> scripts
-    route.SharedTree ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
-    route.Sudoku ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
-    route.Directory ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
     route.CounterBug -> scripts
     route.JsonOt -> scripts
-    route.MvRegister ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
-    route.RichText ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
-    route.Sequence ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
-    route.Text ->
-      scripts
-      |> list.append([document.Module("/scripts/concept-index.js")])
   }
   document.view(document.Document(
     title:,

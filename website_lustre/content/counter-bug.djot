@@ -1,4 +1,3 @@
 ---
 description = "The classic distributed-systems bug, shown live: store a counter as an integer in a last-write-wins SharedMap, and concurrent read-modify-write increments silently overwrite each other. Watch it happen through watershed's compiled map_kernel, then see the fix."
-layout = "counter-bug"
 ---

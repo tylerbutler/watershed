@@ -58,27 +58,21 @@ pub fn guide_index_renders_all_six_steps_without_a_client_test() {
   })
 }
 
-pub fn guide_index_metadata_rejects_step_and_layout_mismatches_test() {
+pub fn guide_index_metadata_accepts_content_fields_only_test() {
   let route = index_route()
-  let metadata = "---\ndescription = \"Guide.\"\nlayout = \"guide-index\"\n"
+  let metadata = "---\ndescription = \"Guide.\"\n"
   content.parse(metadata <> "---\n\nA guide.", "index.djot", route)
   |> should.be_ok()
   [
+    #(metadata <> "layout = \"guide-index\"\n", "layout"),
     #(metadata <> "guide_step = \"race\"\n", "guide_step"),
     #(metadata <> "extra = true\n", "extra"),
-    #("---\ndescription = \"Guide.\"\nlayout = \"guide\"\n", "layout"),
   ]
   |> list.each(fn(pair) {
     let assert Error(error.InvalidFrontmatter("index.djot", reason)) =
       content.parse(pair.0 <> "---\n\nA guide.", "index.djot", route)
     string.contains(reason, pair.1) |> should.be_true()
   })
-  content.parse(
-    metadata <> "---\n\nA guide.",
-    "index.djot",
-    route.Route(..route, path: "/other"),
-  )
-  |> should.be_error()
 }
 
 fn find(

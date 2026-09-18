@@ -1,7 +1,5 @@
 ---
 description = "What happens between calling connect and having a document worth rendering: got_document arrives with a handle before the catch-up finishes, connected arrives once history has replayed, ensure_* idempotently creates or adopts every channel a schema needs, and a client only assembles its first render once every channel has reported back."
-layout = "concept-sheet"
-concept = "lifecycle"
 ---
 
 ::: g-block

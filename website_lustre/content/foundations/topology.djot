@@ -1,7 +1,5 @@
 ---
 description = "What a watershed document actually is underneath its schema: a root map plus whatever channels its handles point to, each one independently addressed, attached on creation, and resolved through a handle rather than nested by containment — with the limits that layout implies."
-layout = "concept-sheet"
-concept = "topology"
 ---
 
 ::: g-block

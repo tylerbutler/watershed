@@ -1,7 +1,5 @@
 ---
 description = "How watershed returns after a dropped connection: automatic checkpoints keep old history out of the way, bootstrap replays what followed, and reconnect resubmits pending operations."
-layout = "concept-sheet"
-concept = "reconnect"
 ---
 
 ::: g-block

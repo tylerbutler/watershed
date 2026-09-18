@@ -1,7 +1,5 @@
 ---
 description = "Step five of the watershed build guide: publish the note a teammate is reading through presence, a roster that clears itself out when someone leaves, instead of storing it in the document where it would stick around forever."
-layout = "guide"
-guide_step = "presence"
 ---
 
 ::: g-block

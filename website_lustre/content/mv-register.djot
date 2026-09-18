@@ -1,6 +1,5 @@
 ---
 description = "Race two revisions, keep both, then resolve what you've read. A live multi-value register running watershed's compiled Gleam kernel."
-layout = "mv-register"
 ---
 
 ## A list isn't a queue

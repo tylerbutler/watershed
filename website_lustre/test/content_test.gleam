@@ -5,6 +5,7 @@ import gleam/string
 import gleeunit/should
 import jot
 import simplifile
+import support
 import watershed_site/content
 import watershed_site/error
 import watershed_site/guide
@@ -15,14 +16,14 @@ fn parse(metadata: String) {
   content.parse(
     "---\n" <> metadata <> "\n---\n\n# Test",
     "page.djot",
-    route.guide_race(),
+    support.route("/guide/race"),
   )
 }
 
-const required = "description = \"A test page.\"\nlayout = \"guide\"\nguide_step = \"race\""
+const required = "description = \"A test page.\""
 
 pub fn race_copy_is_preserved_test() {
-  let assert Ok(source) = content.load(route.guide_race())
+  let assert Ok(source) = content.load(support.route("/guide/race"))
   source.metadata.description
   |> should.equal(
     "Step three of the watershed build guide: add notes from two tabs at the same instant and confirm that both appear on the shared board.",
@@ -56,7 +57,7 @@ pub fn valid_metadata_test() {
   let assert Ok(source) =
     content.load(
       route.Route(
-        ..route.guide_race(),
+        ..support.route("/guide/race"),
         content_path: "test/fixtures/valid-page.djot",
       ),
     )
@@ -67,6 +68,11 @@ pub fn valid_metadata_test() {
     None,
     None,
   ))
+}
+
+pub fn route_defines_page_kind_test() {
+  let assert Ok(source) = parse(required)
+  source.metadata.kind |> should.equal(content.GuideStep(guide.Race))
 }
 
 pub fn optional_metadata_test() {
@@ -81,10 +87,11 @@ pub fn optional_metadata_test() {
 
 pub fn invalid_metadata_has_file_and_field_test() {
   [
-    #("layout = \"guide\"\nguide_step = \"race\"", "description"),
-    #(string.replace(required, "\"guide\"", "\"other\""), "layout"),
-    #(string.replace(required, "\"race\"", "\"other\""), "guide_step"),
-    #(string.replace(required, "\"race\"", "\"notes\""), "guide_step"),
+    #("", "description"),
+    #(required <> "\nlayout = \"guide\"", "layout"),
+    #(required <> "\nguide_step = \"race\"", "guide_step"),
+    #(required <> "\nconcept = \"schema\"", "concept"),
+    #(required <> "\nfamily = \"maps\"", "family"),
     #(required <> "\nextra = 1", "extra"),
     #(required <> "\nog_title = 1", "og_title"),
     #(required <> "\nog_description = false", "og_description"),
@@ -98,70 +105,30 @@ pub fn invalid_metadata_has_file_and_field_test() {
     parse("description = [")
 }
 
-pub fn concept_sheet_metadata_matches_its_route_test() {
-  let page =
-    "---\ndescription = \"Schema.\"\nlayout = \"concept-sheet\"\nconcept = \"schema\"\n---\n\nA page."
-  content.parse(page, "schema.djot", route.foundation("schema"))
-  |> should.be_ok()
-  [
-    #(
-      string.replace(page, "concept = \"schema\"", "concept = \"unknown\""),
-      "concept",
-    ),
-    #(
-      string.replace(page, "concept = \"schema\"", "concept = \"topology\""),
-      "concept",
-    ),
-    #(string.replace(page, "concept-sheet", "guide"), "layout"),
-    #(
-      string.replace(
-        page,
-        "concept = \"schema\"",
-        "concept = \"schema\"\nguide_step = \"race\"",
-      ),
-      "guide_step",
-    ),
-  ]
-  |> list.each(fn(pair) {
-    let assert Error(error.InvalidFrontmatter("schema.djot", reason)) =
-      content.parse(pair.0, "schema.djot", route.foundation("schema"))
-    string.contains(reason, pair.1) |> should.be_true()
-  })
-}
-
-pub fn component_model_index_metadata_matches_its_route_test() {
-  let page =
-    "---\ndescription = \"Components.\"\nlayout = \"concept-index\"\n---\n\nA page."
-  let component_model =
-    route.Route(
-      path: "/component-model",
-      layout: route.ConceptIndex,
-      content_path: "component-model.djot",
-      client_script: None,
-      analytics: route.Tinylytics,
-    )
-  content.parse(page, "component-model.djot", component_model)
-  |> should.be_ok()
-}
-
-pub fn component_model_sheet_metadata_matches_its_route_test() {
-  let page =
-    "---\ndescription = \"Components.\"\nlayout = \"concept-sheet\"\nconcept = \"components\"\n---\n\nA page."
-  content.parse(page, "components.djot", route.component_model("components"))
-  |> should.be_ok()
+pub fn route_defines_specialized_page_kinds_test() {
+  let page = "---\ndescription = \"Test.\"\n---\n\nA page."
+  let assert Ok(concept) =
+    content.parse(page, "page.djot", support.route("/foundations/" <> "schema"))
+  let assert content.ConceptSheet(_) = concept.metadata.kind
+  let assert Ok(runtime) =
+    content.parse(page, "page.djot", support.route("/runtime/" <> "optimistic"))
+  let assert content.RuntimeSheet(_) = runtime.metadata.kind
+  let assert Ok(structure) =
+    content.parse(page, "page.djot", support.route("/structures/" <> "maps"))
+  let assert content.StructureSheet(_) = structure.metadata.kind
 }
 
 pub fn raw_html_and_unknown_components_are_rejected_test() {
   content.load(
     route.Route(
-      ..route.guide_race(),
+      ..support.route("/guide/race"),
       content_path: "test/fixtures/raw-html.djot",
     ),
   )
   |> should.equal(Error(error.RawHtml("test/fixtures/raw-html.djot")))
   content.load(
     route.Route(
-      ..route.guide_race(),
+      ..support.route("/guide/race"),
       content_path: "test/fixtures/unknown-component.djot",
     ),
   )
@@ -177,7 +144,7 @@ pub fn nested_raw_html_is_rejected_test() {
   content.parse(
     "---\n" <> required <> "\n---\n\n::: outer\n```=html\nbad\n```\n:::",
     "nested.djot",
-    route.guide_race(),
+    support.route("/guide/race"),
   )
   |> should.equal(Error(error.RawHtml("nested.djot")))
 }
@@ -229,6 +196,6 @@ pub fn stale_field_note_references_are_rejected_test() {
     "---\n"
     <> required
     <> "\n---\n\n{data-component=\"field-note-ref\" data-practice=\"missing\"}\n:::\n:::"
-  content.parse(page, "page.djot", route.guide_race())
+  content.parse(page, "page.djot", support.route("/guide/race"))
   |> should.equal(Error(error.UnknownPractice("page.djot", "missing")))
 }

@@ -1,12 +1,8 @@
 import assert from "node:assert/strict";
-import { readFile, writeFile } from "node:fs/promises";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-import { withBrowserSite } from "./site.mjs";
+import { resolve } from "node:path";
+import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
 
-const root = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
-const record = process.argv.includes("--record-baseline");
-const site = resolve(root, record ? "../website/dist" : "dist");
+const { root, record, site } = parity(import.meta.url);
 const routes = [
   { slug: "connect", anchor: "ffi-surface" },
   { slug: "notes", anchor: "authoritative-channel" },
@@ -58,18 +54,7 @@ async function snapshot(page) {
 
 await withBrowserSite(site, async (browser, origin) => {
   for (const route of routes) {
-    const errors = [];
-    const page = await browser.newPage();
-    page.on("pageerror", (error) => errors.push(error.message));
-    page.on("console", (message) => {
-      if (message.type() === "error") errors.push(message.text());
-    });
-    await page.setRequestInterception(true);
-    page.on("request", (request) => {
-      if (request.url().startsWith("https://tinylytics.app/")) {
-        request.respond({ status: 200, contentType: "text/javascript", body: "" });
-      } else request.continue();
-    });
+    const { page, errors } = await openPage(browser);
     await page.setViewport({ width: 1440, height: 1000 });
     assert.equal((await page.goto(`${origin}/guide/${route.slug}/`)).status(), 200);
     await page.evaluate(() => document.fonts.ready);
@@ -78,11 +63,11 @@ await withBrowserSite(site, async (browser, origin) => {
     const mobile = await snapshot(page);
     const fixture = resolve(root, `test/fixtures/astro-guide-${route.slug}-parity.json`);
     if (record) {
-      await writeFile(fixture, JSON.stringify({ desktop, mobile }, null, 2) + "\n");
+      await writeParity(fixture, { desktop, mobile });
       await page.close();
       continue;
     }
-    const baseline = JSON.parse(await readFile(fixture, "utf8"));
+    const baseline = await readParity(fixture);
     assert.deepEqual({ desktop, mobile }, baseline);
     assert.equal(await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"), null);
     assert.deepEqual(

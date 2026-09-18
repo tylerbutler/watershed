@@ -3,13 +3,13 @@ import gleam/string
 import gleeunit/should
 import html_parser
 import lustre/element
+import support
 import watershed_site/content
 import watershed_site/page
-import watershed_site/route
 import watershed_site/snippet
 
 pub fn structures_index_renders_the_field_atlas_without_a_client_test() {
-  let structures = route.structures_index()
+  let structures = support.route("/structures")
   let assert Ok(source) = content.load(structures)
   let assert Ok(manifest) =
     snippet.load("../website/src/generated/snippets.json")

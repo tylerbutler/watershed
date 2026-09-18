@@ -1,7 +1,5 @@
 ---
 description = "How a watershed schema works: Field, ChildField, and ChannelField are three kinds of typed key, each scoped to a document by a phantom tag the compiler checks and the runtime never sees. Reads are a decode boundary, not an enforced contract, and a separate, optional Schema layer covers whole records, versions, and stamps."
-layout = "concept-sheet"
-concept = "schema"
 ---
 
 ::: g-block

@@ -1,12 +1,12 @@
 import gleam/list
 import gleam/string
 import gleeunit/should
+import support
 import watershed_site/content
-import watershed_site/route
 import watershed_site/snippet
 
 pub fn connect_page_contains_the_complete_guide_test() {
-  let assert Ok(source) = content.load(route.guide_connect())
+  let assert Ok(source) = content.load(support.route("/guide/connect"))
   source.metadata.description
   |> should.equal(
     "Step one of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render.",
@@ -65,7 +65,7 @@ pub fn connect_page_contains_the_complete_guide_test() {
 }
 
 pub fn notes_page_contains_the_complete_guide_test() {
-  let assert Ok(source) = content.load(route.guide_notes())
+  let assert Ok(source) = content.load(support.route("/guide/notes"))
   source.metadata.description
   |> should.equal(
     "Step two of the watershed build guide: add a note to the board, keyed by its own id in a register OR-map, stored as one JSON value, and read back through a decoder that shows a broken note instead of crashing the board.",
@@ -106,7 +106,7 @@ pub fn notes_page_contains_the_complete_guide_test() {
 }
 
 pub fn votes_page_contains_the_complete_guide_test() {
-  let assert Ok(source) = content.load(route.guide_votes())
+  let assert Ok(source) = content.load(support.route("/guide/votes"))
   source.metadata.description
   |> should.equal(
     "Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other.",
@@ -147,7 +147,7 @@ pub fn votes_page_contains_the_complete_guide_test() {
 }
 
 pub fn presence_page_contains_the_complete_guide_test() {
-  let assert Ok(source) = content.load(route.guide_presence())
+  let assert Ok(source) = content.load(support.route("/guide/presence"))
   source.metadata.description
   |> should.equal(
     "Step five of the watershed build guide: publish the note a teammate is reading through presence, a roster that clears itself out when someone leaves, instead of storing it in the document where it would stick around forever.",
@@ -189,7 +189,7 @@ pub fn presence_page_contains_the_complete_guide_test() {
 }
 
 pub fn testing_page_contains_the_complete_guide_test() {
-  let assert Ok(source) = content.load(route.guide_testing())
+  let assert Ok(source) = content.load(support.route("/guide/testing"))
   source.metadata.description
   |> should.equal(
     "Step six of the watershed build guide: run two clients in one Gleam test and control when each message arrives.",

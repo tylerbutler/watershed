@@ -3,13 +3,13 @@ import gleam/string
 import gleeunit/should
 import html_parser
 import lustre/element
+import support
 import watershed_site/content
 import watershed_site/page
-import watershed_site/route
 import watershed_site/snippet
 
 pub fn models_page_renders_all_three_convergence_models_test() {
-  let models = route.models()
+  let models = support.route("/models")
   let assert Ok(source) = content.load(models)
   let assert Ok(manifest) =
     snippet.load("../website/src/generated/snippets.json")

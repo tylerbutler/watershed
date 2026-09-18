@@ -1,7 +1,5 @@
 ---
 description = "How watershed survives duplicate delivery: the runtime drops already-seen sequence numbers before any structure is touched, and CRDT merges are idempotent besides, so a re-delivered delta is a non-event at either layer."
-layout = "concept-sheet"
-concept = "redelivery"
 ---
 
 ::: g-block

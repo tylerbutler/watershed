@@ -1,7 +1,5 @@
 ---
 description = "Watershed's ephemeral tier: ripples are document-scoped, non-sequenced broadcasts that never touch converged state, and presence turns them into a live roster of who is here, backed by the server's own connection tracking where the server offers it, and by a heartbeat and TTL where it does not."
-layout = "concept-sheet"
-concept = "presence"
 ---
 
 ::: g-block

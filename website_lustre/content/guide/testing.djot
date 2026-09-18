@@ -1,7 +1,5 @@
 ---
 description = "Step six of the watershed build guide: run two clients in one Gleam test and control when each message arrives."
-layout = "guide"
-guide_step = "testing"
 ---
 
 ::: g-block

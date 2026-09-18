@@ -1,6 +1,5 @@
 ---
 description = "The optional model for user-constructable watershed apps: versioned component catalogs, typed ports, graph validation, workspace persistence, and dispatch planning."
-layout = "concept-index"
 ---
 
 {data-component="concept-intro"}

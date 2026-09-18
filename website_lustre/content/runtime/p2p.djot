@@ -1,7 +1,5 @@
 ---
 description = "How a watershed CRDT document runs on a WebRTC mesh with no sequencer joined at all: signaling only introduces peers, eligible structures converge by merge instead of server order, and an optional relay attaches later for durability without changing the document's state or public handles."
-layout = "concept-sheet"
-concept = "p2p"
 ---
 
 ::: g-block

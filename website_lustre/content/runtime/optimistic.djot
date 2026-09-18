@@ -1,7 +1,5 @@
 ---
 description = "How watershed renders a local edit instantly, reconciles it when the server sequences it, and unwinds it cleanly when a concurrent write wins: the pending-to-sequenced lifecycle, with no rollback code to write."
-layout = "concept-sheet"
-concept = "optimistic"
 ---
 
 ::: g-block

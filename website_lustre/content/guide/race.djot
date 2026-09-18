@@ -1,7 +1,5 @@
 ---
 description = "Step three of the watershed build guide: add notes from two tabs at the same instant and confirm that both appear on the shared board."
-layout = "guide"
-guide_step = "race"
 ---
 
 ::: g-block

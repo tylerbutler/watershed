@@ -1,6 +1,5 @@
 ---
 description = "Build a multiplayer retro board on watershed: connect two tabs, add notes and votes, show who is reading, and test simultaneous edits."
-layout = "guide-index"
 ---
 
 {data-component="guide-intro"}

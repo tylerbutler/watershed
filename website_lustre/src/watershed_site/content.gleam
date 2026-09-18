@@ -114,15 +114,7 @@ fn decode_metadata(
 ) -> Result(Metadata, BuildError) {
   use _ <- result.try(
     list.try_each(dict.keys(fields), fn(name) {
-      case
-        list.contains(
-          [
-            "description", "layout", "guide_step", "concept", "og_title",
-            "og_description", "family",
-          ],
-          name,
-        )
-      {
+      case list.contains(["description", "og_title", "og_description"], name) {
         True -> Ok(Nil)
         False ->
           Error(error.InvalidFrontmatter(path, "Unknown field: " <> name))
@@ -130,324 +122,7 @@ fn decode_metadata(
     }),
   )
   use description <- result.try(field(fields, "description", path))
-  use layout <- result.try(field(fields, "layout", path))
-  use kind <- result.try(case layout, route.layout {
-    "home", route.Home ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/" -> Ok(Home)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The home page metadata is invalid.",
-          ))
-      }
-    "guide", route.Guide -> decode_step(fields, path, route)
-    "guide-index", route.GuideIndex ->
-      case dict.has_key(fields, "guide_step"), route.path {
-        True, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "guide_step: The guide index cannot name a step.",
-          ))
-        False, "/guide" -> Ok(GuideIndex)
-        False, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The guide index path must be /guide.",
-          ))
-      }
-    "concept-index", route.ConceptIndex ->
-      case dict.has_key(fields, "guide_step"), route.path {
-        True, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "guide_step: A concept index cannot name a guide step.",
-          ))
-        False, "/foundations" | False, "/component-model" | False, "/runtime" ->
-          Ok(ConceptIndex)
-        False, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The concept index path is not registered.",
-          ))
-      }
-    "concept-sheet", route.ConceptSheet -> {
-      use _ <- result.try(case dict.has_key(fields, "guide_step") {
-        True ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "guide_step: A concept sheet cannot name a guide step.",
-          ))
-        False -> Ok(Nil)
-      })
-      use slug <- result.try(field(fields, "concept", path))
-      case string.starts_with(route.path, "/runtime/") {
-        True -> {
-          use doc <- result.try(
-            runtime.get(slug)
-            |> result.replace_error(error.InvalidFrontmatter(
-              path,
-              "concept: Unknown runtime behavior: " <> slug,
-            )),
-          )
-          case route.path == "/runtime/" <> slug {
-            True -> Ok(RuntimeSheet(doc))
-            False ->
-              Error(error.InvalidFrontmatter(
-                path,
-                "concept: The path does not match " <> route.path,
-              ))
-          }
-        }
-        False -> {
-          use doc <- result.try(
-            foundations.get(slug)
-            |> result.replace_error(error.InvalidFrontmatter(
-              path,
-              "concept: Unknown foundation: " <> slug,
-            )),
-          )
-          let foundations.Section(path: section_path, ..) =
-            foundations.section(slug)
-          case route.path == section_path <> "/" <> slug {
-            True -> Ok(ConceptSheet(doc))
-            False ->
-              Error(error.InvalidFrontmatter(
-                path,
-                "concept: The path does not match " <> route.path,
-              ))
-          }
-        }
-      }
-    }
-    "structure-index", route.StructureIndex ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        route.path
-      {
-        False, False, "/structures" -> Ok(StructureIndex)
-        True, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "guide_step: The field atlas cannot name a guide step.",
-          ))
-        _, True, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "concept: The field atlas cannot name a concept.",
-          ))
-        _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The field atlas path must be /structures.",
-          ))
-      }
-    "structure-sheet", route.StructureSheet -> {
-      use _ <- result.try(case dict.has_key(fields, "guide_step") {
-        True ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "guide_step: A field atlas sheet cannot name a guide step.",
-          ))
-        False -> Ok(Nil)
-      })
-      use slug <- result.try(field(fields, "family", path))
-      use family <- result.try(
-        structures.get(slug)
-        |> result.replace_error(error.InvalidFrontmatter(
-          path,
-          "family: Unknown structure family: " <> slug,
-        )),
-      )
-      case route.path == "/structures/" <> slug {
-        True -> Ok(StructureSheet(family))
-        False ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "family: The path does not match " <> route.path,
-          ))
-      }
-    }
-    "models", route.Models ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/models" -> Ok(Models)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The models page metadata is invalid.",
-          ))
-      }
-    "patterns", route.Patterns ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/patterns" -> Ok(Patterns)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The patterns page metadata is invalid.",
-          ))
-      }
-    "examples", route.Examples ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/examples" -> Ok(Examples)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The examples page metadata is invalid.",
-          ))
-      }
-    "sharedtree", route.SharedTree ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/sharedtree" -> Ok(SharedTree)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The SharedTree page metadata is invalid.",
-          ))
-      }
-    "sudoku", route.Sudoku ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/sudoku" -> Ok(Sudoku)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The Sudoku page metadata is invalid.",
-          ))
-      }
-    "directory", route.Directory ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/directory" -> Ok(Directory)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The directory page metadata is invalid.",
-          ))
-      }
-    "counter-bug", route.CounterBug ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/counter-bug" -> Ok(CounterBug)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The counter bug page metadata is invalid.",
-          ))
-      }
-    "json-ot", route.JsonOt ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/json-ot" -> Ok(JsonOt)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The JSON OT page metadata is invalid.",
-          ))
-      }
-    "mv-register", route.MvRegister ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/mv-register" -> Ok(MvRegister)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The MV register page metadata is invalid.",
-          ))
-      }
-    "rich-text", route.RichText ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/rich-text" -> Ok(RichText)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The rich text page metadata is invalid.",
-          ))
-      }
-    "sequence", route.Sequence ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/sequence" -> Ok(Sequence)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The sequence page metadata is invalid.",
-          ))
-      }
-    "text", route.Text ->
-      case
-        dict.has_key(fields, "guide_step"),
-        dict.has_key(fields, "concept"),
-        dict.has_key(fields, "family"),
-        route.path
-      {
-        False, False, False, "/text" -> Ok(Text)
-        _, _, _, _ ->
-          Error(error.InvalidFrontmatter(
-            path,
-            "layout: The text page metadata is invalid.",
-          ))
-      }
-    _, _ ->
-      Error(error.InvalidFrontmatter(
-        path,
-        "layout: The layout does not match the route.",
-      ))
-  })
+  use kind <- result.try(route_kind(route, path))
   use og_title <- result.try(optional_field(fields, "og_title", path))
   use og_description <- result.try(optional_field(
     fields,
@@ -457,28 +132,59 @@ fn decode_metadata(
   Ok(Metadata(description, kind, og_title, og_description))
 }
 
-fn decode_step(
-  fields: Dict(String, tom.Toml),
-  path: String,
+fn route_kind(
   route: route.Route,
+  path: String,
 ) -> Result(PageKind, BuildError) {
-  use slug <- result.try(field(fields, "guide_step", path))
-  use step <- result.try(
-    guide.from_string(slug)
-    |> result.replace_error(error.InvalidFrontmatter(
-      path,
-      "guide_step: Unknown step: " <> slug,
-    )),
-  )
-  use _ <- result.try(case guide.path(step) == route.path {
-    True -> Ok(Nil)
-    False ->
-      Error(error.InvalidFrontmatter(
-        path,
-        "guide_step: The path does not match " <> route.path,
-      ))
-  })
-  Ok(GuideStep(step))
+  let invalid = error.InvalidFrontmatter(path, "The route is not registered.")
+  case route.layout {
+    route.Home -> Ok(Home)
+    route.Guide ->
+      guide.all()
+      |> list.find(fn(step) { guide.path(step.slug) == route.path })
+      |> result.map(fn(step) { GuideStep(step.slug) })
+      |> result.replace_error(invalid)
+    route.GuideIndex -> Ok(GuideIndex)
+    route.ConceptIndex -> Ok(ConceptIndex)
+    route.ConceptSheet -> {
+      use slug <- result.try(route_slug(route.path, invalid))
+      case string.starts_with(route.path, "/runtime/") {
+        True ->
+          runtime.get(slug)
+          |> result.map(RuntimeSheet)
+          |> result.replace_error(invalid)
+        False ->
+          foundations.get(slug)
+          |> result.map(ConceptSheet)
+          |> result.replace_error(invalid)
+      }
+    }
+    route.StructureIndex -> Ok(StructureIndex)
+    route.StructureSheet -> {
+      use slug <- result.try(route_slug(route.path, invalid))
+      structures.get(slug)
+      |> result.map(StructureSheet)
+      |> result.replace_error(invalid)
+    }
+    route.Models -> Ok(Models)
+    route.Patterns -> Ok(Patterns)
+    route.Examples -> Ok(Examples)
+    route.SharedTree -> Ok(SharedTree)
+    route.Sudoku -> Ok(Sudoku)
+    route.Directory -> Ok(Directory)
+    route.CounterBug -> Ok(CounterBug)
+    route.JsonOt -> Ok(JsonOt)
+    route.MvRegister -> Ok(MvRegister)
+    route.RichText -> Ok(RichText)
+    route.Sequence -> Ok(Sequence)
+    route.Text -> Ok(Text)
+  }
+}
+
+fn route_slug(path: String, error: BuildError) -> Result(String, BuildError) {
+  string.split(path, "/")
+  |> list.last
+  |> result.replace_error(error)
 }
 
 pub fn validate(

@@ -1,7 +1,5 @@
 ---
 description = "Watershed's port foundation uses payload types for direct connections, schema IDs for erased graph data, deterministic validation for an acyclic effective graph, and origin-aware dispatch planning."
-layout = "concept-sheet"
-concept = "ports"
 ---
 
 ::: g-block

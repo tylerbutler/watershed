@@ -3,6 +3,7 @@ import gleam/option.{None}
 import gleam/string
 import gleeunit/should
 import lustre/element
+import support
 import watershed_site/content
 import watershed_site/page
 import watershed_site/route
@@ -14,14 +15,13 @@ pub fn optimistic_renders_the_runtime_sheet_and_snippet_test() {
   let assert #(Error(Nil), Ok(next)) = runtime.neighbours("optimistic")
   next.slug |> should.equal("reconnect")
 
-  let page_route = route.runtime("optimistic")
+  let page_route = support.route("/runtime/" <> "optimistic")
   page_route
   |> should.equal(route.Route(
     path: "/runtime/optimistic",
     layout: route.ConceptSheet,
     content_path: "content/runtime/optimistic.djot",
     client_script: None,
-    analytics: route.Tinylytics,
   ))
   route.stylesheets(page_route)
   |> should.equal(["/styles/site.css", "/styles/concept-sheet.css"])
@@ -63,7 +63,7 @@ pub fn reconnect_renders_the_runtime_sheet_without_a_client_test() {
   previous.slug |> should.equal("optimistic")
   next.slug |> should.equal("redelivery")
 
-  let page_route = route.runtime("reconnect")
+  let page_route = support.route("/runtime/" <> "reconnect")
   let assert Ok(source) = content.load(page_route)
   source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
   let assert Ok(manifest) =
@@ -92,7 +92,7 @@ pub fn redelivery_renders_the_duplicate_op_log_test() {
   previous.slug |> should.equal("reconnect")
   next.slug |> should.equal("presence")
 
-  let page_route = route.runtime("redelivery")
+  let page_route = support.route("/runtime/" <> "redelivery")
   let assert Ok(source) = content.load(page_route)
   source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
   let assert Ok(manifest) =
@@ -123,7 +123,7 @@ pub fn presence_renders_the_configuration_example_test() {
   previous.slug |> should.equal("redelivery")
   next.slug |> should.equal("p2p")
 
-  let page_route = route.runtime("presence")
+  let page_route = support.route("/runtime/" <> "presence")
   let assert Ok(source) = content.load(page_route)
   source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
   let assert Ok(manifest) =
@@ -151,7 +151,7 @@ pub fn p2p_renders_the_crdt_configuration_and_final_pager_test() {
   let assert #(Ok(previous), Error(Nil)) = runtime.neighbours("p2p")
   previous.slug |> should.equal("presence")
 
-  let page_route = route.runtime("p2p")
+  let page_route = support.route("/runtime/" <> "p2p")
   let assert Ok(source) = content.load(page_route)
   source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
   let assert Ok(manifest) =

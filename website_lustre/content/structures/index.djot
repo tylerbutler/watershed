@@ -1,6 +1,5 @@
 ---
 description = "Field guide to watershed's collaborative data structures, grouped into families: counters, sets, registers, maps, sequences, coordination, transforms. How each converges, and what it is best for."
-layout = "structure-index"
 ---
 
 {data-component="structures-intro"}
