@@ -1,4 +1,4 @@
-name: Lustre website preview
+name: Lustre website
 
 on:
   pull_request:
@@ -53,6 +53,9 @@ jobs:
           gleam deps download
           cd ../..
           just snippets
+      - name: Install legacy runtime dependencies
+        working-directory: website
+        run: pnpm install --frozen-lockfile
       - name: Install site and browser dependencies
         working-directory: website_lustre
         run: |
@@ -60,7 +63,7 @@ jobs:
           pnpm install --frozen-lockfile
           pnpm exec puppeteer browsers install chrome
           gleam format --check src test dev
-      - name: Build and test the pilot
+      - name: Build and test the site
         run: just _test-website-lustre
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
@@ -102,5 +105,5 @@ jobs:
             --no-build \
             --auth "$NETLIFY_AUTH_TOKEN" \
             --site "$NETLIFY_SITE_ID" \
-            --message "Lustre pilot ${GITHUB_SHA}" \
+            --message "Lustre website ${GITHUB_SHA}" \
             "${args[@]}"

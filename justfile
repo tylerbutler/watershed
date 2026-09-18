@@ -102,17 +102,8 @@ snippets:
 
 alias website-snippets := snippets
 
-_website-lustre-tools:
-    cd tools/website-lustre-build && gleam export escript
-
-_build-website-lustre: snippets _website-lustre-tools
-    rm -rf website_lustre/build/static
-    cd watershed_lustre && gleam build
-    gleam build --target javascript
-    cd website_lustre && ../tools/website-lustre-build/website_lustre_tools build watershed_site/client/guide_race watershed_site/client/sudoku watershed_site/client/directory watershed_site/client/counter_bug watershed_site/client/json_ot watershed_site/client/mv_register watershed_site/client/rich_text watershed_site/client/sequence
-    cd website_lustre && ../tools/website-lustre-build/website_lustre_tools build watershed_site/client/text
-    cd website_lustre && ../tools/website-lustre-build/website_lustre_tools build watershed_site/client/home
-    cd website_lustre && gleam run -m watershed_site/build
+_build-website-lustre:
+    ./tools/build-website-lustre.sh
 
 website-lustre: _build-website-lustre
 
@@ -121,6 +112,7 @@ website-lustre-serve: _build-website-lustre
 
 _test-website-lustre: _build-website-lustre
     cd website_lustre && gleam test --target javascript
+    node --test website_lustre/test/netlify-deploy-contract.test.mjs
     cd website_lustre && pnpm run smoke
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,

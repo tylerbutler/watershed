@@ -1,25 +1,30 @@
-# Lustre website migration
+# Lustre website
 
-This package renders `/foundations/`, `/component-model/`, `/runtime/`, the
-foundations and component-model concept sheets, the Optimistic Edits,
-Reconnect, Idempotent Re-delivery, Presence, and Peer-to-peer runtime sheets,
-`/guide/`, and all six guide steps with Lustre SSG. The three indexes,
-concept sheets, guide index, and five prose-first guide steps are static
-documents; `/guide/race/` runs its two-replica demo as a page-scoped Lustre
-application. The Astro site under
-`website/` remains the production site. The root `netlify.toml` still builds
-and publishes Astro; production cutover is a later milestone.
+This package renders every production route with Lustre SSG. Static pages ship
+plain HTML, CSS, and small page scripts. Interactive routes add page-scoped
+client bundles that use the compiled watershed runtimes. The Astro source under
+`website/` remains temporarily because those runtimes and parity fixtures are
+still authoritative during the cutover.
 
 ## Run it
 
 Use Gleam 1.18.1, Erlang/OTP 28, Node 24, pnpm 11.13.1, and just 1.58.0
-to match CI. Install the browser-test dependencies once:
+to match CI. Install the legacy runtime and browser-test dependencies once:
 
 ```sh
-cd website_lustre
-pnpm install --frozen-lockfile
-cd ..
+corepack pnpm@11.13.1 --dir website install --frozen-lockfile
+corepack pnpm@11.13.1 --dir website_lustre install --frozen-lockfile
+gleam deps download
+cd watershed_lustre && gleam deps download && cd ..
+cd tools/source-snippets && gleam deps download && cd ../..
+cd tools/website-lustre-build && gleam deps download && cd ../..
+cd website_lustre && gleam deps download && cd ..
 just website-lustre
+```
+
+Serve the generated artifact through Netlify's local static server:
+
+```sh
 just website-lustre-serve
 ```
 
@@ -45,7 +50,7 @@ just _test-website-lustre
 ```
 
 This command rebuilds snippets and the site, runs the Gleam suite, and runs
-three Puppeteer gates against temporary loopback servers. It also runs as part
+the Puppeteer route gates against temporary loopback servers. It also runs as part
 of `just test`; `just build` includes the site build. Puppeteer installs
 Chrome with the npm dependencies. Set `WATERSHED_CHROME` to use another
 Chromium executable. A missing browser skips the gate locally and fails in
@@ -171,7 +176,7 @@ coverage for the new route. Preserve the Astro copy and assets until that
 route has its own approved migration. Build output, dependency caches, and
 the shared snippet manifest stay untracked.
 
-## Preview deployment
+## Deployment
 
 `.github/workflows/website-lustre.yml` builds and tests on pull requests,
 pushes to `main`, and manual dispatch. It uploads the generated site as the
@@ -183,3 +188,33 @@ and manual dispatches. Pull requests use the stable `lustre-pr-N` alias.
 Fork pull requests run the build without receiving deployment secrets;
 pushes to `main` only build and upload. The deploy job does not check out
 the repository, rebuild the artifact, or use `--prod`.
+
+Netlify's Git integration owns production deployment. The root `netlify.toml`
+runs `website_lustre/scripts/netlify-build.sh` from the repository root and
+publishes `website_lustre/dist`. That script installs the pinned Gleam and pnpm
+versions when needed, installs both JavaScript dependency sets, downloads the
+Gleam dependencies, and calls `tools/build-website-lustre.sh`. The root
+`just website-lustre` recipe calls the same production build script.
+
+## Rollback
+
+The last commit before the production contract moved from Astro to Lustre is
+`c2d0b03`. To restore the Astro deployment contract without reverting later
+application work:
+
+```sh
+git restore --source=c2d0b03 -- \
+  netlify.toml \
+  website/scripts/netlify-build.sh \
+  website/scripts/netlify-deploy-contract.test.mjs
+git commit -m "revert(website): restore Astro deployment"
+git push
+```
+
+Before rollback, record the failing production deploy and confirm that its
+published artifact came from `website_lustre/dist`. After rollback, confirm
+that Netlify uses `base = "website"`, runs `./scripts/netlify-build.sh`, and
+publishes `dist`. Check `/`, one static sheet, one interactive demo,
+`/_redirects`, and a direct deep link. Confirm that HTML and client assets
+return the expected content types and that the browser console has no startup
+errors.
