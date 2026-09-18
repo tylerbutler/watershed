@@ -30,6 +30,7 @@ pub type Layout {
   CounterBug
   JsonOt
   MvRegister
+  RichText
 }
 
 pub type Analytics {
@@ -237,6 +238,16 @@ pub fn mv_register() -> Route {
   )
 }
 
+pub fn rich_text() -> Route {
+  Route(
+    path: "/rich-text",
+    layout: RichText,
+    content_path: "content/rich-text.djot",
+    client_script: Some("/rich_text.js"),
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -300,6 +311,7 @@ pub fn all() -> List(Route) {
     counter_bug(),
     json_ot(),
     mv_register(),
+    rich_text(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -337,6 +349,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     CounterBug -> ["/styles/site.css", "/styles/counter-bug.css"]
     JsonOt -> ["/styles/site.css", "/styles/json-ot.css"]
     MvRegister -> ["/styles/site.css", "/styles/mv-register.css"]
+    RichText -> ["/styles/site.css", "/styles/rich-text.css"]
   }
 }
 

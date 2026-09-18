@@ -38,6 +38,7 @@ pub type PageKind {
   CounterBug
   JsonOt
   MvRegister
+  RichText
 }
 
 pub type Metadata {
@@ -380,6 +381,20 @@ fn decode_metadata(
           Error(error.InvalidFrontmatter(
             path,
             "layout: The MV register page metadata is invalid.",
+          ))
+      }
+    "rich-text", route.RichText ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/rich-text" -> Ok(RichText)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The rich text page metadata is invalid.",
           ))
       }
     _, _ ->

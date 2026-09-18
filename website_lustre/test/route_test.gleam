@@ -215,6 +215,17 @@ pub fn mv_register_route_runs_the_compiled_kernel_demo_test() {
   |> should.equal(["/styles/site.css", "/styles/mv-register.css"])
 }
 
+pub fn rich_text_route_runs_the_quill_kernel_demo_test() {
+  let assert Ok(item) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/rich-text" })
+  item.layout |> should.equal(route.RichText)
+  item.content_path |> should.equal("content/rich-text.djot")
+  item.client_script |> should.equal(Some("/rich_text.js"))
+  route.stylesheets(item)
+  |> should.equal(["/styles/site.css", "/styles/rich-text.css"])
+}
+
 pub fn sharedtree_route_is_registered_with_static_reveals_test() {
   let assert Ok(sharedtree) =
     route.all()

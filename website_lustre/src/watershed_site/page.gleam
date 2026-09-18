@@ -28,6 +28,7 @@ import watershed_site/view/json_ot
 import watershed_site/view/models
 import watershed_site/view/mv_register
 import watershed_site/view/patterns
+import watershed_site/view/rich_text
 import watershed_site/view/runtime_index
 import watershed_site/view/runtime_sheet
 import watershed_site/view/sharedtree
@@ -276,6 +277,13 @@ pub fn render(
         "watershed — MV-register revision slate",
         mv_register.view(body),
       ))
+    content.RichText ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — SharedRichText Quill demo",
+        rich_text.view(),
+      ))
   }
 }
 
@@ -337,7 +345,8 @@ fn render_document(
     | content.Directory
     | content.CounterBug
     | content.JsonOt
-    | content.MvRegister -> scripts
+    | content.MvRegister
+    | content.RichText -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -368,6 +377,9 @@ fn render_document(
     route.CounterBug -> scripts
     route.JsonOt -> scripts
     route.MvRegister ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
+    route.RichText ->
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
   }

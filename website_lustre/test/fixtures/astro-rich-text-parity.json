@@ -1,0 +1,222 @@
+{
+  "desktop": {
+    "title": "watershed — SharedRichText Quill demo",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Three browser Quill editors edit one shared rich-text document through watershed's compiled rich_text_kernel: optimistic local edits, single-op-in-flight client transform over quill-delta's retain/insert/delete/attribute/embed algebra, UTF-16 code-unit positions, and transformed peer cursors, all converging over the in-memory sluice."
+      ],
+      [
+        "og:title",
+        "watershed — SharedRichText Quill demo"
+      ],
+      [
+        "og:description",
+        "Three browser Quill editors edit one shared rich-text document through watershed's compiled rich_text_kernel: optimistic local edits, single-op-in-flight client transform over quill-delta's retain/insert/delete/attribute/embed algebra, UTF-16 code-unit positions, and transformed peer cursors, all converging over the in-memory sluice."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/rich-text/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "hero": "← WATERSHED · SHAREDRICHTEXT OPERATIONAL TRANSFORM Transform edits, preserve intent. json_ot transforms a shared JSON document; this is the same protocol turned on rich text. watershed's rich_text_kernel ports the quill-delta algebra (retain/insert/delete spans, attribute patches, embeds) behind the same single-op-in-flight client-transform machinery. Three Quill editors share one document with concurrent typing, formatting, and deletion, and transformed deltas bring every replica to the same text, formatting, and embeds. SharedRichText is OT-backed; the CRDT-backed SharedText handles plain text with grapheme identities and merge-based convergence. Jump to the demo ↓ Compare SharedText → Read the source",
+    "demoHeading": "SharedRichText, live",
+    "demoCopy": [
+      "Three watershed documents share one rich-text channel over the rich_text_kernel. It runs the same single-op-in-flight client-transform protocol as the json_ot demo, but over quill-delta's algebra: operations retain, insert, or delete spans of text. Each op can carry an attribute patch (bold, color, …) or wrap an embed (an image) instead of plain text. Positions are counted in UTF-16 code units (the units Quill and JavaScript strings index by), so nothing converts at the editor boundary. Each editor keeps at most one op in flight; anything typed while it's outstanding composes into a single buffered op behind it. This is SharedRichText, watershed's OT-backed rich text. For CRDT-backed plain text, SharedText indexes graphemes by stable identity and converges by merge rather than by transform.",
+      "Local edits apply the instant you type, Quill's own optimistic model, no different from typing into any editor. Race two clients at the same spot, format concurrently, or delete under someone else's formatting, then watch the op log and the canonical text below each editor converge. Peer cursors (dashed, colored) track where the other two are looking, transformed through every edit exactly like the local caret is."
+    ],
+    "clients": [
+      {
+        "label": "Client A editor",
+        "heading": "CLIENT A",
+        "editor": "Watershed keeps every replica in the same state.",
+        "canonical": "“WATERSHED KEEPS EVERY REPLICA IN THE SAME STATE.”"
+      },
+      {
+        "label": "Client B editor",
+        "heading": "CLIENT B",
+        "editor": "Watershed keeps every replica in the same state.",
+        "canonical": "“WATERSHED KEEPS EVERY REPLICA IN THE SAME STATE.”"
+      },
+      {
+        "label": "Client C editor",
+        "heading": "CLIENT C",
+        "editor": "Watershed keeps every replica in the same state.",
+        "canonical": "“WATERSHED KEEPS EVERY REPLICA IN THE SAME STATE.”"
+      }
+    ],
+    "controls": "ANIMATION SPEED 1× JITTER ±100 MS CONVERGED all replicas identical · nothing pending",
+    "scenarios": "Race: type at the same spot Race: bold vs. color, same span Race: delete vs. format Insert an image embed Step one delivery Settle to quiescence Reset",
+    "viewportWidth": 1440,
+    "scrollWidth": 1440,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "120px 64.8px 80px",
+        "border-bottom-width": "1px"
+      },
+      "demo": {
+        "padding": "129.6px 64.8px",
+        "border-bottom-width": "1px"
+      },
+      "rig": {
+        "display": "grid",
+        "grid-template-areas": "\"a seq b\" \"c c c\"",
+        "grid-template-columns": "385.172px 269.641px 385.172px",
+        "gap": "24px"
+      },
+      "client": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "editor": {
+        "min-height": "112px",
+        "font-size": "14.4px",
+        "line-height": "23.04px"
+      },
+      "controls": {
+        "display": "flex",
+        "gap": "40px",
+        "margin-top": "40px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — SharedRichText Quill demo",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Three browser Quill editors edit one shared rich-text document through watershed's compiled rich_text_kernel: optimistic local edits, single-op-in-flight client transform over quill-delta's retain/insert/delete/attribute/embed algebra, UTF-16 code-unit positions, and transformed peer cursors, all converging over the in-memory sluice."
+      ],
+      [
+        "og:title",
+        "watershed — SharedRichText Quill demo"
+      ],
+      [
+        "og:description",
+        "Three browser Quill editors edit one shared rich-text document through watershed's compiled rich_text_kernel: optimistic local edits, single-op-in-flight client transform over quill-delta's retain/insert/delete/attribute/embed algebra, UTF-16 code-unit positions, and transformed peer cursors, all converging over the in-memory sluice."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/rich-text/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "hero": "← WATERSHED · SHAREDRICHTEXT OPERATIONAL TRANSFORM Transform edits, preserve intent. json_ot transforms a shared JSON document; this is the same protocol turned on rich text. watershed's rich_text_kernel ports the quill-delta algebra (retain/insert/delete spans, attribute patches, embeds) behind the same single-op-in-flight client-transform machinery. Three Quill editors share one document with concurrent typing, formatting, and deletion, and transformed deltas bring every replica to the same text, formatting, and embeds. SharedRichText is OT-backed; the CRDT-backed SharedText handles plain text with grapheme identities and merge-based convergence. Jump to the demo ↓ Compare SharedText → Read the source",
+    "demoHeading": "SharedRichText, live",
+    "demoCopy": [
+      "Three watershed documents share one rich-text channel over the rich_text_kernel. It runs the same single-op-in-flight client-transform protocol as the json_ot demo, but over quill-delta's algebra: operations retain, insert, or delete spans of text. Each op can carry an attribute patch (bold, color, …) or wrap an embed (an image) instead of plain text. Positions are counted in UTF-16 code units (the units Quill and JavaScript strings index by), so nothing converts at the editor boundary. Each editor keeps at most one op in flight; anything typed while it's outstanding composes into a single buffered op behind it. This is SharedRichText, watershed's OT-backed rich text. For CRDT-backed plain text, SharedText indexes graphemes by stable identity and converges by merge rather than by transform.",
+      "Local edits apply the instant you type, Quill's own optimistic model, no different from typing into any editor. Race two clients at the same spot, format concurrently, or delete under someone else's formatting, then watch the op log and the canonical text below each editor converge. Peer cursors (dashed, colored) track where the other two are looking, transformed through every edit exactly like the local caret is."
+    ],
+    "clients": [
+      {
+        "label": "Client A editor",
+        "heading": "CLIENT A",
+        "editor": "Watershed keeps every replica in the same state.",
+        "canonical": "“WATERSHED KEEPS EVERY REPLICA IN THE SAME STATE.”"
+      },
+      {
+        "label": "Client B editor",
+        "heading": "CLIENT B",
+        "editor": "Watershed keeps every replica in the same state.",
+        "canonical": "“WATERSHED KEEPS EVERY REPLICA IN THE SAME STATE.”"
+      },
+      {
+        "label": "Client C editor",
+        "heading": "CLIENT C",
+        "editor": "Watershed keeps every replica in the same state.",
+        "canonical": "“WATERSHED KEEPS EVERY REPLICA IN THE SAME STATE.”"
+      }
+    ],
+    "controls": "ANIMATION SPEED 1× JITTER ±100 MS CONVERGED all replicas identical · nothing pending",
+    "scenarios": "Race: type at the same spot Race: bold vs. color, same span Race: delete vs. format Insert an image embed Step one delivery Settle to quiescence Reset",
+    "viewportWidth": 390,
+    "scrollWidth": 390,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "56px 20px 40px",
+        "border-bottom-width": "1px"
+      },
+      "demo": {
+        "padding": "72px 20px",
+        "border-bottom-width": "1px"
+      },
+      "rig": {
+        "display": "grid",
+        "grid-template-areas": "\"a\" \"seq\" \"b\" \"c\"",
+        "grid-template-columns": "324px",
+        "gap": "24px"
+      },
+      "client": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "editor": {
+        "min-height": "112px",
+        "font-size": "14.4px",
+        "line-height": "23.04px"
+      },
+      "controls": {
+        "display": "flex",
+        "gap": "40px",
+        "margin-top": "40px"
+      }
+    }
+  }
+}

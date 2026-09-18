@@ -59,13 +59,12 @@ pub fn migration_inventory_accounts_for_every_production_route_test() {
     )
   let pending = [
     "/",
-    "/rich-text",
     "/sequence",
     "/text",
   ]
   list.sort(list.append(actual, pending), by: string_order)
   |> should.equal(list.sort(expected, by: string_order))
-  pending |> list.length |> should.equal(4)
+  pending |> list.length |> should.equal(3)
 }
 
 fn string_order(left: String, right: String) {

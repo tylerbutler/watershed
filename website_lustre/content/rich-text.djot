@@ -1,0 +1,4 @@
+---
+description = "Three browser Quill editors edit one shared rich-text document through watershed's compiled rich_text_kernel: optimistic local edits, single-op-in-flight client transform over quill-delta's retain/insert/delete/attribute/embed algebra, UTF-16 code-unit positions, and transformed peer cursors, all converging over the in-memory sluice."
+layout = "rich-text"
+---
