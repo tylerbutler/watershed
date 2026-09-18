@@ -29,6 +29,7 @@ pub type Layout {
   Directory
   CounterBug
   JsonOt
+  MvRegister
 }
 
 pub type Analytics {
@@ -226,6 +227,16 @@ pub fn json_ot() -> Route {
   )
 }
 
+pub fn mv_register() -> Route {
+  Route(
+    path: "/mv-register",
+    layout: MvRegister,
+    content_path: "content/mv-register.djot",
+    client_script: Some("/mv_register.js"),
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -288,6 +299,7 @@ pub fn all() -> List(Route) {
     directory(),
     counter_bug(),
     json_ot(),
+    mv_register(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -324,6 +336,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     Directory -> ["/styles/site.css", "/styles/directory.css"]
     CounterBug -> ["/styles/site.css", "/styles/counter-bug.css"]
     JsonOt -> ["/styles/site.css", "/styles/json-ot.css"]
+    MvRegister -> ["/styles/site.css", "/styles/mv-register.css"]
   }
 }
 

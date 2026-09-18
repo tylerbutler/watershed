@@ -37,6 +37,7 @@ pub type PageKind {
   Directory
   CounterBug
   JsonOt
+  MvRegister
 }
 
 pub type Metadata {
@@ -365,6 +366,20 @@ fn decode_metadata(
           Error(error.InvalidFrontmatter(
             path,
             "layout: The JSON OT page metadata is invalid.",
+          ))
+      }
+    "mv-register", route.MvRegister ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/mv-register" -> Ok(MvRegister)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The MV register page metadata is invalid.",
           ))
       }
     _, _ ->

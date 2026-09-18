@@ -26,6 +26,7 @@ import watershed_site/view/guide as guide_view
 import watershed_site/view/guide_index
 import watershed_site/view/json_ot
 import watershed_site/view/models
+import watershed_site/view/mv_register
 import watershed_site/view/patterns
 import watershed_site/view/runtime_index
 import watershed_site/view/runtime_sheet
@@ -268,6 +269,13 @@ pub fn render(
         "watershed — JSON operational transform demo",
         json_ot.view(),
       ))
+    content.MvRegister ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — MV-register revision slate",
+        mv_register.view(body),
+      ))
   }
 }
 
@@ -328,7 +336,8 @@ fn render_document(
     | content.Sudoku
     | content.Directory
     | content.CounterBug
-    | content.JsonOt -> scripts
+    | content.JsonOt
+    | content.MvRegister -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -358,6 +367,9 @@ fn render_document(
       |> list.append([document.Module("/scripts/concept-index.js")])
     route.CounterBug -> scripts
     route.JsonOt -> scripts
+    route.MvRegister ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
   }
   document.view(document.Document(
     title:,

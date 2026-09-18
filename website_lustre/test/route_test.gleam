@@ -204,6 +204,17 @@ pub fn json_ot_route_runs_the_existing_runtime_demo_test() {
   |> should.equal(["/styles/site.css", "/styles/json-ot.css"])
 }
 
+pub fn mv_register_route_runs_the_compiled_kernel_demo_test() {
+  let assert Ok(item) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/mv-register" })
+  item.layout |> should.equal(route.MvRegister)
+  item.content_path |> should.equal("content/mv-register.djot")
+  item.client_script |> should.equal(Some("/mv_register.js"))
+  route.stylesheets(item)
+  |> should.equal(["/styles/site.css", "/styles/mv-register.css"])
+}
+
 pub fn sharedtree_route_is_registered_with_static_reveals_test() {
   let assert Ok(sharedtree) =
     route.all()

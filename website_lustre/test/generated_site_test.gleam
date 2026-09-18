@@ -142,6 +142,16 @@ pub fn generated_route_and_assets_test() {
   |> should.be_true()
   simplifile.read(output <> "/styles/json-ot.css")
   |> should.be_ok()
+  let assert Ok(mv_register_html) =
+    simplifile.read(output <> "/mv-register/index.html")
+  string.contains(mv_register_html, "data-dds=\"mv-register\"")
+  |> should.be_true()
+  string.contains(mv_register_html, "A list isn&#39;t a queue")
+  |> should.be_true()
+  string.contains(mv_register_html, "/mv_register.js")
+  |> should.be_true()
+  simplifile.read(output <> "/styles/mv-register.css")
+  |> should.be_ok()
   simplifile.read(output <> "/_redirects")
   |> should.equal(Ok(
     "/foundations/components /component-model/components 301\n"
