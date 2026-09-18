@@ -42,7 +42,7 @@ The activity log's collaborative declaration lists capabilities such as `sequenc
 ::: g-block
 ## Validate the stored graph before dispatch
 
-A stored connection carries no Gleam types: it is two `PortRef` values — an instance ID and a port ID each — plus an edge ID. By the time it is read back, the board may have moved on. The connection can name a deleted notes panel, a retired port, or two outputs. Its schemas may no longer match. Two people can also add edges that look safe alone and form a cycle once their connection sets merge.
+A stored connection carries no Gleam types: it is two `PortRef` values — an instance ID and a port ID each — plus an edge ID. By the time it is read back, the workspace may have changed. The connection can name a deleted notes panel, a retired port, or two outputs. Its schemas may no longer match. Two people can also add edges that look safe alone and form a cycle once their connection sets merge.
 
 `port_graph.effective` derives the graph a client may use. It applies five rules in order:
 
@@ -128,7 +128,7 @@ generated
 ::: g-block
 ## Erase payload types before storage
 
-The board's wiring outlives the session. It has to be stored, and stored data has no Gleam types. This is where the typed value above becomes the erased metadata part one read. `output_descriptor` and `input_descriptor` remove the payload type. They retain the port ID, direction, schema ID, and input class. A mixed component catalog lists this metadata, and a stored graph validates it. The typed input keeps the decoder a host uses when it executes a delivery.
+The connections between components outlive the session. They have to be stored, and stored data has no Gleam types. This is where the typed value above becomes the erased metadata part one read. `output_descriptor` and `input_descriptor` remove the payload type. They retain the port ID, direction, schema ID, and input class. A mixed component catalog lists this metadata, and a stored graph validates it. The typed input keeps the decoder a host uses when it executes a delivery.
 
 {data-source-label="component port flow" data-caption="authors keep payload types; hosts store metadata"}
 ```text

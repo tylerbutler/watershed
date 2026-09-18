@@ -5,6 +5,20 @@ concept = "topology"
 ---
 
 ::: g-block
+## Your app decides what a document means
+
+*Document* is watershed's generic term for a collection of shared state. Your app gives it a meaning: a saved game, a Kanban board, a project. It doesn't have to look like a page of text, and your users don't have to call it a document.
+
+Separate the *kind* of document from an *instance*. A saved game is a kind; your Friday-night campaign is one instance. The kind describes what the data means and how your app structures it. Each instance has its own identity and state.
+
+- *One kind, one instance.* An app might open the same shared household planner every time.
+- *One kind, many instances.* A Kanban app might create a separate document for each board, all using the same schema.
+- *Several kinds, many instances.* An app might manage project documents and saved-game documents, each with its own schema and as many instances as users need.
+
+Those kinds are concepts your application defines. Watershed supplies the document model underneath them. A tenant ID and document ID identify an instance; two clients opening the same pair join the same document, not two copies with separate identities.
+:::
+
+::: g-block
 ## The root is one map, not one tree
 
 Every document has exactly one root: a `SharedMap`, reached with `root(document)`, and viewed through your schema with `root_typed`. Its tag comes from the `Document(root)` value itself, fixed at the one place your app first holds it — a `Msg` constructor, usually. Everything your schema declares hangs off that one map.
@@ -47,13 +61,13 @@ generated
 ::: g-block
 ## `ChildField` versus `ChannelField`: same handle, different destination
 
-Both store a handle. The difference is only in what kind of thing the handle points to, and the schema layer tracks that at compile time. `ChildField(tag, child)` points at another typed map — a nested document with its own schema, its own tag, its own set of fields. `ChannelField(tag, kind)` points at a channel that isn't a map at all: a counter, an OR-set, a claims channel, whatever `kind` names. Neither one is a subtree of the parent. Both are peer channels that happen to be reachable from it.
+Both store a handle. The difference is only in what kind of thing the handle points to, and the schema layer tracks that at compile time. `ChildField(tag, child)` points at another typed map — a child map with its own schema, its own tag, its own set of fields, within the same document. `ChannelField(tag, kind)` points at a channel that isn't a map at all: a counter, an OR-set, a claims channel, whatever `kind` names. Neither one is a subtree of the parent. Both are peer channels that happen to be reachable from it.
 :::
 
 ::: g-block
 ## Independently addressed pieces, not one atomic tree
 
-A watershed document collects data in a set of channels, each with its own address, each syncing on its own terms, tied together only by handles stored as ordinary values. Your application decides what that collection represents: the build guide makes each document a retro board, while the dice-scoreboard example makes each one a scoreboard. Its roster of players, keyed by id, looks like this on the wire — a root map, a child map, and a further map nested under that:
+A watershed document collects data in a set of channels, each with its own address, each syncing on its own terms, tied together only by handles stored as ordinary values. The dice-scoreboard example makes each document a scoreboard. Its roster of players, keyed by id, looks like this on the wire — a root map, a child map, and a further map nested under that:
 
 {data-source-label="examples/scoreboard_cli/src/scoreboard_cli.gleam (diagram)"}
 ```text

@@ -428,7 +428,7 @@
     "lede": {
       "font-size": "21px",
       "line-height": "33.6px",
-      "max-width": "745.659px",
+      "max-width": "746.042px",
       "margin-top": "40px"
     },
     "ledger": {
@@ -450,7 +450,7 @@
       "margin-top": "64px",
       "padding-top": "24px",
       "border-top": "1px dashed oklch(0.25 0.02 260 / 0.22)",
-      "max-width": "494.815px"
+      "max-width": "494.753px"
     }
   },
   "mobile": {
@@ -468,7 +468,7 @@
     "lede": {
       "font-size": "18.34px",
       "line-height": "29.344px",
-      "max-width": "651.209px",
+      "max-width": "651.128px",
       "margin-top": "40px"
     },
     "ledger": {
@@ -490,7 +490,7 @@
       "margin-top": "64px",
       "padding-top": "24px",
       "border-top": "1px dashed oklch(0.25 0.02 260 / 0.22)",
-      "max-width": "494.815px"
+      "max-width": "494.753px"
     }
   },
   "focus": {

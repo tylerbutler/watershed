@@ -9,22 +9,24 @@ concept = "components"
 
 Picture a board that two people build together while they watch it: one of them drops a notes panel on the left, puts a vote counter beside it, and connects the counter to the panel. Nobody wrote that arrangement in code. The people using the application made it, and it must look the same to everyone who opens the board tomorrow.
 
-A component is one part of a board like that: a notes panel, a counter, a task list. It keeps its own state in its own channel of the shared document, draws its own view, and knows nothing about what else is on screen. The same kind can appear many times with different settings — one counter that steps by 5, another that steps by 1 — and every copy of the board converges the same way the rest of watershed does.
+The board is our example interface. Its shared state belongs to a [document](/foundations/topology); a [workspace](/component-model/workspaces) within that document stores which components exist, their presentation order, and their connections.
+
+A component is one part of an application: a notes panel, a counter, a task list. It keeps its own state in its own channel of the shared document, draws its own view, and knows nothing about what else is on screen. The same kind can appear many times with different settings — one counter that steps by 5, another that steps by 1 — and every copy of the board converges the same way the rest of watershed does.
 
 A part like that cannot be a function the author calls. The arrangement is data the users edit, and it outlives the session that made it. So the application must build each part from stored JSON, months later, from code that has changed since.
 
 A *descriptor* is that recipe: everything needed to turn stored JSON into one running part, and back. Package a component once, and the rest of watershed can:
 
-- Rebuild it from a saved board, with the settings the user chose.
-- Check a stored board before it runs anything, and name the exact part that is wrong.
+- Rebuild it from a saved workspace, with the settings the user chose.
+- Check stored component config before it runs anything, and name the exact part that is wrong.
 - Run last year's version beside this year's, because each descriptor states its own format version.
 - Let a user connect two parts that were written apart, because their [ports](/component-model/ports) are listed data.
 
-One word runs through this sheet and the two after it: the *host*. The host is the program that embeds watershed and puts the board on screen, meaning your application shell, not a server. It owns the set of component kinds it can build, decides which versions it accepts, mounts the views, and supplies whatever context every component needs to start. Watershed defines the contract. The host is the program around it.
+One word runs through this sheet and the two after it: the *host*. The host is the program that embeds watershed and puts the components on screen, meaning your application shell, not a server. It owns the set of component kinds it can build, decides which versions it accepts, mounts the views, and supplies whatever context every component needs to start. Watershed defines the contract. The host is the program around it.
 
-That makes two jobs, and this sheet does them in that order. First you *use* components: the host holds a catalog of kinds and builds instances from stored config. Then you *write* one: a single component packaged so a host it never meets can build it. Stop after part one if you are assembling a board out of components somebody else wrote.
+That makes two jobs, and this sheet does them in that order. First you *use* components: the host holds a catalog of kinds and builds instances from stored config. Then you *write* one: a single component packaged so a host it never meets can build it. Stop after part one if you are assembling an application out of components somebody else wrote.
 
-This board carries through three sheets. Here it gets its parts: [the next sheet](/component-model/ports) adds a task list and an activity log and wires them together, and [the one after](/component-model/workspaces) saves the finished board so tomorrow's tab opens it.
+This board spans three sheets. Here it gets its parts: [the next sheet](/component-model/ports) adds a task list and an activity log and wires them together, and [the one after](/component-model/workspaces) saves the arrangement in a workspace so tomorrow's tab can rebuild it.
 
 If your application ships one screen that you lay out yourself, you do not need any of this: declare your channels in [the schema](/foundations/schema) and stop there. All three sheets are for the case where the user, not the author, decides what is on the page.
 :::
@@ -136,7 +138,7 @@ The two `String` parameters in the return type are the host contract in this tes
 :::
 
 ::: g-block
-### The workspace carries the definitions forward
+### The workspace preserves the definitions
 
 Use this module to define descriptors, build catalogs, validate config, look up versions, start and stop instances, and execute typed handlers. [The workspace layer](/component-model/workspaces) persists instances and assigns their child maps. The JavaScript component runtime reconciles those definitions, owns their lifecycle, and executes port deliveries. The host still mounts views and owns migration policy.
 :::
