@@ -226,6 +226,17 @@ pub fn rich_text_route_runs_the_quill_kernel_demo_test() {
   |> should.equal(["/styles/site.css", "/styles/rich-text.css"])
 }
 
+pub fn sequence_route_runs_the_shared_sequence_demo_test() {
+  let assert Ok(item) =
+    route.all()
+    |> list.find(fn(item) { item.path == "/sequence" })
+  item.layout |> should.equal(route.Sequence)
+  item.content_path |> should.equal("content/sequence.djot")
+  item.client_script |> should.equal(Some("/sequence.js"))
+  route.stylesheets(item)
+  |> should.equal(["/styles/site.css", "/styles/sequence.css"])
+}
+
 pub fn sharedtree_route_is_registered_with_static_reveals_test() {
   let assert Ok(sharedtree) =
     route.all()

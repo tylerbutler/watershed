@@ -1,0 +1,240 @@
+{
+  "desktop": {
+    "title": "watershed — SharedSequence demo",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Three browser clients edit one ordered portage route through watershed's compiled sequence_kernel: a CRDT sequence where items keep stable identity, so concurrent inserts, moves, and deletes merge without renumbering fights. Optimistic edits, server-sequenced convergence."
+      ],
+      [
+        "og:title",
+        "watershed — SharedSequence demo"
+      ],
+      [
+        "og:description",
+        "Three browser clients edit one ordered portage route through watershed's compiled sequence_kernel: a CRDT sequence where items keep stable identity, so concurrent inserts, moves, and deletes merge without renumbering fights. Optimistic edits, server-sequenced convergence."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/sequence/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "hero": "← SEQUENCES · SHAREDSEQUENCE Stable identity beneath every index. An index only means something against one version of a list. SharedSequence gives every item a stable identity beneath its index: you say insert at 2 or move 4 to 1, but the delta that ships names the item, not the slot. Two surveyors can rearrange the same stretch of river at the same instant: moves follow their waypoint, concurrent inserts both land, and every replica converges on the same order. watershed's sequence_kernel models that identity and converges. Jump to the demo ↓ Read the source",
+    "demoHeading": "A shared portage route, live",
+    "demoCopy": [
+      "Three watershed documents share one SharedSequence, an ordered list of waypoints down a river. One client creates it and shares the handle; the others resolve it. They talk to one sluice, the in-memory server that ships in the library. It runs the production client runtime without a network backend. Local edits are drawn in magenta until the sluice stamps them; server-sequenced state is ink.",
+      "Select a station to move, rename, or delete it, or press + between stations to insert one. Then stage a race: Race a move has B and C drag the same waypoint opposite ways; Crowd an insert has them insert different waypoints at the same spot. Both converge: a move follows its waypoint and concurrent inserts both survive, because ops name items, not index numbers."
+    ],
+    "clients": [
+      {
+        "label": "Client A replica",
+        "heading": "CLIENT A",
+        "route": [
+          "put-in",
+          "mill-race weir",
+          "kettle-run rapids",
+          "low-ford portage",
+          "take-out"
+        ]
+      },
+      {
+        "label": "Client B replica",
+        "heading": "CLIENT B",
+        "route": [
+          "put-in",
+          "mill-race weir",
+          "kettle-run rapids",
+          "low-ford portage",
+          "take-out"
+        ]
+      },
+      {
+        "label": "Client C replica",
+        "heading": "CLIENT C",
+        "route": [
+          "put-in",
+          "mill-race weir",
+          "kettle-run rapids",
+          "low-ford portage",
+          "take-out"
+        ]
+      }
+    ],
+    "controls": "ANIMATION SPEED 1× JITTER ±100 MS FIELD NOTES Race a move Crowd an insert Reset CONVERGED all replicas identical · nothing pending",
+    "viewportWidth": 1440,
+    "scrollWidth": 1440,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "120px 64.8px 80px",
+        "border-bottom-width": "1px"
+      },
+      "demo": {
+        "padding": "129.6px 64.8px",
+        "border-bottom-width": "1px"
+      },
+      "rig": {
+        "display": "grid",
+        "grid-template-areas": "\"a seq b\" \"c c c\"",
+        "grid-template-columns": "407.828px 224.328px 407.844px",
+        "gap": "24px"
+      },
+      "client": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "controls": {
+        "display": "flex",
+        "gap": "40px",
+        "margin-top": "40px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — SharedSequence demo",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Three browser clients edit one ordered portage route through watershed's compiled sequence_kernel: a CRDT sequence where items keep stable identity, so concurrent inserts, moves, and deletes merge without renumbering fights. Optimistic edits, server-sequenced convergence."
+      ],
+      [
+        "og:title",
+        "watershed — SharedSequence demo"
+      ],
+      [
+        "og:description",
+        "Three browser clients edit one ordered portage route through watershed's compiled sequence_kernel: a CRDT sequence where items keep stable identity, so concurrent inserts, moves, and deletes merge without renumbering fights. Optimistic edits, server-sequenced convergence."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/sequence/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "hero": "← SEQUENCES · SHAREDSEQUENCE Stable identity beneath every index. An index only means something against one version of a list. SharedSequence gives every item a stable identity beneath its index: you say insert at 2 or move 4 to 1, but the delta that ships names the item, not the slot. Two surveyors can rearrange the same stretch of river at the same instant: moves follow their waypoint, concurrent inserts both land, and every replica converges on the same order. watershed's sequence_kernel models that identity and converges. Jump to the demo ↓ Read the source",
+    "demoHeading": "A shared portage route, live",
+    "demoCopy": [
+      "Three watershed documents share one SharedSequence, an ordered list of waypoints down a river. One client creates it and shares the handle; the others resolve it. They talk to one sluice, the in-memory server that ships in the library. It runs the production client runtime without a network backend. Local edits are drawn in magenta until the sluice stamps them; server-sequenced state is ink.",
+      "Select a station to move, rename, or delete it, or press + between stations to insert one. Then stage a race: Race a move has B and C drag the same waypoint opposite ways; Crowd an insert has them insert different waypoints at the same spot. Both converge: a move follows its waypoint and concurrent inserts both survive, because ops name items, not index numbers."
+    ],
+    "clients": [
+      {
+        "label": "Client A replica",
+        "heading": "CLIENT A",
+        "route": [
+          "put-in",
+          "mill-race weir",
+          "kettle-run rapids",
+          "low-ford portage",
+          "take-out"
+        ]
+      },
+      {
+        "label": "Client B replica",
+        "heading": "CLIENT B",
+        "route": [
+          "put-in",
+          "mill-race weir",
+          "kettle-run rapids",
+          "low-ford portage",
+          "take-out"
+        ]
+      },
+      {
+        "label": "Client C replica",
+        "heading": "CLIENT C",
+        "route": [
+          "put-in",
+          "mill-race weir",
+          "kettle-run rapids",
+          "low-ford portage",
+          "take-out"
+        ]
+      }
+    ],
+    "controls": "ANIMATION SPEED 1× JITTER ±100 MS FIELD NOTES Race a move Crowd an insert Reset CONVERGED all replicas identical · nothing pending",
+    "viewportWidth": 390,
+    "scrollWidth": 390,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "56px 20px 40px",
+        "border-bottom-width": "1px"
+      },
+      "demo": {
+        "padding": "72px 20px",
+        "border-bottom-width": "1px"
+      },
+      "rig": {
+        "display": "grid",
+        "grid-template-areas": "\"a\" \"seq\" \"b\" \"c\"",
+        "grid-template-columns": "324px",
+        "gap": "24px"
+      },
+      "client": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "controls": {
+        "display": "flex",
+        "gap": "40px",
+        "margin-top": "40px"
+      }
+    }
+  }
+}

@@ -31,6 +31,7 @@ import watershed_site/view/patterns
 import watershed_site/view/rich_text
 import watershed_site/view/runtime_index
 import watershed_site/view/runtime_sheet
+import watershed_site/view/sequence
 import watershed_site/view/sharedtree
 import watershed_site/view/structure_sheet
 import watershed_site/view/structures_index
@@ -284,6 +285,13 @@ pub fn render(
         "watershed — SharedRichText Quill demo",
         rich_text.view(),
       ))
+    content.Sequence ->
+      Ok(render_document(
+        route,
+        source.metadata,
+        "watershed — SharedSequence demo",
+        sequence.view(),
+      ))
   }
 }
 
@@ -346,7 +354,8 @@ fn render_document(
     | content.CounterBug
     | content.JsonOt
     | content.MvRegister
-    | content.RichText -> scripts
+    | content.RichText
+    | content.Sequence -> scripts
   }
   let scripts = case page_route.layout {
     route.Guide -> scripts
@@ -380,6 +389,9 @@ fn render_document(
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
     route.RichText ->
+      scripts
+      |> list.append([document.Module("/scripts/concept-index.js")])
+    route.Sequence ->
       scripts
       |> list.append([document.Module("/scripts/concept-index.js")])
   }

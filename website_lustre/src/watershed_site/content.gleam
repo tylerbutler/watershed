@@ -39,6 +39,7 @@ pub type PageKind {
   JsonOt
   MvRegister
   RichText
+  Sequence
 }
 
 pub type Metadata {
@@ -395,6 +396,20 @@ fn decode_metadata(
           Error(error.InvalidFrontmatter(
             path,
             "layout: The rich text page metadata is invalid.",
+          ))
+      }
+    "sequence", route.Sequence ->
+      case
+        dict.has_key(fields, "guide_step"),
+        dict.has_key(fields, "concept"),
+        dict.has_key(fields, "family"),
+        route.path
+      {
+        False, False, False, "/sequence" -> Ok(Sequence)
+        _, _, _, _ ->
+          Error(error.InvalidFrontmatter(
+            path,
+            "layout: The sequence page metadata is invalid.",
           ))
       }
     _, _ ->

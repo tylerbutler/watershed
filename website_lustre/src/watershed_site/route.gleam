@@ -31,6 +31,7 @@ pub type Layout {
   JsonOt
   MvRegister
   RichText
+  Sequence
 }
 
 pub type Analytics {
@@ -248,6 +249,16 @@ pub fn rich_text() -> Route {
   )
 }
 
+pub fn sequence() -> Route {
+  Route(
+    path: "/sequence",
+    layout: Sequence,
+    content_path: "content/sequence.djot",
+    client_script: Some("/sequence.js"),
+    analytics: Tinylytics,
+  )
+}
+
 pub fn foundation(slug: String) -> Route {
   Route(
     path: "/foundations/" <> slug,
@@ -312,6 +323,7 @@ pub fn all() -> List(Route) {
     json_ot(),
     mv_register(),
     rich_text(),
+    sequence(),
     Route(
       path: "/guide",
       layout: GuideIndex,
@@ -350,6 +362,7 @@ pub fn stylesheets(route: Route) -> List(String) {
     JsonOt -> ["/styles/site.css", "/styles/json-ot.css"]
     MvRegister -> ["/styles/site.css", "/styles/mv-register.css"]
     RichText -> ["/styles/site.css", "/styles/rich-text.css"]
+    Sequence -> ["/styles/site.css", "/styles/sequence.css"]
   }
 }
 

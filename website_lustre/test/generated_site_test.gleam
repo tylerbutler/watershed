@@ -160,6 +160,14 @@ pub fn generated_route_and_assets_test() {
   |> should.be_true()
   simplifile.read(output <> "/styles/rich-text.css")
   |> should.be_ok()
+  let assert Ok(sequence_html) =
+    simplifile.read(output <> "/sequence/index.html")
+  string.contains(sequence_html, "data-route-rig")
+  |> should.be_true()
+  string.contains(sequence_html, "/sequence.js")
+  |> should.be_true()
+  simplifile.read(output <> "/styles/sequence.css")
+  |> should.be_ok()
   simplifile.read(output <> "/_redirects")
   |> should.equal(Ok(
     "/foundations/components /component-model/components 301\n"

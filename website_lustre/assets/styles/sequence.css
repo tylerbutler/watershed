@@ -1,0 +1,152 @@
+@import url("/styles/rich-text.css");
+
+.page-hero h1 {
+  max-width: 16ch;
+}
+
+.lede {
+  max-width: 56ch;
+}
+
+.rig {
+  grid-template-columns: 1fr minmax(9rem, 0.55fr) 1fr;
+}
+
+.rig .client[data-client="c"] {
+  width: min(100%, 24rem);
+}
+
+.client {
+  min-height: 12rem;
+}
+
+.route {
+  position: relative;
+  margin: var(--space-sm);
+  flex: none;
+}
+
+@media (scripting: enabled) {
+  #route-demo:not([data-mounted]) [data-route-fallback][hidden] {
+    display: block;
+    visibility: hidden;
+    animation: sequence-fallback-reveal 0s 3s forwards;
+  }
+}
+
+@keyframes sequence-fallback-reveal {
+  to {
+    visibility: visible;
+  }
+}
+
+.route-river {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+}
+
+.route-river path {
+  fill: none;
+  stroke: var(--waterline);
+  stroke-width: 2;
+}
+
+.station,
+.gap {
+  position: absolute;
+}
+
+.station {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  transition: transform var(--dur-state) var(--ease-out-quart);
+}
+
+.station-dot {
+  width: 0.65rem;
+  height: 0.65rem;
+  border-radius: 50%;
+  border: 2px solid var(--ink);
+  background: var(--bg);
+}
+
+.station-name,
+.gap {
+  border: 0;
+  background: var(--bg);
+  color: var(--ink);
+  cursor: pointer;
+}
+
+.station.selected .station-name {
+  outline: 1px solid var(--ink);
+}
+
+.station.pending .station-name {
+  color: var(--overprint-deep);
+}
+
+.station.pending .station-dot {
+  border-color: var(--overprint);
+}
+
+.gap {
+  width: 2rem;
+  height: 2rem;
+  color: var(--waterline);
+}
+
+.route-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.35rem;
+  padding: var(--space-sm);
+  border-top: 1px solid var(--hairline);
+}
+
+.selected-label {
+  margin-inline-end: auto;
+}
+
+.node-action {
+  min-width: 2rem;
+  min-height: 2rem;
+  border: 1px solid var(--hairline);
+  background: var(--bg);
+  color: var(--ink);
+}
+
+.field-note {
+  max-width: 68rem;
+  margin: var(--space-lg) auto 0;
+  padding-inline-start: var(--space-md);
+  border-inline-start: 3px solid var(--overprint);
+}
+
+@media (max-width: 1080px) {
+  .rig {
+    grid-template-columns: 1fr;
+  }
+
+  .rig .client[data-client="c"] {
+    width: auto;
+  }
+}
+
+@media (pointer: coarse) {
+  .node-action {
+    min-inline-size: 2.2rem;
+    min-block-size: 2rem;
+  }
+
+  .gap {
+    width: 26px;
+    height: 26px;
+    opacity: 1;
+  }
+}
