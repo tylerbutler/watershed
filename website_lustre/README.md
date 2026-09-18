@@ -199,11 +199,11 @@ Gleam dependencies, and calls `tools/build-website-lustre.sh`. The root
 ## Rollback
 
 The last commit before the production contract moved from Astro to Lustre is
-`c2d0b03`. To restore the Astro deployment contract without reverting later
+`5e39006`. To restore the Astro deployment contract without reverting later
 application work:
 
 ```sh
-git restore --source=c2d0b03 -- \
+git restore --source=5e39006 -- \
   netlify.toml \
   website/scripts/netlify-build.sh \
   website/scripts/netlify-deploy-contract.test.mjs
