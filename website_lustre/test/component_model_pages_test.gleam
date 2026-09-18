@@ -24,7 +24,7 @@ pub fn component_model_pages_render_shared_layout_and_snippets_test() {
     ),
     #(
       "workspaces",
-      "A workspace is the saved board",
+      "Save the arrangement inside the document",
       "src/watershed/workspace.gleam",
       "/guide",
     ),
