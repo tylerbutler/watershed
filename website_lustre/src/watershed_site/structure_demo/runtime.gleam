@@ -46,7 +46,7 @@ import watershed_site/structure_demo/model.{
 pub type Msg {
   NoOp
   Defer(Msg)
-  Deferred(generation: Int, outcome: Result(Model, String))
+  Deferred(generation: Int, outcome: Result(#(Model, Model), String))
   Project
   Start
   Started(generation: Int, outcome: Result(Model, String))
@@ -150,6 +150,8 @@ pub fn ready_model(selected: Structure) -> Model {
     field_notes: False,
     last_replay: None,
     instances: [],
+    deferred_work: [],
+    work_running: False,
   )
 }
 
@@ -187,11 +189,10 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
     Started(_, Error(reason)) | RuntimeFailed(reason) -> fail(model, reason)
-    Deferred(_, Error(reason)) -> fail(model, reason)
-    Deferred(_, Ok(next)) -> finish_deferred(model, next)
+    Deferred(_, Error(reason)) -> finish_deferred_error(model, reason)
+    Deferred(_, Ok(pair)) -> finish_deferred(model, pair.0, pair.1)
     Deliver(_) -> defer(model, message)
-    ClearFlow(_, _)
-    | SetDraft(_, _)
+    SetDraft(_, _)
     | SetKeyDraft(_, _)
     | SetPace(_)
     | SetJitter(_)
@@ -207,36 +208,71 @@ pub fn transition(model: Model, message: Msg) -> Model {
 }
 
 fn defer(model: Model, command: Msg) -> #(Model, Effect(Msg)) {
-  #(
-    model,
-    watershed_lustre.perform(
-      operation: fn() {
-        let next = transition(model, command)
-        project_model(next)
-      },
-      outcome: fn(outcome) { Deferred(model.generation, outcome) },
-    ),
-  )
+  let work = fn(current: Model) {
+    let next = transition(current, command)
+    project_model(next)
+    |> result.map(fn(next) { #(current, next) })
+  }
+  let queued =
+    Model(..model, deferred_work: list.append(model.deferred_work, [work]))
+  case model.work_running {
+    True -> #(queued, effect.none())
+    False -> start_work(queued)
+  }
 }
 
-fn finish_deferred(model: Model, next: Model) -> #(Model, Effect(Msg)) {
-  let pending_started =
-    list.is_empty(model.pending) && !list.is_empty(next.pending)
-  let pending_advanced = list.length(next.pending) < list.length(model.pending)
-  let reconnected = !model.link_up && next.link_up
-  let delivery = case
-    next.link_up
-    && !list.is_empty(next.pending)
-    && { pending_started || pending_advanced || reconnected }
-  {
+fn finish_deferred(
+  model: Model,
+  before: Model,
+  next: Model,
+) -> #(Model, Effect(Msg)) {
+  let remaining = case model.deferred_work {
+    [] -> []
+    [_, ..rest] -> rest
+  }
+  let next =
+    Model(
+      selected: next.selected,
+      alpha: next.alpha,
+      beta: next.beta,
+      gamma: next.gamma,
+      pending: next.pending,
+      sequence_number: next.sequence_number,
+      flows: next.flows,
+      latency_ms: changed(model.latency_ms, before.latency_ms, next.latency_ms),
+      jitter: changed(model.jitter, before.jitter, next.jitter),
+      link_up: next.link_up,
+      log: next.log,
+      generation: next.generation,
+      visible_error: next.visible_error,
+      phase: next.phase,
+      queued_for_b: next.queued_for_b,
+      open_panel: next.open_panel,
+      or_map_set_mode: next.or_map_set_mode,
+      last_replay: next.last_replay,
+      instances: next.instances,
+      draft_a: changed(model.draft_a, before.draft_a, next.draft_a),
+      draft_b: changed(model.draft_b, before.draft_b, next.draft_b),
+      draft_c: changed(model.draft_c, before.draft_c, next.draft_c),
+      key_a: changed(model.key_a, before.key_a, next.key_a),
+      key_b: changed(model.key_b, before.key_b, next.key_b),
+      key_c: changed(model.key_c, before.key_c, next.key_c),
+      playback_ms: changed(
+        model.playback_ms,
+        before.playback_ms,
+        next.playback_ms,
+      ),
+      field_notes: changed(
+        model.field_notes,
+        before.field_notes,
+        next.field_notes,
+      ),
+      deferred_work: remaining,
+      work_running: False,
+    )
+  let delivery = case next.link_up && !list.is_empty(next.pending) {
     True ->
-      watershed_lustre.after(
-        case reconnected {
-          True -> 0
-          False -> delivery_delay(next)
-        },
-        Deliver(next.generation),
-      )
+      watershed_lustre.after(delivery_delay(next), Deliver(next.generation))
     False -> effect.none()
   }
   let old_ids = list.map(model.flows, fn(flow) { flow.id })
@@ -249,7 +285,44 @@ fn finish_deferred(model: Model, next: Model) -> #(Model, Effect(Msg)) {
         ClearFlow(next.generation, flow.id),
       )
     })
-  #(next, effect.batch([delivery, ..clears]))
+  let #(next, work) = start_work(next)
+  #(next, effect.batch([work, delivery, ..clears]))
+}
+
+fn changed(current: a, before: a, next: a) -> a {
+  case current == before {
+    True -> next
+    False -> current
+  }
+}
+
+fn start_work(model: Model) -> #(Model, Effect(Msg)) {
+  case model.deferred_work {
+    [] -> #(Model(..model, work_running: False), effect.none())
+    [work, ..] -> {
+      let running = Model(..model, work_running: True)
+      #(
+        running,
+        watershed_lustre.perform(
+          operation: fn() { work(running) },
+          outcome: fn(outcome) { Deferred(running.generation, outcome) },
+        ),
+      )
+    }
+  }
+}
+
+fn finish_deferred_error(
+  model: Model,
+  reason: String,
+) -> #(Model, Effect(Msg)) {
+  let remaining = case model.deferred_work {
+    [] -> []
+    [_, ..rest] -> rest
+  }
+  let #(failed, _) =
+    fail(Model(..model, deferred_work: remaining, work_running: False), reason)
+  start_work(failed)
 }
 
 fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
@@ -265,7 +338,7 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Start if model.phase == Static -> init(model.selected)
     Start -> #(model, effect.none())
     Defer(command) -> update_now(model, command)
-    Deferred(_, Ok(next)) -> #(next, effect.none())
+    Deferred(_, Ok(pair)) -> #(pair.1, effect.none())
     Deferred(_, Error(reason)) -> fail(model, reason)
     Project ->
       case project_model(model) {
@@ -383,60 +456,76 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       enqueue_task(model, replica, task_id, "complete")
     PactSet(replica, key) -> enqueue_pact(model, replica, key, False)
     PactDelete(replica, key) -> enqueue_pact(model, replica, key, True)
-    RunRace ->
-      case model.selected {
-        Map -> {
-          let #(model, _) = enqueue_map(model, ClientA, "mill-race", 34)
-          let #(model, _) = enqueue_map(model, ClientB, "mill-race", 14)
-          #(
-            model,
-            watershed_lustre.after(
-              delivery_delay(model),
-              Deliver(model.generation),
-            ),
-          )
-        }
-        Counter -> #(
-          Model(
-            ..replace_replicas(model, counter_race_replicas()),
-            sequence_number: model.sequence_number + 2,
-            log: [
-              LogEntry(model.sequence_number + 2, ClientB, "increment +3"),
-              LogEntry(model.sequence_number + 1, ClientA, "increment +7"),
-              ..model.log
-            ],
-          ),
-          effect.none(),
-        )
-        MvRegister -> {
-          let #(model, _) = enqueue_mv(model, ClientA, "raise crest")
-          let #(model, _) = enqueue_mv(model, ClientB, "arm pump")
-          #(
-            model,
-            watershed_lustre.after(
-              delivery_delay(model),
-              Deliver(model.generation),
-            ),
-          )
-        }
-        OrSet -> #(
-          replace_replicas(model, or_set_race_replicas()),
-          effect.none(),
-        )
-        TwoPSet -> #(
-          replace_replicas(model, two_p_set_race_replicas()),
-          effect.none(),
-        )
-        Claims -> #(
-          replace_replicas(model, claim_race_replicas()),
-          effect.none(),
-        )
-        OrderedCollection -> #(
-          replace_replicas(model, ordered_race_replicas()),
-          effect.none(),
-        )
-        _ -> #(model, effect.none())
-      }
+    RunRace -> #(
+      run_commands(model, case model.selected {
+        Map -> [
+          StepMap(ClientA, "mill-race", 10),
+          StepMap(ClientB, "mill-race", -10),
+        ]
+        Counter -> [IncrementCounter(ClientA, 8), IncrementCounter(ClientB, 5)]
+        GCounter -> [
+          IncrementGCounter(ClientA, 7),
+          IncrementGCounter(ClientB, 3),
+        ]
+        PnCounter -> [
+          UpdatePnCounter(ClientA, 8),
+          UpdatePnCounter(ClientB, -5),
+        ]
+        OrMap -> [
+          RemoveOrMap(ClientA, "spoil-north"),
+          IncrementOrMap(ClientB, "spoil-north", 6),
+        ]
+        OrMapMvRegister -> [
+          WriteOrMapMv(ClientA, "gate-mode", Some("raise crest")),
+          WriteOrMapMv(ClientB, "gate-mode", Some("arm pump")),
+        ]
+        LwwMap -> [
+          WriteLwwMap(ClientA, "gate-mode", Some("open")),
+          WriteLwwMap(ClientB, "gate-mode", Some("closed")),
+        ]
+        LwwRegister -> [
+          WriteLwwRegister(ClientA, "raise crest"),
+          WriteLwwRegister(ClientB, "arm pump"),
+        ]
+        MvRegister -> [
+          WriteMv(ClientA, "raise crest"),
+          WriteMv(ClientB, "arm pump"),
+        ]
+        OrSet -> [
+          RemoveOrSet(ClientA, "north-stake"),
+          AddOrSet(ClientB, "north-stake"),
+        ]
+        GSet -> [
+          AddGSet(ClientA, "BM-22"),
+          AddGSet(ClientB, "BM-31"),
+        ]
+        TwoPSet -> [
+          RemoveTwoPSet(ClientA, "stake-3"),
+          AddTwoPSet(ClientB, "stake-3"),
+        ]
+        Claims -> [
+          Claim(ClientA, "spillway-gate"),
+          Claim(ClientB, "spillway-gate"),
+        ]
+        RegisterCollection -> [
+          WriteRegister(ClientA, "gate-setpoint"),
+          WriteRegister(ClientB, "gate-setpoint"),
+        ]
+        OrderedCollection -> [
+          OrderedAcquire(ClientA),
+          OrderedAcquire(ClientB),
+        ]
+        TaskManager -> [
+          TaskVolunteer(ClientA, "pump-watch"),
+          TaskVolunteer(ClientB, "pump-watch"),
+        ]
+        PactMap -> [
+          PactSet(ClientA, "gate-policy"),
+          PactSet(ClientB, "gate-policy"),
+        ]
+      }),
+      effect.none(),
+    )
     Replay ->
       case model.last_replay {
         None -> #(model, effect.none())
@@ -597,6 +686,10 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       )
     }
   }
+}
+
+fn run_commands(model: Model, commands: List(Msg)) -> Model {
+  list.fold(commands, model, fn(model, command) { update_now(model, command).0 })
 }
 
 fn enqueue_map(
@@ -1321,10 +1414,28 @@ fn deliver_online_without_b(
     sequence,
   ))
   Ok(
-    Model(..model, alpha:, gamma:, sequence_number: sequence, log: [
-      LogEntry(sequence, origin, operation_label(operation)),
-      ..model.log
-    ]),
+    Model(
+      ..model,
+      alpha:,
+      gamma:,
+      sequence_number: sequence,
+      flows: [
+        Flow(
+          sequence * 4,
+          replica_id_string(origin),
+          "seq",
+          operation_label(operation),
+        ),
+        ..model.flows
+      ],
+      log: [LogEntry(sequence, origin, operation_label(operation)), ..model.log],
+      last_replay: remember_replay(
+        model.last_replay,
+        operation,
+        Some(message_id),
+        sequence,
+      ),
+    ),
   )
 }
 
@@ -1667,13 +1778,35 @@ fn restore_link(model: Model) -> #(Model, Effect(Msg)) {
         )
       }
     _, _ -> #(
-      Model(..model, link_up: True, queued_for_b: 0, phase: case model.pending {
-        [] -> Ready
-        [_, ..] -> Delivering
-      }),
+      Model(
+        ..model,
+        pending: reconnect_pending(model.pending),
+        link_up: True,
+        queued_for_b: 0,
+        phase: case model.pending {
+          [] -> Ready
+          [_, ..] -> Delivering
+        },
+      ),
       effect.none(),
     )
   }
+}
+
+fn reconnect_pending(
+  pending: List(PendingOperation),
+) -> List(PendingOperation) {
+  let catch_up =
+    list.filter(pending, fn(item) {
+      let PendingOperation(_, _, _, _, scope) = item
+      scope == ClientBOnly
+    })
+  let submitted =
+    list.filter(pending, fn(item) {
+      let PendingOperation(_, _, _, _, scope) = item
+      scope != ClientBOnly
+    })
+  list.append(catch_up, submitted)
 }
 
 fn rebase_mv_pending(
@@ -1696,6 +1829,19 @@ fn rebase_mv_pending(
       && case operation {
         MvRegisterOperation(_) -> True
         _ -> False
+      }
+    })
+  let other =
+    list.filter(model.pending, fn(pending) {
+      let PendingOperation(origin, operation, _, _, scope) = pending
+      scope != ClientBOnly
+      && !{
+        origin == ClientB
+        && scope == AllReplicas
+        && case operation {
+          MvRegisterOperation(_) -> True
+          _ -> False
+        }
       }
     })
   use rolled_back <- result.try(
@@ -1732,7 +1878,7 @@ fn rebase_mv_pending(
     }),
   )
   local
-  |> list.fold(Ok(#(caught_up, [])), fn(outcome, pending) {
+  |> list.fold(Ok(#(caught_up, other)), fn(outcome, pending) {
     use pair <- result.try(outcome)
     let PendingOperation(_, operation, _, _, _) = pending
     let assert MvRegisterOperation(mv_register_kernel.Set(value, _)) = operation
@@ -2205,13 +2351,22 @@ fn project_model(model: Model) -> Result(Model, String) {
   use _ <- result.try(expected("Client C", model.gamma))
   case model.selected {
     Map -> {
-      use _ <- result.try(map_value(model.alpha, "mill-race"))
-      use _ <- result.try(map_value(model.beta, "mill-race"))
-      use _ <- result.try(map_value(model.gamma, "mill-race"))
+      use _ <- result.try(validate_map_projection(model.alpha))
+      use _ <- result.try(validate_map_projection(model.beta))
+      use _ <- result.try(validate_map_projection(model.gamma))
       Ok(model)
     }
     _ -> Ok(model)
   }
+}
+
+fn validate_map_projection(state: ReplicaState) -> Result(Nil, String) {
+  ["mill-race", "kettle-run", "low-ford"]
+  |> list.fold(Ok(Nil), fn(outcome, key) {
+    use _ <- result.try(outcome)
+    use _ <- result.try(map_value(state, key))
+    Ok(Nil)
+  })
 }
 
 fn structure_name(structure: Structure) -> String {
@@ -2760,20 +2915,6 @@ pub fn ordered_race_values() -> List(Option(String)) {
   let assert #(_, _, Some(b_outcome)) =
     ordered_collection_kernel.ack_local(after_a, b_op, 2)
   [ordered_value(a_outcome), ordered_value(b_outcome)]
-}
-
-fn ordered_race_replicas() -> #(ReplicaState, ReplicaState, ReplicaState) {
-  let initial =
-    ordered_collection_kernel.from_summary([json.string("flood-watch")], [])
-  let a_op = ordered_collection_kernel.acquire("a1")
-  let b_op = ordered_collection_kernel.acquire("b1")
-  let #(a, _, _) = ordered_collection_kernel.ack_local(initial, a_op, 1)
-  let #(a, _) = ordered_collection_kernel.apply_remote(a, b_op, 2)
-  let #(b, _) = ordered_collection_kernel.apply_remote(initial, a_op, 1)
-  let #(b, _, _) = ordered_collection_kernel.ack_local(b, b_op, 2)
-  let #(c, _) = ordered_collection_kernel.apply_remote(initial, a_op, 1)
-  let #(c, _) = ordered_collection_kernel.apply_remote(c, b_op, 2)
-  #(OrderedReplica(a), OrderedReplica(b), OrderedReplica(c))
 }
 
 fn ordered_value(

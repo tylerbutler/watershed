@@ -19,6 +19,7 @@ lattice_core = ">= 2.0.0 and < 3.0.0"
 
 [dev_dependencies]
 gleeunit = ">= 1.11.0 and < 2.0.0"
+gleam_javascript = ">= 1.0.0 and < 2.0.0"
 html_parser = ">= 1.0.1 and < 2.0.0"
 argv = ">= 1.1.0 and < 2.0.0"
 envoy = ">= 1.2.0 and < 2.0.0"

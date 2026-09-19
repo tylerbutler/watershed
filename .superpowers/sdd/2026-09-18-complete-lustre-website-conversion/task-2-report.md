@@ -401,3 +401,90 @@ Result: no whitespace errors.
 `just website-lustre` still prints the existing dependency deprecation and
 unrelated wider-repository warnings. This round adds no known functional
 concern.
+
+## Fix round 3/5
+
+### Status
+
+All eight items from the fix-round-2 re-review are fixed.
+
+### Queue and reconnect fixes
+
+- Deferred commands now enter one serialized work queue. Each effect returns
+  the model it read and the model it produced. The reducer applies the kernel
+  fields to the current model and keeps any controlled input or timing value
+  that changed while the effect ran. A completed effect cannot replace newer
+  commands with its captured model.
+- Reconnect places every B-only catch-up delivery before B's queued local
+  submissions. MV-register reconnect rolls back B's pending writes, applies
+  the complete A/C catch-up set, re-authors B's writes in submission order, and
+  keeps unrelated pending work.
+- Offline A/C sequencing now records flows and the latest replay operation on
+  the same path as connected sequencing.
+- Restoring an instance with pending work always schedules a delivery for the
+  restored generation. Stale timers remain generation-gated.
+
+### Projection and race fixes
+
+- Shared-map projection validation checks all three rendered gauges on all
+  three replicas. Type mismatches for every other structure still fail through
+  the structure/replica validation before the view reads them.
+- `RunRace` now submits real visible operations for all 17 structures. The
+  structure-page browser suite clicks the race control for every family demo
+  and waits for its sequence counter to advance.
+
+### Regression evidence
+
+- MV-register tests cover a B write, an intervening offline A delivery, a
+  second B write, reconnect, FIFO acknowledgements, and convergence.
+- Map reconnect tests prove A's catch-up sequences before B's resubmitted
+  write.
+- Offline sequencing tests prove the second A/C operation becomes the retained
+  replay.
+- An asynchronous effect test starts two commands before the first result
+  arrives and proves both edits survive.
+- A busy-instance test gives Map and MV-register pending work, restores Map,
+  and observes a `Deliver` message tagged with the new generation.
+- Projection and race tests cover the invalid non-primary map gauge and every
+  structure constructor.
+
+### Commands and outcomes
+
+```text
+cd website_lustre && gleam test --target javascript -- structure_demo
+```
+
+Result: `139 passed, no failures`.
+
+```text
+cd website_lustre && gleam check --target javascript
+```
+
+Result: compiled successfully.
+
+```text
+just website-lustre
+```
+
+Result: passed; all four JavaScript bundles built, 68 assets were copied for
+each bundle, and the native pages were generated in `website_lustre/dist`.
+
+```text
+CI=1 node website_lustre/test/browser/home.mjs
+CI=1 node website_lustre/test/browser/structure-pages.mjs
+CI=1 node website_lustre/test/browser/mv-register.mjs
+```
+
+Result: all three Task 2 browser suites passed.
+
+```text
+git diff --check
+```
+
+Result: no whitespace errors.
+
+### Remaining concerns
+
+`just website-lustre` still prints the existing dependency deprecation and
+unrelated wider-repository warnings. This round adds no known functional
+concern.

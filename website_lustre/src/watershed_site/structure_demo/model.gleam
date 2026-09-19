@@ -164,5 +164,7 @@ pub type Model {
     field_notes: Bool,
     last_replay: Option(ReplayOperation),
     instances: List(Instance),
+    deferred_work: List(fn(Model) -> Result(#(Model, Model), String)),
+    work_running: Bool,
   )
 }

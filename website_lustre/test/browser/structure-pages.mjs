@@ -178,6 +178,18 @@ await withBrowserSite(site, async (browser, origin) => {
         `#${id}-demo [data-seq-counter]`,
         before,
       );
+      const raceBefore = await page.$eval(
+        `#${id}-demo [data-seq-counter]`,
+        (node) => node.textContent,
+      );
+      await page.click(`#${id}-demo [data-race]`);
+      await page.waitForFunction(
+        (selector, value) =>
+          document.querySelector(selector).textContent !== value,
+        {},
+        `#${id}-demo [data-seq-counter]`,
+        raceBefore,
+      );
       await page.click(`[data-structure-toggle="${id}"]`);
     }
     assert.deepEqual(errors, [], `${slug} live-control browser errors`);
