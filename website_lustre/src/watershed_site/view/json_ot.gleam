@@ -8,7 +8,7 @@ import watershed_site/view/sheet
 pub fn view() -> Element(Nil) {
   sheet.view("/json-ot/", [
     hero(),
-    h.main([], [demo.static()]),
+    h.main([], [h.div([a.id("json-ot-mount")], [demo.static()])]),
     ecosystem.view("/json-ot/"),
   ])
 }

@@ -1,0 +1,113 @@
+import gleam/option.{Some}
+import gleeunit/should
+import watershed/json_ot.{
+  Index, Key, VObject, VString, list_insert, object_insert,
+}
+import watershed_site/json_ot/runtime
+
+pub fn concurrent_object_inserts_converge_test() {
+  let model = runtime.ready_model()
+  let model =
+    runtime.transition(
+      model,
+      runtime.Submit(
+        runtime.ClientA,
+        [object_insert([Key("alpha")], VString("surveyed"))],
+        "field:alpha",
+        "insert .alpha",
+      ),
+    )
+  let model =
+    runtime.transition(
+      model,
+      runtime.Submit(
+        runtime.ClientB,
+        [object_insert([Key("beta")], VString("checked"))],
+        "field:beta",
+        "insert .beta",
+      ),
+    )
+    |> deliver_all
+
+  should.equal(runtime.documents(model), [
+    VObject([
+      #("alpha", VString("surveyed")),
+      #("beta", VString("checked")),
+      #("crew", runtime.string_array(["Ada", "Ben"])),
+      #("gauge", runtime.gauge_value(24, "steady")),
+      #("site", VString("Mill Race")),
+    ]),
+    VObject([
+      #("alpha", VString("surveyed")),
+      #("beta", VString("checked")),
+      #("crew", runtime.string_array(["Ada", "Ben"])),
+      #("gauge", runtime.gauge_value(24, "steady")),
+      #("site", VString("Mill Race")),
+    ]),
+    VObject([
+      #("alpha", VString("surveyed")),
+      #("beta", VString("checked")),
+      #("crew", runtime.string_array(["Ada", "Ben"])),
+      #("gauge", runtime.gauge_value(24, "steady")),
+      #("site", VString("Mill Race")),
+    ]),
+  ])
+}
+
+pub fn concurrent_array_inserts_transform_positions_test() {
+  let model = runtime.ready_model()
+  let model =
+    runtime.transition(
+      model,
+      runtime.Submit(
+        runtime.ClientA,
+        [list_insert([Key("crew"), Index(0)], VString("Cy"))],
+        "field:crew",
+        "insert Cy",
+      ),
+    )
+  let model =
+    runtime.transition(
+      model,
+      runtime.Submit(
+        runtime.ClientB,
+        [list_insert([Key("crew"), Index(0)], VString("Dot"))],
+        "field:crew",
+        "insert Dot",
+      ),
+    )
+    |> deliver_all
+
+  should.equal(runtime.crew(model, runtime.ClientA), ["Cy", "Dot", "Ada", "Ben"])
+  should.equal(runtime.crew(model, runtime.ClientB), ["Cy", "Dot", "Ada", "Ben"])
+  should.equal(runtime.crew(model, runtime.ClientC), ["Cy", "Dot", "Ada", "Ben"])
+}
+
+pub fn reset_rejects_stale_delivery_test() {
+  let model = runtime.ready_model()
+  let old_generation = model.generation
+  let reset = runtime.transition(model, runtime.Reset)
+  let #(after_stale, _) = runtime.update(reset, runtime.Deliver(old_generation))
+
+  should.equal(after_stale.generation, old_generation + 1)
+  should.equal(after_stale, reset)
+}
+
+pub fn runtime_failure_is_visible_test() {
+  let model =
+    runtime.ready_model()
+    |> runtime.transition(runtime.RuntimeFailed("Cannot animate the flow."))
+
+  should.equal(model.error, Some("Cannot animate the flow."))
+  should.equal(model.phase, runtime.Failed)
+}
+
+fn deliver_all(model: runtime.Model) -> runtime.Model {
+  case model.pending {
+    [] -> model
+    [_, ..] ->
+      model
+      |> runtime.transition(runtime.Deliver(model.generation))
+      |> deliver_all
+  }
+}

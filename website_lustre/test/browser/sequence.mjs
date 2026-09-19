@@ -130,6 +130,11 @@ await withBrowserSite(site, async (browser, origin) => {
   const crowded = await converge(page);
   assert.equal(crowded.length, baseline.length + 2);
   await page.click('[data-client="a"] .station-name');
+  await page.waitForFunction(() =>
+    document
+      .querySelector('[data-client="a"] .station')
+      .classList.contains("selected"),
+  );
   assert.equal(
     await page.$eval('[data-client="a"] .station', (node) =>
       node.classList.contains("selected"),
@@ -173,6 +178,11 @@ await withBrowserSite(site, async (browser, origin) => {
   );
   const firstStation = await touch.$('[data-client="a"] .station-name');
   await firstStation.click();
+  await touch.waitForFunction(() =>
+    document
+      .querySelector('[data-client="a"] .station')
+      .classList.contains("selected"),
+  );
   assert.equal(
     await touch.$eval('[data-client="a"] .station', (node) =>
       node.classList.contains("selected"),
