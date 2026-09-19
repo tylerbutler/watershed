@@ -124,6 +124,20 @@
   }
 }
 
+@media (prefers-reduced-motion: reduce) {
+  .station.note-local::after,
+  .station.note-sequenced::after {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+
+  .op-log li.note-newest {
+    animation: none;
+    outline-color: var(--ink);
+  }
+}
+
 .station-dot {
   width: 0.65rem;
   height: 0.65rem;

@@ -94,3 +94,46 @@ Resolved all seven review findings.
 
 The build continues to report the pre-existing dependency deprecation and
 unrelated test-source warnings listed above.
+
+## Fix round 2
+
+Resolved both remaining re-review findings.
+
+- JSON OT pending metadata now distinguishes operations sent to the sequencer
+  from same-client edits still composed in the kernel buffer. An
+  acknowledgement retires only its real sequence group, assigns the promoted
+  buffer its new sequence number, and cannot report convergence while delivery
+  remains active or armed.
+- Sequence log rows are keyed by sequence number, so each newest-log
+  annotation mounts on the operation that caused it. Reduced-motion station
+  and log annotations remain visibly present until their existing model-owned
+  expiry timers clear them.
+
+### Regression evidence
+
+- The JSON OT runtime test submits two edits from one client, proves the second
+  starts without sequence metadata, remains pending after the first
+  acknowledgement, receives the promoted sequence number, and converges only
+  after its own acknowledgement.
+- The JSON OT browser suite repeats the same buffered-edit path and verifies
+  one pending edit plus a non-converged status between two distinct logged
+  sequence numbers.
+- The sequence runtime test proves clearing an older log annotation does not
+  clear the newer sequence annotation.
+- The sequence browser suite verifies a repeated newest-log annotation uses a
+  new animated DOM node, then emulates reduced motion and verifies local,
+  sequenced, and newest-log annotations remain visible during their model
+  lifetime.
+
+### Verification
+
+- `cd website_lustre && gleam test --target javascript -- json_ot_runtime` —
+  168 passed.
+- `cd website_lustre && gleam test --target javascript -- sequence_runtime` —
+  168 passed.
+- `just website-lustre` — passed.
+- `CI=1 node website_lustre/test/browser/json-ot.mjs` — passed.
+- `CI=1 node website_lustre/test/browser/sequence.mjs` — passed.
+
+The build continues to report the pre-existing dependency deprecation and
+unrelated test-source warnings listed above.

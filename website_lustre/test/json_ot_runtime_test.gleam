@@ -118,6 +118,36 @@ pub fn delivery_logs_one_broadcast_group_per_step_test() {
   should.equal(delivered.delivery_active, True)
 }
 
+pub fn buffered_edits_wait_for_their_real_acknowledgement_test() {
+  let model =
+    runtime.ready_model()
+    |> runtime.transition(runtime.StepStage(runtime.ClientA, 1))
+    |> runtime.transition(runtime.StepStage(runtime.ClientA, 2))
+  let assert [first, buffered] = model.pending
+
+  should.be_true(first.sequence_number > 0)
+  should.equal(buffered.sequence_number, 0)
+
+  let after_first = runtime.transition(model, runtime.Deliver(model.generation))
+  let assert [promoted] = after_first.pending
+
+  should.be_true(promoted.sequence_number > first.sequence_number)
+  should.equal(runtime.pending_count(after_first, runtime.ClientA), 1)
+  should.equal(after_first.delivery_active, True)
+  should.equal(runtime.is_converged(after_first), False)
+
+  let after_second =
+    runtime.transition(after_first, runtime.Deliver(after_first.generation))
+
+  should.equal(runtime.pending_count(after_second, runtime.ClientA), 0)
+  should.equal(after_second.delivery_active, False)
+  should.equal(runtime.is_converged(after_second), True)
+  should.equal(list.map(after_second.log, fn(entry) { entry.sequence_number }), [
+    promoted.sequence_number,
+    first.sequence_number,
+  ])
+}
+
 fn deliver_all(model: runtime.Model) -> runtime.Model {
   case model.pending {
     [] -> model

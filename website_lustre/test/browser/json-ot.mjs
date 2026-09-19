@@ -104,14 +104,15 @@ await withBrowserSite(site, async (browser, origin) => {
 
   await page.setViewport({ width: 1440, height: 1000 });
   await page.$eval("[data-jot-pace]", (input) => {
-    input.value = "2";
+    input.value = "0.25";
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  await page.click('[data-client="a"] [data-stage-inc]');
   await page.click('[data-client="a"] [data-stage-inc]');
   await page.waitForFunction(
     () =>
       document.querySelector('[data-client="a"] [data-field="gauge.stage"] [data-value]')
-        .textContent === "25",
+        .textContent === "26",
   );
   assert.equal(
     await page.$eval(
@@ -121,14 +122,40 @@ await withBrowserSite(site, async (browser, origin) => {
     true,
   );
   await page.waitForFunction(
+    () =>
+      document.querySelectorAll("[data-op-log] li").length === 1 &&
+      document.querySelector('[data-client="a"] [data-pending-count]').textContent ===
+        "1 pending",
+  );
+  assert.equal(
+    await page.$eval("[data-jot-status]", (node) =>
+      node.textContent.includes("Converged"),
+    ),
+    false,
+    "a buffered edit stays pending until its own acknowledgement",
+  );
+  await page.waitForFunction(
     () => document.querySelector("[data-jot-status]").textContent.includes("Converged"),
   );
   assert.deepEqual(
     await page.$$eval('[data-field="gauge.stage"] [data-value]', (nodes) =>
       nodes.map((node) => node.textContent),
     ),
-    ["25", "25", "25"],
+    ["26", "26", "26"],
   );
+  assert.equal(
+    new Set(
+      await page.$$eval("[data-op-log] li .op-meta", (nodes) =>
+        nodes.slice(0, 2).map((node) => node.textContent),
+      ),
+    ).size,
+    2,
+    "the buffered edit receives a distinct sequence number",
+  );
+  await page.$eval("[data-jot-pace]", (input) => {
+    input.value = "2";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
 
   await page.click('[data-client="b"] [data-site-cycle]');
   await page.waitForFunction(

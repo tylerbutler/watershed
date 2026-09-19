@@ -119,6 +119,7 @@ type Delivery {
     snapshots: List(Snapshot),
     sequence_number: Int,
     author: Replica,
+    promoted_sequence_number: Int,
     more: Bool,
   )
 }
@@ -474,9 +475,12 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
             Error(reason) -> fail(model, reason)
             Ok(delivery) -> {
               let pending =
-                list.filter(model.pending, fn(item) {
-                  item.sequence_number > delivery.sequence_number
-                })
+                acknowledge_pending(
+                  model.pending,
+                  delivery.sequence_number,
+                  delivery.author,
+                  delivery.promoted_sequence_number,
+                )
               let flows =
                 replicas()
                 |> list.index_map(fn(replica, index) {
@@ -556,8 +560,18 @@ fn mutate(
   use pending <- result.try(
     list.try_map(operations, fn(item) {
       use client <- result.try(client(rig, item.0))
+      let before = sluice_js.sequence_number(rig.sluice)
       watershed.submit_json_ot(client.json_ot, item.1)
-      Ok(Pending(sluice_js.sequence_number(rig.sluice), item.0, item.2, item.3))
+      let after = sluice_js.sequence_number(rig.sluice)
+      Ok(Pending(
+        case after > before {
+          True -> after
+          False -> 0
+        },
+        item.0,
+        item.2,
+        item.3,
+      ))
     }),
   )
   use snapshots <- result.try(project_all(rig))
@@ -584,6 +598,7 @@ fn deliver_group(rig: Rig) -> Result(Delivery, String) {
     snapshots,
     next.sequence_number,
     author,
+    sluice_js.sequence_number(rig.sluice),
     sluice_js.pending(rig.sluice),
   ))
 }
@@ -809,7 +824,29 @@ pub fn is_converged(model: Model) -> Bool {
   && list.is_empty(model.pending)
   && list.is_empty(model.deferred_work)
   && !model.work_running
+  && !model.delivery_active
+  && !model.delivery_armed
   && snapshots_equal(model.snapshots)
+}
+
+fn acknowledge_pending(
+  pending: List(Pending),
+  sequence_number: Int,
+  author: Replica,
+  promoted_sequence_number: Int,
+) -> List(Pending) {
+  pending
+  |> list.filter(fn(item) { item.sequence_number != sequence_number })
+  |> list.map(fn(item) {
+    case
+      item.sequence_number == 0
+      && item.replica == author
+      && promoted_sequence_number > sequence_number
+    {
+      True -> Pending(..item, sequence_number: promoted_sequence_number)
+      False -> item
+    }
+  })
 }
 
 fn pending_label(pending: List(Pending), sequence_number: Int) -> String {

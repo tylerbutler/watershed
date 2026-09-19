@@ -369,7 +369,7 @@ fn channel(model: runtime.Model) -> Element(runtime.Msg) {
         ),
       ],
     ),
-    h.ol(
+    keyed.ol(
       [
         a.class("op-log"),
         a.attribute("data-op-log", ""),
@@ -379,18 +379,21 @@ fn channel(model: runtime.Model) -> Element(runtime.Msg) {
       model.log
         |> list.take(24)
         |> list.map(fn(entry) {
-          h.li([a.class(log_note_class(model, entry.sequence_number))], [
-            h.span([a.class("op-meta")], [
-              h.text(
-                "SN "
-                <> int.to_string(entry.sequence_number)
-                <> " · "
-                <> string.drop_start(runtime.replica_label(entry.author), 7),
-              ),
+          #(
+            int.to_string(entry.sequence_number),
+            h.li([a.class(log_note_class(model, entry.sequence_number))], [
+              h.span([a.class("op-meta")], [
+                h.text(
+                  "SN "
+                  <> int.to_string(entry.sequence_number)
+                  <> " · "
+                  <> string.drop_start(runtime.replica_label(entry.author), 7),
+                ),
+              ]),
+              h.span([a.class("op-path")], [h.text(entry.label)]),
+              h.span([a.class("op-kind")], [h.text("op")]),
             ]),
-            h.span([a.class("op-path")], [h.text(entry.label)]),
-            h.span([a.class("op-kind")], [h.text("op")]),
-          ])
+          )
         }),
     ),
   ])

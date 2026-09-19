@@ -139,6 +139,40 @@ pub fn deferred_completion_preserves_newer_station_selection_test() {
   )
 }
 
+pub fn clearing_an_old_log_annotation_keeps_the_new_sequence_visible_test() {
+  let first =
+    runtime.ready_model()
+    |> runtime.transition(runtime.SetFieldNotes(True))
+    |> runtime.transition(runtime.Insert(runtime.ClientA, 1))
+    |> runtime.transition(runtime.Deliver(0))
+  let second =
+    first
+    |> runtime.transition(runtime.Insert(runtime.ClientB, 2))
+    |> runtime.transition(runtime.Deliver(0))
+  let assert [
+    runtime.LogEntry(new_sequence, _, _),
+    runtime.LogEntry(old_sequence, _, _),
+  ] = second.log
+  let assert Ok(runtime.Annotation(new_id, _, _)) =
+    list.find(second.annotations, fn(annotation) {
+      annotation.target == runtime.LogTarget(new_sequence)
+    })
+  let assert Ok(runtime.Annotation(old_id, _, _)) =
+    list.find(second.annotations, fn(annotation) {
+      annotation.target == runtime.LogTarget(old_sequence)
+    })
+
+  let cleared = runtime.transition(second, runtime.ClearAnnotation(0, old_id))
+
+  should.be_true(new_id != old_id)
+  should.equal(
+    list.any(cleared.annotations, fn(annotation) {
+      annotation.target == runtime.LogTarget(new_sequence)
+    }),
+    True,
+  )
+}
+
 fn deliver_all(model: runtime.Model) -> runtime.Model {
   case model.pending {
     [] -> model

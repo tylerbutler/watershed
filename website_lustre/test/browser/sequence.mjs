@@ -172,6 +172,54 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.waitForSelector(".station.note-sequenced");
   await page.waitForSelector(".op-log li.note-newest");
   await converge(page);
+  const firstAnnotatedLog = await page.$(".op-log li.note-newest");
+  await page.click('[data-client="b"] .gap');
+  await page.waitForFunction(
+    (previous) => {
+      const newest = document.querySelector(".op-log li.note-newest");
+      return newest && newest !== previous && newest.getAnimations().length === 1;
+    },
+    {},
+    firstAnnotatedLog,
+  );
+  await firstAnnotatedLog.dispose();
+  await converge(page);
+
+  await page.emulateMediaFeatures([
+    { name: "prefers-reduced-motion", value: "reduce" },
+  ]);
+  await page.click('[data-client="c"] .gap');
+  await page.waitForSelector('[data-client="c"] .station.note-local');
+  await page.waitForSelector(".station.note-sequenced");
+  await page.waitForSelector(".op-log li.note-newest");
+  await new Promise((resolve) => setTimeout(resolve, 100));
+  const reducedAnnotations = await page.evaluate(() => {
+    const local = document.querySelector('[data-client="c"] .station.note-local');
+    const sequenced = document.querySelector(".station.note-sequenced");
+    const log = document.querySelector(".op-log li.note-newest");
+    return {
+      localOpacity: getComputedStyle(local, "::after").opacity,
+      sequencedOpacity: getComputedStyle(sequenced, "::after").opacity,
+      logOutline: getComputedStyle(log).outlineColor,
+    };
+  });
+  assert.deepEqual(
+    {
+      localOpacity: reducedAnnotations.localOpacity,
+      sequencedOpacity: reducedAnnotations.sequencedOpacity,
+    },
+    { localOpacity: "1", sequencedOpacity: "1" },
+    "reduced-motion station annotations stay visible for their model lifetime",
+  );
+  assert.notEqual(
+    reducedAnnotations.logOutline,
+    "rgba(0, 0, 0, 0)",
+    "the reduced-motion log annotation stays visible for its model lifetime",
+  );
+  await converge(page);
+  await page.emulateMediaFeatures([
+    { name: "prefers-reduced-motion", value: "no-preference" },
+  ]);
   await page.click("[data-route-reset]");
   await converge(page);
 
