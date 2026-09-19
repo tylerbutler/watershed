@@ -611,11 +611,87 @@
   }
 
   .client-head {
+    position: relative;
     display: flex;
     justify-content: space-between;
     align-items: baseline;
     padding: var(--space-sm) var(--space-md);
     border-bottom: 1px solid var(--hairline);
+  }
+
+  .field-notes-on .client.note-local .client-head::before,
+  .field-notes-on .client.note-sequenced .client-head::after {
+    position: absolute;
+    inset: -0.35rem;
+    border: 2px solid currentColor;
+    border-radius: 48% 52% 47% 53% / 52% 46% 54% 48%;
+    content: "";
+    pointer-events: none;
+    animation: field-note-flash var(--flow-duration, 600ms)
+      var(--ease-out-quart) forwards;
+  }
+
+  .field-notes-on .client.note-local .client-head::before {
+    color: var(--overprint);
+  }
+
+  .field-notes-on .client.note-sequenced .client-head::after {
+    color: var(--ink);
+    animation-delay: var(--sequenced-delay, 0ms);
+  }
+
+  .field-notes-on .op-log li.note-newest {
+    outline: 2px solid var(--ink);
+    outline-offset: 2px;
+    animation: field-note-log var(--flow-duration, 600ms)
+      var(--ease-out-quart) forwards;
+    animation-delay: var(--sequenced-delay, 0ms);
+  }
+
+  @keyframes field-note-flash {
+    0% {
+      opacity: 0;
+      transform: scale(0.96) rotate(-1deg);
+    }
+
+    20%,
+    75% {
+      opacity: 1;
+    }
+
+    100% {
+      opacity: 0;
+      transform: scale(1.02) rotate(0.7deg);
+    }
+  }
+
+  @keyframes field-note-log {
+    0% {
+      outline-color: transparent;
+    }
+
+    20%,
+    75% {
+      outline-color: var(--ink);
+    }
+
+    100% {
+      outline-color: transparent;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .field-notes-on .client.note-local .client-head::before,
+    .field-notes-on .client.note-sequenced .client-head::after {
+      animation: none;
+      opacity: 1;
+      transform: none;
+    }
+
+    .field-notes-on .op-log li.note-newest {
+      animation: none;
+      outline-color: var(--ink);
+    }
   }
 
   .client-head h3 {
@@ -1382,15 +1458,18 @@
     background: var(--overprint);
     animation: demo-flow var(--flow-duration, 600ms) var(--ease-out-quart)
       both;
+    animation-delay: var(--flow-delay, 0ms);
     will-change: transform;
   }
 
   @keyframes demo-flow {
     from {
+      opacity: 0;
       transform: translate(var(--from-x, 0), var(--from-y, 0));
     }
 
     to {
+      opacity: 1;
       transform: translate(var(--to-x, 0), var(--to-y, 0));
     }
   }

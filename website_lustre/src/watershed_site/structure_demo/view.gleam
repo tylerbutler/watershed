@@ -417,6 +417,11 @@ fn family_rig(model: Model, views: List(String)) -> Element(runtime.Msg) {
       a.attribute("data-demo-rig", ""),
       a.attribute("data-dds", runtime.structure_id(model.selected)),
       a.attribute("data-views", string.join(views, ",")),
+      a.style("--flow-duration", int.to_string(model.playback_ms) <> "ms"),
+      a.style(
+        "--sequenced-delay",
+        int.to_string(runtime.sequenced_delay(model)) <> "ms",
+      ),
     ],
     [
       client(model, ClientA, "a", "Client A", "raise crest", True),
@@ -448,15 +453,24 @@ fn family_rig(model: Model, views: List(String)) -> Element(runtime.Msg) {
             a.attribute("aria-live", "polite"),
             a.attribute("aria-label", "Sequenced operations, newest first"),
           ],
-          list.map(model.log, fn(entry) {
-            h.li([], [
-              h.text(
-                "#"
-                <> int.to_string(entry.sequence_number)
-                <> " "
-                <> entry.label,
-              ),
-            ])
+          list.index_map(model.log, fn(entry, index) {
+            h.li(
+              [
+                a.class(log_annotation_class(
+                  model,
+                  entry.sequence_number,
+                  index,
+                )),
+              ],
+              [
+                h.text(
+                  "#"
+                  <> int.to_string(entry.sequence_number)
+                  <> " "
+                  <> entry.label,
+                ),
+              ],
+            )
           }),
         ),
       ]),
@@ -469,13 +483,17 @@ fn family_rig(model: Model, views: List(String)) -> Element(runtime.Msg) {
         list.map(model.flows, fn(flow) {
           h.span(
             [
-              a.class("flow-dot"),
+              a.class(flow_class(flow)),
               a.attribute("data-flow-id", int.to_string(flow.id)),
               a.attribute("data-from", flow.from),
               a.attribute("data-to", flow.to),
               a.style(
                 "--flow-duration",
                 int.to_string(model.playback_ms) <> "ms",
+              ),
+              a.style(
+                "--flow-delay",
+                int.to_string(runtime.flow_delay(model, flow)) <> "ms",
               ),
             ],
             [h.span([a.class("flow-dot-label")], [h.text(flow.label)])],
@@ -646,6 +664,11 @@ fn static_variant(
             True -> "map"
             False -> "mv-register"
           }),
+          a.style("--flow-duration", int.to_string(model.playback_ms) <> "ms"),
+          a.style(
+            "--sequenced-delay",
+            int.to_string(runtime.sequenced_delay(model)) <> "ms",
+          ),
         ],
         [
           client(model, ClientA, "a", "Client A", "raise crest", False),
@@ -677,7 +700,18 @@ fn static_variant(
                 a.attribute("aria-live", "polite"),
                 a.attribute("aria-label", "Sequenced operations, newest first"),
               ],
-              list.map(model.log, fn(entry) { h.li([], [h.text(entry.label)]) }),
+              list.index_map(model.log, fn(entry, index) {
+                h.li(
+                  [
+                    a.class(log_annotation_class(
+                      model,
+                      entry.sequence_number,
+                      index,
+                    )),
+                  ],
+                  [h.text(entry.label)],
+                )
+              }),
             ),
           ]),
           h.div(
@@ -689,13 +723,17 @@ fn static_variant(
             list.map(model.flows, fn(flow) {
               h.span(
                 [
-                  a.class("flow-dot"),
+                  a.class(flow_class(flow)),
                   a.attribute("data-flow-id", int.to_string(flow.id)),
                   a.attribute("data-from", flow.from),
                   a.attribute("data-to", flow.to),
                   a.style(
                     "--flow-duration",
                     int.to_string(model.playback_ms) <> "ms",
+                  ),
+                  a.style(
+                    "--flow-delay",
+                    int.to_string(runtime.flow_delay(model, flow)) <> "ms",
                   ),
                 ],
                 [h.span([a.class("flow-dot-label")], [h.text(flow.label)])],
@@ -814,7 +852,7 @@ fn client(
 ) -> Element(runtime.Msg) {
   h.article(
     [
-      a.class("client"),
+      a.class("client" <> client_annotation_class(model, id)),
       a.attribute("data-client", id),
       a.attribute("aria-label", label <> " replica"),
       a.style("grid-area", id),
@@ -976,6 +1014,47 @@ fn client(
       }
     ],
   )
+}
+
+fn flow_class(flow: model.Flow) -> String {
+  case flow.from {
+    "seq" -> "flow-dot sequenced"
+    _ -> "flow-dot"
+  }
+}
+
+fn client_annotation_class(model: Model, id: String) -> String {
+  case model.field_notes {
+    False -> ""
+    True -> {
+      let local =
+        list.any(model.flows, fn(flow) { flow.from == id && flow.to == "seq" })
+      let sequenced =
+        list.any(model.flows, fn(flow) { flow.from == "seq" && flow.to == id })
+      case local, sequenced {
+        True, False -> " note-local"
+        False, True -> " note-sequenced"
+        True, True -> " note-local note-sequenced"
+        False, False -> ""
+      }
+    }
+  }
+}
+
+fn log_annotation_class(
+  model: Model,
+  sequence_number: Int,
+  index: Int,
+) -> String {
+  case
+    model.field_notes
+    && index == 0
+    && sequence_number == model.sequence_number
+    && list.any(model.flows, fn(flow) { flow.from == "seq" })
+  {
+    True -> "note-newest"
+    False -> ""
+  }
 }
 
 fn family_panel(

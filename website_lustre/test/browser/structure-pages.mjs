@@ -247,6 +247,17 @@ await withBrowserSite(site, async (browser, origin) => {
       await page.$$eval(`#${id}-demo ${control}`, (buttons) =>
         buttons.find((candidate) => candidate.checkVisibility()).click(),
       );
+      await page.waitForSelector(
+        `#${id}-demo [data-flow-id][data-to="seq"]`,
+      );
+      await page.waitForFunction(
+        (selector) =>
+          document.querySelectorAll(
+            `${selector} [data-flow-id][data-from="seq"]`,
+          ).length === 3,
+        {},
+        `#${id}-demo`,
+      );
       await page.waitForFunction(
         (selector, value) =>
           document.querySelector(selector).textContent !== value,

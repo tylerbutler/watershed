@@ -46,7 +46,10 @@ classes and tokens; do not hardcode colors or invent a third status.
 The shared structure rig carries `field_notes` in its `Model`.
 `runtime.SetFieldNotes` changes that value, and
 `structure_demo/view.gleam` renders the `field-notes-on` class and the
-"Local edit → sequencer → replicas" note.
+"Local edit → sequencer → replicas" note. Active client-to-sequencer and
+sequencer-to-client flows add transient `note-local`, `note-sequenced`, and
+`note-newest` classes. The stylesheet draws those marks in magenta or ink for
+the lifetime of the matching hop.
 
 When you add another structure to this rig:
 

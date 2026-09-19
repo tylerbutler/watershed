@@ -15,6 +15,39 @@ import watershed_site/structure_demo/model.{
 }
 import watershed_site/structure_demo/runtime
 
+pub fn map_flow_travels_through_the_sequencer_test() {
+  let submitted =
+    Model(..runtime.ready_model(Map), latency_ms: 500, playback_ms: 2000)
+    |> runtime.transition(runtime.StepMap(ClientA, "mill-race", 1))
+  should_equal(
+    submitted.flows
+      |> list.map(fn(flow) { #(flow.from, flow.to) }),
+    [#("a", "seq")],
+  )
+
+  let delivered = runtime.transition(submitted, runtime.Deliver(0))
+  should_equal(
+    delivered.flows
+      |> list.filter(fn(flow) { flow.from == "seq" })
+      |> list.map(fn(flow) { flow.to }),
+    ["a", "b", "c"],
+  )
+  let assert [outbound, _, _] =
+    list.filter(delivered.flows, fn(flow) { flow.from == "seq" })
+  should_equal(runtime.flow_delay(delivered, outbound), 1500)
+
+  let replayed =
+    delivered
+    |> runtime.transition(runtime.Replay)
+    |> runtime.transition(runtime.Deliver(0))
+  should_equal(
+    replayed.flows
+      |> list.filter(fn(flow) { flow.from == "seq" })
+      |> list.map(fn(flow) { flow.id }),
+    [1, 2, 3, 4, 5, 6],
+  )
+}
+
 pub fn map_race_uses_later_sequence_number_test() {
   runtime.map_race_values()
   |> should_equal([14, 14, 14])

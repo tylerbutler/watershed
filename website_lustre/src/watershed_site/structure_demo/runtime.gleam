@@ -26,7 +26,7 @@ import watershed/task_manager_kernel
 import watershed/two_p_set_kernel
 import watershed_lustre
 import watershed_site/structure_demo/model.{
-  type Instance, type Model, type Operation, type PendingOperation,
+  type Flow, type Instance, type Model, type Operation, type PendingOperation,
   type ReplayOperation, type Replica, type ReplicaState, type Structure,
   AllReplicas, ClaimOperation, Claims, ClaimsReplica, ClientA, ClientB,
   ClientBOnly, ClientC, Counter, CounterOperation, CounterReplica, Delivering,
@@ -282,7 +282,7 @@ fn finish_deferred(
     |> list.filter(fn(flow) { !list.contains(old_ids, flow.id) })
     |> list.map(fn(flow) {
       watershed_lustre.after(
-        next.playback_ms,
+        next.playback_ms + flow_delay(next, flow),
         ClearFlow(next.generation, flow.id),
       )
     })
@@ -1161,6 +1161,15 @@ fn enqueue(
     Model(
       ..model,
       phase: Delivering,
+      flows: [
+        Flow(
+          0 - { model.sequence_number + list.length(model.pending) + 1 },
+          replica_id_string(origin),
+          "seq",
+          operation_label(operation),
+        ),
+        ..model.flows
+      ],
       pending: list.append(model.pending, [
         PendingOperation(
           origin,
@@ -1185,15 +1194,25 @@ fn deliver(model: Model, pending: PendingOperation) -> Result(Model, String) {
   let PendingOperation(origin, operation, message_id, _, scope) = pending
   case scope {
     ReplayAll(sequence_number) -> replay_all(model, operation, sequence_number)
-    ClientBOnly(sequence_number) ->
-      deliver_replica(
+    ClientBOnly(sequence_number) -> {
+      use model <- result.try(deliver_replica(
         model,
         ClientB,
         origin,
         operation,
         message_id,
         sequence_number,
+      ))
+      Ok(
+        Model(
+          ..model,
+          flows: list.append(
+            model.flows,
+            sequenced_flows(model, [ClientB], operation_label(operation)),
+          ),
+        ),
       )
+    }
     AllReplicas ->
       sequence_operation(model, origin, operation, message_id, [
         ClientA, ClientB, ClientC,
@@ -1218,15 +1237,10 @@ fn sequence_operation(
     Model(
       ..model,
       sequence_number: sequence,
-      flows: [
-        Flow(
-          sequence * 4,
-          replica_id_string(origin),
-          "seq",
-          operation_label(operation),
-        ),
-        ..model.flows
-      ],
+      flows: list.append(
+        model.flows,
+        sequenced_flows(model, targets, operation_label(operation)),
+      ),
       log: [LogEntry(sequence, origin, operation_label(operation)), ..model.log],
       last_replay: remember_replay(
         model.last_replay,
@@ -1236,6 +1250,39 @@ fn sequence_operation(
       ),
     ),
   )
+}
+
+fn sequenced_flows(
+  model: Model,
+  targets: List(Replica),
+  label: String,
+) -> List(Flow) {
+  let first_id =
+    model.flows
+    |> list.fold(0, fn(highest, flow) { int.max(highest, flow.id) })
+    |> int.add(1)
+  list.index_map(targets, fn(target, index) {
+    Flow(first_id + index, "seq", replica_id_string(target), label)
+  })
+}
+
+@internal
+pub fn flow_delay(model: Model, flow: Flow) -> Int {
+  case flow.from == "seq" {
+    True -> sequenced_delay(model)
+    False -> 0
+  }
+}
+
+@internal
+pub fn sequenced_delay(model: Model) -> Int {
+  let has_inbound =
+    list.any(model.flows, fn(flow) { flow.from != "seq" && flow.to == "seq" })
+  case has_inbound, model.link_up {
+    False, _ -> 0
+    True, True -> int.max(0, model.playback_ms - model.latency_ms)
+    True, False -> model.playback_ms
+  }
 }
 
 fn deliver_replica(
@@ -1307,10 +1354,28 @@ fn replay_all(
     sequence_number,
   ))
   Ok(
-    Model(..model, alpha:, beta:, gamma:, log: [
-      LogEntry(sequence_number, ClientA, operation_label(operation) <> " again"),
-      ..model.log
-    ]),
+    Model(
+      ..model,
+      alpha:,
+      beta:,
+      gamma:,
+      flows: list.append(
+        model.flows,
+        sequenced_flows(
+          model,
+          [ClientA, ClientB, ClientC],
+          operation_label(operation),
+        ),
+      ),
+      log: [
+        LogEntry(
+          sequence_number,
+          ClientA,
+          operation_label(operation) <> " again",
+        ),
+        ..model.log
+      ],
+    ),
   )
 }
 

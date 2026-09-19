@@ -148,6 +148,33 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.click(
     '[data-client="a"] .dds-map tr[data-key="mill-race"] [data-step="1"]',
   );
+  await page.waitForFunction(() => {
+    const flows = [...document.querySelectorAll("[data-flow-id]")];
+    return flows.length === 1 &&
+      flows[0].dataset.from === "a" &&
+      flows[0].dataset.to === "seq";
+  });
+  await page.waitForFunction(() => {
+    const flows = [...document.querySelectorAll(
+      '[data-flow-id][data-from="seq"]',
+    )];
+    return flows.length === 3 &&
+      ["a", "b", "c"].every((client) =>
+        flows.some((flow) =>
+          flow.dataset.to === client && flow.classList.contains("sequenced")
+        )
+      );
+  });
+  assert.ok(
+    await page.$$eval('[data-flow-id][data-from="seq"]', (flows) =>
+      flows.every((flow) => {
+        const [animation] = flow.getAnimations();
+        return animation.effect.getTiming().delay > 0 &&
+          getComputedStyle(flow).opacity === "0";
+      })
+    ),
+    "outbound flows wait invisibly for the inbound hop",
+  );
   await page.waitForFunction(
     (value) =>
       [...document.querySelectorAll('.dds-map tr[data-key="mill-race"] [data-value]')]
@@ -181,6 +208,59 @@ await withBrowserSite(site, async (browser, origin) => {
   for (const [value, expected] of await flowCoordinates()) {
     assert.ok(Math.abs(Number.parseFloat(value) - expected) < 0.5, "flow endpoint follows resize");
   }
+  await page.waitForFunction(
+    () => document.querySelectorAll("[data-flow-id]").length === 0,
+  );
+  await page.click("[data-field-notes]");
+  await page.click(
+    '[data-client="a"] .dds-map tr[data-key="kettle-run"] [data-step="1"]',
+  );
+  await page.waitForSelector('[data-client="a"].note-local');
+  assert.ok(
+    await page.$eval(
+      '[data-client="a"].note-local',
+      (node) => node.getAnimations({ subtree: true }).length > 0,
+    ),
+    "field notes animate the pending client annotation",
+  );
+  await page.waitForSelector('[data-client="b"].note-sequenced');
+  await page.waitForSelector(".op-log li.note-newest");
+  await page.emulateMediaFeatures([
+    { name: "prefers-reduced-motion", value: "reduce" },
+  ]);
+  const reducedNotes = await page.evaluate(() => {
+    const local = document.querySelector('[data-client="a"].note-local');
+    const sequenced = document.querySelector('[data-client="b"].note-sequenced');
+    const log = document.querySelector(".op-log li.note-newest");
+    return {
+      localAnimation: getComputedStyle(local, "::before").animationName,
+      localOpacity: getComputedStyle(local, "::before").opacity,
+      sequencedAnimation: getComputedStyle(sequenced, "::after").animationName,
+      sequencedOpacity: getComputedStyle(sequenced, "::after").opacity,
+      logAnimation: getComputedStyle(log).animationName,
+      logOutline: getComputedStyle(log).outlineColor,
+    };
+  });
+  assert.deepEqual(
+    {
+      localAnimation: reducedNotes.localAnimation,
+      localOpacity: reducedNotes.localOpacity,
+      sequencedAnimation: reducedNotes.sequencedAnimation,
+      sequencedOpacity: reducedNotes.sequencedOpacity,
+      logAnimation: reducedNotes.logAnimation,
+    },
+    {
+      localAnimation: "none",
+      localOpacity: "1",
+      sequencedAnimation: "none",
+      sequencedOpacity: "1",
+      logAnimation: "none",
+    },
+  );
+  assert.notEqual(reducedNotes.logOutline, "transparent");
+  await page.emulateMediaFeatures([
+    { name: "prefers-reduced-motion", value: "no-preference" },
+  ]);
   const orSetHref = await page.$eval('a[href^="/structures/sets#"]', (link) =>
     link.getAttribute("href"),
   );

@@ -5,7 +5,7 @@ import gleam/string
 import lustre/element
 import watershed/pact_map_kernel
 import watershed_site/structure_demo/model.{
-  ClientA, Map, Model, MvRegister, PactMap, PactReplica,
+  ClientA, Flow, LogEntry, Map, Model, MvRegister, PactMap, PactReplica,
 }
 import watershed_site/structure_demo/runtime
 import watershed_site/structure_demo/view
@@ -69,6 +69,52 @@ pub fn visible_error_is_rendered_independently_of_link_state_test() {
     "aria-pressed=\"true\"",
   ]
   |> contains_all(html)
+}
+
+pub fn field_notes_annotate_active_flow_stages_test() {
+  let local =
+    Model(..runtime.ready_model(Map), field_notes: True, flows: [
+      Flow(-1, "a", "seq", "set mill-race"),
+    ])
+    |> view.view(view.Options(True, ["map"], None))
+    |> element.to_string
+  ["class=\"client note-local\"", "class=\"flow-dot\""]
+  |> contains_all(local)
+
+  let sequenced =
+    Model(..runtime.ready_model(Map), field_notes: True, flows: [
+      Flow(4, "seq", "a", "set mill-race"),
+    ])
+    |> view.view(view.Options(True, ["map"], None))
+    |> element.to_string
+  ["class=\"client note-sequenced\"", "class=\"flow-dot sequenced\""]
+  |> contains_all(sequenced)
+
+  let family =
+    Model(
+      ..runtime.ready_model(Map),
+      field_notes: True,
+      sequence_number: 1,
+      playback_ms: 2000,
+      latency_ms: 500,
+      flows: [
+        Flow(-1, "a", "seq", "set mill-race"),
+        Flow(1, "seq", "a", "set mill-race"),
+      ],
+      log: [
+        LogEntry(1, ClientA, "replayed set"),
+        LogEntry(1, ClientA, "set mill-race"),
+      ],
+    )
+    |> view.view(view.Options(True, ["map"], Some("Shared map")))
+    |> element.to_string
+  [
+    "--sequenced-delay:1500ms",
+    "--flow-delay:1500ms",
+    "class=\"client note-local note-sequenced\"",
+  ]
+  |> contains_all(family)
+  let assert [_, _] = string.split(family, "class=\"note-newest\"")
 }
 
 pub fn pact_view_names_the_remaining_signer_test() {
