@@ -10,6 +10,7 @@ export function sampleJitter(maximum) {
 export function setupDemo(selector) {
   const root = document.querySelector(selector);
   if (!root) return;
+  root.dataset.lustreMounted = "";
 
   const position = () => {
     const rig = root.querySelector("[data-demo-rig]");

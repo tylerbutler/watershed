@@ -310,6 +310,7 @@ await withBrowserSite(site, async (browser, origin) => {
   for (const [slug, id] of [["counters", "counter"], ["coordination", "pact"]]) {
     const { page: offline, errors: offlineErrors } = await openPage(browser);
     await offline.goto(`${origin}/structures/${slug}/`);
+    await offline.waitForSelector("#structure-sheet-mount[data-lustre-mounted]");
     await offline.click(`[data-structure-toggle="${id}"]`);
     const root = `#${id}-demo`;
     await offline.waitForSelector(`${root} #demo[data-mounted]`);
