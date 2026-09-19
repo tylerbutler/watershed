@@ -1,0 +1,191 @@
+.fh-hero {
+  padding: clamp(3.5rem, 9vw, 7rem) var(--content-pad) clamp(2.5rem, 6vw, 5rem);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.fh-hero-inner {
+  max-width: 68rem;
+  margin-inline: auto;
+}
+
+.fh-hero .eyebrow {
+  color: var(--muted);
+  margin: 0 0 var(--space-lg);
+}
+
+.fh-hero .eyebrow a {
+  color: var(--waterline);
+  text-decoration: none;
+}
+
+.fh-hero .eyebrow a:hover {
+  color: var(--overprint-deep);
+}
+
+.fh-hero h1 {
+  font-size: var(--text-display);
+  font-weight: 640;
+  font-stretch: 122%;
+  line-height: 0.99;
+  letter-spacing: -0.025em;
+}
+
+.fh-hero h1 em {
+  font-style: normal;
+  color: var(--overprint-deep);
+}
+
+.fh-hero .lede {
+  margin-top: var(--space-xl);
+  font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+  line-height: 1.6;
+  max-width: 62ch;
+}
+
+.fh-hero .lede a,
+.fh-aside a {
+  color: var(--waterline);
+}
+
+.fh-ledger h2 {
+  font-size: var(--text-h2);
+  font-weight: 620;
+  font-stretch: 118%;
+  letter-spacing: -0.015em;
+  line-height: 1.05;
+}
+
+.fh-ledger {
+  padding: var(--space-2xl) var(--content-pad) var(--space-section);
+  max-width: 72rem;
+  margin-inline: auto;
+}
+
+.fh-scope {
+  display: inline-block;
+  margin-top: var(--space-md);
+  padding: 0.25rem 0.55rem;
+  border: 1px solid var(--waterline);
+  color: var(--waterline);
+}
+
+.fh-scope-optional {
+  border-color: var(--overprint);
+  color: var(--overprint-deep);
+}
+
+.fh-ledger-head p {
+  margin-top: var(--space-md);
+  color: var(--muted);
+  max-width: 48ch;
+}
+
+.fh-list {
+  margin: var(--space-xl) 0 0;
+  padding: 0;
+  list-style: none;
+  border-top: 1px solid var(--ink);
+}
+
+.fh-item {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.fh-item:last-child {
+  border-bottom: 1px solid var(--ink);
+}
+
+.fh-item a {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: baseline;
+  gap: var(--space-lg);
+  padding: var(--space-lg) var(--space-sm);
+  text-decoration: none;
+  color: var(--ink);
+  transition:
+    background var(--dur-feedback) var(--ease-out-quart),
+    padding-inline var(--dur-state) var(--ease-out-quart);
+}
+
+.fh-item a:hover {
+  background: var(--surface);
+  padding-inline: var(--space-lg);
+}
+
+.fh-n {
+  font-size: 1.1rem;
+  color: var(--overprint);
+  letter-spacing: 0.08em;
+}
+
+.fh-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+  min-width: 0;
+}
+
+.fh-title {
+  font-size: 1.35rem;
+  font-stretch: 114%;
+  font-weight: 600;
+  line-height: 1.15;
+}
+
+.fh-item a:hover .fh-title {
+  color: var(--overprint-deep);
+}
+
+.fh-gloss {
+  color: var(--muted);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  max-width: 62ch;
+}
+
+.fh-concept {
+  margin-top: 0.15rem;
+  color: var(--waterline);
+}
+
+.fh-go {
+  color: var(--muted);
+  font-size: 1.1rem;
+  align-self: center;
+}
+
+.fh-item a:hover .fh-go {
+  color: var(--overprint);
+}
+
+.fh-aside {
+  margin-top: var(--space-2xl);
+  padding-top: var(--space-lg);
+  border-top: 1px dashed var(--hairline);
+  color: var(--muted);
+  font-size: var(--text-sm);
+  max-width: 60ch;
+}
+
+.fh-aside p {
+  margin: 0;
+}
+
+@media (max-width: 30rem) {
+  .fh-hero h1 {
+    font-size: clamp(1.9rem, 8.5vw, 2.7rem);
+    font-stretch: 100%;
+    letter-spacing: -0.03em;
+  }
+}
+
+@media (max-width: 34rem) {
+  .fh-item a {
+    gap: var(--space-md);
+  }
+
+  .fh-concept {
+    display: none;
+  }
+}

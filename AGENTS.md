@@ -12,8 +12,8 @@ just lint
 just snippets  # regenerate the website's snippet manifest
 ```
 
-The website is a separate Astro project under `website/` (`pnpm build`,
-`pnpm run og:image` to regenerate the social card).
+The website is the Lustre SSG project under `website_lustre/`. Use
+`just website-lustre` to build it and `just _test-website-lustre` to test it.
 
 ## Code discovery
 
@@ -32,33 +32,28 @@ dependencies, configuration, and policy belong to its external repository.
 ## Website code snippets
 
 Every code block on the site that quotes real source comes from
-`website/src/generated/snippets.json`. That file is generated and ignored, so
+`website_lustre/src/generated/snippets.json`. That file is generated and ignored, so
 do not edit it and do not commit it. The committed inputs are
-`website/snippets.json`, which declares one entry per snippet, and the
+`website_lustre/snippets.json`, which declares one entry per snippet, and the
 `// docs:snippet-start <id>` / `// docs:snippet-end <id>` marker pairs in the
 sources themselves. `tools/source-snippets` reads both and writes the
 manifest; its README documents the schema and marker placement.
 
-`just snippets` regenerates it by hand. `pnpm build`, `pnpm dev`, and
-`just test` already do it first, so an edited marker shows up without asking.
+`just snippets` regenerates it by hand. `just build`, `just website-lustre`,
+and `just test` already do it first, so an edited marker shows up without asking.
 Every marker must be quoted by a snippet and every snippet must find its
 marker, or generation fails and names the file.
 
-Website pages and components must not import `.gleam` or `.mjs` files with
-Vite's `?raw` query or extract source text at runtime. They request generated
-snippets with `sourceSnippet(id)` instead. Only
-`website/src/components/SnippetBlock.astro` may import or render Astro's
-`Code` component; callers render source-backed snippets through
-`SnippetBlock`, and use `snippetFromLiteral` only for illustrative text that
-does not quote source.
+Website pages and components must not extract source text at runtime.
+Source-backed code blocks name generated snippet IDs in Djot and resolve them
+through `website_lustre/src/watershed_site/snippet.gleam`. Use literal code
+blocks only for illustrative text that does not quote source.
 
 The generator is a Gleam package that targets JavaScript and runs on Node —
 `gleam run -m source_snippets/cli` with no `--target` flag, because its own
 `gleam.toml` names the target. Trellis builds and tests it with the
 JavaScript family and leaves it out of the Erlang build entirely. That is
-what lets Netlify deploy the site with nothing but Node and the Gleam
-compiler; the build image's Erlang is too old for `gleam_json` and we do not
-want it in the loop.
+what lets the generator run consistently with the JavaScript-target site.
 
 ## Prose and copy
 
@@ -74,7 +69,7 @@ idioms, one consistent term per concept. A comment is read by someone debugging
 at speed, and STE is built for exactly that.
 
 **STE does not apply anywhere else.** Markdown under `docs/`, READMEs, design
-notes, changelogs, commit messages, and everything under `website/**` are
+notes, changelogs, commit messages, and everything under `website_lustre/**` are
 written in normal prose with a voice.
 `.github/instructions/website-copy.instructions.md` is authoritative for the
 site — read it before any copy pass there. The one exception that runs the other

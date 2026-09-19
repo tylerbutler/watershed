@@ -1,0 +1,1130 @@
+{
+  "desktop": {
+    "title": "watershed — SharedTree and the schema layer",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Fluid Framework's SharedTree puts a stored schema inside the document and enforces it in each client. watershed's typed layer puts its schema in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, and an honest list of what SharedTree has that watershed does not."
+      ],
+      [
+        "og:title",
+        "watershed — SharedTree and the schema layer"
+      ],
+      [
+        "og:description",
+        "Fluid Framework's SharedTree puts a stored schema inside the document and enforces it in each client. watershed's typed layer puts its schema in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, and an honest list of what SharedTree has that watershed does not."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/sharedtree/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Two places to put the guarantee.",
+    "headingBreaks": 1,
+    "hero": [
+      "← WATERSHED · MODELS / SHAREDTREE",
+      "Fluid Framework's SharedTree and watershed's typed layer want the same thing: declare a document's shape once, get static types, get roots that are guaranteed to be there, get told when something changes. They disagree about where to put the guarantee, and almost everything else follows from that choice."
+    ],
+    "blocks": [
+      {
+        "heading": "The one difference the rest follows from",
+        "text": "The one difference the rest follows from SharedTree makes the schema the document. The SchemaFactory id you pick is written into the container as the stored schema, and from then on every client's SharedTree enforces it. A client whose view schema disagrees cannot silently write the wrong shape. Because there is one tree under one rebasable changeset algebra, transactions, undo/redo, node identity, cross-parent moves, and a real schema-upgrade path all fall out of the same machinery. watershed makes the schema a decode boundary that exists only in your build. The tag scoping a set of fields is a phantom type, erased at compile time. Nothing about it reaches the wire, and any Fluid Framework-compatible sequencer (floodgate included) stays content-agnostic by design. In exchange the document is not one structure but a graph of independently converging channels, so the merge policy is named per slot rather than once for everything. Reads hand back a Result, because a peer really can write anything. What you do not get is atomicity, undo, or a schema upgrade. Those are listed further down, not buried. Both columns below model the same board. The Gleam is compiled from real source: a fixture package and sudoku_lustre. The TypeScript uses only APIs the Fluid Framework documentation publishes.",
+        "links": [
+          [
+            "further down",
+            "#gaps"
+          ]
+        ]
+      },
+      {
+        "heading": "1 · Declaring the shape",
+        "text": "1 · Declaring the shape Both declare once and derive the types. The difference is what the declaration is: a SchemaFactory id becomes part of the document, where pub type Board is a phantom tag that exists only to stop you reading a field against the wrong map. Note the counter too: SharedTree's wipBreaches is a number in the tree; watershed's is a handle to a whole SharedCounter, with commutative increments of its own. Foundations · schemas and fields covers that phantom tag, and the three kinds of field, in full. (illustrative — Fluid SharedTree schema) import { SchemaFactory } from \"fluid-framework\"; // This id is written into the document. It becomes the *stored* schema, // and from here on every client's SharedTree enforces it. const sf = new SchemaFactory(\"com.example.sprintboard\"); class Card extends sf.object(\"Card\", { title: sf.string, column: sf.string, owner: sf.optional(sf.string), }) {} class Cards extends sf.array(\"Cards\", Card) {} class Board extends sf.object(\"Board\", { title: sf.string, cards: Cards, wipBreaches: sf.number, }) {} FLUID SHAREDTREE · TYPESCRIPT tools/website-samples/src/website_samples/board_schema.gleam // A phantom tag. It is erased at compile time — nothing about `Board` // reaches the document, and no peer has to agree it exists. pub type Board pub fn title() -> Field(Board, String) { schema.field(\"title\", json.string, decode.string) } pub fn cards() -> ChannelField(Board, MapChannel) { schema.channel_field(\"cards\") } pub fn wip_breaches() -> ChannelField(Board, CounterChannel) { schema.channel_field(\"wip_breaches\") } WATERSHED · GLEAM",
+        "links": [
+          [
+            "Foundations · schemas and fields",
+            "/foundations/schema"
+          ]
+        ]
+      },
+      {
+        "heading": "2 · Establishing one root",
+        "text": "2 · Establishing one root initialize is a once-only act against an empty document; it writes the stored schema and every later client reads it back. ensure_* is the opposite shape: idempotent, and run by every client on every boot. Two clients opening a fresh document both seed a candidate channel; each one waits for its own write to sync, then adopts whichever handle the field shows at that moment — a concurrent write from the other client can still land after and replace the field. The field itself converges on one handle without a leader; the handle each call returns just isn't promised to be that one. Foundations · starting a document walks through that whole bootstrap in order. (illustrative — Fluid SharedTree root) import { TreeViewConfiguration } from \"fluid-framework\"; const config = new TreeViewConfiguration({ schema: Board }); const view = tree.viewWith(config); // Once, against an empty document. After this the stored schema is // authoritative and every later client just reads it. view.initialize( new Board({ title: \"Sprint board\", cards: [], wipBreaches: 0 }), ); const board = view.root; // typed Board, guaranteed to exist FLUID SHAREDTREE · TYPESCRIPT tools/website-samples/src/website_samples/board_app.gleam fn bootstrap( document: watershed.Document(document_schema.Board), ) -> Effect(Msg) { let root = watershed.root_typed(document) effect.batch([ // Idempotent, and run by every client on every boot. Each one // seeds a candidate and adopts the handle visible after its own // sync — a later concurrent write can still replace the field, // so the channel handed back here is not promised to be final. watershed_lustre.ensure_field(root, document_schema.title(), \"Sprint board\"), watershed_lustre.ensure_map( document, root, document_schema.cards(), EnsuredCards, ), watershed_lustre.ensure_counter( document, root, document_schema.wip_breaches(), EnsuredBreaches, ), ]) } WATERSHED · GLEAM, IN A LUSTRE EFFECT The losers stay attached. A candidate channel that did not win the race is still attached to the document, just unreferenced. Orphan collection is out of scope; that's the cost of not having a leader elect the root.",
+        "links": [
+          [
+            "Foundations · starting a document",
+            "/foundations/lifecycle"
+          ]
+        ]
+      },
+      {
+        "heading": "3 · Reading and writing a field",
+        "text": "3 · Reading and writing a field This pair is the whole argument, and it is short. board.title is a string, and under a stored schema it cannot be anything else, so the read needs no error arm. watershed cannot promise that, so it does not pretend to: get_field returns Result(Option(a), FieldError), and you confront the “a peer disagrees about this type” case once, at the read, instead of discovering it later as corrupted state. (illustrative — Fluid SharedTree read/write) // Writing is checked by the compiler and again by SharedTree. board.title = \"Q3 sprint board\"; // Reading is total. `title` is a string, and no client running this // schema can make it anything else. renderHeader(board.title); FLUID SHAREDTREE · TYPESCRIPT tools/website-samples/src/website_samples/board_app.gleam fn read_write_example(root: watershed.TypedMap(document_schema.Board)) -> Nil { // Writing is checked at the field — only a String is accepted here. watershed.set_field(root, document_schema.title(), \"Q3 sprint board\") // Reading decodes at the boundary. A peer running an older build — or // a stale summary — could have written anything here, so the result is // a `Result`, never a raw value. case watershed.get_field(root, document_schema.title()) { Ok(Some(title)) -> render_header(title) Ok(None) -> render_header(\"Untitled board\") Error(_) -> render_header(\"Untitled board\") } } WATERSHED · GLEAM Whether that Error arm is a tax or a feature depends on what you can assume about the clients. If every writer runs your build against an enforced stored schema, it is noise. If an old tab, a stale summary, or a second application can reach the same document, it is the one place a multiplayer app gets to decide what to do about disagreement. The build guide works through it in context.",
+        "links": [
+          [
+            "build guide",
+            "/guide/notes"
+          ]
+        ]
+      },
+      {
+        "heading": "4 · A record spread across keys",
+        "text": "4 · A record spread across keys SharedTree stores the node, so the class declaration is the only declaration there is. watershed stores JSON per key, which normally means writing a decoder and an encoder and keeping them in sync by hand. The record1…record9 builders derive both from one prop list instead, and sealed_known seals the schema without you repeating the key names a third time. (illustrative — Fluid SharedTree record) // The shape was declared once, on the class. There is no second // encoder to keep in sync, because the tree stores the node itself. card.title = \"Ship the gauge rebuild\"; card.column = \"doing\"; card.owner = undefined; // clears the optional property FLUID SHAREDTREE · TYPESCRIPT tools/website-samples/src/website_samples/board_app.gleam /// `record3` derives the decoder AND the per-key encoder from one /// prop list, so the two can never drift. `sealed_known` seals the /// schema to exactly these keys without a hand-repeated list, and /// `versioned` stamps a version and rejects any stored version that differs. fn card_schema() -> Result(schema.Schema(Card, CardState), Nil) { schema.record3( CardState, schema.prop(card_title(), fn(c: CardState) { c.title }), schema.prop(card_column(), fn(c: CardState) { c.column }), schema.optional_prop(card_owner(), fn(c: CardState) { c.owner }), ) |> schema.versioned(1) |> schema.sealed_known } // `write` emits one op per key, never a blob — so a peer editing // `owner` at the same time keeps their edit. An optional prop that is // `None` deletes its key rather than skipping it. fn write_card(card: watershed.TypedMap(Card)) -> Result(Nil, Nil) { use card_schema <- result.try(card_schema()) watershed.write( card, card_schema, CardState(title: \"Ship it\", column: \"doing\", owner: None), ) Ok(Nil) } WATERSHED · GLEAM Per-key ops cut both ways. Writing a whole record as one op per key is why a peer editing owner at the same moment keeps their edit: the record view is never a clobbering blob. It is also why a peer can read the record mid-write and see three of four keys updated. Tree.runTransaction would prevent that; watershed has no answer for it yet. See below.",
+        "links": [
+          [
+            "below",
+            "#gaps"
+          ]
+        ]
+      },
+      {
+        "heading": "5 · One tree, or a graph of channels",
+        "text": "5 · One tree, or a graph of channels Here the two models stop resembling each other. Everything in a SharedTree is in the tree, under one changeset algebra. That is what makes a reorder across two arrays a coherent operation, and what makes the merge behaviour uniform enough that you never have to think about it. A watershed document is not one structure. Each slot on the root holds a handle to a channel that converges on its own terms, and the field declaration names which terms. The Sudoku example is the clearest case: four slots, four different answers to “what happens when two clients touch this at once”. Foundations · documents and handles lays out that layout on its own terms, without the SharedTree comparison. (illustrative — Fluid SharedTree nesting) // Everything is in one tree under one changeset algebra, so inserts, // removals, and reorders are all edits to the same document — and all // merge by the same rules. board.cards.insertAtEnd(new Card({ title: \"Ship it\", column: \"todo\" })); board.cards.moveRangeToIndex(4, 0, 3); board.cards.removeAt(2); FLUID SHAREDTREE · TYPESCRIPT examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam /// Phantom tag scoping every field below to the Sudoku root map. pub type SudokuDocument /// The active puzzle's id (see `puzzle.by_id`). pub fn puzzle() -> Field(SudokuDocument, String) { schema.field(\"puzzle\", json.string, decode.string) } /// The document title, shown in the status line. pub fn title() -> Field(SudokuDocument, String) { schema.field(\"title\", json.string, decode.string) } /// The player-entered digits, keyed `r{row}c{column}` → digit. pub fn cells() -> ChannelField(SudokuDocument, MapChannel) { schema.channel_field(\"cells\") // last write wins, per key } /// The pencil-mark notes, as `r{row}c{column}={digit}` set elements. pub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) { schema.channel_field(\"notes\") // add wins over a concurrent remove } /// The puzzle's immutable givens, first-writer-wins claims per cell. pub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) { schema.channel_field(\"givens\") // the first writer owns the slot } /// The shared mistake tally. pub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) { schema.channel_field(\"mistakes\") // commutative increments } WATERSHED · GLEAM So watershed makes you choose, and in exchange lets you choose right: pencil marks want an OR-set where a concurrent add beats a remove, the puzzle's givens want first-writer-wins claims, the mistake tally wants a counter that does not double-count a redelivered op. SharedTree would give all four the same treatment. The DDS · CRDT · OT comparison lays out what each of those policies costs. Nesting is indirection, not containment. A nested typed map, schema.child_field(\"players\"), stores a handle, and the child is a peer channel, not a subtree of its parent. There is no cross-parent move, no operation that spans two channels, and a root made of child fields cannot be sealed by a record schema at all. See Foundations · documents and handles for what that costs you in practice.",
+        "links": [
+          [
+            "Foundations · documents and handles",
+            "/foundations/topology"
+          ],
+          [
+            "OR-set",
+            "/structures/sets#orset"
+          ],
+          [
+            "first-writer-wins claims",
+            "/structures/coordination#claims"
+          ],
+          [
+            "counter",
+            "/structures/counters#counter"
+          ],
+          [
+            "DDS · CRDT · OT comparison",
+            "/models"
+          ],
+          [
+            "Foundations · documents and handles",
+            "/foundations/topology"
+          ]
+        ]
+      },
+      {
+        "heading": "6 · Being told what changed",
+        "text": "6 · Being told what changed treeChanged is the thing a tree buys you that a graph cannot: a rollup over an entire subtree, for free, because the subtree is a real thing with a boundary. watershed has no rollup above a single channel: you subscribe per channel, and per field. What a field subscription gives back in exchange is decoded on both sides. A FieldChange carries the previous value and the new one, already run through the field's decoder, plus whether this client made it. A peer's type-confused write arrives as an Error in the event rather than as state that looks fine until it does not. (illustrative — Fluid SharedTree events) // Per node, plus a subtree rollup for free: `treeChanged` fires for a // change anywhere below the node, because there is a tree to roll up. const stopCards = Tree.on(board.cards, \"nodeChanged\", renderCards); const stopAll = Tree.on(board, \"treeChanged\", renderEverything); // Editing the tree from inside a change callback throws a UsageError. FLUID SHAREDTREE · TYPESCRIPT tools/website-samples/src/website_samples/board_app.gleam fn subscribe_title( root: watershed.TypedMap(document_schema.Board), ) -> watershed.SubscriptionToken { // Per field. The change carries the decoded previous value AND the // new one, plus whether this client made it — and a peer's // type-confused write surfaces here as `Error(Invalid(_))`. watershed.subscribe_field(root, document_schema.title(), fn(change) { case change { FieldChange(value: Ok(Some(title)), local: False, ..) -> render_header(title) FieldChange(value: Error(_), ..) -> keep_previous_header() _ -> Nil } }) } WATERSHED · GLEAM examples/sudoku_lustre/src/sudoku_lustre/component.gleam /// The narrowed per-kind subscriptions as one batch. Each handler sees only its /// channel's own event type; the whole-model `snapshot` stays the cheapest /// re-read for an 81-cell grid, so every handler just bumps it. fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) { effect.batch([ watershed_lustre.subscribe(shared.cells, fn(_event) { SharedChanged }), watershed_lustre.subscribe_or_set(shared.notes, fn(_event) { SharedChanged }), watershed_lustre.subscribe_claims(shared.givens, fn(_event) { SharedChanged }), watershed_lustre.subscribe_counter(shared.mistakes, fn(_event) { SharedChanged }), ]) } WATERSHED · GLEAM, NARROWED PER-KIND SUBSCRIPTIONS",
+        "links": []
+      },
+      {
+        "heading": "What SharedTree has that watershed does not",
+        "text": "What SharedTree has that watershed does not All three of these are consequences of the same choice. A rebasable changeset over one enforced tree is what lets you group edits, revert them, and move a document from one stored schema to the next. watershed has ops over independent channels and a client-side decoder, so it has none of them. (illustrative — Fluid SharedTree gaps) // Atomicity — every edit in the callback lands, or none of them does. Tree.runTransaction(board, () => { card.column = \"doing\"; card.owner = \"ada\"; if (overWipLimit(board)) return Tree.runTransaction.rollback; }); // Undo — each local commit offers a revertible. view.events.on(\"commitApplied\", (data, getRevertible) => { if (getRevertible !== undefined) undoStack.push(getRevertible()); }); // Schema upgrade — an old document can be moved onto the new stored schema. if (!view.compatibility.canView && view.compatibility.canUpgrade) { view.upgradeSchema(); } FLUID SHAREDTREE · TYPESCRIPT Transactions. watershed writes per-key ops, so peers can observe a partial record. Fixing it means a batched multi-set map op: a wire-format change, deliberately deferred until a real consumer hurts. Undo and redo. Not offered. The kernels do have a rollback, but that is nack-and-resubmit machinery for unacknowledged local ops, not a user-facing stack. Schema upgrade. schema.versioned(n) stamps a version and fails closed on mismatch, which is a dead end rather than a path. Entries-level migrations are designed and unshipped. Enforcement, node identity, cross-parent moves, branching. Absent by design. Typing stays a client decode boundary; the server stays content-agnostic. The reason is worth stating as a number rather than an adjective. Fluid Framework's tree package (stored-versus-view schema system, forest, compositional changeset rebasing, undo/redo, ID compression) is 77,804 lines — a multi-year project to reproduce in any language, and one watershed would take on only for a compelling product need. watershed's entire schema vocabulary is one roughly 700-line module: src/watershed/schema.gleam. That is the trade.",
+        "links": []
+      }
+    ],
+    "snippets": [
+      {
+        "source": "(illustrative — Fluid SharedTree schema)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "import { SchemaFactory } from \"fluid-framework\";\n\n// This id is written into the document. It becomes the *stored* schema,\n// and from here on every client's SharedTree enforces it.\nconst sf = new SchemaFactory(\"com.example.sprintboard\");\n\nclass Card extends sf.object(\"Card\", {\n  title: sf.string,\n  column: sf.string,\n  owner: sf.optional(sf.string),\n}) {}\n\nclass Cards extends sf.array(\"Cards\", Card) {}\n\nclass Board extends sf.object(\"Board\", {\n  title: sf.string,\n  cards: Cards,\n  wipBreaches: sf.number,\n}) {}"
+      },
+      {
+        "source": "tools/website-samples/src/website_samples/board_schema.gleam",
+        "caption": "WATERSHED · GLEAM",
+        "code": "// A phantom tag. It is erased at compile time — nothing about `Board`\n// reaches the document, and no peer has to agree it exists.\npub type Board\n\npub fn title() -> Field(Board, String) {\n  schema.field(\"title\", json.string, decode.string)\n}\n\npub fn cards() -> ChannelField(Board, MapChannel) {\n  schema.channel_field(\"cards\")\n}\n\npub fn wip_breaches() -> ChannelField(Board, CounterChannel) {\n  schema.channel_field(\"wip_breaches\")\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree root)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "import { TreeViewConfiguration } from \"fluid-framework\";\n\nconst config = new TreeViewConfiguration({ schema: Board });\nconst view = tree.viewWith(config);\n\n// Once, against an empty document. After this the stored schema is\n// authoritative and every later client just reads it.\nview.initialize(\n  new Board({ title: \"Sprint board\", cards: [], wipBreaches: 0 }),\n);\n\nconst board = view.root; // typed Board, guaranteed to exist"
+      },
+      {
+        "source": "tools/website-samples/src/website_samples/board_app.gleam",
+        "caption": "WATERSHED · GLEAM, IN A LUSTRE EFFECT",
+        "code": "fn bootstrap(\n  document: watershed.Document(document_schema.Board),\n) -> Effect(Msg) {\n  let root = watershed.root_typed(document)\n  effect.batch([\n    // Idempotent, and run by every client on every boot. Each one\n    // seeds a candidate and adopts the handle visible after its own\n    // sync — a later concurrent write can still replace the field,\n    // so the channel handed back here is not promised to be final.\n    watershed_lustre.ensure_field(root, document_schema.title(), \"Sprint board\"),\n    watershed_lustre.ensure_map(\n      document,\n      root,\n      document_schema.cards(),\n      EnsuredCards,\n    ),\n    watershed_lustre.ensure_counter(\n      document,\n      root,\n      document_schema.wip_breaches(),\n      EnsuredBreaches,\n    ),\n  ])\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree read/write)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "// Writing is checked by the compiler and again by SharedTree.\nboard.title = \"Q3 sprint board\";\n\n// Reading is total. `title` is a string, and no client running this\n// schema can make it anything else.\nrenderHeader(board.title);"
+      },
+      {
+        "source": "tools/website-samples/src/website_samples/board_app.gleam",
+        "caption": "WATERSHED · GLEAM",
+        "code": "fn read_write_example(root: watershed.TypedMap(document_schema.Board)) -> Nil {\n  // Writing is checked at the field — only a String is accepted here.\n  watershed.set_field(root, document_schema.title(), \"Q3 sprint board\")\n\n  // Reading decodes at the boundary. A peer running an older build — or\n  // a stale summary — could have written anything here, so the result is\n  // a `Result`, never a raw value.\n  case watershed.get_field(root, document_schema.title()) {\n    Ok(Some(title)) -> render_header(title)\n    Ok(None) -> render_header(\"Untitled board\")\n    Error(_) -> render_header(\"Untitled board\")\n  }\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree record)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "// The shape was declared once, on the class. There is no second\n// encoder to keep in sync, because the tree stores the node itself.\ncard.title = \"Ship the gauge rebuild\";\ncard.column = \"doing\";\ncard.owner = undefined; // clears the optional property"
+      },
+      {
+        "source": "tools/website-samples/src/website_samples/board_app.gleam",
+        "caption": "WATERSHED · GLEAM",
+        "code": "/// `record3` derives the decoder AND the per-key encoder from one\n/// prop list, so the two can never drift. `sealed_known` seals the\n/// schema to exactly these keys without a hand-repeated list, and\n/// `versioned` stamps a version and rejects any stored version that differs.\nfn card_schema() -> Result(schema.Schema(Card, CardState), Nil) {\n  schema.record3(\n    CardState,\n    schema.prop(card_title(), fn(c: CardState) { c.title }),\n    schema.prop(card_column(), fn(c: CardState) { c.column }),\n    schema.optional_prop(card_owner(), fn(c: CardState) { c.owner }),\n  )\n  |> schema.versioned(1)\n  |> schema.sealed_known\n}\n\n// `write` emits one op per key, never a blob — so a peer editing\n// `owner` at the same time keeps their edit. An optional prop that is\n// `None` deletes its key rather than skipping it.\nfn write_card(card: watershed.TypedMap(Card)) -> Result(Nil, Nil) {\n  use card_schema <- result.try(card_schema())\n  watershed.write(\n    card,\n    card_schema,\n    CardState(title: \"Ship it\", column: \"doing\", owner: None),\n  )\n  Ok(Nil)\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree nesting)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "// Everything is in one tree under one changeset algebra, so inserts,\n// removals, and reorders are all edits to the same document — and all\n// merge by the same rules.\nboard.cards.insertAtEnd(new Card({ title: \"Ship it\", column: \"todo\" }));\nboard.cards.moveRangeToIndex(4, 0, 3);\nboard.cards.removeAt(2);"
+      },
+      {
+        "source": "examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam",
+        "caption": "WATERSHED · GLEAM",
+        "code": "/// Phantom tag scoping every field below to the Sudoku root map.\npub type SudokuDocument\n\n/// The active puzzle's id (see `puzzle.by_id`).\npub fn puzzle() -> Field(SudokuDocument, String) {\n  schema.field(\"puzzle\", json.string, decode.string)\n}\n\n/// The document title, shown in the status line.\npub fn title() -> Field(SudokuDocument, String) {\n  schema.field(\"title\", json.string, decode.string)\n}\n\n/// The player-entered digits, keyed `r{row}c{column}` → digit.\npub fn cells() -> ChannelField(SudokuDocument, MapChannel) {\n  schema.channel_field(\"cells\")\n  // last write wins, per key\n}\n\n/// The pencil-mark notes, as `r{row}c{column}={digit}` set elements.\npub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) {\n  schema.channel_field(\"notes\")\n  // add wins over a concurrent remove\n}\n\n/// The puzzle's immutable givens, first-writer-wins claims per cell.\npub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) {\n  schema.channel_field(\"givens\")\n  // the first writer owns the slot\n}\n\n/// The shared mistake tally.\npub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) {\n  schema.channel_field(\"mistakes\")\n  // commutative increments\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree events)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "// Per node, plus a subtree rollup for free: `treeChanged` fires for a\n// change anywhere below the node, because there is a tree to roll up.\nconst stopCards = Tree.on(board.cards, \"nodeChanged\", renderCards);\nconst stopAll = Tree.on(board, \"treeChanged\", renderEverything);\n\n// Editing the tree from inside a change callback throws a UsageError."
+      },
+      {
+        "source": "tools/website-samples/src/website_samples/board_app.gleam",
+        "caption": "WATERSHED · GLEAM",
+        "code": "fn subscribe_title(\n  root: watershed.TypedMap(document_schema.Board),\n) -> watershed.SubscriptionToken {\n  // Per field. The change carries the decoded previous value AND the\n  // new one, plus whether this client made it — and a peer's\n  // type-confused write surfaces here as `Error(Invalid(_))`.\n  watershed.subscribe_field(root, document_schema.title(), fn(change) {\n    case change {\n      FieldChange(value: Ok(Some(title)), local: False, ..) ->\n        render_header(title)\n      FieldChange(value: Error(_), ..) -> keep_previous_header()\n      _ -> Nil\n    }\n  })\n}"
+      },
+      {
+        "source": "examples/sudoku_lustre/src/sudoku_lustre/component.gleam",
+        "caption": "WATERSHED · GLEAM, NARROWED PER-KIND SUBSCRIPTIONS",
+        "code": "/// The narrowed per-kind subscriptions as one batch. Each handler sees only its\n/// channel's own event type; the whole-model `snapshot` stays the cheapest\n/// re-read for an 81-cell grid, so every handler just bumps it.\nfn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {\n  effect.batch([\n    watershed_lustre.subscribe(shared.cells, fn(_event) { SharedChanged }),\n    watershed_lustre.subscribe_or_set(shared.notes, fn(_event) { SharedChanged }),\n    watershed_lustre.subscribe_claims(shared.givens, fn(_event) {\n      SharedChanged\n    }),\n    watershed_lustre.subscribe_counter(shared.mistakes, fn(_event) {\n      SharedChanged\n    }),\n  ])\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree gaps)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "// Atomicity — every edit in the callback lands, or none of them does.\nTree.runTransaction(board, () => {\n  card.column = \"doing\";\n  card.owner = \"ada\";\n  if (overWipLimit(board)) return Tree.runTransaction.rollback;\n});\n\n// Undo — each local commit offers a revertible.\nview.events.on(\"commitApplied\", (data, getRevertible) => {\n  if (getRevertible !== undefined) undoStack.push(getRevertible());\n});\n\n// Schema upgrade — an old document can be moved onto the new stored schema.\nif (!view.compatibility.canView && view.compatibility.canUpgrade) {\n  view.upgradeSchema();\n}"
+      }
+    ],
+    "table": [
+      [
+        "Property",
+        "SharedTree",
+        "watershed"
+      ],
+      [
+        "SCHEMA LOCATION",
+        "in the document, as a stored schema written on first initialize",
+        "in your build only, as a phantom tag and a set of field descriptors erased at runtime"
+      ],
+      [
+        "A PEER WRITES THE WRONG TYPE",
+        "cannot happen under the stored schema; SharedTree rejects the write on that client",
+        "reaches the document, and surfaces as Error(Invalid(_)) on your read"
+      ],
+      [
+        "SHAPE OF THE DATA",
+        "one tree, one changeset algebra over the whole document",
+        "a graph of independently addressed channels, joined by handles stored as map values"
+      ],
+      [
+        "MERGE POLICY",
+        "one, applied to everything in the tree",
+        "one per slot: LWW map, add-wins OR-set, first-writer-wins claims, commutative counter, OT rich text"
+      ],
+      [
+        "DECLARE ONCE",
+        "SchemaFactory classes; static types derived",
+        "Field / ChannelField / recordN; encoder and decoder derived from one prop list"
+      ],
+      [
+        "GUARANTEED ROOTS",
+        "viewWith + initialize, once, against an empty document",
+        "ensure_* per slot, idempotent, run by every client on every boot"
+      ],
+      [
+        "INVALIDATION",
+        "nodeChanged plus a treeChanged subtree rollup",
+        "subscribe_field (decoded previous and new) and narrowed per-kind channel events; no rollup above a channel"
+      ],
+      [
+        "ATOMIC MULTI-FIELD WRITE",
+        "Tree.runTransaction, with rollback and preconditions",
+        "none: per-key ops, so peers can observe a partial record"
+      ],
+      [
+        "UNDO / REDO",
+        "commitApplied → Revertible.revert()",
+        "none offered"
+      ],
+      [
+        "SCHEMA UPGRADE",
+        "canView / canUpgrade / upgradeSchema, plus staged rollout",
+        "versioned(n) fails closed with SchemaMismatch; no migration path"
+      ],
+      [
+        "MOVES",
+        "moveRangeToIndex, including between arrays in the same tree",
+        "convergent move inside one SharedSequence; no cross-parent move"
+      ],
+      [
+        "RUNS ON",
+        "TypeScript and JavaScript",
+        "one Gleam core, on the BEAM and in the browser"
+      ],
+      [
+        "IMPLEMENTATION SIZE",
+        "77,804 lines in the Fluid tree package",
+        "about 700 lines in watershed/schema.gleam"
+      ]
+    ],
+    "guide": "Further reading The decode boundary → DDS · CRDT · OT → The field atlas → SharedTree documentation ↗",
+    "guideLinks": [
+      [
+        "The decode boundary →",
+        "/guide/notes"
+      ],
+      [
+        "DDS · CRDT · OT →",
+        "/models"
+      ],
+      [
+        "The field atlas →",
+        "/structures"
+      ],
+      [
+        "SharedTree documentation ↗",
+        "https://fluidframework.com/docs/data-structures/tree/"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "viewportWidth": 1440,
+    "scrollWidth": 1440,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "112px 64.8px 80px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "body": {
+        "max-width": "1088px",
+        "padding": "64px 64.8px 0px"
+      },
+      "pair": {
+        "display": "grid",
+        "grid-template-columns": "612px 612px",
+        "gap": "24px",
+        "width": "1248px"
+      },
+      "code": {
+        "font-size": "12.24px",
+        "overflow-x": "auto"
+      },
+      "table": {
+        "overflow-x": "auto",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "guide": {
+        "padding": "129.6px 64.8px",
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — SharedTree and the schema layer",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Fluid Framework's SharedTree puts a stored schema inside the document and enforces it in each client. watershed's typed layer puts its schema in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, and an honest list of what SharedTree has that watershed does not."
+      ],
+      [
+        "og:title",
+        "watershed — SharedTree and the schema layer"
+      ],
+      [
+        "og:description",
+        "Fluid Framework's SharedTree puts a stored schema inside the document and enforces it in each client. watershed's typed layer puts its schema in your build, as a decode boundary over a graph of channels. Six pairs of TypeScript and Gleam, the same board both ways, and an honest list of what SharedTree has that watershed does not."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/sharedtree/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Two places to put the guarantee.",
+    "headingBreaks": 1,
+    "hero": [
+      "← WATERSHED · MODELS / SHAREDTREE",
+      "Fluid Framework's SharedTree and watershed's typed layer want the same thing: declare a document's shape once, get static types, get roots that are guaranteed to be there, get told when something changes. They disagree about where to put the guarantee, and almost everything else follows from that choice."
+    ],
+    "blocks": [
+      {
+        "heading": "The one difference the rest follows from",
+        "text": "The one difference the rest follows from SharedTree makes the schema the document. The SchemaFactory id you pick is written into the container as the stored schema, and from then on every client's SharedTree enforces it. A client whose view schema disagrees cannot silently write the wrong shape. Because there is one tree under one rebasable changeset algebra, transactions, undo/redo, node identity, cross-parent moves, and a real schema-upgrade path all fall out of the same machinery. watershed makes the schema a decode boundary that exists only in your build. The tag scoping a set of fields is a phantom type, erased at compile time. Nothing about it reaches the wire, and any Fluid Framework-compatible sequencer (floodgate included) stays content-agnostic by design. In exchange the document is not one structure but a graph of independently converging channels, so the merge policy is named per slot rather than once for everything. Reads hand back a Result, because a peer really can write anything. What you do not get is atomicity, undo, or a schema upgrade. Those are listed further down, not buried. Both columns below model the same board. The Gleam is compiled from real source: a fixture package and sudoku_lustre. The TypeScript uses only APIs the Fluid Framework documentation publishes.",
+        "links": [
+          [
+            "further down",
+            "#gaps"
+          ]
+        ]
+      },
+      {
+        "heading": "1 · Declaring the shape",
+        "text": "1 · Declaring the shape Both declare once and derive the types. The difference is what the declaration is: a SchemaFactory id becomes part of the document, where pub type Board is a phantom tag that exists only to stop you reading a field against the wrong map. Note the counter too: SharedTree's wipBreaches is a number in the tree; watershed's is a handle to a whole SharedCounter, with commutative increments of its own. Foundations · schemas and fields covers that phantom tag, and the three kinds of field, in full. (illustrative — Fluid SharedTree schema) import { SchemaFactory } from \"fluid-framework\"; // This id is written into the document. It becomes the *stored* schema, // and from here on every client's SharedTree enforces it. const sf = new SchemaFactory(\"com.example.sprintboard\"); class Card extends sf.object(\"Card\", { title: sf.string, column: sf.string, owner: sf.optional(sf.string), }) {} class Cards extends sf.array(\"Cards\", Card) {} class Board extends sf.object(\"Board\", { title: sf.string, cards: Cards, wipBreaches: sf.number, }) {} FLUID SHAREDTREE · TYPESCRIPT tools/website-samples/src/website_samples/board_schema.gleam // A phantom tag. It is erased at compile time — nothing about `Board` // reaches the document, and no peer has to agree it exists. pub type Board pub fn title() -> Field(Board, String) { schema.field(\"title\", json.string, decode.string) } pub fn cards() -> ChannelField(Board, MapChannel) { schema.channel_field(\"cards\") } pub fn wip_breaches() -> ChannelField(Board, CounterChannel) { schema.channel_field(\"wip_breaches\") } WATERSHED · GLEAM",
+        "links": [
+          [
+            "Foundations · schemas and fields",
+            "/foundations/schema"
+          ]
+        ]
+      },
+      {
+        "heading": "2 · Establishing one root",
+        "text": "2 · Establishing one root initialize is a once-only act against an empty document; it writes the stored schema and every later client reads it back. ensure_* is the opposite shape: idempotent, and run by every client on every boot. Two clients opening a fresh document both seed a candidate channel; each one waits for its own write to sync, then adopts whichever handle the field shows at that moment — a concurrent write from the other client can still land after and replace the field. The field itself converges on one handle without a leader; the handle each call returns just isn't promised to be that one. Foundations · starting a document walks through that whole bootstrap in order. (illustrative — Fluid SharedTree root) import { TreeViewConfiguration } from \"fluid-framework\"; const config = new TreeViewConfiguration({ schema: Board }); const view = tree.viewWith(config); // Once, against an empty document. After this the stored schema is // authoritative and every later client just reads it. view.initialize( new Board({ title: \"Sprint board\", cards: [], wipBreaches: 0 }), ); const board = view.root; // typed Board, guaranteed to exist FLUID SHAREDTREE · TYPESCRIPT tools/website-samples/src/website_samples/board_app.gleam fn bootstrap( document: watershed.Document(document_schema.Board), ) -> Effect(Msg) { let root = watershed.root_typed(document) effect.batch([ // Idempotent, and run by every client on every boot. Each one // seeds a candidate and adopts the handle visible after its own // sync — a later concurrent write can still replace the field, // so the channel handed back here is not promised to be final. watershed_lustre.ensure_field(root, document_schema.title(), \"Sprint board\"), watershed_lustre.ensure_map( document, root, document_schema.cards(), EnsuredCards, ), watershed_lustre.ensure_counter( document, root, document_schema.wip_breaches(), EnsuredBreaches, ), ]) } WATERSHED · GLEAM, IN A LUSTRE EFFECT The losers stay attached. A candidate channel that did not win the race is still attached to the document, just unreferenced. Orphan collection is out of scope; that's the cost of not having a leader elect the root.",
+        "links": [
+          [
+            "Foundations · starting a document",
+            "/foundations/lifecycle"
+          ]
+        ]
+      },
+      {
+        "heading": "3 · Reading and writing a field",
+        "text": "3 · Reading and writing a field This pair is the whole argument, and it is short. board.title is a string, and under a stored schema it cannot be anything else, so the read needs no error arm. watershed cannot promise that, so it does not pretend to: get_field returns Result(Option(a), FieldError), and you confront the “a peer disagrees about this type” case once, at the read, instead of discovering it later as corrupted state. (illustrative — Fluid SharedTree read/write) // Writing is checked by the compiler and again by SharedTree. board.title = \"Q3 sprint board\"; // Reading is total. `title` is a string, and no client running this // schema can make it anything else. renderHeader(board.title); FLUID SHAREDTREE · TYPESCRIPT tools/website-samples/src/website_samples/board_app.gleam fn read_write_example(root: watershed.TypedMap(document_schema.Board)) -> Nil { // Writing is checked at the field — only a String is accepted here. watershed.set_field(root, document_schema.title(), \"Q3 sprint board\") // Reading decodes at the boundary. A peer running an older build — or // a stale summary — could have written anything here, so the result is // a `Result`, never a raw value. case watershed.get_field(root, document_schema.title()) { Ok(Some(title)) -> render_header(title) Ok(None) -> render_header(\"Untitled board\") Error(_) -> render_header(\"Untitled board\") } } WATERSHED · GLEAM Whether that Error arm is a tax or a feature depends on what you can assume about the clients. If every writer runs your build against an enforced stored schema, it is noise. If an old tab, a stale summary, or a second application can reach the same document, it is the one place a multiplayer app gets to decide what to do about disagreement. The build guide works through it in context.",
+        "links": [
+          [
+            "build guide",
+            "/guide/notes"
+          ]
+        ]
+      },
+      {
+        "heading": "4 · A record spread across keys",
+        "text": "4 · A record spread across keys SharedTree stores the node, so the class declaration is the only declaration there is. watershed stores JSON per key, which normally means writing a decoder and an encoder and keeping them in sync by hand. The record1…record9 builders derive both from one prop list instead, and sealed_known seals the schema without you repeating the key names a third time. (illustrative — Fluid SharedTree record) // The shape was declared once, on the class. There is no second // encoder to keep in sync, because the tree stores the node itself. card.title = \"Ship the gauge rebuild\"; card.column = \"doing\"; card.owner = undefined; // clears the optional property FLUID SHAREDTREE · TYPESCRIPT tools/website-samples/src/website_samples/board_app.gleam /// `record3` derives the decoder AND the per-key encoder from one /// prop list, so the two can never drift. `sealed_known` seals the /// schema to exactly these keys without a hand-repeated list, and /// `versioned` stamps a version and rejects any stored version that differs. fn card_schema() -> Result(schema.Schema(Card, CardState), Nil) { schema.record3( CardState, schema.prop(card_title(), fn(c: CardState) { c.title }), schema.prop(card_column(), fn(c: CardState) { c.column }), schema.optional_prop(card_owner(), fn(c: CardState) { c.owner }), ) |> schema.versioned(1) |> schema.sealed_known } // `write` emits one op per key, never a blob — so a peer editing // `owner` at the same time keeps their edit. An optional prop that is // `None` deletes its key rather than skipping it. fn write_card(card: watershed.TypedMap(Card)) -> Result(Nil, Nil) { use card_schema <- result.try(card_schema()) watershed.write( card, card_schema, CardState(title: \"Ship it\", column: \"doing\", owner: None), ) Ok(Nil) } WATERSHED · GLEAM Per-key ops cut both ways. Writing a whole record as one op per key is why a peer editing owner at the same moment keeps their edit: the record view is never a clobbering blob. It is also why a peer can read the record mid-write and see three of four keys updated. Tree.runTransaction would prevent that; watershed has no answer for it yet. See below.",
+        "links": [
+          [
+            "below",
+            "#gaps"
+          ]
+        ]
+      },
+      {
+        "heading": "5 · One tree, or a graph of channels",
+        "text": "5 · One tree, or a graph of channels Here the two models stop resembling each other. Everything in a SharedTree is in the tree, under one changeset algebra. That is what makes a reorder across two arrays a coherent operation, and what makes the merge behaviour uniform enough that you never have to think about it. A watershed document is not one structure. Each slot on the root holds a handle to a channel that converges on its own terms, and the field declaration names which terms. The Sudoku example is the clearest case: four slots, four different answers to “what happens when two clients touch this at once”. Foundations · documents and handles lays out that layout on its own terms, without the SharedTree comparison. (illustrative — Fluid SharedTree nesting) // Everything is in one tree under one changeset algebra, so inserts, // removals, and reorders are all edits to the same document — and all // merge by the same rules. board.cards.insertAtEnd(new Card({ title: \"Ship it\", column: \"todo\" })); board.cards.moveRangeToIndex(4, 0, 3); board.cards.removeAt(2); FLUID SHAREDTREE · TYPESCRIPT examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam /// Phantom tag scoping every field below to the Sudoku root map. pub type SudokuDocument /// The active puzzle's id (see `puzzle.by_id`). pub fn puzzle() -> Field(SudokuDocument, String) { schema.field(\"puzzle\", json.string, decode.string) } /// The document title, shown in the status line. pub fn title() -> Field(SudokuDocument, String) { schema.field(\"title\", json.string, decode.string) } /// The player-entered digits, keyed `r{row}c{column}` → digit. pub fn cells() -> ChannelField(SudokuDocument, MapChannel) { schema.channel_field(\"cells\") // last write wins, per key } /// The pencil-mark notes, as `r{row}c{column}={digit}` set elements. pub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) { schema.channel_field(\"notes\") // add wins over a concurrent remove } /// The puzzle's immutable givens, first-writer-wins claims per cell. pub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) { schema.channel_field(\"givens\") // the first writer owns the slot } /// The shared mistake tally. pub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) { schema.channel_field(\"mistakes\") // commutative increments } WATERSHED · GLEAM So watershed makes you choose, and in exchange lets you choose right: pencil marks want an OR-set where a concurrent add beats a remove, the puzzle's givens want first-writer-wins claims, the mistake tally wants a counter that does not double-count a redelivered op. SharedTree would give all four the same treatment. The DDS · CRDT · OT comparison lays out what each of those policies costs. Nesting is indirection, not containment. A nested typed map, schema.child_field(\"players\"), stores a handle, and the child is a peer channel, not a subtree of its parent. There is no cross-parent move, no operation that spans two channels, and a root made of child fields cannot be sealed by a record schema at all. See Foundations · documents and handles for what that costs you in practice.",
+        "links": [
+          [
+            "Foundations · documents and handles",
+            "/foundations/topology"
+          ],
+          [
+            "OR-set",
+            "/structures/sets#orset"
+          ],
+          [
+            "first-writer-wins claims",
+            "/structures/coordination#claims"
+          ],
+          [
+            "counter",
+            "/structures/counters#counter"
+          ],
+          [
+            "DDS · CRDT · OT comparison",
+            "/models"
+          ],
+          [
+            "Foundations · documents and handles",
+            "/foundations/topology"
+          ]
+        ]
+      },
+      {
+        "heading": "6 · Being told what changed",
+        "text": "6 · Being told what changed treeChanged is the thing a tree buys you that a graph cannot: a rollup over an entire subtree, for free, because the subtree is a real thing with a boundary. watershed has no rollup above a single channel: you subscribe per channel, and per field. What a field subscription gives back in exchange is decoded on both sides. A FieldChange carries the previous value and the new one, already run through the field's decoder, plus whether this client made it. A peer's type-confused write arrives as an Error in the event rather than as state that looks fine until it does not. (illustrative — Fluid SharedTree events) // Per node, plus a subtree rollup for free: `treeChanged` fires for a // change anywhere below the node, because there is a tree to roll up. const stopCards = Tree.on(board.cards, \"nodeChanged\", renderCards); const stopAll = Tree.on(board, \"treeChanged\", renderEverything); // Editing the tree from inside a change callback throws a UsageError. FLUID SHAREDTREE · TYPESCRIPT tools/website-samples/src/website_samples/board_app.gleam fn subscribe_title( root: watershed.TypedMap(document_schema.Board), ) -> watershed.SubscriptionToken { // Per field. The change carries the decoded previous value AND the // new one, plus whether this client made it — and a peer's // type-confused write surfaces here as `Error(Invalid(_))`. watershed.subscribe_field(root, document_schema.title(), fn(change) { case change { FieldChange(value: Ok(Some(title)), local: False, ..) -> render_header(title) FieldChange(value: Error(_), ..) -> keep_previous_header() _ -> Nil } }) } WATERSHED · GLEAM examples/sudoku_lustre/src/sudoku_lustre/component.gleam /// The narrowed per-kind subscriptions as one batch. Each handler sees only its /// channel's own event type; the whole-model `snapshot` stays the cheapest /// re-read for an 81-cell grid, so every handler just bumps it. fn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) { effect.batch([ watershed_lustre.subscribe(shared.cells, fn(_event) { SharedChanged }), watershed_lustre.subscribe_or_set(shared.notes, fn(_event) { SharedChanged }), watershed_lustre.subscribe_claims(shared.givens, fn(_event) { SharedChanged }), watershed_lustre.subscribe_counter(shared.mistakes, fn(_event) { SharedChanged }), ]) } WATERSHED · GLEAM, NARROWED PER-KIND SUBSCRIPTIONS",
+        "links": []
+      },
+      {
+        "heading": "What SharedTree has that watershed does not",
+        "text": "What SharedTree has that watershed does not All three of these are consequences of the same choice. A rebasable changeset over one enforced tree is what lets you group edits, revert them, and move a document from one stored schema to the next. watershed has ops over independent channels and a client-side decoder, so it has none of them. (illustrative — Fluid SharedTree gaps) // Atomicity — every edit in the callback lands, or none of them does. Tree.runTransaction(board, () => { card.column = \"doing\"; card.owner = \"ada\"; if (overWipLimit(board)) return Tree.runTransaction.rollback; }); // Undo — each local commit offers a revertible. view.events.on(\"commitApplied\", (data, getRevertible) => { if (getRevertible !== undefined) undoStack.push(getRevertible()); }); // Schema upgrade — an old document can be moved onto the new stored schema. if (!view.compatibility.canView && view.compatibility.canUpgrade) { view.upgradeSchema(); } FLUID SHAREDTREE · TYPESCRIPT Transactions. watershed writes per-key ops, so peers can observe a partial record. Fixing it means a batched multi-set map op: a wire-format change, deliberately deferred until a real consumer hurts. Undo and redo. Not offered. The kernels do have a rollback, but that is nack-and-resubmit machinery for unacknowledged local ops, not a user-facing stack. Schema upgrade. schema.versioned(n) stamps a version and fails closed on mismatch, which is a dead end rather than a path. Entries-level migrations are designed and unshipped. Enforcement, node identity, cross-parent moves, branching. Absent by design. Typing stays a client decode boundary; the server stays content-agnostic. The reason is worth stating as a number rather than an adjective. Fluid Framework's tree package (stored-versus-view schema system, forest, compositional changeset rebasing, undo/redo, ID compression) is 77,804 lines — a multi-year project to reproduce in any language, and one watershed would take on only for a compelling product need. watershed's entire schema vocabulary is one roughly 700-line module: src/watershed/schema.gleam. That is the trade.",
+        "links": []
+      }
+    ],
+    "snippets": [
+      {
+        "source": "(illustrative — Fluid SharedTree schema)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "import { SchemaFactory } from \"fluid-framework\";\n\n// This id is written into the document. It becomes the *stored* schema,\n// and from here on every client's SharedTree enforces it.\nconst sf = new SchemaFactory(\"com.example.sprintboard\");\n\nclass Card extends sf.object(\"Card\", {\n  title: sf.string,\n  column: sf.string,\n  owner: sf.optional(sf.string),\n}) {}\n\nclass Cards extends sf.array(\"Cards\", Card) {}\n\nclass Board extends sf.object(\"Board\", {\n  title: sf.string,\n  cards: Cards,\n  wipBreaches: sf.number,\n}) {}"
+      },
+      {
+        "source": "tools/website-samples/src/website_samples/board_schema.gleam",
+        "caption": "WATERSHED · GLEAM",
+        "code": "// A phantom tag. It is erased at compile time — nothing about `Board`\n// reaches the document, and no peer has to agree it exists.\npub type Board\n\npub fn title() -> Field(Board, String) {\n  schema.field(\"title\", json.string, decode.string)\n}\n\npub fn cards() -> ChannelField(Board, MapChannel) {\n  schema.channel_field(\"cards\")\n}\n\npub fn wip_breaches() -> ChannelField(Board, CounterChannel) {\n  schema.channel_field(\"wip_breaches\")\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree root)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "import { TreeViewConfiguration } from \"fluid-framework\";\n\nconst config = new TreeViewConfiguration({ schema: Board });\nconst view = tree.viewWith(config);\n\n// Once, against an empty document. After this the stored schema is\n// authoritative and every later client just reads it.\nview.initialize(\n  new Board({ title: \"Sprint board\", cards: [], wipBreaches: 0 }),\n);\n\nconst board = view.root; // typed Board, guaranteed to exist"
+      },
+      {
+        "source": "tools/website-samples/src/website_samples/board_app.gleam",
+        "caption": "WATERSHED · GLEAM, IN A LUSTRE EFFECT",
+        "code": "fn bootstrap(\n  document: watershed.Document(document_schema.Board),\n) -> Effect(Msg) {\n  let root = watershed.root_typed(document)\n  effect.batch([\n    // Idempotent, and run by every client on every boot. Each one\n    // seeds a candidate and adopts the handle visible after its own\n    // sync — a later concurrent write can still replace the field,\n    // so the channel handed back here is not promised to be final.\n    watershed_lustre.ensure_field(root, document_schema.title(), \"Sprint board\"),\n    watershed_lustre.ensure_map(\n      document,\n      root,\n      document_schema.cards(),\n      EnsuredCards,\n    ),\n    watershed_lustre.ensure_counter(\n      document,\n      root,\n      document_schema.wip_breaches(),\n      EnsuredBreaches,\n    ),\n  ])\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree read/write)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "// Writing is checked by the compiler and again by SharedTree.\nboard.title = \"Q3 sprint board\";\n\n// Reading is total. `title` is a string, and no client running this\n// schema can make it anything else.\nrenderHeader(board.title);"
+      },
+      {
+        "source": "tools/website-samples/src/website_samples/board_app.gleam",
+        "caption": "WATERSHED · GLEAM",
+        "code": "fn read_write_example(root: watershed.TypedMap(document_schema.Board)) -> Nil {\n  // Writing is checked at the field — only a String is accepted here.\n  watershed.set_field(root, document_schema.title(), \"Q3 sprint board\")\n\n  // Reading decodes at the boundary. A peer running an older build — or\n  // a stale summary — could have written anything here, so the result is\n  // a `Result`, never a raw value.\n  case watershed.get_field(root, document_schema.title()) {\n    Ok(Some(title)) -> render_header(title)\n    Ok(None) -> render_header(\"Untitled board\")\n    Error(_) -> render_header(\"Untitled board\")\n  }\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree record)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "// The shape was declared once, on the class. There is no second\n// encoder to keep in sync, because the tree stores the node itself.\ncard.title = \"Ship the gauge rebuild\";\ncard.column = \"doing\";\ncard.owner = undefined; // clears the optional property"
+      },
+      {
+        "source": "tools/website-samples/src/website_samples/board_app.gleam",
+        "caption": "WATERSHED · GLEAM",
+        "code": "/// `record3` derives the decoder AND the per-key encoder from one\n/// prop list, so the two can never drift. `sealed_known` seals the\n/// schema to exactly these keys without a hand-repeated list, and\n/// `versioned` stamps a version and rejects any stored version that differs.\nfn card_schema() -> Result(schema.Schema(Card, CardState), Nil) {\n  schema.record3(\n    CardState,\n    schema.prop(card_title(), fn(c: CardState) { c.title }),\n    schema.prop(card_column(), fn(c: CardState) { c.column }),\n    schema.optional_prop(card_owner(), fn(c: CardState) { c.owner }),\n  )\n  |> schema.versioned(1)\n  |> schema.sealed_known\n}\n\n// `write` emits one op per key, never a blob — so a peer editing\n// `owner` at the same time keeps their edit. An optional prop that is\n// `None` deletes its key rather than skipping it.\nfn write_card(card: watershed.TypedMap(Card)) -> Result(Nil, Nil) {\n  use card_schema <- result.try(card_schema())\n  watershed.write(\n    card,\n    card_schema,\n    CardState(title: \"Ship it\", column: \"doing\", owner: None),\n  )\n  Ok(Nil)\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree nesting)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "// Everything is in one tree under one changeset algebra, so inserts,\n// removals, and reorders are all edits to the same document — and all\n// merge by the same rules.\nboard.cards.insertAtEnd(new Card({ title: \"Ship it\", column: \"todo\" }));\nboard.cards.moveRangeToIndex(4, 0, 3);\nboard.cards.removeAt(2);"
+      },
+      {
+        "source": "examples/sudoku_lustre/src/sudoku_lustre/document_schema.gleam",
+        "caption": "WATERSHED · GLEAM",
+        "code": "/// Phantom tag scoping every field below to the Sudoku root map.\npub type SudokuDocument\n\n/// The active puzzle's id (see `puzzle.by_id`).\npub fn puzzle() -> Field(SudokuDocument, String) {\n  schema.field(\"puzzle\", json.string, decode.string)\n}\n\n/// The document title, shown in the status line.\npub fn title() -> Field(SudokuDocument, String) {\n  schema.field(\"title\", json.string, decode.string)\n}\n\n/// The player-entered digits, keyed `r{row}c{column}` → digit.\npub fn cells() -> ChannelField(SudokuDocument, MapChannel) {\n  schema.channel_field(\"cells\")\n  // last write wins, per key\n}\n\n/// The pencil-mark notes, as `r{row}c{column}={digit}` set elements.\npub fn notes() -> ChannelField(SudokuDocument, OrSetChannel) {\n  schema.channel_field(\"notes\")\n  // add wins over a concurrent remove\n}\n\n/// The puzzle's immutable givens, first-writer-wins claims per cell.\npub fn givens() -> ChannelField(SudokuDocument, ClaimsChannel) {\n  schema.channel_field(\"givens\")\n  // the first writer owns the slot\n}\n\n/// The shared mistake tally.\npub fn mistakes() -> ChannelField(SudokuDocument, CounterChannel) {\n  schema.channel_field(\"mistakes\")\n  // commutative increments\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree events)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "// Per node, plus a subtree rollup for free: `treeChanged` fires for a\n// change anywhere below the node, because there is a tree to roll up.\nconst stopCards = Tree.on(board.cards, \"nodeChanged\", renderCards);\nconst stopAll = Tree.on(board, \"treeChanged\", renderEverything);\n\n// Editing the tree from inside a change callback throws a UsageError."
+      },
+      {
+        "source": "tools/website-samples/src/website_samples/board_app.gleam",
+        "caption": "WATERSHED · GLEAM",
+        "code": "fn subscribe_title(\n  root: watershed.TypedMap(document_schema.Board),\n) -> watershed.SubscriptionToken {\n  // Per field. The change carries the decoded previous value AND the\n  // new one, plus whether this client made it — and a peer's\n  // type-confused write surfaces here as `Error(Invalid(_))`.\n  watershed.subscribe_field(root, document_schema.title(), fn(change) {\n    case change {\n      FieldChange(value: Ok(Some(title)), local: False, ..) ->\n        render_header(title)\n      FieldChange(value: Error(_), ..) -> keep_previous_header()\n      _ -> Nil\n    }\n  })\n}"
+      },
+      {
+        "source": "examples/sudoku_lustre/src/sudoku_lustre/component.gleam",
+        "caption": "WATERSHED · GLEAM, NARROWED PER-KIND SUBSCRIPTIONS",
+        "code": "/// The narrowed per-kind subscriptions as one batch. Each handler sees only its\n/// channel's own event type; the whole-model `snapshot` stays the cheapest\n/// re-read for an 81-cell grid, so every handler just bumps it.\nfn subscribe_shared_effect(shared: SharedState) -> Effect(Msg) {\n  effect.batch([\n    watershed_lustre.subscribe(shared.cells, fn(_event) { SharedChanged }),\n    watershed_lustre.subscribe_or_set(shared.notes, fn(_event) { SharedChanged }),\n    watershed_lustre.subscribe_claims(shared.givens, fn(_event) {\n      SharedChanged\n    }),\n    watershed_lustre.subscribe_counter(shared.mistakes, fn(_event) {\n      SharedChanged\n    }),\n  ])\n}"
+      },
+      {
+        "source": "(illustrative — Fluid SharedTree gaps)",
+        "caption": "FLUID SHAREDTREE · TYPESCRIPT",
+        "code": "// Atomicity — every edit in the callback lands, or none of them does.\nTree.runTransaction(board, () => {\n  card.column = \"doing\";\n  card.owner = \"ada\";\n  if (overWipLimit(board)) return Tree.runTransaction.rollback;\n});\n\n// Undo — each local commit offers a revertible.\nview.events.on(\"commitApplied\", (data, getRevertible) => {\n  if (getRevertible !== undefined) undoStack.push(getRevertible());\n});\n\n// Schema upgrade — an old document can be moved onto the new stored schema.\nif (!view.compatibility.canView && view.compatibility.canUpgrade) {\n  view.upgradeSchema();\n}"
+      }
+    ],
+    "table": [
+      [
+        "Property",
+        "SharedTree",
+        "watershed"
+      ],
+      [
+        "SCHEMA LOCATION",
+        "in the document, as a stored schema written on first initialize",
+        "in your build only, as a phantom tag and a set of field descriptors erased at runtime"
+      ],
+      [
+        "A PEER WRITES THE WRONG TYPE",
+        "cannot happen under the stored schema; SharedTree rejects the write on that client",
+        "reaches the document, and surfaces as Error(Invalid(_)) on your read"
+      ],
+      [
+        "SHAPE OF THE DATA",
+        "one tree, one changeset algebra over the whole document",
+        "a graph of independently addressed channels, joined by handles stored as map values"
+      ],
+      [
+        "MERGE POLICY",
+        "one, applied to everything in the tree",
+        "one per slot: LWW map, add-wins OR-set, first-writer-wins claims, commutative counter, OT rich text"
+      ],
+      [
+        "DECLARE ONCE",
+        "SchemaFactory classes; static types derived",
+        "Field / ChannelField / recordN; encoder and decoder derived from one prop list"
+      ],
+      [
+        "GUARANTEED ROOTS",
+        "viewWith + initialize, once, against an empty document",
+        "ensure_* per slot, idempotent, run by every client on every boot"
+      ],
+      [
+        "INVALIDATION",
+        "nodeChanged plus a treeChanged subtree rollup",
+        "subscribe_field (decoded previous and new) and narrowed per-kind channel events; no rollup above a channel"
+      ],
+      [
+        "ATOMIC MULTI-FIELD WRITE",
+        "Tree.runTransaction, with rollback and preconditions",
+        "none: per-key ops, so peers can observe a partial record"
+      ],
+      [
+        "UNDO / REDO",
+        "commitApplied → Revertible.revert()",
+        "none offered"
+      ],
+      [
+        "SCHEMA UPGRADE",
+        "canView / canUpgrade / upgradeSchema, plus staged rollout",
+        "versioned(n) fails closed with SchemaMismatch; no migration path"
+      ],
+      [
+        "MOVES",
+        "moveRangeToIndex, including between arrays in the same tree",
+        "convergent move inside one SharedSequence; no cross-parent move"
+      ],
+      [
+        "RUNS ON",
+        "TypeScript and JavaScript",
+        "one Gleam core, on the BEAM and in the browser"
+      ],
+      [
+        "IMPLEMENTATION SIZE",
+        "77,804 lines in the Fluid tree package",
+        "about 700 lines in watershed/schema.gleam"
+      ]
+    ],
+    "guide": "Further reading The decode boundary → DDS · CRDT · OT → The field atlas → SharedTree documentation ↗",
+    "guideLinks": [
+      [
+        "The decode boundary →",
+        "/guide/notes"
+      ],
+      [
+        "DDS · CRDT · OT →",
+        "/models"
+      ],
+      [
+        "The field atlas →",
+        "/structures"
+      ],
+      [
+        "SharedTree documentation ↗",
+        "https://fluidframework.com/docs/data-structures/tree/"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "viewportWidth": 390,
+    "scrollWidth": 390,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "56px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "33.15px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "32.8185px"
+      },
+      "body": {
+        "max-width": "1088px",
+        "padding": "64px 20px 0px"
+      },
+      "pair": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px",
+        "width": "324px"
+      },
+      "code": {
+        "font-size": "12.24px",
+        "overflow-x": "auto"
+      },
+      "table": {
+        "overflow-x": "auto",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "guide": {
+        "padding": "72px 20px",
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      }
+    }
+  }
+}

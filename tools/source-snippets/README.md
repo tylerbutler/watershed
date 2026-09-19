@@ -16,12 +16,12 @@ themes, or which snippet is allowed to be hand-written. It takes paths,
 extensions, ids, and markers, and it hands back JSON. Any Gleam project can
 point it at its own sources with its own configuration.
 
-Watershed's own configuration lives in `website/snippets.json`, and every
-watershed path in this README — `website/`, `examples/`, the `just` recipe —
-is an example of one project's choices, not a rule the package enforces. The
-same is true of the `excludeDirs` values: `build` is where the Gleam compiler
-happens to put its copies, and a project that generates elsewhere names its
-own directories.
+Watershed's own configuration lives in `website_lustre/snippets.json`, and
+every watershed path in this README — `website_lustre/`, `examples/`, the
+`just` recipe — is an example of one project's choices, not a rule the package
+enforces. The same is true of the `excludeDirs` values: `build` is where the
+Gleam compiler happens to put its copies, and a project that generates
+elsewhere names its own directories.
 
 ## Command
 
@@ -53,7 +53,7 @@ id and the marker id, so the failure can be found without rerunning anything:
 
 ```
 error: expected 2 arguments (config output), got 1
-error: cannot read config: website/snippets.json
+error: cannot read config: website_lustre/snippets.json
 error: invalid config JSON
 error: marker root not found: src
 error: source file not found: examples/demo/src/demo.gleam
@@ -63,7 +63,7 @@ error: snippet "demo": extraction failed
 error: marker "demo-start" found in both src/a.gleam and build/a.gleam
 error: marker "demo-start" in src/a.gleam is not referenced by any snippet
 error: marker "demo-start" has its pair in src/a.gleam and an extra end directive in src/b.gleam
-error: cannot write output: website/src/generated/snippets.json
+error: cannot write output: website_lustre/src/generated/snippets.json
 ```
 
 A failing run leaves the previous manifest in place, so a build that already
@@ -217,13 +217,15 @@ Entries are sorted by id for deterministic output.
 
 ## Build integration
 
-Run the generator before `pnpm build` and `pnpm dev`. Example `just` recipe:
+Run `just snippets` to regenerate the Lustre site's manifest. The root
+`just website-lustre`, `just website-lustre-serve`, `just build`, and website
+test recipes already run the generator before rendering. The recipe uses:
 
 ```just
 snippets:
     cd tools/source-snippets && gleam run -m source_snippets/cli -- \
-        ../../website/snippets.json \
-        ../../website/src/generated/snippets.json
+        ../../website_lustre/snippets.json \
+        ../../website_lustre/src/generated/snippets.json
 ```
 
 No `--target` flag: the package's own `gleam.toml` already names JavaScript,

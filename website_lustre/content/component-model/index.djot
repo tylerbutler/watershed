@@ -1,0 +1,34 @@
+---
+description = "The optional model for user-constructable watershed apps: versioned component catalogs, typed ports, graph validation, workspace persistence, and dispatch planning."
+---
+
+{data-component="concept-intro"}
+::::
+{.eyebrow .annot}
+[← watershed](/) · Component model
+
+# Give users\
+_the parts._
+
+{.lede}
+These sheets answer one question: what if the user, not the author, decides what is on the page? The running example is a shared board: build it out of parts, wire it up, and save its arrangement in a workspace within the shared document.
+
+{.lede}
+Skip this section if your application ships a screen you lay out yourself. Start with [the foundations](/foundations) for the document model every watershed app uses.
+::::
+
+{data-component="concept-content"}
+:::::
+{data-heading-id="fh-ledger-title"}
+## Component model
+
+{.fh-scope .annot .fh-scope-optional}
+Optional · user-constructable apps
+
+3 sheets. One example board, built, wired, and saved. The first two split in half: using the parts, then writing one.
+
+{data-component="concept-aside"}
+:::
+Need a fixed application screen instead? Return to [the foundations](/foundations), then follow [the survey procedure](/guide).
+:::
+:::::

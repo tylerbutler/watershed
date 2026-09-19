@@ -1,0 +1,21 @@
+---
+description = "Field guide to watershed's collaborative data structures, grouped into families: counters, sets, registers, maps, sequences, coordination, transforms. How each converges, and what it is best for."
+---
+
+{data-component="structures-intro"}
+::::
+{.eyebrow .annot}
+[← watershed](/) · Data structures
+
+# Every structure,\
+_by family._
+
+{.lede}
+Every structure watershed ships rides one server-sequenced stream, but each one converges by its own rule. This is the field guide: pick a family to see how each structure works, what it can render optimistically, and what it is best for.
+
+{.cta-row}
+[See how a field is typed →](/foundations/schema){.cta-quiet}
+[Build an app with these →](/guide){.cta-quiet}
+[Compare DDS · CRDT · OT →](/models){.cta-quiet}
+[Watch them converge ↓](/#demo){.cta-quiet}
+::::

@@ -1,0 +1,500 @@
+{
+  "content": {
+    "title": "watershed — runtime behavior",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "How watershed behaves at runtime: optimistic edits and rollback, reconnect and resync from a summary, idempotent delta re-delivery, the ephemeral presence tier, and peer-to-peer documents that run over WebRTC with no sequencer at all. The field notes behind the convergence guarantee."
+      ],
+      [
+        "og:title",
+        "watershed — runtime behavior"
+      ],
+      [
+        "og:description",
+        "How watershed behaves at runtime: optimistic edits and rollback, reconnect and resync from a summary, idempotent delta re-delivery, the ephemeral presence tier, and peer-to-peer documents that run over WebRTC with no sequencer at all. The field notes behind the convergence guarantee."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/runtime/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Runtimebehavior.",
+    "headingBreaks": 1,
+    "headings": [
+      "Runtime behaviors"
+    ],
+    "prose": [
+      "← watershed · Runtime",
+      "The atlas shows what each structure is and the models page shows how it converges. These pages cover the runtime behavior shared by every structure: optimism, reconnection, duplicate safety, the ephemeral tier that never touches converged state, and the mesh that lets a document run with no sequencer joined at all.",
+      "Five sheets. Read in order, or choose the behavior you need to investigate.",
+      "Ready to build on these? The build guide puts them to work, including a hands-on presence step that wires the ephemeral tier into a working board."
+    ],
+    "entries": [
+      {
+        "href": "/runtime/optimistic",
+        "number": "01",
+        "fields": [
+          "Optimistic edits",
+          "Show a local edit the instant it happens, reconcile it when the server sequences it, and unwind it cleanly if it loses.",
+          "apply · pending → ack_local → sequenced"
+        ]
+      },
+      {
+        "href": "/runtime/reconnect",
+        "number": "02",
+        "fields": [
+          "Reconnect & resync",
+          "Drop the link and rejoin the flow. A returning client rehydrates from a summary (the same path a fresh client boots from).",
+          "from_summary · replay · catch-up"
+        ]
+      },
+      {
+        "href": "/runtime/redelivery",
+        "number": "03",
+        "fields": [
+          "Idempotent re-delivery",
+          "Why a re-sent delta lands as a non-event: the runtime's sequence-number check drops it, or an idempotent merge absorbs it.",
+          "re-deliver · dedupe · absorb"
+        ]
+      },
+      {
+        "href": "/runtime/presence",
+        "number": "04",
+        "fields": [
+          "Presence & ripples",
+          "The ephemeral tier beside your state: throwaway broadcasts, and the roster built on them (connection-backed where the server offers it, heartbeat-and-TTL where it does not).",
+          "submit_ripple · sessions · server or heartbeat"
+        ]
+      },
+      {
+        "href": "/runtime/p2p",
+        "number": "05",
+        "fields": [
+          "Peer-to-peer over WebRTC",
+          "A document that runs on a WebRTC mesh with no sequencer at all. Eligible structures merge instead of ordering, and a relay can attach later for durability without changing the document's state or handles.",
+          "CrdtDocument · Auto / SequencedOnly / P2pOnly · crdt_relay_v1"
+        ]
+      }
+    ],
+    "primary": [
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Components",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Guide",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": "page"
+      },
+      {
+        "text": "Models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "Examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "context": [
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/runtime",
+        "current": "page"
+      },
+      {
+        "text": "Optimistic edits",
+        "href": "/runtime/optimistic",
+        "current": null
+      },
+      {
+        "text": "Reconnect & resync",
+        "href": "/runtime/reconnect",
+        "current": null
+      },
+      {
+        "text": "Idempotent re-delivery",
+        "href": "/runtime/redelivery",
+        "current": null
+      },
+      {
+        "text": "Presence & ripples",
+        "href": "/runtime/presence",
+        "current": null
+      },
+      {
+        "text": "Peer-to-peer over WebRTC",
+        "href": "/runtime/p2p",
+        "current": null
+      }
+    ],
+    "adjoining": [
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Schemas and fields",
+        "href": "/foundations/schema",
+        "current": null
+      },
+      {
+        "text": "Documents and handles",
+        "href": "/foundations/topology",
+        "current": null
+      },
+      {
+        "text": "Starting a document",
+        "href": "/foundations/lifecycle",
+        "current": null
+      },
+      {
+        "text": "Component model",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Components and catalogs",
+        "href": "/component-model/components",
+        "current": null
+      },
+      {
+        "text": "Ports and dispatch",
+        "href": "/component-model/ports",
+        "current": null
+      },
+      {
+        "text": "Workspaces and instances",
+        "href": "/component-model/workspaces",
+        "current": null
+      },
+      {
+        "text": "Build guide",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "01 · Connect the board",
+        "href": "/guide/connect",
+        "current": null
+      },
+      {
+        "text": "02 · Add notes",
+        "href": "/guide/notes",
+        "current": null
+      },
+      {
+        "text": "03 · Try two edits at once",
+        "href": "/guide/race",
+        "current": null
+      },
+      {
+        "text": "04 · Add votes",
+        "href": "/guide/votes",
+        "current": null
+      },
+      {
+        "text": "05 · Add presence",
+        "href": "/guide/presence",
+        "current": null
+      },
+      {
+        "text": "06 · Write repeatable tests",
+        "href": "/guide/testing",
+        "current": null
+      },
+      {
+        "text": "Data structures",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Field atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Counters",
+        "href": "/structures/counters",
+        "current": null
+      },
+      {
+        "text": "Sets",
+        "href": "/structures/sets",
+        "current": null
+      },
+      {
+        "text": "Registers",
+        "href": "/structures/registers",
+        "current": null
+      },
+      {
+        "text": "Maps",
+        "href": "/structures/maps",
+        "current": null
+      },
+      {
+        "text": "Sequences",
+        "href": "/structures/sequences",
+        "current": null
+      },
+      {
+        "text": "Coordination",
+        "href": "/structures/coordination",
+        "current": null
+      },
+      {
+        "text": "Transforms",
+        "href": "/structures/transforms",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Behaviors",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Optimistic edits",
+        "href": "/runtime/optimistic",
+        "current": null
+      },
+      {
+        "text": "Reconnect & resync",
+        "href": "/runtime/reconnect",
+        "current": null
+      },
+      {
+        "text": "Idempotent re-delivery",
+        "href": "/runtime/redelivery",
+        "current": null
+      },
+      {
+        "text": "Presence & ripples",
+        "href": "/runtime/presence",
+        "current": null
+      },
+      {
+        "text": "Peer-to-peer over WebRTC",
+        "href": "/runtime/p2p",
+        "current": null
+      },
+      {
+        "text": "Reference & demos",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Browser examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Patterns",
+        "href": "/patterns",
+        "current": null
+      },
+      {
+        "text": "Convergence models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "SharedTree comparison",
+        "href": "/sharedtree",
+        "current": null
+      },
+      {
+        "text": "The counter bug",
+        "href": "/counter-bug",
+        "current": null
+      },
+      {
+        "text": "Shared directory",
+        "href": "/directory",
+        "current": null
+      },
+      {
+        "text": "JsonOt",
+        "href": "/json-ot",
+        "current": null
+      },
+      {
+        "text": "Rich text",
+        "href": "/rich-text",
+        "current": null
+      },
+      {
+        "text": "Sudoku",
+        "href": "/sudoku",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "canonical": null
+  },
+  "desktop": {
+    "hero": {
+      "padding": "112px 64.8px 80px",
+      "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+    },
+    "heading": {
+      "font-size": "86.4px",
+      "font-weight": "640",
+      "font-stretch": "122%",
+      "line-height": "85.536px",
+      "letter-spacing": "-2.16px"
+    },
+    "lede": {
+      "font-size": "21px",
+      "line-height": "33.6px",
+      "max-width": "746.042px",
+      "margin-top": "40px"
+    },
+    "ledger": {
+      "padding": "64px 64.8px 129.6px",
+      "max-width": "1152px"
+    },
+    "item": {
+      "display": "grid",
+      "grid-template-columns": "23.9375px 914.641px 11.8281px",
+      "gap": "24px",
+      "padding": "24px 12px"
+    },
+    "concept": {
+      "display": "block",
+      "font-size": "13px",
+      "color": "oklch(0.37 0.095 240)"
+    },
+    "aside": {
+      "margin-top": "64px",
+      "padding-top": "24px",
+      "border-top": "1px dashed oklch(0.25 0.02 260 / 0.22)",
+      "max-width": "494.753px"
+    }
+  },
+  "mobile": {
+    "hero": {
+      "padding": "56px 20px 40px",
+      "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+    },
+    "heading": {
+      "font-size": "33.15px",
+      "font-weight": "640",
+      "font-stretch": "100%",
+      "line-height": "32.8185px",
+      "letter-spacing": "-0.9945px"
+    },
+    "lede": {
+      "font-size": "18.34px",
+      "line-height": "29.344px",
+      "max-width": "651.128px",
+      "margin-top": "40px"
+    },
+    "ledger": {
+      "padding": "64px 20px 72px",
+      "max-width": "1152px"
+    },
+    "item": {
+      "display": "grid",
+      "grid-template-columns": "23.9375px 232.234px 11.8281px",
+      "gap": "16px",
+      "padding": "24px 12px"
+    },
+    "concept": {
+      "display": "none",
+      "font-size": "13px",
+      "color": "oklch(0.37 0.095 240)"
+    },
+    "aside": {
+      "margin-top": "64px",
+      "padding-top": "24px",
+      "border-top": "1px dashed oklch(0.25 0.02 260 / 0.22)",
+      "max-width": "494.753px"
+    }
+  },
+  "focus": {
+    "outline": "oklch(0.55 0.21 340) solid 2px",
+    "offset": "2px"
+  }
+}

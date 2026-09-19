@@ -1,0 +1,520 @@
+{
+  "desktop": {
+    "title": "watershed — peer-to-peer over webrtc",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "How a watershed CRDT document runs on a WebRTC mesh with no sequencer joined at all: signaling only introduces peers, eligible structures converge by merge instead of server order, and an optional relay attaches later for durability without changing the document's state or public handles."
+      ],
+      [
+        "og:title",
+        "watershed — peer-to-peer over webrtc"
+      ],
+      [
+        "og:description",
+        "How a watershed CRDT document runs on a WebRTC mesh with no sequencer joined at all: signaling only introduces peers, eligible structures converge by merge instead of server order, and an optional relay attaches later for durability without changing the document's state or public handles."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/runtime/p2p/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Peer-to-peer over WebRTC",
+    "hero": [
+      "← WATERSHED · RUNTIME / PEER-TO-PEER OVER WEBRTC",
+      "RUNTIME BEHAVIOR",
+      "A document that runs on a WebRTC mesh with no sequencer at all. Eligible structures merge instead of ordering, and a relay can attach later for durability without changing the document's state or handles.",
+      "TRACES CRDTDOCUMENT · AUTO / SEQUENCEDONLY / P2PONLY · CRDT_RELAY_V1",
+      "TRACES"
+    ],
+    "headings": [
+      "A document that doesn't need a sequencer",
+      "Signaling introduces peers; it never sequences",
+      "Not every structure is eligible",
+      "One document, three policies",
+      "An optional durable relay"
+    ],
+    "prose": [
+      "Every other sheet on this page assumes a server assigns the order that resolves concurrent writes. A CRDT document drops that assumption: browsers discover one another over WebRTC, edit while disconnected, reconnect in any order, and converge once they exchange state. The structures involved define their own merge rule instead of depending on somebody stamping a sequence number. The clap counter in the examples index is this running with the sequencer never in the picture at all: two tabs holding the clap button down both land, and nothing acknowledges either one.",
+      "A signaling service exchanges offers, answers, and ICE candidates so two browsers can open a direct connection (and admits a room, if it chooses to authenticate). It never assigns operation order, never stores document state, and cannot see a delta once the data channel is open: by protocol shape, an opaque envelope is the only thing that ever crosses it. A signaling outage blocks new peers from finding each other; it does not touch a document already converged.",
+      "The first topology is a small full mesh: every peer opens one data channel to every other peer, capped at eight, and the ninth arrival is refused with RoomFull rather than degrading the mesh underneath everyone already in it. Applications supply their own STUN and TURN servers (watershed ships neither); host candidates alone only connect peers with no NAT between them.",
+      "A merge rule is what makes order-independence possible, so only the channels built as CRDTs may run this way: PN counter, MV register, OR-set, the OR-map, G-set, 2P-set, SharedSequence, and SharedText. A p2p document's root is one of these, chosen explicitly at config time, never the ordinary last-write-wins SharedMap.",
+      "An MV register keeps the tagged alternatives and its full causal clock, not just the strings on screen. Snapshots and digests retain that history so a resolved revision can't return in a stale delta. A same-text write can change this causal state without firing a visible-value event; peer synchronization and digest-gated persistence still detect the change.",
+      "Everything that depends on server order or acknowledgement stays out: SharedMap, SharedCounter, and SharedDirectory resolve by sequence number; claims and registers persist one; TaskManager, pact maps, and ordered collections depend on ordered membership; and the OT-transformed json_ot and rich-text channels transform against sequenced history. None of these have a merge function to fall back on, so none of them are safe with no sequencer in the room.",
+      "A CrdtDocument chooses its transports once, at config time:",
+      "Auto is the default: the mesh and any configured relay each come up on their own schedule, readiness waits only for the mesh, and the relay becomes the durable delta path once it proves itself. P2pOnly opens no relay socket and ignores a configured one entirely. SequencedOnly is the inverse: no signaling, no RTCPeerConnection, and readiness waits on the relay alone, under a bounded deadline, because there is nothing else to wait on. All three run the identical document over the identical wire envelopes, so a snapshot exported under one policy imports under either of the others.",
+      "Losing the relay doesn't lose the document. When a primary relay connection drops, the document reports the failover, pushes the digest it owed the mesh, asks its peers for state, and keeps running on WebRTC: same public handles, same converged state, one transport quietly retired. Readiness under Auto never waited on the relay in the first place.",
+      "A relay speaking crdt_relay_v1 is a durable fan-out point, not a sequencer transplanted into this mode: it stamps a diagnostic order for its own log, broadcasts what it accepts, and answers a request for the state it holds. It never merges, never decodes a kernel payload, and never decides which of two replicas is right. That stays the mesh's job. A room with no relay simply keeps its state in whichever replicas are connected; one that attaches a relay keeps running exactly the same after it disconnects again, minus the durability.",
+      "A CRDT document trades the server's order for a merge rule, so it can run on a WebRTC mesh with no sequencer at all. Signaling only introduces peers; eligible structures converge by merge; and an optional relay attaches later purely for durability and reach, never changing what the document means."
+    ],
+    "links": [
+      [
+        "the examples index",
+        "/examples#clap_counter_lustre"
+      ],
+      [
+        "PN counter",
+        "/structures/counters#pn"
+      ],
+      [
+        "MV register",
+        "/mv-register"
+      ],
+      [
+        "OR-set",
+        "/structures/sets#orset"
+      ],
+      [
+        "OR-map",
+        "/structures/maps#ormap"
+      ],
+      [
+        "G-set",
+        "/structures/sets#gset"
+      ],
+      [
+        "2P-set",
+        "/structures/sets#twopset"
+      ],
+      [
+        "SharedSequence",
+        "/structures/sequences#sequence"
+      ],
+      [
+        "SharedText",
+        "/structures/sequences#text"
+      ],
+      [
+        "SharedMap",
+        "/structures/maps"
+      ],
+      [
+        "SharedMap",
+        "/structures/maps"
+      ],
+      [
+        "SharedCounter",
+        "/structures/counters"
+      ],
+      [
+        "SharedDirectory",
+        "/structures/maps#directory"
+      ],
+      [
+        "claims",
+        "/structures/coordination#claims"
+      ],
+      [
+        "registers",
+        "/structures/registers#registers"
+      ],
+      [
+        "TaskManager",
+        "/structures/coordination#tasks"
+      ],
+      [
+        "pact maps",
+        "/structures/coordination#pact"
+      ],
+      [
+        "ordered collections",
+        "/structures/coordination#ordered"
+      ],
+      [
+        "json_ot and rich-text",
+        "/structures/transforms"
+      ]
+    ],
+    "pager": [
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "OVERVIEW",
+        "/runtime"
+      ],
+      [
+        "OPTIMISTIC EDITS",
+        "/runtime/optimistic"
+      ],
+      [
+        "RECONNECT & RESYNC",
+        "/runtime/reconnect"
+      ],
+      [
+        "IDEMPOTENT RE-DELIVERY",
+        "/runtime/redelivery"
+      ],
+      [
+        "PRESENCE & RIPPLES",
+        "/runtime/presence"
+      ],
+      [
+        "PEER-TO-PEER OVER WEBRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "← PRESENCE & RIPPLES The ephemeral tier beside your state: throwaway broadcasts, and the roster built on them (connection-backed where the server offers it, heartbeat-and-TTL where it does not).",
+        "/runtime/presence"
+      ],
+      [
+        "BUILD GUIDE → Put these behaviors to work",
+        "/guide"
+      ]
+    ],
+    "labels": [
+      "tools/website-samples/src/website_samples/p2p_sample.gleam"
+    ],
+    "captions": [],
+    "code": [
+      "fn p2p_config(signaling: Signaling) -> crdt_js.Config(schema.PnCounterChannel) {\n  // Auto starts on WebRTC and attempts the relay in parallel — it never\n  // waits for one, and prefers it while healthy.\n  let config =\n    crdt_js.config(\n      room_id: \"retro-board-9c2\",\n      replica_label: \"ada\",\n      compatibility_tag: \"retro-board/v1\",\n      root: p2p.pn_counter_root(),\n      signaling: signaling,\n    )\n    |> crdt_js.with_transport_policy(crdt_js.Auto)\n    |> crdt_js.with_sequencer(crdt_js.sequencer(\"wss://relay.example/room\"))\n  config\n}"
+    ],
+    "inlineCode": [
+      {
+        "text": "Auto",
+        "style": {
+          "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace",
+          "font-size": "14.45px",
+          "font-weight": "700",
+          "color": "oklch(0.44 0.185 340)"
+        }
+      },
+      {
+        "text": "P2pOnly",
+        "style": {
+          "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace",
+          "font-size": "14.45px",
+          "font-weight": "700",
+          "color": "oklch(0.44 0.185 340)"
+        }
+      },
+      {
+        "text": "SequencedOnly",
+        "style": {
+          "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace",
+          "font-size": "14.45px",
+          "font-weight": "700",
+          "color": "oklch(0.44 0.185 340)"
+        }
+      }
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "471.203px 471.203px",
+        "gap": "16px",
+        "padding": "64px 64.8px 129.6px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — peer-to-peer over webrtc",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "How a watershed CRDT document runs on a WebRTC mesh with no sequencer joined at all: signaling only introduces peers, eligible structures converge by merge instead of server order, and an optional relay attaches later for durability without changing the document's state or public handles."
+      ],
+      [
+        "og:title",
+        "watershed — peer-to-peer over webrtc"
+      ],
+      [
+        "og:description",
+        "How a watershed CRDT document runs on a WebRTC mesh with no sequencer joined at all: signaling only introduces peers, eligible structures converge by merge instead of server order, and an optional relay attaches later for durability without changing the document's state or public handles."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/runtime/p2p/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Peer-to-peer over WebRTC",
+    "hero": [
+      "← WATERSHED · RUNTIME / PEER-TO-PEER OVER WEBRTC",
+      "RUNTIME BEHAVIOR",
+      "A document that runs on a WebRTC mesh with no sequencer at all. Eligible structures merge instead of ordering, and a relay can attach later for durability without changing the document's state or handles.",
+      "TRACES CRDTDOCUMENT · AUTO / SEQUENCEDONLY / P2PONLY · CRDT_RELAY_V1",
+      "TRACES"
+    ],
+    "headings": [
+      "A document that doesn't need a sequencer",
+      "Signaling introduces peers; it never sequences",
+      "Not every structure is eligible",
+      "One document, three policies",
+      "An optional durable relay"
+    ],
+    "prose": [
+      "Every other sheet on this page assumes a server assigns the order that resolves concurrent writes. A CRDT document drops that assumption: browsers discover one another over WebRTC, edit while disconnected, reconnect in any order, and converge once they exchange state. The structures involved define their own merge rule instead of depending on somebody stamping a sequence number. The clap counter in the examples index is this running with the sequencer never in the picture at all: two tabs holding the clap button down both land, and nothing acknowledges either one.",
+      "A signaling service exchanges offers, answers, and ICE candidates so two browsers can open a direct connection (and admits a room, if it chooses to authenticate). It never assigns operation order, never stores document state, and cannot see a delta once the data channel is open: by protocol shape, an opaque envelope is the only thing that ever crosses it. A signaling outage blocks new peers from finding each other; it does not touch a document already converged.",
+      "The first topology is a small full mesh: every peer opens one data channel to every other peer, capped at eight, and the ninth arrival is refused with RoomFull rather than degrading the mesh underneath everyone already in it. Applications supply their own STUN and TURN servers (watershed ships neither); host candidates alone only connect peers with no NAT between them.",
+      "A merge rule is what makes order-independence possible, so only the channels built as CRDTs may run this way: PN counter, MV register, OR-set, the OR-map, G-set, 2P-set, SharedSequence, and SharedText. A p2p document's root is one of these, chosen explicitly at config time, never the ordinary last-write-wins SharedMap.",
+      "An MV register keeps the tagged alternatives and its full causal clock, not just the strings on screen. Snapshots and digests retain that history so a resolved revision can't return in a stale delta. A same-text write can change this causal state without firing a visible-value event; peer synchronization and digest-gated persistence still detect the change.",
+      "Everything that depends on server order or acknowledgement stays out: SharedMap, SharedCounter, and SharedDirectory resolve by sequence number; claims and registers persist one; TaskManager, pact maps, and ordered collections depend on ordered membership; and the OT-transformed json_ot and rich-text channels transform against sequenced history. None of these have a merge function to fall back on, so none of them are safe with no sequencer in the room.",
+      "A CrdtDocument chooses its transports once, at config time:",
+      "Auto is the default: the mesh and any configured relay each come up on their own schedule, readiness waits only for the mesh, and the relay becomes the durable delta path once it proves itself. P2pOnly opens no relay socket and ignores a configured one entirely. SequencedOnly is the inverse: no signaling, no RTCPeerConnection, and readiness waits on the relay alone, under a bounded deadline, because there is nothing else to wait on. All three run the identical document over the identical wire envelopes, so a snapshot exported under one policy imports under either of the others.",
+      "Losing the relay doesn't lose the document. When a primary relay connection drops, the document reports the failover, pushes the digest it owed the mesh, asks its peers for state, and keeps running on WebRTC: same public handles, same converged state, one transport quietly retired. Readiness under Auto never waited on the relay in the first place.",
+      "A relay speaking crdt_relay_v1 is a durable fan-out point, not a sequencer transplanted into this mode: it stamps a diagnostic order for its own log, broadcasts what it accepts, and answers a request for the state it holds. It never merges, never decodes a kernel payload, and never decides which of two replicas is right. That stays the mesh's job. A room with no relay simply keeps its state in whichever replicas are connected; one that attaches a relay keeps running exactly the same after it disconnects again, minus the durability.",
+      "A CRDT document trades the server's order for a merge rule, so it can run on a WebRTC mesh with no sequencer at all. Signaling only introduces peers; eligible structures converge by merge; and an optional relay attaches later purely for durability and reach, never changing what the document means."
+    ],
+    "links": [
+      [
+        "the examples index",
+        "/examples#clap_counter_lustre"
+      ],
+      [
+        "PN counter",
+        "/structures/counters#pn"
+      ],
+      [
+        "MV register",
+        "/mv-register"
+      ],
+      [
+        "OR-set",
+        "/structures/sets#orset"
+      ],
+      [
+        "OR-map",
+        "/structures/maps#ormap"
+      ],
+      [
+        "G-set",
+        "/structures/sets#gset"
+      ],
+      [
+        "2P-set",
+        "/structures/sets#twopset"
+      ],
+      [
+        "SharedSequence",
+        "/structures/sequences#sequence"
+      ],
+      [
+        "SharedText",
+        "/structures/sequences#text"
+      ],
+      [
+        "SharedMap",
+        "/structures/maps"
+      ],
+      [
+        "SharedMap",
+        "/structures/maps"
+      ],
+      [
+        "SharedCounter",
+        "/structures/counters"
+      ],
+      [
+        "SharedDirectory",
+        "/structures/maps#directory"
+      ],
+      [
+        "claims",
+        "/structures/coordination#claims"
+      ],
+      [
+        "registers",
+        "/structures/registers#registers"
+      ],
+      [
+        "TaskManager",
+        "/structures/coordination#tasks"
+      ],
+      [
+        "pact maps",
+        "/structures/coordination#pact"
+      ],
+      [
+        "ordered collections",
+        "/structures/coordination#ordered"
+      ],
+      [
+        "json_ot and rich-text",
+        "/structures/transforms"
+      ]
+    ],
+    "pager": [
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "OVERVIEW",
+        "/runtime"
+      ],
+      [
+        "OPTIMISTIC EDITS",
+        "/runtime/optimistic"
+      ],
+      [
+        "RECONNECT & RESYNC",
+        "/runtime/reconnect"
+      ],
+      [
+        "IDEMPOTENT RE-DELIVERY",
+        "/runtime/redelivery"
+      ],
+      [
+        "PRESENCE & RIPPLES",
+        "/runtime/presence"
+      ],
+      [
+        "PEER-TO-PEER OVER WEBRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "← PRESENCE & RIPPLES The ephemeral tier beside your state: throwaway broadcasts, and the roster built on them (connection-backed where the server offers it, heartbeat-and-TTL where it does not).",
+        "/runtime/presence"
+      ],
+      [
+        "BUILD GUIDE → Put these behaviors to work",
+        "/guide"
+      ]
+    ],
+    "labels": [
+      "tools/website-samples/src/website_samples/p2p_sample.gleam"
+    ],
+    "captions": [],
+    "code": [
+      "fn p2p_config(signaling: Signaling) -> crdt_js.Config(schema.PnCounterChannel) {\n  // Auto starts on WebRTC and attempts the relay in parallel — it never\n  // waits for one, and prefers it while healthy.\n  let config =\n    crdt_js.config(\n      room_id: \"retro-board-9c2\",\n      replica_label: \"ada\",\n      compatibility_tag: \"retro-board/v1\",\n      root: p2p.pn_counter_root(),\n      signaling: signaling,\n    )\n    |> crdt_js.with_transport_policy(crdt_js.Auto)\n    |> crdt_js.with_sequencer(crdt_js.sequencer(\"wss://relay.example/room\"))\n  config\n}"
+    ],
+    "inlineCode": [
+      {
+        "text": "Auto",
+        "style": {
+          "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace",
+          "font-size": "14.45px",
+          "font-weight": "700",
+          "color": "oklch(0.44 0.185 340)"
+        }
+      },
+      {
+        "text": "P2pOnly",
+        "style": {
+          "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace",
+          "font-size": "14.45px",
+          "font-weight": "700",
+          "color": "oklch(0.44 0.185 340)"
+        }
+      },
+      {
+        "text": "SequencedOnly",
+        "style": {
+          "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace",
+          "font-size": "14.45px",
+          "font-weight": "700",
+          "color": "oklch(0.44 0.185 340)"
+        }
+      }
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "33.15px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "32.8185px"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "16px",
+        "padding": "64px 20px 72px"
+      }
+    }
+  }
+}

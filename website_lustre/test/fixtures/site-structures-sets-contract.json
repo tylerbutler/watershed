@@ -1,0 +1,918 @@
+{
+  "desktop": {
+    "title": "watershed — sets",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Sets in watershed: Lists of things, as people add and remove at the same time. GSet, TwoPSet, OrSet. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — sets"
+      ],
+      [
+        "og:description",
+        "Sets in watershed: Lists of things, as people add and remove at the same time. GSet, TwoPSet, OrSet. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/sets/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Sets",
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / SETS",
+      "FAMILY 02",
+      "Lists of things, as people add and remove at the same time.",
+      "A set looks simple until two clients disagree about whether an element belongs. These are a short course in that problem: the more removal you want, the more causal bookkeeping you pay for.",
+      "Start with add-only union, add irreversible tombstones, then reach the observed-remove set that lets you add, remove, and add again while staying convergent."
+    ],
+    "jump": [
+      [
+        "GSet CRDT",
+        "#gset"
+      ],
+      [
+        "TwoPSet CRDT",
+        "#twopset"
+      ],
+      [
+        "OrSet CRDT",
+        "#orset"
+      ]
+    ],
+    "plates": [
+      {
+        "id": "gset",
+        "number": "NO. 01",
+        "title": "GSet",
+        "kind": "CRDT",
+        "module": "g_set_kernel",
+        "tagline": "A set you can only add to (the simplest one that always agrees).",
+        "prose": [
+          "The simplest set CRDT. Elements can be added but never removed. Merging two replicas is a plain union (commutative, associative, and idempotent), so adds arrive in any order, any number of times, and everyone converges on the same membership.",
+          "Removal is not expressible, which is what makes a G-set trivially correct. When you need removal, you layer tombstones on top: the 2P-set and OR-set below."
+        ],
+        "uses": [
+          "Append-only registries: recorded events, observed device IDs, seen keys",
+          "Deduplicated event logs where membership only ever grows",
+          "The base layer for removable set CRDTs"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "an add-only set; once something is in, it stays, and merging is a plain union"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your addition shows in magenta until it's confirmed"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "the confirmed set reloads as a permanent record"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "twopset",
+        "number": "NO. 02",
+        "title": "TwoPSet",
+        "kind": "CRDT",
+        "module": "two_p_set_kernel",
+        "tagline": "A set you can remove from, but a removed item never comes back.",
+        "prose": [
+          "A two-phase set layers a grow-only set of tombstones over a grow-only set of adds. An element is a member when it is in the add-set and absent from the tombstone-set.",
+          "Both halves only grow, so merge is two unions and convergence is guaranteed. The trade-off is stark: once removed, an element can never be re-added, because the tombstone always wins. Concurrent add-versus-remove resolves remove-wins on every replica. A reset needs a fresh set rather than a shrinking op."
+        ],
+        "uses": [
+          "Membership where retirement is final: revoked credentials, decommissioned assets",
+          "Audit or compliance sets where a removal must never silently reverse",
+          "Cases where remove-wins is correct and re-adding is genuinely disallowed"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "supports removal, but once an item is removed it can never be added again"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "adds and removals show in magenta until they're confirmed"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "current items and removed ones reload together"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "orset",
+        "number": "NO. 03",
+        "title": "OrSet",
+        "kind": "CRDT",
+        "module": "or_set_kernel",
+        "tagline": "Add it, remove it, add it again: unlike a 2P-set, this one can bring an item back.",
+        "prose": [
+          "An observed-remove set gets around the 2P-set's one-way removal: you can add, remove, and add again. Every add attaches a unique causal tag (a dot), and a remove only tombstones the tags it has actually observed.",
+          "If one client removes an element while another concurrently adds it under a fresh tag, the new tag survives and the element stays (add-wins). That bookkeeping lets an item be removed and later re-added without giving up add-wins concurrency."
+        ],
+        "uses": [
+          "Collaborative selections, tags, labels, and shopping carts",
+          "Durable roster membership edited concurrently by many clients; transient online presence belongs in ripples",
+          "Any removable set where re-adding a just-removed item must work"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "add, remove, and add again all work; if an add and a remove race, the add wins"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your change overlays the list in magenta until it's confirmed"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "current members and their removal history reload intact"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      }
+    ],
+    "notes": [],
+    "pager": [
+      [
+        "← PREVIOUS FAMILY Counters",
+        "/structures/counters"
+      ],
+      [
+        "All families",
+        "/structures"
+      ],
+      [
+        "DDS vs CRDT vs OT →",
+        "/models"
+      ],
+      [
+        "See it live ↓",
+        "/#demo"
+      ],
+      [
+        "NEXT FAMILY → Registers",
+        "/structures/registers"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "104px 64.8px 64px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "jump": {
+        "display": "flex",
+        "padding": "6.4px 12px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "plate": {
+        "padding": "43.2px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "body": {
+        "display": "grid",
+        "grid-template-columns": "493.828px 318.594px",
+        "gap": "57.6px"
+      },
+      "spec": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "380.672px 149.062px 380.672px",
+        "gap": "24px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — sets",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Sets in watershed: Lists of things, as people add and remove at the same time. GSet, TwoPSet, OrSet. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — sets"
+      ],
+      [
+        "og:description",
+        "Sets in watershed: Lists of things, as people add and remove at the same time. GSet, TwoPSet, OrSet. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/sets/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Sets",
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / SETS",
+      "FAMILY 02",
+      "Lists of things, as people add and remove at the same time.",
+      "A set looks simple until two clients disagree about whether an element belongs. These are a short course in that problem: the more removal you want, the more causal bookkeeping you pay for.",
+      "Start with add-only union, add irreversible tombstones, then reach the observed-remove set that lets you add, remove, and add again while staying convergent."
+    ],
+    "jump": [
+      [
+        "GSet CRDT",
+        "#gset"
+      ],
+      [
+        "TwoPSet CRDT",
+        "#twopset"
+      ],
+      [
+        "OrSet CRDT",
+        "#orset"
+      ]
+    ],
+    "plates": [
+      {
+        "id": "gset",
+        "number": "NO. 01",
+        "title": "GSet",
+        "kind": "CRDT",
+        "module": "g_set_kernel",
+        "tagline": "A set you can only add to (the simplest one that always agrees).",
+        "prose": [
+          "The simplest set CRDT. Elements can be added but never removed. Merging two replicas is a plain union (commutative, associative, and idempotent), so adds arrive in any order, any number of times, and everyone converges on the same membership.",
+          "Removal is not expressible, which is what makes a G-set trivially correct. When you need removal, you layer tombstones on top: the 2P-set and OR-set below."
+        ],
+        "uses": [
+          "Append-only registries: recorded events, observed device IDs, seen keys",
+          "Deduplicated event logs where membership only ever grows",
+          "The base layer for removable set CRDTs"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "an add-only set; once something is in, it stays, and merging is a plain union"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your addition shows in magenta until it's confirmed"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "the confirmed set reloads as a permanent record"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "twopset",
+        "number": "NO. 02",
+        "title": "TwoPSet",
+        "kind": "CRDT",
+        "module": "two_p_set_kernel",
+        "tagline": "A set you can remove from, but a removed item never comes back.",
+        "prose": [
+          "A two-phase set layers a grow-only set of tombstones over a grow-only set of adds. An element is a member when it is in the add-set and absent from the tombstone-set.",
+          "Both halves only grow, so merge is two unions and convergence is guaranteed. The trade-off is stark: once removed, an element can never be re-added, because the tombstone always wins. Concurrent add-versus-remove resolves remove-wins on every replica. A reset needs a fresh set rather than a shrinking op."
+        ],
+        "uses": [
+          "Membership where retirement is final: revoked credentials, decommissioned assets",
+          "Audit or compliance sets where a removal must never silently reverse",
+          "Cases where remove-wins is correct and re-adding is genuinely disallowed"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "supports removal, but once an item is removed it can never be added again"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "adds and removals show in magenta until they're confirmed"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "current items and removed ones reload together"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "orset",
+        "number": "NO. 03",
+        "title": "OrSet",
+        "kind": "CRDT",
+        "module": "or_set_kernel",
+        "tagline": "Add it, remove it, add it again: unlike a 2P-set, this one can bring an item back.",
+        "prose": [
+          "An observed-remove set gets around the 2P-set's one-way removal: you can add, remove, and add again. Every add attaches a unique causal tag (a dot), and a remove only tombstones the tags it has actually observed.",
+          "If one client removes an element while another concurrently adds it under a fresh tag, the new tag survives and the element stays (add-wins). That bookkeeping lets an item be removed and later re-added without giving up add-wins concurrency."
+        ],
+        "uses": [
+          "Collaborative selections, tags, labels, and shopping carts",
+          "Durable roster membership edited concurrently by many clients; transient online presence belongs in ripples",
+          "Any removable set where re-adding a just-removed item must work"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "add, remove, and add again all work; if an add and a remove race, the add wins"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your change overlays the list in magenta until it's confirmed"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "current members and their removal history reload intact"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      }
+    ],
+    "notes": [],
+    "pager": [
+      [
+        "← PREVIOUS FAMILY Counters",
+        "/structures/counters"
+      ],
+      [
+        "All families",
+        "/structures"
+      ],
+      [
+        "DDS vs CRDT vs OT →",
+        "/models"
+      ],
+      [
+        "See it live ↓",
+        "/#demo"
+      ],
+      [
+        "NEXT FAMILY → Registers",
+        "/structures/registers"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      },
+      "heading": {
+        "font-size": "39px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "38.61px"
+      },
+      "jump": {
+        "display": "flex",
+        "padding": "6.4px 12px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "plate": {
+        "padding": "24px 16px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "body": {
+        "display": "grid",
+        "grid-template-columns": "290px",
+        "gap": "24px"
+      },
+      "spec": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px"
+      }
+    }
+  }
+}

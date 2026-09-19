@@ -1,0 +1,1054 @@
+{
+  "desktop": {
+    "title": "watershed — data structures",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Field guide to watershed's collaborative data structures, grouped into families: counters, sets, registers, maps, sequences, coordination, transforms. How each converges, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — data structures"
+      ],
+      [
+        "og:description",
+        "Field guide to watershed's collaborative data structures, grouped into families: counters, sets, registers, maps, sequences, coordination, transforms. How each converges, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Every structure,by family.",
+    "headingBreaks": 1,
+    "prose": [
+      "← watershed · Data structures",
+      "Every structure watershed ships rides one server-sequenced stream, but each one converges by its own rule. This is the field guide: pick a family to see how each structure works, what it can render optimistically, and what it is best for."
+    ],
+    "ctas": [
+      {
+        "text": "See how a field is typed →",
+        "href": "/foundations/schema",
+        "current": null
+      },
+      {
+        "text": "Build an app with these →",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Compare DDS · CRDT · OT →",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "Watch them converge ↓",
+        "href": "/#demo",
+        "current": null
+      }
+    ],
+    "families": [
+      {
+        "href": "/structures/counters",
+        "index": "Family 01",
+        "name": "Counters",
+        "tagline": "Numbers that many hands move at once.",
+        "entries": [
+          {
+            "name": "SharedCounter",
+            "kind": "DDS"
+          },
+          {
+            "name": "GCounter",
+            "kind": "CRDT"
+          },
+          {
+            "name": "PnCounter",
+            "kind": "CRDT"
+          }
+        ]
+      },
+      {
+        "href": "/structures/sets",
+        "index": "Family 02",
+        "name": "Sets",
+        "tagline": "Lists of things, as people add and remove at the same time.",
+        "entries": [
+          {
+            "name": "GSet",
+            "kind": "CRDT"
+          },
+          {
+            "name": "TwoPSet",
+            "kind": "CRDT"
+          },
+          {
+            "name": "OrSet",
+            "kind": "CRDT"
+          }
+        ]
+      },
+      {
+        "href": "/structures/registers",
+        "index": "Family 03",
+        "name": "Registers",
+        "tagline": "One shared value, and three different answers to a race.",
+        "entries": [
+          {
+            "name": "LWWRegister",
+            "kind": "CRDT"
+          },
+          {
+            "name": "MvRegister",
+            "kind": "CRDT"
+          },
+          {
+            "name": "RegisterCollection",
+            "kind": "DDS"
+          }
+        ]
+      },
+      {
+        "href": "/structures/maps",
+        "index": "Family 04",
+        "name": "Maps",
+        "tagline": "Keyed state that picks a winner, keeps an edit, or grows into a tree.",
+        "entries": [
+          {
+            "name": "SharedMap",
+            "kind": "DDS"
+          },
+          {
+            "name": "LWWMap",
+            "kind": "CRDT"
+          },
+          {
+            "name": "OrMap",
+            "kind": "CRDT"
+          },
+          {
+            "name": "SharedDirectory",
+            "kind": "DDS"
+          }
+        ]
+      },
+      {
+        "href": "/structures/sequences",
+        "index": "Family 05",
+        "name": "Sequences",
+        "tagline": "Ordered lists that stay ordered while everyone rearranges them.",
+        "entries": [
+          {
+            "name": "SharedSequence",
+            "kind": "CRDT"
+          },
+          {
+            "name": "SharedText",
+            "kind": "CRDT"
+          }
+        ]
+      },
+      {
+        "href": "/structures/coordination",
+        "index": "Family 06",
+        "name": "Coordination",
+        "tagline": "Deciding who owns what, and agreeing before acting.",
+        "entries": [
+          {
+            "name": "Claims",
+            "kind": "DDS"
+          },
+          {
+            "name": "OrderedCollection",
+            "kind": "DDS"
+          },
+          {
+            "name": "TaskManager",
+            "kind": "DDS"
+          },
+          {
+            "name": "PactMap",
+            "kind": "DDS"
+          }
+        ]
+      },
+      {
+        "href": "/structures/transforms",
+        "index": "Family 07",
+        "name": "Transforms",
+        "tagline": "One shared document, kept in agreement as everyone edits.",
+        "entries": [
+          {
+            "name": "JsonOt",
+            "kind": "OT"
+          },
+          {
+            "name": "SharedRichText",
+            "kind": "OT"
+          }
+        ]
+      }
+    ],
+    "primary": [
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Components",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Guide",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Atlas",
+        "href": "/structures",
+        "current": "page"
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "Examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "adjoining": [
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Schemas and fields",
+        "href": "/foundations/schema",
+        "current": null
+      },
+      {
+        "text": "Documents and handles",
+        "href": "/foundations/topology",
+        "current": null
+      },
+      {
+        "text": "Starting a document",
+        "href": "/foundations/lifecycle",
+        "current": null
+      },
+      {
+        "text": "Component model",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Components and catalogs",
+        "href": "/component-model/components",
+        "current": null
+      },
+      {
+        "text": "Ports and dispatch",
+        "href": "/component-model/ports",
+        "current": null
+      },
+      {
+        "text": "Workspaces and instances",
+        "href": "/component-model/workspaces",
+        "current": null
+      },
+      {
+        "text": "Build guide",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "01 · Connect the board",
+        "href": "/guide/connect",
+        "current": null
+      },
+      {
+        "text": "02 · Add notes",
+        "href": "/guide/notes",
+        "current": null
+      },
+      {
+        "text": "03 · Try two edits at once",
+        "href": "/guide/race",
+        "current": null
+      },
+      {
+        "text": "04 · Add votes",
+        "href": "/guide/votes",
+        "current": null
+      },
+      {
+        "text": "05 · Add presence",
+        "href": "/guide/presence",
+        "current": null
+      },
+      {
+        "text": "06 · Write repeatable tests",
+        "href": "/guide/testing",
+        "current": null
+      },
+      {
+        "text": "Data structures",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Field atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Counters",
+        "href": "/structures/counters",
+        "current": null
+      },
+      {
+        "text": "Sets",
+        "href": "/structures/sets",
+        "current": null
+      },
+      {
+        "text": "Registers",
+        "href": "/structures/registers",
+        "current": null
+      },
+      {
+        "text": "Maps",
+        "href": "/structures/maps",
+        "current": null
+      },
+      {
+        "text": "Sequences",
+        "href": "/structures/sequences",
+        "current": null
+      },
+      {
+        "text": "Coordination",
+        "href": "/structures/coordination",
+        "current": null
+      },
+      {
+        "text": "Transforms",
+        "href": "/structures/transforms",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Behaviors",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Optimistic edits",
+        "href": "/runtime/optimistic",
+        "current": null
+      },
+      {
+        "text": "Reconnect & resync",
+        "href": "/runtime/reconnect",
+        "current": null
+      },
+      {
+        "text": "Idempotent re-delivery",
+        "href": "/runtime/redelivery",
+        "current": null
+      },
+      {
+        "text": "Presence & ripples",
+        "href": "/runtime/presence",
+        "current": null
+      },
+      {
+        "text": "Peer-to-peer over WebRTC",
+        "href": "/runtime/p2p",
+        "current": null
+      },
+      {
+        "text": "Reference & demos",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Browser examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Patterns",
+        "href": "/patterns",
+        "current": null
+      },
+      {
+        "text": "Convergence models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "SharedTree comparison",
+        "href": "/sharedtree",
+        "current": null
+      },
+      {
+        "text": "The counter bug",
+        "href": "/counter-bug",
+        "current": null
+      },
+      {
+        "text": "Shared directory",
+        "href": "/directory",
+        "current": null
+      },
+      {
+        "text": "JsonOt",
+        "href": "/json-ot",
+        "current": null
+      },
+      {
+        "text": "Rich text",
+        "href": "/rich-text",
+        "current": null
+      },
+      {
+        "text": "Sudoku",
+        "href": "/sudoku",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "canonical": null,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "112px 64.8px 80px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px",
+        "letter-spacing": "-2.16px"
+      },
+      "lede": {
+        "font-size": "21px",
+        "line-height": "33.6px",
+        "max-width": "697.911px",
+        "margin-top": "40px"
+      },
+      "families": {
+        "display": "grid",
+        "grid-template-columns": "467.203px 467.203px",
+        "gap": "24px",
+        "padding": "64px 64.8px"
+      },
+      "family": {
+        "display": "flex",
+        "padding": "40px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "familyHeading": {
+        "font-size": "30.4px",
+        "font-weight": "630",
+        "font-stretch": "116%"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — data structures",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Field guide to watershed's collaborative data structures, grouped into families: counters, sets, registers, maps, sequences, coordination, transforms. How each converges, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — data structures"
+      ],
+      [
+        "og:description",
+        "Field guide to watershed's collaborative data structures, grouped into families: counters, sets, registers, maps, sequences, coordination, transforms. How each converges, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Every structure,by family.",
+    "headingBreaks": 1,
+    "prose": [
+      "← watershed · Data structures",
+      "Every structure watershed ships rides one server-sequenced stream, but each one converges by its own rule. This is the field guide: pick a family to see how each structure works, what it can render optimistically, and what it is best for."
+    ],
+    "ctas": [
+      {
+        "text": "See how a field is typed →",
+        "href": "/foundations/schema",
+        "current": null
+      },
+      {
+        "text": "Build an app with these →",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Compare DDS · CRDT · OT →",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "Watch them converge ↓",
+        "href": "/#demo",
+        "current": null
+      }
+    ],
+    "families": [
+      {
+        "href": "/structures/counters",
+        "index": "Family 01",
+        "name": "Counters",
+        "tagline": "Numbers that many hands move at once.",
+        "entries": [
+          {
+            "name": "SharedCounter",
+            "kind": "DDS"
+          },
+          {
+            "name": "GCounter",
+            "kind": "CRDT"
+          },
+          {
+            "name": "PnCounter",
+            "kind": "CRDT"
+          }
+        ]
+      },
+      {
+        "href": "/structures/sets",
+        "index": "Family 02",
+        "name": "Sets",
+        "tagline": "Lists of things, as people add and remove at the same time.",
+        "entries": [
+          {
+            "name": "GSet",
+            "kind": "CRDT"
+          },
+          {
+            "name": "TwoPSet",
+            "kind": "CRDT"
+          },
+          {
+            "name": "OrSet",
+            "kind": "CRDT"
+          }
+        ]
+      },
+      {
+        "href": "/structures/registers",
+        "index": "Family 03",
+        "name": "Registers",
+        "tagline": "One shared value, and three different answers to a race.",
+        "entries": [
+          {
+            "name": "LWWRegister",
+            "kind": "CRDT"
+          },
+          {
+            "name": "MvRegister",
+            "kind": "CRDT"
+          },
+          {
+            "name": "RegisterCollection",
+            "kind": "DDS"
+          }
+        ]
+      },
+      {
+        "href": "/structures/maps",
+        "index": "Family 04",
+        "name": "Maps",
+        "tagline": "Keyed state that picks a winner, keeps an edit, or grows into a tree.",
+        "entries": [
+          {
+            "name": "SharedMap",
+            "kind": "DDS"
+          },
+          {
+            "name": "LWWMap",
+            "kind": "CRDT"
+          },
+          {
+            "name": "OrMap",
+            "kind": "CRDT"
+          },
+          {
+            "name": "SharedDirectory",
+            "kind": "DDS"
+          }
+        ]
+      },
+      {
+        "href": "/structures/sequences",
+        "index": "Family 05",
+        "name": "Sequences",
+        "tagline": "Ordered lists that stay ordered while everyone rearranges them.",
+        "entries": [
+          {
+            "name": "SharedSequence",
+            "kind": "CRDT"
+          },
+          {
+            "name": "SharedText",
+            "kind": "CRDT"
+          }
+        ]
+      },
+      {
+        "href": "/structures/coordination",
+        "index": "Family 06",
+        "name": "Coordination",
+        "tagline": "Deciding who owns what, and agreeing before acting.",
+        "entries": [
+          {
+            "name": "Claims",
+            "kind": "DDS"
+          },
+          {
+            "name": "OrderedCollection",
+            "kind": "DDS"
+          },
+          {
+            "name": "TaskManager",
+            "kind": "DDS"
+          },
+          {
+            "name": "PactMap",
+            "kind": "DDS"
+          }
+        ]
+      },
+      {
+        "href": "/structures/transforms",
+        "index": "Family 07",
+        "name": "Transforms",
+        "tagline": "One shared document, kept in agreement as everyone edits.",
+        "entries": [
+          {
+            "name": "JsonOt",
+            "kind": "OT"
+          },
+          {
+            "name": "SharedRichText",
+            "kind": "OT"
+          }
+        ]
+      }
+    ],
+    "primary": [
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Components",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Guide",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Atlas",
+        "href": "/structures",
+        "current": "page"
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "Examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "adjoining": [
+      {
+        "text": "Foundations",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/foundations",
+        "current": null
+      },
+      {
+        "text": "Schemas and fields",
+        "href": "/foundations/schema",
+        "current": null
+      },
+      {
+        "text": "Documents and handles",
+        "href": "/foundations/topology",
+        "current": null
+      },
+      {
+        "text": "Starting a document",
+        "href": "/foundations/lifecycle",
+        "current": null
+      },
+      {
+        "text": "Component model",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/component-model",
+        "current": null
+      },
+      {
+        "text": "Components and catalogs",
+        "href": "/component-model/components",
+        "current": null
+      },
+      {
+        "text": "Ports and dispatch",
+        "href": "/component-model/ports",
+        "current": null
+      },
+      {
+        "text": "Workspaces and instances",
+        "href": "/component-model/workspaces",
+        "current": null
+      },
+      {
+        "text": "Build guide",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "Overview",
+        "href": "/guide",
+        "current": null
+      },
+      {
+        "text": "01 · Connect the board",
+        "href": "/guide/connect",
+        "current": null
+      },
+      {
+        "text": "02 · Add notes",
+        "href": "/guide/notes",
+        "current": null
+      },
+      {
+        "text": "03 · Try two edits at once",
+        "href": "/guide/race",
+        "current": null
+      },
+      {
+        "text": "04 · Add votes",
+        "href": "/guide/votes",
+        "current": null
+      },
+      {
+        "text": "05 · Add presence",
+        "href": "/guide/presence",
+        "current": null
+      },
+      {
+        "text": "06 · Write repeatable tests",
+        "href": "/guide/testing",
+        "current": null
+      },
+      {
+        "text": "Data structures",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Field atlas",
+        "href": "/structures",
+        "current": null
+      },
+      {
+        "text": "Counters",
+        "href": "/structures/counters",
+        "current": null
+      },
+      {
+        "text": "Sets",
+        "href": "/structures/sets",
+        "current": null
+      },
+      {
+        "text": "Registers",
+        "href": "/structures/registers",
+        "current": null
+      },
+      {
+        "text": "Maps",
+        "href": "/structures/maps",
+        "current": null
+      },
+      {
+        "text": "Sequences",
+        "href": "/structures/sequences",
+        "current": null
+      },
+      {
+        "text": "Coordination",
+        "href": "/structures/coordination",
+        "current": null
+      },
+      {
+        "text": "Transforms",
+        "href": "/structures/transforms",
+        "current": null
+      },
+      {
+        "text": "Runtime",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Behaviors",
+        "href": "/runtime",
+        "current": null
+      },
+      {
+        "text": "Optimistic edits",
+        "href": "/runtime/optimistic",
+        "current": null
+      },
+      {
+        "text": "Reconnect & resync",
+        "href": "/runtime/reconnect",
+        "current": null
+      },
+      {
+        "text": "Idempotent re-delivery",
+        "href": "/runtime/redelivery",
+        "current": null
+      },
+      {
+        "text": "Presence & ripples",
+        "href": "/runtime/presence",
+        "current": null
+      },
+      {
+        "text": "Peer-to-peer over WebRTC",
+        "href": "/runtime/p2p",
+        "current": null
+      },
+      {
+        "text": "Reference & demos",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Browser examples",
+        "href": "/examples",
+        "current": null
+      },
+      {
+        "text": "Patterns",
+        "href": "/patterns",
+        "current": null
+      },
+      {
+        "text": "Convergence models",
+        "href": "/models",
+        "current": null
+      },
+      {
+        "text": "SharedTree comparison",
+        "href": "/sharedtree",
+        "current": null
+      },
+      {
+        "text": "The counter bug",
+        "href": "/counter-bug",
+        "current": null
+      },
+      {
+        "text": "Shared directory",
+        "href": "/directory",
+        "current": null
+      },
+      {
+        "text": "JsonOt",
+        "href": "/json-ot",
+        "current": null
+      },
+      {
+        "text": "Rich text",
+        "href": "/rich-text",
+        "current": null
+      },
+      {
+        "text": "Sudoku",
+        "href": "/sudoku",
+        "current": null
+      },
+      {
+        "text": "Source ↗",
+        "href": "https://github.com/tylerbutler/watershed",
+        "current": null
+      }
+    ],
+    "canonical": null,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "56px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "33.15px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "32.8185px",
+        "letter-spacing": "-0.9945px"
+      },
+      "lede": {
+        "font-size": "18.34px",
+        "line-height": "29.344px",
+        "max-width": "609.12px",
+        "margin-top": "40px"
+      },
+      "families": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px",
+        "padding": "64px 20px"
+      },
+      "family": {
+        "display": "flex",
+        "padding": "40px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "familyHeading": {
+        "font-size": "30.4px",
+        "font-weight": "630",
+        "font-stretch": "116%"
+      }
+    }
+  }
+}

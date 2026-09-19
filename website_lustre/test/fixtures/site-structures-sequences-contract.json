@@ -1,0 +1,902 @@
+{
+  "desktop": {
+    "title": "watershed — sequences",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Sequences in watershed: Ordered lists that stay ordered while everyone rearranges them. SharedSequence, SharedText. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — sequences"
+      ],
+      [
+        "og:description",
+        "Sequences in watershed: Ordered lists that stay ordered while everyone rearranges them. SharedSequence, SharedText. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/sequences/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Sequences",
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / SEQUENCES",
+      "FAMILY 05",
+      "Ordered lists that stay ordered while everyone rearranges them.",
+      "Order is the hardest thing to agree on. An index is only meaningful against one version of a list. The moment two people insert, move, or delete concurrently, “position 3” names different items on different screens.",
+      "Sequences resolve that by giving every item a stable identity beneath its index. Positions are how you address an edit; identities are how edits merge. Concurrent inserts at one spot both land, a move follows the item rather than the slot, and every replica converges on the same order."
+    ],
+    "jump": [
+      [
+        "SharedSequence CRDT",
+        "#sequence"
+      ],
+      [
+        "SharedText CRDT",
+        "#text"
+      ]
+    ],
+    "plates": [
+      {
+        "id": "sequence",
+        "number": "NO. 01",
+        "title": "SharedSequence",
+        "kind": "CRDT",
+        "module": "sequence_kernel",
+        "tagline": "An ordered list many people can edit at once: insert, move, and reorder without losing anyone's changes.",
+        "prose": [
+          "A shared sequence holds an ordered list of JSON values. You address an edit by index (insert at 2, move 4 to 1), but the index only records intent. Underneath, every item has a stable identity, and the CRDT delta that ships is expressed against identities, not positions. Two replicas can therefore edit the same region concurrently and still converge: a move follows the item it named rather than whatever later occupies its slot, and two inserts at one position both survive in a deterministic order.",
+          "The lattice merge is duplicate- and order-tolerant: a delta delivered twice, or after its neighbors, is absorbed without disturbing the list. Local edits apply optimistically and ride the sequenced stream as deltas; if the server rejects one, it rolls back and the remaining pending edits replay over the sequenced base.",
+          "Replace is composed rather than native: it deletes the visible item and inserts the replacement at the same position as one collaborative operation (one pending entry, one wire op, one event). The identity-CRDT design and wire format are watershed's own."
+        ],
+        "uses": [
+          "Shared itineraries, checklists, and ordered plans edited by many hands",
+          "Reorderable collections (playlists, priority queues, kanban lanes) where a move must not clobber a concurrent edit",
+          "The ordered substrate beneath SharedText, the collaborative plain-text DDS built on the same identity lattice"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "each item keeps a stable identity, so concurrent inserts, moves, and deletes merge instead of fighting over index numbers"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your edit shows immediately in magenta; items slide when the sequenced order lands"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "the sequenced list reloads intact; pending edits replay on top"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": [
+          [
+            "Open the live SharedSequence demo →",
+            "/sequence"
+          ]
+        ]
+      },
+      {
+        "id": "text",
+        "number": "NO. 02",
+        "title": "SharedText",
+        "kind": "CRDT",
+        "module": "text_kernel",
+        "tagline": "A string many people can type into at once: insert, delete, and replace characters without losing anyone's keystrokes.",
+        "prose": [
+          "A shared text holds an ordered run of graphemes (user-perceived characters). You address an edit by grapheme index (insert at 6, delete 3..7, replace 0..5), but the index only records intent against your current view. Underneath, every grapheme has a stable identity, and the CRDT delta that ships is expressed against those identities, not offsets. Two typists can therefore edit the same word concurrently and still converge: an insertion lands beside the grapheme it named, and two insertions at one gap both survive in a deterministic order.",
+          "Indexing is by grapheme, never by UTF-16 code unit. An emoji like 👨‍👩‍👧 or a combining sequence like é (e + ◌́) is one grapheme, one index, one identity. A cursor never splits a family emoji or strands a combining mark. The demo computes each edit as a single minimal grapheme span using Intl.Segmenter, so a keystroke becomes one insert, delete, or replace rather than a churn of code-unit diffs.",
+          "Local edits apply optimistically and ride the sequenced stream as deltas; the visible string updates the instant you type. If the server rejects one it rolls back, and the remaining pending edits replay over the sequenced base. Replace is one collaborative operation (delete the span, insert the replacement at the same place), so it is a single pending entry, one wire op, one event, even across a range.",
+          "Anchors are stable positions that survive concurrent edits: pin one to a grapheme's identity, keep editing around it, and resolve it back to a live index later. They are the basis for shared cursors and selections that don't drift when a neighbor inserts. The delta format is watershed's own, built on the same identity lattice as SharedSequence rather than Fluid's SharedString merge tree."
+        ],
+        "uses": [
+          "Collaborative notes, captions, and comment fields edited by many hands at once",
+          "Live-typed labels and single-line fields where two people may touch the same word",
+          "Anything needing shared cursors or selections that stay put as neighbors type (anchors track identities, not offsets)"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "every grapheme keeps a stable identity, so concurrent insertions and overlapping edits merge instead of fighting over character offsets"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your keystroke shows immediately in magenta; the text reflows when the sequenced order lands"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "the sequenced string reloads intact; pending edits replay on top"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": [
+          [
+            "Open the live SharedText demo →",
+            "/text"
+          ]
+        ]
+      }
+    ],
+    "notes": [
+      {
+        "title": "Fallible edits render; never assert on a mutation",
+        "href": "/guide/notes#fallible-edits",
+        "rule": "Handle every index-based edit as fallible. A peer may change the list between render and click.",
+        "example": "COLLABORATIVE PLAYLIST"
+      },
+      {
+        "title": "When a move is not atomic, crown one channel authoritative",
+        "href": "/guide/notes#authoritative-channel",
+        "rule": "A move across channels is not atomic. Choose one source of truth and reconcile the rest while rendering.",
+        "example": "RETRO BOARD (FULL)"
+      },
+      {
+        "title": "Anchors, not offsets",
+        "href": "/guide/notes#anchors-not-offsets",
+        "rule": "Store an anchor instead of a text offset, then resolve its current position after each edit.",
+        "example": "SHARED TEXT EDITOR"
+      }
+    ],
+    "pager": [
+      [
+        "← PREVIOUS FAMILY Maps",
+        "/structures/maps"
+      ],
+      [
+        "All families",
+        "/structures"
+      ],
+      [
+        "DDS vs CRDT vs OT →",
+        "/models"
+      ],
+      [
+        "See it live ↓",
+        "/#demo"
+      ],
+      [
+        "NEXT FAMILY → Coordination",
+        "/structures/coordination"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "104px 64.8px 64px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "jump": {
+        "display": "flex",
+        "padding": "6.4px 12px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "plate": {
+        "padding": "43.2px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "body": {
+        "display": "grid",
+        "grid-template-columns": "493.828px 318.594px",
+        "gap": "57.6px"
+      },
+      "spec": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "380.672px 149.062px 380.672px",
+        "gap": "24px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — sequences",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Sequences in watershed: Ordered lists that stay ordered while everyone rearranges them. SharedSequence, SharedText. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — sequences"
+      ],
+      [
+        "og:description",
+        "Sequences in watershed: Ordered lists that stay ordered while everyone rearranges them. SharedSequence, SharedText. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/sequences/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Sequences",
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / SEQUENCES",
+      "FAMILY 05",
+      "Ordered lists that stay ordered while everyone rearranges them.",
+      "Order is the hardest thing to agree on. An index is only meaningful against one version of a list. The moment two people insert, move, or delete concurrently, “position 3” names different items on different screens.",
+      "Sequences resolve that by giving every item a stable identity beneath its index. Positions are how you address an edit; identities are how edits merge. Concurrent inserts at one spot both land, a move follows the item rather than the slot, and every replica converges on the same order."
+    ],
+    "jump": [
+      [
+        "SharedSequence CRDT",
+        "#sequence"
+      ],
+      [
+        "SharedText CRDT",
+        "#text"
+      ]
+    ],
+    "plates": [
+      {
+        "id": "sequence",
+        "number": "NO. 01",
+        "title": "SharedSequence",
+        "kind": "CRDT",
+        "module": "sequence_kernel",
+        "tagline": "An ordered list many people can edit at once: insert, move, and reorder without losing anyone's changes.",
+        "prose": [
+          "A shared sequence holds an ordered list of JSON values. You address an edit by index (insert at 2, move 4 to 1), but the index only records intent. Underneath, every item has a stable identity, and the CRDT delta that ships is expressed against identities, not positions. Two replicas can therefore edit the same region concurrently and still converge: a move follows the item it named rather than whatever later occupies its slot, and two inserts at one position both survive in a deterministic order.",
+          "The lattice merge is duplicate- and order-tolerant: a delta delivered twice, or after its neighbors, is absorbed without disturbing the list. Local edits apply optimistically and ride the sequenced stream as deltas; if the server rejects one, it rolls back and the remaining pending edits replay over the sequenced base.",
+          "Replace is composed rather than native: it deletes the visible item and inserts the replacement at the same position as one collaborative operation (one pending entry, one wire op, one event). The identity-CRDT design and wire format are watershed's own."
+        ],
+        "uses": [
+          "Shared itineraries, checklists, and ordered plans edited by many hands",
+          "Reorderable collections (playlists, priority queues, kanban lanes) where a move must not clobber a concurrent edit",
+          "The ordered substrate beneath SharedText, the collaborative plain-text DDS built on the same identity lattice"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "each item keeps a stable identity, so concurrent inserts, moves, and deletes merge instead of fighting over index numbers"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your edit shows immediately in magenta; items slide when the sequenced order lands"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "the sequenced list reloads intact; pending edits replay on top"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": [
+          [
+            "Open the live SharedSequence demo →",
+            "/sequence"
+          ]
+        ]
+      },
+      {
+        "id": "text",
+        "number": "NO. 02",
+        "title": "SharedText",
+        "kind": "CRDT",
+        "module": "text_kernel",
+        "tagline": "A string many people can type into at once: insert, delete, and replace characters without losing anyone's keystrokes.",
+        "prose": [
+          "A shared text holds an ordered run of graphemes (user-perceived characters). You address an edit by grapheme index (insert at 6, delete 3..7, replace 0..5), but the index only records intent against your current view. Underneath, every grapheme has a stable identity, and the CRDT delta that ships is expressed against those identities, not offsets. Two typists can therefore edit the same word concurrently and still converge: an insertion lands beside the grapheme it named, and two insertions at one gap both survive in a deterministic order.",
+          "Indexing is by grapheme, never by UTF-16 code unit. An emoji like 👨‍👩‍👧 or a combining sequence like é (e + ◌́) is one grapheme, one index, one identity. A cursor never splits a family emoji or strands a combining mark. The demo computes each edit as a single minimal grapheme span using Intl.Segmenter, so a keystroke becomes one insert, delete, or replace rather than a churn of code-unit diffs.",
+          "Local edits apply optimistically and ride the sequenced stream as deltas; the visible string updates the instant you type. If the server rejects one it rolls back, and the remaining pending edits replay over the sequenced base. Replace is one collaborative operation (delete the span, insert the replacement at the same place), so it is a single pending entry, one wire op, one event, even across a range.",
+          "Anchors are stable positions that survive concurrent edits: pin one to a grapheme's identity, keep editing around it, and resolve it back to a live index later. They are the basis for shared cursors and selections that don't drift when a neighbor inserts. The delta format is watershed's own, built on the same identity lattice as SharedSequence rather than Fluid's SharedString merge tree."
+        ],
+        "uses": [
+          "Collaborative notes, captions, and comment fields edited by many hands at once",
+          "Live-typed labels and single-line fields where two people may touch the same word",
+          "Anything needing shared cursors or selections that stay put as neighbors type (anchors track identities, not offsets)"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "every grapheme keeps a stable identity, so concurrent insertions and overlapping edits merge instead of fighting over character offsets"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your keystroke shows immediately in magenta; the text reflows when the sequenced order lands"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "the sequenced string reloads intact; pending edits replay on top"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": [
+          [
+            "Open the live SharedText demo →",
+            "/text"
+          ]
+        ]
+      }
+    ],
+    "notes": [
+      {
+        "title": "Fallible edits render; never assert on a mutation",
+        "href": "/guide/notes#fallible-edits",
+        "rule": "Handle every index-based edit as fallible. A peer may change the list between render and click.",
+        "example": "COLLABORATIVE PLAYLIST"
+      },
+      {
+        "title": "When a move is not atomic, crown one channel authoritative",
+        "href": "/guide/notes#authoritative-channel",
+        "rule": "A move across channels is not atomic. Choose one source of truth and reconcile the rest while rendering.",
+        "example": "RETRO BOARD (FULL)"
+      },
+      {
+        "title": "Anchors, not offsets",
+        "href": "/guide/notes#anchors-not-offsets",
+        "rule": "Store an anchor instead of a text offset, then resolve its current position after each edit.",
+        "example": "SHARED TEXT EDITOR"
+      }
+    ],
+    "pager": [
+      [
+        "← PREVIOUS FAMILY Maps",
+        "/structures/maps"
+      ],
+      [
+        "All families",
+        "/structures"
+      ],
+      [
+        "DDS vs CRDT vs OT →",
+        "/models"
+      ],
+      [
+        "See it live ↓",
+        "/#demo"
+      ],
+      [
+        "NEXT FAMILY → Coordination",
+        "/structures/coordination"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      },
+      "heading": {
+        "font-size": "39px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "38.61px"
+      },
+      "jump": {
+        "display": "flex",
+        "padding": "6.4px 12px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "plate": {
+        "padding": "24px 16px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "body": {
+        "display": "grid",
+        "grid-template-columns": "290px",
+        "gap": "24px"
+      },
+      "spec": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px"
+      }
+    }
+  }
+}

@@ -1,0 +1,406 @@
+{
+  "desktop": {
+    "title": "watershed — write repeatable tests",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Step six of the watershed build guide: run two clients in one Gleam test and control when each message arrives."
+      ],
+      [
+        "og:title",
+        "watershed — write repeatable tests"
+      ],
+      [
+        "og:description",
+        "Step six of the watershed build guide: run two clients in one Gleam test and control when each message arrives."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/guide/testing/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Write repeatable tests",
+    "headings": [
+      "Run two clients in one test",
+      "Choose when messages arrive",
+      "Assert on the board, not on the map",
+      "Both races, written as tests",
+      "Deepening: script the intermediate state",
+      "The finished project",
+      "Where to go when this board gets too small",
+      "How the examples do it",
+      "Extract pure modules; test without a server",
+      "Test client death deterministically"
+    ],
+    "prose": [
+      "The sluice lets a test create two documents and choose when each message arrives. Use it to repeat the two-tab checks without opening a browser or starting a server.",
+      "It plugs into the same client code as production, including encoding, queues, retries, reconnecting, and message order. It doesn't open a real network connection or reproduce floodgate's storage and login.",
+      "When a client submits something, it's processed and given its place in the order right away — but the messages that result from it sit in a queue instead of arriving immediately. settle drains that queue until nothing's left to deliver; step delivers exactly one message and stops. That splits “the order the server decided on” and “the order each client actually sees it in” into two separate things you control by hand.",
+      "So setting up a test room means: one sluice, two documents connecting to it, one settle to let both handshakes finish, the title and channels written on client A, and a second settle so client B can pick up that state from the shared root map.",
+      "Neither settle call is decoration. Skip the second one, and client B is looking at a root map that doesn't have those channels in it yet — so channels_of fails, not because anything is broken, but because you asked too early.",
+      "The tests read the board through board.snapshot_from_channels — the exact same function the UI renders from. That is deliberate. If the tests instead asserted directly on the raw map entries, they could pass while the actual board people look at was sorting its columns differently on each tab.",
+      "This is exactly why board keeps the write functions with the board state: if a test reimplemented the write instead of calling the real one, all it would prove is that the copy agrees with itself.",
+      "FIELD NOTE Extract pure modules; test without a server ↓",
+      "The add race checks two things: board_a |> should.equal(board_b) confirms both tabs ended up showing the identical board, and the note count, two lookups, and column tally confirm they didn't end up identical by both losing the same note.",
+      "The vote race sends three votes across two clients and checks they settle at +1. Same shape, same settle call, and no sleep anywhere in sight — the test doesn't wait and hope the timing works out, it calls settle and gets the same answer every single time.",
+      "Assert on the specific outcome, not just equality. A test that only checks both tabs end up looking the same can still pass while the thing users actually care about is broken — for example, if both tabs agreed by losing the same note. These two tests each check the specific outcome that matters: nothing you type disappears, and nothing you vote is lost.",
+      "When you want to inspect a board mid-flight — one note delivered, the other still waiting — step advances one message at a time. It doesn't change the order things were already assigned; the order you called the submit functions in decides that.",
+      "More controls. Both sluice and sluice_js provide pause / resume to hold back one client's messages specifically, and advance(ms) to move the sluice's logical clock forward. On sluice_js, advancing also fires every timer that became due. Hand its scheduler to presence_js.start_with_scheduler and presence runs on that clock too, so heartbeat and expiry tests advance without waiting on wall time. The JavaScript version also exposes step_info with details about each delivery, which is how the demo back on step 03 draws its log of what happened.",
+      "FIELD NOTE Test client death deterministically ↓",
+      "Six sheets, one source tree. Everything the procedure built, in the order it built it:",
+      "Every snippet in this guide that comes from the project is quoted from these files at build time, so what you read here and what compiles cannot drift. The complete source is in examples/retro_tutorial_lustre, and it is meant to be copied out and renamed.",
+      "The tutorial stops on purpose. It has no sequences, no drag and drop, no cross-column moves, no edit or delete, and no vote budgets — every one of those is a genuinely harder problem, and adding them here would have made the board harder to learn from, not more useful as an example.",
+      "The advanced retro board is the same idea with the hard parts left in: five channels, ordered columns on a sequence, cross-channel moves that render honestly rather than pretending to be atomic, and edit and delete flows. It is the next thing to read.",
+      "Beyond it, the example gallery maps this loop onto every complete browser application in the project, and the field atlas has a page per structure with its merge rule and its best-fit uses.",
+      "Run gleam test and get a clean pass in about a second: two convergence races, two wrong-mode guards, the board's ordering and joins, and the note codec — no server, no browser, no timing luck."
+    ],
+    "links": [
+      [
+        "Extract pure modules; test without a server ↓",
+        "/guide/testing#pure-modules"
+      ],
+      [
+        "Test client death deterministically ↓",
+        "/guide/testing#deterministic-death"
+      ],
+      [
+        "examples/retro_tutorial_lustre",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/retro_tutorial_lustre"
+      ],
+      [
+        "advanced retro board",
+        "/examples#retro_board_lustre"
+      ],
+      [
+        "example gallery",
+        "/examples"
+      ],
+      [
+        "field atlas",
+        "/structures"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/grocery_triptych_lustre/src/grocery_triptych_lustre/refresh_guard.gleam"
+      ],
+      [
+        "",
+        "/examples#grocery_triptych_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/work_queue_lustre/test/queue_semantics_test.gleam"
+      ],
+      [
+        "",
+        "/examples#work_queue_lustre"
+      ]
+    ],
+    "guide": [
+      [
+        "← STEP 05 Add presence",
+        "/guide/presence"
+      ],
+      [
+        "NEXT BUILD → The advanced retro board",
+        "/examples#retro_board_lustre"
+      ]
+    ],
+    "labels": [
+      "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "(illustrative — scripted delivery)",
+      "examples/retro_tutorial_lustre/",
+      "(shell)",
+      "",
+      ""
+    ],
+    "captions": [
+      "",
+      ""
+    ],
+    "code": [
+      "fn room(\n  name: String,\n) -> #(\n  Sluice,\n  Document(document_schema.BoardDocument),\n  Document(document_schema.BoardDocument),\n  Channels,\n  Channels,\n) {\n  let sluice = sluice_js.start(tenant: \"default\", document: name)\n  let document_a = sluice_js.connect(sluice, \"user-a\")\n  let document_b = sluice_js.connect(sluice, \"user-b\")\n  sluice_js.settle(sluice)\n\n  let root = watershed.root_typed(document_a)\n  watershed.set_field(root, document_schema.title(), \"Sprint retro\")\n  let assert Ok(notes) =\n    watershed.create_or_map(document_a, or_map_kernel.RegisterMode)\n  watershed.set_or_map_field(root, document_schema.notes(), notes)\n  let assert Ok(votes) =\n    watershed.create_or_map(document_a, or_map_kernel.TallyMode)\n  watershed.set_or_map_field(root, document_schema.votes(), votes)\n  sluice_js.settle(sluice)\n\n  #(\n    sluice,\n    document_a,\n    document_b,\n    channels_of(document_a),\n    channels_of(document_b),\n  )\n}\n\nfn channels_of(document: Document(document_schema.BoardDocument)) -> Channels {\n  let root = watershed.root_typed(document)\n  let assert Ok(Some(notes)) =\n    watershed.resolve_or_map_field(document, root, document_schema.notes())\n  let assert Ok(Some(votes)) =\n    watershed.resolve_or_map_field(document, root, document_schema.votes())\n  Channels(notes:, votes:)\n}",
+      "fn board_of(\n  document: Document(document_schema.BoardDocument),\n  channels: Channels,\n) -> board.Snapshot {\n  let root = watershed.root_typed(document)\n  let assert Ok(Some(title)) =\n    watershed.get_field(root, document_schema.title())\n  let assert Ok(board) =\n    board.snapshot_from_channels(title, channels.notes, channels.votes)\n  board\n}",
+      "pub fn concurrent_adds_keep_both_notes_test() -> Nil {\n  let #(sluice, document_a, document_b, a, b) = room(\"retro-tutorial-adds\")\n\n  let first =\n    board.add_note(\n      a.notes,\n      \"user-a\",\n      \"deploys got faster\",\n      board.WentWell,\n      1000,\n      1,\n    )\n  let second =\n    board.add_note(\n      b.notes,\n      \"user-b\",\n      \"standup stayed short\",\n      board.WentWell,\n      1000,\n      1,\n    )\n  sluice_js.settle(sluice)\n\n  let board_a = board_of(document_a, a)\n  let board_b = board_of(document_b, b)\n\n  board_a |> should.equal(board_b)\n  board.note_count(board_a) |> should.equal(2)\n  let assert Ok(_) = board.find_card(board_a, first)\n  let assert Ok(_) = board.find_card(board_a, second)\n  board.cards_for(board_a, board.WentWell)\n  |> list.length\n  |> should.equal(2)\n}",
+      "pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {\n  let #(sluice, document_a, document_b, a, b) = room(\"retro-tutorial-votes\")\n\n  let id =\n    board.add_note(\n      a.notes,\n      \"user-a\",\n      \"ship week went smoothly\",\n      board.WentWell,\n      1000,\n      1,\n    )\n  sluice_js.settle(sluice)\n\n  board.upvote(a.votes, id)\n  board.upvote(b.votes, id)\n  board.downvote(b.votes, id)\n  sluice_js.settle(sluice)\n\n  let board_a = board_of(document_a, a)\n  let board_b = board_of(document_b, b)\n\n  board_a |> should.equal(board_b)\n  let assert Ok(card) = board.find_card(board_a, id)\n  card.votes |> should.equal(1)\n}",
+      "// Two adds, then deliver one message at a time instead of all at once.\nboard.add_note(a.notes, \"user-a\", \"deploys got faster\", board.WentWell, 1000, 1)\nboard.add_note(b.notes, \"user-b\", \"standup stayed short\", board.WentWell, 1000, 1)\n\nsluice_js.step(sluice)     // deliver exactly one queued message\n// ... assert the half-delivered board here ...\nsluice_js.settle(sluice)   // then deliver everything else that's left",
+      "retro_tutorial_lustre/\n├── gleam.toml                      dependencies and the javascript target\n├── package.json                    pnpm build / pnpm serve\n├── pnpm-workspace.yaml\n├── build.mjs                       esbuild bundle for the browser\n├── index.html                      mount point and all of the styling\n├── src/\n│   ├── retro_tutorial_lustre.gleam every sheet · connection, update, view\n│   └── retro_tutorial_lustre/\n│       ├── document_schema.gleam   step 01 · title, notes, votes\n│       ├── note.gleam              step 02 · the note record and its codec\n│       └── board.gleam             steps 02 and 04 · pure canonical snapshot and shared writes\n└── test/\n    ├── retro_tutorial_lustre_test.gleam  the gleeunit entry point\n    ├── note_codec_test.gleam       round trips, including malformed payloads\n    ├── board_test.gleam            ordering, tally joins, unfiled notes\n    └── convergence_test.gleam      this sheet · two races and two wrong-mode guards",
+      "cd examples/retro_tutorial_lustre\ngleam test",
+      "pub type State {\n  State(current_generation: Int, pending: Bool)\n}\n\npub fn idle() -> State {\n  State(current_generation: 0, pending: False)\n}\n\npub fn request(state: State) -> #(State, Int) {\n  let generation = state.current_generation + 1\n\n  #(State(current_generation: generation, pending: True), generation)\n}\n\npub fn flush(state: State, generation: Int) -> #(State, Bool) {\n  case state.pending && state.current_generation == generation {\n    True -> #(\n      State(current_generation: state.current_generation, pending: False),\n      True,\n    )\n    False -> #(state, False)\n  }\n}",
+      "/// A worker dies mid-job: the server's sequenced `\"leave\"` re-releases the job\n/// to the queue in the surviving replica — as `Added(newly_added: False)`, the\n/// signal the board renders \"job returned\" from — and the survivor can take it\n/// over. No client code participates in the recovery.\npub fn held_job_returns_to_queue_when_holder_disconnects_test() -> Nil {\n  let #(sluice, document_a, document_b) = room(\"wq-worker-dies\")\n  let queue_a = queue_of(document_a)\n  let queue_b = queue_of(document_b)\n  let payload = job(\"doomed\")\n\n  watershed.ordered_add(queue_a, payload)\n  sluice_js.settle(sluice)\n\n  let events_b = queue_events(queue_b)\n  let #(outcomes_a, id_a) = outcome_cell(queue_a)\n  sluice_js.settle(sluice)\n  transport_js.get_cell(outcomes_a)\n  |> should.equal([AcquiredItem(id_a, payload)])\n  watershed.ordered_jobs(queue_b)\n  |> should.equal([#(id_a, JobEntry(payload, Some(int_of(document_a))))])\n\n  // The tab holding the job goes away without completing or releasing.\n  sluice_js.disconnect(sluice, document_a)\n  sluice_js.settle(sluice)\n\n  transport_js.get_cell(events_b)\n  |> list.contains(ordered_collection_kernel.Added(payload, False, False))\n  |> should.be_true()\n  watershed.ordered_queue(queue_b) |> should.equal([payload])\n  watershed.ordered_jobs(queue_b) |> should.equal([])\n\n  // The recovered job is workable, not a tombstone.\n  let #(outcomes_b, id_b) = outcome_cell(queue_b)\n  sluice_js.settle(sluice)\n  transport_js.get_cell(outcomes_b)\n  |> should.equal([AcquiredItem(id_b, payload)])\n}"
+    ],
+    "notes": [
+      {
+        "id": "pure-modules",
+        "summary": "Extract pure modules; test without a server Move decisions into pure modules so most tests need no document, sluice, or server.",
+        "body": ""
+      },
+      {
+        "id": "deterministic-death",
+        "summary": "Test client death deterministically Test a client dying mid-job with an in-process disconnect that produces the same leave event as the server.",
+        "body": ""
+      }
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "reference": {
+        "display": "flex",
+        "padding": "12px 16px",
+        "border-left": "2px solid oklch(0.55 0.21 340)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "note": {
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "scroll-margin-top": "24px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — write repeatable tests",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Step six of the watershed build guide: run two clients in one Gleam test and control when each message arrives."
+      ],
+      [
+        "og:title",
+        "watershed — write repeatable tests"
+      ],
+      [
+        "og:description",
+        "Step six of the watershed build guide: run two clients in one Gleam test and control when each message arrives."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/guide/testing/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Write repeatable tests",
+    "headings": [
+      "Run two clients in one test",
+      "Choose when messages arrive",
+      "Assert on the board, not on the map",
+      "Both races, written as tests",
+      "Deepening: script the intermediate state",
+      "The finished project",
+      "Where to go when this board gets too small",
+      "How the examples do it",
+      "Extract pure modules; test without a server",
+      "Test client death deterministically"
+    ],
+    "prose": [
+      "The sluice lets a test create two documents and choose when each message arrives. Use it to repeat the two-tab checks without opening a browser or starting a server.",
+      "It plugs into the same client code as production, including encoding, queues, retries, reconnecting, and message order. It doesn't open a real network connection or reproduce floodgate's storage and login.",
+      "When a client submits something, it's processed and given its place in the order right away — but the messages that result from it sit in a queue instead of arriving immediately. settle drains that queue until nothing's left to deliver; step delivers exactly one message and stops. That splits “the order the server decided on” and “the order each client actually sees it in” into two separate things you control by hand.",
+      "So setting up a test room means: one sluice, two documents connecting to it, one settle to let both handshakes finish, the title and channels written on client A, and a second settle so client B can pick up that state from the shared root map.",
+      "Neither settle call is decoration. Skip the second one, and client B is looking at a root map that doesn't have those channels in it yet — so channels_of fails, not because anything is broken, but because you asked too early.",
+      "The tests read the board through board.snapshot_from_channels — the exact same function the UI renders from. That is deliberate. If the tests instead asserted directly on the raw map entries, they could pass while the actual board people look at was sorting its columns differently on each tab.",
+      "This is exactly why board keeps the write functions with the board state: if a test reimplemented the write instead of calling the real one, all it would prove is that the copy agrees with itself.",
+      "FIELD NOTE Extract pure modules; test without a server ↓",
+      "The add race checks two things: board_a |> should.equal(board_b) confirms both tabs ended up showing the identical board, and the note count, two lookups, and column tally confirm they didn't end up identical by both losing the same note.",
+      "The vote race sends three votes across two clients and checks they settle at +1. Same shape, same settle call, and no sleep anywhere in sight — the test doesn't wait and hope the timing works out, it calls settle and gets the same answer every single time.",
+      "Assert on the specific outcome, not just equality. A test that only checks both tabs end up looking the same can still pass while the thing users actually care about is broken — for example, if both tabs agreed by losing the same note. These two tests each check the specific outcome that matters: nothing you type disappears, and nothing you vote is lost.",
+      "When you want to inspect a board mid-flight — one note delivered, the other still waiting — step advances one message at a time. It doesn't change the order things were already assigned; the order you called the submit functions in decides that.",
+      "More controls. Both sluice and sluice_js provide pause / resume to hold back one client's messages specifically, and advance(ms) to move the sluice's logical clock forward. On sluice_js, advancing also fires every timer that became due. Hand its scheduler to presence_js.start_with_scheduler and presence runs on that clock too, so heartbeat and expiry tests advance without waiting on wall time. The JavaScript version also exposes step_info with details about each delivery, which is how the demo back on step 03 draws its log of what happened.",
+      "FIELD NOTE Test client death deterministically ↓",
+      "Six sheets, one source tree. Everything the procedure built, in the order it built it:",
+      "Every snippet in this guide that comes from the project is quoted from these files at build time, so what you read here and what compiles cannot drift. The complete source is in examples/retro_tutorial_lustre, and it is meant to be copied out and renamed.",
+      "The tutorial stops on purpose. It has no sequences, no drag and drop, no cross-column moves, no edit or delete, and no vote budgets — every one of those is a genuinely harder problem, and adding them here would have made the board harder to learn from, not more useful as an example.",
+      "The advanced retro board is the same idea with the hard parts left in: five channels, ordered columns on a sequence, cross-channel moves that render honestly rather than pretending to be atomic, and edit and delete flows. It is the next thing to read.",
+      "Beyond it, the example gallery maps this loop onto every complete browser application in the project, and the field atlas has a page per structure with its merge rule and its best-fit uses.",
+      "Run gleam test and get a clean pass in about a second: two convergence races, two wrong-mode guards, the board's ordering and joins, and the note codec — no server, no browser, no timing luck."
+    ],
+    "links": [
+      [
+        "Extract pure modules; test without a server ↓",
+        "/guide/testing#pure-modules"
+      ],
+      [
+        "Test client death deterministically ↓",
+        "/guide/testing#deterministic-death"
+      ],
+      [
+        "examples/retro_tutorial_lustre",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/retro_tutorial_lustre"
+      ],
+      [
+        "advanced retro board",
+        "/examples#retro_board_lustre"
+      ],
+      [
+        "example gallery",
+        "/examples"
+      ],
+      [
+        "field atlas",
+        "/structures"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/grocery_triptych_lustre/src/grocery_triptych_lustre/refresh_guard.gleam"
+      ],
+      [
+        "",
+        "/examples#grocery_triptych_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/work_queue_lustre/test/queue_semantics_test.gleam"
+      ],
+      [
+        "",
+        "/examples#work_queue_lustre"
+      ]
+    ],
+    "guide": [
+      [
+        "← STEP 05 Add presence",
+        "/guide/presence"
+      ],
+      [
+        "NEXT BUILD → The advanced retro board",
+        "/examples#retro_board_lustre"
+      ]
+    ],
+    "labels": [
+      "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "examples/retro_tutorial_lustre/test/convergence_test.gleam",
+      "(illustrative — scripted delivery)",
+      "examples/retro_tutorial_lustre/",
+      "(shell)",
+      "",
+      ""
+    ],
+    "captions": [
+      "",
+      ""
+    ],
+    "code": [
+      "fn room(\n  name: String,\n) -> #(\n  Sluice,\n  Document(document_schema.BoardDocument),\n  Document(document_schema.BoardDocument),\n  Channels,\n  Channels,\n) {\n  let sluice = sluice_js.start(tenant: \"default\", document: name)\n  let document_a = sluice_js.connect(sluice, \"user-a\")\n  let document_b = sluice_js.connect(sluice, \"user-b\")\n  sluice_js.settle(sluice)\n\n  let root = watershed.root_typed(document_a)\n  watershed.set_field(root, document_schema.title(), \"Sprint retro\")\n  let assert Ok(notes) =\n    watershed.create_or_map(document_a, or_map_kernel.RegisterMode)\n  watershed.set_or_map_field(root, document_schema.notes(), notes)\n  let assert Ok(votes) =\n    watershed.create_or_map(document_a, or_map_kernel.TallyMode)\n  watershed.set_or_map_field(root, document_schema.votes(), votes)\n  sluice_js.settle(sluice)\n\n  #(\n    sluice,\n    document_a,\n    document_b,\n    channels_of(document_a),\n    channels_of(document_b),\n  )\n}\n\nfn channels_of(document: Document(document_schema.BoardDocument)) -> Channels {\n  let root = watershed.root_typed(document)\n  let assert Ok(Some(notes)) =\n    watershed.resolve_or_map_field(document, root, document_schema.notes())\n  let assert Ok(Some(votes)) =\n    watershed.resolve_or_map_field(document, root, document_schema.votes())\n  Channels(notes:, votes:)\n}",
+      "fn board_of(\n  document: Document(document_schema.BoardDocument),\n  channels: Channels,\n) -> board.Snapshot {\n  let root = watershed.root_typed(document)\n  let assert Ok(Some(title)) =\n    watershed.get_field(root, document_schema.title())\n  let assert Ok(board) =\n    board.snapshot_from_channels(title, channels.notes, channels.votes)\n  board\n}",
+      "pub fn concurrent_adds_keep_both_notes_test() -> Nil {\n  let #(sluice, document_a, document_b, a, b) = room(\"retro-tutorial-adds\")\n\n  let first =\n    board.add_note(\n      a.notes,\n      \"user-a\",\n      \"deploys got faster\",\n      board.WentWell,\n      1000,\n      1,\n    )\n  let second =\n    board.add_note(\n      b.notes,\n      \"user-b\",\n      \"standup stayed short\",\n      board.WentWell,\n      1000,\n      1,\n    )\n  sluice_js.settle(sluice)\n\n  let board_a = board_of(document_a, a)\n  let board_b = board_of(document_b, b)\n\n  board_a |> should.equal(board_b)\n  board.note_count(board_a) |> should.equal(2)\n  let assert Ok(_) = board.find_card(board_a, first)\n  let assert Ok(_) = board.find_card(board_a, second)\n  board.cards_for(board_a, board.WentWell)\n  |> list.length\n  |> should.equal(2)\n}",
+      "pub fn concurrent_plus_plus_minus_votes_settle_at_plus_one_test() -> Nil {\n  let #(sluice, document_a, document_b, a, b) = room(\"retro-tutorial-votes\")\n\n  let id =\n    board.add_note(\n      a.notes,\n      \"user-a\",\n      \"ship week went smoothly\",\n      board.WentWell,\n      1000,\n      1,\n    )\n  sluice_js.settle(sluice)\n\n  board.upvote(a.votes, id)\n  board.upvote(b.votes, id)\n  board.downvote(b.votes, id)\n  sluice_js.settle(sluice)\n\n  let board_a = board_of(document_a, a)\n  let board_b = board_of(document_b, b)\n\n  board_a |> should.equal(board_b)\n  let assert Ok(card) = board.find_card(board_a, id)\n  card.votes |> should.equal(1)\n}",
+      "// Two adds, then deliver one message at a time instead of all at once.\nboard.add_note(a.notes, \"user-a\", \"deploys got faster\", board.WentWell, 1000, 1)\nboard.add_note(b.notes, \"user-b\", \"standup stayed short\", board.WentWell, 1000, 1)\n\nsluice_js.step(sluice)     // deliver exactly one queued message\n// ... assert the half-delivered board here ...\nsluice_js.settle(sluice)   // then deliver everything else that's left",
+      "retro_tutorial_lustre/\n├── gleam.toml                      dependencies and the javascript target\n├── package.json                    pnpm build / pnpm serve\n├── pnpm-workspace.yaml\n├── build.mjs                       esbuild bundle for the browser\n├── index.html                      mount point and all of the styling\n├── src/\n│   ├── retro_tutorial_lustre.gleam every sheet · connection, update, view\n│   └── retro_tutorial_lustre/\n│       ├── document_schema.gleam   step 01 · title, notes, votes\n│       ├── note.gleam              step 02 · the note record and its codec\n│       └── board.gleam             steps 02 and 04 · pure canonical snapshot and shared writes\n└── test/\n    ├── retro_tutorial_lustre_test.gleam  the gleeunit entry point\n    ├── note_codec_test.gleam       round trips, including malformed payloads\n    ├── board_test.gleam            ordering, tally joins, unfiled notes\n    └── convergence_test.gleam      this sheet · two races and two wrong-mode guards",
+      "cd examples/retro_tutorial_lustre\ngleam test",
+      "pub type State {\n  State(current_generation: Int, pending: Bool)\n}\n\npub fn idle() -> State {\n  State(current_generation: 0, pending: False)\n}\n\npub fn request(state: State) -> #(State, Int) {\n  let generation = state.current_generation + 1\n\n  #(State(current_generation: generation, pending: True), generation)\n}\n\npub fn flush(state: State, generation: Int) -> #(State, Bool) {\n  case state.pending && state.current_generation == generation {\n    True -> #(\n      State(current_generation: state.current_generation, pending: False),\n      True,\n    )\n    False -> #(state, False)\n  }\n}",
+      "/// A worker dies mid-job: the server's sequenced `\"leave\"` re-releases the job\n/// to the queue in the surviving replica — as `Added(newly_added: False)`, the\n/// signal the board renders \"job returned\" from — and the survivor can take it\n/// over. No client code participates in the recovery.\npub fn held_job_returns_to_queue_when_holder_disconnects_test() -> Nil {\n  let #(sluice, document_a, document_b) = room(\"wq-worker-dies\")\n  let queue_a = queue_of(document_a)\n  let queue_b = queue_of(document_b)\n  let payload = job(\"doomed\")\n\n  watershed.ordered_add(queue_a, payload)\n  sluice_js.settle(sluice)\n\n  let events_b = queue_events(queue_b)\n  let #(outcomes_a, id_a) = outcome_cell(queue_a)\n  sluice_js.settle(sluice)\n  transport_js.get_cell(outcomes_a)\n  |> should.equal([AcquiredItem(id_a, payload)])\n  watershed.ordered_jobs(queue_b)\n  |> should.equal([#(id_a, JobEntry(payload, Some(int_of(document_a))))])\n\n  // The tab holding the job goes away without completing or releasing.\n  sluice_js.disconnect(sluice, document_a)\n  sluice_js.settle(sluice)\n\n  transport_js.get_cell(events_b)\n  |> list.contains(ordered_collection_kernel.Added(payload, False, False))\n  |> should.be_true()\n  watershed.ordered_queue(queue_b) |> should.equal([payload])\n  watershed.ordered_jobs(queue_b) |> should.equal([])\n\n  // The recovered job is workable, not a tombstone.\n  let #(outcomes_b, id_b) = outcome_cell(queue_b)\n  sluice_js.settle(sluice)\n  transport_js.get_cell(outcomes_b)\n  |> should.equal([AcquiredItem(id_b, payload)])\n}"
+    ],
+    "notes": [
+      {
+        "id": "pure-modules",
+        "summary": "Extract pure modules; test without a server Move decisions into pure modules so most tests need no document, sluice, or server.",
+        "body": ""
+      },
+      {
+        "id": "deterministic-death",
+        "summary": "Test client death deterministically Test a client dying mid-job with an in-process disconnect that produces the same leave event as the server.",
+        "body": ""
+      }
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "reference": {
+        "display": "flex",
+        "padding": "12px 16px",
+        "border-left": "2px solid oklch(0.55 0.21 340)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "note": {
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "scroll-margin-top": "24px"
+      }
+    }
+  }
+}

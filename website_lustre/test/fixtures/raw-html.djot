@@ -1,0 +1,7 @@
+---
+description = "A test page."
+---
+
+```=html
+<div>Not permitted</div>
+```

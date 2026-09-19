@@ -1,0 +1,30 @@
+---
+description = "How watershed behaves at runtime: optimistic edits and rollback, reconnect and resync from a summary, idempotent delta re-delivery, the ephemeral presence tier, and peer-to-peer documents that run over WebRTC with no sequencer at all. The field notes behind the convergence guarantee."
+---
+
+{data-component="runtime-intro"}
+::::
+{.eyebrow .annot}
+[← watershed](/) · Runtime
+
+# Runtime\
+_behavior._
+
+{.lede}
+The [atlas](/structures) shows _what_ each structure is and the [models](/models) page shows _how_ it converges. These pages cover the runtime behavior shared by every structure: optimism, reconnection, duplicate safety, the ephemeral tier that never touches converged state, and the mesh that lets a document run with no sequencer joined at all.
+::::
+
+{data-component="runtime-content"}
+::::::
+{data-component="runtime-ledger-head"}
+::::
+{data-heading-id="fh-ledger-title"}
+## Runtime behaviors
+
+Five sheets. Read in order, or choose the behavior you need to investigate.
+::::
+{data-component="runtime-aside"}
+:::
+Ready to build on these? The [build guide](/guide) puts them to work, including a hands-on [presence step](/guide/presence) that wires the ephemeral tier into a working board.
+:::
+::::::

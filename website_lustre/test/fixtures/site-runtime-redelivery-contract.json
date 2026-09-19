@@ -1,0 +1,346 @@
+{
+  "desktop": {
+    "title": "watershed — idempotent re-delivery",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "How watershed survives duplicate delivery: the runtime drops already-seen sequence numbers before any structure is touched, and CRDT merges are idempotent besides, so a re-delivered delta is a non-event at either layer."
+      ],
+      [
+        "og:title",
+        "watershed — idempotent re-delivery"
+      ],
+      [
+        "og:description",
+        "How watershed survives duplicate delivery: the runtime drops already-seen sequence numbers before any structure is touched, and CRDT merges are idempotent besides, so a re-delivered delta is a non-event at either layer."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/runtime/redelivery/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Idempotent re-delivery",
+    "hero": [
+      "← WATERSHED · RUNTIME / IDEMPOTENT RE-DELIVERY",
+      "RUNTIME BEHAVIOR",
+      "Why a re-sent delta lands as a non-event: the runtime's sequence-number check drops it, or an idempotent merge absorbs it.",
+      "TRACES RE-DELIVER · DEDUPE · ABSORB",
+      "TRACES"
+    ],
+    "headings": [
+      "At-least-once is the honest assumption",
+      "Merge, don't apply",
+      "Watch it absorb, live"
+    ],
+    "prose": [
+      "Real networks do not deliver exactly once. An ack gets lost and the client resends; a reconnecting peer replays a window it already saw; a retry races the original. Sooner or later the same update arrives twice, and the system has to make that a non-event.",
+      "watershed's first line of defense is the runtime itself. Every sequenced message carries a sequence number, and each client tracks the last one it has applied; anything at or below that mark is dropped before any structure sees it. That check protects every kind, including the op-based SharedCounter, whose \"add 5\" applied twice really would be +10. The duplicate never reaches the kernel, so there is nothing to un-count.",
+      "watershed's lattice counters go one layer deeper. A CRDT is built so its merge is idempotent: merging the same value a second time changes nothing. A PN counter does not ship \"add 5\"; it ships its two grow-only tallies (total fill and total cut) and the receiver merges by taking the pairwise maximum of what it has and what arrived. Take the max of a number with itself and you get the same number. The duplicate lands, the merge runs, and the state does not move.",
+      "That puts the safety in the structure itself rather than one layer up. An op-based counter is safe because the runtime checks sequence numbers before applying; a lattice CRDT would converge even if nothing did. A duplicate that reached the kernel by any path (a summary overlapping a replay window, a sync that never passed through the sequencer) is still a no-op. Same outcome on the sequenced stream; a different layer holding the guarantee.",
+      "The demo makes this witnessable. In PN-counter mode a Re-deliver last delta button re-sends the last sequenced delta with no new sequence number, and hands it straight to each replica's kernel, deliberately skipping the runtime's sequence-number check so the merge is the only thing standing. It swallows the duplicate anyway: the signed total holds, and the op log records the redelivery as an italic, muted non-event rather than a change:",
+      "This is the line the runtime never lets an op-based counter see. Hand the same duplicate to counter_kernel directly and it would add again, which is why the sequence-number check in front of it prevents double-counting. The lattice kernels need no such guard: the duplicate reaches the merge and the merge shrugs. Both are safe on the stream; only one is safe without it.",
+      "Every structure survives re-delivery on the sequenced stream, because the runtime drops any sequence number it has already seen. CRDTs have a second, deeper guarantee: their merge is idempotent, so a duplicate is a non-event even when it reaches the kernel itself: safety that comes from the data type, not the delivery."
+    ],
+    "links": [
+      [
+        "reconnecting",
+        "/runtime/reconnect"
+      ],
+      [
+        "SharedCounter",
+        "/structures/counters"
+      ],
+      [
+        "CRDT",
+        "/models"
+      ],
+      [
+        "PN counter",
+        "/structures/counters#pn"
+      ]
+    ],
+    "pager": [
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "OVERVIEW",
+        "/runtime"
+      ],
+      [
+        "OPTIMISTIC EDITS",
+        "/runtime/optimistic"
+      ],
+      [
+        "RECONNECT & RESYNC",
+        "/runtime/reconnect"
+      ],
+      [
+        "IDEMPOTENT RE-DELIVERY",
+        "/runtime/redelivery"
+      ],
+      [
+        "PRESENCE & RIPPLES",
+        "/runtime/presence"
+      ],
+      [
+        "PEER-TO-PEER OVER WEBRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "← RECONNECT & RESYNC Drop the link and rejoin the flow. A returning client rehydrates from a summary (the same path a fresh client boots from).",
+        "/runtime/reconnect"
+      ],
+      [
+        "PRESENCE & RIPPLES → The ephemeral tier beside your state: throwaway broadcasts, and the roster built on them (connection-backed where the server offers it, heartbeat-and-TTL where it does not).",
+        "/runtime/presence"
+      ]
+    ],
+    "labels": [],
+    "captions": [],
+    "code": [],
+    "oplog": {
+      "label": "Op-log excerpt: a duplicate delta absorbed",
+      "lines": [
+        "#03 cut −5 yd³ → net −5",
+        "#03 again · cut −5 yd³ · absorbed"
+      ],
+      "style": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)",
+        "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace",
+        "font-size": "13px"
+      },
+      "duplicate": {
+        "color": "oklch(0.44 0.015 260)",
+        "font-style": "italic"
+      }
+    },
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": null,
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "471.203px 471.203px",
+        "gap": "16px",
+        "padding": "64px 64.8px 129.6px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — idempotent re-delivery",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "How watershed survives duplicate delivery: the runtime drops already-seen sequence numbers before any structure is touched, and CRDT merges are idempotent besides, so a re-delivered delta is a non-event at either layer."
+      ],
+      [
+        "og:title",
+        "watershed — idempotent re-delivery"
+      ],
+      [
+        "og:description",
+        "How watershed survives duplicate delivery: the runtime drops already-seen sequence numbers before any structure is touched, and CRDT merges are idempotent besides, so a re-delivered delta is a non-event at either layer."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/runtime/redelivery/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Idempotent re-delivery",
+    "hero": [
+      "← WATERSHED · RUNTIME / IDEMPOTENT RE-DELIVERY",
+      "RUNTIME BEHAVIOR",
+      "Why a re-sent delta lands as a non-event: the runtime's sequence-number check drops it, or an idempotent merge absorbs it.",
+      "TRACES RE-DELIVER · DEDUPE · ABSORB",
+      "TRACES"
+    ],
+    "headings": [
+      "At-least-once is the honest assumption",
+      "Merge, don't apply",
+      "Watch it absorb, live"
+    ],
+    "prose": [
+      "Real networks do not deliver exactly once. An ack gets lost and the client resends; a reconnecting peer replays a window it already saw; a retry races the original. Sooner or later the same update arrives twice, and the system has to make that a non-event.",
+      "watershed's first line of defense is the runtime itself. Every sequenced message carries a sequence number, and each client tracks the last one it has applied; anything at or below that mark is dropped before any structure sees it. That check protects every kind, including the op-based SharedCounter, whose \"add 5\" applied twice really would be +10. The duplicate never reaches the kernel, so there is nothing to un-count.",
+      "watershed's lattice counters go one layer deeper. A CRDT is built so its merge is idempotent: merging the same value a second time changes nothing. A PN counter does not ship \"add 5\"; it ships its two grow-only tallies (total fill and total cut) and the receiver merges by taking the pairwise maximum of what it has and what arrived. Take the max of a number with itself and you get the same number. The duplicate lands, the merge runs, and the state does not move.",
+      "That puts the safety in the structure itself rather than one layer up. An op-based counter is safe because the runtime checks sequence numbers before applying; a lattice CRDT would converge even if nothing did. A duplicate that reached the kernel by any path (a summary overlapping a replay window, a sync that never passed through the sequencer) is still a no-op. Same outcome on the sequenced stream; a different layer holding the guarantee.",
+      "The demo makes this witnessable. In PN-counter mode a Re-deliver last delta button re-sends the last sequenced delta with no new sequence number, and hands it straight to each replica's kernel, deliberately skipping the runtime's sequence-number check so the merge is the only thing standing. It swallows the duplicate anyway: the signed total holds, and the op log records the redelivery as an italic, muted non-event rather than a change:",
+      "This is the line the runtime never lets an op-based counter see. Hand the same duplicate to counter_kernel directly and it would add again, which is why the sequence-number check in front of it prevents double-counting. The lattice kernels need no such guard: the duplicate reaches the merge and the merge shrugs. Both are safe on the stream; only one is safe without it.",
+      "Every structure survives re-delivery on the sequenced stream, because the runtime drops any sequence number it has already seen. CRDTs have a second, deeper guarantee: their merge is idempotent, so a duplicate is a non-event even when it reaches the kernel itself: safety that comes from the data type, not the delivery."
+    ],
+    "links": [
+      [
+        "reconnecting",
+        "/runtime/reconnect"
+      ],
+      [
+        "SharedCounter",
+        "/structures/counters"
+      ],
+      [
+        "CRDT",
+        "/models"
+      ],
+      [
+        "PN counter",
+        "/structures/counters#pn"
+      ]
+    ],
+    "pager": [
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "OVERVIEW",
+        "/runtime"
+      ],
+      [
+        "OPTIMISTIC EDITS",
+        "/runtime/optimistic"
+      ],
+      [
+        "RECONNECT & RESYNC",
+        "/runtime/reconnect"
+      ],
+      [
+        "IDEMPOTENT RE-DELIVERY",
+        "/runtime/redelivery"
+      ],
+      [
+        "PRESENCE & RIPPLES",
+        "/runtime/presence"
+      ],
+      [
+        "PEER-TO-PEER OVER WEBRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "← RECONNECT & RESYNC Drop the link and rejoin the flow. A returning client rehydrates from a summary (the same path a fresh client boots from).",
+        "/runtime/reconnect"
+      ],
+      [
+        "PRESENCE & RIPPLES → The ephemeral tier beside your state: throwaway broadcasts, and the roster built on them (connection-backed where the server offers it, heartbeat-and-TTL where it does not).",
+        "/runtime/presence"
+      ]
+    ],
+    "labels": [],
+    "captions": [],
+    "code": [],
+    "oplog": {
+      "label": "Op-log excerpt: a duplicate delta absorbed",
+      "lines": [
+        "#03 cut −5 yd³ → net −5",
+        "#03 again · cut −5 yd³ · absorbed"
+      ],
+      "style": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)",
+        "font-family": "\"JetBrains Mono\", ui-monospace, SFMono-Regular, Menlo, monospace",
+        "font-size": "13px"
+      },
+      "duplicate": {
+        "color": "oklch(0.44 0.015 260)",
+        "font-style": "italic"
+      }
+    },
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "33.15px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "32.8185px"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": null,
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "16px",
+        "padding": "64px 20px 72px"
+      }
+    }
+  }
+}

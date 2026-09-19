@@ -78,10 +78,11 @@ monospace type as a generic signal for technical credibility.
 
 - `README.md` documents installation, both target-specific facades, supported
   structures, and executable examples.
-- `website/src/pages/` contains the guide, architecture material, model
-  comparisons, structure references, and dedicated demonstrations.
-- `website/src/components/Demo.astro` runs live multi-client demonstrations
-  against the JavaScript-compiled kernels.
+- `website_lustre/content/` and `website_lustre/src/watershed_site/view/`
+  contain the guide, architecture material, model comparisons, structure
+  references, and dedicated demonstrations.
+- `website_lustre/src/watershed_site/client/` runs live multi-client
+  demonstrations against the JavaScript-compiled kernels.
 - `examples/` contains BEAM, browser, CLI, Lustre, peer-to-peer, persistence,
   and collaborative application examples.
 - `test/` and the browser smoke suites exercise convergence, wire behavior,

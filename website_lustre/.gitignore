@@ -1,0 +1,6 @@
+/build/
+/dist/
+/.lustre/
+/node_modules/
+/.cache/
+/src/generated/snippets.json

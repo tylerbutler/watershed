@@ -1,0 +1,190 @@
+---
+description = "Step one of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render."
+---
+
+::: g-block
+## Connect to a live document
+
+A watershed *document* is a collection of data stored in collaborative structures. Watershed defines how those structures sync; your application decides what their data means. In this tutorial, each document is one retro board.
+
+A `tenant` id and a `document` id address the document. The tenant id groups documents; the document id picks one board in that group. Any client that opens the same pair of names joins the same live board — open the same link in two tabs and you're looking at the same board in both.
+
+Connecting does two things. First it catches you up: the server replays the document's whole history of edits, so this board opens at its current state instead of an empty one. Then it keeps the line open, streaming every later edit — yours and everyone else's — in the single order the server assigns.
+
+{data-snippet="guide-connect-dev-constants"}
+```gleam
+generated
+```
+
+
+{data-snippet="guide-connect-main" data-caption="document_on_navigate reads %3Fdocument%3D from the URL, or mints a name and puts it there — so two tabs share a board by sharing the link"}
+```gleam
+generated
+```
+:::
+
+::: g-block
+## Connecting is a declared effect, not a callback
+
+The browser side of watershed talks in callbacks: `on_ready`, subscription handlers, presence events. If you wired those into Lustre by hand, each one would need to fire off a message on its own, and firing a message from inside `update`, while `update` is still assembling the model you're about to return, quietly overwrites that half-built model with a stale one. [`watershed_lustre`](https://github.com/tylerbutler/watershed/tree/main/watershed_lustre) does that wiring once, correctly, so your `init` just returns the connection as one more effect — the same way it returns any other effect in Lustre.
+
+{data-snippet="guide-connect-init"}
+```gleam
+generated
+```
+:::
+
+::: g-note
+*Development and production put token signing on opposite sides of the browser boundary.* `connect_dev` keeps this tutorial self-contained by signing an HS256 token in the browser with the tenant secret expected by `just integration-up`. A production browser cannot hold that secret: anyone who extracts it could mint tokens for the tenant. Your backend must authenticate the user, sign the token, and send only that token to the browser, which passes it to `watershed_lustre.connect`. The two functions make that credential boundary explicit; after token creation, both use the same connection path.
+:::
+
+::: g-block
+## The handle and the handshake are two different events
+
+Notice that `connect_dev` fires two separate messages. `got_document` arrives the moment you have something to hold onto — a reference to the document, before it's caught up. `connected` arrives later, once the server has finished replaying history and you're actually in sync. Treat those as the same moment and you get a subtle bug on first load: you start building on a document that looks ready but hasn't caught up yet, and wonder why the board flickers or shows nothing.
+
+So the tutorial app keeps both messages separate, and only starts building the board once whichever one arrives second has shown up. That is the whole reason for the double `case` below.
+
+{data-snippet="guide-connect-readiness"}
+```gleam
+generated
+```
+
+:::
+{data-component="field-note-ref" data-practice="ffi-surface"}
+:::
+:::
+
+::: g-block
+## Define the board's fields
+
+The schema lists the shared fields in a document. This board has a `title` string and two maps named `notes` and `votes`. A named shared map is called a *channel*.
+
+Keep these names in one file instead of repeating strings throughout the app. The `BoardDocument` type also prevents code from using one of these fields with a different kind of document. For the full picture of what a field can be (a plain value, a handle to a nested map, or a handle to another channel kind entirely), see [Foundations · schemas and fields](/foundations/schema).
+
+{data-snippet="guide-connect-schema"}
+```gleam
+generated
+```
+:::
+
+::: g-block
+## Create the shared maps
+
+A new document starts empty. `ensure_or_map` creates a map if the field is empty, or adopts whichever one is already there. Open a new board from two tabs at once and both calls still resolve to an attached map — the field settles on one handle without a leader — but the two calls aren't promised to hand back the same map in the same tick. See [Foundations · starting a document](/foundations/lifecycle) for the concurrent-bootstrap details.
+
+{data-snippet="guide-connect-bootstrap"}
+```gleam
+generated
+```
+
+`RegisterMode` stores one string per key for notes. `TallyMode` stores one signed number per key for votes. You choose the mode when you create the channel.
+
+:::
+{data-component="field-note-ref" data-practice="claims-seeding"}
+:::
+:::
+
+::: g-block
+## Build the board only when both channels are ready
+
+Each call to `ensure_or_map` hands its map back separately, and the two don't arrive together. Build the board as soon as one shows up and you'd get shared state with one channel missing, so the app holds both results in a `PendingShared` pair and doesn't assemble the board until both are in. Until then, the shell still renders and its status line reports `channels 1/2`.
+
+{data-snippet="guide-connect-assemble"}
+```gleam
+generated
+```
+
+The subscriptions come last, and they matter more than they look. A subscription only tells you about changes that happen _after_ you subscribe — it never replays what's already in the map. That's why `assemble` takes a snapshot of the current state in the same breath that it subscribes. Skip the snapshot, and the board boots up empty and stays empty until someone else happens to type.
+:::
+
+::: g-note
+*One message for both origins.* A local edit and a remote edit both end in the same `snapshot` re-read. The local branch calls it after writing; a remote change reaches it through `SharedChanged`. Keeping one snapshot path prevents the two origins from producing different board state.
+:::
+
+::: g-block
+### Deepening: the same thing on the BEAM
+
+watershed is built BEAM-first (the BEAM is the Erlang virtual machine that Gleam also targets on the server), and the same core logic compiles to the browser too. The map operations are identical either way; only the connecting and subscribing look different, because the two runtimes work differently.
+
+{data-source-label="watershed_beam (comparison)" data-caption="watershed_beam · for comparison only, the tutorial stays in the browser"}
+```gleam
+import gleam/erlang/process.{type Subject}
+import watershed/map_kernel
+import watershed_beam
+
+// Blocks until the document's full history has replayed locally, then
+// hands back the document — fine inside an OTP process, but it would
+// freeze everything in a browser tab.
+let assert Ok(doc) =
+  watershed_beam.connect(
+    host: "127.0.0.1",
+    port: 4000,
+    tenant: "dev-tenant",
+    document: "retro-tutorial",
+    token: token,
+    user_id: "ada",
+  )
+
+// Root-map changes arrive as a Subject you select on, not as a callback.
+let events: Subject(map_kernel.MapEvent) =
+  watershed_beam.subscribe(watershed_beam.root(doc))
+```
+
+On the BEAM, there's no two-message dance to design around: `connect` simply pauses your code until the document has fully caught up, so by the time you're holding a handle, it's already synced. That's the difference that changes how you design the connection, and it's why the browser path above needs the two-message pattern: JavaScript can't pause and wait the way an OTP process (an Erlang-style lightweight process) can.
+
+:::
+{data-component="field-note-ref" data-practice="shared-core-two-runtimes"}
+:::
+:::
+
+::: g-block
+## Run it
+
+Here is the project's source and test layout, so you know where each later sheet puts its file. The board and note modules arrive in step 02; the app shell already imports them, so use the complete example and read the guide forward.
+
+{data-source-label="examples/retro_tutorial_lustre/"}
+```text
+retro_tutorial_lustre/
+├── gleam.toml
+├── package.json
+├── pnpm-workspace.yaml
+├── build.mjs
+├── index.html
+├── src/
+│   ├── retro_tutorial_lustre.gleam ← every sheet
+│   └── retro_tutorial_lustre/
+│       ├── document_schema.gleam   ← this sheet
+│       ├── note.gleam              ← step 02
+│       └── board.gleam             ← step 02
+└── test/
+    ├── retro_tutorial_lustre_test.gleam
+    ├── note_codec_test.gleam
+    ├── board_test.gleam
+    └── convergence_test.gleam      ← step 06
+```
+
+watershed is not published to Hex yet, so the two `path` dependencies resolve because this example is in `examples/` inside a watershed checkout. In your own project take both as git dependencies pinned to a commit; the [README](https://github.com/tylerbutler/watershed#install) gives the exact lines.
+
+{data-snippet="guide-connect-gleam-toml"}
+```toml
+generated
+```
+
+Start a floodgate development server on port `4000` with `just integration-up`, then:
+
+{data-source-label="(shell)"}
+```sh
+cd examples/retro_tutorial_lustre
+pnpm install
+pnpm build
+pnpm serve      # http://localhost:8080
+```
+:::
+
+::: g-out
+{.annot}
+You can now
+
+Open `http://localhost:8080` and read the status line: `connected · board ready · 0 notes`. The document is live and both channels are attached — there is just nothing in them yet. Step 02 fixes that.
+:::

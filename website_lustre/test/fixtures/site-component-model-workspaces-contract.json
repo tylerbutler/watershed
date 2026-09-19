@@ -1,0 +1,394 @@
+{
+  "desktop": {
+    "title": "watershed — workspaces and instances",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "A workspace stores component instances, presentation order, and connections within a document. Watershed persists all three beneath one child map, then the browser runtime reconciles that state without discarding data the local host cannot use."
+      ],
+      [
+        "og:title",
+        "watershed — workspaces and instances"
+      ],
+      [
+        "og:description",
+        "A workspace stores component instances, presentation order, and connections within a document. Watershed persists all three beneath one child map, then the browser runtime reconciles that state without discarding data the local host cannot use."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/component-model/workspaces/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Workspaces and instances",
+    "hero": [
+      "← WATERSHED · COMPONENT MODEL / WORKSPACES AND INSTANCES",
+      "COMPONENT MODEL",
+      "Optional · user-constructable apps",
+      "Save component instances, presentation order, and wiring in a workspace within your document — and reopen it safely next year, without deleting the parts this build cannot understand.",
+      "TRACES MANIFESTENTRY · SNAPSHOT · PREPARED · DELETE_INSTANCE",
+      "TRACES"
+    ],
+    "headings": [
+      "Save the arrangement inside the document",
+      "One root slot opens the whole workspace",
+      "The manifest points at data; it doesn't swallow it",
+      "Stored data and usable data are different lists",
+      "Prepared stops before Ready",
+      "Deletion removes reachability, not history",
+      "The runtime watches the workspace, not the view tree"
+    ],
+    "prose": [
+      "The last two sheets built a board out of parts: a notes panel, a counter, a task list, an activity log, and the connections a user drew between them. The component data belongs to the shared document, but the host also needs to save the arrangement so it can rebuild the board when you reopen the tab.",
+      "A workspace stores that arrangement within the document. It holds three things, whether your interface is a board or something else:",
+      "All three are shared, collaborative state, the same as the data inside the components. Two people arranging one board see each other do it. That is the whole point, and it is also where the difficulty starts.",
+      "A saved workspace outlives the code that made it. Open one tomorrow and this build may not carry the counter any more. Someone may have deleted a panel that another connection still names. Two people can each add a safe connection and get a cycle when their edits merge. A workspace cannot answer those problems by deleting what it fails to understand: one client's ignorance would become everybody's data loss.",
+      "So this sheet does two jobs. It stores the workspace, and it derives the components and connections this client can safely run — while keeping the rest exactly as written.",
+      "All of it is host work. The last two sheets each split in half, one part for using components and one for writing them. This sheet has no second half: a component never sees the workspace that holds it.",
+      "Those three lists become three channels, and one slot on the document root opens all of them. A composed app still has one typed document root. Give the workspace one ChildField there, and it owns a map of component instances, a sequence for presentation order, and a sequence of port connections.",
+      "The JavaScript and BEAM adapters create those channels while they are detached, wire their handles into the workspace map, then attach the complete subtree through the root. A peer never needs three magic keys at the application root, and component data never shares the workspace's control namespace.",
+      "Each manifest value names the stable instance and component version, carries its config as JSON, and embeds a handle to that component's own child map. The config can vary by component kind. The child map remains a separate collaborative structure with one owner.",
+      "Handle discovery walks nested JSON. Writing this record therefore attaches the child map before the manifest operation reaches another client. A late joiner reads the same entry and resolves the same map.",
+      "Those three reopening problems — the unknown kind, the repeated layout entry, the merged cycle — all arrive as stored data this client cannot use. None of them makes the data wrong. They make it unusable here, today, by this build.",
+      "workspace.snapshot keeps the raw values, decodes what it can, removes duplicate or dangling layout references from the effective view, and asks port_graph.effective for the deterministic acyclic graph. Every rejected value comes back as a diagnostic. Nothing gets rewritten.",
+      "Persistence can answer three questions without pretending it ran a component: does the catalog know this exact kind and version, does the config decode, and does the child map resolve? A successful answer is Prepared. An unsupported version is Unavailable. Bad stored data or config is Failed. A handle still in flight stays Loading.",
+      "Prepared is not running. The JavaScript component runtime calls the descriptor's start closure, waits while the instance is Starting, and reaches Ready only after bootstrap and subscriptions finish. Keeping the names separate makes a startup failure impossible to hide behind a resolved handle.",
+      "One delete touches three channels, so order matters. The adapter removes every layout reference, removes every connection that reaches the instance, and deletes the manifest key last. Repeating the operation finishes a partial attempt instead of failing on already-missing data.",
+      "Watershed doesn't have channel garbage collection. The instance map stays attached and disappears only from workspace reachability. A caller that retained its handle can still read it—the test pins that behavior instead of calling the orphan “deleted.”",
+      "Persistence still stops at Prepared. The JavaScript runtime subscribes to the manifest, layout, and graph; starts, replaces, and stops only the affected instances; and routes output events through one graph snapshot per trace. Layout and connection edits don't restart healthy components. The runtime exposes running values and lifecycle states, but it doesn't mount a view—the browser host decides what those values look like.",
+      "One child map owns the manifest, layout, and wiring. Raw collaborative data stays intact; the local catalog derives the view it can safely use. From here, the survey procedure returns to the document runtime watershed ships end to end today."
+    ],
+    "lists": [
+      {
+        "type": "ul",
+        "items": [
+          "Which parts exist. One entry for each component instance: its kind, its format version, its config, and a handle to its own data.",
+          "Where they sit. The presentation order the users arranged.",
+          "How they are wired. The port connections from the last sheet."
+        ],
+        "height": 132.8
+      }
+    ],
+    "noteGaps": [
+      64
+    ],
+    "links": [
+      [
+        "the last sheet",
+        "/component-model/ports"
+      ],
+      [
+        "the survey procedure",
+        "/guide"
+      ]
+    ],
+    "pager": [
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "OVERVIEW",
+        "/component-model"
+      ],
+      [
+        "01 COMPONENTS",
+        "/component-model/components"
+      ],
+      [
+        "02 PORTS",
+        "/component-model/ports"
+      ],
+      [
+        "03 WORKSPACES",
+        "/component-model/workspaces"
+      ],
+      [
+        "← PORTS AND DISPATCH Let a user connect two parts that were written apart: a port is a named connection point a component publishes, typed while you write it, erased once it is stored, and checked again before every event it carries.",
+        "/component-model/ports"
+      ],
+      [
+        "BUILD GUIDE → Put these ideas to work",
+        "/guide"
+      ]
+    ],
+    "labels": [
+      "src/watershed/workspace.gleam",
+      "src/watershed/workspace.gleam",
+      "src/watershed/workspace.gleam",
+      "src/watershed/workspace.gleam",
+      "src/watershed/workspace.gleam",
+      "src/watershed/workspace_beam.gleam",
+      "test/watershed/workspace_beam_test.gleam"
+    ],
+    "captions": [],
+    "code": [
+      "/// The workspace manifest.\npub fn manifest_field() -> schema.ChannelField(\n  WorkspaceSchema,\n  schema.MapChannel,\n) {\n  schema.channel_field(\"manifest\")\n}\n\n/// The ordered component instance IDs.\npub fn layout_field() -> schema.ChannelField(\n  WorkspaceSchema,\n  schema.SequenceChannel,\n) {\n  schema.channel_field(\"layout\")\n}\n\n/// The stored component port connections.\npub fn connections_field() -> schema.ChannelField(\n  WorkspaceSchema,\n  schema.SequenceChannel,\n) {\n  schema.channel_field(\"connections\")\n}",
+      "/// One component instance in the manifest.\npub type ManifestEntry {\n  ManifestEntry(\n    instance_id: String,\n    kind: String,\n    version: Int,\n    config: Json,\n    child_handle: Json,\n  )\n}",
+      "/// Derive one effective workspace view without changing stored values.\npub fn snapshot(\n  manifest raw_manifest: List(#(String, Json)),\n  layout raw_layout: List(Json),\n  connections raw_connections: List(Json),\n  catalog catalog: component.Catalog(context, running),\n) -> Snapshot {\n  let stored_manifest =\n    list.map(raw_manifest, fn(item) {\n      StoredManifestEntry(item.0, item.1, decode_manifest(item.1))\n    })\n  let #(entries, manifest_diagnostics) = valid_manifest(stored_manifest)\n  let #(layout, layout_diagnostics) = effective_layout(raw_layout, entries)\n  let #(stored_connections, connection_diagnostics) =\n    valid_connections(raw_connections)\n  let ports_for = fn(instance_id) { ports_for(entries, catalog, instance_id) }\n  let graph = port_graph.effective(stored_connections, ports_for)\n  let graph_diagnostics =\n    port_graph.errors(graph)\n    |> list.map(InvalidGraph)\n\n  Snapshot(\n    manifest: stored_manifest,\n    entries: entries,\n    raw_layout: raw_layout,\n    layout: layout,\n    raw_connections: raw_connections,\n    stored_connections: stored_connections,\n    graph: graph,\n    diagnostics: list.flatten([\n      manifest_diagnostics,\n      layout_diagnostics,\n      connection_diagnostics,\n      graph_diagnostics,\n    ]),\n  )\n}",
+      "/// Local preparation state before component runtime startup.\npub type PreparationState(subtree) {\n  /// The entry is valid, but its child map is not available yet.\n  Loading(entry: ManifestEntry, reason: String)\n  /// The descriptor, config, and child map are available.\n  Prepared(entry: ManifestEntry, subtree: subtree)\n  /// The local catalog does not support the stored kind and version.\n  Unavailable(entry: ManifestEntry, reason: component.LookupError)\n  /// The stored entry or component config is invalid.\n  Failed(instance_id: String, reason: PreparationError)\n}",
+      "/// Prepare every stored manifest entry against a local catalog.\npub fn prepare(\n  snapshot: Snapshot,\n  catalog: component.Catalog(context, running),\n  resolve_child: fn(Json) -> Result(subtree, String),\n) -> List(PreparationState(subtree)) {\n  list.map(snapshot.manifest, fn(stored) {\n    case stored.decoded {\n      Error(reason) -> Failed(stored.key, InvalidStoredManifest(reason))\n      Ok(entry) if entry.instance_id != stored.key ->\n        Failed(stored.key, StoredIdMismatch(entry.instance_id))\n      Ok(entry) ->\n        case component.find(catalog, entry.kind, entry.version) {\n          Error(reason) -> Unavailable(entry, reason)\n          Ok(descriptor) ->\n            case component.validate_config(descriptor, entry.config) {\n              Error(reason) ->\n                Failed(entry.instance_id, InvalidComponentConfig(reason))\n              Ok(Nil) ->\n                case resolve_child(entry.child_handle) {\n                  Ok(child) -> Prepared(entry, child)\n                  Error(reason) -> Loading(entry, reason)\n                }\n            }\n        }\n    }\n  })\n}",
+      "@target(erlang)\n/// Remove one instance from workspace reachability.\n///\n/// The attached child map remains readable through a handle retained before\n/// this operation.\npub fn delete_instance(\n  store: Workspace(root),\n  catalog: component.Catalog(context, running),\n  instance_id: String,\n) -> Result(Nil, WorkspaceError) {\n  let snapshot = read(store, catalog)\n  use _ <- result.try(delete_indices(\n    store.layout,\n    workspace.layout_removal_indices(snapshot, instance_id),\n  ))\n  use _ <- result.try(delete_indices(\n    store.connections,\n    workspace.instance_connection_indices(snapshot, instance_id),\n  ))\n  watershed_beam.delete(store.manifest, instance_id)\n  Ok(Nil)\n}",
+      "@target(erlang)\npub fn workspace_lifecycle_converges_and_preserves_deleted_data_test() -> Nil {\n  let sluice = start(\"workspace-beam-lifecycle\")\n  let document_a = connect(sluice, \"user-a\")\n  sluice.settle(sluice)\n  let assert Ok(store_a) =\n    workspace_beam.ensure(\n      document_a,\n      watershed_beam.root_typed(document_a),\n      workspace_field(),\n    )\n  sluice.settle(sluice)\n\n  let assert Ok(tasks_child) =\n    workspace_beam.add_instance(\n      store_a,\n      catalog(),\n      \"tasks-1\",\n      \"tasks\",\n      1,\n      json.null(),\n    )\n  let assert Ok(_) =\n    workspace_beam.add_instance(\n      store_a,\n      catalog(),\n      \"notes-1\",\n      \"notes\",\n      1,\n      json.null(),\n    )\n  watershed_beam.set(tasks_child, \"kept\", json.string(\"yes\"))\n  let edge =\n    port_graph.connection(\n      \"tasks-notes\",\n      port_graph.PortRef(\"tasks-1\", \"selected\"),\n      port_graph.PortRef(\"notes-1\", \"focus\"),\n    )\n  workspace_beam.add_connection(store_a, catalog(), edge)\n  |> expect.to_equal(Ok(Nil))\n  sluice.settle(sluice)\n\n  let document_b = connect(sluice, \"user-b\")\n  sluice.settle(sluice)\n  let assert Ok(store_b) =\n    workspace_beam.resolve(\n      document_b,\n      watershed_beam.root_typed(document_b),\n      workspace_field(),\n    )\n  workspace.layout(workspace_beam.read(store_b, catalog()))\n  |> expect.to_equal([\"tasks-1\", \"notes-1\"])\n\n  workspace_beam.move_instance(store_a, catalog(), \"notes-1\", 0)\n  |> expect.to_equal(Ok(Nil))\n  sluice.settle(sluice)\n  workspace.layout(workspace_beam.read(store_b, catalog()))\n  |> expect.to_equal([\"notes-1\", \"tasks-1\"])\n\n  let child_handle = watershed_beam.handle_of(tasks_child)\n  workspace_beam.delete_instance(store_a, catalog(), \"tasks-1\")\n  |> expect.to_equal(Ok(Nil))\n  workspace_beam.delete_instance(store_a, catalog(), \"tasks-1\")\n  |> expect.to_equal(Ok(Nil))\n  sluice.settle(sluice)\n\n  let snapshot_b = workspace_beam.read(store_b, catalog())\n  workspace.layout(snapshot_b) |> expect.to_equal([\"notes-1\"])\n  port_graph.connections(workspace.graph(snapshot_b))\n  |> expect.to_equal([])\n  let assert Ok(preserved) = watershed_beam.resolve(document_b, child_handle)\n  watershed_beam.get(preserved, \"kept\")\n  |> expect.to_equal(Ok(json.string(\"yes\")))\n}"
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "scope": {
+        "display": "inline-block",
+        "padding": "4px 8.8px",
+        "border": "1px solid oklch(0.55 0.21 340)",
+        "color": "oklch(0.44 0.185 340)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "471.203px 471.203px",
+        "gap": "16px",
+        "padding": "64px 64.8px 129.6px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — workspaces and instances",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "A workspace stores component instances, presentation order, and connections within a document. Watershed persists all three beneath one child map, then the browser runtime reconciles that state without discarding data the local host cannot use."
+      ],
+      [
+        "og:title",
+        "watershed — workspaces and instances"
+      ],
+      [
+        "og:description",
+        "A workspace stores component instances, presentation order, and connections within a document. Watershed persists all three beneath one child map, then the browser runtime reconciles that state without discarding data the local host cannot use."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/component-model/workspaces/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Workspaces and instances",
+    "hero": [
+      "← WATERSHED · COMPONENT MODEL / WORKSPACES AND INSTANCES",
+      "COMPONENT MODEL",
+      "Optional · user-constructable apps",
+      "Save component instances, presentation order, and wiring in a workspace within your document — and reopen it safely next year, without deleting the parts this build cannot understand.",
+      "TRACES MANIFESTENTRY · SNAPSHOT · PREPARED · DELETE_INSTANCE",
+      "TRACES"
+    ],
+    "headings": [
+      "Save the arrangement inside the document",
+      "One root slot opens the whole workspace",
+      "The manifest points at data; it doesn't swallow it",
+      "Stored data and usable data are different lists",
+      "Prepared stops before Ready",
+      "Deletion removes reachability, not history",
+      "The runtime watches the workspace, not the view tree"
+    ],
+    "prose": [
+      "The last two sheets built a board out of parts: a notes panel, a counter, a task list, an activity log, and the connections a user drew between them. The component data belongs to the shared document, but the host also needs to save the arrangement so it can rebuild the board when you reopen the tab.",
+      "A workspace stores that arrangement within the document. It holds three things, whether your interface is a board or something else:",
+      "All three are shared, collaborative state, the same as the data inside the components. Two people arranging one board see each other do it. That is the whole point, and it is also where the difficulty starts.",
+      "A saved workspace outlives the code that made it. Open one tomorrow and this build may not carry the counter any more. Someone may have deleted a panel that another connection still names. Two people can each add a safe connection and get a cycle when their edits merge. A workspace cannot answer those problems by deleting what it fails to understand: one client's ignorance would become everybody's data loss.",
+      "So this sheet does two jobs. It stores the workspace, and it derives the components and connections this client can safely run — while keeping the rest exactly as written.",
+      "All of it is host work. The last two sheets each split in half, one part for using components and one for writing them. This sheet has no second half: a component never sees the workspace that holds it.",
+      "Those three lists become three channels, and one slot on the document root opens all of them. A composed app still has one typed document root. Give the workspace one ChildField there, and it owns a map of component instances, a sequence for presentation order, and a sequence of port connections.",
+      "The JavaScript and BEAM adapters create those channels while they are detached, wire their handles into the workspace map, then attach the complete subtree through the root. A peer never needs three magic keys at the application root, and component data never shares the workspace's control namespace.",
+      "Each manifest value names the stable instance and component version, carries its config as JSON, and embeds a handle to that component's own child map. The config can vary by component kind. The child map remains a separate collaborative structure with one owner.",
+      "Handle discovery walks nested JSON. Writing this record therefore attaches the child map before the manifest operation reaches another client. A late joiner reads the same entry and resolves the same map.",
+      "Those three reopening problems — the unknown kind, the repeated layout entry, the merged cycle — all arrive as stored data this client cannot use. None of them makes the data wrong. They make it unusable here, today, by this build.",
+      "workspace.snapshot keeps the raw values, decodes what it can, removes duplicate or dangling layout references from the effective view, and asks port_graph.effective for the deterministic acyclic graph. Every rejected value comes back as a diagnostic. Nothing gets rewritten.",
+      "Persistence can answer three questions without pretending it ran a component: does the catalog know this exact kind and version, does the config decode, and does the child map resolve? A successful answer is Prepared. An unsupported version is Unavailable. Bad stored data or config is Failed. A handle still in flight stays Loading.",
+      "Prepared is not running. The JavaScript component runtime calls the descriptor's start closure, waits while the instance is Starting, and reaches Ready only after bootstrap and subscriptions finish. Keeping the names separate makes a startup failure impossible to hide behind a resolved handle.",
+      "One delete touches three channels, so order matters. The adapter removes every layout reference, removes every connection that reaches the instance, and deletes the manifest key last. Repeating the operation finishes a partial attempt instead of failing on already-missing data.",
+      "Watershed doesn't have channel garbage collection. The instance map stays attached and disappears only from workspace reachability. A caller that retained its handle can still read it—the test pins that behavior instead of calling the orphan “deleted.”",
+      "Persistence still stops at Prepared. The JavaScript runtime subscribes to the manifest, layout, and graph; starts, replaces, and stops only the affected instances; and routes output events through one graph snapshot per trace. Layout and connection edits don't restart healthy components. The runtime exposes running values and lifecycle states, but it doesn't mount a view—the browser host decides what those values look like.",
+      "One child map owns the manifest, layout, and wiring. Raw collaborative data stays intact; the local catalog derives the view it can safely use. From here, the survey procedure returns to the document runtime watershed ships end to end today."
+    ],
+    "lists": [
+      {
+        "type": "ul",
+        "items": [
+          "Which parts exist. One entry for each component instance: its kind, its format version, its config, and a handle to its own data.",
+          "Where they sit. The presentation order the users arranged.",
+          "How they are wired. The port connections from the last sheet."
+        ],
+        "height": 241.5
+      }
+    ],
+    "noteGaps": [
+      64
+    ],
+    "links": [
+      [
+        "the last sheet",
+        "/component-model/ports"
+      ],
+      [
+        "the survey procedure",
+        "/guide"
+      ]
+    ],
+    "pager": [
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "OVERVIEW",
+        "/component-model"
+      ],
+      [
+        "01 COMPONENTS",
+        "/component-model/components"
+      ],
+      [
+        "02 PORTS",
+        "/component-model/ports"
+      ],
+      [
+        "03 WORKSPACES",
+        "/component-model/workspaces"
+      ],
+      [
+        "← PORTS AND DISPATCH Let a user connect two parts that were written apart: a port is a named connection point a component publishes, typed while you write it, erased once it is stored, and checked again before every event it carries.",
+        "/component-model/ports"
+      ],
+      [
+        "BUILD GUIDE → Put these ideas to work",
+        "/guide"
+      ]
+    ],
+    "labels": [
+      "src/watershed/workspace.gleam",
+      "src/watershed/workspace.gleam",
+      "src/watershed/workspace.gleam",
+      "src/watershed/workspace.gleam",
+      "src/watershed/workspace.gleam",
+      "src/watershed/workspace_beam.gleam",
+      "test/watershed/workspace_beam_test.gleam"
+    ],
+    "captions": [],
+    "code": [
+      "/// The workspace manifest.\npub fn manifest_field() -> schema.ChannelField(\n  WorkspaceSchema,\n  schema.MapChannel,\n) {\n  schema.channel_field(\"manifest\")\n}\n\n/// The ordered component instance IDs.\npub fn layout_field() -> schema.ChannelField(\n  WorkspaceSchema,\n  schema.SequenceChannel,\n) {\n  schema.channel_field(\"layout\")\n}\n\n/// The stored component port connections.\npub fn connections_field() -> schema.ChannelField(\n  WorkspaceSchema,\n  schema.SequenceChannel,\n) {\n  schema.channel_field(\"connections\")\n}",
+      "/// One component instance in the manifest.\npub type ManifestEntry {\n  ManifestEntry(\n    instance_id: String,\n    kind: String,\n    version: Int,\n    config: Json,\n    child_handle: Json,\n  )\n}",
+      "/// Derive one effective workspace view without changing stored values.\npub fn snapshot(\n  manifest raw_manifest: List(#(String, Json)),\n  layout raw_layout: List(Json),\n  connections raw_connections: List(Json),\n  catalog catalog: component.Catalog(context, running),\n) -> Snapshot {\n  let stored_manifest =\n    list.map(raw_manifest, fn(item) {\n      StoredManifestEntry(item.0, item.1, decode_manifest(item.1))\n    })\n  let #(entries, manifest_diagnostics) = valid_manifest(stored_manifest)\n  let #(layout, layout_diagnostics) = effective_layout(raw_layout, entries)\n  let #(stored_connections, connection_diagnostics) =\n    valid_connections(raw_connections)\n  let ports_for = fn(instance_id) { ports_for(entries, catalog, instance_id) }\n  let graph = port_graph.effective(stored_connections, ports_for)\n  let graph_diagnostics =\n    port_graph.errors(graph)\n    |> list.map(InvalidGraph)\n\n  Snapshot(\n    manifest: stored_manifest,\n    entries: entries,\n    raw_layout: raw_layout,\n    layout: layout,\n    raw_connections: raw_connections,\n    stored_connections: stored_connections,\n    graph: graph,\n    diagnostics: list.flatten([\n      manifest_diagnostics,\n      layout_diagnostics,\n      connection_diagnostics,\n      graph_diagnostics,\n    ]),\n  )\n}",
+      "/// Local preparation state before component runtime startup.\npub type PreparationState(subtree) {\n  /// The entry is valid, but its child map is not available yet.\n  Loading(entry: ManifestEntry, reason: String)\n  /// The descriptor, config, and child map are available.\n  Prepared(entry: ManifestEntry, subtree: subtree)\n  /// The local catalog does not support the stored kind and version.\n  Unavailable(entry: ManifestEntry, reason: component.LookupError)\n  /// The stored entry or component config is invalid.\n  Failed(instance_id: String, reason: PreparationError)\n}",
+      "/// Prepare every stored manifest entry against a local catalog.\npub fn prepare(\n  snapshot: Snapshot,\n  catalog: component.Catalog(context, running),\n  resolve_child: fn(Json) -> Result(subtree, String),\n) -> List(PreparationState(subtree)) {\n  list.map(snapshot.manifest, fn(stored) {\n    case stored.decoded {\n      Error(reason) -> Failed(stored.key, InvalidStoredManifest(reason))\n      Ok(entry) if entry.instance_id != stored.key ->\n        Failed(stored.key, StoredIdMismatch(entry.instance_id))\n      Ok(entry) ->\n        case component.find(catalog, entry.kind, entry.version) {\n          Error(reason) -> Unavailable(entry, reason)\n          Ok(descriptor) ->\n            case component.validate_config(descriptor, entry.config) {\n              Error(reason) ->\n                Failed(entry.instance_id, InvalidComponentConfig(reason))\n              Ok(Nil) ->\n                case resolve_child(entry.child_handle) {\n                  Ok(child) -> Prepared(entry, child)\n                  Error(reason) -> Loading(entry, reason)\n                }\n            }\n        }\n    }\n  })\n}",
+      "@target(erlang)\n/// Remove one instance from workspace reachability.\n///\n/// The attached child map remains readable through a handle retained before\n/// this operation.\npub fn delete_instance(\n  store: Workspace(root),\n  catalog: component.Catalog(context, running),\n  instance_id: String,\n) -> Result(Nil, WorkspaceError) {\n  let snapshot = read(store, catalog)\n  use _ <- result.try(delete_indices(\n    store.layout,\n    workspace.layout_removal_indices(snapshot, instance_id),\n  ))\n  use _ <- result.try(delete_indices(\n    store.connections,\n    workspace.instance_connection_indices(snapshot, instance_id),\n  ))\n  watershed_beam.delete(store.manifest, instance_id)\n  Ok(Nil)\n}",
+      "@target(erlang)\npub fn workspace_lifecycle_converges_and_preserves_deleted_data_test() -> Nil {\n  let sluice = start(\"workspace-beam-lifecycle\")\n  let document_a = connect(sluice, \"user-a\")\n  sluice.settle(sluice)\n  let assert Ok(store_a) =\n    workspace_beam.ensure(\n      document_a,\n      watershed_beam.root_typed(document_a),\n      workspace_field(),\n    )\n  sluice.settle(sluice)\n\n  let assert Ok(tasks_child) =\n    workspace_beam.add_instance(\n      store_a,\n      catalog(),\n      \"tasks-1\",\n      \"tasks\",\n      1,\n      json.null(),\n    )\n  let assert Ok(_) =\n    workspace_beam.add_instance(\n      store_a,\n      catalog(),\n      \"notes-1\",\n      \"notes\",\n      1,\n      json.null(),\n    )\n  watershed_beam.set(tasks_child, \"kept\", json.string(\"yes\"))\n  let edge =\n    port_graph.connection(\n      \"tasks-notes\",\n      port_graph.PortRef(\"tasks-1\", \"selected\"),\n      port_graph.PortRef(\"notes-1\", \"focus\"),\n    )\n  workspace_beam.add_connection(store_a, catalog(), edge)\n  |> expect.to_equal(Ok(Nil))\n  sluice.settle(sluice)\n\n  let document_b = connect(sluice, \"user-b\")\n  sluice.settle(sluice)\n  let assert Ok(store_b) =\n    workspace_beam.resolve(\n      document_b,\n      watershed_beam.root_typed(document_b),\n      workspace_field(),\n    )\n  workspace.layout(workspace_beam.read(store_b, catalog()))\n  |> expect.to_equal([\"tasks-1\", \"notes-1\"])\n\n  workspace_beam.move_instance(store_a, catalog(), \"notes-1\", 0)\n  |> expect.to_equal(Ok(Nil))\n  sluice.settle(sluice)\n  workspace.layout(workspace_beam.read(store_b, catalog()))\n  |> expect.to_equal([\"notes-1\", \"tasks-1\"])\n\n  let child_handle = watershed_beam.handle_of(tasks_child)\n  workspace_beam.delete_instance(store_a, catalog(), \"tasks-1\")\n  |> expect.to_equal(Ok(Nil))\n  workspace_beam.delete_instance(store_a, catalog(), \"tasks-1\")\n  |> expect.to_equal(Ok(Nil))\n  sluice.settle(sluice)\n\n  let snapshot_b = workspace_beam.read(store_b, catalog())\n  workspace.layout(snapshot_b) |> expect.to_equal([\"notes-1\"])\n  port_graph.connections(workspace.graph(snapshot_b))\n  |> expect.to_equal([])\n  let assert Ok(preserved) = watershed_beam.resolve(document_b, child_handle)\n  watershed_beam.get(preserved, \"kept\")\n  |> expect.to_equal(Ok(json.string(\"yes\")))\n}"
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "33.15px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "32.8185px"
+      },
+      "scope": {
+        "display": "inline-block",
+        "padding": "4px 8.8px",
+        "border": "1px solid oklch(0.55 0.21 340)",
+        "color": "oklch(0.44 0.185 340)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "16px",
+        "padding": "64px 20px 72px"
+      }
+    }
+  }
+}

@@ -1,17 +1,13 @@
-# Netlify configuration for the watershed landing site.
-# The site lives in website/; its build compiles the Gleam kernel to
-# JavaScript first (see website/scripts/netlify-build.sh).
-#
-# No build plugins, and no second language runtime. Everything the build runs
-# is Gleam compiled to JavaScript, so the image's Node is enough once
-# netlify-build.sh has installed the Gleam compiler.
+# Netlify configuration for the generated Lustre site.
 
 [build]
-  base = "website"
-  command = "./scripts/netlify-build.sh"
-  # Relative to base, so this publishes website/dist.
-  publish = "dist"
+  base = "."
+  command = "./website_lustre/scripts/netlify-build.sh"
+  publish = "website_lustre/dist"
 
 [build.environment]
   NODE_VERSION = "24"
-  GLEAM_VERSION = "1.16.0"
+  OTP_VERSION = "28.5"
+  GLEAM_VERSION = "1.18.1"
+  REBAR3_VERSION = "3.27.0"
+  PNPM_VERSION = "11.13.1"

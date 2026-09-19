@@ -1,0 +1,324 @@
+{
+  "desktop": {
+    "title": "watershed — reconnect & resync",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "How watershed returns after a dropped connection: automatic checkpoints keep old history out of the way, bootstrap replays what followed, and reconnect resubmits pending operations."
+      ],
+      [
+        "og:title",
+        "watershed — reconnect & resync"
+      ],
+      [
+        "og:description",
+        "How watershed returns after a dropped connection: automatic checkpoints keep old history out of the way, bootstrap replays what followed, and reconnect resubmits pending operations."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/runtime/reconnect/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Reconnect & resync",
+    "hero": [
+      "← WATERSHED · RUNTIME / RECONNECT & RESYNC",
+      "RUNTIME BEHAVIOR",
+      "Drop the link and rejoin the flow. A returning client rehydrates from a summary (the same path a fresh client boots from).",
+      "TRACES FROM_SUMMARY · REPLAY · CATCH-UP",
+      "TRACES"
+    ],
+    "headings": [
+      "A dropped link is not a lost document",
+      "Rehydrate from a summary",
+      "A checkpoint without a chore",
+      "Summary when available, history when not"
+    ],
+    "prose": [
+      "Connections fail: a laptop sleeps, a tunnel closes, a phone walks out of signal. The question is never whether it happens but what state you come back to. watershed reconnects the transport, remaps the client id, and resubmits pending operations against the server's current reference sequence number before live delivery resumes.",
+      "A long-lived document accumulates thousands of ops. Replaying all of them on every join would make reconnection slower the older the document got. watershed writes automatic checkpoints by default on JavaScript and BEAM, including Lustre connections. On a later bootstrap, it loads an available summary from floodgate storage and applies the operations that followed. You can still call summarize(document) yourself.",
+      "The boundary matters: a summary captures confirmed channel state and membership at one sequence number. Bootstrap starts from the number inside the blob, not the later number on the server's summary announcement. Edits can arrive while a snapshot uploads; those edits belong in replay, not in a gap between the snapshot and the live document.",
+      "Every channel knows how to serialise and rebuild itself this way, so the snapshot is not a lossy cache: it is the converged state, exactly, plus the metadata each structure needs to keep its merge rule honest. An OR-set's add tags and a 2P-set's tombstones travel in the summary, so add-wins and permanent-removal semantics survive a reload intact.",
+      "The default policy schedules an attempt at 500 sequenced messages since the last known summary, once the client has caught up and its local writes are acknowledged. That's messages, not edits: floodgate can sequence a batch of edits as one message.",
+      "Clients spread their attempts across a 3-second jitter window and check again before uploading. If a peer has already announced a summary, the waiting client may have nothing left to do. This isn't a summarizer election; two uploads can still race. Both are valid checkpoints.",
+      "To tune it, start with summary_policy.policy(), use with_threshold and with_jitter_milliseconds, then apply it with auto_summarize(document, policy). stop_auto_summarize(document) opts your client out, and auto_summarize turns it back on. Other clients keep their own policies, and an upload already underway can finish. operations_since_summary(document) reports the current message count.",
+      "Uploads need floodgate summary storage and a token with summary:write, which the standard connection includes. The threshold isn't a hard ceiling on replay work. New sequenced messages trigger scheduling; an armed attempt can run in a quiet room, but a failed or no-longer-eligible attempt waits for another message before retrying. Traffic during upload can also extend the tail.",
+      "A fresh bootstrap does not require a summary. If the server provides one, the runtime seeds channels from it and replays the supplied tail. Without one, it starts empty and replays the retained initial messages. If that batch begins after a missing prefix, the runtime pages the gap from the deltas endpoint before declaring the document ready.",
+      "Kernel demos also exercise from_summary directly by building baseline replicas under a dedicated survey-baseline identity. That validates channel snapshot decoding, but it is not the transport reconnect path. Because required sequence metadata rides along in snapshots, order-sensitive structures like claims stay correct after a load: a slot that was claimed before you dropped is still claimed when you return, and a compare-and-set still refers to the right prior state.",
+      "Reconnect is a resync, not a reset. You do not lose the document and you do not fork a divergent copy. Pending local edits are not part of a confirmed checkpoint. The running client keeps them, catches up on confirmed history, and resubmits them against the resumed session. A checkpoint is not a backup of an unacknowledged edit if that client is closed. Ephemeral signals are the exception by design: a ripple broadcast while you were gone is not in any summary and will not replay, which is exactly right for a cursor and exactly why durable state belongs in a channel.",
+      "Checkpoints are automatic, but bootstrap doesn't depend on having one. It loads confirmed state and replays from the blob's own sequence number, or replays retained history when no summary exists. Reconnect keeps your pending edits separate and resubmits them against the resumed session."
+    ],
+    "links": [
+      [
+        "OR-set",
+        "/structures/sets#orset"
+      ],
+      [
+        "2P-set",
+        "/structures/sets"
+      ],
+      [
+        "claims",
+        "/structures/coordination#claims"
+      ],
+      [
+        "ripple",
+        "/runtime/presence"
+      ]
+    ],
+    "pager": [
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "OVERVIEW",
+        "/runtime"
+      ],
+      [
+        "OPTIMISTIC EDITS",
+        "/runtime/optimistic"
+      ],
+      [
+        "RECONNECT & RESYNC",
+        "/runtime/reconnect"
+      ],
+      [
+        "IDEMPOTENT RE-DELIVERY",
+        "/runtime/redelivery"
+      ],
+      [
+        "PRESENCE & RIPPLES",
+        "/runtime/presence"
+      ],
+      [
+        "PEER-TO-PEER OVER WEBRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "← OPTIMISTIC EDITS Show a local edit the instant it happens, reconcile it when the server sequences it, and unwind it cleanly if it loses.",
+        "/runtime/optimistic"
+      ],
+      [
+        "IDEMPOTENT RE-DELIVERY → Why a re-sent delta lands as a non-event: the runtime's sequence-number check drops it, or an idempotent merge absorbs it.",
+        "/runtime/redelivery"
+      ]
+    ],
+    "labels": [],
+    "captions": [],
+    "code": [],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": null,
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "471.203px 471.203px",
+        "gap": "16px",
+        "padding": "64px 64.8px 129.6px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — reconnect & resync",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "How watershed returns after a dropped connection: automatic checkpoints keep old history out of the way, bootstrap replays what followed, and reconnect resubmits pending operations."
+      ],
+      [
+        "og:title",
+        "watershed — reconnect & resync"
+      ],
+      [
+        "og:description",
+        "How watershed returns after a dropped connection: automatic checkpoints keep old history out of the way, bootstrap replays what followed, and reconnect resubmits pending operations."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/runtime/reconnect/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Reconnect & resync",
+    "hero": [
+      "← WATERSHED · RUNTIME / RECONNECT & RESYNC",
+      "RUNTIME BEHAVIOR",
+      "Drop the link and rejoin the flow. A returning client rehydrates from a summary (the same path a fresh client boots from).",
+      "TRACES FROM_SUMMARY · REPLAY · CATCH-UP",
+      "TRACES"
+    ],
+    "headings": [
+      "A dropped link is not a lost document",
+      "Rehydrate from a summary",
+      "A checkpoint without a chore",
+      "Summary when available, history when not"
+    ],
+    "prose": [
+      "Connections fail: a laptop sleeps, a tunnel closes, a phone walks out of signal. The question is never whether it happens but what state you come back to. watershed reconnects the transport, remaps the client id, and resubmits pending operations against the server's current reference sequence number before live delivery resumes.",
+      "A long-lived document accumulates thousands of ops. Replaying all of them on every join would make reconnection slower the older the document got. watershed writes automatic checkpoints by default on JavaScript and BEAM, including Lustre connections. On a later bootstrap, it loads an available summary from floodgate storage and applies the operations that followed. You can still call summarize(document) yourself.",
+      "The boundary matters: a summary captures confirmed channel state and membership at one sequence number. Bootstrap starts from the number inside the blob, not the later number on the server's summary announcement. Edits can arrive while a snapshot uploads; those edits belong in replay, not in a gap between the snapshot and the live document.",
+      "Every channel knows how to serialise and rebuild itself this way, so the snapshot is not a lossy cache: it is the converged state, exactly, plus the metadata each structure needs to keep its merge rule honest. An OR-set's add tags and a 2P-set's tombstones travel in the summary, so add-wins and permanent-removal semantics survive a reload intact.",
+      "The default policy schedules an attempt at 500 sequenced messages since the last known summary, once the client has caught up and its local writes are acknowledged. That's messages, not edits: floodgate can sequence a batch of edits as one message.",
+      "Clients spread their attempts across a 3-second jitter window and check again before uploading. If a peer has already announced a summary, the waiting client may have nothing left to do. This isn't a summarizer election; two uploads can still race. Both are valid checkpoints.",
+      "To tune it, start with summary_policy.policy(), use with_threshold and with_jitter_milliseconds, then apply it with auto_summarize(document, policy). stop_auto_summarize(document) opts your client out, and auto_summarize turns it back on. Other clients keep their own policies, and an upload already underway can finish. operations_since_summary(document) reports the current message count.",
+      "Uploads need floodgate summary storage and a token with summary:write, which the standard connection includes. The threshold isn't a hard ceiling on replay work. New sequenced messages trigger scheduling; an armed attempt can run in a quiet room, but a failed or no-longer-eligible attempt waits for another message before retrying. Traffic during upload can also extend the tail.",
+      "A fresh bootstrap does not require a summary. If the server provides one, the runtime seeds channels from it and replays the supplied tail. Without one, it starts empty and replays the retained initial messages. If that batch begins after a missing prefix, the runtime pages the gap from the deltas endpoint before declaring the document ready.",
+      "Kernel demos also exercise from_summary directly by building baseline replicas under a dedicated survey-baseline identity. That validates channel snapshot decoding, but it is not the transport reconnect path. Because required sequence metadata rides along in snapshots, order-sensitive structures like claims stay correct after a load: a slot that was claimed before you dropped is still claimed when you return, and a compare-and-set still refers to the right prior state.",
+      "Reconnect is a resync, not a reset. You do not lose the document and you do not fork a divergent copy. Pending local edits are not part of a confirmed checkpoint. The running client keeps them, catches up on confirmed history, and resubmits them against the resumed session. A checkpoint is not a backup of an unacknowledged edit if that client is closed. Ephemeral signals are the exception by design: a ripple broadcast while you were gone is not in any summary and will not replay, which is exactly right for a cursor and exactly why durable state belongs in a channel.",
+      "Checkpoints are automatic, but bootstrap doesn't depend on having one. It loads confirmed state and replays from the blob's own sequence number, or replays retained history when no summary exists. Reconnect keeps your pending edits separate and resubmits them against the resumed session."
+    ],
+    "links": [
+      [
+        "OR-set",
+        "/structures/sets#orset"
+      ],
+      [
+        "2P-set",
+        "/structures/sets"
+      ],
+      [
+        "claims",
+        "/structures/coordination#claims"
+      ],
+      [
+        "ripple",
+        "/runtime/presence"
+      ]
+    ],
+    "pager": [
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "OVERVIEW",
+        "/runtime"
+      ],
+      [
+        "OPTIMISTIC EDITS",
+        "/runtime/optimistic"
+      ],
+      [
+        "RECONNECT & RESYNC",
+        "/runtime/reconnect"
+      ],
+      [
+        "IDEMPOTENT RE-DELIVERY",
+        "/runtime/redelivery"
+      ],
+      [
+        "PRESENCE & RIPPLES",
+        "/runtime/presence"
+      ],
+      [
+        "PEER-TO-PEER OVER WEBRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "← OPTIMISTIC EDITS Show a local edit the instant it happens, reconcile it when the server sequences it, and unwind it cleanly if it loses.",
+        "/runtime/optimistic"
+      ],
+      [
+        "IDEMPOTENT RE-DELIVERY → Why a re-sent delta lands as a non-event: the runtime's sequence-number check drops it, or an idempotent merge absorbs it.",
+        "/runtime/redelivery"
+      ]
+    ],
+    "labels": [],
+    "captions": [],
+    "code": [],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "33.15px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "32.8185px"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": null,
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "16px",
+        "padding": "64px 20px 72px"
+      }
+    }
+  }
+}

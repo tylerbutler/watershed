@@ -1,0 +1,1062 @@
+{
+  "desktop": {
+    "title": "watershed — maps",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Maps in watershed: Keyed state that picks a winner, keeps an edit, or grows into a tree. SharedMap, LWWMap, OrMap, SharedDirectory. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — maps"
+      ],
+      [
+        "og:description",
+        "Maps in watershed: Keyed state that picks a winner, keeps an edit, or grows into a tree. SharedMap, LWWMap, OrMap, SharedDirectory. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/maps/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Maps",
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / MAPS",
+      "FAMILY 04",
+      "Keyed state that picks a winner, keeps an edit, or grows into a tree.",
+      "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed's maps span that choice.",
+      "SharedMap resolves JSON and encoded-handle values by server order, following the last-write-wins design used by Fluid Framework. LWWMap lets each string key's timestamp outrank a later server SN, and keeps removals as tombstones. OR-map keeps causal dots per entry so a concurrent write survives a delete. SharedDirectory makes SharedMap recursive, with hierarchical identity that survives concurrent creation and delete-then-recreate."
+    ],
+    "jump": [
+      [
+        "SharedMap DDS",
+        "#map"
+      ],
+      [
+        "LWWMap CRDT",
+        "#lww-map"
+      ],
+      [
+        "OrMap CRDT",
+        "#ormap"
+      ],
+      [
+        "SharedDirectory DDS",
+        "#directory"
+      ]
+    ],
+    "plates": [
+      {
+        "id": "map",
+        "number": "NO. 01",
+        "title": "SharedMap",
+        "kind": "DDS",
+        "module": "map_kernel",
+        "tagline": "A shared key/value map where the most recent write to a key wins.",
+        "prose": [
+          "watershed's flagship DDS follows Fluid Framework's SharedMap kernel design. Keys map to JSON values, including supported encoded handles. Each set is sequenced, and for a given key the write with the highest sequence number wins. Its inner set, delete, and clear payloads match the @fluidframework/map operation encoding.",
+          "Concurrent writes resolve deterministically by server order rather than by a merge function. A local write renders immediately; the ack promotes it, and if a higher-SN write to the same key arrives it replaces the value. Reference-generated corpus tests cover map state, events, and convergence. Attach and summary formats remain watershed's own, so this does not imply drop-in Fluid container interoperability.",
+          "Choose SharedMap for server-ordered JSON or handle state. Its summary keeps confirmed entries in insertion order, with no CRDT tombstones. LWWMap instead keeps strings, per-key timestamps, and tombstones, and reads keys in sorted order. Both can overwrite a concurrent losing value; neither preserves the disagreement for you."
+        ],
+        "uses": [
+          "Shared application state and settings objects edited by many clients",
+          "Learning and testing server-ordered last-write-wins collaboration",
+          "Key-value collaboration where a clear last-writer-wins rule is acceptable"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "for each key, the most recent write wins, decided by server order"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your writes show instantly, then lock in once the server confirms them"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "confirmed entries reload with their keys and insertion order intact"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": [
+          [
+            "Open the live Sudoku cell demo →",
+            "/sudoku"
+          ]
+        ]
+      },
+      {
+        "id": "lww-map",
+        "number": "NO. 02",
+        "title": "LWWMap",
+        "kind": "CRDT",
+        "module": "lww_map_kernel",
+        "tagline": "Shared string settings where a newer timestamp can beat a later server write.",
+        "prose": [
+          "Try racing two gate settings. A writes open with a newer timestamp, then B's closed gets the later server sequence number. LWWMap keeps open. SharedMap would keep closed: it follows server order, while LWWMap follows each key's timestamp through the sequenced runtime or the existing JavaScript CRDT mesh and relay paths.",
+          "At equal time, the greater writer ID wins: B's closed beats A's open even though the values point the other way alphabetically. A tombstone still beats a value at the same time. That's different from OR-map's observed-remove, add-wins rule. Removal isn't unconditional remove-wins: an older write can't resurrect a tombstone, but a newer write can restore the key.",
+          "The runtime supplies wall-clock time; the kernel advances it beyond the timestamp already observed or issued for that key, including pending edits and tombstones. Clock skew can still favor the writer whose clock is ahead. Last doesn't promise the most recent human action.",
+          "You get string keys and string values, with set and remove. An empty string is a value. Unlike SharedMap's JSON values and supported encoded handles, LWWMap has no nested JSON or handle traversal, no clear, and no tombstone-pruning API. SharedMap reloads insertion order; LWWMap retains timestamped removals and returns visible entries sorted by key.",
+          "Choose it when offline shared string settings need one deterministic winner and you can afford to lose another concurrent value. SharedMap also loses concurrent losing values. Neither is an MV register or a field-wise merge; use MvRegister when someone needs to read and resolve the disagreement."
+        ],
+        "uses": [
+          "Offline shared string settings with an acceptable deterministic single winner",
+          "Per-key labels and modes that reconcile across the JavaScript mesh or relay",
+          "String state where timestamps, rather than server sequence, should choose the winner"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "the greater per-key timestamp wins; at equal time, a tombstone beats a value and writer ID breaks a set/set tie"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your set or remove appears in magenta while confirmed entries stay in ink"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "values, timestamps, and retained tombstones reload together; visible entries read in sorted-key order"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "ormap",
+        "number": "NO. 03",
+        "title": "OrMap",
+        "kind": "CRDT",
+        "module": "or_map_kernel",
+        "tagline": "A map where editing a key and deleting it at once won't lose the edit.",
+        "prose": [
+          "An OR-map applies the OR-set's observed-remove semantics to keyed entries. Each entry records causal dots; removing a key only tombstones the dots it has observed, so a concurrent write to the same key survives a delete (add-wins).",
+          "Values can themselves be additive tallies, which turns the map into a keyed CRDT ledger. In the demo it appears as a stockpile ledger where striking a row hides it and re-opening submits a +0 delta to surface the retained tally.",
+          "Switch the demo to string sets and each document gets a checklist. A adds draft while B adds reviewed: both members survive. Put those edits in SharedMap as separate JSON arrays instead and, in the same server order, only B's later whole array remains. A channel has one fixed, homogeneous mode: tallies, LWW registers, MV registers, or sets of strings. Switching between tallies and sets starts fresh OR-map replicas.",
+          "In set mode, removing a member clears its observed add tags; removing a key also clears its observed members. An unseen concurrent addition survives. Removing the last member keeps a present empty set, while removing an absent member creates nothing. Add a removed key again and only its new members appear, even after an old delta is replayed. Causal metadata stays behind to enforce those removals; this is different from the tally mode's retained ledger.",
+          "The ledger / string sets and MV registers views run separate instances of this same structure. Switching to MV registers preserves the ledger or checklist you've been editing.",
+          "In MV-register mode, race two revisions under gate-mode and you'll see both answers. The OR-map keeps the key alive through remove/write concurrency; the MV register keeps alternatives inside that key. Resolve observed combines the selected client's alternatives in an ordinary write. It replaces only those observed revisions, so an unseen offline writer can still bring another answer."
+        ],
+        "uses": [
+          "Keyed ledgers edited offline or concurrently (stockpiles, inventories, per-key counters)",
+          "Per-document string labels and checklists where concurrent member edits must merge",
+          "Maps where deleting and concurrently updating a key must not lose the update",
+          "A CRDT-correct alternative to SharedMap when last-write-wins would drop data"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "delete a key while someone else edits it, and the edit survives (the write wins)"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "edits and removals show locally at once, with confirmed set members alongside"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "entries remember their edit history, not just the current value"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "directory",
+        "number": "NO. 04",
+        "title": "SharedDirectory",
+        "kind": "DDS",
+        "module": "directory_kernel",
+        "tagline": "SharedMap with folders: nested groups of keys, each keeping its own identity.",
+        "prose": [
+          "SharedDirectory is SharedMap made recursive, modeled after Fluid Framework's SharedDirectory design. Every folder node has its own last-write-wins key/value store plus a named set of child folders, addressed by absolute path (/surveys, /surveys/intake). Storage resolves exactly like SharedMap: each set is sequenced, highest sequence number wins per key.",
+          "The hard part is hierarchical identity, not storage. A folder can be created by two clients at the same instant, deleted, and recreated under the same path, and every replica must still agree on which folder is which. The kernel models that identity explicitly from creator ids, create-sequence data, and each op's reference sequence number. A stale op targeting an old instance of a path is ignored; concurrent same-name creates merge into a single folder. A flat map cannot express that."
+        ],
+        "uses": [
+          "Nested, collaboratively-edited state: document trees, project/site hierarchies, scene graphs",
+          "Studying hierarchical identity and server-ordered folder collaboration",
+          "Anywhere a flat map's keys want structure (folders of readings, grouped settings)"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "like SharedMap, but with folders; each folder keeps its identity even if it's deleted and remade"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "folder and key edits show immediately until the server confirms them"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "the whole folder tree reloads intact"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": [
+          [
+            "Open the live SharedDirectory demo →",
+            "/directory"
+          ]
+        ]
+      }
+    ],
+    "notes": [
+      {
+        "title": "Stamp the schema; refuse bad reads",
+        "href": "/guide/notes#stamp-schema",
+        "rule": "Fill and stamp a typed map before attaching it, so an incompatible reader gets an error.",
+        "example": "SCOREBOARD CLI"
+      },
+      {
+        "title": "Panels take a TypedMap, never a root",
+        "href": "/guide/connect#typedmap-panels",
+        "rule": "Give a reusable component a typed map, whether that map is a root or a child. Keep document-wide effects in the shell.",
+        "example": "NESTED APP SHOWCASE"
+      }
+    ],
+    "pager": [
+      [
+        "← PREVIOUS FAMILY Registers",
+        "/structures/registers"
+      ],
+      [
+        "All families",
+        "/structures"
+      ],
+      [
+        "DDS vs CRDT vs OT →",
+        "/models"
+      ],
+      [
+        "See it live ↓",
+        "/#demo"
+      ],
+      [
+        "NEXT FAMILY → Sequences",
+        "/structures/sequences"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "104px 64.8px 64px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "jump": {
+        "display": "flex",
+        "padding": "6.4px 12px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "plate": {
+        "padding": "43.2px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "body": {
+        "display": "grid",
+        "grid-template-columns": "493.828px 318.594px",
+        "gap": "57.6px"
+      },
+      "spec": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "380.672px 149.062px 380.672px",
+        "gap": "24px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — maps",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Maps in watershed: Keyed state that picks a winner, keeps an edit, or grows into a tree. SharedMap, LWWMap, OrMap, SharedDirectory. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:title",
+        "watershed — maps"
+      ],
+      [
+        "og:description",
+        "Maps in watershed: Keyed state that picks a winner, keeps an edit, or grows into a tree. SharedMap, LWWMap, OrMap, SharedDirectory. How each works, its merge rule, and what it is best for."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/structures/maps/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Maps",
+    "hero": [
+      "← WATERSHED · DATA STRUCTURES / MAPS",
+      "FAMILY 04",
+      "Keyed state that picks a winner, keeps an edit, or grows into a tree.",
+      "Maps are where most collaborative apps keep their state, and where the choice of conflict model is most visible. watershed's maps span that choice.",
+      "SharedMap resolves JSON and encoded-handle values by server order, following the last-write-wins design used by Fluid Framework. LWWMap lets each string key's timestamp outrank a later server SN, and keeps removals as tombstones. OR-map keeps causal dots per entry so a concurrent write survives a delete. SharedDirectory makes SharedMap recursive, with hierarchical identity that survives concurrent creation and delete-then-recreate."
+    ],
+    "jump": [
+      [
+        "SharedMap DDS",
+        "#map"
+      ],
+      [
+        "LWWMap CRDT",
+        "#lww-map"
+      ],
+      [
+        "OrMap CRDT",
+        "#ormap"
+      ],
+      [
+        "SharedDirectory DDS",
+        "#directory"
+      ]
+    ],
+    "plates": [
+      {
+        "id": "map",
+        "number": "NO. 01",
+        "title": "SharedMap",
+        "kind": "DDS",
+        "module": "map_kernel",
+        "tagline": "A shared key/value map where the most recent write to a key wins.",
+        "prose": [
+          "watershed's flagship DDS follows Fluid Framework's SharedMap kernel design. Keys map to JSON values, including supported encoded handles. Each set is sequenced, and for a given key the write with the highest sequence number wins. Its inner set, delete, and clear payloads match the @fluidframework/map operation encoding.",
+          "Concurrent writes resolve deterministically by server order rather than by a merge function. A local write renders immediately; the ack promotes it, and if a higher-SN write to the same key arrives it replaces the value. Reference-generated corpus tests cover map state, events, and convergence. Attach and summary formats remain watershed's own, so this does not imply drop-in Fluid container interoperability.",
+          "Choose SharedMap for server-ordered JSON or handle state. Its summary keeps confirmed entries in insertion order, with no CRDT tombstones. LWWMap instead keeps strings, per-key timestamps, and tombstones, and reads keys in sorted order. Both can overwrite a concurrent losing value; neither preserves the disagreement for you."
+        ],
+        "uses": [
+          "Shared application state and settings objects edited by many clients",
+          "Learning and testing server-ordered last-write-wins collaboration",
+          "Key-value collaboration where a clear last-writer-wins rule is acceptable"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "for each key, the most recent write wins, decided by server order"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your writes show instantly, then lock in once the server confirms them"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "confirmed entries reload with their keys and insertion order intact"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": [
+          [
+            "Open the live Sudoku cell demo →",
+            "/sudoku"
+          ]
+        ]
+      },
+      {
+        "id": "lww-map",
+        "number": "NO. 02",
+        "title": "LWWMap",
+        "kind": "CRDT",
+        "module": "lww_map_kernel",
+        "tagline": "Shared string settings where a newer timestamp can beat a later server write.",
+        "prose": [
+          "Try racing two gate settings. A writes open with a newer timestamp, then B's closed gets the later server sequence number. LWWMap keeps open. SharedMap would keep closed: it follows server order, while LWWMap follows each key's timestamp through the sequenced runtime or the existing JavaScript CRDT mesh and relay paths.",
+          "At equal time, the greater writer ID wins: B's closed beats A's open even though the values point the other way alphabetically. A tombstone still beats a value at the same time. That's different from OR-map's observed-remove, add-wins rule. Removal isn't unconditional remove-wins: an older write can't resurrect a tombstone, but a newer write can restore the key.",
+          "The runtime supplies wall-clock time; the kernel advances it beyond the timestamp already observed or issued for that key, including pending edits and tombstones. Clock skew can still favor the writer whose clock is ahead. Last doesn't promise the most recent human action.",
+          "You get string keys and string values, with set and remove. An empty string is a value. Unlike SharedMap's JSON values and supported encoded handles, LWWMap has no nested JSON or handle traversal, no clear, and no tombstone-pruning API. SharedMap reloads insertion order; LWWMap retains timestamped removals and returns visible entries sorted by key.",
+          "Choose it when offline shared string settings need one deterministic winner and you can afford to lose another concurrent value. SharedMap also loses concurrent losing values. Neither is an MV register or a field-wise merge; use MvRegister when someone needs to read and resolve the disagreement."
+        ],
+        "uses": [
+          "Offline shared string settings with an acceptable deterministic single winner",
+          "Per-key labels and modes that reconcile across the JavaScript mesh or relay",
+          "String state where timestamps, rather than server sequence, should choose the winner"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "the greater per-key timestamp wins; at equal time, a tombstone beats a value and writer ID breaks a set/set tie"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "your set or remove appears in magenta while confirmed entries stay in ink"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "values, timestamps, and retained tombstones reload together; visible entries read in sorted-key order"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "ormap",
+        "number": "NO. 03",
+        "title": "OrMap",
+        "kind": "CRDT",
+        "module": "or_map_kernel",
+        "tagline": "A map where editing a key and deleting it at once won't lose the edit.",
+        "prose": [
+          "An OR-map applies the OR-set's observed-remove semantics to keyed entries. Each entry records causal dots; removing a key only tombstones the dots it has observed, so a concurrent write to the same key survives a delete (add-wins).",
+          "Values can themselves be additive tallies, which turns the map into a keyed CRDT ledger. In the demo it appears as a stockpile ledger where striking a row hides it and re-opening submits a +0 delta to surface the retained tally.",
+          "Switch the demo to string sets and each document gets a checklist. A adds draft while B adds reviewed: both members survive. Put those edits in SharedMap as separate JSON arrays instead and, in the same server order, only B's later whole array remains. A channel has one fixed, homogeneous mode: tallies, LWW registers, MV registers, or sets of strings. Switching between tallies and sets starts fresh OR-map replicas.",
+          "In set mode, removing a member clears its observed add tags; removing a key also clears its observed members. An unseen concurrent addition survives. Removing the last member keeps a present empty set, while removing an absent member creates nothing. Add a removed key again and only its new members appear, even after an old delta is replayed. Causal metadata stays behind to enforce those removals; this is different from the tally mode's retained ledger.",
+          "The ledger / string sets and MV registers views run separate instances of this same structure. Switching to MV registers preserves the ledger or checklist you've been editing.",
+          "In MV-register mode, race two revisions under gate-mode and you'll see both answers. The OR-map keeps the key alive through remove/write concurrency; the MV register keeps alternatives inside that key. Resolve observed combines the selected client's alternatives in an ordinary write. It replaces only those observed revisions, so an unseen offline writer can still bring another answer."
+        ],
+        "uses": [
+          "Keyed ledgers edited offline or concurrently (stockpiles, inventories, per-key counters)",
+          "Per-document string labels and checklists where concurrent member edits must merge",
+          "Maps where deleting and concurrently updating a key must not lose the update",
+          "A CRDT-correct alternative to SharedMap when last-write-wins would drop data"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "delete a key while someone else edits it, and the edit survives (the write wins)"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "edits and removals show locally at once, with confirmed set members alongside"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "entries remember their edit history, not just the current value"
+          ],
+          [
+            "MODEL",
+            "Conflict-free replicated data type: converges by merge"
+          ]
+        ],
+        "links": []
+      },
+      {
+        "id": "directory",
+        "number": "NO. 04",
+        "title": "SharedDirectory",
+        "kind": "DDS",
+        "module": "directory_kernel",
+        "tagline": "SharedMap with folders: nested groups of keys, each keeping its own identity.",
+        "prose": [
+          "SharedDirectory is SharedMap made recursive, modeled after Fluid Framework's SharedDirectory design. Every folder node has its own last-write-wins key/value store plus a named set of child folders, addressed by absolute path (/surveys, /surveys/intake). Storage resolves exactly like SharedMap: each set is sequenced, highest sequence number wins per key.",
+          "The hard part is hierarchical identity, not storage. A folder can be created by two clients at the same instant, deleted, and recreated under the same path, and every replica must still agree on which folder is which. The kernel models that identity explicitly from creator ids, create-sequence data, and each op's reference sequence number. A stale op targeting an old instance of a path is ignored; concurrent same-name creates merge into a single folder. A flat map cannot express that."
+        ],
+        "uses": [
+          "Nested, collaboratively-edited state: document trees, project/site hierarchies, scene graphs",
+          "Studying hierarchical identity and server-ordered folder collaboration",
+          "Anywhere a flat map's keys want structure (folders of readings, grouped settings)"
+        ],
+        "spec": [
+          [
+            "MERGE RULE",
+            "like SharedMap, but with folders; each folder keeps its identity even if it's deleted and remade"
+          ],
+          [
+            "OPTIMISTIC BEHAVIOR",
+            "folder and key edits show immediately until the server confirms them"
+          ],
+          [
+            "SUMMARY SHAPE",
+            "the whole folder tree reloads intact"
+          ],
+          [
+            "MODEL",
+            "Distributed data structure: converges by server order"
+          ]
+        ],
+        "links": [
+          [
+            "Open the live SharedDirectory demo →",
+            "/directory"
+          ]
+        ]
+      }
+    ],
+    "notes": [
+      {
+        "title": "Stamp the schema; refuse bad reads",
+        "href": "/guide/notes#stamp-schema",
+        "rule": "Fill and stamp a typed map before attaching it, so an incompatible reader gets an error.",
+        "example": "SCOREBOARD CLI"
+      },
+      {
+        "title": "Panels take a TypedMap, never a root",
+        "href": "/guide/connect#typedmap-panels",
+        "rule": "Give a reusable component a typed map, whether that map is a root or a child. Keep document-wide effects in the shell.",
+        "example": "NESTED APP SHOWCASE"
+      }
+    ],
+    "pager": [
+      [
+        "← PREVIOUS FAMILY Registers",
+        "/structures/registers"
+      ],
+      [
+        "All families",
+        "/structures"
+      ],
+      [
+        "DDS vs CRDT vs OT →",
+        "/models"
+      ],
+      [
+        "See it live ↓",
+        "/#demo"
+      ],
+      [
+        "NEXT FAMILY → Sequences",
+        "/structures/sequences"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-image": "linear-gradient(oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), linear-gradient(90deg, oklch(0.25 0.02 260 / 0.11) 1px, rgba(0, 0, 0, 0) 1px), none"
+      },
+      "heading": {
+        "font-size": "39px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "38.61px"
+      },
+      "jump": {
+        "display": "flex",
+        "padding": "6.4px 12px",
+        "border": "1px solid oklch(0.25 0.02 260)"
+      },
+      "plate": {
+        "padding": "24px 16px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "body": {
+        "display": "grid",
+        "grid-template-columns": "290px",
+        "gap": "24px"
+      },
+      "spec": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px"
+      }
+    }
+  }
+}

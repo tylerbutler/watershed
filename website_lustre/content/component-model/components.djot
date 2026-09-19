@@ -1,0 +1,149 @@
+---
+description = "A component is one self-contained part of an application. Watershed describes reusable component kinds with versioned descriptors that hide config types behind decoders and start closures, while one catalog gives the host a common context, running value, port list, and precise lookup errors."
+---
+
+::: g-block
+## Why a components layer exists
+
+Picture a board that two people build together while they watch it: one of them drops a notes panel on the left, puts a vote counter beside it, and connects the counter to the panel. Nobody wrote that arrangement in code. The people using the application made it, and it must look the same to everyone who opens the board tomorrow.
+
+The board is our example interface. Its shared state belongs to a [document](/foundations/topology); a [workspace](/component-model/workspaces) within that document stores which components exist, their presentation order, and their connections.
+
+A component is one part of an application: a notes panel, a counter, a task list. It keeps its own state in its own channel of the shared document, draws its own view, and knows nothing about what else is on screen. The same kind can appear many times with different settings — one counter that steps by 5, another that steps by 1 — and every copy of the board converges the same way the rest of watershed does.
+
+A part like that cannot be a function the author calls. The arrangement is data the users edit, and it outlives the session that made it. So the application must build each part from stored JSON, months later, from code that has changed since.
+
+A *descriptor* is that recipe: everything needed to turn stored JSON into one running part, and back. Package a component once, and the rest of watershed can:
+
+- Rebuild it from a saved workspace, with the settings the user chose.
+- Check stored component config before it runs anything, and name the exact part that is wrong.
+- Run last year's version beside this year's, because each descriptor states its own format version.
+- Let a user connect two parts that were written apart, because their [ports](/component-model/ports) are listed data.
+
+One word runs through this sheet and the two after it: the *host*. The host is the program that embeds watershed and puts the components on screen, meaning your application shell, not a server. It owns the set of component kinds it can build, decides which versions it accepts, mounts the views, and supplies whatever context every component needs to start. Watershed defines the contract. The host is the program around it.
+
+That makes two jobs, and this sheet does them in that order. First you *use* components: the host holds a catalog of kinds and builds instances from stored config. Then you *write* one: a single component packaged so a host it never meets can build it. Stop after part one if you are assembling an application out of components somebody else wrote.
+
+This board spans three sheets. Here it gets its parts: [the next sheet](/component-model/ports) adds a task list and an activity log and wires them together, and [the one after](/component-model/workspaces) saves the arrangement in a workspace so tomorrow's tab can rebuild it.
+
+If your application ships one screen that you lay out yourself, you do not need any of this: declare your channels in [the schema](/foundations/schema) and stop there. All three sheets are for the case where the user, not the author, decides what is on the page.
+:::
+
+::: g-block
+{.annot .part-label}
+Part one · using components
+
+## One catalog, exact versions
+
+A host holds one *descriptor* for each kind it can build. Treat a descriptor as opaque for now: it is one component kind packaged so the host can build it without knowing what it is. Part two writes one.
+
+A catalog keys each descriptor by its stable kind and integer format version. Several versions of one kind can coexist. Registering the same pair twice returns `DuplicateRegistration`.
+
+{data-snippet="foundations-components-catalog-type"}
+```gleam
+generated
+```
+
+Registration is where the notes panel and the counter land in the same structure for the first time.
+
+{data-snippet="foundations-components-register"}
+```gleam
+generated
+```
+
+
+{data-snippet="foundations-components-catalog-example" data-caption="notes and counter configs differ; the host contract matches"}
+```gleam
+generated
+```
+
+Lookup requires the requested version, and that exactness buys two useful failure states. `NotRegistered(kind)` means the host knows no version of the kind at all. `UnsupportedVersion(kind, requested, available)` means it can name the versions it does know. A host can report the missing kind or the unsupported version without guessing which one went wrong.
+
+{data-snippet="foundations-components-find"}
+```gleam
+generated
+```
+:::
+
+::: g-note
+*The catalog requires an exact version.* Register an older descriptor when a host still supports it. The host owns migration and any fallback or code-loading policy.
+:::
+
+::: g-block
+## Validation and startup stay separate
+
+Checking that stored config is readable and actually running a component are different jobs. A manifest reader wants the first without the second.
+
+`validate_config` runs the descriptor's decoder and stops there. A builder or manifest reader can check stored JSON without opening subscriptions or creating a running component.
+
+{data-snippet="foundations-components-validate-config"}
+```gleam
+generated
+```
+
+`start` decodes the same JSON, then calls the typed start closure. Readiness waits for that closure's callback, so channel bootstrap and subscriptions can finish first.
+
+{data-snippet="foundations-components-start"}
+```gleam
+generated
+```
+
+
+{data-snippet="foundations-components-executable-descriptor"}
+```gleam
+generated
+```
+
+Because the two stay separate, the error tells you which side failed:
+
+- *InvalidConfig* reports the kind, version, and JSON decode error. The stored config is wrong.
+- *StartFailed* reports the same identity plus the reason component code returned. The config was fine and the component could not start.
+
+Input decoding, input handling, output validation, and cleanup keep their own errors too. The runtime never has to flatten a lifecycle failure into “component failed.”
+:::
+
+::: g-block
+{.annot .part-label}
+Part two · writing a component
+
+## A descriptor is the catalog boundary
+
+From here on you are writing a component, not placing one. Everything above treated the descriptor as opaque. This is what is inside it, and why it has to hide what it hides.
+
+Two kinds run through this sheet: a notes panel and a counter. A host that holds both descriptors can build either one from stored JSON, without knowing what either one is.
+
+Their configuration is where the uniformity breaks. Notes needs a placeholder string. The counter needs an integer step. Gleam requires one type for all values in a catalog, and a broad config union would expose each component's private choices to the host.
+
+`Descriptor(context, running)` keeps the config type out of its public type. The descriptor holds the decoder, callback-completed start closure, typed input handlers, and cleanup closure that know that type. The catalog sees only the two types every component in one host must share: what the host passes in, and what it gets back. It also carries erased port metadata, which [the next sheet](/component-model/ports) picks up.
+
+{data-snippet="foundations-components-descriptor-type"}
+```gleam
+generated
+```
+:::
+
+::: g-block
+## Each component keeps its config type
+
+You still write ordinary typed Gleam inside a component. The notes definition decodes JSON into `NotesConfig`, then starts with that exact type. `component.descriptor` closes over both functions and removes the config type from the host-facing API.
+
+{data-snippet="foundations-components-notes-definition"}
+```gleam
+generated
+```
+
+The two `String` parameters in the return type are the host contract in this test. A string context goes in and a string running value comes back. The counter descriptor hides a different config type behind the same two parameters.
+:::
+
+::: g-block
+### The workspace preserves the definitions
+
+Use this module to define descriptors, build catalogs, validate config, look up versions, start and stop instances, and execute typed handlers. [The workspace layer](/component-model/workspaces) persists instances and assigns their child maps. The JavaScript component runtime reconciles those definitions, owns their lifecycle, and executes port deliveries. The host still mounts views and owns migration policy.
+:::
+
+::: g-out
+{.annot}
+The contract
+
+A descriptor hides one component's config type behind its decoder and start and cleanup closures. A catalog keeps those unlike definitions together under one host contract, looks them up by exact kind and version, and exposes their erased port metadata and typed handlers. Next: [how those ports become a checked graph and an origin-aware dispatch trace](/component-model/ports).
+:::

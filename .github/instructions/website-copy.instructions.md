@@ -1,6 +1,6 @@
 ---
 description: House style for the watershed website — voiced copy, ASD-STE100 does not apply here
-applyTo: 'website/**'
+applyTo: 'website_lustre/**'
 ---
 
 # House style for website copy
@@ -9,7 +9,7 @@ applyTo: 'website/**'
 > vendored from `tylerbutler/apm-base` and applies STE at `applyTo: '**'` with
 > no scoping. STE belongs to Gleam source — doc comments, inline comments, and
 > error strings in `**/*.gleam` — not to the site. This file wins under
-> `website/**`. Do not edit the vendored file — `apm install` reverts it.
+> `website_lustre/**`. Do not edit the vendored file — `apm install` reverts it.
 
 The site's job is to make a reader care enough to read the technical parts.
 Write it in full voice: em-dashes, contractions, sentence fragments, rhetorical
@@ -29,9 +29,8 @@ STE (`a99e07f`, `760cb87`); both were reverted. Do not do it a third time.
   order" over "Local edits predict server order." A heading that is only a fact
   is not shorter, just emptier.
 
-This covers headings, hero ledes, page `description=` meta, demo captions,
-button labels, tooltips, CTA and link text, teaser asides, and the `rule:` /
-`body:` / `detail:` strings in `website/src/data/*.ts`.
+This covers headings, hero ledes, page descriptions, demo captions, button
+labels, tooltips, CTA and link text, and teaser asides.
 
 ## What it still may not do
 

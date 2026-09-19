@@ -1,0 +1,400 @@
+{
+  "desktop": {
+    "title": "watershed — documents and handles",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "What a watershed document actually is underneath its schema: a root map plus whatever channels its handles point to, each one independently addressed, attached on creation, and resolved through a handle rather than nested by containment — with the limits that layout implies."
+      ],
+      [
+        "og:title",
+        "watershed — documents and handles"
+      ],
+      [
+        "og:description",
+        "What a watershed document actually is underneath its schema: a root map plus whatever channels its handles point to, each one independently addressed, attached on creation, and resolved through a handle rather than nested by containment — with the limits that layout implies."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/foundations/topology/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Documents and handles",
+    "hero": [
+      "← WATERSHED · FOUNDATIONS / DOCUMENTS AND HANDLES",
+      "FOUNDATIONS",
+      "Core · every watershed app",
+      "A watershed document is not one tree — it's a root map plus whatever channels its values point to, each one independently addressed, attached, and resolved.",
+      "TRACES ROOT_TYPED · HANDLE_OF · CREATE_MAP · RESOLVE",
+      "TRACES"
+    ],
+    "headings": [
+      "Your app decides what a document means",
+      "The root is one map, not one tree",
+      "A plain field stores a value; a handle points at a channel",
+      "Detached, attached, resolved",
+      "ChildField versus ChannelField: same handle, different destination",
+      "Independently addressed pieces, not one atomic tree",
+      "What that layout costs you"
+    ],
+    "prose": [
+      "Document is watershed's generic term for a collection of shared state. Your app gives it a meaning: a saved game, a Kanban board, a project. It doesn't have to look like a page of text, and your users don't have to call it a document.",
+      "Separate the kind of document from an instance. A saved game is a kind; your Friday-night campaign is one instance. The kind describes what the data means and how your app structures it. Each instance has its own identity and state.",
+      "Those kinds are concepts your application defines. Watershed supplies the document model underneath them. A tenant ID and document ID identify an instance; two clients opening the same pair join the same document, not two copies with separate identities.",
+      "Every document has exactly one root: a SharedMap, reached with root(document), and viewed through your schema with root_typed. Its tag comes from the Document(root) value itself, fixed at the one place your app first holds it — a Msg constructor, usually. Everything your schema declares hangs off that one map.",
+      "A Field writes its value straight into the map: a string is a string, on the wire and in the map's entries, no indirection. A ChildField or a ChannelField stores something else entirely — a small JSON object that marks a reference to another channel, elsewhere in the same document. Reading that key back gives you the marker, not the child's contents; you resolve it separately to reach the channel it points to.",
+      "A new channel starts life detached: local only, its edits producing no op, invisible to anyone else. It stays that way until you store its handle into a map that's already attached to the document. The runtime then attaches the new channel too, sends its snapshot, and only from that point on does it synchronize with the rest of the world. Create a map and forget to store its handle anywhere, and it just quietly stays a local orphan.",
+      "Going the other way, resolve turns a handle you read back out of a map into the live channel it names.",
+      "Both store a handle. The difference is only in what kind of thing the handle points to, and the schema layer tracks that at compile time. ChildField(tag, child) points at another typed map — a child map with its own schema, its own tag, its own set of fields, within the same document. ChannelField(tag, kind) points at a channel that isn't a map at all: a counter, an OR-set, a claims channel, whatever kind names. Neither one is a subtree of the parent. Both are peer channels that happen to be reachable from it.",
+      "A watershed document collects data in a set of channels, each with its own address, each syncing on its own terms, tied together only by handles stored as ordinary values. The dice-scoreboard example makes each document a scoreboard. Its roster of players, keyed by id, looks like this on the wire — a root map, a child map, and a further map nested under that:",
+      "Nothing about that layout is a single data structure the way a JSON document or an in-memory tree is. Each named piece is its own channel, addressed on its own, with its own merge behavior — the field atlas covers what each kind actually does when two clients touch it at once.",
+      "Two honest limits fall straight out of this design, and neither one is a bug to route around:",
+      "That retry isn't an edge case to special-case away. Every client that creates a channel and immediately hands its handle to a peer has to expect this. The next sheet covers the pattern watershed uses to wait it out cleanly at startup, and runtime · reconnect covers what a dropped connection does to an already-resolved handle.",
+      "A watershed document is a root map plus whatever channels its handles reach — attached on creation, resolved through the handle rather than nested by containment, with no cross-channel transaction and a short resolve window right after creation. Next: how a client gets from an empty connection to a document it can build on."
+    ],
+    "links": [
+      [
+        "Field",
+        "/foundations/schema"
+      ],
+      [
+        "the field atlas",
+        "/structures"
+      ],
+      [
+        "The next sheet",
+        "/foundations/lifecycle"
+      ],
+      [
+        "runtime · reconnect",
+        "/runtime/reconnect"
+      ],
+      [
+        "how a client gets from an empty connection to a document it can build on",
+        "/foundations/lifecycle"
+      ]
+    ],
+    "pager": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "OVERVIEW",
+        "/foundations"
+      ],
+      [
+        "01 SCHEMAS",
+        "/foundations/schema"
+      ],
+      [
+        "02 DOCUMENTS",
+        "/foundations/topology"
+      ],
+      [
+        "03 STARTING A DOCUMENT",
+        "/foundations/lifecycle"
+      ],
+      [
+        "← SCHEMAS AND FIELDS Declare the shape of a map once, at compile time, with a phantom tag the runtime never sees: a plain field, a handle to a nested map, or a handle to another channel entirely.",
+        "/foundations/schema"
+      ],
+      [
+        "STARTING A DOCUMENT → Every client runs the same bootstrap: get a handle, wait for the catch-up, ensure the channels it needs exist, and only render once they've all reported in.",
+        "/foundations/lifecycle"
+      ]
+    ],
+    "labels": [
+      "src/watershed.gleam",
+      "src/watershed.gleam",
+      "src/watershed.gleam",
+      "src/watershed.gleam",
+      "examples/scoreboard_cli/src/scoreboard_cli.gleam (diagram)",
+      "src/watershed.gleam"
+    ],
+    "captions": [],
+    "code": [
+      "@target(javascript)\n/// The root map of the document, viewed through the schema of that document.\n///\n/// One document has one tag. The tag comes from the `Document(root)` value that\n/// you pass, so it is fixed at the position where your application writes the\n/// type concretely. That position is the `Msg` constructor that carries the\n/// handle, or the `Model` field that holds it:\n///\n/// ```gleam\n/// GotHandle(Document(document_schema.Survey))\n/// ```\n///\n/// Every `root_typed` call on that document then agrees. A second schema at the\n/// root is a compile error, and not a key namespace that two schemas share\n/// quietly.\n///\n/// A component that is generic in `root` can still call this function. But an\n/// abstract tag has no field, so that component cannot read or write the root.\n/// A nested panel is thus structurally unable to reach past its own child map.\n///\n/// `typed(root(document))` is still available, and it is still unchecked. It is\n/// the deliberate way to view the root through a foreign schema. Unlike the old\n/// signature, you must now write it explicitly.\npub fn root_typed(document: Document(root)) -> TypedMap(root) {\n  typed(root(document))\n}",
+      "@target(javascript)\n/// The Fluid handle marker that references `map`. Store it as a value in\n/// another map. Its shape is\n/// `{\"type\": \"__fluid_handle__\", \"url\": \"/<address>\"}`.\npub fn handle_of(map: SharedMap) -> Json {\n  handle.encode_handle(map.address)\n}",
+      "@target(javascript)\n/// Create a new map channel. The map starts *detached*, which means that it is\n/// local only and its edits produce no operation. It stays detached until a\n/// caller stores its handle, from `handle_of`, into an attached map. The\n/// runtime then attaches it, with its snapshot, and it starts to synchronize\n/// the edits of that map. The connection must be ready, which `on_ready`\n/// reports.\npub fn create_map(document: Document(root)) -> Result(SharedMap, String) {\n  runtime.create_map(document.runtime)\n  |> result.map(fn(address) {\n    SharedMap(runtime: document.runtime, address: address)\n  })\n}",
+      "@target(javascript)\n/// Resolve a handle value, from `get` or from `entries`, to the SharedMap that\n/// it references. A caller can retry after an error. A handle from a remote\n/// value can stay unresolved for a short time, while the attach operation of\n/// the channel that it references is still in flight.\npub fn resolve(\n  document: Document(root),\n  value: Json,\n) -> Result(SharedMap, String) {\n  case handle.parse_handle(value) {\n    Error(Nil) -> Error(\"value is not a handle marker\")\n    Ok(address) ->\n      runtime.resolve_address(document.runtime, address)\n      |> result.map(fn(_) {\n        SharedMap(runtime: document.runtime, address: address)\n      })\n  }\n}",
+      "root\n├─ \"game\"      = \"watershed dice scores\"   (Field(GameRoot, String))\n├─ \"die_sides\" = 6                         (Field(GameRoot, Int))\n└─ \"players\"   = handle ──▶ roster         (ChildField(GameRoot, Roster))\n\nroster\n└─ \"player-1234\" = handle ──▶ player map\n\nplayer map\n├─ \"name\"\n├─ \"last_roll\"\n├─ \"total\"\n└─ \"rolls\"",
+      "@target(javascript)\n/// Resolve the nested typed map that a child field references. The result is\n/// `Ok(None)` when the key is absent. The function returns an error from\n/// `resolve` without a change, and a caller can retry after it. That includes\n/// the short-lived error for a channel that is not attached yet.\npub fn resolve_child(\n  document: Document(root),\n  typed_map: TypedMap(s),\n  field: ChildField(s, c),\n) -> Result(Option(TypedMap(c)), String) {\n  case get(typed_map.map, schema.child_key(field)) {\n    Error(Nil) -> Ok(None)\n    Ok(value) ->\n      resolve(document, value)\n      |> result.map(fn(resolved) { Some(typed(resolved)) })\n  }\n}"
+    ],
+    "notes": [
+      {
+        "title": "Panels take a TypedMap, never a root",
+        "href": "/guide/connect#typedmap-panels",
+        "rule": "Give a reusable component a typed map, whether that map is a root or a child. Keep document-wide effects in the shell.",
+        "example": "NESTED APP SHOWCASE"
+      }
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "scope": {
+        "display": "inline-block",
+        "padding": "4px 8.8px",
+        "border": "1px solid oklch(0.37 0.095 240)",
+        "color": "oklch(0.37 0.095 240)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "471.203px 471.203px",
+        "gap": "16px",
+        "padding": "64px 64.8px 129.6px"
+      },
+      "related": {
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-color": "oklch(0.962 0.005 340)"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — documents and handles",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "What a watershed document actually is underneath its schema: a root map plus whatever channels its handles point to, each one independently addressed, attached on creation, and resolved through a handle rather than nested by containment — with the limits that layout implies."
+      ],
+      [
+        "og:title",
+        "watershed — documents and handles"
+      ],
+      [
+        "og:description",
+        "What a watershed document actually is underneath its schema: a root map plus whatever channels its handles point to, each one independently addressed, attached on creation, and resolved through a handle rather than nested by containment — with the limits that layout implies."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/foundations/topology/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Documents and handles",
+    "hero": [
+      "← WATERSHED · FOUNDATIONS / DOCUMENTS AND HANDLES",
+      "FOUNDATIONS",
+      "Core · every watershed app",
+      "A watershed document is not one tree — it's a root map plus whatever channels its values point to, each one independently addressed, attached, and resolved.",
+      "TRACES ROOT_TYPED · HANDLE_OF · CREATE_MAP · RESOLVE",
+      "TRACES"
+    ],
+    "headings": [
+      "Your app decides what a document means",
+      "The root is one map, not one tree",
+      "A plain field stores a value; a handle points at a channel",
+      "Detached, attached, resolved",
+      "ChildField versus ChannelField: same handle, different destination",
+      "Independently addressed pieces, not one atomic tree",
+      "What that layout costs you"
+    ],
+    "prose": [
+      "Document is watershed's generic term for a collection of shared state. Your app gives it a meaning: a saved game, a Kanban board, a project. It doesn't have to look like a page of text, and your users don't have to call it a document.",
+      "Separate the kind of document from an instance. A saved game is a kind; your Friday-night campaign is one instance. The kind describes what the data means and how your app structures it. Each instance has its own identity and state.",
+      "Those kinds are concepts your application defines. Watershed supplies the document model underneath them. A tenant ID and document ID identify an instance; two clients opening the same pair join the same document, not two copies with separate identities.",
+      "Every document has exactly one root: a SharedMap, reached with root(document), and viewed through your schema with root_typed. Its tag comes from the Document(root) value itself, fixed at the one place your app first holds it — a Msg constructor, usually. Everything your schema declares hangs off that one map.",
+      "A Field writes its value straight into the map: a string is a string, on the wire and in the map's entries, no indirection. A ChildField or a ChannelField stores something else entirely — a small JSON object that marks a reference to another channel, elsewhere in the same document. Reading that key back gives you the marker, not the child's contents; you resolve it separately to reach the channel it points to.",
+      "A new channel starts life detached: local only, its edits producing no op, invisible to anyone else. It stays that way until you store its handle into a map that's already attached to the document. The runtime then attaches the new channel too, sends its snapshot, and only from that point on does it synchronize with the rest of the world. Create a map and forget to store its handle anywhere, and it just quietly stays a local orphan.",
+      "Going the other way, resolve turns a handle you read back out of a map into the live channel it names.",
+      "Both store a handle. The difference is only in what kind of thing the handle points to, and the schema layer tracks that at compile time. ChildField(tag, child) points at another typed map — a child map with its own schema, its own tag, its own set of fields, within the same document. ChannelField(tag, kind) points at a channel that isn't a map at all: a counter, an OR-set, a claims channel, whatever kind names. Neither one is a subtree of the parent. Both are peer channels that happen to be reachable from it.",
+      "A watershed document collects data in a set of channels, each with its own address, each syncing on its own terms, tied together only by handles stored as ordinary values. The dice-scoreboard example makes each document a scoreboard. Its roster of players, keyed by id, looks like this on the wire — a root map, a child map, and a further map nested under that:",
+      "Nothing about that layout is a single data structure the way a JSON document or an in-memory tree is. Each named piece is its own channel, addressed on its own, with its own merge behavior — the field atlas covers what each kind actually does when two clients touch it at once.",
+      "Two honest limits fall straight out of this design, and neither one is a bug to route around:",
+      "That retry isn't an edge case to special-case away. Every client that creates a channel and immediately hands its handle to a peer has to expect this. The next sheet covers the pattern watershed uses to wait it out cleanly at startup, and runtime · reconnect covers what a dropped connection does to an already-resolved handle.",
+      "A watershed document is a root map plus whatever channels its handles reach — attached on creation, resolved through the handle rather than nested by containment, with no cross-channel transaction and a short resolve window right after creation. Next: how a client gets from an empty connection to a document it can build on."
+    ],
+    "links": [
+      [
+        "Field",
+        "/foundations/schema"
+      ],
+      [
+        "the field atlas",
+        "/structures"
+      ],
+      [
+        "The next sheet",
+        "/foundations/lifecycle"
+      ],
+      [
+        "runtime · reconnect",
+        "/runtime/reconnect"
+      ],
+      [
+        "how a client gets from an empty connection to a document it can build on",
+        "/foundations/lifecycle"
+      ]
+    ],
+    "pager": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "OVERVIEW",
+        "/foundations"
+      ],
+      [
+        "01 SCHEMAS",
+        "/foundations/schema"
+      ],
+      [
+        "02 DOCUMENTS",
+        "/foundations/topology"
+      ],
+      [
+        "03 STARTING A DOCUMENT",
+        "/foundations/lifecycle"
+      ],
+      [
+        "← SCHEMAS AND FIELDS Declare the shape of a map once, at compile time, with a phantom tag the runtime never sees: a plain field, a handle to a nested map, or a handle to another channel entirely.",
+        "/foundations/schema"
+      ],
+      [
+        "STARTING A DOCUMENT → Every client runs the same bootstrap: get a handle, wait for the catch-up, ensure the channels it needs exist, and only render once they've all reported in.",
+        "/foundations/lifecycle"
+      ]
+    ],
+    "labels": [
+      "src/watershed.gleam",
+      "src/watershed.gleam",
+      "src/watershed.gleam",
+      "src/watershed.gleam",
+      "examples/scoreboard_cli/src/scoreboard_cli.gleam (diagram)",
+      "src/watershed.gleam"
+    ],
+    "captions": [],
+    "code": [
+      "@target(javascript)\n/// The root map of the document, viewed through the schema of that document.\n///\n/// One document has one tag. The tag comes from the `Document(root)` value that\n/// you pass, so it is fixed at the position where your application writes the\n/// type concretely. That position is the `Msg` constructor that carries the\n/// handle, or the `Model` field that holds it:\n///\n/// ```gleam\n/// GotHandle(Document(document_schema.Survey))\n/// ```\n///\n/// Every `root_typed` call on that document then agrees. A second schema at the\n/// root is a compile error, and not a key namespace that two schemas share\n/// quietly.\n///\n/// A component that is generic in `root` can still call this function. But an\n/// abstract tag has no field, so that component cannot read or write the root.\n/// A nested panel is thus structurally unable to reach past its own child map.\n///\n/// `typed(root(document))` is still available, and it is still unchecked. It is\n/// the deliberate way to view the root through a foreign schema. Unlike the old\n/// signature, you must now write it explicitly.\npub fn root_typed(document: Document(root)) -> TypedMap(root) {\n  typed(root(document))\n}",
+      "@target(javascript)\n/// The Fluid handle marker that references `map`. Store it as a value in\n/// another map. Its shape is\n/// `{\"type\": \"__fluid_handle__\", \"url\": \"/<address>\"}`.\npub fn handle_of(map: SharedMap) -> Json {\n  handle.encode_handle(map.address)\n}",
+      "@target(javascript)\n/// Create a new map channel. The map starts *detached*, which means that it is\n/// local only and its edits produce no operation. It stays detached until a\n/// caller stores its handle, from `handle_of`, into an attached map. The\n/// runtime then attaches it, with its snapshot, and it starts to synchronize\n/// the edits of that map. The connection must be ready, which `on_ready`\n/// reports.\npub fn create_map(document: Document(root)) -> Result(SharedMap, String) {\n  runtime.create_map(document.runtime)\n  |> result.map(fn(address) {\n    SharedMap(runtime: document.runtime, address: address)\n  })\n}",
+      "@target(javascript)\n/// Resolve a handle value, from `get` or from `entries`, to the SharedMap that\n/// it references. A caller can retry after an error. A handle from a remote\n/// value can stay unresolved for a short time, while the attach operation of\n/// the channel that it references is still in flight.\npub fn resolve(\n  document: Document(root),\n  value: Json,\n) -> Result(SharedMap, String) {\n  case handle.parse_handle(value) {\n    Error(Nil) -> Error(\"value is not a handle marker\")\n    Ok(address) ->\n      runtime.resolve_address(document.runtime, address)\n      |> result.map(fn(_) {\n        SharedMap(runtime: document.runtime, address: address)\n      })\n  }\n}",
+      "root\n├─ \"game\"      = \"watershed dice scores\"   (Field(GameRoot, String))\n├─ \"die_sides\" = 6                         (Field(GameRoot, Int))\n└─ \"players\"   = handle ──▶ roster         (ChildField(GameRoot, Roster))\n\nroster\n└─ \"player-1234\" = handle ──▶ player map\n\nplayer map\n├─ \"name\"\n├─ \"last_roll\"\n├─ \"total\"\n└─ \"rolls\"",
+      "@target(javascript)\n/// Resolve the nested typed map that a child field references. The result is\n/// `Ok(None)` when the key is absent. The function returns an error from\n/// `resolve` without a change, and a caller can retry after it. That includes\n/// the short-lived error for a channel that is not attached yet.\npub fn resolve_child(\n  document: Document(root),\n  typed_map: TypedMap(s),\n  field: ChildField(s, c),\n) -> Result(Option(TypedMap(c)), String) {\n  case get(typed_map.map, schema.child_key(field)) {\n    Error(Nil) -> Ok(None)\n    Ok(value) ->\n      resolve(document, value)\n      |> result.map(fn(resolved) { Some(typed(resolved)) })\n  }\n}"
+    ],
+    "notes": [
+      {
+        "title": "Panels take a TypedMap, never a root",
+        "href": "/guide/connect#typedmap-panels",
+        "rule": "Give a reusable component a typed map, whether that map is a root or a child. Keep document-wide effects in the shell.",
+        "example": "NESTED APP SHOWCASE"
+      }
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "33.15px",
+        "font-weight": "640",
+        "font-stretch": "100%",
+        "line-height": "32.8185px"
+      },
+      "scope": {
+        "display": "inline-block",
+        "padding": "4px 8.8px",
+        "border": "1px solid oklch(0.37 0.095 240)",
+        "color": "oklch(0.37 0.095 240)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "pager": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "16px",
+        "padding": "64px 20px 72px"
+      },
+      "related": {
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "background-color": "oklch(0.962 0.005 340)"
+      }
+    }
+  }
+}

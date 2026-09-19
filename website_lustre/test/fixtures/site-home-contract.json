@@ -1,0 +1,120 @@
+{
+  "desktop": {
+    "title": "watershed — collaborative data structures for Gleam",
+    "description": "A Gleam DDS client toolkit for optimistic local edits, server-sequenced convergence, reconnect safety, CRDTs, and operational transform. Its pure core runs on the BEAM and in the browser.",
+    "hero": "SN 1220 SN 1140 SN 1060 Edit upstream. Converge downstream. watershed lets people edit shared data without losing concurrent changes. Clients apply edits at once; the server sequences them; each data structure resolves conflicts under its stated policy. The same Gleam core runs on the BEAM and in the browser, on a distributed-data-structure (DDS) runtime and sequencer drawn from Fluid Framework's design. View on GitHub Watch three clients converge ↓",
+    "headings": [
+      "Watch three clients converge",
+      "One ordered stream, one clear rule per structure",
+      "Every structure uses the same channel",
+      "Every structure, mapped by family.",
+      "One pure core, two runtimes",
+      "A map over one sequenced stream",
+      "What is implemented and tested"
+    ],
+    "demoHeading": "Watch three clients converge",
+    "featuredSheets": 4,
+    "flowSteps": 4,
+    "strata": 4,
+    "ledgerRows": 7,
+    "hasSourceSnippet": true,
+    "links": [
+      "Build an app, step by step: the field guide →",
+      "Coordination Deciding who owns what, and agreeing before acting. Claims DDS OrderedCollection DDS TaskManager DDS PactMap DDS OPEN FAMILY →",
+      "Counters Numbers that many hands move at once. SharedCounter DDS GCounter CRDT PnCounter CRDT OPEN FAMILY →",
+      "DDS vs CRDT vs OT →",
+      "Maps Keyed state that picks a winner, keeps an edit, or grows into a tree. SharedMap DDS LWWMap CRDT OrMap CRDT SharedDirectory DDS OPEN FAMILY →",
+      "Open the field atlas →",
+      "READ IN DEPTH →",
+      "READ IN DEPTH →",
+      "READ IN DEPTH →",
+      "READ IN DEPTH →",
+      "READ THE CORPUS →",
+      "READ THE DISCONNECT SUITE →",
+      "READ THE HARNESS →",
+      "Registers One shared value, and three different answers to a race. LWWRegister CRDT MvRegister CRDT RegisterCollection DDS OPEN FAMILY →",
+      "Reload the page to retry.",
+      "Sequences Ordered lists that stay ordered while everyone rearranges them. SharedSequence CRDT SharedText CRDT OPEN FAMILY →",
+      "Sets Lists of things, as people add and remove at the same time. GSet CRDT TwoPSet CRDT OrSet CRDT OPEN FAMILY →",
+      "SharedMap's server order",
+      "Skip past the interactive demo",
+      "Transforms One shared document, kept in agreement as everyone edits. JsonOt OT SharedRichText OT OPEN FAMILY →",
+      "Watch a boat vanish, live →",
+      "field atlas",
+      "the examples",
+      "the field atlas"
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "152px 64.8px 128px",
+        "border-bottom-width": "1px",
+        "overflow": "hidden"
+      },
+      "rig": {
+        "display": "grid",
+        "grid-template-areas": "\"a seq b\" \"c c c\"",
+        "gap": "24px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — collaborative data structures for Gleam",
+    "description": "A Gleam DDS client toolkit for optimistic local edits, server-sequenced convergence, reconnect safety, CRDTs, and operational transform. Its pure core runs on the BEAM and in the browser.",
+    "hero": "SN 1220 SN 1140 SN 1060 Edit upstream. Converge downstream. watershed lets people edit shared data without losing concurrent changes. Clients apply edits at once; the server sequences them; each data structure resolves conflicts under its stated policy. The same Gleam core runs on the BEAM and in the browser, on a distributed-data-structure (DDS) runtime and sequencer drawn from Fluid Framework's design. View on GitHub Watch three clients converge ↓",
+    "headings": [
+      "Watch three clients converge",
+      "One ordered stream, one clear rule per structure",
+      "Every structure uses the same channel",
+      "Every structure, mapped by family.",
+      "One pure core, two runtimes",
+      "A map over one sequenced stream",
+      "What is implemented and tested"
+    ],
+    "demoHeading": "Watch three clients converge",
+    "featuredSheets": 4,
+    "flowSteps": 4,
+    "strata": 4,
+    "ledgerRows": 7,
+    "hasSourceSnippet": true,
+    "links": [
+      "Build an app, step by step: the field guide →",
+      "Coordination Deciding who owns what, and agreeing before acting. Claims DDS OrderedCollection DDS TaskManager DDS PactMap DDS OPEN FAMILY →",
+      "Counters Numbers that many hands move at once. SharedCounter DDS GCounter CRDT PnCounter CRDT OPEN FAMILY →",
+      "DDS vs CRDT vs OT →",
+      "Maps Keyed state that picks a winner, keeps an edit, or grows into a tree. SharedMap DDS LWWMap CRDT OrMap CRDT SharedDirectory DDS OPEN FAMILY →",
+      "Open the field atlas →",
+      "READ IN DEPTH →",
+      "READ IN DEPTH →",
+      "READ IN DEPTH →",
+      "READ IN DEPTH →",
+      "READ THE CORPUS →",
+      "READ THE DISCONNECT SUITE →",
+      "READ THE HARNESS →",
+      "Registers One shared value, and three different answers to a race. LWWRegister CRDT MvRegister CRDT RegisterCollection DDS OPEN FAMILY →",
+      "Reload the page to retry.",
+      "Sequences Ordered lists that stay ordered while everyone rearranges them. SharedSequence CRDT SharedText CRDT OPEN FAMILY →",
+      "Sets Lists of things, as people add and remove at the same time. GSet CRDT TwoPSet CRDT OrSet CRDT OPEN FAMILY →",
+      "SharedMap's server order",
+      "Skip past the interactive demo",
+      "Transforms One shared document, kept in agreement as everyone edits. JsonOt OT SharedRichText OT OPEN FAMILY →",
+      "Watch a boat vanish, live →",
+      "field atlas",
+      "the examples",
+      "the field atlas"
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "72px 20px 64px",
+        "border-bottom-width": "1px",
+        "overflow": "hidden"
+      },
+      "rig": {
+        "display": "grid",
+        "grid-template-areas": "\"a\" \"seq\" \"b\" \"c\"",
+        "gap": "24px"
+      }
+    }
+  }
+}

@@ -1,0 +1,2578 @@
+{
+  "desktop": {
+    "title": "watershed — browser examples",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "14 complete Lustre applications showing watershed connection, typed document modeling, conflict semantics, presence, composition, and reconnect behavior."
+      ],
+      [
+        "og:title",
+        "watershed — browser examples"
+      ],
+      [
+        "og:description",
+        "14 complete Lustre applications showing watershed connection, typed document modeling, conflict semantics, presence, composition, and reconnect behavior."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/examples/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Run the examples.",
+    "hero": [
+      "← WATERSHED / EXAMPLES",
+      "14 complete Lustre applications, all compiled from Gleam. Start with a small lifecycle trace, compare conflict rules under the same action, or open the apps that push composition and browser interaction hardest."
+    ],
+    "actions": [
+      [
+        "Open the field index ↓",
+        "#catalog"
+      ],
+      [
+        "Build one with the guide →",
+        "/guide"
+      ]
+    ],
+    "groups": [
+      {
+        "id": "group-foundation",
+        "title": "Foundation and lifecycle",
+        "description": "Small applications that make connection, bootstrap, subscription, and one shared structure easy to trace.",
+        "entries": [
+          {
+            "id": "retro_tutorial_lustre",
+            "name": "Retro board (tutorial)",
+            "summary": "The board the build guide assembles: notes in a register OR-map, votes in a tally OR-map, and presence on the focused note.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/retro_tutorial_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrMap Presence",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "The minimal presence idiom",
+                    "/guide/presence#presence-idiom"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Two people adding notes at once both keep theirs, and two votes on one note add up instead of overwriting.",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "The minimal presence idiom",
+                    "/guide/presence#presence-idiom"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "The minimal presence idiom",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "The minimal presence idiom",
+                    "/guide/presence#presence-idiom"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "dice_lustre",
+            "name": "Collaborative dice",
+            "summary": "The smallest end-to-end Gleam browser client, sharing one last-write-wins die value.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/dice_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "SharedMap",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "Sample diagnostics on every event",
+                    "/guide/connect#diagnostics-first"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Two tabs converge through the same pure core used by the BEAM client and survive reconnect.",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "Sample diagnostics on every event",
+                    "/guide/connect#diagnostics-first"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Sample diagnostics on every event",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "Sample diagnostics on every event",
+                    "/guide/connect#diagnostics-first"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "clap_counter_lustre",
+            "name": "Clap counter",
+            "summary": "A one-channel stress test for concurrent increments using a state-based PN counter, peer to peer over WebRTC with no server sequencing it.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/clap_counter_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "PnCounter",
+                "links": [
+                  [
+                    "PnCounter",
+                    "/structures/counters#pn"
+                  ],
+                  [
+                    "Treat the server as an optional decorator",
+                    "/guide/connect#relay-decorator"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Held buttons in several tabs add every clap without a lost update, and no server ever sees one.",
+                "links": [
+                  [
+                    "PnCounter",
+                    "/structures/counters#pn"
+                  ],
+                  [
+                    "Treat the server as an optional decorator",
+                    "/guide/connect#relay-decorator"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Treat the server as an optional decorator",
+                "links": [
+                  [
+                    "PnCounter",
+                    "/structures/counters#pn"
+                  ],
+                  [
+                    "Treat the server as an optional decorator",
+                    "/guide/connect#relay-decorator"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "group-conflicts",
+        "title": "Conflict semantics",
+        "description": "The same-looking interaction under different merge and arbitration rules.",
+        "entries": [
+          {
+            "id": "grocery_triptych_lustre",
+            "name": "Grocery triptych",
+            "summary": "One add/remove interaction applied to three set kinds so their semantics cannot hide behind different UIs.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/grocery_triptych_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "GSet TwoPSet OrSet",
+                "links": [
+                  [
+                    "GSet",
+                    "/structures/sets#gset"
+                  ],
+                  [
+                    "TwoPSet",
+                    "/structures/sets#twopset"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Ride an application protocol on ripples",
+                    "/guide/presence#protocol-on-ripples"
+                  ],
+                  [
+                    "Extract pure modules; test without a server",
+                    "/guide/testing#pure-modules"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Remove and re-add milk: grow-only, tombstone, and observed-remove behavior diverge exactly as modeled.",
+                "links": [
+                  [
+                    "GSet",
+                    "/structures/sets#gset"
+                  ],
+                  [
+                    "TwoPSet",
+                    "/structures/sets#twopset"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Ride an application protocol on ripples",
+                    "/guide/presence#protocol-on-ripples"
+                  ],
+                  [
+                    "Extract pure modules; test without a server",
+                    "/guide/testing#pure-modules"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Ride an application protocol on ripples Extract pure modules; test without a server",
+                "links": [
+                  [
+                    "GSet",
+                    "/structures/sets#gset"
+                  ],
+                  [
+                    "TwoPSet",
+                    "/structures/sets#twopset"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Ride an application protocol on ripples",
+                    "/guide/presence#protocol-on-ripples"
+                  ],
+                  [
+                    "Extract pure modules; test without a server",
+                    "/guide/testing#pure-modules"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "drum_machine_lustre",
+            "name": "Drum machine",
+            "summary": "A shared step sequencer pairing uncoordinated pattern edits with quorum-controlled tempo.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/drum_machine_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrSet PactMap",
+                "links": [
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "PactMap",
+                    "/structures/coordination#pact"
+                  ],
+                  [
+                    "Propose on release, render the pending signoff",
+                    "/guide/votes#quorum-pending-roster"
+                  ],
+                  [
+                    "Keep latency-critical loops out of the update path",
+                    "/guide/presence#realtime-out-of-band"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Pattern edits land immediately while tempo waits for every connected signer; convergence becomes audible.",
+                "links": [
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "PactMap",
+                    "/structures/coordination#pact"
+                  ],
+                  [
+                    "Propose on release, render the pending signoff",
+                    "/guide/votes#quorum-pending-roster"
+                  ],
+                  [
+                    "Keep latency-critical loops out of the update path",
+                    "/guide/presence#realtime-out-of-band"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Propose on release, render the pending signoff Keep latency-critical loops out of the update path",
+                "links": [
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "PactMap",
+                    "/structures/coordination#pact"
+                  ],
+                  [
+                    "Propose on release, render the pending signoff",
+                    "/guide/votes#quorum-pending-roster"
+                  ],
+                  [
+                    "Keep latency-critical loops out of the update path",
+                    "/guide/presence#realtime-out-of-band"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "tournament_bracket_lustre",
+            "name": "Tournament bracket",
+            "summary": "Seven atomic registers retain every submitted match result while settling one official winner per match.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/tournament_bracket_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "RegisterCollection Presence",
+                "links": [
+                  [
+                    "RegisterCollection",
+                    "/structures/registers#registers"
+                  ],
+                  [
+                    "Show writes that have not settled",
+                    "/guide/votes#unsettled-writes"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Conflicting reports converge on one CAS winner without discarding the losing submission.",
+                "links": [
+                  [
+                    "RegisterCollection",
+                    "/structures/registers#registers"
+                  ],
+                  [
+                    "Show writes that have not settled",
+                    "/guide/votes#unsettled-writes"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Show writes that have not settled",
+                "links": [
+                  [
+                    "RegisterCollection",
+                    "/structures/registers#registers"
+                  ],
+                  [
+                    "Show writes that have not settled",
+                    "/guide/votes#unsettled-writes"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "work_queue_lustre",
+            "name": "Work queue",
+            "summary": "A job-dispatch board whose columns are consensus queues and locks rather than collaborative card lists.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/work_queue_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrderedCollection TaskManager SharedSequence",
+                "links": [
+                  [
+                    "OrderedCollection",
+                    "/structures/coordination#ordered"
+                  ],
+                  [
+                    "TaskManager",
+                    "/structures/coordination#tasks"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Test client death deterministically",
+                    "/guide/testing#deterministic-death"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "One worker wins each claim, and queued work plus dispatcher ownership recover when a client dies.",
+                "links": [
+                  [
+                    "OrderedCollection",
+                    "/structures/coordination#ordered"
+                  ],
+                  [
+                    "TaskManager",
+                    "/structures/coordination#tasks"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Test client death deterministically",
+                    "/guide/testing#deterministic-death"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Test client death deterministically",
+                "links": [
+                  [
+                    "OrderedCollection",
+                    "/structures/coordination#ordered"
+                  ],
+                  [
+                    "TaskManager",
+                    "/structures/coordination#tasks"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Test client death deterministically",
+                    "/guide/testing#deterministic-death"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "release_checklist_lustre",
+            "name": "Release checklist",
+            "summary": "A go/no-go room pairing an uncoordinated OR-set checklist with a first-writer-wins captain seat and a quorum-gated release target.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/release_checklist_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrSet Claims PactMap",
+                "links": [
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "PactMap",
+                    "/structures/coordination#pact"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Checks converge immediately, exactly one captain seat survives concurrent claims, and only the captain can publish once every gate signs off.",
+                "links": [
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "PactMap",
+                    "/structures/coordination#pact"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "group-composition",
+        "title": "Composition and presence",
+        "description": "Documents with several channels, nested applications, or a transient collaboration tier.",
+        "entries": [
+          {
+            "id": "retro_board_lustre",
+            "name": "Retro board (full)",
+            "summary": "What the tutorial board grows into: a five-channel sticky-note wall with add-wins notes, conflict-free vote tallies, ordered columns, and presence.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/retro_board_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrMap SharedSequence Presence",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "When a move is not atomic, crown one channel authoritative",
+                    "/guide/notes#authoritative-channel"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Concurrent notes and votes survive; cross-channel moves render honestly without pretending to be atomic.",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "When a move is not atomic, crown one channel authoritative",
+                    "/guide/notes#authoritative-channel"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "When a move is not atomic, crown one channel authoritative",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "When a move is not atomic, crown one channel authoritative",
+                    "/guide/notes#authoritative-channel"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "sudoku_lustre",
+            "name": "Collaborative Sudoku",
+            "summary": "A typed document combining four durable structures with cursors and typing indicators in the presence tier.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "SharedMap OrSet Claims SharedCounter Presence",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "SharedCounter",
+                    "/structures/counters#counter"
+                  ],
+                  [
+                    "Seed idempotently with Claims",
+                    "/guide/connect#claims-seeding"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Cell edits, pencil marks, givens, mistakes, and live awareness each use the conflict model they need.",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "SharedCounter",
+                    "/structures/counters#counter"
+                  ],
+                  [
+                    "Seed idempotently with Claims",
+                    "/guide/connect#claims-seeding"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Seed idempotently with Claims",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "SharedCounter",
+                    "/structures/counters#counter"
+                  ],
+                  [
+                    "Seed idempotently with Claims",
+                    "/guide/connect#claims-seeding"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "showcase_lustre",
+            "name": "Nested app showcase",
+            "summary": "Four independently runnable applications mounted as typed child maps inside one document and one presence roster.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/showcase_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "Child maps SharedText SharedSequence Claims OrMap",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Panels take a TypedMap, never a root",
+                    "/guide/connect#typedmap-panels"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Panels switch without reconnecting, stay namespace-isolated, and share document-wide services safely.",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Panels take a TypedMap, never a root",
+                    "/guide/connect#typedmap-panels"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Panels take a TypedMap, never a root",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Panels take a TypedMap, never a root",
+                    "/guide/connect#typedmap-panels"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "group-specialized",
+        "title": "Specialized interaction",
+        "description": "Editors and visual surfaces where the browser boundary is part of the engineering claim.",
+        "entries": [
+          {
+            "id": "playlist_lustre",
+            "name": "Collaborative playlist",
+            "summary": "A reorderable list built around SharedSequence's convergent move, replace, insert, and delete operations.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/playlist_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "SharedSequence",
+                "links": [
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Fallible edits render; never assert on a mutation",
+                    "/guide/notes#fallible-edits"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Concurrent moves and replacements converge while stale indices surface as rejected edits.",
+                "links": [
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Fallible edits render; never assert on a mutation",
+                    "/guide/notes#fallible-edits"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Fallible edits render; never assert on a mutation",
+                "links": [
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Fallible edits render; never assert on a mutation",
+                    "/guide/notes#fallible-edits"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "text_lustre",
+            "name": "Shared text editor",
+            "summary": "A grapheme-aware textarea bridge with anchors, IME handling, shared cursors, and a composable MVU component.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/text_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "SharedText Presence",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "Anchors, not offsets",
+                    "/guide/notes#anchors-not-offsets"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Minimal text operations converge without replacing the whole document or losing the local caret.",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "Anchors, not offsets",
+                    "/guide/notes#anchors-not-offsets"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Anchors, not offsets",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "Anchors, not offsets",
+                    "/guide/notes#anchors-not-offsets"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "pixel_canvas_lustre",
+            "name": "Pixel canvas",
+            "summary": "A 64×64 bitmap that makes high-volume offline OR-map convergence visible without reading an assertion.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/pixel_canvas_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrMap",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Hand a rendering surface to FFI, and bootstrap on Connected",
+                    "/guide/connect#ffi-surface"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Two disconnected painters rejoin and produce the same picture by joining sparse deltas.",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Hand a rendering surface to FFI, and bootstrap on Connected",
+                    "/guide/connect#ffi-surface"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Hand a rendering surface to FFI, and bootstrap on Connected",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Hand a rendering surface to FFI, and bootstrap on Connected",
+                    "/guide/connect#ffi-surface"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "next": "Trace one before copying five. Each README explains why its structure fits and the race worth watching. The build guide walks the same shape step by step. Follow the build guide →",
+    "nextLinks": [
+      [
+        "Follow the build guide →",
+        "/guide"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "viewportWidth": 1440,
+    "scrollWidth": 1440,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "112px 64.8px 80px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "main": {
+        "padding": "64px 64.8px 129.6px",
+        "max-width": "1152px"
+      },
+      "groupHead": {
+        "display": "grid",
+        "grid-template-columns": "394.625px 563.781px",
+        "gap": "24px 64px"
+      },
+      "entryHead": {
+        "display": "grid",
+        "grid-template-columns": "766.75px 191.656px",
+        "gap": "24px 64px"
+      },
+      "facts": {
+        "display": "grid",
+        "grid-template-columns": "479.203px 479.203px",
+        "gap": "24px 64px"
+      },
+      "next": {
+        "padding": "64px 64.8px",
+        "border-top": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — browser examples",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "14 complete Lustre applications showing watershed connection, typed document modeling, conflict semantics, presence, composition, and reconnect behavior."
+      ],
+      [
+        "og:title",
+        "watershed — browser examples"
+      ],
+      [
+        "og:description",
+        "14 complete Lustre applications showing watershed connection, typed document modeling, conflict semantics, presence, composition, and reconnect behavior."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/examples/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Run the examples.",
+    "hero": [
+      "← WATERSHED / EXAMPLES",
+      "14 complete Lustre applications, all compiled from Gleam. Start with a small lifecycle trace, compare conflict rules under the same action, or open the apps that push composition and browser interaction hardest."
+    ],
+    "actions": [
+      [
+        "Open the field index ↓",
+        "#catalog"
+      ],
+      [
+        "Build one with the guide →",
+        "/guide"
+      ]
+    ],
+    "groups": [
+      {
+        "id": "group-foundation",
+        "title": "Foundation and lifecycle",
+        "description": "Small applications that make connection, bootstrap, subscription, and one shared structure easy to trace.",
+        "entries": [
+          {
+            "id": "retro_tutorial_lustre",
+            "name": "Retro board (tutorial)",
+            "summary": "The board the build guide assembles: notes in a register OR-map, votes in a tally OR-map, and presence on the focused note.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/retro_tutorial_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrMap Presence",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "The minimal presence idiom",
+                    "/guide/presence#presence-idiom"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Two people adding notes at once both keep theirs, and two votes on one note add up instead of overwriting.",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "The minimal presence idiom",
+                    "/guide/presence#presence-idiom"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "The minimal presence idiom",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "The minimal presence idiom",
+                    "/guide/presence#presence-idiom"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "dice_lustre",
+            "name": "Collaborative dice",
+            "summary": "The smallest end-to-end Gleam browser client, sharing one last-write-wins die value.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/dice_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "SharedMap",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "Sample diagnostics on every event",
+                    "/guide/connect#diagnostics-first"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Two tabs converge through the same pure core used by the BEAM client and survive reconnect.",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "Sample diagnostics on every event",
+                    "/guide/connect#diagnostics-first"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Sample diagnostics on every event",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "Sample diagnostics on every event",
+                    "/guide/connect#diagnostics-first"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "clap_counter_lustre",
+            "name": "Clap counter",
+            "summary": "A one-channel stress test for concurrent increments using a state-based PN counter, peer to peer over WebRTC with no server sequencing it.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/clap_counter_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "PnCounter",
+                "links": [
+                  [
+                    "PnCounter",
+                    "/structures/counters#pn"
+                  ],
+                  [
+                    "Treat the server as an optional decorator",
+                    "/guide/connect#relay-decorator"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Held buttons in several tabs add every clap without a lost update, and no server ever sees one.",
+                "links": [
+                  [
+                    "PnCounter",
+                    "/structures/counters#pn"
+                  ],
+                  [
+                    "Treat the server as an optional decorator",
+                    "/guide/connect#relay-decorator"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Treat the server as an optional decorator",
+                "links": [
+                  [
+                    "PnCounter",
+                    "/structures/counters#pn"
+                  ],
+                  [
+                    "Treat the server as an optional decorator",
+                    "/guide/connect#relay-decorator"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "group-conflicts",
+        "title": "Conflict semantics",
+        "description": "The same-looking interaction under different merge and arbitration rules.",
+        "entries": [
+          {
+            "id": "grocery_triptych_lustre",
+            "name": "Grocery triptych",
+            "summary": "One add/remove interaction applied to three set kinds so their semantics cannot hide behind different UIs.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/grocery_triptych_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "GSet TwoPSet OrSet",
+                "links": [
+                  [
+                    "GSet",
+                    "/structures/sets#gset"
+                  ],
+                  [
+                    "TwoPSet",
+                    "/structures/sets#twopset"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Ride an application protocol on ripples",
+                    "/guide/presence#protocol-on-ripples"
+                  ],
+                  [
+                    "Extract pure modules; test without a server",
+                    "/guide/testing#pure-modules"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Remove and re-add milk: grow-only, tombstone, and observed-remove behavior diverge exactly as modeled.",
+                "links": [
+                  [
+                    "GSet",
+                    "/structures/sets#gset"
+                  ],
+                  [
+                    "TwoPSet",
+                    "/structures/sets#twopset"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Ride an application protocol on ripples",
+                    "/guide/presence#protocol-on-ripples"
+                  ],
+                  [
+                    "Extract pure modules; test without a server",
+                    "/guide/testing#pure-modules"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Ride an application protocol on ripples Extract pure modules; test without a server",
+                "links": [
+                  [
+                    "GSet",
+                    "/structures/sets#gset"
+                  ],
+                  [
+                    "TwoPSet",
+                    "/structures/sets#twopset"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Ride an application protocol on ripples",
+                    "/guide/presence#protocol-on-ripples"
+                  ],
+                  [
+                    "Extract pure modules; test without a server",
+                    "/guide/testing#pure-modules"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "drum_machine_lustre",
+            "name": "Drum machine",
+            "summary": "A shared step sequencer pairing uncoordinated pattern edits with quorum-controlled tempo.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/drum_machine_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrSet PactMap",
+                "links": [
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "PactMap",
+                    "/structures/coordination#pact"
+                  ],
+                  [
+                    "Propose on release, render the pending signoff",
+                    "/guide/votes#quorum-pending-roster"
+                  ],
+                  [
+                    "Keep latency-critical loops out of the update path",
+                    "/guide/presence#realtime-out-of-band"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Pattern edits land immediately while tempo waits for every connected signer; convergence becomes audible.",
+                "links": [
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "PactMap",
+                    "/structures/coordination#pact"
+                  ],
+                  [
+                    "Propose on release, render the pending signoff",
+                    "/guide/votes#quorum-pending-roster"
+                  ],
+                  [
+                    "Keep latency-critical loops out of the update path",
+                    "/guide/presence#realtime-out-of-band"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Propose on release, render the pending signoff Keep latency-critical loops out of the update path",
+                "links": [
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "PactMap",
+                    "/structures/coordination#pact"
+                  ],
+                  [
+                    "Propose on release, render the pending signoff",
+                    "/guide/votes#quorum-pending-roster"
+                  ],
+                  [
+                    "Keep latency-critical loops out of the update path",
+                    "/guide/presence#realtime-out-of-band"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "tournament_bracket_lustre",
+            "name": "Tournament bracket",
+            "summary": "Seven atomic registers retain every submitted match result while settling one official winner per match.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/tournament_bracket_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "RegisterCollection Presence",
+                "links": [
+                  [
+                    "RegisterCollection",
+                    "/structures/registers#registers"
+                  ],
+                  [
+                    "Show writes that have not settled",
+                    "/guide/votes#unsettled-writes"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Conflicting reports converge on one CAS winner without discarding the losing submission.",
+                "links": [
+                  [
+                    "RegisterCollection",
+                    "/structures/registers#registers"
+                  ],
+                  [
+                    "Show writes that have not settled",
+                    "/guide/votes#unsettled-writes"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Show writes that have not settled",
+                "links": [
+                  [
+                    "RegisterCollection",
+                    "/structures/registers#registers"
+                  ],
+                  [
+                    "Show writes that have not settled",
+                    "/guide/votes#unsettled-writes"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "work_queue_lustre",
+            "name": "Work queue",
+            "summary": "A job-dispatch board whose columns are consensus queues and locks rather than collaborative card lists.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/work_queue_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrderedCollection TaskManager SharedSequence",
+                "links": [
+                  [
+                    "OrderedCollection",
+                    "/structures/coordination#ordered"
+                  ],
+                  [
+                    "TaskManager",
+                    "/structures/coordination#tasks"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Test client death deterministically",
+                    "/guide/testing#deterministic-death"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "One worker wins each claim, and queued work plus dispatcher ownership recover when a client dies.",
+                "links": [
+                  [
+                    "OrderedCollection",
+                    "/structures/coordination#ordered"
+                  ],
+                  [
+                    "TaskManager",
+                    "/structures/coordination#tasks"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Test client death deterministically",
+                    "/guide/testing#deterministic-death"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Test client death deterministically",
+                "links": [
+                  [
+                    "OrderedCollection",
+                    "/structures/coordination#ordered"
+                  ],
+                  [
+                    "TaskManager",
+                    "/structures/coordination#tasks"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Test client death deterministically",
+                    "/guide/testing#deterministic-death"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "release_checklist_lustre",
+            "name": "Release checklist",
+            "summary": "A go/no-go room pairing an uncoordinated OR-set checklist with a first-writer-wins captain seat and a quorum-gated release target.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/release_checklist_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrSet Claims PactMap",
+                "links": [
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "PactMap",
+                    "/structures/coordination#pact"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Checks converge immediately, exactly one captain seat survives concurrent claims, and only the captain can publish once every gate signs off.",
+                "links": [
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "PactMap",
+                    "/structures/coordination#pact"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "group-composition",
+        "title": "Composition and presence",
+        "description": "Documents with several channels, nested applications, or a transient collaboration tier.",
+        "entries": [
+          {
+            "id": "retro_board_lustre",
+            "name": "Retro board (full)",
+            "summary": "What the tutorial board grows into: a five-channel sticky-note wall with add-wins notes, conflict-free vote tallies, ordered columns, and presence.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/retro_board_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrMap SharedSequence Presence",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "When a move is not atomic, crown one channel authoritative",
+                    "/guide/notes#authoritative-channel"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Concurrent notes and votes survive; cross-channel moves render honestly without pretending to be atomic.",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "When a move is not atomic, crown one channel authoritative",
+                    "/guide/notes#authoritative-channel"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "When a move is not atomic, crown one channel authoritative",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "When a move is not atomic, crown one channel authoritative",
+                    "/guide/notes#authoritative-channel"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "sudoku_lustre",
+            "name": "Collaborative Sudoku",
+            "summary": "A typed document combining four durable structures with cursors and typing indicators in the presence tier.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/sudoku_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "SharedMap OrSet Claims SharedCounter Presence",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "SharedCounter",
+                    "/structures/counters#counter"
+                  ],
+                  [
+                    "Seed idempotently with Claims",
+                    "/guide/connect#claims-seeding"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Cell edits, pencil marks, givens, mistakes, and live awareness each use the conflict model they need.",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "SharedCounter",
+                    "/structures/counters#counter"
+                  ],
+                  [
+                    "Seed idempotently with Claims",
+                    "/guide/connect#claims-seeding"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Seed idempotently with Claims",
+                "links": [
+                  [
+                    "SharedMap",
+                    "/structures/maps#map"
+                  ],
+                  [
+                    "OrSet",
+                    "/structures/sets#orset"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "SharedCounter",
+                    "/structures/counters#counter"
+                  ],
+                  [
+                    "Seed idempotently with Claims",
+                    "/guide/connect#claims-seeding"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "showcase_lustre",
+            "name": "Nested app showcase",
+            "summary": "Four independently runnable applications mounted as typed child maps inside one document and one presence roster.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/showcase_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "Child maps SharedText SharedSequence Claims OrMap",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Panels take a TypedMap, never a root",
+                    "/guide/connect#typedmap-panels"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Panels switch without reconnecting, stay namespace-isolated, and share document-wide services safely.",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Panels take a TypedMap, never a root",
+                    "/guide/connect#typedmap-panels"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Panels take a TypedMap, never a root",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Claims",
+                    "/structures/coordination#claims"
+                  ],
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Panels take a TypedMap, never a root",
+                    "/guide/connect#typedmap-panels"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "group-specialized",
+        "title": "Specialized interaction",
+        "description": "Editors and visual surfaces where the browser boundary is part of the engineering claim.",
+        "entries": [
+          {
+            "id": "playlist_lustre",
+            "name": "Collaborative playlist",
+            "summary": "A reorderable list built around SharedSequence's convergent move, replace, insert, and delete operations.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/playlist_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "SharedSequence",
+                "links": [
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Fallible edits render; never assert on a mutation",
+                    "/guide/notes#fallible-edits"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Concurrent moves and replacements converge while stale indices surface as rejected edits.",
+                "links": [
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Fallible edits render; never assert on a mutation",
+                    "/guide/notes#fallible-edits"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Fallible edits render; never assert on a mutation",
+                "links": [
+                  [
+                    "SharedSequence",
+                    "/structures/sequences#sequence"
+                  ],
+                  [
+                    "Fallible edits render; never assert on a mutation",
+                    "/guide/notes#fallible-edits"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "text_lustre",
+            "name": "Shared text editor",
+            "summary": "A grapheme-aware textarea bridge with anchors, IME handling, shared cursors, and a composable MVU component.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/text_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "SharedText Presence",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "Anchors, not offsets",
+                    "/guide/notes#anchors-not-offsets"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Minimal text operations converge without replacing the whole document or losing the local caret.",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "Anchors, not offsets",
+                    "/guide/notes#anchors-not-offsets"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Anchors, not offsets",
+                "links": [
+                  [
+                    "SharedText",
+                    "/structures/sequences#text"
+                  ],
+                  [
+                    "Anchors, not offsets",
+                    "/guide/notes#anchors-not-offsets"
+                  ]
+                ]
+              }
+            ]
+          },
+          {
+            "id": "pixel_canvas_lustre",
+            "name": "Pixel canvas",
+            "summary": "A 64×64 bitmap that makes high-volume offline OR-map convergence visible without reading an assertion.",
+            "source": [
+              [
+                "SOURCE AND RUN GUIDE ↗",
+                "https://github.com/tylerbutler/watershed/tree/main/examples/pixel_canvas_lustre"
+              ]
+            ],
+            "facts": [
+              {
+                "label": "STRUCTURES",
+                "value": "OrMap",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Hand a rendering surface to FFI, and bootstrap on Connected",
+                    "/guide/connect#ffi-surface"
+                  ]
+                ]
+              },
+              {
+                "label": "PAYOFF RACE",
+                "value": "Two disconnected painters rejoin and produce the same picture by joining sparse deltas.",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Hand a rendering surface to FFI, and bootstrap on Connected",
+                    "/guide/connect#ffi-surface"
+                  ]
+                ]
+              },
+              {
+                "label": "DEMONSTRATES",
+                "value": "Hand a rendering surface to FFI, and bootstrap on Connected",
+                "links": [
+                  [
+                    "OrMap",
+                    "/structures/maps#ormap"
+                  ],
+                  [
+                    "Hand a rendering surface to FFI, and bootstrap on Connected",
+                    "/guide/connect#ffi-surface"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "next": "Trace one before copying five. Each README explains why its structure fits and the race worth watching. The build guide walks the same shape step by step. Follow the build guide →",
+    "nextLinks": [
+      [
+        "Follow the build guide →",
+        "/guide"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "viewportWidth": 390,
+    "scrollWidth": 390,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "56px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "39px",
+        "font-weight": "640",
+        "font-stretch": "105%",
+        "line-height": "38.61px"
+      },
+      "main": {
+        "padding": "64px 20px 72px",
+        "max-width": "1152px"
+      },
+      "groupHead": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px 64px"
+      },
+      "entryHead": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px 64px"
+      },
+      "facts": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px 64px"
+      },
+      "next": {
+        "padding": "64px 20px",
+        "border-top": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(0.962 0.005 340)"
+      }
+    }
+  }
+}

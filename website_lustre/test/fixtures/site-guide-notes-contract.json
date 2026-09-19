@@ -1,0 +1,434 @@
+{
+  "desktop": {
+    "title": "watershed — add notes",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Step two of the watershed build guide: add a note to the board, keyed by its own id in a register OR-map, stored as one JSON value, and read back through a decoder that shows a broken note instead of crashing the board."
+      ],
+      [
+        "og:title",
+        "watershed — add notes"
+      ],
+      [
+        "og:description",
+        "Step two of the watershed build guide: add a note to the board, keyed by its own id in a register OR-map, stored as one JSON value, and read back through a decoder that shows a broken note instead of crashing the board."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/guide/notes/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Add notes",
+    "headings": [
+      "Each note gets its own id",
+      "The whole note is one register",
+      "Adding a note is one map write",
+      "Reading back: entries in, board out",
+      "Deepening: the column you don't recognise",
+      "How the examples do it",
+      "Fallible edits render; never assert on a mutation",
+      "When a move is not atomic, crown one channel authoritative",
+      "Stamp the schema; refuse bad reads",
+      "Anchors, not offsets"
+    ],
+    "prose": [
+      "The notes channel is an OR-map running in RegisterMode, keyed by note id, not by column. Every key holds exactly one note, so adding one never touches another — even if two people add notes at the same instant.",
+      "Every key in a RegisterMode map holds exactly one string — that's the whole constraint this mode gives you, and the tutorial takes it literally: a note gets turned into JSON on the way in, and parsed back on the way out. The text, the column, the author, and a creation timestamp all travel together as one value.",
+      "Which means the column is stored inside the note itself. That's the tradeoff: moving a note between columns means rewriting the whole note, so if two people move the same note at the same moment, the register keeps the write with the later clock value and the other disappears. The tutorial doesn't offer moves at all. The advanced retro board keeps the column on the note and adds a sequence per column, then treats the note's column register as authoritative when it reconciles the two.",
+      "FIELD NOTE When a move is not atomic, crown one channel authoritative ↓",
+      "Anyone can write anything. The typed Note record is a place where you decode incoming data, not a schema the server enforces — an older version of the app, or a stale copy, could put any string into that field. So from_register doesn't have an error case to forget about: a value that fails to decode becomes a visible placeholder card instead. A card you can see and recognize as broken beats a crash that takes the whole board down.",
+      "FIELD NOTE Stamp the schema; refuse bad reads ↓",
+      "Mint an id, encode the note, write it to the map. The nonce — a small random number added just to keep ids unique — is there because two notes from one author can land in the same millisecond.",
+      "board keeps the UI and the tests on the exact same write function, not two separate copies of the same logic. If a test reimplemented the write instead of calling it, all that would prove is that the reimplementation agrees with itself. Step 06 depends on this.",
+      "or_map_entries hands you every live key together with its value. The tutorial creates this map in RegisterMode, so every value should be a Register. The case below checks that assumption for each entry and returns an explicit error if it finds a Tally. That would mean the channel was set up in the wrong mode: a bug in your own startup code, not messy user data to defend against.",
+      "From there, turning that list into a board is just a plain function: no side effects, no network calls, data in and data out. Group notes by their column field, sort by (created, id), and every replica — every open tab, running the same code — renders the same order. If two notes ever get the same creation timestamp, the id breaks the tie, identically, everywhere.",
+      "Sort by content, never by arrival. Two tabs receive the same edits in the same server-assigned order, but the order things happened to arrive in isn't something you should render directly. Deriving the display order from the note's own fields, instead of from arrival order, is what makes “both clients show the same board” a thing you can actually guarantee.",
+      "Three columns are hardcoded, so what happens when a note arrives filed under parking_lot — a column a newer build added, or a register that came back as the placeholder? Dropping it would be the worst option available: the note is real, someone typed it, and it would vanish with no trace.",
+      "Unknown columns land in unfiled and render in their own section. It costs one small function and it is the difference between a forward compatible board and a lossy one.",
+      "Open the board in two tabs, add a note in one, and watch it appear in the other, with votes 0 under it. The buttons are already wired; step 04 explains why their tally updates don't lose concurrent votes."
+    ],
+    "links": [
+      [
+        "OR-map",
+        "/structures/maps#ormap"
+      ],
+      [
+        "advanced retro board",
+        "/examples#retro_board_lustre"
+      ],
+      [
+        "When a move is not atomic, crown one channel authoritative ↓",
+        "/guide/notes#authoritative-channel"
+      ],
+      [
+        "Stamp the schema; refuse bad reads ↓",
+        "/guide/notes#stamp-schema"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/playlist_lustre/src/playlist_lustre/component.gleam"
+      ],
+      [
+        "",
+        "/examples#playlist_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/retro_board_lustre/src/retro_board_lustre/board.gleam"
+      ],
+      [
+        "",
+        "/examples#retro_board_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/scoreboard_cli/src/scoreboard_cli.gleam"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/text_lustre/src/text_lustre/component.gleam"
+      ],
+      [
+        "",
+        "/examples#text_lustre"
+      ]
+    ],
+    "guide": [
+      [
+        "← STEP 01 Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "STEP 03 → Try two edits at once",
+        "/guide/race"
+      ]
+    ],
+    "labels": [
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "captions": [
+      "",
+      "",
+      "",
+      ""
+    ],
+    "code": [
+      "pub type Note {\n  Note(\n    text: String,\n    /// The column id. Unknown values stay visible in `unfiled`.\n    column: String,\n    author: String,\n    /// Client wall-clock ms. Used only as a stable render tiebreaker.\n    created: Int,\n  )\n}\n\n/// Stable note identity. Edits and votes use this id for the life of the note.\n/// The nonce keeps two notes from one author distinct in one ms tick.\npub fn id(author: String, created: Int, nonce: Int) -> String {\n  \"note-\"\n  <> author\n  <> \"-\"\n  <> int.to_string(created)\n  <> \"-\"\n  <> int.to_string(nonce)\n}",
+      "pub fn to_json(note: Note) -> Json {\n  json.object([\n    #(\"text\", json.string(note.text)),\n    #(\"column\", json.string(note.column)),\n    #(\"author\", json.string(note.author)),\n    #(\"created\", json.int(note.created)),\n  ])\n}\n\n/// Decode a raw register value. A bad payload stays visible and does not crash.\npub fn from_register(value: String) -> Note {\n  case json.parse(value, decoder()) {\n    Ok(note) -> note\n    Error(_) ->\n      Note(text: \"(unreadable note)\", column: \"\", author: \"—\", created: 0)\n  }\n}",
+      "/// Shared board writes for the tutorial example.\n///\n/// The UI and the deterministic tests call these same map writes.\npub fn add_note(\n  notes: OrMap,\n  author: String,\n  text: String,\n  column: Column,\n  created: Int,\n  nonce: Int,\n) -> String {\n  let id = note.id(author, created, nonce)\n  let entry =\n    Note(\n      text: text,\n      column: column_id(column),\n      author: author,\n      created: created,\n    )\n  watershed.or_map_set_json(notes, id, note.to_json(entry))\n  id\n}",
+      "// These watershed mutations apply synchronously.\n// The subscriptions deliver the render message `SharedChanged`.\n// These branches do not need Lustre effect wrappers.\nAddClicked(column) -> {\n  let text = string.trim(draft_for(model, column))\n  case text, model.shared {\n    \"\", _ -> #(model, effect.none())\n    _, None -> #(model, effect.none())\n    _, Some(shared) -> {\n      let created = transport_js.now_milliseconds()\n      let _ =\n        board.add_note(\n          shared.notes,\n          model.user_id,\n          text,\n          column,\n          created,\n          int.random(10_000),\n        )\n      let model =\n        Model(\n          ..model,\n          drafts: dict.delete(model.drafts, board.column_id(column)),\n        )\n      #(snapshot(model), effect.none())\n    }\n  }\n}",
+      "fn note_entries(notes: OrMap) -> Result(List(#(String, Note)), String) {\n  watershed.or_map_entries(notes)\n  |> list.try_map(fn(entry) {\n    case entry.1 {\n      or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))\n      or_map_kernel.Tally(_)\n      | or_map_kernel.SetMembers(_)\n      | or_map_kernel.MvRegister(_) ->\n        Error(\"notes channel has wrong mode; expected RegisterMode\")\n    }\n  })\n}",
+      "fn notes_in_column(\n  notes: List(#(String, Note)),\n  votes_by_id: Dict(String, Int),\n  column: Column,\n) -> List(NoteCard) {\n  let wanted = column_id(column)\n  notes\n  |> list.filter(fn(entry) { entry.1.column == wanted })\n  |> list.sort(by_created_then_id)\n  |> list.map(fn(entry) { card(entry.0, entry.1, votes_by_id) })\n}\n\nfn by_created_then_id(a: #(String, Note), b: #(String, Note)) -> Order {\n  case int.compare(a.1.created, b.1.created) {\n    order.Eq -> string.compare(a.0, b.0)\n    other -> other\n  }\n}",
+      "fn unfiled(\n  notes: List(#(String, Note)),\n  votes_by_id: Dict(String, Int),\n) -> List(NoteCard) {\n  notes\n  |> list.filter(fn(entry) { result.is_error(from_id(entry.1.column)) })\n  |> list.sort(by_created_then_id)\n  |> list.map(fn(entry) { card(entry.0, entry.1, votes_by_id) })\n}",
+      "MoveDownClicked(index) -> #(\n  mutate(model, \"move\", fn(sequence) {\n    watershed.sequence_move(sequence, index, index + 1)\n  }),\n  effect.none(),\n)\n\n/// Run a sequence edit against the resolved channel, recording any index error.\nfn mutate(\n  model: Model,\n  verb: String,\n  edit: fn(SharedSequence) -> Result(Nil, String),\n) -> Model {\n  case model.tracks_channel {\n    None -> model\n    Some(sequence) -> record(model, edit(sequence), verb)\n  }\n}\n\n/// Fold an edit result into the model: clear the banner on success, surface the\n/// runtime's own message on failure.\nfn record(model: Model, result: Result(Nil, String), verb: String) -> Model {\n  case result {\n    Ok(Nil) -> Model(..model, last_error: None)\n    Error(reason) ->\n      Model(..model, last_error: Some(verb <> \" failed: \" <> reason))\n  }\n}",
+      "/// One column: the sequenced head in sequence order, then the unsequenced\n/// tail in `(created, id)` order.\nfn render_column(\n  column: Column,\n  ids: List(String),\n  notes: List(#(String, Note)),\n  notes_by_id: Dict(String, Note),\n  votes_by_id: Dict(String, Int),\n) -> List(NoteCard) {\n  let column_id = column.id(column)\n  // Sequenced head: keep an id only if its note exists (a deleted note's\n  // sequence entry dies here), its register matches this column, and this is\n  // its first occurrence in the sequence.\n  let #(head, kept) =\n    ids\n    |> list.index_map(fn(id, index) { #(id, index) })\n    |> list.fold(#([], dict.new()), fn(acc, entry) {\n      let #(cards, kept) = acc\n      let #(id, index) = entry\n      case dict.has_key(kept, id), dict.get(notes_by_id, id) {\n        False, Ok(n) if n.column == column_id -> #(\n          [card(id, n, votes_by_id, Some(index)), ..cards],\n          dict.insert(kept, id, Nil),\n        )\n        _, _ -> acc\n      }\n    })\n  let head = list.reverse(head)\n  // Unsequenced tail: notes claiming this column that the head did not keep.\n  let tail =\n    notes\n    |> list.filter(fn(entry) {\n      entry.1.column == column_id && !dict.has_key(kept, entry.0)\n    })\n    |> list.sort(by_created_then_id)\n    |> list.map(fn(entry) { card(entry.0, entry.1, votes_by_id, None) })\n  list.append(head, tail)\n}",
+      "use me <- result.try(watershed_beam.create_typed_map(document))\nuse schema <- result.try(\n  player_schema() |> result.map_error(fn(_) { \"Schema build failed\" }),\n)\n\n// Our own player map: populated while detached (local-only), then\n// attached — snapshot and all — by storing its handle in the roster.\n// A single `write` fills every key; `stamp` records the schema version.\nwatershed_beam.write(\n  me,\n  schema,\n  PlayerState(name: player_id, last_roll: None, total: 0, rolls: 0),\n)\nwatershed_beam.stamp(me, schema)\nwatershed_beam.set_child(roster, player_slot(player_id), me)\n\nlet roll_due = process.new_subject()\nlet selector =\n  process.new_selector()\n  |> process.select_map(watershed_beam.subscribe_typed(roster), RosterChanged)\n  |> process.select_map(watershed_beam.subscribe_typed(me), ScoreChanged)\n  |> process.select_map(roll_due, fn(_) { RollDue })",
+      "/// Resolve the pinned anchor to its current grapheme position, or drop it to\n/// `None` if it has gone stale/unknown.\nfn refresh_anchor(model: Model) -> Model {\n  case model.editor, model.anchor {\n    Some(editor), Some(anchor) ->\n      case watershed.text_resolve_anchor(textarea.channel(editor), anchor) {\n        Ok(position) -> Model(..model, anchor_pos: Some(position))\n        Error(_) -> Model(..model, anchor_pos: None)\n      }\n    _, _ -> Model(..model, anchor_pos: None)\n  }\n}"
+    ],
+    "notes": [
+      {
+        "id": "fallible-edits",
+        "summary": "Fallible edits render; never assert on a mutation Handle every index-based edit as fallible. A peer may change the list between render and click.",
+        "body": ""
+      },
+      {
+        "id": "authoritative-channel",
+        "summary": "When a move is not atomic, crown one channel authoritative A move across channels is not atomic. Choose one source of truth and reconcile the rest while rendering.",
+        "body": ""
+      },
+      {
+        "id": "stamp-schema",
+        "summary": "Stamp the schema; refuse bad reads Fill and stamp a typed map before attaching it, so an incompatible reader gets an error.",
+        "body": ""
+      },
+      {
+        "id": "anchors-not-offsets",
+        "summary": "Anchors, not offsets Store an anchor instead of a text offset, then resolve its current position after each edit.",
+        "body": ""
+      }
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "88px 64.8px 56px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "reference": {
+        "display": "flex",
+        "padding": "12px 16px",
+        "border-left": "2px solid oklch(0.55 0.21 340)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "note": {
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "scroll-margin-top": "24px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — add notes",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Step two of the watershed build guide: add a note to the board, keyed by its own id in a register OR-map, stored as one JSON value, and read back through a decoder that shows a broken note instead of crashing the board."
+      ],
+      [
+        "og:title",
+        "watershed — add notes"
+      ],
+      [
+        "og:description",
+        "Step two of the watershed build guide: add a note to the board, keyed by its own id in a register OR-map, stored as one JSON value, and read back through a decoder that shows a broken note instead of crashing the board."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/guide/notes/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Add notes",
+    "headings": [
+      "Each note gets its own id",
+      "The whole note is one register",
+      "Adding a note is one map write",
+      "Reading back: entries in, board out",
+      "Deepening: the column you don't recognise",
+      "How the examples do it",
+      "Fallible edits render; never assert on a mutation",
+      "When a move is not atomic, crown one channel authoritative",
+      "Stamp the schema; refuse bad reads",
+      "Anchors, not offsets"
+    ],
+    "prose": [
+      "The notes channel is an OR-map running in RegisterMode, keyed by note id, not by column. Every key holds exactly one note, so adding one never touches another — even if two people add notes at the same instant.",
+      "Every key in a RegisterMode map holds exactly one string — that's the whole constraint this mode gives you, and the tutorial takes it literally: a note gets turned into JSON on the way in, and parsed back on the way out. The text, the column, the author, and a creation timestamp all travel together as one value.",
+      "Which means the column is stored inside the note itself. That's the tradeoff: moving a note between columns means rewriting the whole note, so if two people move the same note at the same moment, the register keeps the write with the later clock value and the other disappears. The tutorial doesn't offer moves at all. The advanced retro board keeps the column on the note and adds a sequence per column, then treats the note's column register as authoritative when it reconciles the two.",
+      "FIELD NOTE When a move is not atomic, crown one channel authoritative ↓",
+      "Anyone can write anything. The typed Note record is a place where you decode incoming data, not a schema the server enforces — an older version of the app, or a stale copy, could put any string into that field. So from_register doesn't have an error case to forget about: a value that fails to decode becomes a visible placeholder card instead. A card you can see and recognize as broken beats a crash that takes the whole board down.",
+      "FIELD NOTE Stamp the schema; refuse bad reads ↓",
+      "Mint an id, encode the note, write it to the map. The nonce — a small random number added just to keep ids unique — is there because two notes from one author can land in the same millisecond.",
+      "board keeps the UI and the tests on the exact same write function, not two separate copies of the same logic. If a test reimplemented the write instead of calling it, all that would prove is that the reimplementation agrees with itself. Step 06 depends on this.",
+      "or_map_entries hands you every live key together with its value. The tutorial creates this map in RegisterMode, so every value should be a Register. The case below checks that assumption for each entry and returns an explicit error if it finds a Tally. That would mean the channel was set up in the wrong mode: a bug in your own startup code, not messy user data to defend against.",
+      "From there, turning that list into a board is just a plain function: no side effects, no network calls, data in and data out. Group notes by their column field, sort by (created, id), and every replica — every open tab, running the same code — renders the same order. If two notes ever get the same creation timestamp, the id breaks the tie, identically, everywhere.",
+      "Sort by content, never by arrival. Two tabs receive the same edits in the same server-assigned order, but the order things happened to arrive in isn't something you should render directly. Deriving the display order from the note's own fields, instead of from arrival order, is what makes “both clients show the same board” a thing you can actually guarantee.",
+      "Three columns are hardcoded, so what happens when a note arrives filed under parking_lot — a column a newer build added, or a register that came back as the placeholder? Dropping it would be the worst option available: the note is real, someone typed it, and it would vanish with no trace.",
+      "Unknown columns land in unfiled and render in their own section. It costs one small function and it is the difference between a forward compatible board and a lossy one.",
+      "Open the board in two tabs, add a note in one, and watch it appear in the other, with votes 0 under it. The buttons are already wired; step 04 explains why their tally updates don't lose concurrent votes."
+    ],
+    "links": [
+      [
+        "OR-map",
+        "/structures/maps#ormap"
+      ],
+      [
+        "advanced retro board",
+        "/examples#retro_board_lustre"
+      ],
+      [
+        "When a move is not atomic, crown one channel authoritative ↓",
+        "/guide/notes#authoritative-channel"
+      ],
+      [
+        "Stamp the schema; refuse bad reads ↓",
+        "/guide/notes#stamp-schema"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/playlist_lustre/src/playlist_lustre/component.gleam"
+      ],
+      [
+        "",
+        "/examples#playlist_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/retro_board_lustre/src/retro_board_lustre/board.gleam"
+      ],
+      [
+        "",
+        "/examples#retro_board_lustre"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/scoreboard_cli/src/scoreboard_cli.gleam"
+      ],
+      [
+        "",
+        "https://github.com/tylerbutler/watershed/tree/main/examples/text_lustre/src/text_lustre/component.gleam"
+      ],
+      [
+        "",
+        "/examples#text_lustre"
+      ]
+    ],
+    "guide": [
+      [
+        "← STEP 01 Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "STEP 03 → Try two edits at once",
+        "/guide/race"
+      ]
+    ],
+    "labels": [
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/note.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "examples/retro_tutorial_lustre/src/retro_tutorial_lustre/board.gleam",
+      "",
+      "",
+      "",
+      ""
+    ],
+    "captions": [
+      "",
+      "",
+      "",
+      ""
+    ],
+    "code": [
+      "pub type Note {\n  Note(\n    text: String,\n    /// The column id. Unknown values stay visible in `unfiled`.\n    column: String,\n    author: String,\n    /// Client wall-clock ms. Used only as a stable render tiebreaker.\n    created: Int,\n  )\n}\n\n/// Stable note identity. Edits and votes use this id for the life of the note.\n/// The nonce keeps two notes from one author distinct in one ms tick.\npub fn id(author: String, created: Int, nonce: Int) -> String {\n  \"note-\"\n  <> author\n  <> \"-\"\n  <> int.to_string(created)\n  <> \"-\"\n  <> int.to_string(nonce)\n}",
+      "pub fn to_json(note: Note) -> Json {\n  json.object([\n    #(\"text\", json.string(note.text)),\n    #(\"column\", json.string(note.column)),\n    #(\"author\", json.string(note.author)),\n    #(\"created\", json.int(note.created)),\n  ])\n}\n\n/// Decode a raw register value. A bad payload stays visible and does not crash.\npub fn from_register(value: String) -> Note {\n  case json.parse(value, decoder()) {\n    Ok(note) -> note\n    Error(_) ->\n      Note(text: \"(unreadable note)\", column: \"\", author: \"—\", created: 0)\n  }\n}",
+      "/// Shared board writes for the tutorial example.\n///\n/// The UI and the deterministic tests call these same map writes.\npub fn add_note(\n  notes: OrMap,\n  author: String,\n  text: String,\n  column: Column,\n  created: Int,\n  nonce: Int,\n) -> String {\n  let id = note.id(author, created, nonce)\n  let entry =\n    Note(\n      text: text,\n      column: column_id(column),\n      author: author,\n      created: created,\n    )\n  watershed.or_map_set_json(notes, id, note.to_json(entry))\n  id\n}",
+      "// These watershed mutations apply synchronously.\n// The subscriptions deliver the render message `SharedChanged`.\n// These branches do not need Lustre effect wrappers.\nAddClicked(column) -> {\n  let text = string.trim(draft_for(model, column))\n  case text, model.shared {\n    \"\", _ -> #(model, effect.none())\n    _, None -> #(model, effect.none())\n    _, Some(shared) -> {\n      let created = transport_js.now_milliseconds()\n      let _ =\n        board.add_note(\n          shared.notes,\n          model.user_id,\n          text,\n          column,\n          created,\n          int.random(10_000),\n        )\n      let model =\n        Model(\n          ..model,\n          drafts: dict.delete(model.drafts, board.column_id(column)),\n        )\n      #(snapshot(model), effect.none())\n    }\n  }\n}",
+      "fn note_entries(notes: OrMap) -> Result(List(#(String, Note)), String) {\n  watershed.or_map_entries(notes)\n  |> list.try_map(fn(entry) {\n    case entry.1 {\n      or_map_kernel.Register(value) -> Ok(#(entry.0, note.from_register(value)))\n      or_map_kernel.Tally(_)\n      | or_map_kernel.SetMembers(_)\n      | or_map_kernel.MvRegister(_) ->\n        Error(\"notes channel has wrong mode; expected RegisterMode\")\n    }\n  })\n}",
+      "fn notes_in_column(\n  notes: List(#(String, Note)),\n  votes_by_id: Dict(String, Int),\n  column: Column,\n) -> List(NoteCard) {\n  let wanted = column_id(column)\n  notes\n  |> list.filter(fn(entry) { entry.1.column == wanted })\n  |> list.sort(by_created_then_id)\n  |> list.map(fn(entry) { card(entry.0, entry.1, votes_by_id) })\n}\n\nfn by_created_then_id(a: #(String, Note), b: #(String, Note)) -> Order {\n  case int.compare(a.1.created, b.1.created) {\n    order.Eq -> string.compare(a.0, b.0)\n    other -> other\n  }\n}",
+      "fn unfiled(\n  notes: List(#(String, Note)),\n  votes_by_id: Dict(String, Int),\n) -> List(NoteCard) {\n  notes\n  |> list.filter(fn(entry) { result.is_error(from_id(entry.1.column)) })\n  |> list.sort(by_created_then_id)\n  |> list.map(fn(entry) { card(entry.0, entry.1, votes_by_id) })\n}",
+      "MoveDownClicked(index) -> #(\n  mutate(model, \"move\", fn(sequence) {\n    watershed.sequence_move(sequence, index, index + 1)\n  }),\n  effect.none(),\n)\n\n/// Run a sequence edit against the resolved channel, recording any index error.\nfn mutate(\n  model: Model,\n  verb: String,\n  edit: fn(SharedSequence) -> Result(Nil, String),\n) -> Model {\n  case model.tracks_channel {\n    None -> model\n    Some(sequence) -> record(model, edit(sequence), verb)\n  }\n}\n\n/// Fold an edit result into the model: clear the banner on success, surface the\n/// runtime's own message on failure.\nfn record(model: Model, result: Result(Nil, String), verb: String) -> Model {\n  case result {\n    Ok(Nil) -> Model(..model, last_error: None)\n    Error(reason) ->\n      Model(..model, last_error: Some(verb <> \" failed: \" <> reason))\n  }\n}",
+      "/// One column: the sequenced head in sequence order, then the unsequenced\n/// tail in `(created, id)` order.\nfn render_column(\n  column: Column,\n  ids: List(String),\n  notes: List(#(String, Note)),\n  notes_by_id: Dict(String, Note),\n  votes_by_id: Dict(String, Int),\n) -> List(NoteCard) {\n  let column_id = column.id(column)\n  // Sequenced head: keep an id only if its note exists (a deleted note's\n  // sequence entry dies here), its register matches this column, and this is\n  // its first occurrence in the sequence.\n  let #(head, kept) =\n    ids\n    |> list.index_map(fn(id, index) { #(id, index) })\n    |> list.fold(#([], dict.new()), fn(acc, entry) {\n      let #(cards, kept) = acc\n      let #(id, index) = entry\n      case dict.has_key(kept, id), dict.get(notes_by_id, id) {\n        False, Ok(n) if n.column == column_id -> #(\n          [card(id, n, votes_by_id, Some(index)), ..cards],\n          dict.insert(kept, id, Nil),\n        )\n        _, _ -> acc\n      }\n    })\n  let head = list.reverse(head)\n  // Unsequenced tail: notes claiming this column that the head did not keep.\n  let tail =\n    notes\n    |> list.filter(fn(entry) {\n      entry.1.column == column_id && !dict.has_key(kept, entry.0)\n    })\n    |> list.sort(by_created_then_id)\n    |> list.map(fn(entry) { card(entry.0, entry.1, votes_by_id, None) })\n  list.append(head, tail)\n}",
+      "use me <- result.try(watershed_beam.create_typed_map(document))\nuse schema <- result.try(\n  player_schema() |> result.map_error(fn(_) { \"Schema build failed\" }),\n)\n\n// Our own player map: populated while detached (local-only), then\n// attached — snapshot and all — by storing its handle in the roster.\n// A single `write` fills every key; `stamp` records the schema version.\nwatershed_beam.write(\n  me,\n  schema,\n  PlayerState(name: player_id, last_roll: None, total: 0, rolls: 0),\n)\nwatershed_beam.stamp(me, schema)\nwatershed_beam.set_child(roster, player_slot(player_id), me)\n\nlet roll_due = process.new_subject()\nlet selector =\n  process.new_selector()\n  |> process.select_map(watershed_beam.subscribe_typed(roster), RosterChanged)\n  |> process.select_map(watershed_beam.subscribe_typed(me), ScoreChanged)\n  |> process.select_map(roll_due, fn(_) { RollDue })",
+      "/// Resolve the pinned anchor to its current grapheme position, or drop it to\n/// `None` if it has gone stale/unknown.\nfn refresh_anchor(model: Model) -> Model {\n  case model.editor, model.anchor {\n    Some(editor), Some(anchor) ->\n      case watershed.text_resolve_anchor(textarea.channel(editor), anchor) {\n        Ok(position) -> Model(..model, anchor_pos: Some(position))\n        Error(_) -> Model(..model, anchor_pos: None)\n      }\n    _, _ -> Model(..model, anchor_pos: None)\n  }\n}"
+    ],
+    "notes": [
+      {
+        "id": "fallible-edits",
+        "summary": "Fallible edits render; never assert on a mutation Handle every index-based edit as fallible. A peer may change the list between render and click.",
+        "body": ""
+      },
+      {
+        "id": "authoritative-channel",
+        "summary": "When a move is not atomic, crown one channel authoritative A move across channels is not atomic. Choose one source of truth and reconcile the rest while rendering.",
+        "body": ""
+      },
+      {
+        "id": "stamp-schema",
+        "summary": "Stamp the schema; refuse bad reads Fill and stamp a typed map before attaching it, so an incompatible reader gets an error.",
+        "body": ""
+      },
+      {
+        "id": "anchors-not-offsets",
+        "summary": "Anchors, not offsets Store an anchor instead of a text offset, then resolve its current position after each edit.",
+        "body": ""
+      }
+    ],
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px 32px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "prose": {
+        "font-size": "17px",
+        "line-height": "28.05px",
+        "color": "oklch(0.25 0.02 260)"
+      },
+      "code": {
+        "padding": "24px",
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "font-size": "13.6px",
+        "line-height": "23.12px"
+      },
+      "reference": {
+        "display": "flex",
+        "padding": "12px 16px",
+        "border-left": "2px solid oklch(0.55 0.21 340)",
+        "background-color": "oklch(0.962 0.005 340)"
+      },
+      "note": {
+        "border-top": "1px solid oklch(0.25 0.02 260 / 0.22)",
+        "scroll-margin-top": "24px"
+      }
+    }
+  }
+}

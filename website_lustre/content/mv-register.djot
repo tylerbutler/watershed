@@ -1,0 +1,38 @@
+---
+description = "Race two revisions, keep both, then resolve what you've read. A live multi-value register running watershed's compiled Gleam kernel."
+---
+
+## A list isn't a queue
+
+`mv_register_values` returns a result containing a sorted `List(String)`. The order is for display, not priority. A fresh register reads `[]`; writing an empty string reads `[""]`. There's no delete hidden in that spelling.
+
+Two concurrent writes of the same text still produce two entries. Don't deduplicate them and mistake that for causal agreement. A fresh write after observing both replaces both, even if its text is unchanged. The clock advances, though no visible-value event need fire.
+
+## One typed field on the sequenced stream
+
+The JavaScript facade's ensure callback returns an `MvRegister` handle. Ensure waits for synchronization before looking up or creating the field; it doesn't make the next user write wait for acknowledgement. The read below includes that optimistic write. On the BEAM, `watershed_beam` has the corresponding typed API with blocking ensures and subject subscriptions.
+
+{data-snippet="mv-register-sequenced"}
+```gleam
+generated
+```
+
+## Or let the peers exchange revisions
+
+A CRDT document can use this register as its root. Connect with this configuration, then use the document delivered by a successful readiness callback. If you're filling a missing default rather than handling a user edit, wait for readiness and inspect the synchronized value first: an early seed can become a concurrent alternative.
+
+{data-snippet="mv-register-p2p"}
+```gleam
+generated
+```
+
+## The merge example is a regression, too
+
+This is the kernel test the suite runs, not a second merge implementation written for the page. A and B author independently, observe each other's alternatives, then A writes a combined revision. An unseen C would not be superseded: resolution covers only the history the writer observed.
+
+{data-snippet="mv-register-concurrent-resolution"}
+```gleam
+generated
+```
+
+Return to the [MvRegister field sheet](/structures/registers#mv-register), or compare [RegisterCollection](/structures/registers#registers), which maintains atomic and last-write-wins views using server sequence numbers, and [PactMap](/structures/coordination#pact), which waits for a frozen quorum's protocol acknowledgements. None of those acknowledgements means a person approved a revision. Here, the application decides when and how to offer a resolving write.

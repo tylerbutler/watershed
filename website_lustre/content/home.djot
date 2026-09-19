@@ -1,0 +1,8 @@
+---
+description = "A Gleam DDS client toolkit for optimistic local edits, server-sequenced convergence, reconnect safety, CRDTs, and operational transform. Its pure core runs on the BEAM and in the browser."
+---
+
+{data-snippet="homepage-beam"}
+```gleam
+generated
+```

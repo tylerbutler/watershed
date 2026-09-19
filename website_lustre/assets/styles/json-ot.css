@@ -1,0 +1,235 @@
+@import url("/styles/directory.css");
+
+.rig {
+  grid-template-columns: 1fr minmax(11rem, 0.7fr) 1fr;
+}
+
+.rig .client[data-client="c"] {
+  width: min(100%, 22rem);
+}
+
+.doc {
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.7;
+  padding: var(--space-md);
+  color: var(--ink);
+}
+
+.jrow {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0 0.15rem;
+  padding: 0.28rem 0.4rem;
+  padding-inline-start: 1.6rem;
+  border-radius: 2px;
+  transition: background var(--dur-state) var(--ease-out-quart);
+}
+
+.jnest .jrow {
+  padding-inline-start: 3rem;
+}
+
+.jrow-open {
+  padding-block-end: 0.1rem;
+}
+
+.jrow-close {
+  padding-block-start: 0.1rem;
+}
+
+.crew-row {
+  align-items: baseline;
+}
+
+.jrow.touch-pending {
+  background: var(--overprint-faint);
+  animation: node-pulse-pending 620ms var(--ease-out-quart);
+}
+
+.jrow.touch-seq {
+  background: color-mix(in oklch, var(--ink) 8%, transparent);
+  animation: node-pulse-seq 620ms var(--ease-out-quart);
+}
+
+@keyframes node-pulse-pending {
+  0% { background: var(--overprint); }
+  100% { background: var(--overprint-faint); }
+}
+
+@keyframes node-pulse-seq {
+  0% { background: color-mix(in oklch, var(--ink) 22%, transparent); }
+  100% { background: color-mix(in oklch, var(--ink) 8%, transparent); }
+}
+
+.jkey {
+  color: var(--waterline);
+}
+
+.jp {
+  color: var(--muted);
+}
+
+.jstr,
+.field-value {
+  color: var(--ink);
+}
+
+.field-value {
+  font-family: var(--font-mono);
+  transition: color var(--dur-state) var(--ease-out-quart);
+}
+
+.field-value.num {
+  font-variant-numeric: tabular-nums;
+}
+
+.field-value.pending {
+  color: var(--overprint-deep);
+}
+
+.crew {
+  list-style: none;
+  margin: 0;
+  padding: 0 0.15rem;
+  display: inline-flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2xs);
+  min-height: 1.5rem;
+}
+
+.crew:empty {
+  padding: 0;
+}
+
+.crew .chip {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 0.1rem;
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+  line-height: 1.4;
+  color: var(--ink);
+}
+
+.crew .chip.pending,
+.crew .chip.pending .jp {
+  color: var(--overprint-deep);
+}
+
+.crew .chip-name {
+  white-space: nowrap;
+}
+
+.crew .chip-actions {
+  display: inline-flex;
+  gap: 0.05rem;
+  margin-inline-start: 0.15rem;
+  opacity: 0.55;
+}
+
+.crew .chip-actions button {
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  cursor: pointer;
+  padding: 0 0.15rem;
+  line-height: 1;
+  font-size: 0.85rem;
+}
+
+.node-action-group {
+  display: inline-flex;
+  gap: 0.15rem;
+  margin-inline-start: auto;
+}
+
+.node-action {
+  margin-inline-start: 0.4rem;
+  padding: 0.05rem 0.5rem;
+  border: 1px solid var(--hairline);
+  border-radius: 2px;
+  background: var(--bg);
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  color: var(--muted);
+  cursor: pointer;
+}
+
+.node-action-group .node-action {
+  margin-inline-start: 0;
+}
+
+.jrow:not(.crew-row) .node-action {
+  margin-inline-start: auto;
+}
+
+.node-action:hover:enabled {
+  background: var(--overprint-faint);
+  border-color: var(--overprint);
+  color: var(--overprint-deep);
+}
+
+.json-ot-fallback {
+  display: none;
+}
+
+@media (scripting: enabled) {
+  #jot-demo:not([data-mounted]) .json-ot-fallback {
+    display: block;
+    visibility: hidden;
+    animation: json-ot-fallback-reveal 0s 3s forwards;
+  }
+}
+
+@keyframes json-ot-fallback-reveal {
+  to {
+    visibility: visible;
+  }
+}
+
+@media (max-width: 1080px) {
+  .rig {
+    grid-template-areas: "a" "seq" "b" "c";
+    grid-template-columns: 1fr;
+  }
+
+  .rig .client[data-client="c"] {
+    justify-self: stretch;
+    width: auto;
+  }
+
+  .op-log {
+    max-height: 5.7rem;
+  }
+}
+
+@media (pointer: coarse) {
+  .node-action {
+    min-inline-size: 2.4rem;
+    min-block-size: 2.2rem;
+  }
+
+  .crew .chip-actions {
+    opacity: 1;
+  }
+
+  .crew .chip-actions button {
+    min-inline-size: 1.9rem;
+    min-block-size: 1.9rem;
+  }
+
+  .race-btn,
+  .reset-btn {
+    padding: 0.85rem 1.2rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jrow.touch-pending,
+  .jrow.touch-seq {
+    animation: none;
+  }
+}

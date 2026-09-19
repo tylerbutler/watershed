@@ -1,0 +1,142 @@
+---
+description = "Step six of the watershed build guide: run two clients in one Gleam test and control when each message arrives."
+---
+
+::: g-block
+## Run two clients in one test
+
+The *sluice* lets a test create two documents and choose when each message arrives. Use it to repeat the two-tab checks without opening a browser or starting a server.
+
+It plugs into the same client code as production, including encoding, queues, retries, reconnecting, and message order. It doesn't open a real network connection or reproduce floodgate's storage and login.
+:::
+
+::: g-block
+## Choose when messages arrive
+
+When a client submits something, it's processed and given its place in the order right away — but the messages that result from it sit in a queue instead of arriving immediately. `settle` drains that queue until nothing's left to deliver; `step` delivers exactly one message and stops. That splits “the order the server decided on” and “the order each client actually sees it in” into two separate things you control by hand.
+
+So setting up a test room means: one sluice, two documents connecting to it, one settle to let both handshakes finish, the title and channels written on client A, and a second settle so client B can pick up that state from the shared root map.
+
+{data-snippet="guide-testing-room"}
+```gleam
+generated
+```
+
+Neither settle call is decoration. Skip the second one, and client B is looking at a root map that doesn't have those channels in it yet — so `channels_of` fails, not because anything is broken, but because you asked too early.
+:::
+
+::: g-block
+## Assert on the board, not on the map
+
+The tests read the board through `board.snapshot_from_channels` — the exact same function the UI renders from. That is deliberate. If the tests instead asserted directly on the raw map entries, they could pass while the actual board people look at was sorting its columns differently on each tab.
+
+{data-snippet="guide-testing-board-of"}
+```gleam
+generated
+```
+
+This is exactly why `board` keeps the write functions with the board state: if a test reimplemented the write instead of calling the real one, all it would prove is that the copy agrees with itself.
+:::
+
+{data-component="field-note-ref" data-practice="pure-modules"}
+:::
+:::
+
+::: g-block
+## Both races, written as tests
+
+The add race checks two things: `board_a |> should.equal(board_b)` confirms both tabs ended up showing the identical board, and the note count, two lookups, and column tally confirm they didn't end up identical by both losing the same note.
+
+{data-snippet="guide-testing-add-race"}
+```gleam
+generated
+```
+
+The vote race sends three votes across two clients and checks they settle at `+1`. Same shape, same settle call, and no `sleep` anywhere in sight — the test doesn't wait and hope the timing works out, it calls `settle` and gets the same answer every single time.
+
+{data-snippet="guide-testing-vote-race"}
+```gleam
+generated
+```
+:::
+
+::: g-note
+*Assert on the specific outcome, not just equality.* A test that only checks both tabs end up looking the same can still pass while the thing users actually care about is broken — for example, if both tabs agreed by losing the same note. These two tests each check the specific outcome that matters: nothing you type disappears, and nothing you vote is lost.
+:::
+
+::: g-block
+### Deepening: script the intermediate state
+
+When you want to inspect a board mid-flight — one note delivered, the other still waiting — `step` advances one message at a time. It doesn't change the order things were already assigned; the order you called the submit functions in decides that.
+
+{data-source-label="(illustrative — scripted delivery)"}
+```gleam
+// Two adds, then deliver one message at a time instead of all at once.
+board.add_note(a.notes, "user-a", "deploys got faster", board.WentWell, 1000, 1)
+board.add_note(b.notes, "user-b", "standup stayed short", board.WentWell, 1000, 1)
+
+sluice_js.step(sluice)     // deliver exactly one queued message
+// ... assert the half-delivered board here ...
+sluice_js.settle(sluice)   // then deliver everything else that's left
+```
+:::
+
+::: g-note
+*More controls.* Both `sluice` and `sluice_js` provide `pause` / `resume` to hold back one client's messages specifically, and `advance(ms)` to move the sluice's logical clock forward. On `sluice_js`, advancing also fires every timer that became due. Hand its scheduler to `presence_js.start_with_scheduler` and presence runs on that clock too, so heartbeat and expiry tests advance without waiting on wall time. The JavaScript version also exposes `step_info` with details about each delivery, which is how the demo back on step 03 draws its log of what happened.
+:::
+
+{data-component="field-note-ref" data-practice="deterministic-death"}
+:::
+:::
+
+::: g-block
+## The finished project
+
+Six sheets, one source tree. Everything the procedure built, in the order it built it:
+
+{data-source-label="examples/retro_tutorial_lustre/"}
+```text
+retro_tutorial_lustre/
+├── gleam.toml                      dependencies and the javascript target
+├── package.json                    pnpm build / pnpm serve
+├── pnpm-workspace.yaml
+├── build.mjs                       esbuild bundle for the browser
+├── index.html                      mount point and all of the styling
+├── src/
+│   ├── retro_tutorial_lustre.gleam every sheet · connection, update, view
+│   └── retro_tutorial_lustre/
+│       ├── document_schema.gleam   step 01 · title, notes, votes
+│       ├── note.gleam              step 02 · the note record and its codec
+│       └── board.gleam             steps 02 and 04 · pure canonical snapshot and shared writes
+└── test/
+    ├── retro_tutorial_lustre_test.gleam  the gleeunit entry point
+    ├── note_codec_test.gleam       round trips, including malformed payloads
+    ├── board_test.gleam            ordering, tally joins, unfiled notes
+    └── convergence_test.gleam      this sheet · two races and two wrong-mode guards
+```
+
+Every snippet in this guide that comes from the project is quoted from these files at build time, so what you read here and what compiles cannot drift. The complete source is in [`examples/retro_tutorial_lustre`](https://github.com/tylerbutler/watershed/tree/main/examples/retro_tutorial_lustre), and it is meant to be copied out and renamed.
+
+{data-source-label="(shell)"}
+```sh
+cd examples/retro_tutorial_lustre
+gleam test
+```
+:::
+
+::: g-block
+## Where to go when this board gets too small
+
+The tutorial stops on purpose. It has no sequences, no drag and drop, no cross-column moves, no edit or delete, and no vote budgets — every one of those is a genuinely harder problem, and adding them here would have made the board harder to learn from, not more useful as an example.
+
+The [advanced retro board](/examples#retro_board_lustre) is the same idea with the hard parts left in: five channels, ordered columns on a sequence, cross-channel moves that render honestly rather than pretending to be atomic, and edit and delete flows. It is the next thing to read.
+
+Beyond it, the [example gallery](/examples) maps this loop onto every complete browser application in the project, and the [field atlas](/structures) has a page per structure with its merge rule and its best-fit uses.
+:::
+
+::: g-out
+{.annot}
+You can now
+
+Run `gleam test` and get a clean pass in about a second: two convergence races, two wrong-mode guards, the board's ordering and joins, and the note codec — no server, no browser, no timing luck.
+:::

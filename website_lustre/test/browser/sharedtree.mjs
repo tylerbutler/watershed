@@ -1,0 +1,82 @@
+import assert from "node:assert/strict";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
+
+const { record, site, fixture } = contract(import.meta.url, "site-sharedtree-contract.json");
+
+async function snapshot(page) {
+  return page.evaluate(() => {
+    const text = (node) => (node.innerText ?? node.textContent).replace(/\s+/g, " ").trim();
+    const links = (selector) => [...document.querySelectorAll(`${selector} a`)]
+      .map((node) => [text(node), node.getAttribute("href")]);
+    const style = (selector, properties) => {
+      const computed = getComputedStyle(document.querySelector(selector));
+      return Object.fromEntries(properties.map((key) => [key, computed.getPropertyValue(key)]));
+    };
+    return {
+      title: document.title,
+      metadata: [...document.head.querySelectorAll("meta[name], meta[property]")]
+        .map((node) => [node.getAttribute("name") || node.getAttribute("property"), node.content]),
+      heading: text(document.querySelector("h1")),
+      headingBreaks: document.querySelectorAll("h1 br").length,
+      hero: [...document.querySelectorAll(".st-hero p")].map(text),
+      blocks: [...document.querySelectorAll(".doc-body > .g-block")].map((block) => ({
+        heading: text(block.querySelector("h2")),
+        text: text(block),
+        links: [...block.querySelectorAll("a")].map((node) => [text(node), node.getAttribute("href")]),
+      })),
+      snippets: [...document.querySelectorAll(".doc-body .g-code")].map((figure) => ({
+        source: text(figure.previousElementSibling),
+        caption: text(figure.querySelector("figcaption")),
+        code: figure.querySelector("code").textContent.trim(),
+      })),
+      table: [...document.querySelectorAll(".st-table tr")].map((row) =>
+        [...row.children].map(text)),
+      guide: text(document.querySelector(".st-guide")),
+      guideLinks: links(".st-guide"),
+      primary: links('nav[aria-label="Sheet index"]'),
+      adjoining: links('nav[aria-labelledby="adjoining-title"]'),
+      viewportWidth: innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      fitsViewport: document.documentElement.scrollWidth <= innerWidth,
+      styles: {
+        hero: style(".st-hero", ["padding", "border-bottom"]),
+        heading: style("h1", ["font-size", "font-weight", "font-stretch", "line-height"]),
+        body: style(".doc-body", ["max-width", "padding"]),
+        pair: style(".st-pair", ["display", "grid-template-columns", "gap", "width"]),
+        code: style(".st-pair .g-code pre", ["font-size", "overflow-x"]),
+        table: style(".st-table-scroll", ["overflow-x", "border"]),
+        guide: style(".st-guide", ["padding", "border-top", "background-image"]),
+      },
+    };
+  });
+}
+
+await withBrowserSite(site, async (browser, origin) => {
+  const { page, errors } = await openPage(browser);
+  await page.setJavaScriptEnabled(false);
+  await page.setViewport({ width: 1440, height: 1000 });
+  assert.equal((await page.goto(`${origin}/sharedtree/`)).status(), 200);
+  await page.evaluate(() => document.fonts.ready);
+  const desktop = await snapshot(page);
+  await page.setViewport({ width: 390, height: 844 });
+  const mobile = await snapshot(page);
+  if (record) {
+    assert.deepEqual(errors, [], "baseline browser errors");
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site SharedTree contract baseline.");
+    return;
+  }
+  const baseline = await readContract(fixture);
+  assert.deepEqual({ desktop, mobile }, baseline);
+  assert.equal(mobile.fitsViewport, true, "mobile overflow");
+  assert.equal(await page.$("script[src*='@vite']"), null);
+  assert.deepEqual(await page.$$eval('script[type="module"]', (nodes) =>
+    nodes.map((node) => new URL(node.src).pathname)), ["/scripts/concept-index.js"]);
+  await page.focus(".st-table-scroll");
+  assert.notEqual(
+    await page.evaluate(() => getComputedStyle(document.activeElement).outlineStyle),
+    "none",
+  );
+  assert.deepEqual(errors, [], "browser errors");
+  console.log("PASS: SharedTree site contract, mobile layout, and keyboard focus.");
+});

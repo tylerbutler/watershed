@@ -1,0 +1,224 @@
+{
+  "desktop": {
+    "title": "watershed — MV-register revision slate",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Race two revisions, keep both, then resolve what you've read. A live multi-value register running watershed's compiled Gleam kernel."
+      ],
+      [
+        "og:title",
+        "watershed — MV-register revision slate"
+      ],
+      [
+        "og:description",
+        "Race two revisions, keep both, then resolve what you've read. A live multi-value register running watershed's compiled Gleam kernel."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/mv-register/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "hero": "REGISTERS / REVISION SLATE Converged. Still two answers. A last-write-wins cell would discard one revision. This one keeps the disagreement. Race \"raise crest\" against \"arm pump\": all three clients reach the same two alternatives. Nothing is stuck in transit. Once you've read both, resolve with \"raise crest + arm pump\". That's an ordinary write, not a special conflict API. An unseen third revision would survive it.",
+    "demoHeading": "One slate, three field crews",
+    "demoIntro": "Confirmed alternatives stay in ink; your pending revision appears in magenta. Cut Client B's link, write on both sides, then restore it. Agreement means every crew sees the same alternatives, not necessarily a single answer. Re-deliver keeps an earlier delta even after resolution. The old revision stays retired. Reset tears off a fresh slate and discards delayed work from the previous one.",
+    "mergeRule": "Merge rule: keep concurrent alternatives. Two revisions can converge without agreeing on one answer. After both arrive, write a combined revision to replace the alternatives you've seen.",
+    "clients": [
+      {
+        "label": "Client A replica",
+        "heading": "CLIENT A",
+        "panel": "REVISION SLATE CONFIRMED ALTERNATIVES [\"Survey datum\"] LOCAL VIEW [\"Survey datum\"] NEXT REVISION Write revision Resolve with both Resolve writes \"raise crest + arm pump\". Any new revision replaces only the history this client has seen."
+      },
+      {
+        "label": "Client B replica",
+        "heading": "CLIENT B",
+        "panel": "REVISION SLATE CONFIRMED ALTERNATIVES [\"Survey datum\"] LOCAL VIEW [\"Survey datum\"] NEXT REVISION Write revision Resolve with both Resolve writes \"raise crest + arm pump\". Any new revision replaces only the history this client has seen."
+      },
+      {
+        "label": "Client C replica",
+        "heading": "CLIENT C",
+        "panel": "REVISION SLATE CONFIRMED ALTERNATIVES [\"Survey datum\"] LOCAL VIEW [\"Survey datum\"] NEXT REVISION Write revision Resolve with both Resolve writes \"raise crest + arm pump\". Any new revision replaces only the history this client has seen."
+      }
+    ],
+    "controls": "ANIMATION SPEED 1× JITTER ±100 MS Race two revisions Re-deliver last delta Reset survey CONVERGED replicas identical · nothing pending",
+    "notes": [
+      "A list isn't a queue",
+      "One typed field on the sequenced stream",
+      "Or let the peers exchange revisions",
+      "The merge example is a regression, too"
+    ],
+    "viewportWidth": 1440,
+    "scrollWidth": 1440,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "96px 64.8px",
+        "max-width": "1120px"
+      },
+      "demo": {
+        "padding": "129.6px 64.8px",
+        "border-top-width": "0px",
+        "border-bottom-width": "1px"
+      },
+      "rig": {
+        "display": "grid",
+        "grid-template-areas": "\"a seq b\" \"c c c\"",
+        "grid-template-columns": "385.172px 269.641px 385.172px",
+        "gap": "24px"
+      },
+      "client": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "panel": {
+        "display": "grid",
+        "gap": "12px",
+        "padding": "16px"
+      },
+      "controls": {
+        "display": "flex",
+        "gap": "40px",
+        "margin-top": "40px"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — MV-register revision slate",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "Race two revisions, keep both, then resolve what you've read. A live multi-value register running watershed's compiled Gleam kernel."
+      ],
+      [
+        "og:title",
+        "watershed — MV-register revision slate"
+      ],
+      [
+        "og:description",
+        "Race two revisions, keep both, then resolve what you've read. A live multi-value register running watershed's compiled Gleam kernel."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/mv-register/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "hero": "REGISTERS / REVISION SLATE Converged. Still two answers. A last-write-wins cell would discard one revision. This one keeps the disagreement. Race \"raise crest\" against \"arm pump\": all three clients reach the same two alternatives. Nothing is stuck in transit. Once you've read both, resolve with \"raise crest + arm pump\". That's an ordinary write, not a special conflict API. An unseen third revision would survive it.",
+    "demoHeading": "One slate, three field crews",
+    "demoIntro": "Confirmed alternatives stay in ink; your pending revision appears in magenta. Cut Client B's link, write on both sides, then restore it. Agreement means every crew sees the same alternatives, not necessarily a single answer. Re-deliver keeps an earlier delta even after resolution. The old revision stays retired. Reset tears off a fresh slate and discards delayed work from the previous one.",
+    "mergeRule": "Merge rule: keep concurrent alternatives. Two revisions can converge without agreeing on one answer. After both arrive, write a combined revision to replace the alternatives you've seen.",
+    "clients": [
+      {
+        "label": "Client A replica",
+        "heading": "CLIENT A",
+        "panel": "REVISION SLATE CONFIRMED ALTERNATIVES [\"Survey datum\"] LOCAL VIEW [\"Survey datum\"] NEXT REVISION Write revision Resolve with both Resolve writes \"raise crest + arm pump\". Any new revision replaces only the history this client has seen."
+      },
+      {
+        "label": "Client B replica",
+        "heading": "CLIENT B",
+        "panel": "REVISION SLATE CONFIRMED ALTERNATIVES [\"Survey datum\"] LOCAL VIEW [\"Survey datum\"] NEXT REVISION Write revision Resolve with both Resolve writes \"raise crest + arm pump\". Any new revision replaces only the history this client has seen."
+      },
+      {
+        "label": "Client C replica",
+        "heading": "CLIENT C",
+        "panel": "REVISION SLATE CONFIRMED ALTERNATIVES [\"Survey datum\"] LOCAL VIEW [\"Survey datum\"] NEXT REVISION Write revision Resolve with both Resolve writes \"raise crest + arm pump\". Any new revision replaces only the history this client has seen."
+      }
+    ],
+    "controls": "ANIMATION SPEED 1× JITTER ±100 MS Race two revisions Re-deliver last delta Reset survey CONVERGED replicas identical · nothing pending",
+    "notes": [
+      "A list isn't a queue",
+      "One typed field on the sequenced stream",
+      "Or let the peers exchange revisions",
+      "The merge example is a regression, too"
+    ],
+    "viewportWidth": 390,
+    "scrollWidth": 468,
+    "fitsViewport": false,
+    "styles": {
+      "hero": {
+        "padding": "48px 20px",
+        "max-width": "1120px"
+      },
+      "demo": {
+        "padding": "72px 20px",
+        "border-top-width": "0px",
+        "border-bottom-width": "1px"
+      },
+      "rig": {
+        "display": "grid",
+        "grid-template-areas": "\"a\" \"seq\" \"b\" \"c\"",
+        "grid-template-columns": "324px",
+        "gap": "24px"
+      },
+      "client": {
+        "border": "1px solid oklch(0.25 0.02 260)",
+        "background-color": "oklch(1 0 0)"
+      },
+      "panel": {
+        "display": "grid",
+        "gap": "12px",
+        "padding": "16px"
+      },
+      "controls": {
+        "display": "flex",
+        "gap": "40px",
+        "margin-top": "40px"
+      }
+    }
+  }
+}

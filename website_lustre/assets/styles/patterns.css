@@ -1,0 +1,189 @@
+  .p-hero {
+    padding: clamp(3.5rem, 9vw, 7rem) var(--content-pad)
+      clamp(2.5rem, 6vw, 5rem);
+    border-bottom: 1px solid var(--hairline);
+  }
+
+  .p-hero-inner,
+  .p-main,
+  .p-boundary > div {
+    max-width: 72rem;
+    margin-inline: auto;
+  }
+
+  .p-crumbs {
+    margin-bottom: var(--space-lg);
+  }
+
+  .p-crumbs a {
+    text-decoration: none;
+  }
+
+  h1 {
+    max-width: 18ch;
+    font-size: var(--text-display);
+    font-weight: 640;
+    font-stretch: 122%;
+    line-height: 0.99;
+    letter-spacing: -0.025em;
+  }
+
+  .p-lede {
+    margin-top: var(--space-lg);
+    max-width: 56ch;
+    font-size: clamp(1.125rem, 0.6vw + 1rem, 1.3125rem);
+    line-height: 1.55;
+  }
+
+  .p-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-md);
+    margin-top: var(--space-xl);
+  }
+
+  /* ── ledger ────────────────────────────────────────────────────────────── */
+  .p-main {
+    padding: var(--space-2xl) var(--content-pad) var(--space-section);
+  }
+
+  .p-step {
+    display: grid;
+    grid-template-columns: minmax(14rem, 0.35fr) minmax(0, 1fr);
+    gap: clamp(var(--space-lg), 5vw, 4rem);
+    padding-block: var(--space-2xl);
+    border-top: 1px solid var(--ink);
+  }
+
+  .p-step:last-child {
+    border-bottom: 1px solid var(--ink);
+  }
+
+  .p-step-head {
+    align-self: start;
+    position: sticky;
+    top: var(--space-lg);
+  }
+
+  .p-step-head .annot {
+    color: var(--overprint-deep);
+  }
+
+  .p-step-head h2 {
+    margin-top: var(--space-2xs);
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+  }
+
+  .p-step-head h2 a {
+    color: var(--ink);
+    text-decoration: none;
+  }
+
+  .p-step-head h2 a:hover {
+    color: var(--overprint-deep);
+  }
+
+  .p-step-goal {
+    margin-top: var(--space-sm);
+    color: var(--muted);
+    font-size: var(--text-sm);
+    line-height: 1.6;
+  }
+
+  .p-rules {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    min-width: 0;
+  }
+
+  .p-rules li + li {
+    margin-top: var(--space-lg);
+    padding-top: var(--space-lg);
+    border-top: 1px solid var(--hairline);
+  }
+
+  .p-rule-link {
+    font-size: 1.15rem;
+    font-weight: 620;
+    font-stretch: 112%;
+    text-decoration: none;
+  }
+
+  .p-rule-link:hover {
+    color: var(--overprint-deep);
+  }
+
+  .p-rule {
+    margin-top: var(--space-2xs);
+    max-width: 62ch;
+    color: var(--muted);
+    line-height: 1.6;
+  }
+
+  .p-rule-src {
+    margin-top: var(--space-xs);
+    color: var(--muted);
+    overflow-wrap: anywhere;
+  }
+
+  /* ── closing boundary ──────────────────────────────────────────────────── */
+  .p-boundary {
+    padding: var(--space-2xl) var(--content-pad);
+    border-block: 1px solid var(--ink);
+    background:
+      repeating-linear-gradient(
+        -45deg,
+        transparent,
+        transparent 8px,
+        var(--hairline-faint) 8px,
+        var(--hairline-faint) 9px
+      ),
+      var(--surface);
+  }
+
+  .p-boundary > div {
+    padding: var(--space-xl);
+    background: var(--bg);
+    border: 1px solid var(--ink);
+  }
+
+  .p-boundary h2 {
+    max-width: 26ch;
+    font-size: var(--text-h2);
+    font-weight: 620;
+    font-stretch: 118%;
+    line-height: 1.06;
+    letter-spacing: -0.015em;
+  }
+
+  .p-boundary p {
+    margin-top: var(--space-md);
+  }
+
+  .p-boundary a {
+    display: inline-block;
+    margin-top: var(--space-lg);
+    font-weight: 600;
+  }
+
+  @media (max-width: 48rem) {
+    .p-step {
+      grid-template-columns: 1fr;
+    }
+
+    .p-step-head {
+      position: static;
+    }
+  }
+
+  @media (max-width: 34rem) {
+    h1 {
+      font-size: clamp(2rem, 10vw, 3rem);
+      font-stretch: 105%;
+    }
+  }

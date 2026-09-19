@@ -1,0 +1,259 @@
+import assert from "node:assert/strict";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
+
+const { record, site, fixture } = contract(import.meta.url, "site-rich-text-contract.json");
+
+async function snapshot(page) {
+  return page.evaluate(() => {
+    const text = (node) =>
+      (node.innerText ?? node.textContent).replace(/\s+/g, " ").trim();
+    const style = (query, properties) => {
+      const computed = getComputedStyle(document.querySelector(query));
+      return Object.fromEntries(
+        properties.map((key) => [key, computed.getPropertyValue(key)]),
+      );
+    };
+    return {
+      title: document.title,
+      metadata: [
+        ...document.head.querySelectorAll("meta[name], meta[property]"),
+      ].map((node) => [
+        node.getAttribute("name") || node.getAttribute("property"),
+        node.content,
+      ]),
+      hero: text(document.querySelector(".page-hero")),
+      demoHeading: text(document.querySelector(".demo-head h2")),
+      demoCopy: [...document.querySelectorAll(".demo-head p")].map(text),
+      clients: [...document.querySelectorAll(".client")].map((client) => ({
+        label: client.getAttribute("aria-label"),
+        heading: text(client.querySelector("h3")),
+        editor: text(client.querySelector(".ql-editor")),
+        canonical: text(client.querySelector("[data-canonical]")),
+      })),
+      controls: text(document.querySelector(".demo-controls")),
+      scenarios: text(document.querySelector(".scenario-row")),
+      viewportWidth: innerWidth,
+      scrollWidth: document.documentElement.scrollWidth,
+      fitsViewport: document.documentElement.scrollWidth <= innerWidth,
+      styles: {
+        hero: style(".page-hero", ["padding", "border-bottom-width"]),
+        demo: style(".demo", ["padding", "border-bottom-width"]),
+        rig: style(".rig", [
+          "display",
+          "grid-template-areas",
+          "grid-template-columns",
+          "gap",
+        ]),
+        client: style(".client", ["border", "background-color"]),
+        editor: style(".ql-editor", ["min-height", "font-size", "line-height"]),
+        controls: style(".demo-controls", ["display", "gap", "margin-top"]),
+      },
+    };
+  });
+}
+
+const canonical = (page) =>
+  page.$$eval("[data-canonical]", (nodes) =>
+    nodes.map((node) => node.textContent),
+  );
+
+async function waitForConvergence(page) {
+  await page.waitForFunction(
+    () =>
+      document.querySelector("[data-rt-status]").textContent.includes("Converged") &&
+      [...document.querySelectorAll("[data-pending-count]")].every(
+        (node) => node.textContent === "synced",
+      ),
+  );
+  const values = await canonical(page);
+  assert.equal(new Set(values).size, 1);
+  return values[0];
+}
+
+async function startScenario(page, selector) {
+  await page.click(selector);
+  await page.waitForFunction(
+    () =>
+      !document.querySelector("[data-rt-status]").textContent.includes("Converged") ||
+      [...document.querySelectorAll("[data-pending-count]")].some(
+        (node) => node.textContent !== "synced",
+      ),
+  );
+}
+
+await withBrowserSite(site, async (browser, origin) => {
+  const startup = await browser.newPage();
+  await startup.evaluateOnNewDocument(() => {
+    new MutationObserver(() => {
+      document.getElementById("rich-text-editor-a")?.remove();
+    }).observe(document, { childList: true, subtree: true });
+  });
+  await startup.goto(`${origin}/rich-text/`);
+  await startup.waitForFunction(
+    () => document.querySelector('[data-testid="rich-text-error"]')?.textContent.includes(
+      'Rich-text editor "rich-text-editor-a" was not found.',
+    ),
+  );
+  await startup.close();
+
+  const { page, errors } = await openPage(browser);
+  await page.setViewport({ width: 1440, height: 1000 });
+  assert.equal((await page.goto(`${origin}/rich-text/`)).status(), 200);
+  await page.evaluate(() => document.fonts.ready);
+  await page.waitForFunction(
+    () =>
+      document.querySelectorAll(".ql-editor").length === 3 &&
+      !document.querySelector("[data-rt-race-type]").disabled,
+  );
+  assert.notEqual(
+    await page.$('link[rel="stylesheet"][href="/rich_text.css"]'),
+    null,
+  );
+  assert.deepEqual(errors, [], "startup browser errors");
+  const desktop = await snapshot(page);
+  await page.setViewport({ width: 390, height: 844 });
+  const mobile = await snapshot(page);
+  if (record) {
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site rich text contract baseline.");
+    return;
+  }
+
+  assert.deepEqual(
+    { desktop, mobile },
+    await readContract(fixture),
+  );
+  assert.equal(mobile.fitsViewport, true, "mobile overflow");
+  assert.equal(
+    await page.$("script[src*='@vite']"),
+    null,
+  );
+
+  await page.setViewport({ width: 1440, height: 1000 });
+  await page.$eval("[data-rt-pace]", (input) => {
+    input.value = "2";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () => document.querySelector("[data-rt-pace-out]")?.textContent === "2×",
+  );
+  assert.equal(
+    await page.$eval("[data-rt-pace-out]", (node) => node.textContent),
+    "2×",
+  );
+  await page.click("[data-rt-latency-variance]");
+  assert.equal(
+    await page.$eval("[data-rt-latency-variance]", (node) => node.checked),
+    true,
+  );
+  const baseline = await waitForConvergence(page);
+  await page.click("#rich-text-editor-a .ql-editor");
+  await page.keyboard.press("Home");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.up("Shift");
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[data-client="b"] [data-peer-list]')?.textContent.includes(
+        "Client A @",
+      ),
+  );
+  assert.equal(
+    await page.$$eval('[data-client="b"] .ql-cursor', (nodes) => nodes.length),
+    1,
+  );
+  await startScenario(page, "[data-rt-race-type]");
+  const flowLabel = await page.$eval(".flow-dot-label", (node) => {
+    const box = node.getBoundingClientRect();
+    return {
+      height: box.height,
+      whiteSpace: getComputedStyle(node).whiteSpace,
+    };
+  });
+  assert.ok(flowLabel.height <= 20);
+  assert.equal(flowLabel.whiteSpace, "nowrap");
+  await page.click("[data-rt-settle]");
+  const typed = await waitForConvergence(page);
+  assert.notEqual(typed, baseline);
+  assert.ok(typed.includes("⟨A⟩"));
+  assert.ok(typed.includes("⟨B⟩"));
+  assert.match(
+    await page.$eval("[data-seq-counter]", (node) => node.textContent),
+    /^SN \d+$/,
+  );
+  assert.ok(await page.$$eval("[data-op-log] li", (nodes) => nodes.length > 0));
+
+  await startScenario(page, "[data-rt-race-format]");
+  const formatted = await waitForConvergence(page);
+  assert.deepEqual(
+    await page.$$eval(".ql-editor", (editors) =>
+      editors.map(
+        (editor) =>
+          editor.querySelector("strong") !== null &&
+          editor.querySelector('[style*="color"]') !== null,
+      ),
+    ),
+    [true, true, true],
+  );
+
+  await startScenario(page, "[data-rt-race-delete]");
+  assert.notEqual(await waitForConvergence(page), formatted);
+  await startScenario(page, "[data-rt-embed]");
+  await waitForConvergence(page);
+  assert.deepEqual(
+    await page.$$eval(".ql-editor", (editors) =>
+      editors.map((editor) => editor.querySelectorAll("img").length),
+    ),
+    [1, 1, 1],
+  );
+
+  await page.click("[data-rt-reset]");
+  await page.waitForFunction(
+    (expected) =>
+      [...document.querySelectorAll("[data-canonical]")].every(
+        (node) => node.textContent === expected,
+      ),
+    {},
+    baseline,
+  );
+  assert.equal(await waitForConvergence(page), baseline);
+  for (let reset = 0; reset < 3; reset += 1) {
+    await page.click("[data-rt-reset]");
+    await waitForConvergence(page);
+  }
+  assert.equal(await page.$$eval(".ql-toolbar", (nodes) => nodes.length), 3);
+  assert.equal(await page.$$eval(".ql-container", (nodes) => nodes.length), 3);
+
+  const noJs = await browser.newPage();
+  await noJs.setJavaScriptEnabled(false);
+  await noJs.goto(`${origin}/rich-text/`);
+  assert.equal(
+    await noJs.$eval('[data-testid="noscript"]', (node) =>
+      node.checkVisibility(),
+    ),
+    true,
+  );
+  await noJs.close();
+
+  const blocked = await browser.newPage();
+  await blocked.setRequestInterception(true);
+  blocked.on("request", (request) => {
+    const path = new URL(request.url()).pathname;
+    if (path === "/rich_text.js") request.abort();
+    else if (request.url().startsWith("https://tinylytics.app/")) {
+      request.respond({ status: 200, contentType: "text/javascript", body: "" });
+    } else request.continue();
+  });
+  await blocked.goto(`${origin}/rich-text/`);
+  await blocked.waitForSelector('[data-testid="rich-text-fallback"]', {
+    visible: true,
+    timeout: 6000,
+  });
+  await blocked.close();
+
+  assert.deepEqual(errors, [], "browser errors");
+  console.log(
+    "PASS: rich text contract, OT scenarios, reset, no-JS, and failure fallback.",
+  );
+});

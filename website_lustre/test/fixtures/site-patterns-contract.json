@@ -1,0 +1,930 @@
+{
+  "desktop": {
+    "title": "watershed — patterns from the examples",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "An index of every implementation practice, grouped by the problem it solves, each linking to the build-guide step that teaches it."
+      ],
+      [
+        "og:title",
+        "watershed — patterns from the examples"
+      ],
+      [
+        "og:description",
+        "An index of every implementation practice, grouped by the problem it solves, each linking to the build-guide step that teaches it."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/patterns/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Implementation patterns from the examples.",
+    "headingBreaks": 1,
+    "hero": [
+      "← WATERSHED / PATTERNS",
+      "Each entry connects a problem to the example code that addresses it. Browse by problem here, or follow the build guide in implementation order."
+    ],
+    "actions": [
+      [
+        "Read the index ↓",
+        "#index"
+      ],
+      [
+        "Browse all examples →",
+        "/examples"
+      ]
+    ],
+    "sections": [
+      {
+        "heading": "Architecture & composition",
+        "intro": [
+          "6 NOTES",
+          "Decide what the shell owns, what a component may touch, and which work must stay outside the app."
+        ],
+        "rules": [
+          {
+            "title": "Treat the server as an optional decorator",
+            "href": "/guide/connect#relay-decorator",
+            "rule": "A peer-to-peer app may use a relay for durability, but it should not need one to start.",
+            "source": "CLAP COUNTER · SRC/CLAP_COUNTER_LUSTRE.GLEAM · STEP 01"
+          },
+          {
+            "title": "One shared core, two runtimes",
+            "href": "/guide/connect#shared-core-two-runtimes",
+            "rule": "Keep the shared core portable by connecting to the same document from the BEAM and the browser.",
+            "source": "DICE CLI · SRC/DICE_CLI.GLEAM · STEP 01"
+          },
+          {
+            "title": "Keep latency-critical loops out of the update path",
+            "href": "/guide/presence#realtime-out-of-band",
+            "rule": "Let a real-time loop read a plain snapshot. Do not make it wait on the application.",
+            "source": "DRUM MACHINE · SRC/DRUM_MACHINE_LUSTRE/AUDIO_FFI.MJS · STEP 05"
+          },
+          {
+            "title": "Hand a rendering surface to FFI, and bootstrap on Connected",
+            "href": "/guide/connect#ffi-surface",
+            "rule": "Let an FFI module own the canvas pixels, and create shared channels only after the connection opens.",
+            "source": "PIXEL CANVAS · SRC/PIXEL_CANVAS_LUSTRE.GLEAM · STEP 01"
+          },
+          {
+            "title": "Stamp the schema; refuse bad reads",
+            "href": "/guide/notes#stamp-schema",
+            "rule": "Fill and stamp a typed map before attaching it, so an incompatible reader gets an error.",
+            "source": "SCOREBOARD CLI · SRC/SCOREBOARD_CLI.GLEAM · STEP 02"
+          },
+          {
+            "title": "Panels take a TypedMap, never a root",
+            "href": "/guide/connect#typedmap-panels",
+            "rule": "Give a reusable component a typed map, whether that map is a root or a child. Keep document-wide effects in the shell.",
+            "source": "NESTED APP SHOWCASE · SRC/SHOWCASE_LUSTRE.GLEAM · STEP 01"
+          }
+        ]
+      },
+      {
+        "heading": "Conflicts & consistency",
+        "intro": [
+          "6 NOTES",
+          "Two clients change the same state at once. Keep the UI honest while the shared structure settles the result."
+        ],
+        "rules": [
+          {
+            "title": "Propose on release, render the pending signoff",
+            "href": "/guide/votes#quorum-pending-roster",
+            "rule": "Send one consensus proposal per gesture, then show whose approval is still missing.",
+            "source": "DRUM MACHINE · SRC/DRUM_MACHINE_LUSTRE.GLEAM · STEP 04"
+          },
+          {
+            "title": "Fallible edits render; never assert on a mutation",
+            "href": "/guide/notes#fallible-edits",
+            "rule": "Handle every index-based edit as fallible. A peer may change the list between render and click.",
+            "source": "COLLABORATIVE PLAYLIST · SRC/PLAYLIST_LUSTRE/COMPONENT.GLEAM · STEP 02"
+          },
+          {
+            "title": "When a move is not atomic, crown one channel authoritative",
+            "href": "/guide/notes#authoritative-channel",
+            "rule": "A move across channels is not atomic. Choose one source of truth and reconcile the rest while rendering.",
+            "source": "RETRO BOARD (FULL) · SRC/RETRO_BOARD_LUSTRE/BOARD.GLEAM · STEP 02"
+          },
+          {
+            "title": "Seed idempotently with Claims",
+            "href": "/guide/connect#claims-seeding",
+            "rule": "Let every client seed the same initial values through first-writer-wins claims.",
+            "source": "COLLABORATIVE SUDOKU · SRC/SUDOKU_LUSTRE/COMPONENT.GLEAM · STEP 01"
+          },
+          {
+            "title": "Anchors, not offsets",
+            "href": "/guide/notes#anchors-not-offsets",
+            "rule": "Store an anchor instead of a text offset, then resolve its current position after each edit.",
+            "source": "SHARED TEXT EDITOR · SRC/TEXT_LUSTRE/COMPONENT.GLEAM · STEP 02"
+          },
+          {
+            "title": "Show writes that have not settled",
+            "href": "/guide/votes#unsettled-writes",
+            "rule": "When writes are not optimistic, show them as pending until the confirming event arrives.",
+            "source": "TOURNAMENT BRACKET · SRC/TOURNAMENT_BRACKET_LUSTRE.GLEAM · STEP 04"
+          }
+        ]
+      },
+      {
+        "heading": "Presence & coordination",
+        "intro": [
+          "2 NOTES",
+          "Some facts belong to the session, not the document: who's here, who drives, and what they need to tell each other."
+        ],
+        "rules": [
+          {
+            "title": "The minimal presence idiom",
+            "href": "/guide/presence#presence-idiom",
+            "rule": "Declare one presence effect, use one typed payload, and remove the local session before the roster enters your model.",
+            "source": "RETRO BOARD (TUTORIAL) · SRC/RETRO_TUTORIAL_LUSTRE.GLEAM · STEP 05"
+          },
+          {
+            "title": "Ride an application protocol on ripples",
+            "href": "/guide/presence#protocol-on-ripples",
+            "rule": "Send short-lived coordination over ripples, not through a document channel.",
+            "source": "GROCERY TRIPTYCH · SRC/GROCERY_TRIPTYCH_LUSTRE/SCENARIO_PROTOCOL.GLEAM · STEP 05"
+          }
+        ]
+      },
+      {
+        "heading": "Testing & diagnostics",
+        "intro": [
+          "3 NOTES",
+          "Reproduce the failures that matter, and read the runtime's own diagnostics before you guess at a sync bug."
+        ],
+        "rules": [
+          {
+            "title": "Sample diagnostics on every event",
+            "href": "/guide/connect#diagnostics-first",
+            "rule": "Put the runtime's diagnostics on screen before you debug synchronization.",
+            "source": "COLLABORATIVE DICE · SRC/DICE_LUSTRE.GLEAM · STEP 01"
+          },
+          {
+            "title": "Extract pure modules; test without a server",
+            "href": "/guide/testing#pure-modules",
+            "rule": "Move decisions into pure modules so most tests need no document, sluice, or server.",
+            "source": "GROCERY TRIPTYCH · SRC/GROCERY_TRIPTYCH_LUSTRE/REFRESH_GUARD.GLEAM · STEP 06"
+          },
+          {
+            "title": "Test client death deterministically",
+            "href": "/guide/testing#deterministic-death",
+            "rule": "Test a client dying mid-job with an in-process disconnect that produces the same leave event as the server.",
+            "source": "WORK QUEUE · TEST/QUEUE_SEMANTICS_TEST.GLEAM · STEP 06"
+          }
+        ]
+      }
+    ],
+    "boundary": "Copy the constraint, not the whole design. The examples show lifecycle and ownership constraints, not boilerplate to copy whole. Reuse those rules; keep domain-specific state and views close to the app that needs them. Choose an example to trace →",
+    "boundaryLinks": [
+      [
+        "Choose an example to trace →",
+        "/examples"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "viewportWidth": 1440,
+    "scrollWidth": 1440,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "112px 64.8px 80px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "86.4px",
+        "font-weight": "640",
+        "font-stretch": "122%",
+        "line-height": "85.536px"
+      },
+      "main": {
+        "padding": "64px 64.8px 129.6px",
+        "max-width": "1152px"
+      },
+      "section": {
+        "display": "grid",
+        "grid-template-columns": "248.469px 709.938px",
+        "gap": "64px",
+        "border-top": "1px solid oklch(0.25 0.02 260)"
+      },
+      "rule": {
+        "margin-top": "4px",
+        "max-width": "603.941px",
+        "color": "oklch(0.44 0.015 260)",
+        "line-height": "27.2px"
+      },
+      "boundary": {
+        "padding": "64px 64.8px",
+        "border-top": "1px solid oklch(0.25 0.02 260)",
+        "background-image": "repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0) 8px, oklch(0.25 0.02 260 / 0.11) 8px, oklch(0.25 0.02 260 / 0.11) 9px), none"
+      }
+    }
+  },
+  "mobile": {
+    "title": "watershed — patterns from the examples",
+    "metadata": [
+      [
+        "viewport",
+        "width=device-width, initial-scale=1"
+      ],
+      [
+        "description",
+        "An index of every implementation practice, grouped by the problem it solves, each linking to the build-guide step that teaches it."
+      ],
+      [
+        "og:title",
+        "watershed — patterns from the examples"
+      ],
+      [
+        "og:description",
+        "An index of every implementation practice, grouped by the problem it solves, each linking to the build-guide step that teaches it."
+      ],
+      [
+        "og:type",
+        "website"
+      ],
+      [
+        "og:url",
+        "https://watershed.tylerbutler.com/patterns/"
+      ],
+      [
+        "og:image",
+        "https://watershed.tylerbutler.com/og.png"
+      ],
+      [
+        "og:image:width",
+        "2400"
+      ],
+      [
+        "og:image:height",
+        "1260"
+      ],
+      [
+        "og:image:alt",
+        "A survey-sheet card reading “Edit upstream. Converge downstream.” (watershed, collaborative data structures for Gleam)."
+      ],
+      [
+        "twitter:card",
+        "summary_large_image"
+      ]
+    ],
+    "heading": "Implementation patterns from the examples.",
+    "headingBreaks": 1,
+    "hero": [
+      "← WATERSHED / PATTERNS",
+      "Each entry connects a problem to the example code that addresses it. Browse by problem here, or follow the build guide in implementation order."
+    ],
+    "actions": [
+      [
+        "Read the index ↓",
+        "#index"
+      ],
+      [
+        "Browse all examples →",
+        "/examples"
+      ]
+    ],
+    "sections": [
+      {
+        "heading": "Architecture & composition",
+        "intro": [
+          "6 NOTES",
+          "Decide what the shell owns, what a component may touch, and which work must stay outside the app."
+        ],
+        "rules": [
+          {
+            "title": "Treat the server as an optional decorator",
+            "href": "/guide/connect#relay-decorator",
+            "rule": "A peer-to-peer app may use a relay for durability, but it should not need one to start.",
+            "source": "CLAP COUNTER · SRC/CLAP_COUNTER_LUSTRE.GLEAM · STEP 01"
+          },
+          {
+            "title": "One shared core, two runtimes",
+            "href": "/guide/connect#shared-core-two-runtimes",
+            "rule": "Keep the shared core portable by connecting to the same document from the BEAM and the browser.",
+            "source": "DICE CLI · SRC/DICE_CLI.GLEAM · STEP 01"
+          },
+          {
+            "title": "Keep latency-critical loops out of the update path",
+            "href": "/guide/presence#realtime-out-of-band",
+            "rule": "Let a real-time loop read a plain snapshot. Do not make it wait on the application.",
+            "source": "DRUM MACHINE · SRC/DRUM_MACHINE_LUSTRE/AUDIO_FFI.MJS · STEP 05"
+          },
+          {
+            "title": "Hand a rendering surface to FFI, and bootstrap on Connected",
+            "href": "/guide/connect#ffi-surface",
+            "rule": "Let an FFI module own the canvas pixels, and create shared channels only after the connection opens.",
+            "source": "PIXEL CANVAS · SRC/PIXEL_CANVAS_LUSTRE.GLEAM · STEP 01"
+          },
+          {
+            "title": "Stamp the schema; refuse bad reads",
+            "href": "/guide/notes#stamp-schema",
+            "rule": "Fill and stamp a typed map before attaching it, so an incompatible reader gets an error.",
+            "source": "SCOREBOARD CLI · SRC/SCOREBOARD_CLI.GLEAM · STEP 02"
+          },
+          {
+            "title": "Panels take a TypedMap, never a root",
+            "href": "/guide/connect#typedmap-panels",
+            "rule": "Give a reusable component a typed map, whether that map is a root or a child. Keep document-wide effects in the shell.",
+            "source": "NESTED APP SHOWCASE · SRC/SHOWCASE_LUSTRE.GLEAM · STEP 01"
+          }
+        ]
+      },
+      {
+        "heading": "Conflicts & consistency",
+        "intro": [
+          "6 NOTES",
+          "Two clients change the same state at once. Keep the UI honest while the shared structure settles the result."
+        ],
+        "rules": [
+          {
+            "title": "Propose on release, render the pending signoff",
+            "href": "/guide/votes#quorum-pending-roster",
+            "rule": "Send one consensus proposal per gesture, then show whose approval is still missing.",
+            "source": "DRUM MACHINE · SRC/DRUM_MACHINE_LUSTRE.GLEAM · STEP 04"
+          },
+          {
+            "title": "Fallible edits render; never assert on a mutation",
+            "href": "/guide/notes#fallible-edits",
+            "rule": "Handle every index-based edit as fallible. A peer may change the list between render and click.",
+            "source": "COLLABORATIVE PLAYLIST · SRC/PLAYLIST_LUSTRE/COMPONENT.GLEAM · STEP 02"
+          },
+          {
+            "title": "When a move is not atomic, crown one channel authoritative",
+            "href": "/guide/notes#authoritative-channel",
+            "rule": "A move across channels is not atomic. Choose one source of truth and reconcile the rest while rendering.",
+            "source": "RETRO BOARD (FULL) · SRC/RETRO_BOARD_LUSTRE/BOARD.GLEAM · STEP 02"
+          },
+          {
+            "title": "Seed idempotently with Claims",
+            "href": "/guide/connect#claims-seeding",
+            "rule": "Let every client seed the same initial values through first-writer-wins claims.",
+            "source": "COLLABORATIVE SUDOKU · SRC/SUDOKU_LUSTRE/COMPONENT.GLEAM · STEP 01"
+          },
+          {
+            "title": "Anchors, not offsets",
+            "href": "/guide/notes#anchors-not-offsets",
+            "rule": "Store an anchor instead of a text offset, then resolve its current position after each edit.",
+            "source": "SHARED TEXT EDITOR · SRC/TEXT_LUSTRE/COMPONENT.GLEAM · STEP 02"
+          },
+          {
+            "title": "Show writes that have not settled",
+            "href": "/guide/votes#unsettled-writes",
+            "rule": "When writes are not optimistic, show them as pending until the confirming event arrives.",
+            "source": "TOURNAMENT BRACKET · SRC/TOURNAMENT_BRACKET_LUSTRE.GLEAM · STEP 04"
+          }
+        ]
+      },
+      {
+        "heading": "Presence & coordination",
+        "intro": [
+          "2 NOTES",
+          "Some facts belong to the session, not the document: who's here, who drives, and what they need to tell each other."
+        ],
+        "rules": [
+          {
+            "title": "The minimal presence idiom",
+            "href": "/guide/presence#presence-idiom",
+            "rule": "Declare one presence effect, use one typed payload, and remove the local session before the roster enters your model.",
+            "source": "RETRO BOARD (TUTORIAL) · SRC/RETRO_TUTORIAL_LUSTRE.GLEAM · STEP 05"
+          },
+          {
+            "title": "Ride an application protocol on ripples",
+            "href": "/guide/presence#protocol-on-ripples",
+            "rule": "Send short-lived coordination over ripples, not through a document channel.",
+            "source": "GROCERY TRIPTYCH · SRC/GROCERY_TRIPTYCH_LUSTRE/SCENARIO_PROTOCOL.GLEAM · STEP 05"
+          }
+        ]
+      },
+      {
+        "heading": "Testing & diagnostics",
+        "intro": [
+          "3 NOTES",
+          "Reproduce the failures that matter, and read the runtime's own diagnostics before you guess at a sync bug."
+        ],
+        "rules": [
+          {
+            "title": "Sample diagnostics on every event",
+            "href": "/guide/connect#diagnostics-first",
+            "rule": "Put the runtime's diagnostics on screen before you debug synchronization.",
+            "source": "COLLABORATIVE DICE · SRC/DICE_LUSTRE.GLEAM · STEP 01"
+          },
+          {
+            "title": "Extract pure modules; test without a server",
+            "href": "/guide/testing#pure-modules",
+            "rule": "Move decisions into pure modules so most tests need no document, sluice, or server.",
+            "source": "GROCERY TRIPTYCH · SRC/GROCERY_TRIPTYCH_LUSTRE/REFRESH_GUARD.GLEAM · STEP 06"
+          },
+          {
+            "title": "Test client death deterministically",
+            "href": "/guide/testing#deterministic-death",
+            "rule": "Test a client dying mid-job with an in-process disconnect that produces the same leave event as the server.",
+            "source": "WORK QUEUE · TEST/QUEUE_SEMANTICS_TEST.GLEAM · STEP 06"
+          }
+        ]
+      }
+    ],
+    "boundary": "Copy the constraint, not the whole design. The examples show lifecycle and ownership constraints, not boilerplate to copy whole. Reuse those rules; keep domain-specific state and views close to the app that needs them. Choose an example to trace →",
+    "boundaryLinks": [
+      [
+        "Choose an example to trace →",
+        "/examples"
+      ]
+    ],
+    "primary": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "COMPONENTS",
+        "/component-model"
+      ],
+      [
+        "GUIDE",
+        "/guide"
+      ],
+      [
+        "ATLAS",
+        "/structures"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "MODELS",
+        "/models"
+      ],
+      [
+        "EXAMPLES",
+        "/examples"
+      ],
+      [
+        "SOURCE ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "adjoining": [
+      [
+        "FOUNDATIONS",
+        "/foundations"
+      ],
+      [
+        "Overview",
+        "/foundations"
+      ],
+      [
+        "Schemas and fields",
+        "/foundations/schema"
+      ],
+      [
+        "Documents and handles",
+        "/foundations/topology"
+      ],
+      [
+        "Starting a document",
+        "/foundations/lifecycle"
+      ],
+      [
+        "COMPONENT MODEL",
+        "/component-model"
+      ],
+      [
+        "Overview",
+        "/component-model"
+      ],
+      [
+        "Components and catalogs",
+        "/component-model/components"
+      ],
+      [
+        "Ports and dispatch",
+        "/component-model/ports"
+      ],
+      [
+        "Workspaces and instances",
+        "/component-model/workspaces"
+      ],
+      [
+        "BUILD GUIDE",
+        "/guide"
+      ],
+      [
+        "Overview",
+        "/guide"
+      ],
+      [
+        "01 · Connect the board",
+        "/guide/connect"
+      ],
+      [
+        "02 · Add notes",
+        "/guide/notes"
+      ],
+      [
+        "03 · Try two edits at once",
+        "/guide/race"
+      ],
+      [
+        "04 · Add votes",
+        "/guide/votes"
+      ],
+      [
+        "05 · Add presence",
+        "/guide/presence"
+      ],
+      [
+        "06 · Write repeatable tests",
+        "/guide/testing"
+      ],
+      [
+        "DATA STRUCTURES",
+        "/structures"
+      ],
+      [
+        "Field atlas",
+        "/structures"
+      ],
+      [
+        "Counters",
+        "/structures/counters"
+      ],
+      [
+        "Sets",
+        "/structures/sets"
+      ],
+      [
+        "Registers",
+        "/structures/registers"
+      ],
+      [
+        "Maps",
+        "/structures/maps"
+      ],
+      [
+        "Sequences",
+        "/structures/sequences"
+      ],
+      [
+        "Coordination",
+        "/structures/coordination"
+      ],
+      [
+        "Transforms",
+        "/structures/transforms"
+      ],
+      [
+        "RUNTIME",
+        "/runtime"
+      ],
+      [
+        "Behaviors",
+        "/runtime"
+      ],
+      [
+        "Optimistic edits",
+        "/runtime/optimistic"
+      ],
+      [
+        "Reconnect & resync",
+        "/runtime/reconnect"
+      ],
+      [
+        "Idempotent re-delivery",
+        "/runtime/redelivery"
+      ],
+      [
+        "Presence & ripples",
+        "/runtime/presence"
+      ],
+      [
+        "Peer-to-peer over WebRTC",
+        "/runtime/p2p"
+      ],
+      [
+        "REFERENCE & DEMOS",
+        "/examples"
+      ],
+      [
+        "Browser examples",
+        "/examples"
+      ],
+      [
+        "Patterns",
+        "/patterns"
+      ],
+      [
+        "Convergence models",
+        "/models"
+      ],
+      [
+        "SharedTree comparison",
+        "/sharedtree"
+      ],
+      [
+        "The counter bug",
+        "/counter-bug"
+      ],
+      [
+        "Shared directory",
+        "/directory"
+      ],
+      [
+        "JsonOt",
+        "/json-ot"
+      ],
+      [
+        "Rich text",
+        "/rich-text"
+      ],
+      [
+        "Sudoku",
+        "/sudoku"
+      ],
+      [
+        "Source ↗",
+        "https://github.com/tylerbutler/watershed"
+      ]
+    ],
+    "viewportWidth": 390,
+    "scrollWidth": 390,
+    "fitsViewport": true,
+    "styles": {
+      "hero": {
+        "padding": "56px 20px 40px",
+        "border-bottom": "1px solid oklch(0.25 0.02 260 / 0.22)"
+      },
+      "heading": {
+        "font-size": "39px",
+        "font-weight": "640",
+        "font-stretch": "105%",
+        "line-height": "38.61px"
+      },
+      "main": {
+        "padding": "64px 20px 72px",
+        "max-width": "1152px"
+      },
+      "section": {
+        "display": "grid",
+        "grid-template-columns": "324px",
+        "gap": "24px",
+        "border-top": "1px solid oklch(0.25 0.02 260)"
+      },
+      "rule": {
+        "margin-top": "4px",
+        "max-width": "603.941px",
+        "color": "oklch(0.44 0.015 260)",
+        "line-height": "27.2px"
+      },
+      "boundary": {
+        "padding": "64px 20px",
+        "border-top": "1px solid oklch(0.25 0.02 260)",
+        "background-image": "repeating-linear-gradient(-45deg, rgba(0, 0, 0, 0), rgba(0, 0, 0, 0) 8px, oklch(0.25 0.02 260 / 0.11) 8px, oklch(0.25 0.02 260 / 0.11) 9px), none"
+      }
+    }
+  }
+}

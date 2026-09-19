@@ -14,7 +14,7 @@ default:
 # === STANDARD RECIPES ===
 
 # Compile the project
-build: _build-gleam _build-bundles
+build: _build-gleam _build-bundles _build-website-lustre
 
 # `trellis run` fans the Gleam compile across every member in dependency order.
 # Only `watershed` belongs to both target families, so each target is its own
@@ -30,7 +30,7 @@ _build-bundles:
     trellis run bundle --serial
 
 # Run tests
-test: _test-gleam _test-js _test-compile-fail _test-website-snippets
+test: _test-gleam _test-js _test-compile-fail _test-website-lustre
 
 # Every member with a `test/` directory, each on the target its own gleam.toml
 # pins. This covers the Lustre bindings package (grapheme diff, UTF-16 offset
@@ -81,26 +81,29 @@ _test-compile-fail:
     fi
     echo "ok  incompatible port payload types are rejected"
 
-# Source-backed snippet drift gates — the website test suite that enforces
-# every rendered snippet id is declared and generated, marker IDs are unique
-# and quoted, literal Gleam is allowlisted, only SnippetBlock renders code,
-# and only the loader reads the generated manifest. Regenerates the manifest
-# first, then runs the drift gate suite plus every targeted snippet test from
-# the website package, and the global-stylesheet test that keeps the
-# source-path chip keyboard-focusable — a snippet's citation is a link, so
-# losing its focus ring is a drift of the same system.
-_test-website-snippets: snippets
-    cd website && pnpm check:types && pnpm test:gleam-values && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:navigation && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles && pnpm test:netlify-contract && pnpm test:snippet-config
-
-# Generate the website's snippet manifest from `website/snippets.json`.
-# The output, `website/src/generated/snippets.json`, is ignored rather than
+# Generate the website's snippet manifest from `website_lustre/snippets.json`.
+# The output, `website_lustre/src/generated/snippets.json`, is ignored rather than
 # committed: it is derived from the marked sources and the configuration, so
-# a checked-in copy could only ever disagree with them. `pnpm build` and
-# `pnpm dev` run this too, so the website never reads a stale manifest.
+# a checked-in copy could only ever disagree with them. `just website-lustre`
+# and `just website-lustre-serve` run this too, so the website never reads a
+# stale manifest.
 snippets:
-    cd tools/source-snippets && gleam run -m source_snippets/cli -- ../../website/snippets.json ../../website/src/generated/snippets.json
+    cd tools/source-snippets && gleam run -m source_snippets/cli -- ../../website_lustre/snippets.json ../../website_lustre/src/generated/snippets.json
 
 alias website-snippets := snippets
+
+_build-website-lustre:
+    ./tools/build-website-lustre.sh
+
+website-lustre: _build-website-lustre
+
+website-lustre-serve: _build-website-lustre
+    pnpm --package=netlify-cli@27.4.1 dlx netlify dev --offline --framework "#static" --no-open --skip-gitignore --port 4321 --dir "{{justfile_directory()}}/website_lustre/dist"
+
+_test-website-lustre: _build-website-lustre
+    cd website_lustre && gleam test --target javascript
+    node --test website_lustre/test/*.test.mjs
+    cd website_lustre && pnpm run smoke
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,
 # CI/nightly-grade sweep than the fast profile plain `gleam test` uses by
