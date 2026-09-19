@@ -1,5 +1,5 @@
 lockfile_version: '1'
-generated_at: '2026-09-19T14:37:13.483143+00:00'
+generated_at: '2026-09-19T16:44:59.921781+00:00'
 apm_version: 0.31.0
 dependencies:
 - repo_url: obra/superpowers
@@ -572,6 +572,50 @@ dependencies:
     .claude/skills/caveman-commit/README.md: sha256:a2e82924b487fc1845114c247b47c2d3c2d1bd60f90bbfa60e9831319eb964fa
     .claude/skills/caveman-commit/SKILL.md: sha256:c788a282fc75b981b421dfdad5d84ea7f83f946c126daa39cfc7d3f97845e193
   content_hash: sha256:b416cf134b0f33ddadeca7977aebdbb2d3db79a166d0fce2e1aabeec98132766
+  is_dev: true
+- repo_url: udecode/dotai
+  name: unslop
+  host: github.com
+  resolved_commit: e4bc2af5a6e8d891c3340b141ab8bac211041c50
+  version: unknown
+  virtual_path: skills/unslop
+  is_virtual: true
+  depth: 2
+  resolved_by: tylerbutler/apm-base
+  package_type: claude_skill
+  deployed_files:
+  - .agents/skills/unslop
+  - .agents/skills/unslop/SKILL.md
+  - .agents/skills/unslop/references/modes-and-media.md
+  - .agents/skills/unslop/references/patterns.md
+  - .agents/skills/unslop/references/sources.md
+  - .agents/skills/unslop/references/voice-and-preservation.md
+  - .agents/skills/unslop/scripts/audit-prose.mjs
+  - .agents/skills/unslop/scripts/audit-prose.test.mjs
+  - .claude/skills/unslop
+  - .claude/skills/unslop/SKILL.md
+  - .claude/skills/unslop/references/modes-and-media.md
+  - .claude/skills/unslop/references/patterns.md
+  - .claude/skills/unslop/references/sources.md
+  - .claude/skills/unslop/references/voice-and-preservation.md
+  - .claude/skills/unslop/scripts/audit-prose.mjs
+  - .claude/skills/unslop/scripts/audit-prose.test.mjs
+  deployed_file_hashes:
+    .agents/skills/unslop/SKILL.md: sha256:4e5fd203f6066e6a1bf4ae4611538f1bac1383050d5f912ec60505865cd4f363
+    .agents/skills/unslop/references/modes-and-media.md: sha256:8880853e518126d2b78cb7b07842cdde0e34268e10720dc0eaa7dc68c70d9ef8
+    .agents/skills/unslop/references/patterns.md: sha256:a2529065d1fbe133a75425514b2c55a9bbc90aeec0daab08f7308ee952a4b874
+    .agents/skills/unslop/references/sources.md: sha256:659d0e7ced6537eeed1b7e1ec124a53cc14bc73de7a34077af04fb76a56460e3
+    .agents/skills/unslop/references/voice-and-preservation.md: sha256:19ddc4fdba1feef531e88dd2b5a3a90ba815a0fdc9b51176a0abd474c30c4fd1
+    .agents/skills/unslop/scripts/audit-prose.mjs: sha256:bbf53d0ddcc88000daca931e37d08ce2419fb2e075cba86e95e4b0c1e23b7138
+    .agents/skills/unslop/scripts/audit-prose.test.mjs: sha256:f1cb066815ecb07dbfdaefe4947c3177dfe0e09eaa689451724fbf3470109e91
+    .claude/skills/unslop/SKILL.md: sha256:4e5fd203f6066e6a1bf4ae4611538f1bac1383050d5f912ec60505865cd4f363
+    .claude/skills/unslop/references/modes-and-media.md: sha256:8880853e518126d2b78cb7b07842cdde0e34268e10720dc0eaa7dc68c70d9ef8
+    .claude/skills/unslop/references/patterns.md: sha256:a2529065d1fbe133a75425514b2c55a9bbc90aeec0daab08f7308ee952a4b874
+    .claude/skills/unslop/references/sources.md: sha256:659d0e7ced6537eeed1b7e1ec124a53cc14bc73de7a34077af04fb76a56460e3
+    .claude/skills/unslop/references/voice-and-preservation.md: sha256:19ddc4fdba1feef531e88dd2b5a3a90ba815a0fdc9b51176a0abd474c30c4fd1
+    .claude/skills/unslop/scripts/audit-prose.mjs: sha256:bbf53d0ddcc88000daca931e37d08ce2419fb2e075cba86e95e4b0c1e23b7138
+    .claude/skills/unslop/scripts/audit-prose.test.mjs: sha256:f1cb066815ecb07dbfdaefe4947c3177dfe0e09eaa689451724fbf3470109e91
+  content_hash: sha256:7c94127de659fdbd56cdfb87ef988251dc6e9505d8ee45b7685c1aa075219291
   is_dev: true
 deployments:
 - kind: project-relative
@@ -1627,6 +1671,78 @@ deployments:
   - obra/superpowers
   active_owner: obra/superpowers
   content_hash: sha256:51471c853306ff92ca8bb41dcaea05f31c0e46b03651f8f3c99754b7172f4ae1
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: null
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:4e5fd203f6066e6a1bf4ae4611538f1bac1383050d5f912ec60505865cd4f363
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop/references/modes-and-media.md
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:8880853e518126d2b78cb7b07842cdde0e34268e10720dc0eaa7dc68c70d9ef8
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop/references/patterns.md
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:a2529065d1fbe133a75425514b2c55a9bbc90aeec0daab08f7308ee952a4b874
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop/references/sources.md
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:659d0e7ced6537eeed1b7e1ec124a53cc14bc73de7a34077af04fb76a56460e3
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop/references/voice-and-preservation.md
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:19ddc4fdba1feef531e88dd2b5a3a90ba815a0fdc9b51176a0abd474c30c4fd1
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop/scripts/audit-prose.mjs
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:bbf53d0ddcc88000daca931e37d08ce2419fb2e075cba86e95e4b0c1e23b7138
+- kind: project-relative
+  target: claude
+  value: .claude/skills/unslop/scripts/audit-prose.test.mjs
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:f1cb066815ecb07dbfdaefe4947c3177dfe0e09eaa689451724fbf3470109e91
 - kind: project-relative
   target: claude
   value: .claude/skills/using-git-worktrees
@@ -2770,6 +2886,78 @@ deployments:
   - obra/superpowers
   active_owner: obra/superpowers
   content_hash: sha256:51471c853306ff92ca8bb41dcaea05f31c0e46b03651f8f3c99754b7172f4ae1
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: null
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop/SKILL.md
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:4e5fd203f6066e6a1bf4ae4611538f1bac1383050d5f912ec60505865cd4f363
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop/references/modes-and-media.md
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:8880853e518126d2b78cb7b07842cdde0e34268e10720dc0eaa7dc68c70d9ef8
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop/references/patterns.md
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:a2529065d1fbe133a75425514b2c55a9bbc90aeec0daab08f7308ee952a4b874
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop/references/sources.md
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:659d0e7ced6537eeed1b7e1ec124a53cc14bc73de7a34077af04fb76a56460e3
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop/references/voice-and-preservation.md
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:19ddc4fdba1feef531e88dd2b5a3a90ba815a0fdc9b51176a0abd474c30c4fd1
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop/scripts/audit-prose.mjs
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:bbf53d0ddcc88000daca931e37d08ce2419fb2e075cba86e95e4b0c1e23b7138
+- kind: project-relative
+  target: copilot
+  value: .agents/skills/unslop/scripts/audit-prose.test.mjs
+  runtime: null
+  scope: project
+  owners:
+  - udecode/dotai/skills/unslop
+  active_owner: udecode/dotai/skills/unslop
+  content_hash: sha256:f1cb066815ecb07dbfdaefe4947c3177dfe0e09eaa689451724fbf3470109e91
 - kind: project-relative
   target: copilot
   value: .agents/skills/using-git-worktrees
