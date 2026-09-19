@@ -27,10 +27,13 @@ entries=(
 )
 (cd website_lustre && "${builder}" build "${entries[@]}")
 
-client_dir="${repo_root}/website_lustre/build/static/.lustre/build/watershed_site/client"
+generated_dir="${repo_root}/website_lustre/build/static/.lustre"
+public_generated_dir="${repo_root}/website_lustre/build/static/lustre"
+mv "${generated_dir}" "${public_generated_dir}"
+client_dir="${public_generated_dir}/build/watershed_site/client"
 for entry in "${entries[@]}"; do
   name="${entry##*/}"
-  printf 'import "./.lustre/build/watershed_site/client/%s.js";\n' "${name}" \
+  printf 'import "./lustre/build/watershed_site/client/%s.js";\n' "${name}" \
     > "${repo_root}/website_lustre/build/static/${name}.js"
 done
 mv "${client_dir}/rich_text.css" "${repo_root}/website_lustre/build/static/rich_text.css"

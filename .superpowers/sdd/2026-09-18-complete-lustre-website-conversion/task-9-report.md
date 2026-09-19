@@ -32,3 +32,32 @@ below the 2.2 MB raw and 520 KB gzip budgets.
 The build still prints pre-existing dependency and repository warnings. The
 entry shims preserve stable asset URLs around the official CLI's nested
 multi-entry output layout.
+
+## Round 1 fix
+
+The stable public entry shims imported their generated modules from
+`/.lustre/`. The pinned GitHub artifact upload and Netlify deployment paths
+exclude dot-prefixed directories, so deployed interactive routes could not
+load those modules.
+
+- Added a deployment-filter contract that follows every relative import from
+  all eleven stable entry shims and rejects dependencies in hidden paths.
+- Confirmed the test failed on
+  `.lustre/build/watershed_site/client/counter_bug.js` before the fix.
+- Moved the generated entry tree to `/lustre/` at the same depth and updated
+  the shims. Shared chunks and stable public entry URLs are unchanged.
+
+### Round 1 validation
+
+- `just website-lustre` — PASS
+- `node --test website_lustre/test/deployment-filter-contract.test.mjs` — PASS
+- `cd website_lustre && gleam test --target javascript -- assets` — PASS
+  (190 tests)
+- `node --test website_lustre/test/*.test.mjs` — PASS (5 tests)
+- `cd website_lustre && CI=true pnpm run smoke` — PASS (24 browser programs)
+
+### Round 1 concerns
+
+The browser suite requires its existing CI launch mode on this host because
+Chromium cannot use the local sandbox. The build still prints the pre-existing
+dependency and repository warnings noted above.
