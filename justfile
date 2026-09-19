@@ -84,8 +84,9 @@ _test-compile-fail:
 # Generate the website's snippet manifest from `website_lustre/snippets.json`.
 # The output, `website_lustre/src/generated/snippets.json`, is ignored rather than
 # committed: it is derived from the marked sources and the configuration, so
-# a checked-in copy could only ever disagree with them. `pnpm build` and
-# `pnpm dev` run this too, so the website never reads a stale manifest.
+# a checked-in copy could only ever disagree with them. `just website-lustre`
+# and `just website-lustre-serve` run this too, so the website never reads a
+# stale manifest.
 snippets:
     cd tools/source-snippets && gleam run -m source_snippets/cli -- ../../website_lustre/snippets.json ../../website_lustre/src/generated/snippets.json
 
