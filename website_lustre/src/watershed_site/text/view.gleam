@@ -1,3 +1,4 @@
+import gleam/dynamic/decode.{type Decoder}
 import gleam/int
 import gleam/list
 import gleam/option.{None, Some}
@@ -58,7 +59,7 @@ fn mechanics(
         client(model, runtime.ClientA, "a", unavailable),
         client(model, runtime.ClientB, "b", unavailable),
         client(model, runtime.ClientC, "c", unavailable),
-        channel(),
+        channel(model),
         h.div(
           [
             a.class("flow-layer"),
@@ -139,12 +140,43 @@ fn client(
           a.rows(3),
           a.attribute("spellcheck", "false"),
           a.attribute("aria-describedby", "anchor-readout-" <> id),
+          a.attribute(
+            "data-composing",
+            case runtime.is_composing(model, replica) {
+              True -> "true"
+              False -> "false"
+            },
+          ),
           a.disabled(unavailable),
-          event.on_input(fn(value) {
-            runtime.Defer(runtime.ReplaceValue(replica, value))
-          }),
+          event.on(
+            "input",
+            value_decoder(fn(value, start, end) {
+              runtime.Defer(runtime.InputChanged(replica, value, start, end))
+            }),
+          ),
+          event.on("select", selection_decoder(replica)),
+          event.on("keyup", selection_decoder(replica)),
+          event.on("mouseup", selection_decoder(replica)),
+          event.on("focus", selection_decoder(replica)),
+          event.on(
+            "compositionstart",
+            value_decoder(fn(value, start, end) {
+              runtime.Defer(runtime.CompositionStarted(
+                replica,
+                value,
+                start,
+                end,
+              ))
+            }),
+          ),
+          event.on(
+            "compositionend",
+            value_decoder(fn(value, start, end) {
+              runtime.Defer(runtime.CompositionEnded(replica, value, start, end))
+            }),
+          ),
         ],
-        runtime.value(model, replica),
+        runtime.rendered_value(model, replica),
       ),
       h.div([a.class("pane-actions")], [
         button(
@@ -152,9 +184,15 @@ fn client(
           "data-anchor-pin",
           "Pin anchor at caret",
           unavailable,
-          runtime.NoOp,
+          runtime.Defer(runtime.PinAnchor(replica)),
         ),
-        button("node-action", "data-anchor-clear", "Clear", True, runtime.NoOp),
+        button(
+          "node-action",
+          "data-anchor-clear",
+          "Clear",
+          runtime.anchor_position(model, replica) == None,
+          runtime.Defer(runtime.ClearAnchor(replica)),
+        ),
         button(
           "node-action",
           "data-text-append",
@@ -176,13 +214,22 @@ fn client(
           a.attribute("data-anchor-readout", ""),
           a.attribute("role", "status"),
         ],
-        [h.text("no anchor pinned")],
+        [
+          h.text(case runtime.anchor_position(model, replica) {
+            None -> "no anchor pinned"
+            Some(position) ->
+              "anchor pinned @"
+              <> int.to_string(position.0)
+              <> " → now grapheme "
+              <> int.to_string(position.1)
+          }),
+        ],
       ),
     ],
   )
 }
 
-fn channel() -> Element(msg) {
+fn channel(model: runtime.Model) -> Element(msg) {
   h.div([a.class("channel"), a.style("grid-area", "seq")], [
     h.div([a.class("seq-node"), a.attribute("data-seq-node", "")], [
       h.span([a.class("annot")], [h.text("Sequencer")]),
@@ -192,7 +239,7 @@ fn channel() -> Element(msg) {
           a.attribute("data-seq-counter", ""),
           a.attribute("aria-label", "Latest sequence number"),
         ],
-        [h.text("SN")],
+        [h.text("SN " <> int.to_string(model.latest_sequence))],
       ),
     ]),
     h.ol(
@@ -202,7 +249,22 @@ fn channel() -> Element(msg) {
         a.attribute("aria-live", "polite"),
         a.attribute("aria-label", "Sequenced operations, newest first"),
       ],
-      [],
+      model.log
+        |> list.take(24)
+        |> list.map(fn(entry) {
+          h.li([], [
+            h.span([a.class("op-meta")], [
+              h.text(
+                "SN "
+                <> int.to_string(entry.sequence_number)
+                <> " · "
+                <> string.drop_start(runtime.replica_label(entry.author), 7),
+              ),
+            ]),
+            h.span([a.class("op-path")], [h.text(entry.label)]),
+            h.span([a.class("op-kind")], [h.text("op")]),
+          ])
+        }),
     ),
   ])
 }
@@ -216,16 +278,21 @@ fn controls(model: runtime.Model, unavailable: Bool) -> Element(runtime.Msg) {
         a.min("0.25"),
         a.max("2"),
         a.step("0.25"),
-        a.value("1"),
+        a.value(pace(model.pace_quarters)),
         a.attribute("data-text-pace", ""),
+        event.on_input(runtime.SetPace),
         a.disabled(unavailable),
       ]),
-      h.output([a.attribute("data-text-pace-out", "")], [h.text("1×")]),
+      h.output([a.attribute("data-text-pace-out", "")], [
+        h.text(pace(model.pace_quarters) <> "×"),
+      ]),
     ]),
     h.label([a.class("toggle")], [
       h.input([
         a.type_("checkbox"),
+        a.checked(model.jitter),
         a.attribute("data-text-latency-variance", ""),
+        event.on_check(runtime.SetJitter),
         a.disabled(unavailable),
       ]),
       h.span([a.class("annot")], [h.text("Jitter ±100 ms")]),
@@ -235,17 +302,21 @@ fn controls(model: runtime.Model, unavailable: Bool) -> Element(runtime.Msg) {
       "data-text-race-insert",
       "Crowd an insert",
       unavailable,
-      runtime.Defer(runtime.Insert(runtime.ClientB, 0, "still ")),
+      runtime.Defer(runtime.RaceInserts),
     ),
     button(
       "race-btn",
       "data-text-race-overlap",
       "Overlapping edit",
       unavailable,
-      runtime.Defer(runtime.ReplaceValue(
-        runtime.ClientB,
-        "levee " <> runtime.value(model, runtime.ClientB),
-      )),
+      runtime.Defer(runtime.RaceOverlap),
+    ),
+    button(
+      "race-btn",
+      "data-text-settle",
+      "Settle to quiescence",
+      unavailable,
+      runtime.Defer(runtime.Settle),
     ),
     button(
       "reset-btn",
@@ -436,4 +507,45 @@ fn error(model: runtime.Model) -> Element(msg) {
       Some(reason) -> [h.text(reason)]
     },
   )
+}
+
+fn value_decoder(
+  to_message: fn(String, Int, Int) -> runtime.Msg,
+) -> Decoder(runtime.Msg) {
+  use value <- decode.subfield(["target", "value"], decode.string)
+  use selection_start <- decode.then(caret("selectionStart"))
+  use selection_end <- decode.then(caret("selectionEnd"))
+  decode.success(to_message(value, selection_start, selection_end))
+}
+
+fn selection_decoder(replica: runtime.Replica) -> Decoder(runtime.Msg) {
+  use selection_start <- decode.then(caret("selectionStart"))
+  use selection_end <- decode.then(caret("selectionEnd"))
+  decode.success(runtime.SelectionChanged(
+    replica,
+    selection_start,
+    selection_end,
+  ))
+}
+
+fn caret(name: String) -> Decoder(Int) {
+  decode.optionally_at(
+    ["target", name],
+    -1,
+    decode.one_of(decode.int, or: [decode.success(-1)]),
+  )
+}
+
+fn pace(quarters: Int) -> String {
+  case quarters {
+    1 -> "0.25"
+    2 -> "0.5"
+    3 -> "0.75"
+    4 -> "1"
+    5 -> "1.25"
+    6 -> "1.5"
+    7 -> "1.75"
+    8 -> "2"
+    _ -> "1"
+  }
 }

@@ -1,11 +1,15 @@
+import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import lustre/effect.{type Effect}
 import watershed
 import watershed/sluice_js
 import watershed_lustre
 import watershed_lustre/grapheme_diff
+import watershed_lustre/grapheme_offset
+import watershed_site/demo/timing
 
 pub type Replica {
   ClientA
@@ -37,6 +41,23 @@ pub type Pending {
   )
 }
 
+pub type LogEntry {
+  LogEntry(sequence_number: Int, author: Replica, label: String)
+}
+
+pub type Composition {
+  Composition(
+    replica: Replica,
+    frozen: String,
+    region: #(Int, Int),
+    span: Result(#(watershed.TextAnchor, watershed.TextAnchor), Nil),
+  )
+}
+
+pub type PinnedAnchor {
+  PinnedAnchor(replica: Replica, pinned_at: Int, anchor: watershed.TextAnchor)
+}
+
 pub type Model {
   Model(
     phase: Phase,
@@ -44,7 +65,16 @@ pub type Model {
     values: List(#(Replica, String)),
     pending: List(Pending),
     cursors: List(#(Replica, String)),
+    selections: List(#(Replica, #(Int, Int))),
+    compositions: List(Composition),
+    committed_values: List(#(Replica, String)),
+    anchors: List(PinnedAnchor),
+    log: List(LogEntry),
     generation: Int,
+    pace_quarters: Int,
+    jitter: Bool,
+    latest_sequence: Int,
+    random_seed: Int,
     delivery_armed: Bool,
     error: Option(String),
     deferred_work: List(fn(Model) -> Result(#(Model, Model), String)),
@@ -60,9 +90,20 @@ pub type Msg {
   Started(generation: Int, outcome: Result(Model, String))
   Insert(Replica, Int, String)
   ReplaceValue(Replica, String)
+  InputChanged(Replica, String, Int, Int)
+  SelectionChanged(Replica, Int, Int)
+  CompositionStarted(Replica, String, Int, Int)
+  CompositionEnded(Replica, String, Int, Int)
+  PinAnchor(Replica)
+  ClearAnchor(Replica)
+  RaceInserts
+  RaceOverlap
   ElementChanged(Replica)
   CursorChanged(Replica, String)
   Deliver(generation: Int)
+  SetPace(String)
+  SetJitter(Bool)
+  Settle
   Reset
   EditorFailed(Replica, String)
 }
@@ -99,7 +140,16 @@ pub fn static_model() -> Model {
     values: initial_values(),
     pending: [],
     cursors: [],
+    selections: [],
+    compositions: [],
+    committed_values: [],
+    anchors: [],
+    log: [],
     generation: 0,
+    pace_quarters: 4,
+    jitter: False,
+    latest_sequence: 0,
+    random_seed: 41,
     delivery_armed: False,
     error: None,
     deferred_work: [],
@@ -133,13 +183,21 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Start if model.phase == Static -> init()
     Start -> #(model, effect.none())
     Started(_, Ok(ready)) -> #(
-      Model(..ready, generation: model.generation),
+      Model(
+        ..ready,
+        generation: model.generation,
+        pace_quarters: model.pace_quarters,
+        jitter: model.jitter,
+      ),
       effect.none(),
     )
     Started(_, Error(reason)) | EditorFailed(_, reason) -> fail(model, reason)
     Deferred(_, Error(reason)) -> finish_deferred_error(model, reason)
     Deferred(_, Ok(pair)) -> finish_deferred(model, pair.0, pair.1)
-    CursorChanged(_, _) -> update_now(model, message)
+    CursorChanged(_, _)
+    | SelectionChanged(_, _, _)
+    | SetPace(_)
+    | SetJitter(_) -> update_now(model, message)
     Defer(command) -> defer(model, command)
     _ -> defer(model, message)
   }
@@ -201,16 +259,37 @@ fn finish_deferred(
     Model(
       ..next,
       cursors: changed(model.cursors, before.cursors, next.cursors),
+      selections: changed(model.selections, before.selections, next.selections),
+      compositions: changed(
+        model.compositions,
+        before.compositions,
+        next.compositions,
+      ),
+      committed_values: changed(
+        model.committed_values,
+        before.committed_values,
+        next.committed_values,
+      ),
+      anchors: changed(model.anchors, before.anchors, next.anchors),
+      pace_quarters: changed(
+        model.pace_quarters,
+        before.pace_quarters,
+        next.pace_quarters,
+      ),
+      jitter: changed(model.jitter, before.jitter, next.jitter),
       deferred_work: remaining,
       work_running: False,
     )
   let #(next, delivery) = case
     !next.delivery_armed && !list.is_empty(next.pending)
   {
-    True -> #(
-      Model(..next, delivery_armed: True),
-      watershed_lustre.after(150, Deliver(next.generation)),
-    )
+    True -> {
+      let #(next, delay) = sampled_delay(next)
+      #(
+        Model(..next, delivery_armed: True),
+        watershed_lustre.after(delay, Deliver(next.generation)),
+      )
+    }
     False -> #(next, effect.none())
   }
   let #(next, work) = start_work(next)
@@ -256,11 +335,25 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       ]),
       effect.none(),
     )
+    SelectionChanged(replica, selection_start, selection_end) -> #(
+      set_selection(model, replica, selection_start, selection_end),
+      effect.none(),
+    )
+    SetPace(value) -> #(
+      Model(..model, pace_quarters: pace(value, model.pace_quarters)),
+      effect.none(),
+    )
+    SetJitter(value) -> #(Model(..model, jitter: value), effect.none())
     Reset ->
       case start_model() {
         Error(reason) -> fail(model, reason)
         Ok(reset) -> #(
-          Model(..reset, generation: model.generation + 1),
+          Model(
+            ..reset,
+            generation: model.generation + 1,
+            pace_quarters: model.pace_quarters,
+            jitter: model.jitter,
+          ),
           effect.none(),
         )
       }
@@ -272,40 +365,281 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         "insert",
       )
     ReplaceValue(replica, next_value) ->
-      case client_from_model(model, replica) {
-        Error(reason) -> fail(model, reason)
-        Ok(client) ->
-          case
-            grapheme_diff.diff(watershed.text_value(client.text), next_value)
-          {
-            grapheme_diff.NoChange -> #(model, effect.none())
-            grapheme_diff.Insert(index, inserted) ->
-              mutate(
-                model,
-                replica,
-                fn(text) { watershed.text_insert(text, index, inserted) },
-                "insert",
-              )
-            grapheme_diff.Delete(start, end) ->
-              mutate(
-                model,
-                replica,
-                fn(text) { watershed.text_delete_range(text, start, end) },
-                "delete",
-              )
-            grapheme_diff.Replace(start, end, inserted) ->
-              mutate(
-                model,
-                replica,
-                fn(text) {
-                  watershed.text_replace_range(text, start, end, inserted)
-                },
-                "replace",
-              )
-          }
-      }
+      replace_value(model, replica, next_value)
+    InputChanged(replica, next_value, selection_start, selection_end) ->
+      input_changed(model, replica, next_value, selection_start, selection_end)
+    CompositionStarted(replica, value, selection_start, selection_end) ->
+      composition_started(model, replica, value, selection_start, selection_end)
+    CompositionEnded(replica, value, selection_start, selection_end) ->
+      composition_ended(model, replica, value, selection_start, selection_end)
+    PinAnchor(replica) -> pin_anchor(model, replica)
+    ClearAnchor(replica) -> #(
+      Model(
+        ..model,
+        anchors: list.filter(model.anchors, fn(anchor) {
+          anchor.replica != replica
+        }),
+      ),
+      effect.none(),
+    )
+    RaceInserts -> race_inserts(model)
+    RaceOverlap -> race_overlap(model)
+    Settle -> settle(model)
     ElementChanged(replica) -> record_external_edit(model, replica)
     Deliver(_) -> deliver(model)
+  }
+}
+
+fn replace_value(
+  model: Model,
+  replica: Replica,
+  next_value: String,
+) -> #(Model, Effect(Msg)) {
+  case client_from_model(model, replica) {
+    Error(reason) -> fail(model, reason)
+    Ok(client) ->
+      apply_edit(
+        model,
+        replica,
+        grapheme_diff.diff(watershed.text_value(client.text), next_value),
+      )
+  }
+}
+
+fn input_changed(
+  model: Model,
+  replica: Replica,
+  next_value: String,
+  selection_start: Int,
+  selection_end: Int,
+) -> #(Model, Effect(Msg)) {
+  case composition(model, replica), committed_value(model, replica) {
+    Some(_), _ -> #(model, effect.none())
+    None, Some(committed) if committed == next_value -> #(
+      set_selection(
+        Model(
+          ..model,
+          committed_values: remove_key(model.committed_values, replica),
+        ),
+        replica,
+        selection_start,
+        selection_end,
+      ),
+      effect.none(),
+    )
+    None, _ -> {
+      let model =
+        Model(
+          ..model,
+          committed_values: remove_key(model.committed_values, replica),
+        )
+      let #(model, effect) = replace_value(model, replica, next_value)
+      #(set_selection(model, replica, selection_start, selection_end), effect)
+    }
+  }
+}
+
+fn composition_started(
+  model: Model,
+  replica: Replica,
+  frozen: String,
+  selection_start: Int,
+  selection_end: Int,
+) -> #(Model, Effect(Msg)) {
+  case client_from_model(model, replica) {
+    Error(reason) -> fail(model, reason)
+    Ok(client) -> {
+      let length = watershed.text_length(client.text)
+      let head = reported(frozen, selection_start, length)
+      let tail = reported(frozen, selection_end, length)
+      let region = #(int.min(head, tail), int.max(head, tail))
+      #(
+        Model(
+          ..model,
+          compositions: [
+            Composition(
+              replica:,
+              frozen:,
+              region:,
+              span: anchors(client.text, region.0, region.1),
+            ),
+            ..remove_composition(model.compositions, replica)
+          ],
+          committed_values: remove_key(model.committed_values, replica),
+        ),
+        effect.none(),
+      )
+    }
+  }
+}
+
+fn composition_ended(
+  model: Model,
+  replica: Replica,
+  next_value: String,
+  selection_start: Int,
+  selection_end: Int,
+) -> #(Model, Effect(Msg)) {
+  case composition(model, replica), client_from_model(model, replica) {
+    None, _ ->
+      input_changed(model, replica, next_value, selection_start, selection_end)
+    _, Error(reason) -> fail(model, reason)
+    Some(session), Ok(client) -> {
+      let #(start, end) = composition_site(client.text, session)
+      let edit = composition_edit(session, next_value, start, end)
+      let model =
+        Model(
+          ..model,
+          compositions: remove_composition(model.compositions, replica),
+          committed_values: [
+            #(replica, next_value),
+            ..remove_key(model.committed_values, replica)
+          ],
+        )
+      let #(model, effect) = apply_edit(model, replica, edit)
+      let shift = start - session.region.0
+      let length = next_value |> string.to_graphemes |> list.length
+      #(
+        set_grapheme_selection(
+          model,
+          replica,
+          reported(next_value, selection_start, length) + shift,
+          reported(next_value, selection_end, length) + shift,
+        ),
+        effect,
+      )
+    }
+  }
+}
+
+fn apply_edit(
+  model: Model,
+  replica: Replica,
+  edit: grapheme_diff.Edit,
+) -> #(Model, Effect(Msg)) {
+  case edit {
+    grapheme_diff.NoChange -> #(model, effect.none())
+    grapheme_diff.Insert(index, inserted) ->
+      mutate(
+        model,
+        replica,
+        fn(text) { watershed.text_insert(text, index, inserted) },
+        "insert",
+      )
+    grapheme_diff.Delete(start, end) ->
+      mutate(
+        model,
+        replica,
+        fn(text) { watershed.text_delete_range(text, start, end) },
+        "delete",
+      )
+    grapheme_diff.Replace(start, end, inserted) ->
+      mutate(
+        model,
+        replica,
+        fn(text) { watershed.text_replace_range(text, start, end, inserted) },
+        "replace",
+      )
+  }
+}
+
+fn set_selection(
+  model: Model,
+  replica: Replica,
+  selection_start: Int,
+  selection_end: Int,
+) -> Model {
+  let text = rendered_value(model, replica)
+  let length = text |> string.to_graphemes |> list.length
+  let start = reported(text, selection_start, length)
+  let end = reported(text, selection_end, length)
+  set_grapheme_selection(model, replica, start, end)
+}
+
+fn set_grapheme_selection(
+  model: Model,
+  replica: Replica,
+  start: Int,
+  end: Int,
+) -> Model {
+  Model(..model, selections: [
+    #(replica, #(start, end)),
+    ..remove_key(model.selections, replica)
+  ])
+}
+
+fn pin_anchor(model: Model, replica: Replica) -> #(Model, Effect(Msg)) {
+  case
+    client_from_model(model, replica),
+    list.key_find(model.selections, replica)
+  {
+    Error(reason), _ -> fail(model, reason)
+    _, Error(_) -> #(model, effect.none())
+    Ok(client), Ok(selection) ->
+      case
+        watershed.text_anchor_at(client.text, selection.0, watershed.bias_after)
+      {
+        Error(reason) -> fail(model, reason)
+        Ok(anchor) -> #(
+          Model(..model, anchors: [
+            PinnedAnchor(replica, selection.0, anchor),
+            ..list.filter(model.anchors, fn(item) { item.replica != replica })
+          ]),
+          effect.none(),
+        )
+      }
+  }
+}
+
+fn race_inserts(model: Model) -> #(Model, Effect(Msg)) {
+  case
+    find_grapheme(value(model, ClientB), "weir"),
+    find_grapheme(value(model, ClientC), "weir")
+  {
+    Ok(at_b), Ok(at_c) -> {
+      let model = transition(model, Insert(ClientB, at_b, "still "))
+      #(transition(model, Insert(ClientC, at_c, "calm ")), effect.none())
+    }
+    _, _ -> fail(model, "The text race target is not available.")
+  }
+}
+
+fn race_overlap(model: Model) -> #(Model, Effect(Msg)) {
+  case
+    find_grapheme(value(model, ClientB), "weir"),
+    find_grapheme(value(model, ClientC), "weir")
+  {
+    Ok(at_b), Ok(at_c) -> {
+      let #(model, _) =
+        mutate(
+          model,
+          ClientB,
+          fn(text) {
+            watershed.text_replace_range(text, at_b, at_b + 4, "levee")
+          },
+          "replace",
+        )
+      mutate(
+        model,
+        ClientC,
+        fn(text) { watershed.text_delete_range(text, at_c + 1, at_c + 3) },
+        "delete",
+      )
+    }
+    _, _ -> fail(model, "The text race target is not available.")
+  }
+}
+
+fn settle(model: Model) -> #(Model, Effect(Msg)) {
+  case model.pending {
+    [] -> #(Model(..model, phase: Ready, delivery_armed: False), effect.none())
+    [_, ..] -> {
+      let #(next, _) = deliver(Model(..model, delivery_armed: False))
+      case next.error {
+        Some(_) -> #(next, effect.none())
+        None -> settle(next)
+      }
+    }
   }
 }
 
@@ -429,6 +763,19 @@ fn deliver(model: Model) -> #(Model, Effect(Msg)) {
                   },
                   values: values(rig),
                   pending:,
+                  log: [
+                    LogEntry(
+                      delivery.sequence_number,
+                      author,
+                      pending_label(
+                        model.pending,
+                        next.channel,
+                        delivery.sequence_number,
+                      ),
+                    ),
+                    ..model.log
+                  ],
+                  latest_sequence: delivery.sequence_number,
                   delivery_armed: False,
                 ),
                 effect.none(),
@@ -462,6 +809,19 @@ fn acknowledge_pending(
       False -> item
     }
   })
+}
+
+fn pending_label(
+  pending: List(Pending),
+  channel: Channel,
+  sequence_number: Int,
+) -> String {
+  pending
+  |> list.find(fn(item) {
+    item.channel == channel && item.sequence_number == sequence_number
+  })
+  |> result.map(fn(item) { item.label })
+  |> result.unwrap("edit")
 }
 
 fn start_model() -> Result(Model, String) {
@@ -578,6 +938,17 @@ pub fn value(model: Model, replica: Replica) -> String {
   |> result.unwrap("")
 }
 
+pub fn rendered_value(model: Model, replica: Replica) -> String {
+  case composition(model, replica) {
+    Some(session) -> session.frozen
+    None -> value(model, replica)
+  }
+}
+
+pub fn is_composing(model: Model, replica: Replica) -> Bool {
+  composition(model, replica) != None
+}
+
 pub fn all_values_equal(model: Model) -> Bool {
   let mechanics = [
     value(model, ClientA),
@@ -587,6 +958,19 @@ pub fn all_values_equal(model: Model) -> Bool {
   case mechanics {
     [] -> True
     [first, ..rest] -> list.all(rest, fn(item) { item == first })
+  }
+}
+
+pub fn anchor_position(model: Model, replica: Replica) -> Option(#(Int, Int)) {
+  case
+    list.find(model.anchors, fn(anchor) { anchor.replica == replica }),
+    client_from_model(model, replica)
+  {
+    Ok(anchor), Ok(client) ->
+      watershed.text_resolve_anchor(client.text, anchor.anchor)
+      |> result.map(fn(index) { #(anchor.pinned_at, index) })
+      |> option_from_result
+    _, _ -> None
   }
 }
 
@@ -672,6 +1056,126 @@ fn option_from_result(value: Result(a, b)) -> Option(a) {
   case value {
     Ok(value) -> Some(value)
     Error(_) -> None
+  }
+}
+
+fn composition(model: Model, replica: Replica) -> Option(Composition) {
+  model.compositions
+  |> list.find(fn(session) { session.replica == replica })
+  |> option_from_result
+}
+
+fn remove_composition(
+  compositions: List(Composition),
+  replica: Replica,
+) -> List(Composition) {
+  list.filter(compositions, fn(session) { session.replica != replica })
+}
+
+fn committed_value(model: Model, replica: Replica) -> Option(String) {
+  model.committed_values |> list.key_find(replica) |> option_from_result
+}
+
+fn remove_key(values: List(#(a, b)), key: a) -> List(#(a, b)) {
+  list.filter(values, fn(item) { item.0 != key })
+}
+
+fn reported(text: String, offset: Int, length: Int) -> Int {
+  int.clamp(
+    grapheme_offset.from_utf16(text, int.max(offset, 0)),
+    min: 0,
+    max: length,
+  )
+}
+
+fn anchors(
+  text: watershed.SharedText,
+  start: Int,
+  end: Int,
+) -> Result(#(watershed.TextAnchor, watershed.TextAnchor), Nil) {
+  let head_bias = case start == end {
+    True -> watershed.bias_after
+    False -> watershed.bias_before
+  }
+  case
+    watershed.text_anchor_at(text, start, head_bias),
+    watershed.text_anchor_at(text, end, watershed.bias_after)
+  {
+    Ok(head), Ok(tail) -> Ok(#(head, tail))
+    _, _ -> Error(Nil)
+  }
+}
+
+fn composition_site(
+  text: watershed.SharedText,
+  composition: Composition,
+) -> #(Int, Int) {
+  let width = composition.region.1 - composition.region.0
+  case composition.span {
+    Error(Nil) -> composition.region
+    Ok(#(head, tail)) ->
+      case
+        watershed.text_resolve_anchor(text, head),
+        watershed.text_resolve_anchor(text, tail)
+      {
+        Ok(start), Ok(end) -> #(start, int.max(start, end))
+        Ok(start), Error(_) -> #(start, start + width)
+        Error(_), Ok(end) -> #(int.max(0, end - width), end)
+        Error(_), Error(_) -> composition.region
+      }
+  }
+}
+
+fn composition_edit(
+  composition: Composition,
+  value: String,
+  start: Int,
+  end: Int,
+) -> grapheme_diff.Edit {
+  case value == composition.frozen {
+    True -> grapheme_diff.NoChange
+    False ->
+      case
+        grapheme_diff.replacement(
+          old: composition.frozen,
+          new: value,
+          region: composition.region,
+        )
+      {
+        Ok(composed) -> grapheme_diff.splice(start:, end:, value: composed)
+        Error(Nil) ->
+          grapheme_diff.diff(old: composition.frozen, new: value)
+          |> grapheme_diff.shift(by: start - composition.region.0)
+      }
+  }
+}
+
+fn find_grapheme(text: String, target: String) -> Result(Int, Nil) {
+  case string.contains(text, target), string.split(text, target) {
+    True, [prefix, ..] -> Ok(prefix |> string.to_graphemes |> list.length)
+    _, _ -> Error(Nil)
+  }
+}
+
+fn sampled_delay(model: Model) -> #(Model, Int) {
+  let #(seed, sample) = timing.next_sample(model.random_seed)
+  #(
+    Model(..model, random_seed: seed),
+    timing.delay_ms(model.pace_quarters, model.jitter, sample),
+  )
+}
+
+fn pace(value: String, fallback: Int) -> Int {
+  case value {
+    "0.25" -> 1
+    "0.5" -> 2
+    "0.75" -> 3
+    "1" -> 4
+    "1.25" -> 5
+    "1.5" -> 6
+    "1.75" -> 7
+    "2" -> 8
+    _ -> fallback
   }
 }
 

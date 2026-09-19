@@ -82,6 +82,20 @@ async function startScenario(page, selector) {
 }
 
 await withBrowserSite(site, async (browser, origin) => {
+  const startup = await browser.newPage();
+  await startup.evaluateOnNewDocument(() => {
+    new MutationObserver(() => {
+      document.getElementById("rich-text-editor-a")?.remove();
+    }).observe(document, { childList: true, subtree: true });
+  });
+  await startup.goto(`${origin}/rich-text/`);
+  await startup.waitForFunction(
+    () => document.querySelector('[data-testid="rich-text-error"]')?.textContent.includes(
+      'Rich-text editor "rich-text-editor-a" was not found.',
+    ),
+  );
+  await startup.close();
+
   const { page, errors } = await openPage(browser);
   await page.setViewport({ width: 1440, height: 1000 });
   assert.equal((await page.goto(`${origin}/rich-text/`)).status(), 200);
@@ -120,7 +134,35 @@ await withBrowserSite(site, async (browser, origin) => {
     input.value = "2";
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  await page.waitForFunction(
+    () => document.querySelector("[data-rt-pace-out]")?.textContent === "2×",
+  );
+  assert.equal(
+    await page.$eval("[data-rt-pace-out]", (node) => node.textContent),
+    "2×",
+  );
+  await page.click("[data-rt-latency-variance]");
+  assert.equal(
+    await page.$eval("[data-rt-latency-variance]", (node) => node.checked),
+    true,
+  );
   const baseline = await waitForConvergence(page);
+  await page.click("#rich-text-editor-a .ql-editor");
+  await page.keyboard.press("Home");
+  await page.keyboard.down("Shift");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.up("Shift");
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[data-client="b"] [data-peer-list]')?.textContent.includes(
+        "Client A @",
+      ),
+  );
+  assert.equal(
+    await page.$$eval('[data-client="b"] .ql-cursor', (nodes) => nodes.length),
+    1,
+  );
   await startScenario(page, "[data-rt-race-type]");
   const flowLabel = await page.$eval(".flow-dot-label", (node) => {
     const box = node.getBoundingClientRect();
@@ -131,10 +173,16 @@ await withBrowserSite(site, async (browser, origin) => {
   });
   assert.ok(flowLabel.height <= 20);
   assert.equal(flowLabel.whiteSpace, "nowrap");
+  await page.click("[data-rt-settle]");
   const typed = await waitForConvergence(page);
   assert.notEqual(typed, baseline);
   assert.ok(typed.includes("⟨A⟩"));
   assert.ok(typed.includes("⟨B⟩"));
+  assert.match(
+    await page.$eval("[data-seq-counter]", (node) => node.textContent),
+    /^SN \d+$/,
+  );
+  assert.ok(await page.$$eval("[data-op-log] li", (nodes) => nodes.length > 0));
 
   await startScenario(page, "[data-rt-race-format]");
   const formatted = await waitForConvergence(page);
@@ -170,6 +218,12 @@ await withBrowserSite(site, async (browser, origin) => {
     baseline,
   );
   assert.equal(await waitForConvergence(page), baseline);
+  for (let reset = 0; reset < 3; reset += 1) {
+    await page.click("[data-rt-reset]");
+    await waitForConvergence(page);
+  }
+  assert.equal(await page.$$eval(".ql-toolbar", (nodes) => nodes.length), 3);
+  assert.equal(await page.$$eval(".ql-container", (nodes) => nodes.length), 3);
 
   const noJs = await browser.newPage();
   await noJs.setJavaScriptEnabled(false);

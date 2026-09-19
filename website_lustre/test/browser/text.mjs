@@ -42,7 +42,7 @@ async function converge(page) {
   const values = await page.$$eval("[data-text-editor]", (nodes) =>
     nodes.map((node) => node.value),
   );
-  assert.equal(new Set(values).size, 1);
+  assert.equal(new Set(values).size, 1, JSON.stringify(values));
   return values[0];
 }
 
@@ -97,6 +97,99 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.click("[data-text-race-overlap]");
   await waitForRevision(page);
   await converge(page);
+  assert.ok(
+    await page.$$eval("[data-op-log] li", (nodes) => nodes.length >= 4),
+    "both text races should log both replica operations",
+  );
+  assert.match(
+    await page.$eval("[data-seq-counter]", (node) => node.textContent),
+    /^SN \d+$/,
+  );
+  await page.$eval("[data-text-pace]", (input) => {
+    input.value = "2";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () => document.querySelector("[data-text-pace-out]")?.textContent === "2×",
+  );
+  assert.equal(
+    await page.$eval("[data-text-pace-out]", (node) => node.textContent),
+    "2×",
+  );
+  await page.click("[data-text-latency-variance]");
+  assert.equal(
+    await page.$eval("[data-text-latency-variance]", (node) => node.checked),
+    true,
+  );
+
+  const anchorEditor = await page.$('[data-client="a"] [data-text-editor]');
+  await anchorEditor.focus();
+  await page.$eval('[data-client="a"] [data-text-editor]', (node) => {
+    node.setSelectionRange(4, 4);
+    node.dispatchEvent(new Event("select", { bubbles: true }));
+  });
+  await page.click('[data-client="a"] [data-anchor-pin]');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[data-client="a"] [data-anchor-readout]')
+        ?.textContent.includes("anchor pinned @"),
+  );
+  assert.match(
+    await page.$eval('[data-client="a"] [data-anchor-readout]', (node) => node.textContent),
+    /anchor pinned @/,
+  );
+  await page.click('[data-client="a"] [data-anchor-clear]');
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[data-client="a"] [data-anchor-readout]')
+        ?.textContent === "no anchor pinned",
+  );
+  assert.equal(
+    await page.$eval('[data-client="a"] [data-anchor-readout]', (node) => node.textContent),
+    "no anchor pinned",
+  );
+
+  const imeBase = await page.$eval(
+    '[data-client="b"] [data-text-editor]',
+    (node) => node.value,
+  );
+  await page.$eval('[data-client="b"] [data-text-editor]', (node) => {
+    node.focus();
+    node.setSelectionRange(node.value.length, node.value.length);
+    node.dispatchEvent(new CompositionEvent("compositionstart", { bubbles: true }));
+  });
+  await page.waitForFunction(
+    () =>
+      document.querySelector('[data-client="b"] [data-text-editor]')
+        ?.dataset.composing === "true",
+  );
+  await page.$eval('[data-client="c"] [data-text-editor]', (node) => {
+    node.value = `remote ${node.value}`;
+    node.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertText",
+      data: "remote ",
+    }));
+  });
+  await page.waitForFunction(
+    (base) =>
+      document.querySelector('[data-client="a"] [data-text-editor]').value.startsWith("remote ") &&
+      document.querySelector('[data-client="b"] [data-text-editor]').value === base,
+    {},
+    imeBase,
+  );
+  await page.$eval('[data-client="b"] [data-text-editor]', (node) => {
+    node.value += " 水";
+    node.setSelectionRange(node.value.length, node.value.length);
+    node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
+    node.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertCompositionText",
+      data: " 水",
+    }));
+  });
+  await waitForRevision(page);
+  assert.match(await converge(page), /^remote .* 水$/);
   await page.click("[data-text-reset]");
   await converge(page);
 
@@ -120,6 +213,25 @@ await withBrowserSite(site, async (browser, origin) => {
       (node) => node.shadowRoot?.querySelector("textarea")?.value,
     );
     return values.length === 2 && values[0]?.endsWith(" shared") && values[0] === values[1];
+  });
+  const cursorPayload = JSON.stringify({
+    start: { kind: "start" },
+    end: { kind: "end" },
+  });
+  await page.$eval(
+    '[data-pane="a"] watershed-textarea',
+    (node, payload) => {
+      node.dispatchEvent(new CustomEvent("cursor", {
+        bubbles: true,
+        detail: JSON.parse(payload),
+      }));
+    },
+    cursorPayload,
+  );
+  await page.waitForFunction(() => {
+    const a = document.querySelector('[data-pane="a"] watershed-textarea');
+    const b = document.querySelector('[data-pane="b"] watershed-textarea');
+    return a.peers.length === 0 && b.peers.length === 1 && b.peers[0].id === "a";
   });
 
   const noJs = await browser.newPage();

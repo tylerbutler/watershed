@@ -1,5 +1,5 @@
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import lustre
 import lustre/effect.{type Effect}
 import lustre/element
@@ -22,6 +22,7 @@ pub type Msg {
   Mounted(runtime.Replica, Editor)
   MountFailed(runtime.Replica, String)
   EditorDelta(runtime.Replica, String)
+  EditorSelection(runtime.Replica, Int, Int)
   Unmounted(runtime.Replica)
 }
 
@@ -30,6 +31,7 @@ fn mount(
   element_id: String,
   initial_document: String,
   on_user_delta: fn(String) -> Nil,
+  on_selection: fn(Int, Int) -> Nil,
   on_mounted: fn(Editor) -> Nil,
   on_error: fn(String) -> Nil,
 ) -> Nil
@@ -39,6 +41,24 @@ fn apply_remote(editor: Editor, delta: String) -> Nil
 
 @external(javascript, "./rich_text_ffi.mjs", "setEnabled")
 fn set_enabled(editor: Editor, enabled: Bool) -> Nil
+
+@external(javascript, "./rich_text_ffi.mjs", "loadDocument")
+fn load_document(editor: Editor, document: String) -> Nil
+
+@external(javascript, "./rich_text_ffi.mjs", "renderSelections")
+fn render_selections(editor: Editor, selections: String) -> Nil
+
+@external(javascript, "./rich_text_ffi.mjs", "raceType")
+fn race_type(editor_a: Editor, editor_b: Editor) -> Nil
+
+@external(javascript, "./rich_text_ffi.mjs", "raceFormat")
+fn race_format(editor_a: Editor, editor_c: Editor) -> Nil
+
+@external(javascript, "./rich_text_ffi.mjs", "raceDelete")
+fn race_delete(editor_a: Editor, editor_b: Editor) -> Nil
+
+@external(javascript, "./rich_text_ffi.mjs", "insertEmbed")
+fn insert_embed(editor: Editor) -> Nil
 
 @external(javascript, "./rich_text_ffi.mjs", "destroy")
 fn destroy(editor: Editor) -> Nil
@@ -63,11 +83,24 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
   let #(model, effects) = case message {
     Runtime(message) -> {
       let #(runtime, effects) = runtime.update(model.runtime, message)
-      #(Model(..model, runtime:), effect.map(effects, Runtime))
+      #(
+        Model(..model, runtime:),
+        effect.batch([
+          effect.map(effects, Runtime),
+          scenario_effect(model, message),
+        ]),
+      )
     }
     Mounted(replica, editor) -> {
       let runtime =
         runtime.transition(model.runtime, runtime.DocumentLoaded(replica))
+      let cleanup = case model.editors |> list.key_find(replica) {
+        Error(_) -> effect.none()
+        Ok(previous) -> {
+          use _dispatch <- effect.from
+          destroy(previous)
+        }
+      }
       #(
         Model(
           runtime:,
@@ -77,7 +110,7 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           ],
           mounting: list.filter(model.mounting, fn(item) { item != replica }),
         ),
-        effect.none(),
+        cleanup,
       )
     }
     MountFailed(replica, reason) -> {
@@ -108,6 +141,14 @@ fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           #(Model(..model, runtime:), effect.map(effects, Runtime))
         }
       }
+    EditorSelection(replica, index, length) -> {
+      let message = case index < 0 || length < 0 {
+        True -> runtime.SelectionCleared(replica)
+        False -> runtime.SelectionChanged(replica, index, length)
+      }
+      let #(runtime, effects) = runtime.update(model.runtime, message)
+      #(Model(..model, runtime:), effect.map(effects, Runtime))
+    }
     Unmounted(replica) -> #(
       Model(
         ..model,
@@ -129,8 +170,9 @@ fn sync_adapters(model: Model) -> #(Model, Effect(Msg)) {
   let reload_effects =
     list.map(reloads, fn(item) {
       use dispatch <- effect.from
-      destroy(item.1)
-      dispatch(Unmounted(item.0))
+      let assert Some(document) = runtime.document_reload(model.runtime, item.0)
+      load_document(item.1, document)
+      dispatch(Runtime(runtime.DocumentLoaded(item.0)))
     })
   let reloading = list.map(reloads, fn(item) { item.0 })
 
@@ -165,6 +207,11 @@ fn sync_adapters(model: Model) -> #(Model, Effect(Msg)) {
           || model.runtime.phase == runtime.Delivering,
       )
     })
+  let selection_effects =
+    list.map(model.editors, fn(item) {
+      use _dispatch <- effect.from
+      render_selections(item.1, runtime.selections_json(model.runtime, item.0))
+    })
 
   let missing =
     runtime.replicas()
@@ -183,6 +230,7 @@ fn sync_adapters(model: Model) -> #(Model, Effect(Msg)) {
         "rich-text-editor-" <> runtime.replica_id(replica),
         runtime.document_json(model.runtime, replica),
         fn(raw) { dispatch(EditorDelta(replica, raw)) },
+        fn(index, length) { dispatch(EditorSelection(replica, index, length)) },
         fn(editor) { dispatch(Mounted(replica, editor)) },
         fn(reason) { dispatch(MountFailed(replica, reason)) },
       )
@@ -195,8 +243,48 @@ fn sync_adapters(model: Model) -> #(Model, Effect(Msg)) {
         reload_effects,
         change_effects,
         enable_effects,
+        selection_effects,
         mount_effects,
       ]),
     ),
   )
+}
+
+fn scenario_effect(model: Model, message: runtime.Msg) -> Effect(Msg) {
+  case message {
+    runtime.RaceType ->
+      with_two_editors(model, runtime.ClientA, runtime.ClientB, race_type)
+    runtime.RaceFormat ->
+      with_two_editors(model, runtime.ClientA, runtime.ClientC, race_format)
+    runtime.RaceDelete ->
+      with_two_editors(model, runtime.ClientA, runtime.ClientB, race_delete)
+    runtime.ScenarioEmbed ->
+      case editor(model, runtime.ClientC) {
+        Error(Nil) -> effect.none()
+        Ok(editor) -> {
+          use _dispatch <- effect.from
+          insert_embed(editor)
+        }
+      }
+    _ -> effect.none()
+  }
+}
+
+fn with_two_editors(
+  model: Model,
+  first: runtime.Replica,
+  second: runtime.Replica,
+  action: fn(Editor, Editor) -> Nil,
+) -> Effect(Msg) {
+  case editor(model, first), editor(model, second) {
+    Ok(first), Ok(second) -> {
+      use _dispatch <- effect.from
+      action(first, second)
+    }
+    _, _ -> effect.none()
+  }
+}
+
+fn editor(model: Model, replica: runtime.Replica) -> Result(Editor, Nil) {
+  model.editors |> list.key_find(replica)
 }

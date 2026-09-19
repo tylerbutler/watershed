@@ -1,3 +1,5 @@
+import gleam/int
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import lustre/attribute.{type Attribute} as a
@@ -32,7 +34,7 @@ pub fn view(
         client(model, runtime.ClientA, "a"),
         client(model, runtime.ClientB, "b"),
         client(model, runtime.ClientC, "c"),
-        channel(),
+        channel(model),
         h.div(
           [
             a.class("flow-layer"),
@@ -167,14 +169,16 @@ fn client(
           ],
         ),
       ]),
-      h.div(
-        [
-          a.id("rich-text-editor-" <> id),
-          a.class("quill-mount"),
-          a.attribute("data-quill-root", ""),
-        ],
-        [],
-      ),
+      element.memo([], fn() {
+        h.div(
+          [
+            a.id("rich-text-editor-" <> id),
+            a.class("quill-mount"),
+            a.attribute("data-quill-root", ""),
+          ],
+          [],
+        )
+      }),
       h.footer([a.class("client-foot")], [
         h.p([a.class("canonical annot"), a.attribute("data-canonical", "")], [
           h.text("“" <> canonical(model, replica) <> "”"),
@@ -188,7 +192,7 @@ fn client(
               "Peer selections visible to " <> runtime.replica_label(replica),
             ),
           ],
-          [],
+          peer_items(model, replica),
         ),
       ]),
     ],
@@ -203,7 +207,7 @@ fn canonical(model: runtime.Model, replica: runtime.Replica) -> String {
   }
 }
 
-fn channel() -> Element(msg) {
+fn channel(model: runtime.Model) -> Element(msg) {
   h.div([a.class("channel"), a.style("grid-area", "seq")], [
     h.div([a.class("seq-node"), a.attribute("data-seq-node", "")], [
       h.span([a.class("annot")], [h.text("Sequencer")]),
@@ -213,7 +217,7 @@ fn channel() -> Element(msg) {
           a.attribute("data-seq-counter", ""),
           a.attribute("aria-label", "Latest sequence number"),
         ],
-        [h.text("SN")],
+        [h.text("SN " <> int.to_string(model.latest_sequence))],
       ),
     ]),
     h.ol(
@@ -223,7 +227,22 @@ fn channel() -> Element(msg) {
         a.attribute("aria-live", "polite"),
         a.attribute("aria-label", "Sequenced rich-text ops, newest first"),
       ],
-      [],
+      model.log
+        |> list.take(24)
+        |> list.map(fn(entry) {
+          h.li([], [
+            h.span([a.class("op-meta")], [
+              h.text(
+                "SN "
+                <> int.to_string(entry.sequence_number)
+                <> " · "
+                <> string.drop_start(runtime.replica_label(entry.author), 7),
+              ),
+            ]),
+            h.span([a.class("op-path")], [h.text(entry.label)]),
+            h.span([a.class("op-kind")], [h.text("op")]),
+          ])
+        }),
     ),
   ])
 }
@@ -237,19 +256,24 @@ fn controls(model: runtime.Model, unavailable: Bool) -> Element(runtime.Msg) {
         a.min("0.25"),
         a.max("2"),
         a.step("0.25"),
-        a.value("1"),
+        a.value(pace(model.pace_quarters)),
         a.attribute("data-rt-pace", ""),
         a.title("Playback only; does not affect simulated ordering."),
         a.disabled(unavailable),
+        event.on_input(runtime.SetPace),
       ]),
-      h.output([a.attribute("data-rt-pace-out", "")], [h.text("1×")]),
+      h.output([a.attribute("data-rt-pace-out", "")], [
+        h.text(pace(model.pace_quarters) <> "×"),
+      ]),
     ]),
     h.label([a.class("field-notes-toggle")], [
       h.input([
         a.type_("checkbox"),
+        a.checked(model.jitter),
         a.attribute("data-rt-latency-variance", ""),
         a.title("Add random ±100 ms per hop; arrival order may change."),
         a.disabled(unavailable),
+        event.on_check(runtime.SetJitter),
       ]),
       h.span([a.class("annot")], [h.text("Jitter ±100 ms")]),
     ]),
@@ -284,28 +308,28 @@ fn scenarios(model: runtime.Model, unavailable: Bool) -> Element(runtime.Msg) {
       "data-rt-race-type",
       "Race: type at the same spot",
       unavailable,
-      runtime.NoOp,
+      runtime.RaceType,
     ),
     scenario(
       "scenario-btn",
       "data-rt-race-format",
       "Race: bold vs. color, same span",
       unavailable,
-      runtime.NoOp,
+      runtime.RaceFormat,
     ),
     scenario(
       "scenario-btn",
       "data-rt-race-delete",
       "Race: delete vs. format",
       unavailable,
-      runtime.NoOp,
+      runtime.RaceDelete,
     ),
     scenario(
       "scenario-btn",
       "data-rt-embed",
       "Insert an image embed",
       unavailable,
-      runtime.NoOp,
+      runtime.ScenarioEmbed,
     ),
     scenario(
       "scenario-btn",
@@ -319,7 +343,7 @@ fn scenarios(model: runtime.Model, unavailable: Bool) -> Element(runtime.Msg) {
       "data-rt-settle",
       "Settle to quiescence",
       unavailable,
-      runtime.NoOp,
+      runtime.Defer(runtime.Settle),
     ),
     scenario(
       "reset-btn",
@@ -354,5 +378,63 @@ fn mounted(model: runtime.Model) -> List(Attribute(msg)) {
   case model.phase {
     runtime.Ready | runtime.Delivering -> [a.attribute("data-mounted", "")]
     _ -> []
+  }
+}
+
+fn peer_items(
+  model: runtime.Model,
+  viewer: runtime.Replica,
+) -> List(Element(msg)) {
+  runtime.replicas()
+  |> list.filter(fn(peer) { peer != viewer })
+  |> list.filter_map(fn(peer) {
+    case runtime.peer_selection(model, viewer, peer) {
+      None -> Error(Nil)
+      Some(#(index, length)) ->
+        Ok(
+          h.li([], [
+            h.span(
+              [
+                a.class("peer-swatch"),
+                a.style("background", peer_colour(peer)),
+              ],
+              [],
+            ),
+            h.span([], [
+              h.text(
+                runtime.replica_label(peer)
+                <> " @"
+                <> int.to_string(index)
+                <> case length > 0 {
+                  True -> "–" <> int.to_string(index + length)
+                  False -> ""
+                },
+              ),
+            ]),
+          ]),
+        )
+    }
+  })
+}
+
+fn peer_colour(replica: runtime.Replica) -> String {
+  case replica {
+    runtime.ClientA -> "var(--client-a)"
+    runtime.ClientB -> "var(--client-b)"
+    runtime.ClientC -> "var(--client-c)"
+  }
+}
+
+fn pace(quarters: Int) -> String {
+  case quarters {
+    1 -> "0.25"
+    2 -> "0.5"
+    3 -> "0.75"
+    4 -> "1"
+    5 -> "1.25"
+    6 -> "1.5"
+    7 -> "1.75"
+    8 -> "2"
+    _ -> "1"
   }
 }

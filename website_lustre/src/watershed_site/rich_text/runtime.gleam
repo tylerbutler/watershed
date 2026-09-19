@@ -1,3 +1,4 @@
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -11,6 +12,7 @@ import watershed/rich_text_kernel.{type RichTextEvent, RichTextChanged}
 import watershed/sluice_js
 import watershed/transport_js
 import watershed_lustre
+import watershed_site/demo/timing
 
 pub type Replica {
   ClientA
@@ -35,7 +37,15 @@ pub type Snapshot {
 }
 
 pub type AdapterChange {
-  AdapterChange(replica: Replica, delta: String)
+  AdapterChange(replica: Replica, delta: String, author: Replica)
+}
+
+pub type PeerSelection {
+  PeerSelection(viewer: Replica, peer: Replica, index: Int, length: Int)
+}
+
+pub type LogEntry {
+  LogEntry(sequence_number: Int, author: Replica, label: String)
 }
 
 pub type Model {
@@ -46,7 +56,13 @@ pub type Model {
     pending: List(Pending),
     changes: List(AdapterChange),
     reloads: List(#(Replica, String)),
+    selections: List(PeerSelection),
+    log: List(LogEntry),
     generation: Int,
+    pace_quarters: Int,
+    jitter: Bool,
+    latest_sequence: Int,
+    random_seed: Int,
     delivery_armed: Bool,
     error: Option(String),
     deferred_work: List(fn(Model) -> Result(#(Model, Model), String)),
@@ -61,7 +77,16 @@ pub type Msg {
   Start
   Started(generation: Int, outcome: Result(Model, String))
   EditorChanged(Replica, rich_text.Delta)
+  SelectionChanged(Replica, Int, Int)
+  SelectionCleared(Replica)
   Deliver(generation: Int)
+  SetPace(String)
+  SetJitter(Bool)
+  Settle
+  RaceType
+  RaceFormat
+  RaceDelete
+  ScenarioEmbed
   Reset
   Reconnect(Replica)
   AdapterApplied(Replica)
@@ -100,7 +125,13 @@ pub fn static_model() -> Model {
     pending: [],
     changes: [],
     reloads: [],
+    selections: [],
+    log: [],
     generation: 0,
+    pace_quarters: 4,
+    jitter: False,
+    latest_sequence: 0,
+    random_seed: 73,
     delivery_armed: False,
     error: None,
     deferred_work: [],
@@ -134,14 +165,24 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Start if model.phase == Static -> init()
     Start -> #(model, effect.none())
     Started(_, Ok(ready)) -> #(
-      Model(..ready, generation: model.generation),
+      Model(
+        ..ready,
+        generation: model.generation,
+        pace_quarters: model.pace_quarters,
+        jitter: model.jitter,
+      ),
       effect.none(),
     )
     Started(_, Error(reason)) | AdapterFailed(_, reason) -> fail(model, reason)
     Deferred(_, Error(reason)) -> finish_deferred_error(model, reason)
     Deferred(_, Ok(pair)) -> finish_deferred(model, pair.0, pair.1)
-    AdapterApplied(_) | AdaptersApplied | DocumentLoaded(_) ->
-      update_now(model, message)
+    AdapterApplied(_)
+    | AdaptersApplied
+    | DocumentLoaded(_)
+    | SelectionChanged(_, _, _)
+    | SelectionCleared(_)
+    | SetPace(_)
+    | SetJitter(_) -> update_now(model, message)
     Defer(command) -> defer(model, command)
     _ -> defer(model, message)
   }
@@ -204,16 +245,26 @@ fn finish_deferred(
       ..next,
       changes: changed(model.changes, before.changes, next.changes),
       reloads: changed(model.reloads, before.reloads, next.reloads),
+      selections: changed(model.selections, before.selections, next.selections),
+      pace_quarters: changed(
+        model.pace_quarters,
+        before.pace_quarters,
+        next.pace_quarters,
+      ),
+      jitter: changed(model.jitter, before.jitter, next.jitter),
       deferred_work: remaining,
       work_running: False,
     )
   let #(next, delivery) = case
     !next.delivery_armed && !list.is_empty(next.pending)
   {
-    True -> #(
-      Model(..next, delivery_armed: True),
-      watershed_lustre.after(150, Deliver(next.generation)),
-    )
+    True -> {
+      let #(next, delay) = sampled_delay(next)
+      #(
+        Model(..next, delivery_armed: True),
+        watershed_lustre.after(delay, Deliver(next.generation)),
+      )
+    }
     False -> #(next, effect.none())
   }
   let #(next, work) = start_work(next)
@@ -269,18 +320,41 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       ),
       effect.none(),
     )
+    SelectionChanged(replica, index, length) -> #(
+      publish_selection(model, replica, Some(#(index, length))),
+      effect.none(),
+    )
+    SelectionCleared(replica) -> #(
+      publish_selection(model, replica, None),
+      effect.none(),
+    )
+    SetPace(value) -> #(
+      Model(..model, pace_quarters: pace(value, model.pace_quarters)),
+      effect.none(),
+    )
+    SetJitter(value) -> #(Model(..model, jitter: value), effect.none())
     Reset -> {
       stop(model)
       case start_model() {
         Error(reason) -> fail(model, reason)
         Ok(reset) -> #(
-          Model(..reset, generation: model.generation + 1),
+          Model(
+            ..reset,
+            generation: model.generation + 1,
+            pace_quarters: model.pace_quarters,
+            jitter: model.jitter,
+          ),
           effect.none(),
         )
       }
     }
     Reconnect(replica) -> reconnect(model, replica)
     EditorChanged(replica, delta) -> submit(model, replica, delta)
+    Settle -> settle(model)
+    RaceType | RaceFormat | RaceDelete | ScenarioEmbed -> #(
+      model,
+      effect.none(),
+    )
     Deliver(_) -> deliver(model)
   }
 }
@@ -314,6 +388,7 @@ fn submit(
                 label: describe(delta),
               ),
             ]),
+            selections: transform_viewer(model.selections, replica, delta, None),
           ),
           effect.none(),
         )
@@ -352,23 +427,39 @@ fn deliver(model: Model) -> #(Model, Effect(Msg)) {
                 )
               case project_all(rig) {
                 Error(reason) -> fail(model, reason)
-                Ok(snapshots) -> #(
-                  Model(
-                    ..model,
-                    phase: case list.is_empty(pending) {
-                      True -> Ready
-                      False -> Delivering
-                    },
-                    snapshots:,
-                    pending:,
-                    changes: list.append(
-                      model.changes,
-                      remote_changes(rig, author),
+                Ok(snapshots) -> {
+                  let changes = remote_changes(rig, author)
+                  #(
+                    Model(
+                      ..model,
+                      phase: case list.is_empty(pending) {
+                        True -> Ready
+                        False -> Delivering
+                      },
+                      snapshots:,
+                      pending:,
+                      changes: list.append(model.changes, changes),
+                      selections: list.fold(
+                        changes,
+                        model.selections,
+                        fn(selections, change) {
+                          transform_change(selections, change, author)
+                        },
+                      ),
+                      log: [
+                        LogEntry(
+                          delivery.sequence_number,
+                          author,
+                          pending_label(model.pending, delivery.sequence_number),
+                        ),
+                        ..model.log
+                      ],
+                      latest_sequence: delivery.sequence_number,
+                      delivery_armed: False,
                     ),
-                    delivery_armed: False,
-                  ),
-                  effect.none(),
-                )
+                    effect.none(),
+                  )
+                }
               }
             }
           }
@@ -382,27 +473,117 @@ fn reconnect(model: Model, replica: Replica) -> #(Model, Effect(Msg)) {
     Some(rig), Ok(client) -> {
       sluice_js.reconnect(rig.sluice, client.document)
       sluice_js.settle(rig.sluice)
-      case project_all(rig) {
+      case refresh_client_identity(rig, client) {
         Error(reason) -> fail(model, reason)
-        Ok(snapshots) -> #(
-          Model(
-            ..model,
-            phase: Ready,
-            snapshots:,
-            pending: [],
-            changes: [],
-            reloads: set_reload(
-              model.reloads,
-              replica,
-              document_for(snapshots, replica),
-            ),
-          ),
-          effect.none(),
-        )
+        Ok(refreshed) ->
+          case project_all(refreshed) {
+            Error(reason) -> fail(model, reason)
+            Ok(snapshots) -> #(
+              Model(
+                ..model,
+                phase: Ready,
+                rig: Some(refreshed),
+                snapshots:,
+                pending: [],
+                changes: [],
+                reloads: list.map(snapshots, fn(snapshot) {
+                  #(snapshot.replica, document_json_from(snapshot.document))
+                }),
+              ),
+              effect.none(),
+            )
+          }
       }
     }
     _, Error(reason) -> fail(model, reason)
     None, _ -> fail(model, "The rich-text rig is not available.")
+  }
+}
+
+fn settle(model: Model) -> #(Model, Effect(Msg)) {
+  case model.pending {
+    [] -> #(Model(..model, phase: Ready, delivery_armed: False), effect.none())
+    [_, ..] -> {
+      let #(next, _) = deliver(Model(..model, delivery_armed: False))
+      case next.error {
+        Some(_) -> #(next, effect.none())
+        None -> settle(next)
+      }
+    }
+  }
+}
+
+fn refresh_client_identity(rig: Rig, client: Client) -> Result(Rig, String) {
+  use client_id <- result.try(
+    sluice_js.client_id(rig.sluice, client.document)
+    |> result.replace_error("Missing client ID after reconnect."),
+  )
+  let refreshed = Client(..client, client_id:)
+  Ok(
+    Rig(..rig, clients: [
+      refreshed,
+      ..list.filter(rig.clients, fn(item) { item.replica != client.replica })
+    ]),
+  )
+}
+
+fn publish_selection(
+  model: Model,
+  peer: Replica,
+  selection: Option(#(Int, Int)),
+) -> Model {
+  let selections = list.filter(model.selections, fn(item) { item.peer != peer })
+  case selection {
+    None -> Model(..model, selections:)
+    Some(#(index, length)) ->
+      Model(
+        ..model,
+        selections: list.append(
+          selections,
+          replicas()
+            |> list.filter(fn(viewer) { viewer != peer })
+            |> list.map(fn(viewer) {
+              PeerSelection(viewer, peer, int.max(0, index), int.max(0, length))
+            }),
+        ),
+      )
+  }
+}
+
+fn transform_viewer(
+  selections: List(PeerSelection),
+  viewer: Replica,
+  delta: rich_text.Delta,
+  author: Option(Replica),
+) -> List(PeerSelection) {
+  list.map(selections, fn(item) {
+    case item.viewer == viewer, author == Some(item.peer) {
+      False, _ | True, True -> item
+      True, False -> {
+        let assert Ok(selection) = rich_text.selection(item.index, item.length)
+        case rich_text.transform_selection(delta, selection, False) {
+          Error(_) -> item
+          Ok(transformed) ->
+            PeerSelection(
+              ..item,
+              index: rich_text.selection_index(transformed),
+              length: rich_text.selection_length(transformed),
+            )
+        }
+      }
+    }
+  })
+}
+
+fn transform_change(
+  selections: List(PeerSelection),
+  change: AdapterChange,
+  author: Replica,
+) -> List(PeerSelection) {
+  case rich_text.parse_delta(change.delta) {
+    Error(_) -> selections
+    Ok(delta) ->
+      transform_viewer(selections, change.replica, delta, Some(author))
   }
 }
 
@@ -500,7 +681,7 @@ fn remote_changes(rig: Rig, author: Replica) -> List(AdapterChange) {
       case event {
         RichTextChanged(_, True) -> Error(Nil)
         RichTextChanged(delta, False) ->
-          Ok(AdapterChange(client.replica, delta_json(delta)))
+          Ok(AdapterChange(client.replica, delta_json(delta), author))
       }
     })
   })
@@ -567,12 +748,11 @@ fn acknowledge_pending(
   })
 }
 
-fn set_reload(
-  reloads: List(#(Replica, String)),
-  replica: Replica,
-  document: String,
-) -> List(#(Replica, String)) {
-  [#(replica, document), ..list.filter(reloads, fn(item) { item.0 != replica })]
+fn pending_label(pending: List(Pending), sequence_number: Int) -> String {
+  pending
+  |> list.find(fn(item) { item.sequence_number == sequence_number })
+  |> result.map(fn(item) { item.label })
+  |> result.unwrap("edit")
 }
 
 pub fn adapter_changes(model: Model, replica: Replica) -> List(String) {
@@ -583,6 +763,33 @@ pub fn adapter_changes(model: Model, replica: Replica) -> List(String) {
       False -> Error(Nil)
     }
   })
+}
+
+pub fn peer_selection(
+  model: Model,
+  viewer: Replica,
+  peer: Replica,
+) -> Option(#(Int, Int)) {
+  model.selections
+  |> list.find(fn(item) { item.viewer == viewer && item.peer == peer })
+  |> result.map(fn(item) { #(item.index, item.length) })
+  |> option_from_result
+}
+
+pub fn selections_json(model: Model, viewer: Replica) -> String {
+  model.selections
+  |> list.filter(fn(item) { item.viewer == viewer })
+  |> list.map(fn(item) {
+    json.object([
+      #("id", json.string(replica_id(item.peer))),
+      #("name", json.string(replica_label(item.peer))),
+      #("colour", json.string(replica_colour(item.peer))),
+      #("index", json.int(item.index)),
+      #("length", json.int(item.length)),
+    ])
+  })
+  |> json.preprocessed_array
+  |> json.to_string
 }
 
 pub fn document_reload(model: Model, replica: Replica) -> Option(String) {
@@ -634,6 +841,13 @@ pub fn pending_count(model: Model, replica: Replica) -> Int {
   model.pending
   |> list.filter(fn(item) { item.replica == replica })
   |> list.length
+}
+
+pub fn client_identity(model: Model, replica: Replica) -> Option(String) {
+  case client_from_model(model, replica) {
+    Ok(client) -> Some(client.client_id)
+    Error(_) -> None
+  }
 }
 
 pub fn all_documents_equal(model: Model) -> Bool {
@@ -688,10 +902,40 @@ pub fn replica_label(replica: Replica) -> String {
   }
 }
 
+fn replica_colour(replica: Replica) -> String {
+  case replica {
+    ClientA -> "#9d174d"
+    ClientB -> "#1d4ed8"
+    ClientC -> "#237a4b"
+  }
+}
+
 fn option_from_result(value: Result(a, b)) -> Option(a) {
   case value {
     Ok(value) -> Some(value)
     Error(_) -> None
+  }
+}
+
+fn sampled_delay(model: Model) -> #(Model, Int) {
+  let #(seed, sample) = timing.next_sample(model.random_seed)
+  #(
+    Model(..model, random_seed: seed),
+    timing.delay_ms(model.pace_quarters, model.jitter, sample),
+  )
+}
+
+fn pace(value: String, fallback: Int) -> Int {
+  case value {
+    "0.25" -> 1
+    "0.5" -> 2
+    "0.75" -> 3
+    "1" -> 4
+    "1.25" -> 5
+    "1.5" -> 6
+    "1.75" -> 7
+    "2" -> 8
+    _ -> fallback
   }
 }
 

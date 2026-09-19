@@ -11,6 +11,9 @@ importers:
       quill:
         specifier: 2.0.3
         version: 2.0.3
+      quill-cursors:
+        specifier: 4.0.4
+        version: 4.0.4
     devDependencies:
       puppeteer:
         specifier: ^25.3.0
@@ -105,6 +108,9 @@ packages:
     resolution: {integrity: sha512-n+psxZFH/qlJ3gwTZMxTLUZoE98FAOEjT/BSxHXvPmNCGAfN/kq0UnIZ8m9RB4rAVvJr7zRHUnKKg98GLMUyyQ==}
     engines: {node: '>=22.12.0'}
     hasBin: true
+
+  quill-cursors@4.0.4:
+    resolution: {integrity: sha512-beHOYwRZ/I+Ift3bsvMnNWZ7gX25upW3b0aREpklUTR273MFJgxsCYmlgd/6otBE0FtFefOfh2/xU6xbkkxgIg==}
 
   quill-delta@5.1.0:
     resolution: {integrity: sha512-X74oCeRI4/p0ucjb5Ma8adTXd9Scumz367kkMK5V/IatcX6A0vlgLgKbzXWy5nZmCGeNJm2oQX0d2Eqj+ZIlCA==}
@@ -241,6 +247,8 @@ snapshots:
       - proxy-agent
       - utf-8-validate
       - yauzl
+
+  quill-cursors@4.0.4: {}
 
   quill-delta@5.1.0:
     dependencies:

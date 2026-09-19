@@ -112,6 +112,95 @@ pub fn adapter_failure_is_visible_test() {
   should.equal(model.phase, runtime.Failed)
 }
 
+pub fn reconnect_refreshes_identity_and_reloads_every_editor_test() {
+  let ready = runtime.ready_model()
+  let old_identity = runtime.client_identity(ready, runtime.ClientB)
+  let reconnected =
+    ready
+    |> runtime.transition(runtime.Reconnect(runtime.ClientB))
+
+  should.not_equal(
+    runtime.client_identity(reconnected, runtime.ClientB),
+    old_identity,
+  )
+  runtime.replicas()
+  |> list.each(fn(replica) {
+    should.equal(
+      runtime.document_reload(reconnected, replica),
+      Some(runtime.document_json(reconnected, replica)),
+    )
+  })
+}
+
+pub fn reconnected_editor_is_the_author_of_its_next_delivery_test() {
+  let delivered =
+    runtime.ready_model()
+    |> runtime.transition(runtime.Reconnect(runtime.ClientB))
+    |> runtime.transition(runtime.EditorChanged(
+      runtime.ClientB,
+      delta("[{\"insert\":\"B\"}]"),
+    ))
+    |> runtime.transition(runtime.Deliver(0))
+  let assert [entry, ..] = delivered.log
+
+  should.equal(entry.author, runtime.ClientB)
+}
+
+pub fn peer_selections_transform_in_gleam_test() {
+  let selected =
+    runtime.ready_model()
+    |> runtime.transition(runtime.SelectionChanged(runtime.ClientA, 2, 0))
+    |> runtime.transition(runtime.SelectionChanged(runtime.ClientB, 5, 3))
+  let edited =
+    selected
+    |> runtime.transition(runtime.EditorChanged(
+      runtime.ClientA,
+      delta("[{\"insert\":\"A\"}]"),
+    ))
+    |> runtime.transition(runtime.SelectionChanged(runtime.ClientA, 3, 0))
+
+  should.equal(
+    runtime.peer_selection(edited, runtime.ClientA, runtime.ClientB),
+    Some(#(6, 3)),
+  )
+  should.equal(
+    runtime.peer_selection(edited, runtime.ClientB, runtime.ClientA),
+    Some(#(3, 0)),
+  )
+
+  let delivered = runtime.transition(edited, runtime.Deliver(0))
+  should.equal(
+    runtime.peer_selection(delivered, runtime.ClientC, runtime.ClientA),
+    Some(#(3, 0)),
+  )
+  should.equal(
+    runtime.peer_selection(delivered, runtime.ClientC, runtime.ClientB),
+    Some(#(6, 3)),
+  )
+}
+
+pub fn playback_jitter_settle_and_log_are_model_state_test() {
+  let settled =
+    runtime.ready_model()
+    |> runtime.transition(runtime.SetPace("0.5"))
+    |> runtime.transition(runtime.SetJitter(True))
+    |> runtime.transition(runtime.EditorChanged(
+      runtime.ClientA,
+      delta("[{\"insert\":\"A\"}]"),
+    ))
+    |> runtime.transition(runtime.EditorChanged(
+      runtime.ClientB,
+      delta("[{\"insert\":\"B\"}]"),
+    ))
+    |> runtime.transition(runtime.Settle)
+
+  should.equal(settled.pace_quarters, 2)
+  should.equal(settled.jitter, True)
+  should.equal(settled.pending, [])
+  should.be_true(settled.latest_sequence > 0)
+  should.equal(list.length(settled.log), 2)
+}
+
 fn delta(raw: String) -> rich_text.Delta {
   let assert Ok(delta) = rich_text.parse_delta(raw)
   delta

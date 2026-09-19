@@ -42,9 +42,9 @@ pub fn main() {
                       root,
                       channel_a,
                       channel_b,
-                      runtime.peer_cursor(model, runtime.ElementB)
-                        |> cursor_or_empty,
                       runtime.peer_cursor(model, runtime.ElementA)
+                        |> cursor_or_empty,
+                      runtime.peer_cursor(model, runtime.ElementB)
                         |> cursor_or_empty,
                       fn() {
                         dispatch(runtime.ElementChanged(runtime.ElementA))
