@@ -112,7 +112,7 @@ website-lustre-serve: _build-website-lustre
 
 _test-website-lustre: _build-website-lustre
     cd website_lustre && gleam test --target javascript
-    node --test website_lustre/test/netlify-deploy-contract.test.mjs
+    node --test website_lustre/test/*.test.mjs
     cd website_lustre && pnpm run smoke
 
 # Deep kernel-fuzz run: overrides FUZZ_ITERATIONS for a much larger,

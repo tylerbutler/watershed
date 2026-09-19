@@ -43,31 +43,36 @@ function reset(paths) {
   });
 }
 
-export function stopHeroDrift(root) {
-  const controller = controllers.get(root);
-  if (!controller) return;
-  controller.stop();
-  controllers.delete(root);
+export function contourField(root) {
+  return root?.ownerDocument?.querySelector("[data-contour-field]") ?? null;
 }
 
-export function startHeroDrift(root) {
-  stopHeroDrift(root);
-  const ownerDocument = root?.ownerDocument ?? document;
-  const field = ownerDocument.querySelector("[data-contour-field]");
-  const media = ownerDocument.defaultView?.matchMedia(
-    "(prefers-reduced-motion: reduce)",
-  );
+export function prefersReducedMotion(root) {
+  return root?.ownerDocument?.defaultView
+    ?.matchMedia("(prefers-reduced-motion: reduce)").matches ?? false;
+}
+
+export function stopHeroDrift(field) {
+  const controller = controllers.get(field);
+  if (!controller) return;
+  controller.stop();
+  controllers.delete(field);
+}
+
+export function startHeroDrift(field, reducedMotion) {
+  stopHeroDrift(field);
   const paths = Array.from(
     { length: ROWS },
     (_, index) => field?.querySelector(`#contour-${index}`),
   );
-  if (!field || !media || paths.some((path) => !path)) return;
-  if (media.matches) {
+  if (!field || paths.some((path) => !path)) return;
+  if (reducedMotion) {
     reset(paths);
     return;
   }
 
-  const view = ownerDocument.defaultView;
+  const view = field.ownerDocument?.defaultView;
+  if (!view) return;
   let elapsed = 0;
   let last = null;
   let frameId = 0;
@@ -99,23 +104,16 @@ export function startHeroDrift(root) {
     last = null;
     frameId = view.requestAnimationFrame(frame);
   };
-  const onMotionChange = () => {
-    if (!media.matches) return;
-    stopHeroDrift(root);
-    reset(paths);
-  };
 
   observer = new view.IntersectionObserver(([entry]) => {
     if (entry.isIntersecting) startFrames();
     else stopFrames();
   });
   observer.observe(field);
-  media.addEventListener("change", onMotionChange);
-  controllers.set(root, {
+  controllers.set(field, {
     stop() {
       stopFrames();
       observer.disconnect();
-      media.removeEventListener("change", onMotionChange);
     },
   });
 }

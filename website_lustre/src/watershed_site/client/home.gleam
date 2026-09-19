@@ -15,10 +15,16 @@ pub type Msg {
 }
 
 @external(javascript, "./home_ffi.mjs", "startHeroDrift")
-fn start_hero_drift(root: Dynamic) -> Nil
+fn start_hero_drift(field: Dynamic, reduced_motion: Bool) -> Nil
 
 @external(javascript, "./home_ffi.mjs", "stopHeroDrift")
-fn stop_hero_drift(root: Dynamic) -> Nil
+fn stop_hero_drift(field: Dynamic) -> Nil
+
+@external(javascript, "./home_ffi.mjs", "contourField")
+fn contour_field(root: Dynamic) -> Dynamic
+
+@external(javascript, "./home_ffi.mjs", "prefersReducedMotion")
+fn prefers_reduced_motion(root: Dynamic) -> Bool
 
 fn init() -> #(Model, effect.Effect(Msg)) {
   let #(demo, effects) = runtime.init(model.Map)
@@ -27,8 +33,10 @@ fn init() -> #(Model, effect.Effect(Msg)) {
     effect.batch([
       effect.map(effects, Demo),
       effect.after_paint(fn(_, root) {
-        stop_hero_drift(root)
-        start_hero_drift(root)
+        let field = contour_field(root)
+        let reduced_motion = prefers_reduced_motion(root)
+        stop_hero_drift(field)
+        start_hero_drift(field, reduced_motion)
       }),
     ]),
   )

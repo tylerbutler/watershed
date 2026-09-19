@@ -171,3 +171,74 @@
 - Remaining concern: the unprefixed browser command cannot launch Chromium on
   this machine because of host AppArmor policy. The repository's existing
   `CI=1` launch path runs the same test successfully.
+
+## Fix round 1
+
+- Changed `startHeroDrift` to accept the contour SVG and reduced-motion Boolean
+  chosen by Gleam. The animation now queries paths only inside that supplied
+  SVG and does not call `document.querySelector` or `matchMedia`.
+- Added `test/home_ffi_contract.test.mjs`. It passes detached contour fields
+  directly to the FFI and proves that the supplied Boolean selects reset or
+  animation behavior without ambient DOM or media lookup.
+- Moved the live `#home-demo-mount` assertion after the baseline-recording
+  branch, so Astro baseline recording remains available while the assertion
+  still protects the Lustre build.
+- Updated `_test-website-lustre` to run every top-level Node contract test.
+
+### Fix evidence
+
+1. FFI contract test before the fix:
+
+   ```text
+   node --test website_lustre/test/home_ffi_contract.test.mjs
+   ```
+
+   Result: expected failure, `document is not defined`, because
+   `startHeroDrift` ignored the supplied SVG and queried the document.
+
+2. Baseline recording before the fix:
+
+   ```text
+   CI=1 node website_lustre/test/browser/home.mjs --record-baseline
+   ```
+
+   Result: expected failure, `0 !== 1`, because the Lustre-only mount assertion
+   ran against the Astro baseline.
+
+3. Contract and homepage tests after the fix:
+
+   ```text
+   node --test website_lustre/test/*.test.mjs
+   ```
+
+   Result: `4 passed, no failures`.
+
+   ```text
+   cd website_lustre && gleam test --target javascript -- home
+   ```
+
+   Result: `147 passed, no failures`.
+
+4. Baseline recording after the fix:
+
+   ```text
+   CI=1 node website_lustre/test/browser/home.mjs --record-baseline
+   ```
+
+   Result: `Recorded Astro homepage parity baseline.` The fixture was
+   unchanged.
+
+5. Build and live browser test:
+
+   ```text
+   just website-lustre
+   ```
+
+   Result: successful bundles, assets, and static-site generation with the
+   same pre-existing dependency and repository warnings.
+
+   ```text
+   CI=1 node website_lustre/test/browser/home.mjs
+   ```
+
+   Result: `PASS: Homepage SharedMap demo converges without Astro runtime.`
