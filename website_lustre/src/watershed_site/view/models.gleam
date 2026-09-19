@@ -24,7 +24,7 @@ type Row {
 pub fn view() -> Element(msg) {
   sheet.view("/models/", [
     hero(),
-    h.main([], [
+    h.main([a.id("content")], [
       h.section(
         [a.class("mod-cards"), a.attribute("aria-label", "Convergence models")],
         list.map(models(), card),

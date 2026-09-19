@@ -94,10 +94,6 @@ pub type Msg {
   SetOrMapMode(String)
   Deliver(generation: Int)
   ClearFlow(generation: Int, id: Int)
-  CounterFinished(
-    generation: Int,
-    replicas: #(ReplicaState, ReplicaState, ReplicaState),
-  )
   Reset
   RuntimeFailed(String)
 }
@@ -161,7 +157,6 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Started(generation, _)
       | Deferred(generation, _)
       | Deliver(generation)
-      | CounterFinished(generation, _)
       | ClearFlow(generation, _)
       if generation != model.generation
     -> #(model, effect.none())
@@ -336,7 +331,6 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Started(generation, _)
       | Deferred(generation, _)
       | Deliver(generation)
-      | CounterFinished(generation, _)
       | ClearFlow(generation, _)
       if generation != model.generation
     -> #(model, effect.none())
@@ -393,24 +387,7 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         Ok(current) ->
           enqueue_map(model, replica, key, int.max(0, current + amount))
       }
-    IncrementCounter(replica, amount) -> #(
-      Model(
-        ..replace_replicas(
-          model,
-          counter_increment_replicas(model, replica, amount),
-        ),
-        sequence_number: model.sequence_number + 1,
-        log: [
-          LogEntry(
-            model.sequence_number + 1,
-            replica,
-            "increment " <> signed(amount),
-          ),
-          ..model.log
-        ],
-      ),
-      effect.none(),
-    )
+    IncrementCounter(replica, amount) -> enqueue_counter(model, replica, amount)
     IncrementGCounter(replica, amount) ->
       enqueue_g_counter(model, replica, amount)
     UpdatePnCounter(replica, amount) -> enqueue_pn(model, replica, amount)
@@ -613,24 +590,21 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         }
         _ -> #(model, effect.none())
       }
-    Deliver(_) if !model.link_up -> #(
-      Model(
-        ..model,
-        queued_for_b: list.length(model.pending),
-        delivery_armed: False,
-      ),
-      effect.none(),
-    )
+    Deliver(_) if !model.link_up ->
+      case sequence_online_pending(Model(..model, delivery_armed: False)) {
+        Ok(next) -> #(next, effect.none())
+        Error(reason) -> fail(model, reason)
+      }
     Deliver(_) -> {
       let model = Model(..model, delivery_armed: False)
       case model.pending {
         [] -> #(Model(..model, phase: Ready), effect.none())
         [pending, ..rest] ->
-          case deliver(model, pending) {
+          case deliver(Model(..model, pending: rest), pending) {
             Error(reason) -> fail(model, reason)
             Ok(delivered) -> {
               let next =
-                Model(..delivered, pending: rest, phase: case rest {
+                Model(..delivered, phase: case delivered.pending {
                   [] -> Ready
                   [_, ..] -> Delivering
                 })
@@ -639,19 +613,6 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           }
       }
     }
-    CounterFinished(_, replicas) -> #(
-      Model(
-        ..replace_replicas(model, replicas),
-        phase: Ready,
-        sequence_number: model.sequence_number + 2,
-        log: [
-          LogEntry(model.sequence_number + 2, ClientB, "increment +3"),
-          LogEntry(model.sequence_number + 1, ClientA, "increment +7"),
-          ..model.log
-        ],
-      ),
-      effect.none(),
-    )
     ClearFlow(_, id) -> #(
       Model(
         ..model,
@@ -742,6 +703,26 @@ fn enqueue_g_counter(
           )
       }
     _ -> fail(model, "The selected structure is not a G-counter.")
+  }
+}
+
+fn enqueue_counter(
+  model: Model,
+  replica: Replica,
+  amount: Int,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    CounterReplica(state) -> {
+      let #(state, _, operation, message_id) =
+        counter_kernel.increment(state, amount)
+      enqueue(
+        put_replica(model, replica, CounterReplica(state)),
+        replica,
+        CounterOperation(operation),
+        Some(message_id),
+      )
+    }
+    _ -> fail(model, "The selected structure is not a shared counter.")
   }
 }
 
@@ -1153,8 +1134,17 @@ fn enqueue_pact(
           )
       }
       case operation {
-        Error(reason) -> fail(model, string_error(reason))
-        Ok(operation) -> enqueue(model, replica, PactOperation(operation), None)
+        Error(reason) -> #(
+          Model(..model, visible_error: Some(string_error(reason))),
+          effect.none(),
+        )
+        Ok(operation) ->
+          enqueue(
+            Model(..model, visible_error: None),
+            replica,
+            PactOperation(operation),
+            None,
+          )
       }
     }
     _ -> fail(model, "The selected structure is not a pact map.")
@@ -1167,10 +1157,11 @@ fn enqueue(
   operation: Operation,
   message_id: Option(Int),
 ) -> #(Model, Effect(Msg)) {
-  case model.link_up, origin {
-    False, ClientB ->
-      queue_pending(
-        model,
+  let next =
+    Model(
+      ..model,
+      phase: Delivering,
+      pending: list.append(model.pending, [
         PendingOperation(
           origin,
           operation,
@@ -1178,41 +1169,15 @@ fn enqueue(
           model.generation,
           AllReplicas,
         ),
-      )
-    False, ClientA | False, ClientC -> {
-      let delivered = {
-        use model <- result.try(sequence_online_pending(model))
-        deliver_online_without_b(model, origin, operation, message_id)
-      }
-      case delivered {
+      ]),
+    )
+  case model.link_up {
+    True -> #(next, effect.none())
+    False ->
+      case sequence_online_pending(next) {
+        Ok(next) -> #(next, effect.none())
         Error(reason) -> fail(model, reason)
-        Ok(model) ->
-          queue_pending(
-            model,
-            PendingOperation(
-              origin,
-              operation,
-              message_id,
-              model.generation,
-              ClientBOnly,
-            ),
-          )
       }
-    }
-    True, _ -> {
-      let pending =
-        list.append(model.pending, [
-          PendingOperation(
-            origin,
-            operation,
-            message_id,
-            model.generation,
-            AllReplicas,
-          ),
-        ])
-      let next = Model(..model, pending:, phase: Delivering)
-      #(next, effect.none())
-    }
   }
 }
 
@@ -1220,127 +1185,109 @@ fn deliver(model: Model, pending: PendingOperation) -> Result(Model, String) {
   let PendingOperation(origin, operation, message_id, _, scope) = pending
   case scope {
     ReplayAll(sequence_number) -> replay_all(model, operation, sequence_number)
-    ClientBOnly -> {
-      use beta <- result.try(deliver_to(
-        model.beta,
+    ClientBOnly(sequence_number) ->
+      deliver_replica(
+        model,
         ClientB,
         origin,
         operation,
         message_id,
-        model.sequence_number,
-      ))
-      Ok(Model(..model, beta:))
-    }
-    AllReplicas -> deliver_all(model, origin, operation, message_id)
+        sequence_number,
+      )
+    AllReplicas ->
+      sequence_operation(model, origin, operation, message_id, [
+        ClientA, ClientB, ClientC,
+      ])
   }
 }
 
-fn deliver_all(
+fn sequence_operation(
   model: Model,
   origin: Replica,
   operation: Operation,
   message_id: Option(Int),
+  targets: List(Replica),
 ) -> Result(Model, String) {
-  case operation {
-    PactOperation(operation) -> deliver_pact_all(model, origin, operation)
-    _ -> {
-      let sequence = model.sequence_number + 1
-      use alpha <- result.try(deliver_to(
-        model.alpha,
-        ClientA,
-        origin,
-        operation,
-        message_id,
-        sequence,
-      ))
-      use beta <- result.try(deliver_to(
-        model.beta,
-        ClientB,
-        origin,
-        operation,
-        message_id,
-        sequence,
-      ))
-      use gamma <- result.try(deliver_to(
-        model.gamma,
-        ClientC,
-        origin,
-        operation,
-        message_id,
-        sequence,
-      ))
-      Ok(
-        Model(
-          ..model,
-          alpha:,
-          beta:,
-          gamma:,
-          sequence_number: sequence,
-          flows: [
-            Flow(
-              sequence * 4,
-              replica_id_string(origin),
-              "seq",
-              operation_label(operation),
-            ),
-            ..model.flows
-          ],
-          log: [
-            LogEntry(sequence, origin, operation_label(operation)),
-            ..model.log
-          ],
-          last_replay: remember_replay(
-            model.last_replay,
-            operation,
-            message_id,
-            sequence,
-          ),
-        ),
-      )
-    }
-  }
-}
-
-fn deliver_pact_all(
-  model: Model,
-  origin: Replica,
-  operation: pact_map_kernel.PactMapOperation,
-) -> Result(Model, String) {
-  let assert PactReplica(alpha) = model.alpha
-  let assert PactReplica(beta) = model.beta
-  let assert PactReplica(gamma) = model.gamma
   let sequence = model.sequence_number + 1
-  let key = case operation {
-    pact_map_kernel.Set(key, _, _) | pact_map_kernel.Accept(key) -> key
-  }
-  let apply = fn(state, self_id) {
-    let #(state, _, _) =
-      pact_map_kernel.apply_set(state, operation, sequence, [1, 2, 3], self_id)
-    [1, 2, 3]
-    |> list.fold(Ok(state), fn(outcome, signer) {
-      use state <- result.try(outcome)
-      pact_map_kernel.apply_accept(state, key, signer, sequence + signer)
-      |> result.map(fn(value) { value.0 })
-      |> result.map_error(string_error)
-    })
-  }
-  use alpha <- result.try(apply(alpha, 1))
-  use beta <- result.try(apply(beta, 2))
-  use gamma <- result.try(apply(gamma, 3))
+  use model <- result.try(
+    list.try_fold(targets, model, fn(current, target) {
+      deliver_replica(current, target, origin, operation, message_id, sequence)
+    }),
+  )
   Ok(
     Model(
       ..model,
-      alpha: PactReplica(alpha),
-      beta: PactReplica(beta),
-      gamma: PactReplica(gamma),
-      sequence_number: sequence + 3,
+      sequence_number: sequence,
       flows: [
-        Flow(sequence * 4, replica_id_string(origin), "seq", "pact operation"),
+        Flow(
+          sequence * 4,
+          replica_id_string(origin),
+          "seq",
+          operation_label(operation),
+        ),
         ..model.flows
       ],
-      log: [LogEntry(sequence, origin, "pact operation"), ..model.log],
+      log: [LogEntry(sequence, origin, operation_label(operation)), ..model.log],
+      last_replay: remember_replay(
+        model.last_replay,
+        operation,
+        message_id,
+        sequence,
+      ),
     ),
   )
+}
+
+fn deliver_replica(
+  model: Model,
+  target: Replica,
+  origin: Replica,
+  operation: Operation,
+  message_id: Option(Int),
+  sequence: Int,
+) -> Result(Model, String) {
+  case replica_state(model, target), operation {
+    PactReplica(state), PactOperation(pact_map_kernel.Set(_, _, _) as proposal)
+    -> {
+      // A cut link pauses delivery. It does not remove B from the quorum.
+      let #(state, _, reaction) =
+        pact_map_kernel.apply_set(
+          state,
+          proposal,
+          sequence,
+          [1, 2, 3],
+          replica_number(target),
+        )
+      let next = put_replica(model, target, PactReplica(state))
+      case reaction {
+        pact_map_kernel.NoReaction -> Ok(next)
+        pact_map_kernel.OweAccept(accept) ->
+          Ok(
+            Model(
+              ..next,
+              pending: list.append(next.pending, [
+                PendingOperation(
+                  target,
+                  PactOperation(accept),
+                  None,
+                  model.generation,
+                  AllReplicas,
+                ),
+              ]),
+            ),
+          )
+      }
+    }
+    PactReplica(state), PactOperation(pact_map_kernel.Accept(key)) ->
+      pact_map_kernel.apply_accept(state, key, replica_number(origin), sequence)
+      |> result.map(fn(value) {
+        put_replica(model, target, PactReplica(value.0))
+      })
+      |> result.map_error(string_error)
+    state, _ ->
+      deliver_to(state, target, origin, operation, message_id, sequence)
+      |> result.map(fn(state) { put_replica(model, target, state) })
+  }
 }
 
 fn replay_all(
@@ -1382,47 +1329,18 @@ fn deliver_online_without_b(
   operation: Operation,
   message_id: Option(Int),
 ) -> Result(Model, String) {
-  let sequence = model.sequence_number + 1
-  use alpha <- result.try(deliver_to(
-    model.alpha,
-    ClientA,
-    origin,
-    operation,
-    message_id,
-    sequence,
-  ))
-  use gamma <- result.try(deliver_to(
-    model.gamma,
-    ClientC,
-    origin,
-    operation,
-    message_id,
-    sequence,
-  ))
-  Ok(
-    Model(
-      ..model,
-      alpha:,
-      gamma:,
-      sequence_number: sequence,
-      flows: [
-        Flow(
-          sequence * 4,
-          replica_id_string(origin),
-          "seq",
-          operation_label(operation),
-        ),
-        ..model.flows
-      ],
-      log: [LogEntry(sequence, origin, operation_label(operation)), ..model.log],
-      last_replay: remember_replay(
-        model.last_replay,
+  let queued =
+    queue_pending(
+      model,
+      PendingOperation(
+        origin,
         operation,
         message_id,
-        sequence,
+        model.generation,
+        ClientBOnly(model.sequence_number + 1),
       ),
-    ),
-  )
+    ).0
+  sequence_operation(queued, origin, operation, message_id, [ClientA, ClientC])
 }
 
 fn queue_pending(
@@ -1449,6 +1367,18 @@ fn deliver_to(
   sequence: Int,
 ) -> Result(ReplicaState, String) {
   case state, operation, target == origin {
+    CounterReplica(state), CounterOperation(operation), True ->
+      case message_id {
+        Some(id) ->
+          counter_kernel.ack_local_with_message_id(state, operation, id)
+          |> result.map(CounterReplica)
+          |> result.map_error(string_error)
+        None -> Error("Missing counter message ID.")
+      }
+    CounterReplica(state), CounterOperation(operation), False -> {
+      let #(state, _) = counter_kernel.apply_remote(state, operation)
+      Ok(CounterReplica(state))
+    }
     MapReplica(state), MapOperation(operation), True ->
       map_kernel.ack_local(state, operation)
       |> result.map(MapReplica)
@@ -1744,26 +1674,22 @@ fn put_key_draft(model: Model, replica: Replica, value: String) -> Model {
 }
 
 fn sequence_online_pending(model: Model) -> Result(Model, String) {
-  let queued = Model(..model, pending: [], queued_for_b: 0)
-  list.try_fold(model.pending, queued, fn(current, pending) {
-    case pending.scope, pending.origin {
-      AllReplicas, ClientA | AllReplicas, ClientC -> {
-        use delivered <- result.try(deliver_online_without_b(
-          current,
-          pending.origin,
-          pending.operation,
-          pending.message_id,
-        ))
-        Ok(
-          queue_pending(
-            delivered,
-            PendingOperation(..pending, scope: ClientBOnly),
-          ).0,
-        )
-      }
-      _, _ -> Ok(queue_pending(current, pending).0)
+  let #(waiting, online) =
+    list.split_while(model.pending, fn(pending) {
+      pending.scope != AllReplicas || pending.origin == ClientB
+    })
+  case online {
+    [] -> Ok(Model(..model, queued_for_b: list.length(model.pending)))
+    [pending, ..rest] -> {
+      use delivered <- result.try(deliver_online_without_b(
+        Model(..model, pending: list.append(waiting, rest)),
+        pending.origin,
+        pending.operation,
+        pending.message_id,
+      ))
+      sequence_online_pending(delivered)
     }
-  })
+  }
 }
 
 fn restore_link(model: Model) -> #(Model, Effect(Msg)) {
@@ -1805,17 +1731,15 @@ fn restore_link(model: Model) -> #(Model, Effect(Msg)) {
 fn reconnect_pending(
   pending: List(PendingOperation),
 ) -> List(PendingOperation) {
-  let catch_up =
-    list.filter(pending, fn(item) {
-      let PendingOperation(_, _, _, _, scope) = item
-      scope == ClientBOnly
-    })
-  let submitted =
-    list.filter(pending, fn(item) {
-      let PendingOperation(_, _, _, _, scope) = item
-      scope != ClientBOnly
-    })
+  let #(catch_up, submitted) = list.partition(pending, is_catch_up)
   list.append(catch_up, submitted)
+}
+
+fn is_catch_up(pending: PendingOperation) -> Bool {
+  case pending.scope {
+    ClientBOnly(_) -> True
+    AllReplicas | ReplayAll(_) -> False
+  }
 }
 
 fn rebase_mv_pending(
@@ -1825,11 +1749,7 @@ fn rebase_mv_pending(
   #(mv_register_kernel.MvRegisterState, List(PendingOperation)),
   String,
 ) {
-  let catch_up =
-    list.filter(model.pending, fn(pending) {
-      let PendingOperation(_, _, _, _, scope) = pending
-      scope == ClientBOnly
-    })
+  let catch_up = list.filter(model.pending, is_catch_up)
   let local =
     list.filter(model.pending, fn(pending) {
       let PendingOperation(origin, operation, _, _, scope) = pending
@@ -1843,7 +1763,7 @@ fn rebase_mv_pending(
   let other =
     list.filter(model.pending, fn(pending) {
       let PendingOperation(origin, operation, _, _, scope) = pending
-      scope != ClientBOnly
+      !is_catch_up(pending)
       && !{
         origin == ClientB
         && scope == AllReplicas
@@ -2618,6 +2538,26 @@ pub fn pact_value(
   }
 }
 
+pub fn pact_signoffs(model: Model, replica: Replica, key: String) -> String {
+  case replica_state(model, replica) {
+    PactReplica(state) ->
+      case pact_map_kernel.pending(state, key) {
+        Error(Nil) -> ""
+        Ok(pending) ->
+          "awaiting "
+          <> {
+            [#(1, "A"), #(2, "B"), #(3, "C")]
+            |> list.filter(fn(signer) {
+              list.contains(pending.expected_signoffs, signer.0)
+            })
+            |> list.map(fn(signer) { signer.1 })
+            |> string.join(" + ")
+          }
+      }
+    _ -> ""
+  }
+}
+
 fn json_string(value: json.Json) -> String {
   json.parse(json.to_string(value), decode.string)
   |> result.unwrap(json.to_string(value))
@@ -2712,7 +2652,8 @@ fn replica_id_string(replica: Replica) -> String {
 fn operation_label(operation: Operation) -> String {
   case operation {
     MapOperation(_) -> "map write"
-    CounterOperation(_) -> "counter increment"
+    CounterOperation(counter_kernel.Increment(amount)) ->
+      "increment " <> signed(amount)
     GCounterOperation(_) -> "grow-only increment"
     PnOperation(_) -> "PN update"
     OrMapOperation(_) -> "OR-map edit"
@@ -2779,31 +2720,6 @@ fn counter_race_replicas() -> #(ReplicaState, ReplicaState, ReplicaState) {
   let #(c, _) = counter_kernel.apply_remote(initial, a_op)
   let #(c, _) = counter_kernel.apply_remote(c, b_op)
   #(CounterReplica(a), CounterReplica(b), CounterReplica(c))
-}
-
-fn counter_increment_replicas(
-  model: Model,
-  origin: Replica,
-  amount: Int,
-) -> #(ReplicaState, ReplicaState, ReplicaState) {
-  let assert CounterReplica(author) = replica_state(model, origin)
-  let #(author, _, operation, _) = counter_kernel.increment(author, amount)
-  let assert Ok(author) = counter_kernel.ack_local(author, operation)
-  let update = fn(replica, state) {
-    case replica == origin, state {
-      True, _ -> CounterReplica(author)
-      False, CounterReplica(state) -> {
-        let #(state, _) = counter_kernel.apply_remote(state, operation)
-        CounterReplica(state)
-      }
-      _, _ -> state
-    }
-  }
-  #(
-    update(ClientA, model.alpha),
-    update(ClientB, model.beta),
-    update(ClientC, model.gamma),
-  )
 }
 
 pub fn duplicate_pn_values() -> List(Int) {

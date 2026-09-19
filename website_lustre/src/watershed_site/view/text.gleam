@@ -40,7 +40,7 @@ pub fn view() -> Element(Nil) {
         ]),
       ]),
     ]),
-    h.main([], [h.div([a.id("text-mount")], [demo.static()])]),
+    h.main([a.id("content")], [h.div([a.id("text-mount")], [demo.static()])]),
     ecosystem.view("/text/"),
   ])
 }

@@ -293,6 +293,58 @@ await withBrowserSite(site, async (browser, origin) => {
   assert.deepEqual(errors, [], "counter demo browser errors");
   await page.close();
 
+  for (const [slug, id] of [["counters", "counter"], ["coordination", "pact"]]) {
+    const { page: offline, errors: offlineErrors } = await openPage(browser);
+    await offline.goto(`${origin}/structures/${slug}/`);
+    await offline.click(`[data-structure-toggle="${id}"]`);
+    const root = `#${id}-demo`;
+    await offline.waitForSelector(`${root} #demo[data-mounted]`);
+    await offline.click(`${root} [data-cut-link]`);
+    await offline.waitForSelector(`${root} [data-cut-link][aria-pressed="true"]`);
+    if (id === "counter") {
+      await offline.click(`${root} [data-client="b"] [data-inc="5"]`);
+      await offline.waitForFunction(() =>
+        document.querySelector('#counter-demo [data-client="b"] [data-counter-value]').textContent === "125",
+      );
+      assert.deepEqual(await offline.$$eval(`${root} [data-counter-value]`, (nodes) =>
+        nodes.map((node) => node.textContent)), ["120", "125", "120"]);
+      await offline.click(`${root} [data-client="a"] [data-inc="1"]`);
+      await offline.waitForFunction(() =>
+        document.querySelector('#counter-demo [data-client="c"] [data-counter-value]').textContent === "121",
+      );
+      assert.deepEqual(await offline.$$eval(`${root} [data-counter-value]`, (nodes) =>
+        nodes.map((node) => node.textContent)), ["121", "125", "121"]);
+    } else {
+      await offline.click(`${root} [data-client="b"] [data-key="gate-policy"] [data-pact-set]`);
+      await offline.click(`${root} [data-client="a"] [data-key="gate-policy"] [data-pact-set]`);
+      await offline.waitForFunction(() =>
+        document.querySelector('#pact-demo [data-error]') ||
+        document.querySelector('#pact-demo [data-client="a"] [data-key="gate-policy"] [data-pact-signoffs]')
+          .textContent === "awaiting B",
+      );
+      assert.equal(await offline.$(`${root} [data-error]`), null);
+      assert.deepEqual(await offline.$$eval(`${root} [data-key="gate-policy"] [data-pact-pending]`, (nodes) =>
+        nodes.map((node) => node.textContent)), ["Survey", "—", "Survey"]);
+      assert.deepEqual(await offline.$$eval(`${root} [data-key="gate-policy"] [data-pact-accepted]`, (nodes) =>
+        nodes.map((node) => node.textContent)), ["—", "—", "—"]);
+    }
+    await offline.click(`${root} [data-cut-link]`);
+    await offline.waitForFunction((id) => {
+      const selector = id === "counter"
+        ? "[data-counter-value]" : '[data-key="gate-policy"] [data-pact-accepted]';
+      const expected = id === "counter" ? "126" : "Survey";
+      return [...document.querySelectorAll(`#${id}-demo ${selector}`)]
+        .every((node) => node.textContent === expected);
+    }, {}, id);
+    if (id === "pact") {
+      assert.deepEqual(await offline.$$eval(`${root} [data-key="gate-policy"] [data-pact-signoffs]`, (nodes) =>
+        nodes.map((node) => node.textContent)), ["", "", ""]);
+    }
+    assert.equal(await offline.$(`${root} [data-error]`), null);
+    assert.deepEqual(offlineErrors, [], `${id} disconnected browser errors`);
+    await offline.close();
+  }
+
   const { page: mapsPage, errors: mapsErrors } = await openPage(browser);
   await mapsPage.goto(`${origin}/structures/maps/`);
   await mapsPage.waitForSelector('[data-structure-toggle="ormap"]', {

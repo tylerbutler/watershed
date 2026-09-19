@@ -8,7 +8,7 @@ import watershed_site/view/sheet
 pub fn view() -> Element(Nil) {
   sheet.view("/sudoku/", [
     hero(),
-    h.main([], [
+    h.main([a.id("content")], [
       h.div([a.id("sudoku-mount")], [static_demo()]),
     ]),
     ecosystem.view("/sudoku/"),

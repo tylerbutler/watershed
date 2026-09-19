@@ -14,7 +14,7 @@ type Row {
 pub fn view(body: List(Element(msg))) -> Element(msg) {
   sheet.view("/sharedtree/", [
     hero(),
-    h.main([a.class("doc-body")], body),
+    h.main([a.id("content"), a.class("doc-body")], body),
     table(),
     guide(),
     ecosystem.view("/sharedtree/"),

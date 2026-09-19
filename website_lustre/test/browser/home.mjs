@@ -137,6 +137,10 @@ await withBrowserSite(site, async (browser, origin) => {
   );
   assert.deepEqual(errors, []);
   assert.equal(await page.$("script[src*='@vite']"), null);
+  await page.$eval("[data-pace]", (input) => {
+    input.value = "0.25";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   const before = await page.$eval(
     '[data-client="a"] .dds-map tr[data-key="mill-race"] [data-value]',
     (node) => node.textContent,
@@ -156,6 +160,39 @@ await withBrowserSite(site, async (browser, origin) => {
     (nodes) => nodes.map((node) => node.textContent),
   );
   assert.equal(new Set(values).size, 1);
+  await page.waitForSelector("[data-flow-id]");
+  const flowCoordinates = () => page.$eval("[data-flow-id]", (dot) => {
+    const rig = dot.closest("[data-demo-rig]").getBoundingClientRect();
+    return ["from", "to"].flatMap((end) => {
+      const node = document.querySelector(`[data-flow-node="${dot.dataset[end]}"]`)
+        .getBoundingClientRect();
+      return [
+        [dot.style.getPropertyValue(`--${end}-x`), node.left + node.width / 2 - rig.left],
+        [dot.style.getPropertyValue(`--${end}-y`), node.top + node.height / 2 - rig.top],
+      ];
+    });
+  });
+  for (const [value, expected] of await flowCoordinates()) {
+    assert.ok(Number.isFinite(Number.parseFloat(value)), "flow coordinates are initialized");
+    assert.ok(Math.abs(Number.parseFloat(value) - expected) < 0.5, "flow endpoint matches its rig node");
+  }
+  await page.setViewport({ width: 1440, height: 1000 });
+  await page.evaluate(() => new Promise(requestAnimationFrame));
+  for (const [value, expected] of await flowCoordinates()) {
+    assert.ok(Math.abs(Number.parseFloat(value) - expected) < 0.5, "flow endpoint follows resize");
+  }
+  const orSetHref = await page.$eval('a[href^="/structures/sets#"]', (link) =>
+    link.getAttribute("href"),
+  );
+  assert.equal(orSetHref, "/structures/sets#orset");
+  const linked = await browser.newPage();
+  await linked.setJavaScriptEnabled(false);
+  await linked.goto(`${origin}${orSetHref}`);
+  assert.equal(
+    await linked.$eval(":target h2", (heading) => heading.textContent.trim()),
+    "OrSet",
+  );
+  await linked.close();
   assert.deepEqual(
     await page.$eval('[data-strip-client="a"] [data-strip-key="mill-race"]', (node) =>
       node.textContent,

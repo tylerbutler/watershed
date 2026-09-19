@@ -1826,7 +1826,7 @@ fn pact_table(
               a.class("annot pact-signoffs"),
               a.attribute("data-pact-signoffs", ""),
             ],
-            [],
+            [h.text(runtime.pact_signoffs(model, replica, key))],
           ),
         ]),
         h.td([a.class("gauge-actions pact-actions")], [

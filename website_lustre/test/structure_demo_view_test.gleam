@@ -1,8 +1,12 @@
+import gleam/json
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleam/string
 import lustre/element
-import watershed_site/structure_demo/model.{ClientA, Map, MvRegister}
+import watershed/pact_map_kernel
+import watershed_site/structure_demo/model.{
+  ClientA, Map, Model, MvRegister, PactMap, PactReplica,
+}
 import watershed_site/structure_demo/runtime
 import watershed_site/structure_demo/view
 
@@ -65,6 +69,28 @@ pub fn visible_error_is_rendered_independently_of_link_state_test() {
     "aria-pressed=\"true\"",
   ]
   |> contains_all(html)
+}
+
+pub fn pact_view_names_the_remaining_signer_test() {
+  let model =
+    Model(
+      ..runtime.ready_model(PactMap),
+      alpha: PactReplica(
+        pact_map_kernel.from_summary([
+          #(
+            "gate-policy",
+            pact_map_kernel.Pact(
+              None,
+              Some(pact_map_kernel.Pending(Some(json.string("Survey")), [2])),
+            ),
+          ),
+        ]),
+      ),
+    )
+  let html =
+    view.view(model, view.Options(False, ["pact"], Some("PactMap")))
+    |> element.to_string
+  ["awaiting B"] |> contains_all(html)
 }
 
 fn contains_all(expected: List(String), html: String) {

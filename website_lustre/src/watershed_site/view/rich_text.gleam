@@ -8,7 +8,9 @@ import watershed_site/view/sheet
 pub fn view() -> Element(Nil) {
   sheet.view("/rich-text/", [
     hero(),
-    h.main([], [h.div([a.id("rich-text-mount")], [demo.static()])]),
+    h.main([a.id("content")], [
+      h.div([a.id("rich-text-mount")], [demo.static()]),
+    ]),
     ecosystem.view("/rich-text/"),
   ])
 }

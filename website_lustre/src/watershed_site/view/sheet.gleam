@@ -17,8 +17,15 @@ pub fn active(path: String, match: String) -> Bool {
 }
 
 pub fn view(path: String, children: List(Element(msg))) -> Element(msg) {
+  let content_id = case normalize(path) {
+    "/patterns" -> "index"
+    "/examples" -> "catalog"
+    _ -> "content"
+  }
   element.fragment([
-    h.a([a.class("skip-link"), a.href("#content")], [h.text("Skip to content")]),
+    h.a([a.class("skip-link"), a.href("#" <> content_id)], [
+      h.text("Skip to content"),
+    ]),
     h.header([a.class("sheet-index")], [
       h.div([a.class("si-primary")], [
         h.a([a.class("si-mark"), a.href("/"), ..current(path == "/")], [

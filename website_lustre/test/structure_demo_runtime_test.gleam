@@ -5,12 +5,13 @@ import gleam/option.{None, Some}
 import gleeunit/should
 import lustre/effect
 import watershed/map_kernel
+import watershed/pact_map_kernel
 import watershed/transport_js
 import watershed_site/structure_demo/model.{
-  type Model, Claims, ClientA, ClientB, ClientC, Counter, GCounter, GSet, LwwMap,
-  LwwRegister, Map, MapReplica, Model, MvRegister, OrMap, OrMapMvRegister, OrSet,
-  OrderedCollection, PactMap, PnCounter, Ready, RegisterCollection,
-  ReplayOperation, TaskManager, TwoPSet,
+  type Model, Claims, ClientA, ClientB, ClientC, Counter, CounterReplica,
+  GCounter, GSet, LwwMap, LwwRegister, Map, MapReplica, Model, MvRegister, OrMap,
+  OrMapMvRegister, OrSet, OrderedCollection, PactMap, PactReplica, PnCounter,
+  Ready, RegisterCollection, ReplayOperation, TaskManager, TwoPSet,
 }
 import watershed_site/structure_demo/runtime
 
@@ -22,6 +23,232 @@ pub fn map_race_uses_later_sequence_number_test() {
 pub fn counter_race_keeps_both_increments_test() {
   runtime.counter_race_values()
   |> should_equal([130, 130, 130])
+}
+
+pub fn counter_only_origin_is_optimistic_until_delivery_test() {
+  let model =
+    runtime.ready_model(Counter)
+    |> runtime.transition(runtime.IncrementCounter(ClientA, 8))
+  should_equal(counter_values(model), [128, 120, 120])
+  should_equal(runtime.pending_count(model, ClientA), 1)
+  should_equal(model.sequence_number, 0)
+  should_equal(model.log, [])
+  let delivered = deliver_all(model)
+  should_equal(counter_values(delivered), [128, 128, 128])
+  should_equal(runtime.pending_count(delivered, ClientA), 0)
+  should_equal(delivered.sequence_number, 1)
+}
+
+pub fn disconnected_counter_queues_b_and_catches_up_before_ack_test() {
+  let model =
+    runtime.ready_model(Counter)
+    |> runtime.transition(runtime.ToggleLink)
+    |> runtime.transition(runtime.IncrementCounter(ClientB, 5))
+    |> runtime.transition(runtime.IncrementCounter(ClientB, -2))
+  should_equal(counter_values(model), [120, 123, 120])
+  should_equal(runtime.pending_count(model, ClientB), 2)
+  should_equal(model.sequence_number, 0)
+  let model = model |> runtime.transition(runtime.IncrementCounter(ClientA, 8))
+  should_equal(counter_values(model), [128, 123, 128])
+  should_equal(runtime.pending_count(model, ClientA), 0)
+  should_equal(model.sequence_number, 1)
+  let model =
+    model
+    |> runtime.transition(runtime.ToggleLink)
+    |> runtime.transition(runtime.Deliver(0))
+  should_equal(counter_values(model), [128, 131, 128])
+  should_equal(runtime.pending_count(model, ClientB), 2)
+  should_equal(model.sequence_number, 1)
+  let model = deliver_all(model)
+  should_equal(counter_values(model), [131, 131, 131])
+  should_equal(runtime.pending_count(model, ClientB), 0)
+  should_equal(model.sequence_number, 3)
+  should_equal(
+    model.log |> list.reverse |> list.map(fn(entry) { entry.author }),
+    [ClientA, ClientB, ClientB],
+  )
+}
+
+pub fn counter_race_uses_the_delivery_queue_test() {
+  let model =
+    runtime.ready_model(Counter)
+    |> runtime.transition(runtime.RunRace)
+  should_equal(counter_values(model), [128, 125, 120])
+  should_equal(model.sequence_number, 0)
+  should_equal(counter_values(deliver_all(model)), [133, 133, 133])
+}
+
+pub fn pact_proposal_waits_for_separate_signoff_deliveries_test() {
+  let model =
+    runtime.ready_model(PactMap)
+    |> runtime.transition(runtime.PactSet(ClientA, "gate-policy"))
+    |> runtime.transition(runtime.Deliver(0))
+  should_equal(model.visible_error, None)
+  should_equal(model.sequence_number, 1)
+  [model.alpha, model.beta, model.gamma]
+  |> list.each(fn(replica) { should_equal(pact_signoffs(replica), [1, 2, 3]) })
+  let model = deliver_all(model)
+  should_equal(model.sequence_number, 4)
+  [ClientA, ClientB, ClientC]
+  |> list.each(fn(replica) {
+    should_equal(
+      runtime.pact_value(model, replica, "gate-policy", False),
+      "Survey",
+    )
+    should_equal(runtime.pact_value(model, replica, "gate-policy", True), "—")
+  })
+}
+
+pub fn disconnected_pact_preserves_signoffs_and_catch_up_sequence_test() {
+  let model =
+    runtime.ready_model(PactMap)
+    |> runtime.transition(runtime.ToggleLink)
+    |> runtime.transition(runtime.PactSet(ClientB, "gate-policy"))
+    |> runtime.transition(runtime.PactSet(ClientA, "gate-policy"))
+  should_equal(model.visible_error, None)
+  should_equal(model.sequence_number, 3)
+  should_equal(pact_signoffs(model.alpha), [2])
+  should_equal(pact_signoffs(model.gamma), [2])
+  should_equal(runtime.pact_value(model, ClientB, "gate-policy", True), "—")
+  should_equal(runtime.pact_value(model, ClientA, "gate-policy", False), "—")
+  let model =
+    model
+    |> runtime.transition(runtime.ToggleLink)
+    |> runtime.transition(runtime.Deliver(0))
+  should_equal(pact_signoffs(model.beta), [1, 2, 3])
+  let model =
+    model
+    |> runtime.transition(runtime.Deliver(0))
+    |> runtime.transition(runtime.Deliver(0))
+  should_equal(pact_signoffs(model.beta), [2])
+  should_equal(model.sequence_number, 3)
+  let model = deliver_all(model)
+  should_equal(model.sequence_number, 5)
+  [model.alpha, model.beta, model.gamma]
+  |> list.each(fn(replica) {
+    let assert PactReplica(state) = replica
+    should_equal(
+      pact_map_kernel.get_with_details(state, "gate-policy"),
+      Ok(pact_map_kernel.Accepted(Some(json.string("Survey")), 5)),
+    )
+    should_equal(pact_map_kernel.is_pending(state, "gate-policy"), False)
+  })
+}
+
+pub fn pact_cut_after_proposal_keeps_b_signoff_until_reconnect_test() {
+  let model =
+    runtime.ready_model(PactMap)
+    |> runtime.transition(runtime.PactSet(ClientA, "gate-policy"))
+    |> runtime.transition(runtime.Deliver(0))
+    |> runtime.transition(runtime.ToggleLink)
+    |> runtime.transition(runtime.Deliver(0))
+  should_equal(model.visible_error, None)
+  should_equal(pact_signoffs(model.alpha), [2])
+  should_equal(pact_signoffs(model.beta), [1, 2, 3])
+  let model = model |> runtime.transition(runtime.ToggleLink) |> deliver_all
+  [model.alpha, model.beta, model.gamma]
+  |> list.each(fn(replica) {
+    let assert PactReplica(state) = replica
+    should_equal(
+      pact_map_kernel.get_with_details(state, "gate-policy"),
+      Ok(pact_map_kernel.Accepted(Some(json.string("Survey")), 4)),
+    )
+  })
+}
+
+pub fn pact_catch_up_preserves_original_accept_sequence_test() {
+  let model =
+    runtime.ready_model(PactMap)
+    |> runtime.transition(runtime.PactSet(ClientA, "gate-policy"))
+    |> runtime.transition(runtime.Deliver(0))
+    |> runtime.transition(runtime.Deliver(0))
+    |> runtime.transition(runtime.Deliver(0))
+    |> runtime.transition(runtime.ToggleLink)
+    |> runtime.transition(runtime.Deliver(0))
+    |> runtime.transition(runtime.PactSet(ClientA, "inspection-window"))
+  should_equal(model.visible_error, None)
+  should_equal(model.sequence_number, 7)
+  let model =
+    model
+    |> runtime.transition(runtime.ToggleLink)
+    |> runtime.transition(runtime.Deliver(0))
+  [model.alpha, model.beta, model.gamma]
+  |> list.each(fn(replica) {
+    let assert PactReplica(state) = replica
+    should_equal(
+      pact_map_kernel.get_with_details(state, "gate-policy"),
+      Ok(pact_map_kernel.Accepted(Some(json.string("Survey")), 4)),
+    )
+  })
+}
+
+pub fn pending_pact_refusal_does_not_fail_the_delivery_queue_test() {
+  let pending =
+    runtime.ready_model(PactMap)
+    |> runtime.transition(runtime.PactSet(ClientA, "gate-policy"))
+    |> runtime.transition(runtime.Deliver(0))
+  let refused =
+    pending |> runtime.transition(runtime.PactSet(ClientA, "gate-policy"))
+  should_equal(refused.phase, pending.phase)
+  should_equal(refused.visible_error != None, True)
+  should_equal(refused.pending, pending.pending)
+  let settled =
+    refused
+    |> runtime.transition(runtime.Deliver(0))
+    |> runtime.transition(runtime.Deliver(0))
+    |> runtime.transition(runtime.Deliver(0))
+  should_equal(
+    runtime.pact_value(settled, ClientB, "gate-policy", False),
+    "Survey",
+  )
+  let retry =
+    settled |> runtime.transition(runtime.PactSet(ClientB, "gate-policy"))
+  should_equal(retry.visible_error, None)
+  let accepted = deliver_all(retry)
+  should_equal(
+    runtime.pact_value(accepted, ClientA, "gate-policy", False),
+    "Works",
+  )
+}
+
+pub fn disconnected_pact_delete_keeps_accepted_value_until_b_signs_test() {
+  let model =
+    runtime.ready_model(PactMap)
+    |> runtime.transition(runtime.ToggleLink)
+    |> runtime.transition(runtime.PactDelete(ClientA, "datum-grid"))
+  should_equal(model.visible_error, None)
+  should_equal(
+    runtime.pact_value(model, ClientA, "datum-grid", False),
+    "Survey datum",
+  )
+  should_equal(runtime.pact_value(model, ClientA, "datum-grid", True), "delete")
+  should_equal(
+    runtime.pact_signoffs(model, ClientA, "datum-grid"),
+    "awaiting B",
+  )
+  let model = model |> runtime.transition(runtime.ToggleLink) |> deliver_all
+  [model.alpha, model.beta, model.gamma]
+  |> list.each(fn(replica) {
+    let assert PactReplica(state) = replica
+    should_equal(
+      pact_map_kernel.get_with_details(state, "datum-grid"),
+      Ok(pact_map_kernel.Accepted(None, 4)),
+    )
+  })
+}
+
+fn counter_values(model: Model) -> List(Int) {
+  [model.alpha, model.beta, model.gamma]
+  |> list.map(fn(replica) {
+    let assert CounterReplica(state) = replica
+    state.value
+  })
+}
+
+fn pact_signoffs(replica) -> List(Int) {
+  let assert PactReplica(state) = replica
+  let assert Ok(pending) = pact_map_kernel.pending(state, "gate-policy")
+  pending.expected_signoffs
 }
 
 pub fn duplicate_pn_delta_is_absorbed_test() {
@@ -644,10 +871,7 @@ fn deliver_all(model: Model) -> Model {
       let delivered =
         runtime.transition(model, runtime.Deliver(model.generation))
       should_equal(delivered.visible_error, None)
-      should_equal(
-        list.length(delivered.pending),
-        list.length(model.pending) - 1,
-      )
+      should_equal(delivered.pending == model.pending, False)
       deliver_all(delivered)
     }
   }

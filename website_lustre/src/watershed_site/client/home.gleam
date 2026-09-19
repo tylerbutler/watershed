@@ -2,6 +2,7 @@ import gleam/dynamic.{type Dynamic}
 import lustre
 import lustre/effect
 import lustre/element
+import watershed_site/client/structure_demo
 import watershed_site/structure_demo/model
 import watershed_site/structure_demo/runtime
 import watershed_site/view/home
@@ -77,4 +78,5 @@ pub fn main() {
   let app =
     lustre.application(init: fn(_) { init() }, update: update, view: view)
   let assert Ok(_) = lustre.start(app, "#home-demo-mount", Nil)
+  structure_demo.setup_demo("#home-demo-mount")
 }

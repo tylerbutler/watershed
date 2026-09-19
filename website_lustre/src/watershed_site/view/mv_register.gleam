@@ -10,7 +10,7 @@ import watershed_site/view/sheet
 pub fn view(body: List(Element(Nil))) -> Element(Nil) {
   sheet.view("/mv-register/", [
     hero(),
-    h.main([], [
+    h.main([a.id("content")], [
       h.div([a.id("mv-register-demo-mount")], [
         demo.static(
           model.MvRegister,

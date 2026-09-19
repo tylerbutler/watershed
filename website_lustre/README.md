@@ -45,7 +45,7 @@ just _test-website-lustre
 ```
 
 This command rebuilds snippets and the site, runs the Gleam suite, and runs
-the Node contracts and all 24 Puppeteer route gates against temporary loopback
+the Node contracts and all 25 Puppeteer route gates against temporary loopback
 servers. It also runs as part of `just test`; `just build` includes the site
 build. No external collaboration service is required.
 
@@ -80,7 +80,11 @@ metadata, navigation, code figures, field notes, and computed styles across
 the route families. Browser gates cover desktop and mobile layout, keyboard
 navigation, no-script content, reduced motion, failed-start explanations, and
 live edits, races, and resets. Static-sheet gates check field-note fragments
-on initial load and `hashchange`. To update the fixtures listed in
+on initial load and `hashchange`. The route-wide skip-link gate checks all
+42 generated pages without JavaScript, including keyboard activation.
+The shared-rig gates check disconnected counter delivery and PactMap
+sign-offs through catch-up; the sequence gate checks unavailable-race recovery.
+To update the fixtures listed in
 `package.json` after an intentional site change, build this package, then run
 `pnpm run record:contracts` from `website_lustre/`. Review the fixture diff
 before accepting a new baseline.

@@ -30,6 +30,11 @@ pub fn home_has_one_lustre_owned_demo_mount_test() {
   let assert False = string.contains(html, "home-structure-demo-mount")
 }
 
+pub fn home_or_set_link_uses_the_generated_plate_fragment_test() {
+  let html = home.view([]) |> element.to_string
+  let assert True = string.contains(html, "href=\"/structures/sets#orset\"")
+}
+
 pub fn home_ffi_only_owns_contour_animation_test() {
   let assert Ok(source) =
     simplifile.read("src/watershed_site/client/home_ffi.mjs")

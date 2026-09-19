@@ -27,7 +27,7 @@ pub type GaugeStrip {
 pub fn view(body: List(Element(Nil))) -> Element(Nil) {
   sheet.view("/", [
     hero(),
-    h.main([], [
+    h.main([a.id("content")], [
       home_demo(),
       dds_sections(),
       atlas(),
@@ -387,7 +387,7 @@ fn featured_structures() -> Element(Nil) {
       "add, remove, and add again all work; if an add and a remove race, the add wins",
       "your change overlays the list in magenta until it's confirmed",
       "current members and their removal history reload intact",
-      "/structures/sets#or-set",
+      "/structures/sets#orset",
     ),
     featured(
       "Claims",

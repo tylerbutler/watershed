@@ -15,7 +15,6 @@ import watershed/pn_counter_kernel
 import watershed/register_collection_kernel
 import watershed/task_manager_kernel
 import watershed/two_p_set_kernel
-import watershed/wire
 
 pub type Structure {
   Map
@@ -72,7 +71,7 @@ pub type ReplicaState {
 
 pub type Operation {
   MapOperation(map_kernel.MapOperation)
-  CounterOperation(wire.OutboundOperation)
+  CounterOperation(counter_kernel.CounterOperation)
   GCounterOperation(g_counter_kernel.GCounterOperation)
   PnOperation(pn_counter_kernel.PnCounterOperation)
   OrMapOperation(or_map_kernel.OrMapOperation)
@@ -91,7 +90,7 @@ pub type Operation {
 
 pub type DeliveryScope {
   AllReplicas
-  ClientBOnly
+  ClientBOnly(sequence_number: Int)
   ReplayAll(sequence_number: Int)
 }
 

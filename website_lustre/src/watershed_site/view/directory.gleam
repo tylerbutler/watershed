@@ -8,7 +8,9 @@ import watershed_site/view/sheet
 pub fn view() -> Element(Nil) {
   sheet.view("/directory/", [
     hero(),
-    h.main([], [h.div([a.id("directory-mount")], [demo.static()])]),
+    h.main([a.id("content")], [
+      h.div([a.id("directory-mount")], [demo.static()]),
+    ]),
     ecosystem.view("/directory/"),
   ])
 }

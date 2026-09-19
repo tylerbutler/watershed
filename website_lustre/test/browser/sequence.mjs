@@ -248,6 +248,28 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.click("[data-route-reset]");
   assert.deepEqual(await converge(page), baseline);
 
+  for (let remaining = baseline.length; remaining > 1; remaining--) {
+    const stations = await page.$$('[data-client="a"] .station-name');
+    await stations.at(-1).click();
+    await Promise.all(stations.map((station) => station.dispose()));
+    await page.click('[data-client="a"] [data-act="delete"]');
+    await waitForRevision(page);
+    assert.equal((await converge(page)).length, remaining - 1);
+  }
+  await page.click("[data-route-race-move]");
+  await page.waitForFunction(() =>
+    document.querySelector('[data-testid="error"]').textContent
+      .includes("No waypoint can move in both directions."),
+  );
+  assert.equal(await page.$eval("[data-route-reset]", (button) => button.disabled), false);
+  assert.equal(await page.$eval('[data-client="b"] .gap', (button) => button.disabled), false);
+  await page.click('[data-client="b"] .gap');
+  await waitForRevision(page);
+  assert.equal((await converge(page)).length, 2);
+  assert.equal(await page.$eval('[data-testid="error"]', (node) => node.textContent), "");
+  await page.click("[data-route-reset]");
+  assert.deepEqual(await converge(page), baseline);
+
   const noJs = await browser.newPage();
   await noJs.setJavaScriptEnabled(false);
   await noJs.goto(`${origin}/sequence/`);

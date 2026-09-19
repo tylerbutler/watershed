@@ -38,7 +38,7 @@ pub fn view() -> Element(Nil) {
         ]),
       ]),
     ]),
-    h.main([], [h.div([a.id("sequence-mount")], [demo.static()])]),
+    h.main([a.id("content")], [h.div([a.id("sequence-mount")], [demo.static()])]),
     ecosystem.view("/sequence/"),
   ])
 }

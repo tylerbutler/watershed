@@ -9,7 +9,7 @@ import watershed_site/structures
 fn family_slug() -> String
 
 @external(javascript, "./structure_demo_ffi.mjs", "setupDemo")
-fn setup_demo(selector: String) -> Nil
+pub fn setup_demo(selector: String) -> Nil
 
 pub fn mount(
   selector: String,

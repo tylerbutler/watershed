@@ -8,7 +8,7 @@ import watershed_site/view/sheet
 pub fn view() -> Element(Nil) {
   sheet.view("/counter-bug/", [
     hero(),
-    h.main([], [
+    h.main([a.id("content")], [
       h.div([a.id("counter-bug-mount")], [demo.static()]),
     ]),
     ecosystem.view("/counter-bug/"),

@@ -1,6 +1,9 @@
+import gleam/javascript/promise
 import gleam/list
 import gleam/option.{None, Some}
 import gleeunit/should
+import lustre/effect
+import watershed/transport_js
 import watershed_site/sequence/runtime
 
 pub fn concurrent_inserts_keep_deterministic_order_test() {
@@ -87,6 +90,87 @@ pub fn crowd_insert_uses_each_short_route_index_test() {
   should.equal(model.error, None)
   should.equal(list.length(runtime.route(model, runtime.ClientB)), 6)
   should.equal(list.length(runtime.route(model, runtime.ClientC)), 2)
+}
+
+pub fn unavailable_move_race_preserves_editing_and_reset_test() {
+  let model =
+    runtime.ready_model()
+    |> runtime.transition(runtime.Delete(runtime.ClientA, 4))
+    |> runtime.transition(runtime.Delete(runtime.ClientA, 3))
+    |> runtime.transition(runtime.Delete(runtime.ClientA, 2))
+    |> runtime.transition(runtime.Delete(runtime.ClientA, 1))
+    |> deliver_all
+  let unavailable = runtime.transition(model, runtime.RaceMove)
+  should.equal(unavailable.phase, runtime.Ready)
+  should.equal(
+    unavailable.error,
+    Some("No waypoint can move in both directions."),
+  )
+  should.equal(unavailable.routes, model.routes)
+  should.equal(unavailable.pending, [])
+  let edited =
+    unavailable
+    |> runtime.transition(runtime.Insert(runtime.ClientB, 1))
+    |> deliver_all
+  should.equal(runtime.route(edited, runtime.ClientA), ["put-in", "gravel bar"])
+  should.equal(edited.error, None)
+  let reset = runtime.transition(unavailable, runtime.Reset)
+  should.equal(reset.phase, runtime.Ready)
+  should.equal(reset.error, None)
+  should.equal(list.length(runtime.route(reset, runtime.ClientA)), 5)
+}
+
+pub fn unavailable_move_race_survives_deferred_effects_test() -> promise.Promise(
+  Nil,
+) {
+  let model =
+    runtime.ready_model()
+    |> runtime.transition(runtime.Delete(runtime.ClientA, 4))
+    |> runtime.transition(runtime.Delete(runtime.ClientA, 3))
+    |> runtime.transition(runtime.Delete(runtime.ClientA, 2))
+    |> runtime.transition(runtime.Delete(runtime.ClientA, 1))
+    |> deliver_all
+  use model <- promise.await(complete_command(model, runtime.RaceMove))
+  should.equal(model.phase, runtime.Ready)
+  should.equal(model.error, Some("No waypoint can move in both directions."))
+  should.equal(runtime.is_converged(model), True)
+  use model <- promise.await(complete_command(
+    model,
+    runtime.ClearFlow(model.generation, -1),
+  ))
+  should.equal(model.phase, runtime.Ready)
+  should.equal(runtime.is_converged(model), True)
+  use model <- promise.map(complete_command(
+    model,
+    runtime.Insert(runtime.ClientB, 1),
+  ))
+  let model = deliver_all(model)
+  should.equal(runtime.route(model, runtime.ClientA), ["put-in", "gravel bar"])
+  should.equal(model.error, None)
+}
+
+fn complete_command(model: runtime.Model, command: runtime.Msg) {
+  let #(waiting, work) = runtime.update(model, command)
+  let messages = transport_js.new_cell([])
+  effect.perform(
+    work,
+    fn(message) {
+      transport_js.set_cell(messages, [
+        message,
+        ..transport_js.get_cell(messages)
+      ])
+    },
+    fn(_, _) { Nil },
+    fn(_) { Nil },
+    fn() { panic as "This effect does not use the root." },
+    fn(_, _) { Nil },
+    fn(_, _) { Nil },
+    fn(_) { Nil },
+  )
+  use _ <- promise.map(promise.wait(0))
+  let assert [runtime.Deferred(_, _) as completed] =
+    transport_js.get_cell(messages)
+  runtime.update(waiting, completed).0
 }
 
 pub fn rapid_crowd_inserts_allocate_unique_station_names_test() {

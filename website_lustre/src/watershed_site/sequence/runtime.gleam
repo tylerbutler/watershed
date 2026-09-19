@@ -214,9 +214,9 @@ pub fn transition(model: Model, message: Msg) -> Model {
 fn defer(model: Model, command: Msg) -> #(Model, Effect(Msg)) {
   let work = fn(current: Model) {
     let next = transition(current, command)
-    case next.error {
-      Some(reason) -> Error(reason)
-      None -> Ok(#(current, next))
+    case next.phase, next.error {
+      Failed, Some(reason) -> Error(reason)
+      _, _ -> Ok(#(current, next))
     }
   }
   let queued =
@@ -224,9 +224,12 @@ fn defer(model: Model, command: Msg) -> #(Model, Effect(Msg)) {
       ..model,
       phase: case command {
         Reset -> Starting
-        _ -> Delivering
+        _ -> model.phase
       },
-      converged: False,
+      converged: case command {
+        Reset -> False
+        _ -> model.converged
+      },
       deferred_work: list.append(model.deferred_work, [work]),
     )
   case model.work_running {
@@ -464,7 +467,7 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     }
     RaceMove ->
       case movable_station(model) {
-        Error(reason) -> fail(model, reason)
+        Error(reason) -> #(Model(..model, error: Some(reason)), effect.none())
         Ok(#(name, beta_index, gamma_index)) ->
           mutate_many(model, [
             #(
@@ -621,6 +624,7 @@ fn mutate_many(
             Model(
               ..model,
               phase: Delivering,
+              error: None,
               routes: preserve_selection(model.routes, mutation.routes),
               pending: list.append(model.pending, mutation.pending),
               flows: list.append(model.flows, mutation.flows),
@@ -801,7 +805,7 @@ pub fn all_routes_equal(routes: List(Route)) -> Bool {
 }
 
 pub fn is_converged(model: Model) -> Bool {
-  model.error == None
+  model.phase != Failed
   && list.is_empty(model.pending)
   && list.is_empty(model.deferred_work)
   && !model.work_running
