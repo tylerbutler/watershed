@@ -1,7 +1,9 @@
+import gleam/option
 import lustre/attribute as a
 import lustre/element.{type Element, element, fragment}
 import lustre/element/html as h
-import watershed_site/mv_register/view as demo
+import watershed_site/structure_demo/model
+import watershed_site/structure_demo/view as demo
 import watershed_site/view/ecosystem
 import watershed_site/view/sheet
 
@@ -122,7 +124,9 @@ fn label(path: String, text: String) -> Element(Nil) {
 
 fn home_demo() -> Element(Nil) {
   fragment([
-    demo.map_static(),
+    h.div([a.id("home-structure-demo-mount")], [
+      demo.static(model.Map, demo.Options(True, ["map"], option.None)),
+    ]),
     h.p([a.class("map-comparison")], [
       h.a([a.href("/structures/maps#map")], [
         h.text("SharedMap's server order"),

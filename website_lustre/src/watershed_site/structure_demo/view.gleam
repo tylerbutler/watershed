@@ -1,29 +1,49 @@
+import gleam/int
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/string
 import lustre/attribute as a
 import lustre/element.{type Element}
 import lustre/element/html as h
+import lustre/event
+import watershed_site/structure_demo/model.{
+  type Model, type Replica, type Structure, ClientA, ClientB, ClientC, Failed,
+  Map, MvRegister, Ready, Static,
+}
+import watershed_site/structure_demo/runtime
 
-pub fn static() -> Element(Nil) {
-  static_variant(False)
+pub type Options {
+  Options(include_noscript: Bool, views: List(String), heading: Option(String))
 }
 
-pub fn map_static() -> Element(Nil) {
-  static_variant(True)
+pub fn static(selected: Structure, options: Options) -> Element(Nil) {
+  view(runtime.static_model(selected), options)
+  |> element.map(fn(_) { Nil })
 }
 
-pub fn family_static(
+pub fn view(model: Model, options: Options) -> Element(runtime.Msg) {
+  case options.heading {
+    Some(heading) -> family_view(model, options.views, heading)
+    None -> static_variant(model, options.include_noscript)
+  }
+}
+
+fn family_view(
+  model: Model,
   requested_views: List(String),
-  initial: String,
   heading: String,
-) -> Element(Nil) {
+) -> Element(runtime.Msg) {
   let views = expand_views(requested_views)
+  let initial = runtime.structure_id(model.selected)
   h.section(
-    [
-      a.id("demo"),
-      a.class("demo demo-embedded"),
-      a.attribute("aria-labelledby", "demo-title"),
-    ],
+    list.append(
+      [
+        a.id("demo"),
+        a.class("demo demo-embedded"),
+        a.attribute("aria-labelledby", "demo-title"),
+      ],
+      mounted_attribute(model),
+    ),
     [
       h.a([a.class("demo-skip"), a.href("#after-demo")], [
         h.text("Skip past the interactive demo"),
@@ -50,8 +70,8 @@ pub fn family_static(
         picker(views, initial),
         ..merge_rules(views, initial)
       ]),
-      family_rig(views, initial),
-      controls(),
+      family_rig(model, views),
+      controls(model),
       h.p([a.class("controls-hint")], [
         h.span([], [
           h.text(
@@ -92,7 +112,7 @@ fn expand_views(views: List(String)) -> List(String) {
   })
 }
 
-fn picker(views: List(String), initial: String) -> Element(msg) {
+fn picker(views: List(String), initial: String) -> Element(runtime.Msg) {
   let cells = [
     #("map", "Shared map", "DDS"),
     #("lww-map", "LWWMap", "CRDT"),
@@ -134,7 +154,7 @@ fn picker(views: List(String), initial: String) -> Element(msg) {
                   a.value(cell.0),
                   a.checked(cell.0 == initial),
                   a.attribute("data-dds-pick", ""),
-                  a.disabled(True),
+                  event.on_click(runtime.SelectId(cell.0)),
                 ]),
                 h.span([], [
                   h.text(cell.1 <> " "),
@@ -148,7 +168,10 @@ fn picker(views: List(String), initial: String) -> Element(msg) {
   )
 }
 
-fn merge_rules(views: List(String), initial: String) -> List(Element(msg)) {
+fn merge_rules(
+  views: List(String),
+  initial: String,
+) -> List(Element(runtime.Msg)) {
   let rules = [
     #(
       "map",
@@ -265,7 +288,7 @@ fn merge_rules(views: List(String), initial: String) -> List(Element(msg)) {
   list.append(standard, ormap)
 }
 
-fn ormap_view_controls(initial: String) -> Element(msg) {
+fn ormap_view_controls(initial: String) -> Element(runtime.Msg) {
   h.div(
     [
       a.class("ormap-controls"),
@@ -275,13 +298,19 @@ fn ormap_view_controls(initial: String) -> Element(msg) {
     [
       h.label([], [
         h.span([a.class("annot")], [h.text("OR-map instance")]),
-        h.select([a.attribute("data-ormap-view", ""), a.disabled(True)], [
-          h.option([a.value("ormap")], "Ledger / string sets"),
-          h.option(
-            [a.value("or-map-mv-register")],
-            "MV registers · gate revisions",
-          ),
-        ]),
+        h.select(
+          [
+            a.attribute("data-ormap-view", ""),
+            event.on_input(runtime.SelectId),
+          ],
+          [
+            h.option([a.value("ormap")], "Ledger / string sets"),
+            h.option(
+              [a.value("or-map-mv-register")],
+              "MV registers · gate revisions",
+            ),
+          ],
+        ),
       ]),
       h.p([a.class("mv-hint")], [
         h.text(
@@ -292,7 +321,7 @@ fn ormap_view_controls(initial: String) -> Element(msg) {
   )
 }
 
-fn ormap_controls(initial: String) -> Element(msg) {
+fn ormap_controls(initial: String) -> Element(runtime.Msg) {
   h.div(
     [
       a.class("ormap-controls"),
@@ -302,10 +331,16 @@ fn ormap_controls(initial: String) -> Element(msg) {
     [
       h.label([], [
         h.span([a.class("annot")], [h.text("Value mode for all three clients")]),
-        h.select([a.attribute("data-ormap-mode", ""), a.disabled(True)], [
-          h.option([a.value("tally")], "Tallies · stockpile ledger"),
-          h.option([a.value("set")], "String sets · document checklist"),
-        ]),
+        h.select(
+          [
+            a.attribute("data-ormap-mode", ""),
+            event.on_input(runtime.SetOrMapMode),
+          ],
+          [
+            h.option([a.value("tally")], "Tallies · stockpile ledger"),
+            h.option([a.value("set")], "String sets · document checklist"),
+          ],
+        ),
       ]),
       h.div([a.attribute("data-ormap-scenarios", ""), a.hidden(True)], [
         h.label([], [
@@ -334,18 +369,18 @@ fn ormap_controls(initial: String) -> Element(msg) {
   )
 }
 
-fn family_rig(views: List(String), initial: String) -> Element(Nil) {
+fn family_rig(model: Model, views: List(String)) -> Element(runtime.Msg) {
   h.div(
     [
       a.class("rig"),
       a.attribute("data-demo-rig", ""),
-      a.attribute("data-dds", initial),
+      a.attribute("data-dds", runtime.structure_id(model.selected)),
       a.attribute("data-views", string.join(views, ",")),
     ],
     [
-      client("a", "Client A", "raise crest", True),
-      client("b", "Client B", "arm pump", True),
-      client("c", "Client C", "check datum", True),
+      client(model, ClientA, "a", "Client A", "raise crest", True),
+      client(model, ClientB, "b", "Client B", "arm pump", True),
+      client(model, ClientC, "c", "Client C", "check datum", True),
       h.div([a.class("channel"), a.style("grid-area", "seq")], [
         h.div([a.class("seq-node"), a.attribute("data-seq-node", "")], [
           h.span([a.class("annot")], [h.text("Sequencer")]),
@@ -355,7 +390,7 @@ fn family_rig(views: List(String), initial: String) -> Element(Nil) {
               a.attribute("data-seq-counter", ""),
               a.attribute("aria-label", "Latest sequence number"),
             ],
-            [h.text("SN 0")],
+            [h.text("SN " <> int.to_string(model.sequence_number))],
           ),
         ]),
         h.ol(
@@ -365,7 +400,16 @@ fn family_rig(views: List(String), initial: String) -> Element(Nil) {
             a.attribute("aria-live", "polite"),
             a.attribute("aria-label", "Sequenced operations, newest first"),
           ],
-          [],
+          list.map(model.log, fn(entry) {
+            h.li([], [
+              h.text(
+                "#"
+                <> int.to_string(entry.sequence_number)
+                <> " "
+                <> entry.label,
+              ),
+            ])
+          }),
         ),
       ]),
       h.div(
@@ -380,13 +424,20 @@ fn family_rig(views: List(String), initial: String) -> Element(Nil) {
   )
 }
 
-fn static_variant(map: Bool) -> Element(Nil) {
+fn static_variant(
+  model: Model,
+  include_noscript: Bool,
+) -> Element(runtime.Msg) {
+  let map = model.selected == Map
   h.section(
-    [
-      a.id("demo"),
-      a.class("demo"),
-      a.attribute("aria-labelledby", "demo-title"),
-    ],
+    list.append(
+      [
+        a.id("demo"),
+        a.class("demo"),
+        a.attribute("aria-labelledby", "demo-title"),
+      ],
+      mounted_attribute(model),
+    ),
     [
       h.a([a.class("demo-skip"), a.href("#after-demo")], [
         h.text("Skip past the interactive demo"),
@@ -520,9 +571,9 @@ fn static_variant(map: Bool) -> Element(Nil) {
           }),
         ],
         [
-          client("a", "Client A", "raise crest", False),
-          client("b", "Client B", "arm pump", False),
-          client("c", "Client C", "check datum", False),
+          client(model, ClientA, "a", "Client A", "raise crest", False),
+          client(model, ClientB, "b", "Client B", "arm pump", False),
+          client(model, ClientC, "c", "Client C", "check datum", False),
           h.div([a.class("channel"), a.style("grid-area", "seq")], [
             h.div([a.class("seq-node"), a.attribute("data-seq-node", "")], [
               h.span([a.class("annot")], [h.text("Sequencer")]),
@@ -532,7 +583,7 @@ fn static_variant(map: Bool) -> Element(Nil) {
                   a.attribute("data-seq-counter", ""),
                   a.attribute("aria-label", "Latest sequence number"),
                 ],
-                [h.text("SN 0")],
+                [h.text("SN " <> int.to_string(model.sequence_number))],
               ),
             ]),
             h.ol(
@@ -542,7 +593,7 @@ fn static_variant(map: Bool) -> Element(Nil) {
                 a.attribute("aria-live", "polite"),
                 a.attribute("aria-label", "Sequenced operations, newest first"),
               ],
-              [],
+              list.map(model.log, fn(entry) { h.li([], [h.text(entry.label)]) }),
             ),
           ]),
           h.div(
@@ -555,7 +606,7 @@ fn static_variant(map: Bool) -> Element(Nil) {
           ),
         ],
       ),
-      controls(),
+      controls(model),
       h.p([a.class("controls-hint")], [
         h.span([], [
           h.text(
@@ -563,23 +614,27 @@ fn static_variant(map: Bool) -> Element(Nil) {
           ),
         ]),
       ]),
-      h.noscript([], [
-        h.p(
-          [
-            a.class("demo-noscript"),
-            a.attribute("data-testid", "noscript"),
-          ],
-          [
-            h.text(
-              "The live demo needs JavaScript: it runs watershed's actual ",
+      case include_noscript {
+        True ->
+          h.noscript([], [
+            h.p(
+              [
+                a.class("demo-noscript"),
+                a.attribute("data-testid", "noscript"),
+              ],
+              [
+                h.text(
+                  "The live demo needs JavaScript: it runs watershed's actual ",
+                ),
+                h.code([], [h.text("mv_register_kernel")]),
+                h.text(
+                  " in your browser. The rest of the page works fine without it.",
+                ),
+              ],
             ),
-            h.code([], [h.text("mv_register_kernel")]),
-            h.text(
-              " in your browser. The rest of the page works fine without it.",
-            ),
-          ],
-        ),
-      ]),
+          ])
+        False -> h.text("")
+      },
       h.p(
         [
           a.class("demo-noscript"),
@@ -601,12 +656,21 @@ fn static_variant(map: Bool) -> Element(Nil) {
   )
 }
 
+fn mounted_attribute(model: Model) -> List(a.Attribute(msg)) {
+  case model.phase {
+    Static -> []
+    _ -> [a.attribute("data-mounted", "")]
+  }
+}
+
 fn client(
+  model: Model,
+  replica: Replica,
   id: String,
   label: String,
   revision: String,
   family: Bool,
-) -> Element(Nil) {
+) -> Element(runtime.Msg) {
   h.article(
     [
       a.class("client"),
@@ -628,7 +692,7 @@ fn client(
                 a.title(
                   "Sever this replica's link to the sequencer; its edits park locally until the link is restored",
                 ),
-                a.disabled(True),
+                event.on_click(runtime.ToggleLink),
               ],
               [h.text("Cut link")],
             )
@@ -640,7 +704,11 @@ fn client(
             a.attribute("data-pending-count", ""),
             a.attribute("data-live", id),
           ],
-          [h.text("0 pending")],
+          [
+            h.text(
+              int.to_string(runtime.pending_count(model, replica)) <> " pending",
+            ),
+          ],
         ),
       ]),
       case id {
@@ -649,7 +717,7 @@ fn client(
             [
               a.class("annot link-note"),
               a.attribute("data-link-note", ""),
-              a.hidden(True),
+              a.hidden(model.link_up),
             ],
             [
               h.text("link cut — ops park locally until the link is restored"),
@@ -657,77 +725,88 @@ fn client(
           )
         _ -> h.text("")
       },
-      h.table([a.class("gauge-table dds-map")], [
-        h.caption([a.class("visually-hidden")], [
-          h.text("Shared map replica on " <> label),
-        ]),
-        h.tbody([], [
-          gauge("mill-race", "24", label),
-          gauge("kettle-run", "61", label),
-          gauge("low-ford", "42", label),
-        ]),
-      ]),
-      h.div([a.class("mv-register-panel dds-mv-register")], [
-        h.h3([a.class("annot")], [h.text("Revision slate")]),
-        h.p([a.class("annot")], [h.text("Confirmed alternatives")]),
-        h.output(
-          [
-            a.class("mv-alternatives k-seq"),
-            a.attribute("data-mv-register-confirmed", ""),
-            a.attribute("aria-live", "polite"),
-            a.attribute(
-              "aria-label",
-              "Confirmed MV register alternatives on " <> label,
-            ),
-          ],
-          [h.text("[\"Survey datum\"]")],
-        ),
-        h.p([a.class("annot")], [h.text("Local view")]),
-        h.output(
-          [
-            a.class("mv-alternatives"),
-            a.attribute("data-mv-register-values", ""),
-            a.attribute("aria-live", "polite"),
-            a.attribute(
-              "aria-label",
-              "Local MV register alternatives on " <> label,
-            ),
-          ],
-          [h.text("[\"Survey datum\"]")],
-        ),
-        h.label([a.class("annot"), a.attribute("for", "mv-revision-" <> id)], [
-          h.text("Next revision"),
-        ]),
-        h.input([
-          a.id("mv-revision-" <> id),
-          a.attribute("data-mv-register-input", ""),
-          a.value(revision),
-          a.disabled(True),
-        ]),
-        h.div([a.class("mv-actions")], [
-          h.button(
+      h.table(
+        [
+          a.class("gauge-table dds-map"),
+          a.hidden(model.selected != Map),
+        ],
+        [
+          h.caption([a.class("visually-hidden")], [
+            h.text("Shared map replica on " <> label),
+          ]),
+          h.tbody([], [
+            gauge(model, replica, "mill-race", "24", label),
+            gauge(model, replica, "kettle-run", "61", label),
+            gauge(model, replica, "low-ford", "42", label),
+          ]),
+        ],
+      ),
+      h.div(
+        [
+          a.class("mv-register-panel dds-mv-register"),
+          a.hidden(model.selected != MvRegister),
+        ],
+        [
+          h.h3([a.class("annot")], [h.text("Revision slate")]),
+          h.p([a.class("annot")], [h.text("Confirmed alternatives")]),
+          h.output(
             [
-              a.type_("button"),
-              a.attribute("data-mv-register-write", ""),
-              a.disabled(True),
+              a.class("mv-alternatives k-seq"),
+              a.attribute("data-mv-register-confirmed", ""),
+              a.attribute("aria-live", "polite"),
+              a.attribute(
+                "aria-label",
+                "Confirmed MV register alternatives on " <> label,
+              ),
             ],
-            [h.text("Write revision")],
+            [h.text(mv_text(model, replica, True))],
           ),
-          h.button(
+          h.p([a.class("annot")], [h.text("Local view")]),
+          h.output(
             [
-              a.type_("button"),
-              a.attribute("data-mv-register-resolve", ""),
-              a.disabled(True),
+              a.class("mv-alternatives"),
+              a.attribute("data-mv-register-values", ""),
+              a.attribute("aria-live", "polite"),
+              a.attribute(
+                "aria-label",
+                "Local MV register alternatives on " <> label,
+              ),
             ],
-            [h.text("Resolve with both")],
+            [h.text(mv_text(model, replica, False))],
           ),
-        ]),
-        h.p([a.class("mv-hint")], [
-          h.text(
-            "Resolve writes \"raise crest + arm pump\". Any new revision replaces only the history this client has seen.",
-          ),
-        ]),
-      ]),
+          h.label([a.class("annot"), a.attribute("for", "mv-revision-" <> id)], [
+            h.text("Next revision"),
+          ]),
+          h.input([
+            a.id("mv-revision-" <> id),
+            a.attribute("data-mv-register-input", ""),
+            a.value(revision),
+          ]),
+          h.div([a.class("mv-actions")], [
+            h.button(
+              [
+                a.type_("button"),
+                a.attribute("data-mv-register-write", ""),
+                event.on_click(runtime.WriteMv(replica, revision)),
+              ],
+              [h.text("Write revision")],
+            ),
+            h.button(
+              [
+                a.type_("button"),
+                a.attribute("data-mv-register-resolve", ""),
+                event.on_click(runtime.ResolveMv(replica)),
+              ],
+              [h.text("Resolve with both")],
+            ),
+          ]),
+          h.p([a.class("mv-hint")], [
+            h.text(
+              "Resolve writes \"raise crest + arm pump\". Any new revision replaces only the history this client has seen.",
+            ),
+          ]),
+        ],
+      ),
       ..case family {
         False -> [
           h.div([a.hidden(True)], [
@@ -740,27 +819,40 @@ fn client(
             h.input([a.attribute("data-lww-register-input", "")]),
           ]),
         ]
-        True -> [
-          counter_panel(label),
-          pn_panel(label),
-          gcounter_panel(label),
-          lww_map_panel(id, label),
-          lww_register_panel(id, label, revision),
-          ormap_mv_register_panel(id, label, revision),
-          claims_table(label),
-          ormap_table(label),
-          ormap_set_panel(id, label),
-          set_table("orset", label),
-          set_table("gset", label),
-          set_table("twopset", label),
-          registers_table(label),
-          ordered_table(label),
-          pact_table(label),
-          tasks_table(label),
-        ]
+        True -> family_panel(model, id, label, revision)
       }
     ],
   )
+}
+
+fn family_panel(
+  model: Model,
+  id: String,
+  label: String,
+  revision: String,
+) -> List(Element(runtime.Msg)) {
+  case runtime.structure_id(model.selected) {
+    "counter" -> [counter_panel(label)]
+    "pn" -> [pn_panel(label)]
+    "gcounter" -> [gcounter_panel(label)]
+    "lww-map" -> [lww_map_panel(id, label)]
+    "lww-register" -> [lww_register_panel(id, label, revision)]
+    "or-map-mv-register" -> [ormap_mv_register_panel(id, label, revision)]
+    "claims" -> [claims_table(label)]
+    "ormap" ->
+      case model.or_map_set_mode {
+        True -> [ormap_set_panel(id, label)]
+        False -> [ormap_table(label)]
+      }
+    "orset" -> [set_table("orset", label)]
+    "gset" -> [set_table("gset", label)]
+    "twopset" -> [set_table("twopset", label)]
+    "registers" -> [registers_table(label)]
+    "ordered" -> [ordered_table(label)]
+    "pact" -> [pact_table(label)]
+    "tasks" -> [tasks_table(label)]
+    _ -> []
+  }
 }
 
 fn counter_panel(label: String) -> Element(msg) {
@@ -1154,7 +1246,6 @@ fn ormap_set_panel(id: String, label: String) -> Element(msg) {
   h.div(
     [
       a.class("mv-register-panel ormap-set-panel dds-ormap"),
-      a.hidden(True),
       a.role("group"),
       a.attribute("aria-label", "OR-map string set replica on " <> label),
     ],
@@ -1477,7 +1568,17 @@ fn int_text(value: Int) -> String {
   }
 }
 
-fn gauge(key: String, value: String, label: String) -> Element(Nil) {
+fn gauge(
+  model: Model,
+  replica: Replica,
+  key: String,
+  fallback: String,
+  label: String,
+) -> Element(runtime.Msg) {
+  let value = case model.selected {
+    Map -> int.to_string(runtime.map_value_for(model, replica, key))
+    _ -> fallback
+  }
   h.tr([a.attribute("data-key", key)], [
     h.th([a.attribute("scope", "row")], [h.code([], [h.text(key)])]),
     h.td([a.class("gauge-value"), a.attribute("data-value", "")], [
@@ -1489,7 +1590,7 @@ fn gauge(key: String, value: String, label: String) -> Element(Nil) {
           a.type_("button"),
           a.attribute("data-step", "-1"),
           a.attribute("aria-label", "Lower " <> key <> " on " <> label),
-          a.disabled(True),
+          event.on_click(runtime.StepMap(replica, key, -1)),
         ],
         [h.text("−")],
       ),
@@ -1498,7 +1599,7 @@ fn gauge(key: String, value: String, label: String) -> Element(Nil) {
           a.type_("button"),
           a.attribute("data-step", "1"),
           a.attribute("aria-label", "Raise " <> key <> " on " <> label),
-          a.disabled(True),
+          event.on_click(runtime.StepMap(replica, key, 1)),
         ],
         [h.text("+")],
       ),
@@ -1506,7 +1607,7 @@ fn gauge(key: String, value: String, label: String) -> Element(Nil) {
   ])
 }
 
-fn controls() -> Element(Nil) {
+fn controls(model: Model) -> Element(runtime.Msg) {
   h.div([a.class("demo-controls")], [
     h.label([a.class("pace")], [
       h.span([a.class("annot")], [h.text("Animation speed")]),
@@ -1518,7 +1619,7 @@ fn controls() -> Element(Nil) {
         a.value("1"),
         a.attribute("data-pace", ""),
         a.title("Playback only; does not affect simulated ordering."),
-        a.disabled(True),
+        event.on_input(runtime.SetLatency),
       ]),
       h.output([a.attribute("data-pace-out", "")], [h.text("1×")]),
     ]),
@@ -1527,7 +1628,7 @@ fn controls() -> Element(Nil) {
         a.type_("checkbox"),
         a.attribute("data-latency-variance", ""),
         a.title("Add random ±100 ms per hop; arrival order may change."),
-        a.disabled(True),
+        event.on_check(runtime.SetJitter),
       ]),
       h.span([a.class("annot")], [h.text("Jitter ±100 ms")]),
     ]),
@@ -1536,9 +1637,14 @@ fn controls() -> Element(Nil) {
         a.type_("button"),
         a.class("race-btn"),
         a.attribute("data-race", ""),
-        a.disabled(True),
+        event.on_click(runtime.RunRace),
       ],
-      [h.text("Race a concurrent write")],
+      [
+        h.text(case model.selected {
+          MvRegister -> "Race two revisions"
+          _ -> "Race a concurrent write"
+        }),
+      ],
     ),
     h.button(
       [
@@ -1549,8 +1655,8 @@ fn controls() -> Element(Nil) {
           "aria-label",
           "Deliver the most recently sequenced delta a second time to every replica",
         ),
-        a.hidden(True),
-        a.disabled(True),
+        a.hidden(model.selected != MvRegister),
+        event.on_click(runtime.Replay),
       ],
       [h.text("Re-deliver last delta")],
     ),
@@ -1563,7 +1669,7 @@ fn controls() -> Element(Nil) {
           "aria-label",
           "Reset all revisions to their surveyed baseline values",
         ),
-        a.disabled(True),
+        event.on_click(runtime.Reset),
       ],
       [h.text("Reset survey")],
     ),
@@ -1574,9 +1680,50 @@ fn controls() -> Element(Nil) {
         a.attribute("role", "status"),
       ],
       [
-        h.span([a.class("stamp booting")], [h.text("Loading")]),
-        h.text(" booting watershed kernels…"),
+        h.span([a.class(status_class(model))], [h.text(status_label(model))]),
+        h.text(status_detail(model)),
       ],
     ),
   ])
+}
+
+fn mv_text(model: Model, replica: Replica, sequenced: Bool) -> String {
+  case model.selected {
+    MvRegister ->
+      case sequenced {
+        True -> string.inspect(runtime.mv_sequenced_values(model, replica))
+        False -> string.inspect(runtime.mv_values(model, replica))
+      }
+    _ -> "[\"Survey datum\"]"
+  }
+}
+
+fn status_class(model: Model) -> String {
+  case model.link_up, model.phase {
+    False, _ -> "stamp revising"
+    _, Ready -> "stamp converged"
+    _, Failed -> "stamp revising"
+    _, _ -> "stamp revising"
+  }
+}
+
+fn status_label(model: Model) -> String {
+  case model.link_up, model.phase {
+    False, _ -> "Link cut"
+    _, Ready -> "Converged"
+    _, Failed -> "Offline"
+    _, _ -> "Revising"
+  }
+}
+
+fn status_detail(model: Model) -> String {
+  case model.link_up, model.phase {
+    False, _ ->
+      " Client B off the wire · "
+      <> int.to_string(model.queued_for_b)
+      <> " queued"
+    _, Ready -> " replicas identical · nothing pending"
+    _, Failed -> " kernels did not load, see below"
+    _, _ -> " " <> int.to_string(list.length(model.pending)) <> " ops in flight"
+  }
 }

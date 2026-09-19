@@ -21,6 +21,7 @@ pub type Document {
 pub type Script {
   Module(src: String)
   Deferred(src: String, attributes: List(#(String, String)))
+  Inline(source: String)
 }
 
 pub fn view(document: Document) -> Element(Nil) {
@@ -52,6 +53,7 @@ pub fn view(document: Document) -> Element(Nil) {
         list.map(document.scripts, fn(script) {
           case script {
             Module(src) -> h.script([a.type_("module"), a.src(src)], "")
+            Inline(source) -> h.script([], source)
             Deferred(src, attributes) ->
               h.script(
                 [

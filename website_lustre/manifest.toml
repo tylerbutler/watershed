@@ -63,6 +63,7 @@ gleam_stdlib = { version = ">= 1.0.0 and < 2.0.0" }
 gleeunit = { version = ">= 1.11.0 and < 2.0.0" }
 html_parser = { version = ">= 1.0.1 and < 2.0.0" }
 jot = { version = ">= 8.0.0 and < 9.0.0" }
+lattice_core = { version = ">= 2.0.0 and < 3.0.0" }
 lustre = { version = ">= 5.7.1 and < 6.0.0" }
 lustre_ssg = { git = "https://github.com/lustre-labs/ssg", ref = "2992bf78179d1be2876f834f0d923003f7f43f44" }
 retro_tutorial_lustre = { path = "../examples/retro_tutorial_lustre" }

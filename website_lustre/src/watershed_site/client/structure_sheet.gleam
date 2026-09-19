@@ -1,2 +1,5 @@
-@external(javascript, "./structure_sheet_ffi.mjs", "start")
-pub fn main() -> Nil
+import watershed_site/client/structure_demo
+
+pub fn main() {
+  structure_demo.mount_family()
+}

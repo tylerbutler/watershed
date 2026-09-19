@@ -1,4 +1,3 @@
-import { initDemo } from "../../../../../../../website/src/scripts/demo.ts";
 import { initHeroDrift } from "../../../../../../../website/src/scripts/hero-drift.js";
 
 function initGaugeStrip() {
@@ -37,17 +36,10 @@ function initGaugeStrip() {
   sync();
 }
 
-export function start() {
+export function enhance() {
   const rig = document.querySelector("[data-demo-rig]");
   rig?.setAttribute("data-dds", "map");
   rig?.setAttribute("data-views", "map");
-  try {
-    initDemo();
-    initGaugeStrip();
-    initHeroDrift();
-    document.querySelector("#demo")?.setAttribute("data-mounted", "");
-  } catch (error) {
-    console.error("watershed home demo failed to start", error);
-    document.querySelector("[data-demo-fallback]")?.removeAttribute("hidden");
-  }
+  initGaugeStrip();
+  initHeroDrift();
 }

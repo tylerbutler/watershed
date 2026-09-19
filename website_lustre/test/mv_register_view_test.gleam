@@ -1,10 +1,17 @@
 import gleam/list
+import gleam/option
 import gleam/string
 import lustre/element
-import watershed_site/mv_register/view
+import watershed_site/structure_demo/model
+import watershed_site/structure_demo/view
 
 pub fn static_view_exposes_the_revision_slate_contract_test() {
-  let html = view.static() |> element.to_string
+  let html =
+    view.static(
+      model.MvRegister,
+      view.Options(True, ["mv-register"], option.None),
+    )
+    |> element.to_string
   [
     "One slate, three field crews",
     "data-demo-rig",

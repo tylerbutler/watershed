@@ -1,6 +1,12 @@
-@external(javascript, "./mv_register_ffi.mjs", "start")
-fn start() -> Nil
+import gleam/option
+import watershed_site/client/structure_demo
+import watershed_site/structure_demo/model
+import watershed_site/structure_demo/view
 
 pub fn main() {
-  start()
+  structure_demo.mount(
+    "#mv-register-demo-mount",
+    model.MvRegister,
+    view.Options(True, ["mv-register"], option.None),
+  )
 }

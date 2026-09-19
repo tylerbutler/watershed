@@ -1,7 +1,9 @@
+import gleam/option
 import lustre/attribute as a
 import lustre/element.{type Element}
 import lustre/element/html as h
-import watershed_site/mv_register/view as demo
+import watershed_site/structure_demo/model
+import watershed_site/structure_demo/view as demo
 import watershed_site/view/ecosystem
 import watershed_site/view/sheet
 
@@ -9,7 +11,12 @@ pub fn view(body: List(Element(Nil))) -> Element(Nil) {
   sheet.view("/mv-register/", [
     hero(),
     h.main([], [
-      demo.static(),
+      h.div([a.id("mv-register-demo-mount")], [
+        demo.static(
+          model.MvRegister,
+          demo.Options(True, ["mv-register"], option.None),
+        ),
+      ]),
       h.section([a.class("mv-notes"), a.id("after-demo")], body),
     ]),
     ecosystem.view("/mv-register/"),

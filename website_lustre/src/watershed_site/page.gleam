@@ -335,6 +335,9 @@ fn render_document(
   body: Element(Nil),
 ) -> Element(Nil) {
   let scripts = [
+    document.Inline(
+      "document.addEventListener('DOMContentLoaded',()=>setTimeout(()=>{for(const fallback of document.querySelectorAll('[data-demo-fallback]')){if(!fallback.closest('#demo')?.hasAttribute('data-mounted'))fallback.hidden=false}},3000))",
+    ),
     document.Deferred(
       "https://tinylytics.app/embed/uhk_zvSq2fBb_T2hTaLx/min.js?hits&events&beacon",
       [],
