@@ -51,6 +51,10 @@ await withBrowserSite(site, async (browser, origin) => {
       ),
     !record,
   );
+  assert.equal(
+    await page.$$eval("#home-demo-mount", (nodes) => nodes.length),
+    1,
+  );
   const desktop = await snapshot(page);
   await page.setViewport({ width: 390, height: 844 });
   const mobile = await snapshot(page);

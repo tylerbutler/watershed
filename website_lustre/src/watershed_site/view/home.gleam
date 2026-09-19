@@ -1,11 +1,28 @@
+import gleam/int
+import gleam/list
 import gleam/option
 import lustre/attribute as a
-import lustre/element.{type Element, element, fragment}
+import lustre/element.{type Element, element, fragment, map}
 import lustre/element/html as h
+import lustre/event
+import watershed/map_kernel
 import watershed_site/structure_demo/model
+import watershed_site/structure_demo/runtime
 import watershed_site/structure_demo/view as demo
 import watershed_site/view/ecosystem
 import watershed_site/view/sheet
+
+pub type GaugeValue {
+  GaugeValue(key: String, value: String, pending: Bool)
+}
+
+pub type GaugeClient {
+  GaugeClient(id: String, values: List(GaugeValue))
+}
+
+pub type GaugeStrip {
+  GaugeStrip(clients: List(GaugeClient))
+}
 
 pub fn view(body: List(Element(Nil))) -> Element(Nil) {
   sheet.view("/", [
@@ -20,6 +37,61 @@ pub fn view(body: List(Element(Nil))) -> Element(Nil) {
     ]),
     ecosystem.view("/"),
   ])
+}
+
+pub fn gauge_strip_model(demo: model.Model) -> GaugeStrip {
+  GaugeStrip([
+    gauge_client(demo, model.ClientA, "a"),
+    gauge_client(demo, model.ClientB, "b"),
+    gauge_client(demo, model.ClientC, "c"),
+  ])
+}
+
+fn gauge_client(
+  demo: model.Model,
+  replica: model.Replica,
+  id: String,
+) -> GaugeClient {
+  GaugeClient(id:, values: [
+    gauge_value(demo, replica, "mill-race"),
+    gauge_value(demo, replica, "kettle-run"),
+    gauge_value(demo, replica, "low-ford"),
+  ])
+}
+
+fn gauge_value(
+  demo: model.Model,
+  replica: model.Replica,
+  key: String,
+) -> GaugeValue {
+  GaugeValue(
+    key:,
+    value: runtime.map_value_for(demo, replica, key) |> int.to_string,
+    pending: map_key_pending(demo, replica, key),
+  )
+}
+
+fn map_key_pending(
+  demo: model.Model,
+  replica: model.Replica,
+  key: String,
+) -> Bool {
+  let state = case replica {
+    model.ClientA -> demo.alpha
+    model.ClientB -> demo.beta
+    model.ClientC -> demo.gamma
+  }
+  case state {
+    model.MapReplica(state) ->
+      list.any(state.pending, fn(entry) {
+        case entry {
+          map_kernel.PendingLifetime(pending_key, _)
+          | map_kernel.PendingDelete(pending_key) -> pending_key == key
+          map_kernel.PendingClear -> True
+        }
+      })
+    _ -> False
+  }
 }
 
 fn hero() -> Element(Nil) {
@@ -123,10 +195,19 @@ fn label(path: String, text: String) -> Element(Nil) {
 }
 
 fn home_demo() -> Element(Nil) {
+  let model = runtime.static_model(model.Map)
+  h.div([a.id("home-demo-mount")], [
+    demo(model, gauge_strip_model(model)),
+  ])
+  |> map(fn(_) { Nil })
+}
+
+pub fn demo(
+  model: model.Model,
+  gauge_strip: GaugeStrip,
+) -> Element(runtime.Msg) {
   fragment([
-    h.div([a.id("home-structure-demo-mount")], [
-      demo.static(model.Map, demo.Options(True, ["map"], option.None)),
-    ]),
+    demo.view(model, demo.Options(True, ["map"], option.None)),
     h.p([a.class("map-comparison")], [
       h.a([a.href("/structures/maps#map")], [
         h.text("SharedMap's server order"),
@@ -139,7 +220,7 @@ fn home_demo() -> Element(Nil) {
             "Seen enough of “most recent write wins”? It has a famous failure mode.",
           ),
         ]),
-        gauge_strip(),
+        gauge_strip_view(gauge_strip),
         h.text(
           " Store a counter in this map and have two people add to it at once: their increments silently overwrite each other instead of adding up.",
         ),
@@ -156,44 +237,50 @@ fn home_demo() -> Element(Nil) {
   ])
 }
 
-fn gauge_strip() -> Element(Nil) {
+fn gauge_strip_view(gauge_strip: GaugeStrip) -> Element(runtime.Msg) {
+  let GaugeStrip(clients) = gauge_strip
   h.div([a.class("gauge-strip"), a.attribute("data-gauge-strip", "")], [
     h.div(
       [
         a.class("strip-values"),
         a.attribute("aria-hidden", "true"),
       ],
-      [
-        strip_client("a"),
-        strip_client("b"),
-        strip_client("c"),
-      ],
+      list.map(clients, strip_client),
     ),
     h.button(
       [
         a.type_("button"),
         a.class("race-btn strip-race"),
         a.attribute("data-strip-race", ""),
-        a.disabled(True),
+        event.on_click(runtime.Defer(runtime.RunRace)),
       ],
       [h.text("Race a concurrent write")],
     ),
   ])
 }
 
-fn strip_client(id: String) -> Element(Nil) {
+fn strip_client(client: GaugeClient) -> Element(runtime.Msg) {
+  let GaugeClient(id, values) = client
   h.div([a.class("strip-client"), a.attribute("data-strip-client", id)], [
     h.span([a.class("strip-id annot")], [h.text(id)]),
-    strip_value("mill-race", "24"),
-    strip_value("kettle-run", "61"),
-    strip_value("low-ford", "42"),
+    ..list.map(values, strip_value)
   ])
 }
 
-fn strip_value(key: String, value: String) -> Element(Nil) {
-  h.span([a.class("strip-val"), a.attribute("data-strip-key", key)], [
-    h.text(value),
-  ])
+fn strip_value(value: GaugeValue) -> Element(runtime.Msg) {
+  let GaugeValue(key, text, pending) = value
+  h.span(
+    [
+      a.class(case pending {
+        True -> "strip-val pending"
+        False -> "strip-val"
+      }),
+      a.attribute("data-strip-key", key),
+    ],
+    [
+      h.text(text),
+    ],
+  )
 }
 
 fn dds_sections() -> Element(Nil) {
@@ -218,9 +305,15 @@ fn dds_sections() -> Element(Nil) {
               ". The full catalog includes a live demo for each structure.",
             ),
           ]),
-          h.nav([a.class("family-nav")], [
-            h.a([a.href("/models")], [h.text("DDS vs CRDT vs OT →")]),
-          ]),
+          h.nav(
+            [
+              a.class("family-nav"),
+              a.attribute("aria-label", "Convergence models compared"),
+            ],
+            [
+              h.a([a.href("/models")], [h.text("DDS vs CRDT vs OT →")]),
+            ],
+          ),
         ]),
         featured_structures(),
       ]),
