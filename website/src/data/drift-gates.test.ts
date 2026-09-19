@@ -468,6 +468,32 @@ describe("Gate: website scripts use one generated Gleam runtime", () => {
     );
     assert.deepEqual(violations, []);
   });
+
+  it("the atlas sequencer delegates sequence numbers to sluice", () => {
+    const source = readFileSync(
+      resolve(websiteRoot, "src/scripts/demo/sequencer.ts"),
+      "utf-8",
+    );
+    assert.match(source, /watershed\/sluice_js\.mjs/);
+    assert.doesNotMatch(source, /\bsn\s*\+=\s*1\b/);
+  });
+
+  it("the atlas leaves runtime bootstrap records behind the Gleam bridge", () => {
+    const source = readFileSync(
+      resolve(websiteRoot, "src/scripts/demo.ts"),
+      "utf-8",
+    );
+    assert.doesNotMatch(
+      source,
+      /spillway\/(?:message|types)\.mjs|signet\/types\.mjs/,
+    );
+    assert.doesNotMatch(
+      source,
+      /new runtimeCore\.Summary|new message\.ConnectedMessage|new spillway\./,
+    );
+    assert.match(source, /websiteRuntime\.counter_core/);
+    assert.match(source, /websiteRuntime\.deliver_counter/);
+  });
 });
 
 // ══════════════════════════════════════════════════════════════════════════

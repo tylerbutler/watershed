@@ -40,7 +40,10 @@ packages = [
 ]
 
 [requirements]
+gleam_json = { version = ">= 3.0.0 and < 4.0.0" }
 gleam_stdlib = { version = ">= 0.62.0 and < 2.0.0" }
 gleeunit = { version = ">= 1.0.0 and < 2.0.0" }
+signet = { version = ">= 0.1.0 and < 1.0.0" }
+spillway = { version = ">= 0.1.0 and < 1.0.0" }
 watershed = { path = "../.." }
 watershed_lustre = { path = "../../watershed_lustre" }

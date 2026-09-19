@@ -1,8 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import * as runtimeCore from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/runtime_core.mjs";
-import * as channel from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/channel.mjs";
+import * as websiteRuntime from "../../../../tools/website-runtime/build/dev/javascript/website_runtime/website_runtime.mjs";
 import * as dict from "../../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
 import { toList } from "../../../../tools/website-runtime/build/dev/javascript/watershed/gleam.mjs";
 import * as mv from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/mv_register_kernel.mjs";
@@ -11,9 +10,6 @@ import * as json from "../../../../tools/website-runtime/build/dev/javascript/gl
 import * as gCounterKernel from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/g_counter_kernel.mjs";
 import * as lwwRegisterKernel from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/lww_register_kernel.mjs";
 import * as gCounter from "../../../../tools/website-runtime/build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
-import * as signet from "../../../../tools/website-runtime/build/dev/javascript/signet/signet/types.mjs";
-import * as message from "../../../../tools/website-runtime/build/dev/javascript/spillway/spillway/message.mjs";
-import * as spillway from "../../../../tools/website-runtime/build/dev/javascript/spillway/spillway/types.mjs";
 import { lwwRaceTimestamp } from "./lww-register.js";
 import * as orMap from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
 import * as sharedMap from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/map_kernel.mjs";
@@ -247,50 +243,23 @@ test("MV revision slate loads a baseline under independent writers", () => {
   assert.deepEqual(mv.values(b).toArray(), ["raise crest + arm pump"]);
 });
 
-// Regression: compiled-record arity drift fails silently — a Summary built
-// with too few arguments carries `undefined` fields and only throws deep
-// inside bootstrap, which is how the homepage demo once shipped broken.
-// Mirrors bootstrapCounterCore() in ../demo.ts.
+// Regression: the website bridge owns generated record construction so a
+// generated constructor change fails in Gleam instead of deep in TypeScript.
 test("demo counter core boots from the baseline summary", () => {
-  const summary = new runtimeCore.Summary(
-    0,
-    toList([["sandbags-counter", new channel.CounterSnapshot(120)]]),
-    toList([]),
-  );
-  const connected = new message.ConnectedMessage(
-    new signet.TokenClaims(
-      "demo",
-      toList([new signet.DocRead(), new signet.DocWrite()]),
-      "demo",
-      new signet.User("demo-user", dict.new$()),
-      0,
-      0,
-      "1.0",
-      none(),
+  const core = expectOk(
+    websiteRuntime.counter_core(
+      "demo-client-a",
+      "sandbags-counter",
+      120,
     ),
-    "demo-client-a",
-    true,
-    16_000,
-    new spillway.WriteMode(),
-    new spillway.ServiceConfiguration(65_536, 16_000, none(), none()),
-    toList([]),
-    toList([]),
-    toList([]),
-    toList(["^0.1.0"]),
-    dict.new$(),
-    "^0.1.0",
-    none(),
-    some(0),
-    none(),
-    none(),
-    none(),
+    "bootstrap returned an error",
   );
-  const booted = runtimeCore.bootstrap(connected, some(summary));
-  assert.ok(booted.isOk(), "bootstrap returned an error");
-  const bootedValue = expectOk(booted, "bootstrap returned an error");
-  assert.ok(
-    bootedValue instanceof runtimeCore.Complete,
-    "bootstrap requested catch-up unexpectedly",
+  assert.equal(
+    expectOk(
+      websiteRuntime.counter_value(core, "sandbags-counter"),
+      "counter value lookup failed",
+    ),
+    120,
   );
 });
 

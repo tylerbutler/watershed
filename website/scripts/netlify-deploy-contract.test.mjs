@@ -134,6 +134,26 @@ const canonicalCommands = [
 ];
 
 describe("Netlify deploy contract", () => {
+  it("defines the website integration gates", () => {
+    assert.match(
+      websitePackage.scripts?.["test:integration:node"] ?? "",
+      /dom\.test\.ts/,
+    );
+    assert.equal(
+      websitePackage.scripts?.["test:integration:browser"],
+      "node scripts/run-browser-tests.mjs",
+    );
+    assert.match(
+      readFileSync(
+        resolve(websiteRoot, "scripts", "run-browser-tests.mjs"),
+        "utf8",
+      ),
+      /runtime-demos\.test\.mjs/,
+    );
+    assert.match(justfile, /pnpm test:integration:node/);
+    assert.match(justfile, /pnpm test:integration:browser/);
+  });
+
   // ── netlify.toml ────────────────────────────────────────────────────────
 
   it("builds from website/ and publishes website/dist", () => {
@@ -243,6 +263,11 @@ describe("Netlify deploy contract", () => {
       prebuild,
       /check:types/,
       "the prebuild hook must run check:types before Astro reads generated modules",
+    );
+    assert.match(
+      prebuild,
+      /test:integration:node/,
+      "the prebuild hook must run the generated Gleam/TypeScript integration tests",
     );
 
     assert.match(

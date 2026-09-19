@@ -20,6 +20,7 @@ import { optionValue, resultValue, type ResultValue } from "./gleam-values.ts";
 import { prefersReducedMotion } from "./timing.ts";
 import { createFlowLayer, type FlowLayer } from "./flow-dots.ts";
 import { createLatencyControls, type LatencyControls } from "./controls.ts";
+import { requiredInstance } from "./dom.ts";
 import { createOpLog, type OpLog } from "./op-log.ts";
 
 const FIFO_GAP_MS = 25;
@@ -109,32 +110,48 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   const rig = document.querySelector(config.rig);
   if (!rig) return null;
 
-  const flowLayer = rig.querySelector("[data-flow-layer]");
-  const seqNode = rig.querySelector("[data-seq-node]");
-  const seqCounter = rig.querySelector("[data-seq-counter]");
-  const opLogEl = rig.querySelector("[data-op-log]");
-  const statusEl = document.querySelector(config.status);
+  const demoName = `${config.control} demo`;
+  const flowLayerEl = requiredInstance(
+    rig.querySelector("[data-flow-layer]"),
+    HTMLElement,
+    demoName,
+    "[data-flow-layer]",
+  );
+  const seqNodeEl = requiredInstance(
+    rig.querySelector("[data-seq-node]"),
+    HTMLElement,
+    demoName,
+    "[data-seq-node]",
+  );
+  const seqCounterEl = requiredInstance(
+    rig.querySelector("[data-seq-counter]"),
+    HTMLElement,
+    demoName,
+    "[data-seq-counter]",
+  );
+  const opLogEl = requiredInstance(
+    rig.querySelector("[data-op-log]"),
+    HTMLOListElement,
+    demoName,
+    "[data-op-log]",
+  );
+  const statusElement = requiredInstance(
+    document.querySelector(config.status),
+    HTMLElement,
+    demoName,
+    config.status,
+  );
   const paceInput = document.querySelector(`[data-${config.control}-pace]`);
   const paceOut = document.querySelector(`[data-${config.control}-pace-out]`);
   const varianceToggle = document.querySelector(
     `[data-${config.control}-latency-variance]`,
   );
-  const section = document.querySelector(config.section);
-
-  if (
-    !(flowLayer instanceof HTMLElement) ||
-    !(seqNode instanceof HTMLElement) ||
-    !(seqCounter instanceof HTMLElement) ||
-    !(opLogEl instanceof HTMLOListElement) ||
-    !(statusEl instanceof HTMLElement) ||
-    !(section instanceof HTMLElement)
-  ) {
-    return null;
-  }
-  const flowLayerEl = flowLayer;
-  const seqNodeEl = seqNode;
-  const seqCounterEl = seqCounter;
-  const statusElement = statusEl;
+  const section = requiredInstance(
+    document.querySelector(config.section),
+    HTMLElement,
+    demoName,
+    config.section,
+  );
 
   for (const el of section.querySelectorAll("button, input")) {
     if (el instanceof HTMLButtonElement || el instanceof HTMLInputElement) el.disabled = false;
@@ -150,9 +167,13 @@ export function createSluiceRig(config: RigConfig): Rig | null {
 
   const clientElements: Record<string, Element> = {};
   for (const id of config.clientIds) {
-    const el = rig.querySelector(`[data-client="${id}"]`);
-    if (!el) return null;
-    clientElements[id] = el;
+    const selector = `[data-client="${id}"]`;
+    clientElements[id] = requiredInstance(
+      rig.querySelector(selector),
+      Element,
+      demoName,
+      selector,
+    );
   }
 
   const clients: Record<string, RigClient> = {};

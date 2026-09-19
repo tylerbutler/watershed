@@ -1,8 +1,7 @@
-// The in-page sequencer transport shared by the interactive demos. It models a
-// Fluid-style service: a client sends an op to the sequencer, the sequencer
-// stamps a global sequence number (SN) and broadcasts it in FIFO order to every
-// replica. Timing is driven by the injected latency/pace controls; the flow
-// layer visualises each hop.
+// The in-page sequencer transport shared by the interactive demos. A hidden
+// watershed document carries one marker write per demo operation through the
+// real in-memory sluice. The demo applies its typed kernel operation when each
+// corresponding sluice delivery lands.
 //
 // The transport is domain-agnostic. The demo supplies three hooks:
 //   • guard      — snapshots an epoch at send time and reports if it went stale
@@ -13,6 +12,10 @@
 
 import type { FlowLayer } from "./flow-dots.ts";
 import type { LatencyControls } from "./controls.ts";
+import * as watershed from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
+import * as sluice from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
+import * as json from "../../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
+import { resultValue } from "./gleam-values.ts";
 
 /** A replica the sequencer can animate to and deliver to. */
 export interface SeqClient {
@@ -79,51 +82,133 @@ export function createSequencer<C extends SeqClient>(
   const { clients, seqNode, flow, controls, onChange } = config;
   const fifoGap = config.fifoGap ?? 25;
 
+  type PendingOperation = {
+    isStale: () => boolean;
+    label?: string;
+    begin: (seq: number) => (target: C) => void;
+  };
+
+  let server: ReturnType<typeof sluice.start>;
+  let documents: Record<string, ReturnType<typeof sluice.connect>>;
+  let sidToId: Record<string, string>;
+  let baseSequence = 0;
   let sn = 0;
   let inFlight = 0;
   let seqLastArrival = 0;
+  let generation = 0;
+  let pumpTimer: ReturnType<typeof setTimeout> | null = null;
+  const pendingBySequence = new Map<number, PendingOperation>();
 
-  // The sequencer → replicas fan-out, shared by `send` and `broadcast`.
+  function bootTransport() {
+    server = sluice.start("website", "structure-atlas");
+    documents = {};
+    sidToId = {};
+    for (const id of Object.keys(clients)) {
+      documents[id] = sluice.connect(server, id);
+    }
+    sluice.settle(server);
+    for (const id of Object.keys(clients)) {
+      const sid = resultValue(sluice.client_id(server, documents[id]));
+      if (sid !== null) sidToId[sid] = id;
+    }
+    baseSequence = sluice.sequence_number(server);
+  }
+
+  function deliverTo(
+    target: C,
+    isStale: () => boolean,
+    deliver: () => void,
+    label?: string,
+  ): void {
+    if (config.isLinkUp && !config.isLinkUp(target)) {
+      config.onHold?.(target, () => {
+        if (!isStale()) deliver();
+      });
+      return;
+    }
+    const hopLatency = controls.sampleLatency();
+    flow.animateDot(
+      seqNode,
+      target.el,
+      controls.paced(hopLatency),
+      true,
+      label,
+      hopLatency,
+    );
+    const now = performance.now();
+    const arrival = Math.max(
+      now + controls.paced(hopLatency),
+      target.lastArrival + controls.paced(fifoGap),
+    );
+    target.lastArrival = arrival;
+    inFlight += 1;
+    setTimeout(() => {
+      if (!isStale()) deliver();
+      inFlight = Math.max(0, inFlight - 1);
+      onChange();
+    }, arrival - now);
+  }
+
   function fanOut(
     isStale: () => boolean,
     deliver: (target: C) => void,
     label?: string,
   ): void {
     for (const target of Object.values(clients)) {
-      if (config.isLinkUp && !config.isLinkUp(target)) {
-        config.onHold?.(target, () => {
-          if (!isStale()) deliver(target);
-        });
-        continue;
-      }
-      const hopLatency = controls.sampleLatency();
-      flow.animateDot(
-        seqNode,
-        target.el,
-        controls.paced(hopLatency),
-        true,
-        label,
-        hopLatency,
-      );
-      const tNow = performance.now();
-      const tArrival = Math.max(
-        tNow + controls.paced(hopLatency),
-        target.lastArrival + controls.paced(fifoGap),
-      );
-      target.lastArrival = tArrival;
-      inFlight += 1;
-      setTimeout(() => {
-        if (isStale()) {
-          inFlight = Math.max(0, inFlight - 1);
-          onChange();
-          return;
-        }
-        deliver(target);
-        inFlight = Math.max(0, inFlight - 1);
-        onChange();
-      }, tArrival - tNow);
+      deliverTo(target, isStale, () => deliver(target), label);
     }
   }
+
+  function pump() {
+    if (pumpTimer !== null) return;
+    pumpTimer = setTimeout(() => {
+      pumpTimer = null;
+      const first = resultValue(sluice.peek_info(server));
+      if (first === null) {
+        onChange();
+        return;
+      }
+      const operation = pendingBySequence.get(first.sequence_number);
+      if (first.event !== "op" || !operation) {
+        sluice.step_info(server);
+        pump();
+        return;
+      }
+
+      pendingBySequence.delete(first.sequence_number);
+      const logicalSequence = first.sequence_number - baseSequence;
+      sn = Math.max(sn, logicalSequence);
+      const deliver = operation.isStale()
+        ? null
+        : operation.begin(logicalSequence);
+      let next = first;
+      while (
+        next.event === "op" &&
+        next.sequence_number === first.sequence_number
+      ) {
+        const landed = resultValue(sluice.step_info(server));
+        if (landed === null) break;
+        const targetId = sidToId[landed.to];
+        const target = targetId ? clients[targetId] : undefined;
+        if (target && deliver !== null) {
+          deliverTo(
+            target,
+            operation.isStale,
+            () => deliver(target),
+            operation.label,
+          );
+        }
+        const peeked = resultValue(sluice.peek_info(server));
+        if (peeked === null) break;
+        next = peeked;
+      }
+      inFlight = Math.max(0, inFlight - 1);
+      onChange();
+      if (sluice.pending(server)) pump();
+    }, 0);
+  }
+
+  bootTransport();
 
   return {
     get inFlight() {
@@ -134,7 +219,9 @@ export function createSequencer<C extends SeqClient>(
     },
 
     send<E>(opts: SendOptions<C, E>) {
-      const isStale = opts.guard ? opts.guard() : () => false;
+      const sentGeneration = generation;
+      const guarded = opts.guard ? opts.guard() : () => false;
+      const isStale = () => sentGeneration !== generation || guarded();
       inFlight += 1;
       onChange();
 
@@ -148,7 +235,6 @@ export function createSequencer<C extends SeqClient>(
         originLatency,
       );
 
-      // FIFO into the sequencer: an op may not overtake an earlier one.
       const now = performance.now();
       const arrival = Math.max(
         now + controls.paced(originLatency),
@@ -162,27 +248,46 @@ export function createSequencer<C extends SeqClient>(
           onChange();
           return;
         }
-        sn += 1;
-        const extra = opts.onSequence(sn);
-        const seq = sn;
-        fanOut(
-          isStale,
-          (target) => opts.onDeliver(target, { seq, extra }),
-          opts.label,
+        watershed.set(
+          watershed.root(documents[opts.originId]),
+          "__atlas_sequence__",
+          json.int(sn + pendingBySequence.size + 1),
         );
-        inFlight = Math.max(0, inFlight - 1);
-        onChange();
+        const sequence = sluice.sequence_number(server);
+        pendingBySequence.set(sequence, {
+          isStale,
+          label: opts.label,
+          begin: (logicalSequence) => {
+            const extra = opts.onSequence(logicalSequence);
+            return (target) =>
+              opts.onDeliver(target, { seq: logicalSequence, extra });
+          },
+        });
+        pump();
       }, arrival - now);
     },
 
     broadcast(opts: BroadcastOptions<C>) {
-      fanOut(opts.isStale ?? (() => false), opts.onDeliver, opts.label);
+      const broadcastGeneration = generation;
+      const guarded = opts.isStale ?? (() => false);
+      fanOut(
+        () => broadcastGeneration !== generation || guarded(),
+        opts.onDeliver,
+        opts.label,
+      );
     },
 
     reset() {
+      generation += 1;
+      if (pumpTimer !== null) {
+        clearTimeout(pumpTimer);
+        pumpTimer = null;
+      }
+      pendingBySequence.clear();
       sn = 0;
       inFlight = 0;
       seqLastArrival = 0;
+      bootTransport();
     },
   };
 }

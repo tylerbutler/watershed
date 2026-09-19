@@ -80,7 +80,7 @@ test = [
 # one `build` that cannot express it.
 # `tools/compile-fail/*` is excluded from both: those packages exist to NOT
 # compile, and only `just _test-compile-fail` may build them (expecting failure).
-build-erlang = ["watershed_lustre", "examples/*_lustre", "tools/compile-fail/*", "tools/website-samples", "tools/source-snippets"]
+build-erlang = ["watershed_lustre", "examples/*_lustre", "tools/compile-fail/*", "tools/website-runtime", "tools/website-samples", "tools/source-snippets"]
 build-javascript = ["examples/dice_cli", "examples/scoreboard_cli", "tools/compile-fail/*"]
 bundle = [
     ".",

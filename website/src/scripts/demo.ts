@@ -20,18 +20,13 @@ import * as registerKernel from "../../../tools/website-runtime/build/dev/javasc
 import * as orderedKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/ordered_collection_kernel.mjs";
 import * as taskManagerKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/task_manager_kernel.mjs";
 import * as pactKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/pact_map_kernel.mjs";
-import * as channel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/channel.mjs";
-import * as runtimeCore from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/runtime_core.mjs";
+import * as websiteRuntime from "../../../tools/website-runtime/build/dev/javascript/website_runtime/website_runtime.mjs";
 import * as gdict from "../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
 import * as gset from "../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/set.mjs";
-import * as decode from "../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/dynamic/decode.mjs";
 import * as pnLattice from "../../../tools/website-runtime/build/dev/javascript/lattice_counters/lattice_counters/pn_counter.mjs";
 import * as gCounter from "../../../tools/website-runtime/build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
 import * as replicaId from "../../../tools/website-runtime/build/dev/javascript/lattice_core/lattice_core/replica_id.mjs";
 import * as json from "../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
-import * as signet from "../../../tools/website-runtime/build/dev/javascript/signet/signet/types.mjs";
-import * as message from "../../../tools/website-runtime/build/dev/javascript/spillway/spillway/message.mjs";
-import * as spillway from "../../../tools/website-runtime/build/dev/javascript/spillway/spillway/types.mjs";
 import {
   toList,
   type List,
@@ -81,14 +76,10 @@ type JsonData =
   | string
   | JsonData[]
   | { [key: string]: JsonData };
-type ListItem<T> = T extends { toArray(): Array<infer Item> } ? Item : never;
 type TaskPendingList = List<taskManagerKernel.PendingOperation$>;
-type CounterIncrement = ResultValue<ReturnType<typeof runtimeCore.increment>>;
-type CounterOutbound = ListItem<CounterIncrement[2]>;
 type CounterDemoOperation = {
   amount: number;
-  outbound: CounterOutbound;
-  contents: ReturnType<typeof toDynamic>;
+  write: websiteRuntime.CounterWrite$;
 };
 type EpochOperation<T> = {
   operation: T;
@@ -623,73 +614,35 @@ function pactBaseline(): pactKernel.PactMapState$ {
   );
 }
 
-function toDynamic(value: json.Json$) {
-  const parsed = json.parse(json.to_string(value), decode.dynamic);
-  return expectOk(parsed, "failed to convert JSON to Dynamic");
-}
-
 function bootstrapCounterCore(clientId: ClientId) {
-  const summary = new runtimeCore.Summary(
-    0,
-    toList([[COUNTER_ADDRESS, new channel.CounterSnapshot(COUNTER_BASE)]]),
-    toList([]),
-  );
-  const connected = new message.ConnectedMessage(
-    new signet.TokenClaims(
-      "demo",
-      toList([new signet.DocRead(), new signet.DocWrite()]),
-      "demo",
-      new signet.User("demo-user", gdict.new$()),
-      0,
-      0,
-      "1.0",
-      none(),
+  const runtimeClientId = `demo-client-${clientId}`;
+  const core = expectOk(
+    websiteRuntime.counter_core(
+      runtimeClientId,
+      COUNTER_ADDRESS,
+      COUNTER_BASE,
     ),
-    `demo-client-${clientId}`,
-    true,
-    16_000,
-    new spillway.WriteMode(),
-    new spillway.ServiceConfiguration(65_536, 16_000, none(), none()),
-    toList([]),
-    toList([]),
-    toList([]),
-    toList(["^0.1.0"]),
-    gdict.new$(),
-    "^0.1.0",
-    none(),
-    some(0),
-    none(),
-    none(),
-    none(),
-  );
-  const outcome = expectOk(
-    runtimeCore.bootstrap(connected, some(summary)),
     "counter runtime bootstrap failed",
   );
-  if (!(outcome instanceof runtimeCore.Complete)) {
-    throw new Error("counter runtime bootstrap requested catch-up unexpectedly");
-  }
   return {
-    clientId: connected.client_id,
-    core: outcome.core,
+    clientId: runtimeClientId,
+    core,
   };
 }
 
 function counterPending(client: DemoClient): { count: number; delta: number } {
-  let count = 0;
-  let delta = 0;
-  for (const entry of client.counterCore.in_flight.toArray()) {
-    if (!(entry instanceof runtimeCore.InFlightOperation)) continue;
-    if (entry.address !== COUNTER_ADDRESS) continue;
-    if (!(entry.operation instanceof channel.CounterOperation)) continue;
-    count += 1;
-    delta += entry.operation[0].increment_amount;
-  }
-  return { count, delta };
+  const pending = websiteRuntime.counter_pending(
+    client.counterCore,
+    COUNTER_ADDRESS,
+  );
+  return { count: pending.count, delta: pending.delta };
 }
 
 function counterValue(client: DemoClient): number {
-  const value = runtimeCore.counter_value(client.counterCore, COUNTER_ADDRESS);
+  const value = websiteRuntime.counter_value(
+    client.counterCore,
+    COUNTER_ADDRESS,
+  );
   return resultValue(value) ?? COUNTER_BASE;
 }
 
@@ -2343,28 +2296,14 @@ export function initDemo(): void {
       }
     } else {
       const origin = clients[originId];
-      const { outbound, contents } = op;
-      const sequencedMessage = new spillway.SequencedDocumentMessage(
-        some(origin.counterClientId),
-        counterSeq,
-        0,
-        outbound.client_sequence_number,
-        outbound.reference_sequence_number,
-        outbound.operation_type,
-        contents,
-        outbound.metadata,
-        none(),
-        none(),
-        none(),
-        0,
-        none(),
-      );
-      const result = runtimeCore.handle_sequenced(
+      const result = websiteRuntime.deliver_counter(
         target.counterCore,
-        sequencedMessage,
+        origin.counterClientId,
+        counterSeq,
+        op.write,
       );
       const ingested = resultValue(result);
-      if (ingested !== null) target.counterCore = ingested[0];
+      if (ingested !== null) target.counterCore = ingested;
       else {
         console.error(
           "unexpected counter channel ingest failure",
@@ -2504,7 +2443,11 @@ export function initDemo(): void {
 
   function localIncrement(clientId: ClientId, amount: number): void {
     const client = clients[clientId];
-    const result = runtimeCore.increment(client.counterCore, COUNTER_ADDRESS, amount);
+    const result = websiteRuntime.counter_increment(
+      client.counterCore,
+      COUNTER_ADDRESS,
+      amount,
+    );
     const incremented = resultValue(result);
     if (incremented === null) {
       console.error(
@@ -2513,20 +2456,13 @@ export function initDemo(): void {
       );
       return;
     }
-    const [next, _events, outbound] = incremented;
-    const [outboundOp] = outbound.toArray();
-    if (outboundOp === undefined) {
-      console.error("counter channel increment produced no outbound op");
-      return;
-    }
-    client.counterCore = next;
+    client.counterCore = incremented.core;
     fieldNotes.trackChange("counter", client.el, true, () => render(client));
     submit(clientId, {
       ddsId: "counter",
       op: {
         amount,
-        outbound: outboundOp,
-        contents: toDynamic(outboundOp.contents),
+        write: incremented.write,
       },
     });
   }

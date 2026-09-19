@@ -27,6 +27,10 @@ for (const width of [1440, 1100, 390]) {
       for (const [family, ids] of families) {
         await page.goto(new URL(`/structures/${family}`, base).href);
         await page.waitForSelector("[data-race]:not([disabled])");
+        assert.equal(
+          await page.$eval("[data-demo-rig]", (rig) => rig.dataset.transport),
+          "sluice",
+        );
         assert.equal(await page.$eval("#demo", (demo) => demo.checkVisibility()), false);
         assert.equal(await page.$$eval(".plate-body", (bodies) => bodies.every((body) => body.checkVisibility())), true);
 
