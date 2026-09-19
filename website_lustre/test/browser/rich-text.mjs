@@ -153,9 +153,22 @@ await withBrowserSite(site, async (browser, origin) => {
   assert.notEqual(await waitForConvergence(page), formatted);
   await startScenario(page, "[data-rt-embed]");
   await waitForConvergence(page);
-  assert.equal(await page.$$(".ql-editor img").then((nodes) => nodes.length), 3);
+  assert.deepEqual(
+    await page.$$eval(".ql-editor", (editors) =>
+      editors.map((editor) => editor.querySelectorAll("img").length),
+    ),
+    [1, 1, 1],
+  );
 
   await page.click("[data-rt-reset]");
+  await page.waitForFunction(
+    (expected) =>
+      [...document.querySelectorAll("[data-canonical]")].every(
+        (node) => node.textContent === expected,
+      ),
+    {},
+    baseline,
+  );
   assert.equal(await waitForConvergence(page), baseline);
 
   const noJs = await browser.newPage();

@@ -1,17 +1,42 @@
-import lustre/attribute as a
+import gleam/int
+import gleam/list
+import gleam/option.{None, Some}
+import gleam/string
+import lustre/attribute.{type Attribute} as a
 import lustre/element.{type Element, element, fragment}
 import lustre/element/html as h
+import lustre/event
+import watershed_site/text/runtime
 
 pub fn static() -> Element(Nil) {
-  fragment([mechanics(), component()])
+  view(runtime.static_model(), True)
+  |> element.map(fn(_) { Nil })
 }
 
-fn mechanics() -> Element(Nil) {
+pub fn view(
+  model: runtime.Model,
+  include_noscript: Bool,
+) -> Element(runtime.Msg) {
+  fragment([
+    mechanics(model, include_noscript),
+    component(model, include_noscript),
+  ])
+}
+
+fn mechanics(
+  model: runtime.Model,
+  include_noscript: Bool,
+) -> Element(runtime.Msg) {
+  let unavailable =
+    model.phase == runtime.Static
+    || model.phase == runtime.Starting
+    || model.phase == runtime.Failed
   h.section(
     [
       a.id("text-demo"),
       a.class("demo"),
       a.attribute("aria-labelledby", "text-demo-title"),
+      ..mounted(model)
     ],
     [
       head(
@@ -30,9 +55,9 @@ fn mechanics() -> Element(Nil) {
         ),
       ]),
       h.div([a.class("rig"), a.attribute("data-text-rig", "")], [
-        client("a", "Client A"),
-        client("b", "Client B"),
-        client("c", "Client C"),
+        client(model, runtime.ClientA, "a", unavailable),
+        client(model, runtime.ClientB, "b", unavailable),
+        client(model, runtime.ClientC, "c", unavailable),
         channel(),
         h.div(
           [
@@ -43,22 +68,31 @@ fn mechanics() -> Element(Nil) {
           [],
         ),
       ]),
-      controls(),
+      controls(model, unavailable),
       h.p([a.class("controls-hint")], [
         h.text(
           "Jitter can change simulated arrival order; animation speed changes playback only. Each moving request shows its sampled hop latency.",
         ),
       ]),
-      fallback("data-text-fallback", "text-fallback"),
+      fallback(model, include_noscript, "data-text-fallback", "text-fallback"),
+      error(model),
     ],
   )
 }
 
-fn client(id: String, label: String) -> Element(Nil) {
+fn client(
+  model: runtime.Model,
+  replica: runtime.Replica,
+  id: String,
+  unavailable: Bool,
+) -> Element(runtime.Msg) {
+  let label = runtime.replica_label(replica)
+  let pending = runtime.pending_count(model, replica)
   h.article(
     [
       a.class("client"),
       a.attribute("data-client", id),
+      a.attribute("data-flow-node", id),
       a.attribute("aria-label", label <> " replica"),
       a.style("grid-area", id),
     ],
@@ -71,14 +105,26 @@ fn client(id: String, label: String) -> Element(Nil) {
               a.class("grapheme-count annot"),
               a.attribute("data-grapheme-count", ""),
             ],
-            [h.text("0 graphemes")],
+            [
+              h.text(
+                int.to_string(
+                  runtime.value(model, replica)
+                  |> string.to_graphemes
+                  |> list.length,
+                )
+                <> " graphemes",
+              ),
+            ],
           ),
           h.span(
             [
-              a.class("pending-count annot"),
+              a.class(case pending > 0 {
+                True -> "pending-count annot is-pending"
+                False -> "pending-count annot"
+              }),
               a.attribute("data-pending-count", ""),
             ],
-            [h.text("0 pending")],
+            [h.text(int.to_string(pending) <> " pending")],
           ),
         ]),
       ]),
@@ -93,14 +139,35 @@ fn client(id: String, label: String) -> Element(Nil) {
           a.rows(3),
           a.attribute("spellcheck", "false"),
           a.attribute("aria-describedby", "anchor-readout-" <> id),
-          a.disabled(True),
+          a.disabled(unavailable),
+          event.on_input(fn(value) {
+            runtime.Defer(runtime.ReplaceValue(replica, value))
+          }),
         ],
-        "",
+        runtime.value(model, replica),
       ),
       h.div([a.class("pane-actions")], [
-        button("node-action", "data-anchor-pin", "Pin anchor at caret"),
-        button("node-action", "data-anchor-clear", "Clear"),
-        button("node-action", "data-text-append", "Append ⇣"),
+        button(
+          "node-action",
+          "data-anchor-pin",
+          "Pin anchor at caret",
+          unavailable,
+          runtime.NoOp,
+        ),
+        button("node-action", "data-anchor-clear", "Clear", True, runtime.NoOp),
+        button(
+          "node-action",
+          "data-text-append",
+          "Append ⇣",
+          unavailable,
+          runtime.Defer(runtime.Insert(
+            replica,
+            runtime.value(model, replica)
+              |> string.to_graphemes
+              |> list.length,
+            " ⇣",
+          )),
+        ),
       ]),
       h.p(
         [
@@ -115,7 +182,7 @@ fn client(id: String, label: String) -> Element(Nil) {
   )
 }
 
-fn channel() -> Element(Nil) {
+fn channel() -> Element(msg) {
   h.div([a.class("channel"), a.style("grid-area", "seq")], [
     h.div([a.class("seq-node"), a.attribute("data-seq-node", "")], [
       h.span([a.class("annot")], [h.text("Sequencer")]),
@@ -125,7 +192,7 @@ fn channel() -> Element(Nil) {
           a.attribute("data-seq-counter", ""),
           a.attribute("aria-label", "Latest sequence number"),
         ],
-        [h.text("SN 0")],
+        [h.text("SN")],
       ),
     ]),
     h.ol(
@@ -140,7 +207,7 @@ fn channel() -> Element(Nil) {
   ])
 }
 
-fn controls() -> Element(Nil) {
+fn controls(model: runtime.Model, unavailable: Bool) -> Element(runtime.Msg) {
   h.div([a.class("demo-controls")], [
     h.label([a.class("pace")], [
       h.span([a.class("annot")], [h.text("Animation speed")]),
@@ -151,7 +218,7 @@ fn controls() -> Element(Nil) {
         a.step("0.25"),
         a.value("1"),
         a.attribute("data-text-pace", ""),
-        a.disabled(True),
+        a.disabled(unavailable),
       ]),
       h.output([a.attribute("data-text-pace-out", "")], [h.text("1×")]),
     ]),
@@ -159,33 +226,64 @@ fn controls() -> Element(Nil) {
       h.input([
         a.type_("checkbox"),
         a.attribute("data-text-latency-variance", ""),
-        a.disabled(True),
+        a.disabled(unavailable),
       ]),
       h.span([a.class("annot")], [h.text("Jitter ±100 ms")]),
     ]),
-    button("race-btn", "data-text-race-insert", "Crowd an insert"),
-    button("race-btn", "data-text-race-overlap", "Overlapping edit"),
-    button("reset-btn", "data-text-reset", "Reset"),
+    button(
+      "race-btn",
+      "data-text-race-insert",
+      "Crowd an insert",
+      unavailable,
+      runtime.Defer(runtime.Insert(runtime.ClientB, 0, "still ")),
+    ),
+    button(
+      "race-btn",
+      "data-text-race-overlap",
+      "Overlapping edit",
+      unavailable,
+      runtime.Defer(runtime.ReplaceValue(
+        runtime.ClientB,
+        "levee " <> runtime.value(model, runtime.ClientB),
+      )),
+    ),
+    button(
+      "reset-btn",
+      "data-text-reset",
+      "Reset",
+      unavailable,
+      runtime.Defer(runtime.Reset),
+    ),
     h.p(
       [
         a.class("status"),
         a.attribute("data-text-status", ""),
         a.attribute("role", "status"),
       ],
-      [
-        h.span([a.class("stamp converged")], [h.text("Converged")]),
-        h.text(" all replicas identical · nothing pending"),
-      ],
+      case runtime.all_values_equal(model) && model.pending == [] {
+        True -> [
+          h.span([a.class("stamp converged")], [h.text("Converged")]),
+          h.text(" all replicas identical · nothing pending"),
+        ]
+        False -> [
+          h.span([a.class("stamp")], [h.text("Revising")]),
+          h.text(" operations are still moving"),
+        ]
+      },
     ),
   ])
 }
 
-fn component() -> Element(Nil) {
+fn component(
+  model: runtime.Model,
+  include_noscript: Bool,
+) -> Element(runtime.Msg) {
   h.section(
     [
       a.id("text-element-demo"),
       a.class("demo"),
       a.attribute("aria-labelledby", "text-element-demo-title"),
+      ..mounted(model)
     ],
     [
       head(
@@ -199,20 +297,30 @@ fn component() -> Element(Nil) {
         ),
       ]),
       h.div([a.class("element-rig")], [
-        pane("a", "Client A"),
-        pane("b", "Client B"),
+        pane(model, runtime.ElementA, "a", "Client A"),
+        pane(model, runtime.ElementB, "b", "Client B"),
       ]),
       h.p([a.class("controls-hint")], [
         h.text(
           "Cursors here hop panes through a property assignment; in an app the cursor event's payload rides your presence channel unchanged.",
         ),
       ]),
-      fallback("data-text-element-fallback", "text-element-fallback"),
+      fallback(
+        model,
+        include_noscript,
+        "data-text-element-fallback",
+        "text-element-fallback",
+      ),
     ],
   )
 }
 
-fn pane(id: String, label: String) -> Element(Nil) {
+fn pane(
+  model: runtime.Model,
+  replica: runtime.Replica,
+  id: String,
+  label: String,
+) -> Element(runtime.Msg) {
   h.article(
     [
       a.class("pane"),
@@ -223,7 +331,14 @@ fn pane(id: String, label: String) -> Element(Nil) {
       h.header([a.class("pane-head")], [
         h.h3([], [h.text(label)]),
         h.span([a.class("annot"), a.attribute("data-count", "")], [
-          h.text("0 graphemes"),
+          h.text(
+            int.to_string(
+              runtime.value(model, replica)
+              |> string.to_graphemes
+              |> list.length,
+            )
+            <> " graphemes",
+          ),
         ]),
       ]),
       element("watershed-textarea", [a.attribute("rows", "5")], []),
@@ -239,46 +354,86 @@ fn pane(id: String, label: String) -> Element(Nil) {
   )
 }
 
-fn head(id: String, title: String, copy: String) -> Element(Nil) {
+fn head(id: String, title: String, copy: String) -> Element(msg) {
   h.div([a.class("demo-head"), a.attribute("data-reveal", "rise")], [
     h.h2([a.id(id)], [h.text(title)]),
     h.p([], [h.text(copy)]),
   ])
 }
 
-fn button(class: String, attribute: String, label: String) -> Element(Nil) {
+fn button(
+  class: String,
+  attribute: String,
+  label: String,
+  disabled: Bool,
+  message: msg,
+) -> Element(msg) {
   h.button(
     [
       a.type_("button"),
       a.class(class),
       a.attribute(attribute, ""),
-      a.disabled(True),
+      a.disabled(disabled),
+      event.on_click(message),
     ],
     [h.text(label)],
   )
 }
 
-fn fallback(attribute: String, testid: String) -> Element(Nil) {
+fn mounted(model: runtime.Model) -> List(Attribute(msg)) {
+  case model.phase {
+    runtime.Ready | runtime.Delivering -> [a.attribute("data-mounted", "")]
+    _ -> []
+  }
+}
+
+fn fallback(
+  model: runtime.Model,
+  include_noscript: Bool,
+  attribute: String,
+  testid: String,
+) -> Element(runtime.Msg) {
   fragment([
-    h.noscript([], [
-      h.p([a.class("demo-noscript"), a.attribute("data-testid", "noscript")], [
-        h.text(
-          "The live demo needs JavaScript. The rest of the page works fine without it.",
-        ),
-      ]),
-    ]),
-    h.p(
-      [
-        a.class("demo-noscript"),
-        a.attribute(attribute, ""),
-        a.attribute("data-testid", testid),
-        a.hidden(True),
-      ],
-      [
-        h.text(
-          "The live demo couldn't start. The rest of the page works fine without it.",
-        ),
-      ],
-    ),
+    case include_noscript {
+      True ->
+        element("noscript", [], [
+          h.p(
+            [a.class("demo-noscript"), a.attribute("data-testid", "noscript")],
+            [
+              h.text(
+                "The live demo needs JavaScript. The rest of the page works fine without it.",
+              ),
+            ],
+          ),
+        ])
+      False -> element.none()
+    },
+    case model.phase {
+      runtime.Static ->
+        h.p(
+          [
+            a.class("demo-noscript"),
+            a.attribute(attribute, ""),
+            a.attribute("data-testid", testid),
+            a.hidden(True),
+          ],
+          [
+            h.text(
+              "The live demo couldn't start. The rest of the page works fine without it.",
+            ),
+          ],
+        )
+      _ -> element.none()
+    },
   ])
+}
+
+fn error(model: runtime.Model) -> Element(msg) {
+  h.p(
+    [a.class("demo-noscript"), a.attribute("aria-live", "polite")],
+    case model.error {
+      None -> []
+      Some(reason) -> [h.text(reason)]
+    },
+  )
 }
