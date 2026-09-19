@@ -84,7 +84,7 @@ await withBrowserSite(site, async (browser, origin) => {
     (nodes) => nodes.map((node) => node.textContent),
   );
   assert.equal(new Set(values).size, 1);
-  assert.equal(
+  assert.deepEqual(
     await page.$eval('[data-strip-client="a"] [data-strip-key="mill-race"]', (node) =>
       node.textContent,
     ),
@@ -94,6 +94,40 @@ await withBrowserSite(site, async (browser, origin) => {
     await page.$eval("[data-strip-race]", (button) => button.disabled),
     false,
   );
+  await page.click("[data-cut-link]");
+  const cutValue = await page.$eval(
+    '[data-client="a"] .dds-map tr[data-key="mill-race"] [data-value]',
+    (node) => node.textContent,
+  );
+  await page.click(
+    '[data-client="a"] .dds-map tr[data-key="mill-race"] [data-step="1"]',
+  );
+  await page.waitForFunction(
+    (value) =>
+      document.querySelector(
+        '[data-client="a"] .dds-map tr[data-key="mill-race"] [data-value]',
+      ).textContent !== value &&
+      document.querySelector(
+        '[data-client="c"] .dds-map tr[data-key="mill-race"] [data-value]',
+      ).textContent !== value,
+    {},
+    cutValue,
+  );
+  assert.equal(
+    await page.$eval(
+      '[data-client="b"] .dds-map tr[data-key="mill-race"] [data-value]',
+      (node) => node.textContent,
+    ),
+    cutValue,
+  );
+  assert.deepEqual(
+    await page.$eval("[data-cut-link]", (button) => [
+      button.textContent.trim(),
+      button.getAttribute("aria-pressed"),
+    ]),
+    ["Restore link", "true"],
+  );
+  await page.click("[data-cut-link]");
   assert.notEqual(await page.$("#after-demo"), null);
 
   const reduced = await browser.newPage();

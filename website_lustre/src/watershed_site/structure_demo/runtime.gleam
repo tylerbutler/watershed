@@ -26,22 +26,27 @@ import watershed/task_manager_kernel
 import watershed/two_p_set_kernel
 import watershed_lustre
 import watershed_site/structure_demo/model.{
-  type Model, type Operation, type PendingOperation, type Replica,
-  type ReplicaState, type Structure, AllReplicas, ClaimOperation, Claims,
-  ClaimsReplica, ClientA, ClientB, ClientBOnly, ClientC, Counter,
-  CounterOperation, CounterReplica, Delivering, Failed, Flow, GCounter,
-  GCounterOperation, GCounterReplica, GSet, GSetOperation, GSetReplica, LogEntry,
-  LwwMap, LwwMapOperation, LwwMapReplica, LwwRegister, LwwRegisterOperation,
-  LwwRegisterReplica, Map, MapOperation, MapReplica, Model, MvRegister,
-  MvRegisterOperation, MvRegisterReplica, OrMap, OrMapMvRegister, OrMapOperation,
-  OrMapReplica, OrSet, OrSetOperation, OrSetReplica, OrderedCollection,
-  OrderedOperation, OrderedReplica, PactMap, PactOperation, PactReplica,
-  PendingOperation, PnCounter, PnOperation, PnReplica, Ready, RegisterCollection,
-  RegisterOperation, RegisterReplica, Starting, Static, TaskManager,
-  TaskOperation, TaskReplica, TwoPSet, TwoPSetOperation, TwoPSetReplica,
+  type Instance, type Model, type Operation, type PendingOperation,
+  type ReplayOperation, type Replica, type ReplicaState, type Structure,
+  AllReplicas, ClaimOperation, Claims, ClaimsReplica, ClientA, ClientB,
+  ClientBOnly, ClientC, Counter, CounterOperation, CounterReplica, Delivering,
+  Failed, Flow, GCounter, GCounterOperation, GCounterReplica, GSet,
+  GSetOperation, GSetReplica, Instance, LogEntry, LwwMap, LwwMapOperation,
+  LwwMapReplica, LwwRegister, LwwRegisterOperation, LwwRegisterReplica, Map,
+  MapOperation, MapReplica, Model, MvRegister, MvRegisterOperation,
+  MvRegisterReplica, OrMap, OrMapMvRegister, OrMapOperation, OrMapReplica, OrSet,
+  OrSetOperation, OrSetReplica, OrderedCollection, OrderedOperation,
+  OrderedReplica, PactMap, PactOperation, PactReplica, PendingOperation,
+  PnCounter, PnOperation, PnReplica, Ready, RegisterCollection,
+  RegisterOperation, RegisterReplica, ReplayAll, ReplayOperation, Starting,
+  Static, TaskManager, TaskOperation, TaskReplica, TwoPSet, TwoPSetOperation,
+  TwoPSetReplica,
 }
 
 pub type Msg {
+  NoOp
+  Defer(Msg)
+  Deferred(generation: Int, command: Msg)
   Start
   Started(generation: Int, outcome: Result(Model, String))
   SelectStructure(Structure)
@@ -49,15 +54,44 @@ pub type Msg {
   TogglePanel(Structure)
   StepMap(Replica, key: String, amount: Int)
   IncrementCounter(Replica, amount: Int)
+  IncrementGCounter(Replica, amount: Int)
+  UpdatePnCounter(Replica, amount: Int)
+  IncrementOrMap(Replica, key: String, amount: Int)
+  RemoveOrMap(Replica, key: String)
+  AddOrMapMember(Replica, key: String, member: String)
+  RemoveOrMapMember(Replica, key: String, member: String)
+  WriteLwwMap(Replica, key: String, value: Option(String))
+  WriteLwwRegister(Replica, value: String)
+  WriteOrMapMv(Replica, key: String, value: Option(String))
   WriteMv(Replica, value: String)
+  SetDraft(Replica, value: String)
+  SubmitDraft(Replica)
   ResolveMv(Replica)
+  AddOrSet(Replica, element: String)
+  RemoveOrSet(Replica, element: String)
+  AddGSet(Replica, element: String)
+  AddTwoPSet(Replica, element: String)
+  RemoveTwoPSet(Replica, element: String)
+  Claim(Replica, key: String)
+  WriteRegister(Replica, key: String)
+  OrderedAdd(Replica)
+  OrderedAcquire(Replica)
+  OrderedComplete(Replica)
+  OrderedRelease(Replica)
+  TaskVolunteer(Replica, task_id: String)
+  TaskAbandon(Replica, task_id: String)
+  TaskComplete(Replica, task_id: String)
+  PactSet(Replica, key: String)
+  PactDelete(Replica, key: String)
   RunRace
   Replay
   ToggleLink
-  SetLatency(String)
+  SetPace(String)
   SetJitter(Bool)
+  SetFieldNotes(Bool)
   SetOrMapMode(String)
   Deliver(generation: Int)
+  ClearFlow(generation: Int, id: Int)
   CounterFinished(
     generation: Int,
     replicas: #(ReplicaState, ReplicaState, ReplicaState),
@@ -104,18 +138,36 @@ pub fn ready_model(selected: Structure) -> Model {
     queued_for_b: 0,
     open_panel: None,
     or_map_set_mode: False,
+    draft_a: "raise crest",
+    draft_b: "arm pump",
+    draft_c: "check datum",
+    playback_ms: 600,
+    field_notes: False,
+    last_replay: None,
+    instances: [],
   )
 }
 
 pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
   case message {
     Started(generation, _)
+      | Deferred(generation, _)
       | Deliver(generation)
       | CounterFinished(generation, _)
+      | ClearFlow(generation, _)
       if generation != model.generation
     -> #(model, effect.none())
+    NoOp -> #(model, effect.none())
     Start if model.phase == Static -> init(model.selected)
     Start -> #(model, effect.none())
+    Defer(command) -> #(
+      model,
+      watershed_lustre.perform(
+        operation: fn() { command },
+        outcome: fn(command) { Deferred(model.generation, command) },
+      ),
+    )
+    Deferred(_, command) -> update(model, command)
     Started(_, Ok(ready)) -> #(
       Model(
         ..ready,
@@ -124,24 +176,18 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         jitter: model.jitter,
         open_panel: model.open_panel,
         or_map_set_mode: model.or_map_set_mode,
+        playback_ms: model.playback_ms,
+        field_notes: model.field_notes,
+        draft_a: model.draft_a,
+        draft_b: model.draft_b,
+        draft_c: model.draft_c,
+        link_up: model.link_up,
+        instances: model.instances,
       ),
       effect.none(),
     )
     Started(_, Error(reason)) | RuntimeFailed(reason) -> fail(model, reason)
-    SelectStructure(selected) -> {
-      let next = ready_model(selected)
-      #(
-        Model(
-          ..next,
-          generation: model.generation + 1,
-          latency_ms: model.latency_ms,
-          jitter: model.jitter,
-          open_panel: model.open_panel,
-          or_map_set_mode: model.or_map_set_mode,
-        ),
-        effect.none(),
-      )
-    }
+    SelectStructure(selected) -> select_structure(model, selected)
     SelectId(id) ->
       case structure_from_id(id) {
         Ok(selected) -> update(model, SelectStructure(selected))
@@ -151,8 +197,8 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       case model.open_panel == Some(selected) {
         True -> #(Model(..model, open_panel: None), effect.none())
         False -> {
-          let #(next, _) = update(model, SelectStructure(selected))
-          #(Model(..next, open_panel: Some(selected)), effect.none())
+          let #(next, effect) = select_structure(model, selected)
+          #(Model(..next, open_panel: Some(selected)), effect)
         }
       }
     StepMap(replica, key, amount) ->
@@ -168,8 +214,53 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         outcome: fn(replicas) { CounterFinished(model.generation, replicas) },
       ),
     )
+    IncrementGCounter(replica, amount) ->
+      enqueue_g_counter(model, replica, amount)
+    UpdatePnCounter(replica, amount) -> enqueue_pn(model, replica, amount)
+    IncrementOrMap(replica, key, amount) ->
+      enqueue_or_map_increment(model, replica, key, amount)
+    RemoveOrMap(replica, key) -> enqueue_or_map_remove(model, replica, key)
+    AddOrMapMember(replica, key, member) ->
+      enqueue_or_map_member(model, replica, key, member, True)
+    RemoveOrMapMember(replica, key, member) ->
+      enqueue_or_map_member(model, replica, key, member, False)
+    WriteLwwMap(replica, key, value) ->
+      enqueue_lww_map(model, replica, key, value)
+    WriteLwwRegister(replica, value) ->
+      enqueue_lww_register(model, replica, value)
+    WriteOrMapMv(replica, key, value) ->
+      enqueue_or_map_mv(model, replica, key, value)
     WriteMv(replica, value) -> enqueue_mv(model, replica, value)
+    SetDraft(replica, value) -> #(
+      put_draft(model, replica, value),
+      effect.none(),
+    )
+    SubmitDraft(replica) -> enqueue_mv(model, replica, draft(model, replica))
     ResolveMv(replica) -> enqueue_mv(model, replica, "raise crest + arm pump")
+    AddOrSet(replica, element) ->
+      enqueue_set(model, replica, element, "orset-add")
+    RemoveOrSet(replica, element) ->
+      enqueue_set(model, replica, element, "orset-remove")
+    AddGSet(replica, element) ->
+      enqueue_set(model, replica, element, "gset-add")
+    AddTwoPSet(replica, element) ->
+      enqueue_set(model, replica, element, "twopset-add")
+    RemoveTwoPSet(replica, element) ->
+      enqueue_set(model, replica, element, "twopset-remove")
+    Claim(replica, key) -> enqueue_claim(model, replica, key)
+    WriteRegister(replica, key) -> enqueue_register(model, replica, key)
+    OrderedAdd(replica) -> enqueue_ordered(model, replica, "add")
+    OrderedAcquire(replica) -> enqueue_ordered(model, replica, "acquire")
+    OrderedComplete(replica) -> enqueue_ordered(model, replica, "complete")
+    OrderedRelease(replica) -> enqueue_ordered(model, replica, "release")
+    TaskVolunteer(replica, task_id) ->
+      enqueue_task(model, replica, task_id, "volunteer")
+    TaskAbandon(replica, task_id) ->
+      enqueue_task(model, replica, task_id, "abandon")
+    TaskComplete(replica, task_id) ->
+      enqueue_task(model, replica, task_id, "complete")
+    PactSet(replica, key) -> enqueue_pact(model, replica, key, False)
+    PactDelete(replica, key) -> enqueue_pact(model, replica, key, True)
     RunRace ->
       case model.selected {
         Map -> {
@@ -184,13 +275,16 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           )
         }
         Counter -> #(
-          Model(..model, phase: Delivering),
-          watershed_lustre.perform(
-            operation: counter_race_replicas,
-            outcome: fn(replicas) {
-              CounterFinished(model.generation, replicas)
-            },
+          Model(
+            ..replace_replicas(model, counter_race_replicas()),
+            sequence_number: model.sequence_number + 2,
+            log: [
+              LogEntry(model.sequence_number + 2, ClientB, "increment +3"),
+              LogEntry(model.sequence_number + 1, ClientA, "increment +7"),
+              ..model.log
+            ],
           ),
+          effect.none(),
         )
         MvRegister -> {
           let #(model, _) = enqueue_mv(model, ClientA, "raise crest")
@@ -221,7 +315,30 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         )
         _ -> #(model, effect.none())
       }
-    Replay -> #(model, effect.none())
+    Replay ->
+      case model.last_replay {
+        None -> #(model, effect.none())
+        Some(ReplayOperation(operation, message_id, sequence_number)) -> {
+          let #(next, _) =
+            queue_pending(
+              model,
+              PendingOperation(
+                ClientA,
+                operation,
+                message_id,
+                model.generation,
+                ReplayAll(sequence_number),
+              ),
+            )
+          #(
+            next,
+            watershed_lustre.after(
+              delivery_delay(model),
+              Deliver(model.generation),
+            ),
+          )
+        }
+      }
     ToggleLink ->
       case model.link_up {
         True -> #(
@@ -244,30 +361,46 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
             )
           }
       }
-    SetLatency(value) ->
-      case int.parse(value) {
-        Ok(milliseconds) -> #(
-          Model(..model, latency_ms: int.clamp(milliseconds, 100, 2000)),
-          effect.none(),
-        )
-        Error(_) -> #(model, effect.none())
-      }
+    SetPace(value) -> #(
+      Model(..model, playback_ms: pace_milliseconds(value)),
+      effect.none(),
+    )
     SetJitter(value) -> #(Model(..model, jitter: value), effect.none())
+    SetFieldNotes(value) -> #(Model(..model, field_notes: value), effect.none())
     SetOrMapMode(value) ->
       case value {
-        "set" -> #(
-          Model(
-            ..ready_model(OrMap),
-            generation: model.generation + 1,
-            latency_ms: model.latency_ms,
-            jitter: model.jitter,
-            open_panel: model.open_panel,
-            or_map_set_mode: True,
-          ),
-          effect.none(),
-        )
-        "tally" ->
-          update(Model(..model, or_map_set_mode: False), SelectStructure(OrMap))
+        "set" if !model.or_map_set_mode -> {
+          let replicas = or_map_replicas(or_map_kernel.OrSetMode)
+          #(
+            Model(
+              ..replace_replicas(model, replicas),
+              generation: model.generation + 1,
+              pending: [],
+              sequence_number: 0,
+              log: [],
+              flows: [],
+              last_replay: None,
+              or_map_set_mode: True,
+            ),
+            effect.none(),
+          )
+        }
+        "tally" if model.or_map_set_mode -> {
+          let replicas = or_map_replicas(or_map_kernel.TallyMode)
+          #(
+            Model(
+              ..replace_replicas(model, replicas),
+              generation: model.generation + 1,
+              pending: [],
+              sequence_number: 0,
+              log: [],
+              flows: [],
+              last_replay: None,
+              or_map_set_mode: False,
+            ),
+            effect.none(),
+          )
+        }
         _ -> #(model, effect.none())
       }
     Deliver(_) if !model.link_up -> #(
@@ -281,19 +414,28 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           case deliver(model, pending) {
             Error(reason) -> fail(model, reason)
             Ok(delivered) -> {
+              let clear = case delivered.flows {
+                [flow, ..] ->
+                  watershed_lustre.after(
+                    model.playback_ms,
+                    ClearFlow(model.generation, flow.id),
+                  )
+                [] -> effect.none()
+              }
               let next =
                 Model(..delivered, pending: rest, phase: case rest {
                   [] -> Ready
                   [_, ..] -> Delivering
                 })
-              #(next, case rest {
+              let schedule = case rest {
                 [] -> effect.none()
                 [_, ..] ->
                   watershed_lustre.after(
                     delivery_delay(model),
                     Deliver(model.generation),
                   )
-              })
+              }
+              #(next, effect.batch([schedule, clear]))
             }
           }
       }
@@ -310,6 +452,13 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       ),
       effect.none(),
     )
+    ClearFlow(_, id) -> #(
+      Model(
+        ..model,
+        flows: list.filter(model.flows, fn(flow) { flow.id != id }),
+      ),
+      effect.none(),
+    )
     Reset -> {
       let next = ready_model(model.selected)
       #(
@@ -319,6 +468,9 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           latency_ms: model.latency_ms,
           jitter: model.jitter,
           open_panel: model.open_panel,
+          playback_ms: model.playback_ms,
+          field_notes: model.field_notes,
+          instances: model.instances,
         ),
         effect.none(),
       )
@@ -356,24 +508,446 @@ fn enqueue_mv(
       let #(state, _, operation, message_id) =
         mv_register_kernel.set(state, value)
       let model = put_replica(model, replica, MvRegisterReplica(state))
-      case model.link_up {
-        True ->
+      enqueue(model, replica, MvRegisterOperation(operation), Some(message_id))
+    }
+    _ -> fail(model, "The selected structure is not an MV register.")
+  }
+}
+
+fn enqueue_g_counter(
+  model: Model,
+  replica: Replica,
+  amount: Int,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    GCounterReplica(state) ->
+      case g_counter_kernel.increment(state, amount) {
+        Error(reason) -> fail(model, string_error(reason))
+        Ok(#(state, _, operation, message_id)) ->
           enqueue(
-            model,
+            put_replica(model, replica, GCounterReplica(state)),
             replica,
-            MvRegisterOperation(operation),
+            GCounterOperation(operation),
             Some(message_id),
           )
-        False ->
-          enqueue_offline_mv(
-            model,
+      }
+    _ -> fail(model, "The selected structure is not a G-counter.")
+  }
+}
+
+fn enqueue_pn(
+  model: Model,
+  replica: Replica,
+  amount: Int,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    PnReplica(state) -> {
+      let #(state, _, operation, message_id) =
+        pn_counter_kernel.update(state, amount)
+      enqueue(
+        put_replica(model, replica, PnReplica(state)),
+        replica,
+        PnOperation(operation),
+        Some(message_id),
+      )
+    }
+    _ -> fail(model, "The selected structure is not a PN counter.")
+  }
+}
+
+fn enqueue_or_map_increment(
+  model: Model,
+  replica: Replica,
+  key: String,
+  amount: Int,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    OrMapReplica(state) ->
+      finish_or_map_edit(
+        model,
+        replica,
+        or_map_kernel.increment(state, key, amount),
+      )
+    _ -> fail(model, "The selected structure is not an OR-map.")
+  }
+}
+
+fn enqueue_or_map_remove(
+  model: Model,
+  replica: Replica,
+  key: String,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    OrMapReplica(state) ->
+      finish_or_map_edit(model, replica, or_map_kernel.remove(state, key))
+    _ -> fail(model, "The selected structure is not an OR-map.")
+  }
+}
+
+fn enqueue_or_map_member(
+  model: Model,
+  replica: Replica,
+  key: String,
+  member: String,
+  add: Bool,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    OrMapReplica(state) ->
+      finish_or_map_edit(model, replica, case add {
+        True -> or_map_kernel.add_member(state, key, member)
+        False -> or_map_kernel.remove_member(state, key, member)
+      })
+    _ -> fail(model, "The selected structure is not an OR-map.")
+  }
+}
+
+fn finish_or_map_edit(
+  model: Model,
+  replica: Replica,
+  outcome: Result(
+    #(
+      or_map_kernel.OrMapState,
+      List(or_map_kernel.OrMapEvent),
+      or_map_kernel.OrMapOperation,
+      Int,
+    ),
+    or_map_kernel.KernelError,
+  ),
+) -> #(Model, Effect(Msg)) {
+  case outcome {
+    Error(reason) -> fail(model, string_error(reason))
+    Ok(#(state, _, operation, message_id)) ->
+      enqueue(
+        put_replica(model, replica, OrMapReplica(state)),
+        replica,
+        OrMapOperation(operation),
+        Some(message_id),
+      )
+  }
+}
+
+fn enqueue_lww_map(
+  model: Model,
+  replica: Replica,
+  key: String,
+  value: Option(String),
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    LwwMapReplica(state) -> {
+      let outcome = case value {
+        Some(value) ->
+          lww_map_kernel.set(state, key, value, model.sequence_number + 101)
+        None -> lww_map_kernel.remove(state, key, model.sequence_number + 101)
+      }
+      case outcome {
+        Error(reason) -> fail(model, string_error(reason))
+        Ok(#(state, _, operation, message_id)) ->
+          enqueue(
+            put_replica(model, replica, LwwMapReplica(state)),
             replica,
-            MvRegisterOperation(operation),
-            message_id,
+            LwwMapOperation(operation),
+            Some(message_id),
           )
       }
     }
-    _ -> fail(model, "The selected structure is not an MV register.")
+    _ -> fail(model, "The selected structure is not an LWW map.")
+  }
+}
+
+fn enqueue_lww_register(
+  model: Model,
+  replica: Replica,
+  value: String,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    LwwRegisterReplica(state) ->
+      case lww_register_kernel.set(state, value, model.sequence_number + 101) {
+        Error(reason) -> fail(model, string_error(reason))
+        Ok(#(state, _, operation, message_id)) ->
+          enqueue(
+            put_replica(model, replica, LwwRegisterReplica(state)),
+            replica,
+            LwwRegisterOperation(operation),
+            Some(message_id),
+          )
+      }
+    _ -> fail(model, "The selected structure is not an LWW register.")
+  }
+}
+
+fn enqueue_or_map_mv(
+  model: Model,
+  replica: Replica,
+  key: String,
+  value: Option(String),
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    OrMapReplica(state) -> {
+      let outcome = case value {
+        Some(value) -> or_map_kernel.set_mv_register(state, key, value)
+        None -> or_map_kernel.remove(state, key)
+      }
+      finish_or_map_edit(model, replica, outcome)
+    }
+    _ -> fail(model, "The selected structure is not an OR-map.")
+  }
+}
+
+fn enqueue_set(
+  model: Model,
+  replica: Replica,
+  element: String,
+  action: String,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica), action {
+    OrSetReplica(state), "orset-add" -> {
+      let #(state, _, operation, message_id) = or_set_kernel.add(state, element)
+      enqueue(
+        put_replica(model, replica, OrSetReplica(state)),
+        replica,
+        OrSetOperation(operation),
+        Some(message_id),
+      )
+    }
+    OrSetReplica(state), "orset-remove" -> {
+      let #(state, _, operation, message_id) =
+        or_set_kernel.remove(state, element)
+      enqueue(
+        put_replica(model, replica, OrSetReplica(state)),
+        replica,
+        OrSetOperation(operation),
+        Some(message_id),
+      )
+    }
+    GSetReplica(state), "gset-add" -> {
+      let #(state, _, operation, message_id) = g_set_kernel.add(state, element)
+      enqueue(
+        put_replica(model, replica, GSetReplica(state)),
+        replica,
+        GSetOperation(operation),
+        Some(message_id),
+      )
+    }
+    TwoPSetReplica(state), "twopset-add" -> {
+      let #(state, _, operation, message_id) =
+        two_p_set_kernel.add(state, element)
+      enqueue(
+        put_replica(model, replica, TwoPSetReplica(state)),
+        replica,
+        TwoPSetOperation(operation),
+        Some(message_id),
+      )
+    }
+    TwoPSetReplica(state), "twopset-remove" -> {
+      let #(state, _, operation, message_id) =
+        two_p_set_kernel.remove(state, element)
+      enqueue(
+        put_replica(model, replica, TwoPSetReplica(state)),
+        replica,
+        TwoPSetOperation(operation),
+        Some(message_id),
+      )
+    }
+    _, _ ->
+      fail(model, "The set command does not match the selected structure.")
+  }
+}
+
+fn enqueue_claim(
+  model: Model,
+  replica: Replica,
+  key: String,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    ClaimsReplica(state) ->
+      case
+        claims_kernel.claim_once(
+          state,
+          key,
+          json.string(case replica {
+            ClientA -> "Survey"
+            ClientB -> "Works"
+            ClientC -> "Ecology"
+          }),
+          model.sequence_number,
+        )
+      {
+        Error(reason) -> fail(model, string_error(reason))
+        Ok(claims_kernel.AlreadyClaimed(_)) -> #(model, effect.none())
+        Ok(claims_kernel.Submitted(state, operation)) ->
+          enqueue(
+            put_replica(model, replica, ClaimsReplica(state)),
+            replica,
+            ClaimOperation(operation),
+            None,
+          )
+      }
+    _ -> fail(model, "The selected structure is not a claims map.")
+  }
+}
+
+fn enqueue_register(
+  model: Model,
+  replica: Replica,
+  key: String,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    RegisterReplica(state) -> {
+      let operation =
+        register_collection_kernel.write(
+          state,
+          key,
+          json.string(case replica {
+            ClientA -> "Survey"
+            ClientB -> "Works"
+            ClientC -> "Ecology"
+          }),
+          model.sequence_number,
+        )
+      enqueue(model, replica, RegisterOperation(operation), None)
+    }
+    _ -> fail(model, "The selected structure is not a register collection.")
+  }
+}
+
+fn enqueue_ordered(
+  model: Model,
+  replica: Replica,
+  action: String,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    OrderedReplica(state) -> {
+      let operation = case action {
+        "add" ->
+          ordered_collection_kernel.add(
+            state,
+            json.string(
+              "field-task-" <> int.to_string(model.sequence_number + 1),
+            ),
+          )
+        "acquire" ->
+          ordered_collection_kernel.acquire(
+            replica_id_string(replica)
+            <> int.to_string(model.sequence_number + 1),
+          )
+        "complete" ->
+          ordered_collection_kernel.complete(
+            first_ordered_job(state, replica) |> result.unwrap(""),
+          )
+        _ ->
+          ordered_collection_kernel.release(
+            first_ordered_job(state, replica) |> result.unwrap(""),
+          )
+      }
+      enqueue(model, replica, OrderedOperation(operation), None)
+    }
+    _ -> fail(model, "The selected structure is not an ordered collection.")
+  }
+}
+
+fn first_ordered_job(
+  state: ordered_collection_kernel.OrderedState,
+  replica: Replica,
+) -> Result(String, Nil) {
+  ordered_collection_kernel.summary_jobs(state)
+  |> list.find(fn(entry) {
+    let #(_, ordered_collection_kernel.JobEntry(_, owner)) = entry
+    owner == Some(replica_number(replica))
+  })
+  |> result.map(fn(entry) { entry.0 })
+}
+
+fn enqueue_task(
+  model: Model,
+  replica: Replica,
+  task_id: String,
+  action: String,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    TaskReplica(state) -> {
+      let message_id = model.sequence_number + pending_count(model, replica) + 1
+      let outcome = case action {
+        "volunteer" -> {
+          let #(state, operation, _) =
+            task_manager_kernel.volunteer(
+              state,
+              task_id,
+              replica_number(replica),
+              message_id,
+            )
+          #(state, operation)
+        }
+        "abandon" -> {
+          let #(state, operation, _) =
+            task_manager_kernel.abandon(
+              state,
+              task_id,
+              replica_number(replica),
+              message_id,
+            )
+          #(state, operation)
+        }
+        _ ->
+          case
+            task_manager_kernel.complete(
+              state,
+              task_id,
+              replica_number(replica),
+              message_id,
+            )
+          {
+            Ok(#(state, operation)) -> #(state, Some(operation))
+            Error(_) -> #(state, None)
+          }
+      }
+      case outcome.1 {
+        None -> #(
+          put_replica(model, replica, TaskReplica(outcome.0)),
+          effect.none(),
+        )
+        Some(operation) ->
+          enqueue(
+            put_replica(model, replica, TaskReplica(outcome.0)),
+            replica,
+            TaskOperation(operation),
+            Some(message_id),
+          )
+      }
+    }
+    _ -> fail(model, "The selected structure is not a task manager.")
+  }
+}
+
+fn enqueue_pact(
+  model: Model,
+  replica: Replica,
+  key: String,
+  remove: Bool,
+) -> #(Model, Effect(Msg)) {
+  case replica_state(model, replica) {
+    PactReplica(state) -> {
+      let operation = case remove {
+        True -> pact_map_kernel.delete(state, key, model.sequence_number)
+        False ->
+          pact_map_kernel.set(
+            state,
+            key,
+            Some(
+              json.string(case replica {
+                ClientA -> "Survey"
+                ClientB -> "Works"
+                ClientC -> "Ecology"
+              }),
+            ),
+            model.sequence_number,
+          )
+      }
+      case operation {
+        Error(reason) -> fail(model, string_error(reason))
+        Ok(operation) -> enqueue(model, replica, PactOperation(operation), None)
+      }
+    }
+    _ -> fail(model, "The selected structure is not a pact map.")
   }
 }
 
@@ -383,37 +957,69 @@ fn enqueue(
   operation: Operation,
   message_id: Option(Int),
 ) -> #(Model, Effect(Msg)) {
-  let was_empty = list.is_empty(model.pending)
-  let pending =
-    list.append(model.pending, [
-      PendingOperation(
-        origin,
-        operation,
-        message_id,
-        model.generation,
-        AllReplicas,
-      ),
-    ])
-  let next =
-    Model(
-      ..model,
-      pending:,
-      phase: Delivering,
-      queued_for_b: case model.link_up {
-        True -> model.queued_for_b
-        False -> model.queued_for_b + 1
-      },
-    )
-  #(next, case was_empty && model.link_up {
-    True ->
-      watershed_lustre.after(delivery_delay(model), Deliver(model.generation))
-    False -> effect.none()
-  })
+  case model.link_up, origin {
+    False, ClientB ->
+      queue_pending(
+        model,
+        PendingOperation(
+          origin,
+          operation,
+          message_id,
+          model.generation,
+          AllReplicas,
+        ),
+      )
+    False, ClientA | False, ClientC ->
+      case
+        deliver_online_without_b(
+          model,
+          origin,
+          operation,
+          option.unwrap(message_id, -1),
+        )
+      {
+        Error(reason) -> fail(model, reason)
+        Ok(model) ->
+          queue_pending(
+            model,
+            PendingOperation(
+              origin,
+              operation,
+              message_id,
+              model.generation,
+              ClientBOnly,
+            ),
+          )
+      }
+    True, _ -> {
+      let was_empty = list.is_empty(model.pending)
+      let pending =
+        list.append(model.pending, [
+          PendingOperation(
+            origin,
+            operation,
+            message_id,
+            model.generation,
+            AllReplicas,
+          ),
+        ])
+      let next = Model(..model, pending:, phase: Delivering)
+      #(next, case was_empty {
+        True ->
+          watershed_lustre.after(
+            delivery_delay(model),
+            Deliver(model.generation),
+          )
+        False -> effect.none()
+      })
+    }
+  }
 }
 
 fn deliver(model: Model, pending: PendingOperation) -> Result(Model, String) {
   let PendingOperation(origin, operation, message_id, _, scope) = pending
   case scope {
+    ReplayAll(sequence_number) -> replay_all(model, operation, sequence_number)
     ClientBOnly -> {
       use beta <- result.try(deliver_to(
         model.beta,
@@ -435,85 +1041,141 @@ fn deliver_all(
   operation: Operation,
   message_id: Option(Int),
 ) -> Result(Model, String) {
+  case operation {
+    PactOperation(operation) -> deliver_pact_all(model, origin, operation)
+    _ -> {
+      let sequence = model.sequence_number + 1
+      use alpha <- result.try(deliver_to(
+        model.alpha,
+        ClientA,
+        origin,
+        operation,
+        message_id,
+        sequence,
+      ))
+      use beta <- result.try(deliver_to(
+        model.beta,
+        ClientB,
+        origin,
+        operation,
+        message_id,
+        sequence,
+      ))
+      use gamma <- result.try(deliver_to(
+        model.gamma,
+        ClientC,
+        origin,
+        operation,
+        message_id,
+        sequence,
+      ))
+      Ok(
+        Model(
+          ..model,
+          alpha:,
+          beta:,
+          gamma:,
+          sequence_number: sequence,
+          flows: [
+            Flow(
+              sequence * 4,
+              replica_id_string(origin),
+              "seq",
+              operation_label(operation),
+            ),
+            ..model.flows
+          ],
+          log: [
+            LogEntry(sequence, origin, operation_label(operation)),
+            ..model.log
+          ],
+          last_replay: remember_replay(
+            model.last_replay,
+            operation,
+            message_id,
+            sequence,
+          ),
+        ),
+      )
+    }
+  }
+}
+
+fn deliver_pact_all(
+  model: Model,
+  origin: Replica,
+  operation: pact_map_kernel.PactMapOperation,
+) -> Result(Model, String) {
+  let assert PactReplica(alpha) = model.alpha
+  let assert PactReplica(beta) = model.beta
+  let assert PactReplica(gamma) = model.gamma
   let sequence = model.sequence_number + 1
-  use alpha <- result.try(deliver_to(
-    model.alpha,
-    ClientA,
-    origin,
-    operation,
-    message_id,
-    sequence,
-  ))
-  use beta <- result.try(deliver_to(
-    model.beta,
-    ClientB,
-    origin,
-    operation,
-    message_id,
-    sequence,
-  ))
-  use gamma <- result.try(deliver_to(
-    model.gamma,
-    ClientC,
-    origin,
-    operation,
-    message_id,
-    sequence,
-  ))
+  let key = case operation {
+    pact_map_kernel.Set(key, _, _) | pact_map_kernel.Accept(key) -> key
+  }
+  let apply = fn(state, self_id) {
+    let #(state, _, _) =
+      pact_map_kernel.apply_set(state, operation, sequence, [1, 2, 3], self_id)
+    [1, 2, 3]
+    |> list.fold(Ok(state), fn(outcome, signer) {
+      use state <- result.try(outcome)
+      pact_map_kernel.apply_accept(state, key, signer, sequence + signer)
+      |> result.map(fn(value) { value.0 })
+      |> result.map_error(string_error)
+    })
+  }
+  use alpha <- result.try(apply(alpha, 1))
+  use beta <- result.try(apply(beta, 2))
+  use gamma <- result.try(apply(gamma, 3))
   Ok(
     Model(
       ..model,
-      alpha:,
-      beta:,
-      gamma:,
-      sequence_number: sequence,
+      alpha: PactReplica(alpha),
+      beta: PactReplica(beta),
+      gamma: PactReplica(gamma),
+      sequence_number: sequence + 3,
       flows: [
-        Flow(
-          sequence * 4,
-          replica_id_string(origin),
-          "seq",
-          operation_label(operation),
-        ),
+        Flow(sequence * 4, replica_id_string(origin), "seq", "pact operation"),
         ..model.flows
       ],
-      log: [LogEntry(sequence, origin, operation_label(operation)), ..model.log],
+      log: [LogEntry(sequence, origin, "pact operation"), ..model.log],
     ),
   )
 }
 
-fn enqueue_offline_mv(
+fn replay_all(
   model: Model,
-  origin: Replica,
   operation: Operation,
-  message_id: Int,
-) -> #(Model, Effect(Msg)) {
-  case origin {
-    ClientB ->
-      queue_pending(
-        model,
-        PendingOperation(
-          origin,
-          operation,
-          Some(message_id),
-          model.generation,
-          AllReplicas,
-        ),
-      )
-    ClientA | ClientC ->
-      case deliver_online_without_b(model, origin, operation, message_id) {
-        Error(reason) -> fail(model, reason)
-        Ok(model) ->
-          queue_pending(
-            model,
-            PendingOperation(
-              origin,
-              operation,
-              Some(message_id),
-              model.generation,
-              ClientBOnly,
-            ),
-          )
-      }
+  sequence_number: Int,
+) -> Result(Model, String) {
+  use alpha <- result.try(apply_remote_to(
+    model.alpha,
+    operation,
+    sequence_number,
+  ))
+  use beta <- result.try(apply_remote_to(model.beta, operation, sequence_number))
+  use gamma <- result.try(apply_remote_to(
+    model.gamma,
+    operation,
+    sequence_number,
+  ))
+  Ok(
+    Model(..model, alpha:, beta:, gamma:, log: [
+      LogEntry(sequence_number, ClientA, operation_label(operation) <> " again"),
+      ..model.log
+    ]),
+  )
+}
+
+fn remember_replay(
+  current: Option(ReplayOperation),
+  operation: Operation,
+  message_id: Option(Int),
+  sequence_number: Int,
+) -> Option(ReplayOperation) {
+  case current, operation {
+    Some(_), MvRegisterOperation(_) -> current
+    _, _ -> Some(ReplayOperation(operation, message_id, sequence_number))
   }
 }
 
@@ -592,16 +1254,229 @@ fn deliver_to(
       let #(state, _) = mv_register_kernel.apply_remote(state, operation)
       Ok(MvRegisterReplica(state))
     }
+    GCounterReplica(state), GCounterOperation(operation), True ->
+      g_counter_kernel.ack_local_with_message_id(
+        state,
+        operation,
+        option.unwrap(message_id, -1),
+      )
+      |> result.map(GCounterReplica)
+      |> result.map_error(string_error)
+    GCounterReplica(state), GCounterOperation(operation), False -> {
+      let #(state, _) = g_counter_kernel.apply_remote(state, operation)
+      Ok(GCounterReplica(state))
+    }
+    PnReplica(state), PnOperation(operation), True ->
+      pn_counter_kernel.ack_local_with_message_id(
+        state,
+        operation,
+        option.unwrap(message_id, -1),
+      )
+      |> result.map(PnReplica)
+      |> result.map_error(string_error)
+    PnReplica(state), PnOperation(operation), False -> {
+      let #(state, _) = pn_counter_kernel.apply_remote(state, operation)
+      Ok(PnReplica(state))
+    }
+    OrMapReplica(state), OrMapOperation(operation), True ->
+      or_map_kernel.ack_local_with_message_id(
+        state,
+        operation,
+        option.unwrap(message_id, -1),
+      )
+      |> result.map(OrMapReplica)
+      |> result.map_error(string_error)
+    OrMapReplica(state), OrMapOperation(operation), False ->
+      or_map_kernel.apply_remote(state, operation)
+      |> result.map(fn(value) { OrMapReplica(value.0) })
+      |> result.map_error(string_error)
+    LwwMapReplica(state), LwwMapOperation(operation), True ->
+      lww_map_kernel.ack_local_with_message_id(
+        state,
+        operation,
+        option.unwrap(message_id, -1),
+      )
+      |> result.map(LwwMapReplica)
+      |> result.map_error(string_error)
+    LwwMapReplica(state), LwwMapOperation(operation), False ->
+      lww_map_kernel.apply_remote(state, operation)
+      |> result.map(fn(value) { LwwMapReplica(value.0) })
+      |> result.map_error(string_error)
+    LwwRegisterReplica(state), LwwRegisterOperation(operation), True ->
+      lww_register_kernel.ack_local_with_message_id(
+        state,
+        operation,
+        option.unwrap(message_id, -1),
+      )
+      |> result.map(LwwRegisterReplica)
+      |> result.map_error(string_error)
+    LwwRegisterReplica(state), LwwRegisterOperation(operation), False ->
+      lww_register_kernel.apply_remote(state, operation)
+      |> result.map(fn(value) { LwwRegisterReplica(value.0) })
+      |> result.map_error(string_error)
+    OrSetReplica(state), OrSetOperation(operation), True ->
+      or_set_kernel.ack_local_with_message_id(
+        state,
+        operation,
+        option.unwrap(message_id, -1),
+      )
+      |> result.map(OrSetReplica)
+      |> result.map_error(string_error)
+    OrSetReplica(state), OrSetOperation(operation), False -> {
+      let #(state, _) = or_set_kernel.apply_remote(state, operation)
+      Ok(OrSetReplica(state))
+    }
+    GSetReplica(state), GSetOperation(operation), True ->
+      g_set_kernel.ack_local_with_message_id(
+        state,
+        operation,
+        option.unwrap(message_id, -1),
+      )
+      |> result.map(GSetReplica)
+      |> result.map_error(string_error)
+    GSetReplica(state), GSetOperation(operation), False -> {
+      let #(state, _) = g_set_kernel.apply_remote(state, operation)
+      Ok(GSetReplica(state))
+    }
+    TwoPSetReplica(state), TwoPSetOperation(operation), True ->
+      two_p_set_kernel.ack_local_with_message_id(
+        state,
+        operation,
+        option.unwrap(message_id, -1),
+      )
+      |> result.map(TwoPSetReplica)
+      |> result.map_error(string_error)
+    TwoPSetReplica(state), TwoPSetOperation(operation), False -> {
+      let #(state, _) = two_p_set_kernel.apply_remote(state, operation)
+      Ok(TwoPSetReplica(state))
+    }
     ClaimsReplica(state), ClaimOperation(operation), True -> {
-      let assert Ok(#(state, _, _)) =
-        claims_kernel.ack_local(state, operation, sequence)
-      Ok(ClaimsReplica(state))
+      claims_kernel.ack_local(state, operation, sequence)
+      |> result.map(fn(value) { ClaimsReplica(value.0) })
+      |> result.map_error(string_error)
     }
     ClaimsReplica(state), ClaimOperation(operation), False -> {
       let #(state, _) = claims_kernel.apply_remote(state, operation, sequence)
       Ok(ClaimsReplica(state))
     }
+    RegisterReplica(state), RegisterOperation(operation), True -> {
+      let #(state, _, _) =
+        register_collection_kernel.ack_local(state, operation, sequence)
+      Ok(RegisterReplica(state))
+    }
+    RegisterReplica(state), RegisterOperation(operation), False -> {
+      let #(state, _) =
+        register_collection_kernel.apply_remote(state, operation, sequence)
+      Ok(RegisterReplica(state))
+    }
+    OrderedReplica(state), OrderedOperation(operation), True -> {
+      let #(state, _, _) =
+        ordered_collection_kernel.ack_local(
+          state,
+          operation,
+          replica_number(target),
+        )
+      Ok(OrderedReplica(state))
+    }
+    OrderedReplica(state), OrderedOperation(operation), False -> {
+      let #(state, _) =
+        ordered_collection_kernel.apply_remote(
+          state,
+          operation,
+          replica_number(origin),
+        )
+      Ok(OrderedReplica(state))
+    }
+    TaskReplica(state), TaskOperation(operation), True ->
+      task_manager_kernel.ack_local(
+        state,
+        operation,
+        replica_number(target),
+        option.unwrap(message_id, -1),
+        [1, 2, 3],
+      )
+      |> result.map(fn(value) { TaskReplica(value.0) })
+      |> result.map_error(string_error)
+    TaskReplica(state), TaskOperation(operation), False -> {
+      let #(state, _) =
+        task_manager_kernel.apply_remote(
+          state,
+          operation,
+          replica_number(origin),
+          [1, 2, 3],
+        )
+      Ok(TaskReplica(state))
+    }
     _, _, _ -> Error("The operation does not match the selected structure.")
+  }
+}
+
+fn apply_remote_to(
+  state: ReplicaState,
+  operation: Operation,
+  sequence: Int,
+) -> Result(ReplicaState, String) {
+  case state, operation {
+    MapReplica(state), MapOperation(operation) -> {
+      let #(state, _) = map_kernel.apply_remote(state, operation)
+      Ok(MapReplica(state))
+    }
+    MvRegisterReplica(state), MvRegisterOperation(operation) -> {
+      let #(state, _) = mv_register_kernel.apply_remote(state, operation)
+      Ok(MvRegisterReplica(state))
+    }
+    GCounterReplica(state), GCounterOperation(operation) -> {
+      let #(state, _) = g_counter_kernel.apply_remote(state, operation)
+      Ok(GCounterReplica(state))
+    }
+    PnReplica(state), PnOperation(operation) -> {
+      let #(state, _) = pn_counter_kernel.apply_remote(state, operation)
+      Ok(PnReplica(state))
+    }
+    OrMapReplica(state), OrMapOperation(operation) ->
+      or_map_kernel.apply_remote(state, operation)
+      |> result.map(fn(value) { OrMapReplica(value.0) })
+      |> result.map_error(string_error)
+    LwwMapReplica(state), LwwMapOperation(operation) ->
+      lww_map_kernel.apply_remote(state, operation)
+      |> result.map(fn(value) { LwwMapReplica(value.0) })
+      |> result.map_error(string_error)
+    LwwRegisterReplica(state), LwwRegisterOperation(operation) ->
+      lww_register_kernel.apply_remote(state, operation)
+      |> result.map(fn(value) { LwwRegisterReplica(value.0) })
+      |> result.map_error(string_error)
+    OrSetReplica(state), OrSetOperation(operation) -> {
+      let #(state, _) = or_set_kernel.apply_remote(state, operation)
+      Ok(OrSetReplica(state))
+    }
+    GSetReplica(state), GSetOperation(operation) -> {
+      let #(state, _) = g_set_kernel.apply_remote(state, operation)
+      Ok(GSetReplica(state))
+    }
+    TwoPSetReplica(state), TwoPSetOperation(operation) -> {
+      let #(state, _) = two_p_set_kernel.apply_remote(state, operation)
+      Ok(TwoPSetReplica(state))
+    }
+    ClaimsReplica(state), ClaimOperation(operation) -> {
+      let #(state, _) = claims_kernel.apply_remote(state, operation, sequence)
+      Ok(ClaimsReplica(state))
+    }
+    RegisterReplica(state), RegisterOperation(operation) -> {
+      let #(state, _) =
+        register_collection_kernel.apply_remote(state, operation, sequence)
+      Ok(RegisterReplica(state))
+    }
+    OrderedReplica(state), OrderedOperation(operation) -> {
+      let #(state, _) =
+        ordered_collection_kernel.apply_remote(state, operation, 1)
+      Ok(OrderedReplica(state))
+    }
+    TaskReplica(state), TaskOperation(operation) -> {
+      let #(state, _) =
+        task_manager_kernel.apply_remote(state, operation, 1, [1, 2, 3])
+      Ok(TaskReplica(state))
+    }
+    _, _ -> Error("The replay operation does not match the selected structure.")
   }
 }
 
@@ -611,8 +1486,148 @@ fn fail(model: Model, reason: String) -> #(Model, Effect(Msg)) {
 
 fn delivery_delay(model: Model) -> Int {
   case model.jitter {
-    True -> model.latency_ms + 100
+    True ->
+      int.clamp(
+        model.latency_ms
+          + case model.sequence_number % 2 {
+          0 -> -100
+          _ -> 100
+        },
+        0,
+        2100,
+      )
     False -> model.latency_ms
+  }
+}
+
+fn pace_milliseconds(value: String) -> Int {
+  case value {
+    "0.25" -> 2400
+    "0.5" -> 1200
+    "0.75" -> 800
+    "1.25" -> 480
+    "1.5" -> 400
+    "1.75" -> 343
+    "2" -> 300
+    _ -> 600
+  }
+}
+
+fn draft(model: Model, replica: Replica) -> String {
+  case replica {
+    ClientA -> model.draft_a
+    ClientB -> model.draft_b
+    ClientC -> model.draft_c
+  }
+}
+
+fn put_draft(model: Model, replica: Replica, value: String) -> Model {
+  case replica {
+    ClientA -> Model(..model, draft_a: value)
+    ClientB -> Model(..model, draft_b: value)
+    ClientC -> Model(..model, draft_c: value)
+  }
+}
+
+fn select_structure(
+  model: Model,
+  selected: Structure,
+) -> #(Model, Effect(Msg)) {
+  case selected == model.selected {
+    True -> #(model, effect.none())
+    False -> {
+      let generation = model.generation + 1
+      let instances = save_instance(model)
+      let restored =
+        list.find(instances, fn(instance) { instance.structure == selected })
+      let next = case restored {
+        Ok(Instance(
+          _,
+          alpha,
+          beta,
+          gamma,
+          pending,
+          sequence,
+          flows,
+          log,
+          replay,
+        )) ->
+          Model(
+            ..ready_model(selected),
+            alpha:,
+            beta:,
+            gamma:,
+            pending: list.map(pending, fn(item) {
+              let PendingOperation(origin, operation, message_id, _, scope) =
+                item
+              PendingOperation(origin, operation, message_id, generation, scope)
+            }),
+            sequence_number: sequence,
+            flows:,
+            log:,
+            last_replay: replay,
+          )
+        Error(Nil) -> ready_model(selected)
+      }
+      let next =
+        Model(
+          ..next,
+          generation:,
+          latency_ms: model.latency_ms,
+          jitter: model.jitter,
+          link_up: model.link_up,
+          open_panel: model.open_panel,
+          or_map_set_mode: model.or_map_set_mode,
+          draft_a: model.draft_a,
+          draft_b: model.draft_b,
+          draft_c: model.draft_c,
+          playback_ms: model.playback_ms,
+          field_notes: model.field_notes,
+          instances:,
+          queued_for_b: case model.link_up {
+            True -> 0
+            False -> list.length(next.pending)
+          },
+          phase: case next.pending {
+            [] -> Ready
+            [_, ..] -> Delivering
+          },
+        )
+      #(next, case next.pending, next.link_up {
+        [_, ..], True ->
+          watershed_lustre.after(delivery_delay(next), Deliver(generation))
+        _, _ -> effect.none()
+      })
+    }
+  }
+}
+
+fn save_instance(model: Model) -> List(Instance) {
+  let saved =
+    Instance(
+      model.selected,
+      model.alpha,
+      model.beta,
+      model.gamma,
+      model.pending,
+      model.sequence_number,
+      model.flows,
+      model.log,
+      model.last_replay,
+    )
+  [
+    saved,
+    ..list.filter(model.instances, fn(instance) {
+      instance.structure != model.selected
+    })
+  ]
+}
+
+fn replica_number(replica: Replica) -> Int {
+  case replica {
+    ClientA -> 1
+    ClientB -> 2
+    ClientC -> 3
   }
 }
 
@@ -643,6 +1658,18 @@ fn replicas(
   }
 }
 
+fn or_map_replicas(
+  mode: or_map_kernel.OrMapMode,
+) -> #(ReplicaState, ReplicaState, ReplicaState) {
+  let make = fn(replica) {
+    OrMapReplica(or_map_kernel.new(
+      replica_id.new("client-" <> replica_id_string(replica)),
+      mode,
+    ))
+  }
+  #(make(ClientA), make(ClientB), make(ClientC))
+}
+
 fn new_replica(structure: Structure, replica: Replica) -> ReplicaState {
   let id = replica_id.new("client-" <> replica_id_string(replica))
   case structure {
@@ -655,32 +1682,91 @@ fn new_replica(structure: Structure, replica: Replica) -> ReplicaState {
         ]),
       )
     Counter -> CounterReplica(counter_kernel.from_summary(counter_baseline))
-    GCounter -> GCounterReplica(g_counter_kernel.new(id))
-    PnCounter -> PnReplica(pn_counter_kernel.new(id))
+    GCounter -> {
+      let assert Ok(#(state, _, _)) =
+        g_counter_kernel.p2p_increment(g_counter_kernel.new(id), 18)
+      GCounterReplica(state)
+    }
+    PnCounter -> {
+      let #(state, _, _) =
+        pn_counter_kernel.p2p_update(pn_counter_kernel.new(id), 44)
+      PnReplica(state)
+    }
     OrMap | OrMapMvRegister ->
-      OrMapReplica(
-        or_map_kernel.new(id, case structure {
-          OrMapMvRegister -> or_map_kernel.MvRegisterMode
-          _ -> or_map_kernel.TallyMode
-        }),
-      )
-    LwwMap -> LwwMapReplica(lww_map_kernel.new(id))
-    LwwRegister -> LwwRegisterReplica(lww_register_kernel.new(id))
+      case structure {
+        OrMapMvRegister -> {
+          let state = or_map_kernel.new(id, or_map_kernel.MvRegisterMode)
+          let assert Ok(#(state, _, _)) =
+            or_map_kernel.p2p_set_mv_register(state, "gate-mode", "surveyed")
+          OrMapReplica(state)
+        }
+        _ -> {
+          let state = or_map_kernel.new(id, or_map_kernel.TallyMode)
+          let assert Ok(#(state, _, _)) =
+            or_map_kernel.p2p_increment(state, "spoil-north", 18)
+          let assert Ok(#(state, _, _)) =
+            or_map_kernel.p2p_increment(state, "borrow-pit-7", -6)
+          let assert Ok(#(state, _, _)) =
+            or_map_kernel.p2p_increment(state, "wash-fill", 12)
+          OrMapReplica(state)
+        }
+      }
+    LwwMap -> {
+      let assert Ok(#(state, _, _)) =
+        lww_map_kernel.p2p_set(
+          lww_map_kernel.new(id),
+          "gate-mode",
+          "surveyed",
+          100,
+        )
+      LwwMapReplica(state)
+    }
+    LwwRegister -> {
+      let assert Ok(#(state, _, _)) =
+        lww_register_kernel.p2p_set(
+          lww_register_kernel.new(id),
+          "Survey datum",
+          100,
+        )
+      LwwRegisterReplica(state)
+    }
     MvRegister -> {
       let #(state, _, _) =
         mv_register_kernel.p2p_set(mv_register_kernel.new(id), "Survey datum")
       MvRegisterReplica(state)
     }
-    OrSet -> OrSetReplica(or_set_kernel.new(id))
-    GSet -> GSetReplica(g_set_kernel.new())
-    TwoPSet -> TwoPSetReplica(two_p_set_kernel.new())
+    OrSet -> {
+      let #(state, _, _) =
+        or_set_kernel.p2p_add(or_set_kernel.new(id), "north-stake")
+      let #(state, _, _) = or_set_kernel.p2p_add(state, "sluice-tag")
+      OrSetReplica(state)
+    }
+    GSet -> {
+      let #(state, _, _) = g_set_kernel.p2p_add(g_set_kernel.new(), "BM-17")
+      GSetReplica(state)
+    }
+    TwoPSet -> {
+      let #(state, _, _) =
+        two_p_set_kernel.p2p_add(two_p_set_kernel.new(), "stake-3")
+      let #(state, _, _) = two_p_set_kernel.p2p_add(state, "silt-flag")
+      let #(state, _, _) = two_p_set_kernel.p2p_remove(state, "silt-flag")
+      TwoPSetReplica(state)
+    }
     Claims ->
       ClaimsReplica(
         claims_kernel.from_summary([
           #("pump-house", json.string("Survey"), 0),
         ]),
       )
-    RegisterCollection -> RegisterReplica(register_collection_kernel.new())
+    RegisterCollection -> {
+      let #(state, _) =
+        register_collection_kernel.write_detached(
+          register_collection_kernel.new(),
+          "north-bench",
+          json.string("Survey"),
+        )
+      RegisterReplica(state)
+    }
     OrderedCollection ->
       OrderedReplica(
         ordered_collection_kernel.from_summary(
@@ -697,7 +1783,21 @@ fn new_replica(structure: Structure, replica: Replica) -> ReplicaState {
           #("sluice-inspection", [1]),
         ]),
       )
-    PactMap -> PactReplica(pact_map_kernel.new())
+    PactMap ->
+      PactReplica(
+        pact_map_kernel.from_summary([
+          #(
+            "datum-grid",
+            pact_map_kernel.Pact(
+              Some(pact_map_kernel.Accepted(
+                Some(json.string("Survey datum")),
+                0,
+              )),
+              None,
+            ),
+          ),
+        ]),
+      )
   }
 }
 
@@ -757,6 +1857,227 @@ pub fn counter_value(model: Model, replica: Replica) -> Int {
     CounterReplica(state) -> state.value
     _ -> 0
   }
+}
+
+pub fn g_counter_value(model: Model, replica: Replica) -> Int {
+  case replica_state(model, replica) {
+    GCounterReplica(state) -> g_counter_kernel.value(state)
+    _ -> 0
+  }
+}
+
+pub fn pn_value(model: Model, replica: Replica) -> Int {
+  case replica_state(model, replica) {
+    PnReplica(state) -> pn_counter_kernel.value(state)
+    _ -> 0
+  }
+}
+
+pub fn or_map_value(model: Model, replica: Replica, key: String) -> String {
+  case replica_state(model, replica) {
+    OrMapReplica(state) ->
+      case or_map_kernel.get(state, key) {
+        Ok(or_map_kernel.Tally(value)) -> int.to_string(value)
+        Ok(or_map_kernel.Register(value)) -> value
+        Ok(or_map_kernel.SetMembers(values))
+        | Ok(or_map_kernel.MvRegister(values)) -> string.inspect(values)
+        Error(Nil) -> "missing"
+      }
+    _ -> "missing"
+  }
+}
+
+pub fn or_map_entries(
+  model: Model,
+  replica: Replica,
+  sequenced: Bool,
+) -> String {
+  case replica_state(model, replica) {
+    OrMapReplica(state) ->
+      case sequenced {
+        True -> or_map_kernel.sequenced_entries(state)
+        False -> or_map_kernel.entries(state)
+      }
+      |> string.inspect
+    _ -> "[]"
+  }
+}
+
+pub fn lww_map_entries(
+  model: Model,
+  replica: Replica,
+  sequenced: Bool,
+) -> String {
+  case replica_state(model, replica) {
+    LwwMapReplica(state) ->
+      case sequenced {
+        True -> lww_map_kernel.sequenced_entries(state)
+        False -> lww_map_kernel.entries(state)
+      }
+      |> string.inspect
+    _ -> "[]"
+  }
+}
+
+pub fn lww_register_value(
+  model: Model,
+  replica: Replica,
+  sequenced: Bool,
+) -> String {
+  case replica_state(model, replica) {
+    LwwRegisterReplica(state) ->
+      case sequenced {
+        True -> lww_register_kernel.sequenced_value(state)
+        False -> lww_register_kernel.value(state)
+      }
+    _ -> ""
+  }
+}
+
+pub fn set_contains(model: Model, replica: Replica, element: String) -> Bool {
+  case replica_state(model, replica) {
+    OrSetReplica(state) -> or_set_kernel.contains(state, element)
+    GSetReplica(state) -> g_set_kernel.contains(state, element)
+    TwoPSetReplica(state) -> two_p_set_kernel.contains(state, element)
+    _ -> False
+  }
+}
+
+pub fn claim_value(model: Model, replica: Replica, key: String) -> String {
+  case replica_state(model, replica) {
+    ClaimsReplica(state) ->
+      claims_kernel.get(state, key)
+      |> result.map(json_string)
+      |> result.unwrap("—")
+    _ -> "—"
+  }
+}
+
+pub fn register_value(
+  model: Model,
+  replica: Replica,
+  key: String,
+  atomic: Bool,
+) -> String {
+  case replica_state(model, replica) {
+    RegisterReplica(state) ->
+      register_collection_kernel.read(state, key, case atomic {
+        True -> register_collection_kernel.Atomic
+        False -> register_collection_kernel.Lww
+      })
+      |> result.map(json_string)
+      |> result.unwrap("—")
+    _ -> "—"
+  }
+}
+
+pub fn register_versions(
+  model: Model,
+  replica: Replica,
+  key: String,
+) -> String {
+  case replica_state(model, replica) {
+    RegisterReplica(state) ->
+      register_collection_kernel.read_versions(state, key)
+      |> result.map(fn(values) { list.map(values, json_string) })
+      |> result.map(string.inspect)
+      |> result.unwrap("[]")
+    _ -> "[]"
+  }
+}
+
+pub fn ordered_queue(model: Model, replica: Replica) -> String {
+  case replica_state(model, replica) {
+    OrderedReplica(state) ->
+      ordered_collection_kernel.summary_queue(state)
+      |> list.map(json_string)
+      |> fn(values) {
+        case values {
+          [] -> "empty"
+          _ -> string.join(values, ", ")
+        }
+      }
+    _ -> "empty"
+  }
+}
+
+pub fn ordered_jobs(model: Model, replica: Replica) -> String {
+  case replica_state(model, replica) {
+    OrderedReplica(state) ->
+      ordered_collection_kernel.summary_jobs(state)
+      |> list.map(fn(entry) { entry.0 <> ": " <> json_string(entry.1.value) })
+      |> fn(values) {
+        case values {
+          [] -> "none"
+          _ -> string.join(values, ", ")
+        }
+      }
+    _ -> "none"
+  }
+}
+
+pub fn task_assignee(
+  model: Model,
+  replica: Replica,
+  task_id: String,
+) -> String {
+  case replica_state(model, replica) {
+    TaskReplica(state) ->
+      [ClientA, ClientB, ClientC]
+      |> list.find(fn(candidate) {
+        task_manager_kernel.assigned(
+          state,
+          task_id,
+          replica_number(candidate),
+          True,
+        )
+      })
+      |> result.map(replica_id_string)
+      |> result.unwrap("—")
+    _ -> "—"
+  }
+}
+
+pub fn task_waiters(model: Model, replica: Replica, task_id: String) -> String {
+  case replica_state(model, replica) {
+    TaskReplica(state) ->
+      task_manager_kernel.summary_queues(state)
+      |> list.find(fn(entry) { entry.0 == task_id })
+      |> result.map(fn(entry) {
+        entry.1 |> list.map(int.to_string) |> string.join(", ")
+      })
+      |> result.unwrap("empty")
+    _ -> "empty"
+  }
+}
+
+pub fn pact_value(
+  model: Model,
+  replica: Replica,
+  key: String,
+  pending: Bool,
+) -> String {
+  case replica_state(model, replica) {
+    PactReplica(state) ->
+      case pending {
+        True ->
+          pact_map_kernel.get_pending(state, key)
+          |> result.map(fn(value) {
+            case value {
+              Some(value) -> json_string(value)
+              None -> "delete"
+            }
+          })
+        False -> pact_map_kernel.get(state, key) |> result.map(json_string)
+      }
+      |> result.unwrap("—")
+    _ -> "—"
+  }
+}
+
+fn json_string(value: json.Json) -> String {
+  json.parse(json.to_string(value), decode.string)
+  |> result.unwrap(json.to_string(value))
 }
 
 pub fn mv_sequenced_values(model: Model, replica: Replica) -> List(String) {

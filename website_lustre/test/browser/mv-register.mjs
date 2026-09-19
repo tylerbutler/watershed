@@ -95,21 +95,70 @@ await withBrowserSite(site, async (browser, origin) => {
     input.value = "2";
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
+  const initialSequence = await page.$eval(
+    "[data-seq-counter]",
+    (node) => node.textContent,
+  );
+  await page.$eval('[data-client="a"] [data-mv-register-input]', (input) => {
+    input.value = "enter revision";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.focus('[data-client="a"] [data-mv-register-input]');
+  await page.keyboard.press("Enter");
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("[data-mv-register-values]")].every(
+      (node) => node.textContent === '["enter revision"]',
+    ),
+  );
+  await page.click("[data-reset]");
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll("[data-mv-register-values]")].every(
+      (node) => node.textContent === '["Survey datum"]',
+    ),
+  );
   await page.click("[data-cut-link]");
+  await page.$eval('[data-client="a"] [data-mv-register-input]', (input) => {
+    input.value = "catch-up first";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   await page.click('[data-client="a"] [data-mv-register-write]');
+  await page.waitForFunction(
+    () =>
+      document.querySelector(
+        '[data-client="a"] [data-mv-register-values]',
+      ).textContent.includes("catch-up first") &&
+      document.querySelector(
+        '[data-client="c"] [data-mv-register-values]',
+      ).textContent.includes("catch-up first") &&
+      !document.querySelector(
+        '[data-client="b"] [data-mv-register-values]',
+      ).textContent.includes("catch-up first"),
+  );
+  await page.$eval('[data-client="b"] [data-mv-register-input]', (input) => {
+    input.value = "b first";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  await page.click('[data-client="b"] [data-mv-register-write]');
+  await page.$eval('[data-client="b"] [data-mv-register-input]', (input) => {
+    input.value = "b second";
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+  });
   await page.click('[data-client="b"] [data-mv-register-write]');
   await page.waitForFunction(
     () =>
       document.querySelector('[data-client="b"] [data-pending-count]')
-        .textContent !== "0 pending",
+        .textContent === "2 pending",
   );
   await page.click("[data-cut-link]");
+  await page.waitForFunction(
+    () => document.querySelector("[data-cut-link]").textContent.includes("Cut link"),
+  );
   await page.waitForFunction(
     () =>
       [...document.querySelectorAll("[data-mv-register-values]")].every(
         (node) =>
-          node.textContent.includes("raise crest") &&
-          node.textContent.includes("arm pump"),
+          node.textContent.includes("catch-up first") &&
+          node.textContent.includes("b second"),
       ) &&
       [...document.querySelectorAll("[data-pending-count]")].every(
         (node) => node.textContent === "0 pending",
@@ -118,11 +167,24 @@ await withBrowserSite(site, async (browser, origin) => {
   const alternatives = await values(page);
   assert.equal(new Set(alternatives).size, 1);
 
+  const sequenceBeforeReplay = await page.$eval(
+    "[data-seq-counter]",
+    (node) => node.textContent,
+  );
+  assert.notEqual(sequenceBeforeReplay, initialSequence);
   await page.click("[data-replay]");
   await page.waitForFunction(
-    () => document.querySelector("[data-status]").textContent.includes("Converged"),
+    () =>
+      document.querySelector("[data-status]").textContent.includes("Converged") &&
+      [...document.querySelectorAll("[data-op-log] li")].some(
+        (node) => node.textContent.includes("again"),
+      ),
   );
   assert.deepEqual(await values(page), alternatives);
+  assert.equal(
+    await page.$eval("[data-seq-counter]", (node) => node.textContent),
+    sequenceBeforeReplay,
+  );
 
   await page.click('[data-client="a"] [data-mv-register-resolve]');
   await page.waitForFunction(

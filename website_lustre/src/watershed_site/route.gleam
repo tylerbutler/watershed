@@ -218,7 +218,11 @@ pub fn stylesheets(route: Route) -> List(String) {
     ConceptIndex -> ["/styles/site.css", "/styles/concept-index.css"]
     ConceptSheet -> ["/styles/site.css", "/styles/concept-sheet.css"]
     StructureIndex -> ["/styles/site.css", "/styles/structures-index.css"]
-    StructureSheet -> ["/styles/site.css", "/styles/structure-sheet.css"]
+    StructureSheet -> [
+      "/styles/site.css",
+      "/styles/home.css",
+      "/styles/structure-sheet.css",
+    ]
     Models -> ["/styles/site.css", "/styles/models.css"]
     Patterns -> ["/styles/site.css", "/styles/patterns.css"]
     Examples -> ["/styles/site.css", "/styles/examples.css"]

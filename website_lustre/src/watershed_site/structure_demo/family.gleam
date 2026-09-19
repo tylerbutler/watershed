@@ -128,7 +128,7 @@ fn demo_toggle(
                 bool.to_string(is_open(demo_model, entry)),
               ),
               event.on_click(case runtime.structure_from_id(entry.id) {
-                Ok(structure) -> runtime.TogglePanel(structure)
+                Ok(structure) -> runtime.Defer(runtime.TogglePanel(structure))
                 Error(Nil) -> runtime.SelectStructure(demo_model.selected)
               }),
             ],

@@ -1,7 +1,7 @@
 import gleam/list
 import gleam/option.{None, Some}
 import watershed_site/structure_demo/model.{
-  ClientA, ClientB, ClientC, Map, MvRegister, Ready,
+  type Model, ClientA, ClientB, ClientC, Map, MvRegister, Ready,
 }
 import watershed_site/structure_demo/runtime
 
@@ -70,6 +70,48 @@ pub fn restored_link_converges_concurrent_mv_writes_test() {
   should_equal(list.length(alpha), 2)
 }
 
+pub fn two_offline_b_writes_acknowledge_in_submission_order_test() {
+  let model = runtime.ready_model(MvRegister)
+  let #(model, _) = runtime.update(model, runtime.ToggleLink)
+  let #(model, _) =
+    runtime.update(model, runtime.WriteMv(ClientA, "catch-up first"))
+  let #(model, _) = runtime.update(model, runtime.WriteMv(ClientB, "b first"))
+  let #(model, _) = runtime.update(model, runtime.WriteMv(ClientB, "b second"))
+  let #(model, _) = runtime.update(model, runtime.ToggleLink)
+  let model = deliver_all(model)
+  let values = runtime.mv_values(model, ClientA)
+  should_equal(values, runtime.mv_values(model, ClientB))
+  should_equal(values, runtime.mv_values(model, ClientC))
+  should_equal(list.contains(values, "b second"), True)
+}
+
+pub fn cut_b_link_keeps_a_and_c_online_test() {
+  let model = runtime.ready_model(Map)
+  let #(model, _) = runtime.update(model, runtime.ToggleLink)
+  let #(model, _) =
+    runtime.update(model, runtime.StepMap(ClientA, "mill-race", 1))
+  let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+  should_equal(runtime.map_value_for(model, ClientA, "mill-race"), 25)
+  should_equal(runtime.map_value_for(model, ClientC, "mill-race"), 25)
+  should_equal(runtime.map_value_for(model, ClientB, "mill-race"), 24)
+}
+
+pub fn replay_reuses_sequence_and_does_not_restore_resolved_values_test() {
+  let model = runtime.ready_model(MvRegister)
+  let #(model, _) =
+    runtime.update(model, runtime.WriteMv(ClientA, "raise crest"))
+  let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+  let sequenced = model.sequence_number
+  let #(model, _) = runtime.update(model, runtime.ResolveMv(ClientA))
+  let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+  let resolved_sequence = model.sequence_number
+  let #(model, _) = runtime.update(model, runtime.Replay)
+  let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+  should_equal(sequenced, 1)
+  should_equal(model.sequence_number, resolved_sequence)
+  should_equal(runtime.mv_values(model, ClientA), ["raise crest + arm pump"])
+}
+
 pub fn reset_invalidates_old_delivery_test() {
   let model = runtime.ready_model(MvRegister)
   let old_generation = model.generation
@@ -78,6 +120,16 @@ pub fn reset_invalidates_old_delivery_test() {
   should_equal(after_stale.generation, old_generation + 1)
   should_equal(after_stale, reset)
   should_equal(after_stale.phase, Ready)
+}
+
+fn deliver_all(model: Model) -> Model {
+  case model.pending {
+    [] -> model
+    [_, ..] -> {
+      let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+      deliver_all(model)
+    }
+  }
 }
 
 fn should_equal(actual: a, expected: a) {

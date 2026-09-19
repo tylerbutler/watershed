@@ -1,3 +1,4 @@
+import gleam/dynamic/decode
 import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -39,15 +40,24 @@ fn family_view(
     list.append(
       [
         a.id("demo"),
-        a.class("demo demo-embedded"),
+        a.class(case model.field_notes {
+          True -> "demo demo-embedded field-notes-on"
+          False -> "demo demo-embedded"
+        }),
         a.attribute("aria-labelledby", "demo-title"),
       ],
       mounted_attribute(model),
     ),
     [
-      h.a([a.class("demo-skip"), a.href("#after-demo")], [
-        h.text("Skip past the interactive demo"),
-      ]),
+      h.a(
+        [
+          a.class("demo-skip"),
+          a.href("#" <> runtime.structure_id(model.selected) <> "-after-demo"),
+        ],
+        [
+          h.text("Skip past the interactive demo"),
+        ],
+      ),
       h.div([a.class("demo-head")], [
         h.h2([a.id("demo-title"), a.class("visually-hidden")], [
           h.text(heading),
@@ -70,8 +80,21 @@ fn family_view(
         picker(views, initial),
         ..merge_rules(views, initial)
       ]),
+      field_notes_toggle(model),
       family_rig(model, views),
       controls(model),
+      case model.visible_error {
+        Some(reason) ->
+          h.p(
+            [
+              a.class("demo-error"),
+              a.role("alert"),
+              a.attribute("data-error", ""),
+            ],
+            [h.text(reason)],
+          )
+        None -> h.text("")
+      },
       h.p([a.class("controls-hint")], [
         h.span([], [
           h.text(
@@ -154,7 +177,7 @@ fn picker(views: List(String), initial: String) -> Element(runtime.Msg) {
                   a.value(cell.0),
                   a.checked(cell.0 == initial),
                   a.attribute("data-dds-pick", ""),
-                  event.on_click(runtime.SelectId(cell.0)),
+                  event.on_click(runtime.Defer(runtime.SelectId(cell.0))),
                 ]),
                 h.span([], [
                   h.text(cell.1 <> " "),
@@ -301,7 +324,7 @@ fn ormap_view_controls(initial: String) -> Element(runtime.Msg) {
         h.select(
           [
             a.attribute("data-ormap-view", ""),
-            event.on_input(runtime.SelectId),
+            event.on_input(fn(value) { runtime.Defer(runtime.SelectId(value)) }),
           ],
           [
             h.option([a.value("ormap")], "Ledger / string sets"),
@@ -334,7 +357,9 @@ fn ormap_controls(initial: String) -> Element(runtime.Msg) {
         h.select(
           [
             a.attribute("data-ormap-mode", ""),
-            event.on_input(runtime.SetOrMapMode),
+            event.on_input(fn(value) {
+              runtime.Defer(runtime.SetOrMapMode(value))
+            }),
           ],
           [
             h.option([a.value("tally")], "Tallies · stockpile ledger"),
@@ -382,17 +407,24 @@ fn family_rig(model: Model, views: List(String)) -> Element(runtime.Msg) {
       client(model, ClientB, "b", "Client B", "arm pump", True),
       client(model, ClientC, "c", "Client C", "check datum", True),
       h.div([a.class("channel"), a.style("grid-area", "seq")], [
-        h.div([a.class("seq-node"), a.attribute("data-seq-node", "")], [
-          h.span([a.class("annot")], [h.text("Sequencer")]),
-          h.output(
-            [
-              a.class("seq-counter"),
-              a.attribute("data-seq-counter", ""),
-              a.attribute("aria-label", "Latest sequence number"),
-            ],
-            [h.text("SN " <> int.to_string(model.sequence_number))],
-          ),
-        ]),
+        h.div(
+          [
+            a.class("seq-node"),
+            a.attribute("data-seq-node", ""),
+            a.attribute("data-flow-node", "seq"),
+          ],
+          [
+            h.span([a.class("annot")], [h.text("Sequencer")]),
+            h.output(
+              [
+                a.class("seq-counter"),
+                a.attribute("data-seq-counter", ""),
+                a.attribute("aria-label", "Latest sequence number"),
+              ],
+              [h.text("SN " <> int.to_string(model.sequence_number))],
+            ),
+          ],
+        ),
         h.ol(
           [
             a.class("op-log"),
@@ -418,7 +450,28 @@ fn family_rig(model: Model, views: List(String)) -> Element(runtime.Msg) {
           a.attribute("data-flow-layer", ""),
           a.attribute("aria-hidden", "true"),
         ],
-        [],
+        list.map(model.flows, fn(flow) {
+          h.span(
+            [
+              a.class("flow-dot"),
+              a.attribute("data-flow-id", int.to_string(flow.id)),
+              a.attribute("data-from", flow.from),
+              a.attribute("data-to", flow.to),
+            ],
+            [h.span([a.class("flow-dot-label")], [h.text(flow.label)])],
+          )
+        })
+          |> fn(flows) {
+            case model.field_notes {
+              True -> [
+                h.span([a.class("field-note")], [
+                  h.text("Local edit → sequencer → replicas"),
+                ]),
+                ..flows
+              ]
+              False -> flows
+            }
+          },
       ),
     ],
   )
@@ -433,7 +486,10 @@ fn static_variant(
     list.append(
       [
         a.id("demo"),
-        a.class("demo"),
+        a.class(case model.field_notes {
+          True -> "demo field-notes-on"
+          False -> "demo"
+        }),
         a.attribute("aria-labelledby", "demo-title"),
       ],
       mounted_attribute(model),
@@ -531,7 +587,8 @@ fn static_variant(
             a.type_("checkbox"),
             a.attribute("data-field-notes", ""),
             a.attribute("aria-describedby", "field-notes-help"),
-            a.disabled(True),
+            a.checked(model.field_notes),
+            event.on_check(runtime.SetFieldNotes),
           ]),
           h.span([a.class("field-note-tip")], [
             h.span([a.class("annot")], [h.text("Field notes")]),
@@ -575,17 +632,24 @@ fn static_variant(
           client(model, ClientB, "b", "Client B", "arm pump", False),
           client(model, ClientC, "c", "Client C", "check datum", False),
           h.div([a.class("channel"), a.style("grid-area", "seq")], [
-            h.div([a.class("seq-node"), a.attribute("data-seq-node", "")], [
-              h.span([a.class("annot")], [h.text("Sequencer")]),
-              h.output(
-                [
-                  a.class("seq-counter"),
-                  a.attribute("data-seq-counter", ""),
-                  a.attribute("aria-label", "Latest sequence number"),
-                ],
-                [h.text("SN " <> int.to_string(model.sequence_number))],
-              ),
-            ]),
+            h.div(
+              [
+                a.class("seq-node"),
+                a.attribute("data-seq-node", ""),
+                a.attribute("data-flow-node", "seq"),
+              ],
+              [
+                h.span([a.class("annot")], [h.text("Sequencer")]),
+                h.output(
+                  [
+                    a.class("seq-counter"),
+                    a.attribute("data-seq-counter", ""),
+                    a.attribute("aria-label", "Latest sequence number"),
+                  ],
+                  [h.text("SN " <> int.to_string(model.sequence_number))],
+                ),
+              ],
+            ),
             h.ol(
               [
                 a.class("op-log"),
@@ -602,11 +666,44 @@ fn static_variant(
               a.attribute("data-flow-layer", ""),
               a.attribute("aria-hidden", "true"),
             ],
-            [],
+            list.map(model.flows, fn(flow) {
+              h.span(
+                [
+                  a.class("flow-dot"),
+                  a.attribute("data-flow-id", int.to_string(flow.id)),
+                  a.attribute("data-from", flow.from),
+                  a.attribute("data-to", flow.to),
+                ],
+                [h.span([a.class("flow-dot-label")], [h.text(flow.label)])],
+              )
+            })
+              |> fn(flows) {
+                case model.field_notes {
+                  True -> [
+                    h.span([a.class("field-note")], [
+                      h.text("Local edit → sequencer → replicas"),
+                    ]),
+                    ..flows
+                  ]
+                  False -> flows
+                }
+              },
           ),
         ],
       ),
       controls(model),
+      case model.visible_error {
+        Some(reason) ->
+          h.p(
+            [
+              a.class("demo-error"),
+              a.role("alert"),
+              a.attribute("data-error", ""),
+            ],
+            [h.text(reason)],
+          )
+        None -> h.text("")
+      },
       h.p([a.class("controls-hint")], [
         h.span([], [
           h.text(
@@ -663,6 +760,26 @@ fn mounted_attribute(model: Model) -> List(a.Attribute(msg)) {
   }
 }
 
+fn field_notes_toggle(model: Model) -> Element(runtime.Msg) {
+  h.div([a.class("field-notes-row")], [
+    h.label([a.class("field-notes-toggle")], [
+      h.input([
+        a.type_("checkbox"),
+        a.attribute("data-field-notes", ""),
+        a.checked(model.field_notes),
+        event.on_check(runtime.SetFieldNotes),
+      ]),
+      h.span([a.class("field-note-tip")], [
+        h.span([a.class("annot")], [h.text("Field notes")]),
+        h.span(
+          [a.class("field-note-mark"), a.attribute("aria-hidden", "true")],
+          [h.text("?")],
+        ),
+      ]),
+    ]),
+  ])
+}
+
 fn client(
   model: Model,
   replica: Replica,
@@ -677,6 +794,7 @@ fn client(
       a.attribute("data-client", id),
       a.attribute("aria-label", label <> " replica"),
       a.style("grid-area", id),
+      a.attribute("data-flow-node", id),
     ],
     [
       h.header([a.class("client-head")], [
@@ -688,13 +806,21 @@ fn client(
                 a.type_("button"),
                 a.class("link-btn"),
                 a.attribute("data-cut-link", ""),
-                a.attribute("aria-pressed", "false"),
+                a.attribute("aria-pressed", case model.link_up {
+                  True -> "false"
+                  False -> "true"
+                }),
                 a.title(
                   "Sever this replica's link to the sequencer; its edits park locally until the link is restored",
                 ),
                 event.on_click(runtime.ToggleLink),
               ],
-              [h.text("Cut link")],
+              [
+                h.text(case model.link_up {
+                  True -> "Cut link"
+                  False -> "Restore link"
+                }),
+              ],
             )
           _ -> h.text("")
         },
@@ -780,14 +906,17 @@ fn client(
           h.input([
             a.id("mv-revision-" <> id),
             a.attribute("data-mv-register-input", ""),
-            a.value(revision),
+            a.attribute("data-mv-register-submit", ""),
+            a.value(draft(model, replica)),
+            event.on_input(fn(value) { runtime.SetDraft(replica, value) }),
+            submit_on_enter(runtime.Defer(runtime.SubmitDraft(replica))),
           ]),
           h.div([a.class("mv-actions")], [
             h.button(
               [
                 a.type_("button"),
                 a.attribute("data-mv-register-write", ""),
-                event.on_click(runtime.WriteMv(replica, revision)),
+                event.on_click(runtime.Defer(runtime.SubmitDraft(replica))),
               ],
               [h.text("Write revision")],
             ),
@@ -795,7 +924,7 @@ fn client(
               [
                 a.type_("button"),
                 a.attribute("data-mv-register-resolve", ""),
-                event.on_click(runtime.ResolveMv(replica)),
+                event.on_click(runtime.Defer(runtime.ResolveMv(replica))),
               ],
               [h.text("Resolve with both")],
             ),
@@ -819,7 +948,7 @@ fn client(
             h.input([a.attribute("data-lww-register-input", "")]),
           ]),
         ]
-        True -> family_panel(model, id, label, revision)
+        True -> family_panel(model, replica, id, label, revision)
       }
     ],
   )
@@ -827,35 +956,44 @@ fn client(
 
 fn family_panel(
   model: Model,
+  replica: Replica,
   id: String,
   label: String,
   revision: String,
 ) -> List(Element(runtime.Msg)) {
   case runtime.structure_id(model.selected) {
-    "counter" -> [counter_panel(label)]
-    "pn" -> [pn_panel(label)]
-    "gcounter" -> [gcounter_panel(label)]
-    "lww-map" -> [lww_map_panel(id, label)]
-    "lww-register" -> [lww_register_panel(id, label, revision)]
-    "or-map-mv-register" -> [ormap_mv_register_panel(id, label, revision)]
-    "claims" -> [claims_table(label)]
+    "counter" -> [counter_panel(model, replica, label)]
+    "pn" -> [pn_panel(model, replica, label)]
+    "gcounter" -> [gcounter_panel(model, replica, label)]
+    "lww-map" -> [lww_map_panel(model, replica, id, label)]
+    "lww-register" -> [
+      lww_register_panel(model, replica, id, label, revision),
+    ]
+    "or-map-mv-register" -> [
+      ormap_mv_register_panel(model, replica, id, label, revision),
+    ]
+    "claims" -> [claims_table(model, replica, label)]
     "ormap" ->
       case model.or_map_set_mode {
-        True -> [ormap_set_panel(id, label)]
-        False -> [ormap_table(label)]
+        True -> [ormap_set_panel(model, replica, id, label)]
+        False -> [ormap_table(model, replica, label)]
       }
-    "orset" -> [set_table("orset", label)]
-    "gset" -> [set_table("gset", label)]
-    "twopset" -> [set_table("twopset", label)]
-    "registers" -> [registers_table(label)]
-    "ordered" -> [ordered_table(label)]
-    "pact" -> [pact_table(label)]
-    "tasks" -> [tasks_table(label)]
+    "orset" -> [set_table(model, replica, "orset", label)]
+    "gset" -> [set_table(model, replica, "gset", label)]
+    "twopset" -> [set_table(model, replica, "twopset", label)]
+    "registers" -> [registers_table(model, replica, label)]
+    "ordered" -> [ordered_table(model, replica, label)]
+    "pact" -> [pact_table(model, replica, label)]
+    "tasks" -> [tasks_table(model, replica, label)]
     _ -> []
   }
 }
 
-fn counter_panel(label: String) -> Element(msg) {
+fn counter_panel(
+  model: Model,
+  replica: Replica,
+  label: String,
+) -> Element(runtime.Msg) {
   h.div(
     [
       a.class("counter-panel dds-counter"),
@@ -866,7 +1004,7 @@ fn counter_panel(label: String) -> Element(msg) {
       h.code([a.class("counter-key")], [h.text("sandbags-placed")]),
       h.output(
         [a.class("counter-value"), a.attribute("data-counter-value", "")],
-        [h.text("120")],
+        [h.text(int.to_string(runtime.counter_value(model, replica)))],
       ),
       h.span(
         [
@@ -894,7 +1032,7 @@ fn counter_panel(label: String) -> Element(msg) {
                 True -> "Add " <> amount <> " sandbags on " <> label
                 False -> "Remove " <> absolute <> " sandbags on " <> label
               }),
-              a.disabled(True),
+              event.on_click(runtime.IncrementCounter(replica, step)),
             ],
             [
               h.text(case step > 0 {
@@ -909,7 +1047,12 @@ fn counter_panel(label: String) -> Element(msg) {
   )
 }
 
-fn pn_panel(label: String) -> Element(msg) {
+fn pn_panel(
+  model: Model,
+  replica: Replica,
+  label: String,
+) -> Element(runtime.Msg) {
+  let value = runtime.pn_value(model, replica)
   h.div(
     [
       a.class("counter-panel dds-pn"),
@@ -919,7 +1062,10 @@ fn pn_panel(label: String) -> Element(msg) {
     [
       h.code([a.class("counter-key")], [h.text("earthwork-balance · yd³")]),
       h.output([a.class("counter-value"), a.attribute("data-pn-value", "")], [
-        h.text("+44"),
+        h.text(case value >= 0 {
+          True -> "+" <> int.to_string(value)
+          False -> int.to_string(value)
+        }),
       ]),
       h.span(
         [
@@ -930,17 +1076,49 @@ fn pn_panel(label: String) -> Element(msg) {
         [],
       ),
       h.dl([a.class("pn-ledger")], [
-        ledger_value("fill Σ", "data-pn-fill", "74"),
-        ledger_value("cut Σ", "data-pn-cut", "30"),
+        ledger_value("fill Σ", "data-pn-fill", int.to_string(int.max(value, 0))),
+        ledger_value(
+          "cut Σ",
+          "data-pn-cut",
+          int.to_string(int.max(0 - value, 0)),
+        ),
       ]),
       h.div([a.class("counter-actions pn-actions")], [
         h.span([a.class("annot"), a.attribute("aria-hidden", "true")], [
           h.text("cut"),
         ]),
-        increment_button("data-pn-inc", "-6", "−6", "Cut 6 cubic yards", label),
-        increment_button("data-pn-inc", "-2", "−2", "Cut 2 cubic yards", label),
-        increment_button("data-pn-inc", "2", "+2", "Fill 2 cubic yards", label),
-        increment_button("data-pn-inc", "6", "+6", "Fill 6 cubic yards", label),
+        increment_button(
+          "data-pn-inc",
+          "-6",
+          "−6",
+          "Cut 6 cubic yards",
+          label,
+          runtime.UpdatePnCounter(replica, -6),
+        ),
+        increment_button(
+          "data-pn-inc",
+          "-2",
+          "−2",
+          "Cut 2 cubic yards",
+          label,
+          runtime.UpdatePnCounter(replica, -2),
+        ),
+        increment_button(
+          "data-pn-inc",
+          "2",
+          "+2",
+          "Fill 2 cubic yards",
+          label,
+          runtime.UpdatePnCounter(replica, 2),
+        ),
+        increment_button(
+          "data-pn-inc",
+          "6",
+          "+6",
+          "Fill 6 cubic yards",
+          label,
+          runtime.UpdatePnCounter(replica, 6),
+        ),
         h.span([a.class("annot"), a.attribute("aria-hidden", "true")], [
           h.text("fill"),
         ]),
@@ -949,7 +1127,11 @@ fn pn_panel(label: String) -> Element(msg) {
   )
 }
 
-fn gcounter_panel(label: String) -> Element(msg) {
+fn gcounter_panel(
+  model: Model,
+  replica: Replica,
+  label: String,
+) -> Element(runtime.Msg) {
   h.div(
     [
       a.class("counter-panel dds-gcounter"),
@@ -960,7 +1142,7 @@ fn gcounter_panel(label: String) -> Element(msg) {
       h.code([a.class("counter-key")], [h.text("inspection-count")]),
       h.output(
         [a.class("counter-value"), a.attribute("data-gcounter-value", "")],
-        [h.text("18")],
+        [h.text(int.to_string(runtime.g_counter_value(model, replica)))],
       ),
       h.span(
         [
@@ -982,6 +1164,7 @@ fn gcounter_panel(label: String) -> Element(msg) {
           "+1",
           "Add 1 inspection",
           label,
+          runtime.IncrementGCounter(replica, 1),
         ),
         increment_button(
           "data-gcounter-inc",
@@ -989,6 +1172,7 @@ fn gcounter_panel(label: String) -> Element(msg) {
           "+3",
           "Add 3 inspections",
           label,
+          runtime.IncrementGCounter(replica, 3),
         ),
         increment_button(
           "data-gcounter-inc",
@@ -996,13 +1180,19 @@ fn gcounter_panel(label: String) -> Element(msg) {
           "+7",
           "Add 7 inspections",
           label,
+          runtime.IncrementGCounter(replica, 7),
         ),
       ]),
     ],
   )
 }
 
-fn lww_map_panel(id: String, label: String) -> Element(msg) {
+fn lww_map_panel(
+  model: Model,
+  replica: Replica,
+  id: String,
+  label: String,
+) -> Element(runtime.Msg) {
   h.div(
     [
       a.class("mv-register-panel dds-lww-map"),
@@ -1018,7 +1208,7 @@ fn lww_map_panel(id: String, label: String) -> Element(msg) {
           a.attribute("data-lww-map-confirmed", ""),
           a.attribute("aria-live", "polite"),
         ],
-        [h.text("[[\"gate-mode\",\"surveyed\"]]")],
+        [h.text(runtime.lww_map_entries(model, replica, True))],
       ),
       h.p([a.class("annot")], [h.text("Local view")]),
       h.output(
@@ -1027,7 +1217,7 @@ fn lww_map_panel(id: String, label: String) -> Element(msg) {
           a.attribute("data-lww-map-entries", ""),
           a.attribute("aria-live", "polite"),
         ],
-        [h.text("[[\"gate-mode\",\"surveyed\"]]")],
+        [h.text(runtime.lww_map_entries(model, replica, False))],
       ),
       h.output(
         [
@@ -1048,7 +1238,6 @@ fn lww_map_panel(id: String, label: String) -> Element(msg) {
         a.id("lww-map-key-" <> id),
         a.attribute("data-lww-map-key", ""),
         a.value("gate-mode"),
-        a.disabled(True),
       ]),
       h.label([a.class("annot"), a.attribute("for", "lww-map-value-" <> id)], [
         h.text("Value (string)"),
@@ -1060,21 +1249,37 @@ fn lww_map_panel(id: String, label: String) -> Element(msg) {
           "b" -> "closed"
           _ -> "open"
         }),
-        a.disabled(True),
       ]),
       h.div([a.class("mv-actions")], [
-        action_button("data-lww-map-write", "Set string"),
-        action_button("data-lww-map-remove", "Remove key"),
+        action_button(
+          "data-lww-map-write",
+          "Set string",
+          runtime.WriteLwwMap(
+            replica,
+            "gate-mode",
+            Some(case id {
+              "b" -> "closed"
+              _ -> "open"
+            }),
+          ),
+        ),
+        action_button(
+          "data-lww-map-remove",
+          "Remove key",
+          runtime.WriteLwwMap(replica, "gate-mode", None),
+        ),
       ]),
     ],
   )
 }
 
 fn lww_register_panel(
+  model: Model,
+  replica: Replica,
   id: String,
   label: String,
-  revision: String,
-) -> Element(msg) {
+  _revision: String,
+) -> Element(runtime.Msg) {
   h.div(
     [
       a.class("mv-register-panel dds-lww-register"),
@@ -1090,7 +1295,7 @@ fn lww_register_panel(
           a.attribute("data-lww-register-confirmed", ""),
           a.attribute("aria-live", "polite"),
         ],
-        [h.text("Survey datum")],
+        [h.text(runtime.lww_register_value(model, replica, True))],
       ),
       h.p([a.class("annot")], [h.text("Local view")]),
       h.output(
@@ -1099,7 +1304,7 @@ fn lww_register_panel(
           a.attribute("data-lww-register-value", ""),
           a.attribute("aria-live", "polite"),
         ],
-        [h.text("Survey datum")],
+        [h.text(runtime.lww_register_value(model, replica, False))],
       ),
       h.output(
         [
@@ -1115,21 +1320,30 @@ fn lww_register_panel(
       h.input([
         a.id("lww-revision-" <> id),
         a.attribute("data-lww-register-input", ""),
-        a.value(revision),
-        a.disabled(True),
+        a.value(draft(model, replica)),
+        event.on_input(fn(value) { runtime.SetDraft(replica, value) }),
+        submit_on_enter(
+          runtime.Defer(runtime.WriteLwwRegister(replica, draft(model, replica))),
+        ),
       ]),
       h.div([a.class("mv-actions")], [
-        action_button("data-lww-register-write", "Write note"),
+        action_button(
+          "data-lww-register-write",
+          "Write note",
+          runtime.WriteLwwRegister(replica, draft(model, replica)),
+        ),
       ]),
     ],
   )
 }
 
 fn ormap_mv_register_panel(
+  model: Model,
+  replica: Replica,
   id: String,
   label: String,
   revision: String,
-) -> Element(msg) {
+) -> Element(runtime.Msg) {
   h.div(
     [
       a.class("mv-register-panel dds-or-map-mv-register"),
@@ -1145,7 +1359,7 @@ fn ormap_mv_register_panel(
           a.attribute("data-or-map-mv-register-confirmed", ""),
           a.attribute("aria-live", "polite"),
         ],
-        [h.text("[[\"gate-mode\",[\"surveyed\"]]]")],
+        [h.text(runtime.or_map_entries(model, replica, True))],
       ),
       h.output(
         [
@@ -1153,7 +1367,7 @@ fn ormap_mv_register_panel(
           a.attribute("data-or-map-mv-register-entries", ""),
           a.attribute("aria-live", "polite"),
         ],
-        [h.text("[[\"gate-mode\",[\"surveyed\"]]]")],
+        [h.text(runtime.or_map_entries(model, replica, False))],
       ),
       h.label([a.class("annot"), a.attribute("for", "or-map-mv-key-" <> id)], [
         h.text("Key (string)"),
@@ -1162,7 +1376,6 @@ fn ormap_mv_register_panel(
         a.id("or-map-mv-key-" <> id),
         a.attribute("data-or-map-mv-register-key", ""),
         a.value("gate-mode"),
-        a.disabled(True),
       ]),
       h.label(
         [a.class("annot"), a.attribute("for", "or-map-mv-revision-" <> id)],
@@ -1172,18 +1385,37 @@ fn ormap_mv_register_panel(
         a.id("or-map-mv-revision-" <> id),
         a.attribute("data-or-map-mv-register-input", ""),
         a.value(revision),
-        a.disabled(True),
       ]),
       h.div([a.class("mv-actions")], [
-        action_button("data-or-map-mv-register-write", "Write revision"),
-        action_button("data-or-map-mv-register-resolve", "Resolve observed"),
-        action_button("data-or-map-mv-register-remove", "Remove key"),
+        action_button(
+          "data-or-map-mv-register-write",
+          "Write revision",
+          runtime.WriteOrMapMv(replica, "gate-mode", Some(revision)),
+        ),
+        action_button(
+          "data-or-map-mv-register-resolve",
+          "Resolve observed",
+          runtime.WriteOrMapMv(
+            replica,
+            "gate-mode",
+            Some("raise crest + arm pump"),
+          ),
+        ),
+        action_button(
+          "data-or-map-mv-register-remove",
+          "Remove key",
+          runtime.WriteOrMapMv(replica, "gate-mode", None),
+        ),
       ]),
     ],
   )
 }
 
-fn claims_table(label: String) -> Element(msg) {
+fn claims_table(
+  model: Model,
+  replica: Replica,
+  label: String,
+) -> Element(runtime.Msg) {
   keyed_table(
     "claims-table dds-claims",
     "Claims replica on " <> label,
@@ -1193,21 +1425,22 @@ fn claims_table(label: String) -> Element(msg) {
         key_heading(key, "data-claim-note"),
         h.td([a.class("claim-holder")], [
           h.output([a.attribute("data-holder", "")], [
-            h.text(case key {
-              "pump-house" -> "Survey"
-              _ -> "—"
-            }),
+            h.text(runtime.claim_value(model, replica, key)),
           ]),
         ]),
         h.td([a.class("gauge-actions claim-actions")], [
-          action_button("data-claim", "Claim"),
+          action_button("data-claim", "Claim", runtime.Claim(replica, key)),
         ]),
       ])
     },
   )
 }
 
-fn ormap_table(label: String) -> Element(msg) {
+fn ormap_table(
+  model: Model,
+  replica: Replica,
+  label: String,
+) -> Element(runtime.Msg) {
   keyed_table(
     "ormap-table dds-ormap",
     "OR-map stockpile ledger replica on " <> label,
@@ -1219,11 +1452,7 @@ fn ormap_table(label: String) -> Element(msg) {
         ]),
         h.td([a.class("gauge-value ormap-value")], [
           h.output([a.attribute("data-ormap-value", "")], [
-            h.text(case key {
-              "spoil-north" -> "18"
-              "borrow-pit-7" -> "-6"
-              _ -> "12"
-            }),
+            h.text(runtime.or_map_value(model, replica, key)),
           ]),
           h.span(
             [a.class("annot ormap-note"), a.attribute("data-ormap-note", "")],
@@ -1231,17 +1460,40 @@ fn ormap_table(label: String) -> Element(msg) {
           ),
         ]),
         h.td([a.class("gauge-actions ormap-actions")], [
-          valued_button("data-ormap-log", "2", "+2"),
-          valued_button("data-ormap-log", "6", "+6"),
-          action_button("data-ormap-strike", "×"),
-          action_button("data-ormap-reopen", "Re-open"),
+          valued_button(
+            "data-ormap-log",
+            "2",
+            "+2",
+            runtime.IncrementOrMap(replica, key, 2),
+          ),
+          valued_button(
+            "data-ormap-log",
+            "6",
+            "+6",
+            runtime.IncrementOrMap(replica, key, 6),
+          ),
+          action_button(
+            "data-ormap-strike",
+            "×",
+            runtime.RemoveOrMap(replica, key),
+          ),
+          action_button(
+            "data-ormap-reopen",
+            "Re-open",
+            runtime.IncrementOrMap(replica, key, 0),
+          ),
         ]),
       ])
     },
   )
 }
 
-fn ormap_set_panel(id: String, label: String) -> Element(msg) {
+fn ormap_set_panel(
+  model: Model,
+  replica: Replica,
+  id: String,
+  label: String,
+) -> Element(runtime.Msg) {
   let documents = ["inspection-brief", "spillway-plan", "pump-watch"]
   h.div(
     [
@@ -1262,14 +1514,14 @@ fn ormap_set_panel(id: String, label: String) -> Element(msg) {
                   a.class("mv-alternatives k-seq"),
                   a.attribute("data-ormap-confirmed", ""),
                 ],
-                [h.text("missing")],
+                [h.text(runtime.or_map_value(model, replica, key))],
               ),
               h.output(
                 [
                   a.class("mv-alternatives"),
                   a.attribute("data-ormap-members", ""),
                 ],
-                [h.text("missing")],
+                [h.text(runtime.or_map_value(model, replica, key))],
               ),
             ]),
           ])
@@ -1279,30 +1531,57 @@ fn ormap_set_panel(id: String, label: String) -> Element(msg) {
         [
           a.id("ormap-key-" <> id),
           a.attribute("data-ormap-key", ""),
-          a.disabled(True),
         ],
         list.map(documents, fn(key) { h.option([a.value(key)], key) }),
       ),
       h.input([
         a.id("ormap-member-" <> id),
         a.attribute("data-ormap-set-input", ""),
-        a.value(case id {
-          "a" -> "draft"
-          "b" -> "reviewed"
-          _ -> "handoff"
-        }),
-        a.disabled(True),
+        a.value(draft(model, replica)),
+        event.on_input(fn(value) { runtime.SetDraft(replica, value) }),
+        submit_on_enter(
+          runtime.Defer(runtime.AddOrMapMember(
+            replica,
+            "inspection-brief",
+            draft(model, replica),
+          )),
+        ),
       ]),
       h.div([a.class("mv-actions")], [
-        action_button("data-ormap-set-add", "Add member"),
-        action_button("data-ormap-set-remove", "Remove member"),
-        action_button("data-ormap-remove-key", "Remove key"),
+        action_button(
+          "data-ormap-set-add",
+          "Add member",
+          runtime.AddOrMapMember(
+            replica,
+            "inspection-brief",
+            draft(model, replica),
+          ),
+        ),
+        action_button(
+          "data-ormap-set-remove",
+          "Remove member",
+          runtime.RemoveOrMapMember(
+            replica,
+            "inspection-brief",
+            draft(model, replica),
+          ),
+        ),
+        action_button(
+          "data-ormap-remove-key",
+          "Remove key",
+          runtime.RemoveOrMap(replica, "inspection-brief"),
+        ),
       ]),
     ],
   )
 }
 
-fn set_table(kind: String, label: String) -> Element(msg) {
+fn set_table(
+  model: Model,
+  replica: Replica,
+  kind: String,
+  label: String,
+) -> Element(runtime.Msg) {
   let #(name, keys, values) = case kind {
     "orset" -> #(
       "OR-set field marker roster",
@@ -1325,22 +1604,61 @@ fn set_table(kind: String, label: String) -> Element(msg) {
     name <> " replica on " <> label,
     list.zip(keys, values),
     fn(item) {
-      h.tr([a.attribute("data-key", item.0)], [
+      let present = runtime.set_contains(model, replica, item.0)
+      let row_class = case present, kind, item.1 {
+        False, "twopset", "retired" -> "retired"
+        False, _, _ -> "absent"
+        True, _, _ -> ""
+      }
+      h.tr([a.attribute("data-key", item.0), a.class(row_class)], [
         key_heading(item.0, "data-" <> kind <> "-note"),
         h.td([a.class("gauge-value " <> kind <> "-value")], [
           h.output([a.attribute("data-" <> kind <> "-value", "")], [
-            h.text(item.1),
+            h.text(case present {
+              True ->
+                case kind {
+                  "gset" -> "recorded"
+                  _ -> "active"
+                }
+              False ->
+                case kind {
+                  "twopset" if item.1 == "retired" -> "retired"
+                  _ -> "unrecorded"
+                }
+            }),
           ]),
         ]),
         h.td([a.class("gauge-actions " <> kind <> "-actions")], case kind {
-          "gset" -> [action_button("data-gset-add", "Record")]
+          "gset" -> [
+            action_button(
+              "data-gset-add",
+              "Record",
+              runtime.AddGSet(replica, item.0),
+            ),
+          ]
           "orset" -> [
-            action_button("data-orset-add", "Mark"),
-            action_button("data-orset-remove", "Clear"),
+            action_button(
+              "data-orset-add",
+              "Mark",
+              runtime.AddOrSet(replica, item.0),
+            ),
+            action_button(
+              "data-orset-remove",
+              "Clear",
+              runtime.RemoveOrSet(replica, item.0),
+            ),
           ]
           _ -> [
-            action_button("data-twopset-add", "Place"),
-            action_button("data-twopset-remove", "Retire"),
+            action_button(
+              "data-twopset-add",
+              "Place",
+              runtime.AddTwoPSet(replica, item.0),
+            ),
+            action_button(
+              "data-twopset-remove",
+              "Retire",
+              runtime.RemoveTwoPSet(replica, item.0),
+            ),
           ]
         }),
       ])
@@ -1348,7 +1666,11 @@ fn set_table(kind: String, label: String) -> Element(msg) {
   )
 }
 
-fn registers_table(label: String) -> Element(msg) {
+fn registers_table(
+  model: Model,
+  replica: Replica,
+  label: String,
+) -> Element(runtime.Msg) {
   keyed_table(
     "register-table dds-registers",
     "RegisterCollection replica on " <> label,
@@ -1358,36 +1680,38 @@ fn registers_table(label: String) -> Element(msg) {
         key_heading(key, "data-register-note"),
         h.td([a.class("register-value")], [
           h.output([a.attribute("data-register-atomic", "")], [
-            h.text(case key {
-              "north-bench" -> "Survey"
-              _ -> "—"
-            }),
+            h.text(runtime.register_value(model, replica, key, True)),
           ]),
         ]),
         h.td([a.class("register-value")], [
           h.output([a.attribute("data-register-lww", "")], [
-            h.text(case key {
-              "north-bench" -> "Survey"
-              _ -> "—"
-            }),
+            h.text(runtime.register_value(model, replica, key, False)),
           ]),
           h.span(
             [
               a.class("annot register-versions"),
               a.attribute("data-register-versions", ""),
             ],
-            [],
+            [h.text(runtime.register_versions(model, replica, key))],
           ),
         ]),
         h.td([a.class("gauge-actions register-actions")], [
-          action_button("data-register-write", "Revise"),
+          action_button(
+            "data-register-write",
+            "Revise",
+            runtime.WriteRegister(replica, key),
+          ),
         ]),
       ])
     },
   )
 }
 
-fn ordered_table(label: String) -> Element(msg) {
+fn ordered_table(
+  model: Model,
+  replica: Replica,
+  label: String,
+) -> Element(runtime.Msg) {
   h.table(
     [
       a.class("gauge-table ordered-table dds-ordered"),
@@ -1399,12 +1723,20 @@ fn ordered_table(label: String) -> Element(msg) {
           key_heading("queue", "data-ordered-note"),
           h.td([a.class("ordered-value")], [
             h.output([a.attribute("data-ordered-queue", "")], [
-              h.text("grade-stakes, pump-check"),
+              h.text(runtime.ordered_queue(model, replica)),
             ]),
           ]),
           h.td([a.class("gauge-actions ordered-actions")], [
-            action_button("data-ordered-add", "Add task"),
-            action_button("data-ordered-acquire", "Acquire"),
+            action_button(
+              "data-ordered-add",
+              "Add task",
+              runtime.OrderedAdd(replica),
+            ),
+            action_button(
+              "data-ordered-acquire",
+              "Acquire",
+              runtime.OrderedAcquire(replica),
+            ),
           ]),
         ]),
         h.tr([], [
@@ -1412,11 +1744,21 @@ fn ordered_table(label: String) -> Element(msg) {
             h.code([], [h.text("held jobs")]),
           ]),
           h.td([a.class("ordered-value")], [
-            h.output([a.attribute("data-ordered-jobs", "")], [h.text("none")]),
+            h.output([a.attribute("data-ordered-jobs", "")], [
+              h.text(runtime.ordered_jobs(model, replica)),
+            ]),
           ]),
           h.td([a.class("gauge-actions ordered-actions")], [
-            action_button("data-ordered-complete", "Complete"),
-            action_button("data-ordered-release", "Release"),
+            action_button(
+              "data-ordered-complete",
+              "Complete",
+              runtime.OrderedComplete(replica),
+            ),
+            action_button(
+              "data-ordered-release",
+              "Release",
+              runtime.OrderedRelease(replica),
+            ),
           ]),
         ]),
       ]),
@@ -1424,7 +1766,11 @@ fn ordered_table(label: String) -> Element(msg) {
   )
 }
 
-fn pact_table(label: String) -> Element(msg) {
+fn pact_table(
+  model: Model,
+  replica: Replica,
+  label: String,
+) -> Element(runtime.Msg) {
   keyed_table(
     "pact-table dds-pact",
     "PactMap replica on " <> label,
@@ -1434,14 +1780,13 @@ fn pact_table(label: String) -> Element(msg) {
         key_heading(key, "data-pact-note"),
         h.td([a.class("pact-value")], [
           h.output([a.attribute("data-pact-accepted", "")], [
-            h.text(case key {
-              "datum-grid" -> "Survey datum"
-              _ -> "—"
-            }),
+            h.text(runtime.pact_value(model, replica, key, False)),
           ]),
         ]),
         h.td([a.class("pact-value")], [
-          h.output([a.attribute("data-pact-pending", "")], [h.text("—")]),
+          h.output([a.attribute("data-pact-pending", "")], [
+            h.text(runtime.pact_value(model, replica, key, True)),
+          ]),
           h.span(
             [
               a.class("annot pact-signoffs"),
@@ -1451,15 +1796,27 @@ fn pact_table(label: String) -> Element(msg) {
           ),
         ]),
         h.td([a.class("gauge-actions pact-actions")], [
-          action_button("data-pact-set", "Propose"),
-          action_button("data-pact-delete", "Delete"),
+          action_button(
+            "data-pact-set",
+            "Propose",
+            runtime.PactSet(replica, key),
+          ),
+          action_button(
+            "data-pact-delete",
+            "Delete",
+            runtime.PactDelete(replica, key),
+          ),
         ]),
       ])
     },
   )
 }
 
-fn tasks_table(label: String) -> Element(msg) {
+fn tasks_table(
+  model: Model,
+  replica: Replica,
+  label: String,
+) -> Element(runtime.Msg) {
   keyed_table(
     "task-table dds-tasks",
     "TaskManager replica on " <> label,
@@ -1468,15 +1825,31 @@ fn tasks_table(label: String) -> Element(msg) {
       h.tr([a.attribute("data-key", key)], [
         key_heading(key, "data-task-note"),
         h.td([a.class("task-value")], [
-          h.output([a.attribute("data-task-assignee", "")], [h.text("—")]),
+          h.output([a.attribute("data-task-assignee", "")], [
+            h.text(runtime.task_assignee(model, replica, key)),
+          ]),
         ]),
         h.td([a.class("task-value")], [
-          h.output([a.attribute("data-task-waiters", "")], [h.text("empty")]),
+          h.output([a.attribute("data-task-waiters", "")], [
+            h.text(runtime.task_waiters(model, replica, key)),
+          ]),
         ]),
         h.td([a.class("gauge-actions task-actions")], [
-          action_button("data-task-volunteer", "Volunteer"),
-          action_button("data-task-abandon", "Abandon"),
-          action_button("data-task-complete", "Complete"),
+          action_button(
+            "data-task-volunteer",
+            "Volunteer",
+            runtime.TaskVolunteer(replica, key),
+          ),
+          action_button(
+            "data-task-abandon",
+            "Abandon",
+            runtime.TaskAbandon(replica, key),
+          ),
+          action_button(
+            "data-task-complete",
+            "Complete",
+            runtime.TaskComplete(replica, key),
+          ),
         ]),
       ])
     },
@@ -1526,13 +1899,14 @@ fn increment_button(
   text: String,
   label: String,
   client: String,
-) -> Element(msg) {
+  message: runtime.Msg,
+) -> Element(runtime.Msg) {
   h.button(
     [
       a.type_("button"),
       a.attribute(attribute, value),
       a.attribute("aria-label", label <> " on " <> client),
-      a.disabled(True),
+      event.on_click(runtime.Defer(message)),
     ],
     [h.text(text)],
   )
@@ -1542,21 +1916,31 @@ fn valued_button(
   attribute: String,
   value: String,
   text: String,
-) -> Element(msg) {
+  message: runtime.Msg,
+) -> Element(runtime.Msg) {
   h.button(
     [
       a.type_("button"),
       a.attribute(attribute, value),
-      a.disabled(True),
+      event.on_click(runtime.Defer(message)),
     ],
     [h.text(text)],
   )
 }
 
-fn action_button(attribute: String, text: String) -> Element(msg) {
-  h.button([a.type_("button"), a.attribute(attribute, ""), a.disabled(True)], [
-    h.text(text),
-  ])
+fn action_button(
+  attribute: String,
+  text: String,
+  message: runtime.Msg,
+) -> Element(runtime.Msg) {
+  h.button(
+    [
+      a.type_("button"),
+      a.attribute(attribute, ""),
+      event.on_click(runtime.Defer(message)),
+    ],
+    [h.text(text)],
+  )
 }
 
 fn int_text(value: Int) -> String {
@@ -1590,7 +1974,7 @@ fn gauge(
           a.type_("button"),
           a.attribute("data-step", "-1"),
           a.attribute("aria-label", "Lower " <> key <> " on " <> label),
-          event.on_click(runtime.StepMap(replica, key, -1)),
+          event.on_click(runtime.Defer(runtime.StepMap(replica, key, -1))),
         ],
         [h.text("−")],
       ),
@@ -1599,7 +1983,7 @@ fn gauge(
           a.type_("button"),
           a.attribute("data-step", "1"),
           a.attribute("aria-label", "Raise " <> key <> " on " <> label),
-          event.on_click(runtime.StepMap(replica, key, 1)),
+          event.on_click(runtime.Defer(runtime.StepMap(replica, key, 1))),
         ],
         [h.text("+")],
       ),
@@ -1616,18 +2000,21 @@ fn controls(model: Model) -> Element(runtime.Msg) {
         a.min("0.25"),
         a.max("2"),
         a.step("0.25"),
-        a.value("1"),
+        a.value(pace_value(model.playback_ms)),
         a.attribute("data-pace", ""),
         a.title("Playback only; does not affect simulated ordering."),
-        event.on_input(runtime.SetLatency),
+        event.on_input(runtime.SetPace),
       ]),
-      h.output([a.attribute("data-pace-out", "")], [h.text("1×")]),
+      h.output([a.attribute("data-pace-out", "")], [
+        h.text(pace_value(model.playback_ms) <> "×"),
+      ]),
     ]),
     h.label([a.class("field-notes-toggle")], [
       h.input([
         a.type_("checkbox"),
         a.attribute("data-latency-variance", ""),
         a.title("Add random ±100 ms per hop; arrival order may change."),
+        a.checked(model.jitter),
         event.on_check(runtime.SetJitter),
       ]),
       h.span([a.class("annot")], [h.text("Jitter ±100 ms")]),
@@ -1637,7 +2024,7 @@ fn controls(model: Model) -> Element(runtime.Msg) {
         a.type_("button"),
         a.class("race-btn"),
         a.attribute("data-race", ""),
-        event.on_click(runtime.RunRace),
+        event.on_click(runtime.Defer(runtime.RunRace)),
       ],
       [
         h.text(case model.selected {
@@ -1656,7 +2043,7 @@ fn controls(model: Model) -> Element(runtime.Msg) {
           "Deliver the most recently sequenced delta a second time to every replica",
         ),
         a.hidden(model.selected != MvRegister),
-        event.on_click(runtime.Replay),
+        event.on_click(runtime.Defer(runtime.Replay)),
       ],
       [h.text("Re-deliver last delta")],
     ),
@@ -1669,7 +2056,7 @@ fn controls(model: Model) -> Element(runtime.Msg) {
           "aria-label",
           "Reset all revisions to their surveyed baseline values",
         ),
-        event.on_click(runtime.Reset),
+        event.on_click(runtime.Defer(runtime.Reset)),
       ],
       [h.text("Reset survey")],
     ),
@@ -1685,6 +2072,47 @@ fn controls(model: Model) -> Element(runtime.Msg) {
       ],
     ),
   ])
+}
+
+fn draft(model: Model, replica: Replica) -> String {
+  case replica {
+    ClientA -> model.draft_a
+    ClientB -> model.draft_b
+    ClientC -> model.draft_c
+  }
+}
+
+fn submit_on_enter(message: runtime.Msg) -> a.Attribute(runtime.Msg) {
+  event.advanced("keydown", {
+    use key <- decode.field("key", decode.string)
+    case key {
+      "Enter" ->
+        decode.success(event.handler(
+          dispatch: message,
+          prevent_default: True,
+          stop_propagation: False,
+        ))
+      _ ->
+        decode.success(event.handler(
+          dispatch: runtime.NoOp,
+          prevent_default: False,
+          stop_propagation: False,
+        ))
+    }
+  })
+}
+
+fn pace_value(milliseconds: Int) -> String {
+  case milliseconds {
+    2400 -> "0.25"
+    1200 -> "0.5"
+    800 -> "0.75"
+    480 -> "1.25"
+    400 -> "1.5"
+    343 -> "1.75"
+    300 -> "2"
+    _ -> "1"
+  }
 }
 
 fn mv_text(model: Model, replica: Replica, sequenced: Bool) -> String {

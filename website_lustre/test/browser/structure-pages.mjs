@@ -12,6 +12,33 @@ const slugs = [
   "coordination",
   "transforms",
 ];
+const liveControls = {
+  counters: {
+    counter: '[data-inc="1"]',
+    gcounter: '[data-gcounter-inc="1"]',
+    pn: '[data-pn-inc="2"]',
+  },
+  sets: {
+    gset: "[data-gset-add]",
+    twopset: "[data-twopset-remove]",
+    orset: "[data-orset-remove]",
+  },
+  registers: {
+    "lww-register": "[data-lww-register-write]",
+    registers: "[data-register-write]",
+  },
+  maps: {
+    map: '[data-step="1"]',
+    "lww-map": "[data-lww-map-write]",
+    ormap: '[data-ormap-log="2"]',
+  },
+  coordination: {
+    claims: "[data-claim]",
+    ordered: "[data-ordered-add]",
+    tasks: '[data-key="pump-watch"] [data-task-volunteer]',
+    pact: "[data-pact-set]",
+  },
+};
 
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -93,6 +120,11 @@ await withBrowserSite(site, async (browser, origin) => {
       await page.$$eval('script[type="module"]', (nodes) => nodes.map((node) => new URL(node.src).pathname)),
       ["/structure_sheet.js"],
     );
+    assert.ok(
+      await page.$$eval('link[rel="stylesheet"]', (nodes) =>
+        nodes.some((node) => new URL(node.href).pathname === "/styles/home.css")),
+      `${slug} loads demo styles`,
+    );
     assert.deepEqual(await page.$$eval("[aria-labelledby]", (nodes) =>
       nodes.flatMap((node) => node.getAttribute("aria-labelledby").split(/\s+/))
         .filter((id) => !document.getElementById(id))), []);
@@ -105,6 +137,53 @@ await withBrowserSite(site, async (browser, origin) => {
     await page.close();
   }
 
+  for (const [slug, structures] of Object.entries(liveControls)) {
+    const { page, errors } = await openPage(browser);
+    await page.goto(`${origin}/structures/${slug}/`);
+    for (const [id, control] of Object.entries(structures)) {
+      await page.click(`[data-structure-toggle="${id}"]`);
+      await page.waitForSelector(`#${id}-demo #demo`, { visible: true });
+      assert.deepEqual(
+        await page.$$eval(`#${id}-demo button`, (buttons) =>
+          buttons.filter((button) => button.checkVisibility() && button.disabled)
+            .map((button) => button.outerHTML),
+        ),
+        [],
+        `${id} exposes live controls`,
+      );
+      await page.$eval(`#${id}-demo [data-pace]`, (input) => {
+        input.value = "2";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      });
+      const before = await page.$eval(
+        `#${id}-demo [data-seq-counter]`,
+        (node) => node.textContent,
+      );
+      const commandIsVisible = await page.$$eval(
+        `#${id}-demo ${control}`,
+        (buttons) => buttons.some((button) => button.checkVisibility()),
+      );
+      assert.equal(
+        commandIsVisible,
+        true,
+        `${id} command is visible`,
+      );
+      await page.$$eval(`#${id}-demo ${control}`, (buttons) =>
+        buttons.find((candidate) => candidate.checkVisibility()).click(),
+      );
+      await page.waitForFunction(
+        (selector, value) =>
+          document.querySelector(selector).textContent !== value,
+        {},
+        `#${id}-demo [data-seq-counter]`,
+        before,
+      );
+      await page.click(`[data-structure-toggle="${id}"]`);
+    }
+    assert.deepEqual(errors, [], `${slug} live-control browser errors`);
+    await page.close();
+  }
+
   const { page, errors } = await openPage(browser);
   await page.goto(`${origin}/structures/counters/`);
   await page.waitForSelector('[data-structure-toggle="counter"]', {
@@ -113,9 +192,23 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.click('[data-structure-toggle="counter"]');
   await page.waitForSelector('#counter-demo #demo', { visible: true });
   assert.equal(
-    await page.$eval('#counter-demo [data-step]', (button) => button.disabled),
+    await page.$eval('#counter-demo [data-inc]', (button) => button.disabled),
     false,
   );
+  const counterBefore = await page.$eval(
+    '#counter-demo [data-client="a"] [data-counter-value]',
+    (node) => node.textContent,
+  );
+  await page.click('#counter-demo [data-client="a"] [data-inc="1"]');
+  await page.waitForFunction(
+    (value) =>
+      document.querySelector(
+        '#counter-demo [data-client="a"] [data-counter-value]',
+      ).textContent !== value,
+    {},
+    counterBefore,
+  );
+  assert.notEqual(await page.$("#counter-after-demo"), null);
   assert.deepEqual(
     await page.$$eval(
       '#counter-demo [data-client="a"] > :is(table, .counter-panel, .mv-register-panel)',
@@ -144,6 +237,21 @@ await withBrowserSite(site, async (browser, origin) => {
     '#ormap-demo [data-client="a"] .ormap-set-panel',
     { visible: true },
   );
+  await mapsPage.$eval(
+    '#ormap-demo [data-client="a"] [data-ormap-set-input]',
+    (input) => {
+      input.value = "retained";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+  );
+  await mapsPage.click(
+    '#ormap-demo [data-client="a"] [data-ormap-set-add]',
+  );
+  await mapsPage.waitForFunction(() =>
+    document.querySelector(
+      '#ormap-demo [data-client="a"] [data-ormap-members]',
+    ).textContent.includes("retained"),
+  );
   await mapsPage.select(
     '#ormap-demo [data-ormap-view]',
     "or-map-mv-register",
@@ -160,6 +268,13 @@ await withBrowserSite(site, async (browser, origin) => {
   await mapsPage.waitForSelector(
     '#ormap-demo [data-client="a"] .ormap-set-panel',
     { visible: true },
+  );
+  assert.ok(
+    await mapsPage.$eval(
+      '#ormap-demo [data-client="a"] [data-ormap-members]',
+      (node) => node.textContent.includes("retained"),
+    ),
+    "OR-map set edits survive view switching",
   );
   assert.deepEqual(mapsErrors, [], "OR-map instance switch browser errors");
   await mapsPage.close();

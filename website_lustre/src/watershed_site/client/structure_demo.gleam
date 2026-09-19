@@ -8,6 +8,9 @@ import watershed_site/structures
 @external(javascript, "./structure_demo_ffi.mjs", "familySlug")
 fn family_slug() -> String
 
+@external(javascript, "./structure_demo_ffi.mjs", "setupDemo")
+fn setup_demo(selector: String) -> Nil
+
 pub fn mount(
   selector: String,
   selected: Structure,
@@ -20,6 +23,7 @@ pub fn mount(
       view: fn(model) { view.view(model, options) },
     )
   let assert Ok(_) = lustre.start(app, selector, Nil)
+  setup_demo(selector)
   Nil
 }
 
@@ -33,5 +37,6 @@ pub fn mount_family() -> Nil {
       view: fn(model) { family_view.view(family, model) },
     )
   let assert Ok(_) = lustre.start(app, "#structure-sheet-mount", Nil)
+  setup_demo("#structure-sheet-mount")
   Nil
 }

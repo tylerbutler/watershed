@@ -92,6 +92,7 @@ pub type Operation {
 pub type DeliveryScope {
   AllReplicas
   ClientBOnly
+  ReplayAll(sequence_number: Int)
 }
 
 pub type PendingOperation {
@@ -106,6 +107,28 @@ pub type PendingOperation {
 
 pub type Flow {
   Flow(id: Int, from: String, to: String, label: String)
+}
+
+pub type ReplayOperation {
+  ReplayOperation(
+    operation: Operation,
+    message_id: Option(Int),
+    sequence_number: Int,
+  )
+}
+
+pub type Instance {
+  Instance(
+    structure: Structure,
+    alpha: ReplicaState,
+    beta: ReplicaState,
+    gamma: ReplicaState,
+    pending: List(PendingOperation),
+    sequence_number: Int,
+    flows: List(Flow),
+    log: List(LogEntry),
+    last_replay: Option(ReplayOperation),
+  )
 }
 
 pub type LogEntry {
@@ -131,5 +154,12 @@ pub type Model {
     queued_for_b: Int,
     open_panel: Option(Structure),
     or_map_set_mode: Bool,
+    draft_a: String,
+    draft_b: String,
+    draft_c: String,
+    playback_ms: Int,
+    field_notes: Bool,
+    last_replay: Option(ReplayOperation),
+    instances: List(Instance),
   )
 }
