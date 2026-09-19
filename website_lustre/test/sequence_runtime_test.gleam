@@ -1,4 +1,5 @@
-import gleam/option.{Some}
+import gleam/list
+import gleam/option.{None, Some}
 import gleeunit/should
 import watershed_site/sequence/runtime
 
@@ -15,7 +16,7 @@ pub fn concurrent_inserts_keep_deterministic_order_test() {
     "put-in",
     "mill-race weir",
     "gravel bar",
-    "boulder garden",
+    "oxbow",
     "kettle-run rapids",
     "low-ford portage",
     "take-out",
@@ -72,6 +73,70 @@ pub fn runtime_failure_is_visible_test() {
 
   should.equal(model.error, Some("Cannot animate the route."))
   should.equal(model.phase, runtime.Failed)
+}
+
+pub fn crowd_insert_uses_each_short_route_index_test() {
+  let model =
+    runtime.ready_model()
+    |> runtime.transition(runtime.Delete(runtime.ClientC, 4))
+    |> runtime.transition(runtime.Delete(runtime.ClientC, 3))
+    |> runtime.transition(runtime.Delete(runtime.ClientC, 2))
+    |> runtime.transition(runtime.Delete(runtime.ClientC, 1))
+    |> runtime.transition(runtime.RaceInsert)
+
+  should.equal(model.error, None)
+  should.equal(list.length(runtime.route(model, runtime.ClientB)), 6)
+  should.equal(list.length(runtime.route(model, runtime.ClientC)), 2)
+}
+
+pub fn rapid_crowd_inserts_allocate_unique_station_names_test() {
+  let route =
+    runtime.ready_model()
+    |> runtime.transition(runtime.RaceInsert)
+    |> runtime.transition(runtime.RaceInsert)
+    |> runtime.transition(runtime.RaceInsert)
+    |> deliver_all
+    |> runtime.route(runtime.ClientA)
+
+  should.equal(list.length(route), list.length(list.unique(route)))
+}
+
+pub fn delivery_logs_one_broadcast_group_per_step_test() {
+  let model =
+    runtime.ready_model()
+    |> runtime.transition(runtime.Insert(runtime.ClientA, 1))
+    |> runtime.transition(runtime.Insert(runtime.ClientB, 2))
+  let assert [first, second] = model.pending
+
+  let delivered = runtime.transition(model, runtime.Deliver(model.generation))
+
+  should.equal(delivered.latest_sequence, first.sequence_number)
+  should.equal(delivered.pending, [second])
+  should.equal(list.length(delivered.log), 1)
+  should.equal(delivered.delivery_active, True)
+}
+
+pub fn deferred_completion_preserves_newer_station_selection_test() {
+  let before =
+    runtime.ready_model()
+    |> runtime.transition(runtime.Select(runtime.ClientA, "put-in"))
+  let next = runtime.transition(before, runtime.Insert(runtime.ClientB, 2))
+  let current =
+    runtime.transition(
+      before,
+      runtime.Select(runtime.ClientA, "mill-race weir"),
+    )
+
+  let #(completed, _) =
+    runtime.update(
+      current,
+      runtime.Deferred(current.generation, Ok(#(before, next))),
+    )
+
+  should.equal(
+    runtime.selected(completed, runtime.ClientA),
+    Some("mill-race weir"),
+  )
 }
 
 fn deliver_all(model: runtime.Model) -> runtime.Model {

@@ -1,3 +1,4 @@
+import gleam/list
 import gleam/option.{Some}
 import gleeunit/should
 import watershed/json_ot.{
@@ -100,6 +101,21 @@ pub fn runtime_failure_is_visible_test() {
 
   should.equal(model.error, Some("Cannot animate the flow."))
   should.equal(model.phase, runtime.Failed)
+}
+
+pub fn delivery_logs_one_broadcast_group_per_step_test() {
+  let model =
+    runtime.ready_model()
+    |> runtime.transition(runtime.StepStage(runtime.ClientA, 1))
+    |> runtime.transition(runtime.StepStage(runtime.ClientB, 2))
+  let assert [first, second] = model.pending
+
+  let delivered = runtime.transition(model, runtime.Deliver(model.generation))
+
+  should.equal(delivered.latest_sequence, first.sequence_number)
+  should.equal(delivered.pending, [second])
+  should.equal(list.length(delivered.log), 1)
+  should.equal(delivered.delivery_active, True)
 }
 
 fn deliver_all(model: runtime.Model) -> runtime.Model {

@@ -67,6 +67,63 @@
   transition: transform var(--dur-state) var(--ease-out-quart);
 }
 
+.station.note-local::after,
+.station.note-sequenced::after {
+  position: absolute;
+  inset: -0.45rem;
+  border: 2px solid currentColor;
+  border-radius: 50%;
+  content: "";
+  pointer-events: none;
+  animation: route-note-flash 1.3s var(--ease-out-quart) forwards;
+}
+
+.station.note-local::after {
+  color: var(--overprint);
+}
+
+.station.note-sequenced::after {
+  color: var(--ink);
+}
+
+.op-log li.note-newest {
+  outline: 2px solid var(--ink);
+  outline-offset: 2px;
+  animation: route-note-log 1.4s var(--ease-out-quart) forwards;
+}
+
+@keyframes route-note-flash {
+  0% {
+    opacity: 0;
+    transform: scale(0.85) rotate(-2deg);
+  }
+
+  20%,
+  75% {
+    opacity: 1;
+  }
+
+  100% {
+    opacity: 0;
+    transform: scale(1.08) rotate(1deg);
+  }
+}
+
+@keyframes route-note-log {
+  0% {
+    outline-color: transparent;
+  }
+
+  20%,
+  75% {
+    outline-color: var(--ink);
+  }
+
+  100% {
+    outline-color: transparent;
+  }
+}
+
 .station-dot {
   width: 0.65rem;
   height: 0.65rem;

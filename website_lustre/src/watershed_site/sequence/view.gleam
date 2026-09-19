@@ -7,6 +7,7 @@ import lustre/attribute as a
 import lustre/element.{type Element}
 import lustre/element/html as h
 import lustre/element/keyed
+import lustre/element/svg
 import lustre/event
 import watershed_site/demo/flow
 import watershed_site/sequence/runtime
@@ -43,7 +44,7 @@ pub fn view(
             ],
             [
               h.text(
-                "SharedSequence — items keep identity, so concurrent inserts, moves, and deletes merge instead of fighting over index numbers.",
+                "SharedSequence — items keep identity, so concurrent inserts, moves, and deletes merge instead of fighting over index numbers. Watch a station flash magenta the moment a client edits the route, then ink on every replica as the op is sequenced and applied; the newest log line boxes as each op lands.",
               ),
             ],
           )
@@ -147,16 +148,19 @@ fn client(
     [
       h.header([a.class("client-head")], [
         h.h3([], [h.text(label)]),
-        h.span(        [
-          a.class(pending_class(runtime.pending_count(model, replica))),
-          a.attribute("data-pending-count", ""),
-        ], [
-          h.text(
-            int.to_string(runtime.pending_count(model, replica)) <> " pending",
-          ),
-        ]),
+        h.span(
+          [
+            a.class(pending_class(runtime.pending_count(model, replica))),
+            a.attribute("data-pending-count", ""),
+          ],
+          [
+            h.text(
+              int.to_string(runtime.pending_count(model, replica)) <> " pending",
+            ),
+          ],
+        ),
       ]),
-      h.div(
+      keyed.div(
         [
           a.class("route"),
           a.attribute("data-route", ""),
@@ -166,13 +170,24 @@ fn client(
             int.to_string(route_height(list.length(stations))) <> "px",
           ),
         ],
-        list.append(
-          list.index_map(stations, fn(name, index) {
-            station(model, replica, name, index, unavailable)
-          }),
-          indexes(list.length(stations))
-            |> list.map(fn(index) { gap(replica, index, unavailable) }),
-        ),
+        [
+          #("river", river(list.length(stations))),
+          ..list.append(
+            list.index_map(stations, fn(name, index) {
+              #(
+                "station:" <> name,
+                station(model, replica, name, index, unavailable),
+              )
+            }),
+            indexes(list.length(stations))
+              |> list.map(fn(index) {
+                #(
+                  "gap:" <> int.to_string(index),
+                  gap(replica, index, unavailable),
+                )
+              }),
+          )
+        ],
       ),
       h.div([a.class("route-actions"), a.attribute("data-route-actions", "")], [
         h.span(
@@ -245,7 +260,8 @@ fn station(
         <> case pending {
           True -> " pending"
           False -> ""
-        },
+        }
+        <> station_note_class(model, replica, name),
       ),
       a.style(
         "transform",
@@ -363,7 +379,7 @@ fn channel(model: runtime.Model) -> Element(runtime.Msg) {
       model.log
         |> list.take(24)
         |> list.map(fn(entry) {
-          h.li([], [
+          h.li([a.class(log_note_class(model, entry.sequence_number))], [
             h.span([a.class("op-meta")], [
               h.text(
                 "SN "
@@ -406,6 +422,71 @@ fn flows(model: runtime.Model) -> Element(runtime.Msg) {
       )
     }),
   )
+}
+
+fn river(count: Int) -> Element(msg) {
+  svg.svg([a.class("route-river"), a.attribute("aria-hidden", "true")], [
+    svg.path([a.attribute("d", river_path(count))]),
+  ])
+}
+
+fn river_path(count: Int) -> String {
+  let points = [-1, ..indexes(count)]
+  case points {
+    [] -> ""
+    [first, ..rest] ->
+      list.fold(
+        rest,
+        "M " <> int.to_string(x_at(first)) <> " " <> int.to_string(y_at(first)),
+        fn(path, index) {
+          path
+          <> " L "
+          <> int.to_string(x_at(index))
+          <> " "
+          <> int.to_string(y_at(index))
+        },
+      )
+  }
+}
+
+fn station_note_class(
+  model: runtime.Model,
+  replica: runtime.Replica,
+  name: String,
+) -> String {
+  case model.field_notes {
+    False -> ""
+    True -> {
+      let local =
+        list.any(model.annotations, fn(annotation) {
+          annotation.target == runtime.StationTarget(replica, name)
+          && annotation.tone == runtime.LocalNote
+        })
+      let sequenced =
+        list.any(model.annotations, fn(annotation) {
+          annotation.target == runtime.StationTarget(replica, name)
+          && annotation.tone == runtime.SequencedNote
+        })
+      case local, sequenced {
+        False, False -> ""
+        True, False -> " note-local"
+        False, True -> " note-sequenced"
+        True, True -> " note-local note-sequenced"
+      }
+    }
+  }
+}
+
+fn log_note_class(model: runtime.Model, sequence_number: Int) -> String {
+  case
+    model.field_notes
+    && list.any(model.annotations, fn(annotation) {
+      annotation.target == runtime.LogTarget(sequence_number)
+    })
+  {
+    True -> "note-newest"
+    False -> ""
+  }
 }
 
 fn controls(model: runtime.Model, unavailable: Bool) -> Element(runtime.Msg) {

@@ -282,7 +282,7 @@ fn finish_deferred(
     |> list.filter(fn(item) { !list.contains(old_ids, item.id) })
     |> list.map(fn(item) {
       watershed_lustre.after(
-        timing.delay_ms(next.pace_quarters, False, 5000),
+        timing.playback_ms(next.pace_quarters, 5000),
         ClearFlow(next.generation, item.id),
       )
     })
@@ -578,25 +578,28 @@ fn mutate(
 fn deliver_group(rig: Rig) -> Result(Delivery, String) {
   use next <- result.try(next_operation(rig))
   use author <- result.try(replica_by_client_id(rig, next.author))
-  use delivered <- result.try(drain_all(rig, next.sequence_number, author))
+  use _ <- result.try(drain(rig, next.sequence_number))
   use snapshots <- result.try(project_all(rig))
-  Ok(Delivery(snapshots, delivered.0, delivered.1, False))
+  Ok(Delivery(
+    snapshots,
+    next.sequence_number,
+    author,
+    sluice_js.pending(rig.sluice),
+  ))
 }
 
-fn drain_all(
-  rig: Rig,
-  sequence_number: Int,
-  author: Replica,
-) -> Result(#(Int, Replica), String) {
-  case sluice_js.step_info(rig.sluice) {
-    Error(Nil) -> Ok(#(sequence_number, author))
-    Ok(delivery) if delivery.event == "op" && delivery.sequence_number > 0 -> {
-      use next_author <- result.try(
-        replica_by_client_id(rig, delivery.author),
+fn drain(rig: Rig, sequence_number: Int) -> Result(Nil, String) {
+  case sluice_js.peek_info(rig.sluice) {
+    Ok(next) if next.sequence_number == sequence_number -> {
+      use _ <- result.try(
+        sluice_js.step_info(rig.sluice)
+        |> result.replace_error("Cannot deliver the JSON OT operation."),
       )
-      drain_all(rig, delivery.sequence_number, next_author)
+      drain(rig, sequence_number)
     }
-    Ok(_) -> drain_all(rig, sequence_number, author)
+    Ok(next) if next.sequence_number == 0 ->
+      Error("Unexpected delivery: " <> next.event)
+    Ok(_) | Error(Nil) -> Ok(Nil)
   }
 }
 

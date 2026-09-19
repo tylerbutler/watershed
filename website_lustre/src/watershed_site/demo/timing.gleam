@@ -5,7 +5,7 @@ const sample_limit = 10_000
 const seed_limit = 1_000_003
 
 pub fn delay_ms(pace_quarters: Int, jitter: Bool, sample: Int) -> Int {
-  let base = int.max(1, pace_quarters) * 250
+  let base = playback_ms(pace_quarters, 1000)
 
   case jitter {
     False -> base
@@ -14,6 +14,10 @@ pub fn delay_ms(pace_quarters: Int, jitter: Bool, sample: Int) -> Int {
       int.max(50, base * { 7000 + sample * 6000 / sample_limit } / 10_000)
     }
   }
+}
+
+pub fn playback_ms(pace_quarters: Int, duration: Int) -> Int {
+  int.max(1, duration) * 4 / int.max(1, pace_quarters)
 }
 
 pub fn next_sample(seed: Int) -> #(Int, Int) {

@@ -96,6 +96,11 @@ await withBrowserSite(site, async (browser, origin) => {
       document.querySelectorAll(".station-name").length === 15 &&
       !document.querySelector("[data-route-race-move]").disabled,
   );
+  assert.equal(
+    await page.$$eval("svg.route-river path", (nodes) => nodes.length),
+    3,
+    "each route renders its river",
+  );
   assert.deepEqual(errors, [], "startup browser errors");
   const desktop = await snapshot(page);
   await page.setViewport({ width: 390, height: 844 });
@@ -122,6 +127,54 @@ await withBrowserSite(site, async (browser, origin) => {
     input.dispatchEvent(new Event("input", { bubbles: true }));
   });
   const baseline = await converge(page);
+  const movingName = await page.$eval(
+    '[data-client="a"] .station:nth-of-type(2) .station-name',
+    (node) => node.textContent,
+  );
+  const movingStation = await page.evaluateHandle(
+    (name) =>
+      [...document.querySelectorAll('[data-client="a"] .station')].find(
+        (node) => node.querySelector(".station-name").textContent === name,
+      ),
+    movingName,
+  );
+  await page.click(
+    `[data-client="a"] .station-name[aria-label^="Select ${movingName}"]`,
+  );
+  await page.click('[data-client="a"] [data-act="down"]');
+  await waitForRevision(page);
+  await converge(page);
+  assert.equal(
+    await page.evaluate(
+      (before, name) =>
+        before ===
+        [...document.querySelectorAll('[data-client="a"] .station')].find(
+          (node) => node.querySelector(".station-name").textContent === name,
+        ),
+      movingStation,
+      movingName,
+    ),
+    true,
+    "a moved station keeps its DOM identity",
+  );
+  await movingStation.dispose();
+  await page.click("[data-route-reset]");
+  await converge(page);
+
+  await page.click("[data-route-notes]");
+  await page.waitForSelector("[data-route-note]");
+  assert.match(
+    await page.$eval("[data-route-note]", (node) => node.textContent),
+    /flash magenta.*then ink.*newest log line boxes/,
+  );
+  await page.click('[data-client="a"] .gap');
+  await page.waitForSelector('[data-client="a"] .station.note-local');
+  await page.waitForSelector(".station.note-sequenced");
+  await page.waitForSelector(".op-log li.note-newest");
+  await converge(page);
+  await page.click("[data-route-reset]");
+  await converge(page);
+
   await page.click("[data-route-race-move]");
   await waitForRevision(page);
   await converge(page);

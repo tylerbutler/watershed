@@ -37,6 +37,20 @@ pub type LogEntry {
   LogEntry(sequence_number: Int, author: Replica, label: String)
 }
 
+pub type AnnotationTone {
+  LocalNote
+  SequencedNote
+}
+
+pub type AnnotationTarget {
+  StationTarget(replica: Replica, name: String)
+  LogTarget(sequence_number: Int)
+}
+
+pub type Annotation {
+  Annotation(id: Int, target: AnnotationTarget, tone: AnnotationTone)
+}
+
 pub type Model {
   Model(
     phase: Phase,
@@ -56,6 +70,8 @@ pub type Model {
     error: Option(String),
     name_cursors: List(Int),
     random_seed: Int,
+    annotations: List(Annotation),
+    next_annotation_id: Int,
     deferred_work: List(fn(Model) -> Result(#(Model, Model), String)),
     work_running: Bool,
   )
@@ -76,6 +92,7 @@ pub type Msg {
   RaceInsert
   Deliver(generation: Int)
   ClearFlow(generation: Int, id: Int)
+  ClearAnnotation(generation: Int, id: Int)
   SetPace(String)
   SetJitter(Bool)
   SetFieldNotes(Bool)
@@ -137,6 +154,8 @@ pub fn static_model() -> Model {
     [0, 1, 2],
     73,
     [],
+    1,
+    [],
     False,
   )
 }
@@ -162,6 +181,7 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       | Deferred(generation, _)
       | Deliver(generation)
       | ClearFlow(generation, _)
+      | ClearAnnotation(generation, _)
       if generation != model.generation
     -> #(model, effect.none())
     NoOp -> #(model, effect.none())
@@ -254,6 +274,7 @@ fn finish_deferred(
         before.field_notes,
         next.field_notes,
       ),
+      routes: reconcile_selection(model.routes, before.routes, next.routes),
       deferred_work: remaining,
       work_running: False,
     )
@@ -276,12 +297,28 @@ fn finish_deferred(
     |> list.filter(fn(item) { !list.contains(old_ids, item.id) })
     |> list.map(fn(item) {
       watershed_lustre.after(
-        timing.delay_ms(next.pace_quarters, False, 5000),
+        timing.playback_ms(next.pace_quarters, 5000),
         ClearFlow(next.generation, item.id),
       )
     })
+  let old_annotation_ids =
+    list.map(model.annotations, fn(annotation) { annotation.id })
+  let annotation_clears =
+    next.annotations
+    |> list.filter(fn(annotation) {
+      !list.contains(old_annotation_ids, annotation.id)
+    })
+    |> list.map(fn(annotation) {
+      watershed_lustre.after(
+        timing.playback_ms(next.pace_quarters, annotation_ttl(annotation)),
+        ClearAnnotation(next.generation, annotation.id),
+      )
+    })
   let #(next, work) = start_work(next)
-  #(next, effect.batch([delivery, work, ..clears]))
+  #(
+    next,
+    effect.batch([delivery, work, ..list.append(clears, annotation_clears)]),
+  )
 }
 
 fn finish_deferred_error(
@@ -310,6 +347,7 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       | Deferred(generation, _)
       | Deliver(generation)
       | ClearFlow(generation, _)
+      | ClearAnnotation(generation, _)
       if generation != model.generation
     -> #(model, effect.none())
     NoOp | Start | Defer(_) -> #(model, effect.none())
@@ -336,7 +374,13 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
       effect.none(),
     )
     SetJitter(value) -> #(Model(..model, jitter: value), effect.none())
-    SetFieldNotes(value) -> #(Model(..model, field_notes: value), effect.none())
+    SetFieldNotes(value) -> #(
+      Model(..model, field_notes: value, annotations: case value {
+        True -> model.annotations
+        False -> []
+      }),
+      effect.none(),
+    )
     Reset ->
       case start_model() {
         Error(reason) -> fail(model, reason)
@@ -442,7 +486,8 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           ])
       }
     RaceInsert -> {
-      let index = int.min(2, list.length(route(model, ClientB)))
+      let beta_index = int.min(2, list.length(route(model, ClientB)))
+      let gamma_index = int.min(2, list.length(route(model, ClientC)))
       let #(beta_name, cursors) = next_name(model, ClientB)
       let #(gamma_name, cursors) =
         next_name(Model(..model, name_cursors: cursors), ClientC)
@@ -450,17 +495,25 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         #(
           ClientB,
           "st:" <> beta_name,
-          "insert " <> beta_name <> " @" <> int.to_string(index + 1),
+          "insert " <> beta_name <> " @" <> int.to_string(beta_index + 1),
           fn(sequence) {
-            watershed.sequence_insert(sequence, index, json.string(beta_name))
+            watershed.sequence_insert(
+              sequence,
+              beta_index,
+              json.string(beta_name),
+            )
           },
         ),
         #(
           ClientC,
           "st:" <> gamma_name,
-          "insert " <> gamma_name <> " @" <> int.to_string(index + 1),
+          "insert " <> gamma_name <> " @" <> int.to_string(gamma_index + 1),
           fn(sequence) {
-            watershed.sequence_insert(sequence, index, json.string(gamma_name))
+            watershed.sequence_insert(
+              sequence,
+              gamma_index,
+              json.string(gamma_name),
+            )
           },
         ),
       ])
@@ -486,7 +539,7 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
                     "SN " <> int.to_string(delivery.sequence_number),
                   )
                 })
-              #(
+              let annotated =
                 Model(
                   ..model,
                   phase: case delivery.more {
@@ -510,14 +563,29 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
                   converged: !delivery.more
                     && list.is_empty(pending)
                     && all_routes_equal(delivery.routes),
-                ),
-                effect.none(),
-              )
+                )
+                |> annotate_routes(
+                  model.routes,
+                  delivery.routes,
+                  replicas(),
+                  SequencedNote,
+                )
+                |> annotate_log(delivery.sequence_number)
+              #(annotated, effect.none())
             }
           }
       }
     ClearFlow(_, id) -> #(
       Model(..model, flows: flow.remove(model.flows, id)),
+      effect.none(),
+    )
+    ClearAnnotation(_, id) -> #(
+      Model(
+        ..model,
+        annotations: list.filter(model.annotations, fn(annotation) {
+          annotation.id != id
+        }),
+      ),
       effect.none(),
     )
   }
@@ -548,18 +616,27 @@ fn mutate_many(
     Some(rig), Ready | Some(rig), Delivering ->
       case mutate(rig, operations) {
         Error(reason) -> fail(model, reason)
-        Ok(mutation) -> #(
-          Model(
-            ..model,
-            phase: Delivering,
-            routes: preserve_selection(model.routes, mutation.routes),
-            pending: list.append(model.pending, mutation.pending),
-            flows: list.append(model.flows, mutation.flows),
-            delivery_active: True,
-            converged: False,
-          ),
-          effect.none(),
-        )
+        Ok(mutation) -> {
+          let next =
+            Model(
+              ..model,
+              phase: Delivering,
+              routes: preserve_selection(model.routes, mutation.routes),
+              pending: list.append(model.pending, mutation.pending),
+              flows: list.append(model.flows, mutation.flows),
+              delivery_active: True,
+              converged: False,
+            )
+            |> annotate_routes(
+              model.routes,
+              mutation.routes,
+              operations
+                |> list.map(fn(operation) { operation.0 })
+                |> list.unique,
+              LocalNote,
+            )
+          #(next, effect.none())
+        }
       }
     _, _ -> #(model, effect.none())
   }
@@ -601,25 +678,28 @@ fn mutate(
 fn deliver_group(rig: Rig) -> Result(Delivery, String) {
   use next <- result.try(next_operation(rig))
   use author <- result.try(replica_by_client_id(rig, next.author))
-  use delivered <- result.try(drain_all(rig, next.sequence_number, author))
+  use _ <- result.try(drain(rig, next.sequence_number))
   use routes <- result.try(project_all(rig))
-  Ok(Delivery(routes, delivered.0, delivered.1, False))
+  Ok(Delivery(
+    routes,
+    next.sequence_number,
+    author,
+    sluice_js.pending(rig.sluice),
+  ))
 }
 
-fn drain_all(
-  rig: Rig,
-  sequence_number: Int,
-  author: Replica,
-) -> Result(#(Int, Replica), String) {
-  case sluice_js.step_info(rig.sluice) {
-    Error(Nil) -> Ok(#(sequence_number, author))
-    Ok(delivery) if delivery.event == "op" && delivery.sequence_number > 0 -> {
-      use next_author <- result.try(
-        replica_by_client_id(rig, delivery.author),
+fn drain(rig: Rig, sequence_number: Int) -> Result(Nil, String) {
+  case sluice_js.peek_info(rig.sluice) {
+    Ok(next) if next.sequence_number == sequence_number -> {
+      use _ <- result.try(
+        sluice_js.step_info(rig.sluice)
+        |> result.replace_error("Cannot deliver the sequence operation."),
       )
-      drain_all(rig, delivery.sequence_number, next_author)
+      drain(rig, sequence_number)
     }
-    Ok(_) -> drain_all(rig, sequence_number, author)
+    Ok(next) if next.sequence_number == 0 ->
+      Error("Unexpected delivery: " <> next.event)
+    Ok(_) | Error(Nil) -> Ok(Nil)
   }
 }
 
@@ -762,6 +842,43 @@ fn preserve_selection(
   })
 }
 
+fn reconcile_selection(
+  current: List(Route),
+  before: List(Route),
+  next: List(Route),
+) -> List(Route) {
+  list.map(next, fn(route) {
+    let current_selection = selection_for(current, route.replica)
+    let before_selection = selection_for(before, route.replica)
+    let selected = case current_selection == before_selection {
+      True -> route.selected
+      False -> current_selection
+    }
+    Route(..route, selected: valid_selection(route.stations, selected))
+  })
+}
+
+fn selection_for(routes: List(Route), replica: Replica) -> Option(String) {
+  routes
+  |> list.find(fn(route) { route.replica == replica })
+  |> result.map(fn(route) { route.selected })
+  |> result.unwrap(None)
+}
+
+fn valid_selection(
+  stations: List(String),
+  selected: Option(String),
+) -> Option(String) {
+  case selected {
+    Some(name) ->
+      case list.contains(stations, name) {
+        True -> selected
+        False -> None
+      }
+    _ -> None
+  }
+}
+
 fn select_name(
   routes: List(Route),
   replica: Replica,
@@ -810,6 +927,8 @@ fn next_name(model: Model, replica: Replica) -> #(String, List(Int)) {
   let names = [
     "beaver dam",
     "gravel bar",
+    "oxbow",
+    "sweeper",
     "boulder garden",
     "eddy pool",
     "cache point",
@@ -818,15 +937,9 @@ fn next_name(model: Model, replica: Replica) -> #(String, List(Int)) {
   ]
   let current = cursor(model.name_cursors, replica)
   let visible = route(model, replica)
-  let name =
-    next_available_name(
-      names,
-      visible,
-      current,
-      list.length(names),
-      "waypoint " <> int.to_string(current + 1),
-    )
-  #(name, set_cursor(model.name_cursors, replica, current + 3))
+  let #(name, next_cursor) =
+    next_disjoint_name(names, visible, current, list.length(names))
+  #(name, set_cursor(model.name_cursors, replica, next_cursor))
 }
 
 fn cursor(cursors: List(Int), replica: Replica) -> Int {
@@ -855,6 +968,82 @@ fn sampled_delay(model: Model) -> #(Model, Int) {
     Model(..model, random_seed: seed),
     timing.delay_ms(model.pace_quarters, model.jitter, sample),
   )
+}
+
+fn annotate_routes(
+  model: Model,
+  before: List(Route),
+  after: List(Route),
+  replicas: List(Replica),
+  tone: AnnotationTone,
+) -> Model {
+  case model.field_notes {
+    False -> model
+    True -> {
+      let #(annotations, next_id) =
+        list.fold(
+          replicas,
+          #(model.annotations, model.next_annotation_id),
+          fn(state, replica) {
+            changed_names(route_in(before, replica), route_in(after, replica))
+            |> list.fold(state, fn(state, name) {
+              #(
+                [
+                  Annotation(state.1, StationTarget(replica, name), tone),
+                  ..state.0
+                ],
+                state.1 + 1,
+              )
+            })
+          },
+        )
+      Model(..model, annotations:, next_annotation_id: next_id)
+    }
+  }
+}
+
+fn annotate_log(model: Model, sequence_number: Int) -> Model {
+  case model.field_notes {
+    False -> model
+    True ->
+      Model(
+        ..model,
+        annotations: [
+          Annotation(
+            model.next_annotation_id,
+            LogTarget(sequence_number),
+            SequencedNote,
+          ),
+          ..model.annotations
+        ],
+        next_annotation_id: model.next_annotation_id + 1,
+      )
+  }
+}
+
+fn changed_names(before: List(String), after: List(String)) -> List(String) {
+  after
+  |> list.index_map(fn(name, index) { #(name, index) })
+  |> list.filter_map(fn(item) {
+    case at(before, item.1) {
+      Ok(previous) if previous == item.0 -> Error(Nil)
+      _ -> Ok(item.0)
+    }
+  })
+}
+
+fn route_in(routes: List(Route), replica: Replica) -> List(String) {
+  routes
+  |> list.find(fn(route) { route.replica == replica })
+  |> result.map(fn(route) { route.stations })
+  |> result.unwrap([])
+}
+
+fn annotation_ttl(annotation: Annotation) -> Int {
+  case annotation.target {
+    StationTarget(_, _) -> 1300
+    LogTarget(_) -> 1400
+  }
 }
 
 fn pace(value: String, fallback: Int) -> Int {
@@ -926,31 +1115,32 @@ fn replica_index(replica: Replica) -> Int {
   }
 }
 
-fn next_available_name(
+fn next_disjoint_name(
   names: List(String),
   visible: List(String),
   index: Int,
   remaining: Int,
-  fallback: String,
-) -> String {
+) -> #(String, Int) {
   case
     remaining <= 0,
     at(names, positive_remainder(index, list.length(names)))
   {
-    True, _ -> fallback
+    True, Ok(base) -> #(suffixed_name(base, visible, 2), index + 3)
+    True, Error(Nil) -> #("waypoint " <> int.to_string(index + 1), index + 3)
     False, Ok(name) ->
       case list.contains(visible, name) {
-        True ->
-          next_available_name(
-            names,
-            visible,
-            index + 1,
-            remaining - 1,
-            fallback,
-          )
-        False -> name
+        True -> next_disjoint_name(names, visible, index + 3, remaining - 1)
+        False -> #(name, index + 3)
       }
-    False, Error(Nil) -> fallback
+    False, Error(Nil) -> #("waypoint " <> int.to_string(index + 1), index + 3)
+  }
+}
+
+fn suffixed_name(base: String, visible: List(String), suffix: Int) -> String {
+  let name = base <> " " <> int.to_string(suffix)
+  case list.contains(visible, name) {
+    True -> suffixed_name(base, visible, suffix + 1)
+    False -> name
   }
 }
 
