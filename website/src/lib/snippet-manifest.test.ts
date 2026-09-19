@@ -20,6 +20,7 @@ import { sourceSnippet, sourceSnippetIds } from "./snippet.ts";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const websiteRoot = resolve(__dirname, "..", "..");
 const repoRoot = resolve(websiteRoot, "..");
+const lustreRoot = resolve(repoRoot, "website_lustre");
 
 interface ConfiguredSnippet {
   id: string;
@@ -31,7 +32,7 @@ interface ConfiguredSnippet {
 }
 
 const configured: ConfiguredSnippet[] = (
-  JSON.parse(readFileSync(resolve(websiteRoot, "snippets.json"), "utf-8")) as {
+  JSON.parse(readFileSync(resolve(lustreRoot, "snippets.json"), "utf-8")) as {
     snippets: ConfiguredSnippet[];
   }
 ).snippets;

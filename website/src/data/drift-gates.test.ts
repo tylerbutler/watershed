@@ -45,13 +45,13 @@ const LITERAL_GLEAM_ALLOWLIST = new Set([
   "src/pages/runtime/presence.astro", // presence config illustration
 ]);
 
-/** The generator configuration, website-relative. It names every marker range
+/** The generator configuration, repository-relative. It names every marker range
  *  the Gleam manifest is built from. */
-const SNIPPET_CONFIG = "snippets.json";
+const SNIPPET_CONFIG = "website_lustre/snippets.json";
 
-/** The generated manifest, website-relative. Ignored by git, rebuilt before
+/** The generated manifest, repository-relative. Ignored by git, rebuilt before
  *  every build and test run, and read by exactly one module. */
-const SNIPPET_MANIFEST = "src/generated/snippets.json";
+const SNIPPET_MANIFEST = "website_lustre/src/generated/snippets.json";
 
 /** The one module allowed to import the generated manifest. Everything else
  *  asks for a snippet by id, so no page can reach past the loader's
@@ -462,7 +462,7 @@ function collectRequestedIds(): Map<string, string[]> {
 
 /** Every entry of the generated manifest, by id. */
 function generatedEntries(): Map<string, { sourcePath: string; code: string }> {
-  const manifestPath = resolve(websiteRoot, SNIPPET_MANIFEST);
+  const manifestPath = resolve(repoRoot, SNIPPET_MANIFEST);
   if (!existsSync(manifestPath)) {
     throw new Error(
       `${SNIPPET_MANIFEST} is missing — generate it with \`just snippets\` before running the gates`,
@@ -1166,7 +1166,7 @@ interface ConfiguredSnippet {
 
 function configuredSnippets(): ConfiguredSnippet[] {
   const config = JSON.parse(
-    readFileSync(resolve(websiteRoot, SNIPPET_CONFIG), "utf-8"),
+    readFileSync(resolve(repoRoot, SNIPPET_CONFIG), "utf-8"),
   ) as { snippets: ConfiguredSnippet[] };
   return config.snippets;
 }

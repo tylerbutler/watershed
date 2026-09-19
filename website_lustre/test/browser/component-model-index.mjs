@@ -10,18 +10,6 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.setViewport({ width: 1440, height: 1000 });
   assert.equal((await page.goto(`${origin}/component-model/`)).status(), 200);
   await page.evaluate(() => document.fonts.ready);
-  if (record) {
-    await page.evaluate(() => {
-      const nodes = {
-        "component-model-intro": ".fh-hero",
-        "component-model-ledger": ".fh-ledger",
-        "component-model-list": ".fh-list",
-      };
-      for (const [id, nodeSelector] of Object.entries(nodes)) {
-        document.querySelector(nodeSelector).dataset.testid = id;
-      }
-    });
-  }
   const content = await page.evaluate(() => {
     const text = (node) => node.textContent.replace(/\s+/g, " ").trim();
     const links = (nodeSelector) => [...document.querySelectorAll(`${nodeSelector} a`)].map((node) => ({

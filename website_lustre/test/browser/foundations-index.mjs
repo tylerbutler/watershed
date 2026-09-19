@@ -10,18 +10,6 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.setViewport({ width: 1440, height: 1000 });
   assert.equal((await page.goto(`${origin}/foundations/`)).status(), 200);
   await page.evaluate(() => document.fonts.ready);
-  if (record) {
-    await page.evaluate(() => {
-      const nodes = {
-        "foundations-intro": ".fh-hero",
-        "foundations-ledger": ".fh-ledger",
-        "foundations-list": ".fh-list",
-      };
-      for (const [id, nodeSelector] of Object.entries(nodes)) {
-        document.querySelector(nodeSelector).dataset.testid = id;
-      }
-    });
-  }
   const content = await page.evaluate(() => {
     const text = (node) => node.textContent.replace(/\s+/g, " ").trim();
     const links = (nodeSelector) => [...document.querySelectorAll(`${nodeSelector} a`)].map((node) => ({

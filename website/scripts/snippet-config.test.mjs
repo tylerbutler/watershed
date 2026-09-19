@@ -34,8 +34,9 @@ import { fileURLToPath } from "node:url";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const websiteRoot = resolve(__dirname, "..");
 const repoRoot = resolve(websiteRoot, "..");
-const configPath = resolve(websiteRoot, "snippets.json");
-const manifestPath = resolve(websiteRoot, "src/generated/snippets.json");
+const lustreRoot = resolve(repoRoot, "website_lustre");
+const configPath = resolve(lustreRoot, "snippets.json");
+const manifestPath = resolve(lustreRoot, "src/generated/snippets.json");
 const generatorDir = resolve(repoRoot, "tools/source-snippets");
 const sandboxRoot = resolve(websiteRoot, ".tmp/snippet-config");
 
@@ -65,7 +66,7 @@ function runGenerator(cfg, out) {
 // ══════════════════════════════════════════════════════════════════════════
 
 describe("configuration resolves to the repository", () => {
-  const resolvedRoot = resolve(websiteRoot, config.sourceRoot);
+  const resolvedRoot = resolve(lustreRoot, config.sourceRoot);
 
   it("sourceRoot resolves to the repository root", () => {
     assert.equal(

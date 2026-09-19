@@ -4,7 +4,7 @@
   "type": "module",
   "packageManager": "pnpm@11.13.1",
   "scripts": {
-    "generate:snippets": "cd ../tools/source-snippets && gleam run -m source_snippets/cli -- ../../website_lustre/snippets.json ../../website/src/generated/snippets.json",
+    "generate:snippets": "cd ../tools/source-snippets && gleam run -m source_snippets/cli -- ../../website_lustre/snippets.json ../../website_lustre/src/generated/snippets.json",
     "build:gleam": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript",
     "predev": "pnpm check:types",
     "dev": "astro dev",

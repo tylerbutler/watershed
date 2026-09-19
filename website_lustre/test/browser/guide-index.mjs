@@ -10,24 +10,6 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.setViewport({ width: 1440, height: 1000 });
   assert.equal((await page.goto(`${origin}/guide/`)).status(), 200);
   await page.evaluate(() => document.fonts.ready);
-  if (record) {
-    await page.evaluate(() => {
-      const nodes = {
-        "guide-intro": ".gi-hero",
-        "guide-lede": ".lede",
-        "guide-start": ".cta-primary",
-        "guide-build": ".gi-build",
-        "guide-build-grid": ".gi-build-inner",
-        "guide-document": ".gi-doc",
-        "guide-procedure": ".gi-ledger",
-        "guide-steps": ".gi-steps",
-        "guide-companion": ".gi-companion",
-      };
-      for (const [id, selector] of Object.entries(nodes)) {
-        document.querySelector(selector).dataset.testid = id;
-      }
-    });
-  }
   const content = await page.evaluate(() => {
     const text = (node) => node.textContent.replace(/\s+/g, " ").trim();
     const links = (selector) => [...document.querySelectorAll(`${selector} a`)].map((node) => ({

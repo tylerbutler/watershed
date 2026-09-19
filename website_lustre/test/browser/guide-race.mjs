@@ -51,22 +51,12 @@ await withBrowserSite(site, async (browser, origin) => {
     await page.reload();
     await page.waitForFunction(() => document.querySelector('[data-testid="race-demo"]')?.dataset.phase === "ready");
   } else {
-    await page.waitForFunction(() => !document.querySelector("[data-guide-race-add]").disabled);
-    // Annotate the existing Astro DOM only while recording the baseline.
-    await page.evaluate(() => {
-      const nodes = {
-        "race-demo": "#guide-race-demo",
-        "race-rig": "[data-guide-race-rig]",
-        alpha: '[data-client="a"]',
-        beta: '[data-client="b"]',
-        "starter-note": '[data-client="a"] [data-board] li',
-        "race-add": "[data-guide-race-add]",
-      };
-      for (const [id, selector] of Object.entries(nodes)) document.querySelector(selector).dataset.testid = id;
-    });
+    await page.waitForFunction(() =>
+      document.querySelector('[data-testid="race-demo"]')?.dataset.phase === "ready"
+      && !document.querySelector('[data-testid="race-add"]').disabled);
   }
   await page.evaluate(() => document.fonts.ready);
-  const collectStyles = async () => page.evaluate((record) => {
+  const collectStyles = async () => page.evaluate(() => {
     const style = (selector, properties) => {
       const computed = getComputedStyle(document.querySelector(selector));
       return Object.fromEntries(properties.map((key) => [key, computed.getPropertyValue(key)]));
@@ -76,10 +66,10 @@ await withBrowserSite(site, async (browser, origin) => {
       section: style('[data-testid="race-demo"]', ["padding-top", "padding-left", "border-bottom-width", "border-bottom-color"]),
       rig: style('[data-testid="race-rig"]', ["display", "grid-template-areas", "grid-template-columns", "gap"]),
       replica: style('[data-testid="alpha"]', ["grid-area", "border-width", "border-color"]),
-      note: style(record ? '[data-testid="starter-note"]' : '[data-testid="alpha-note-survey-900-1"]', ["border-width", "border-color", "padding", "font-size"]),
+      note: style('[data-testid="alpha-note-survey-900-1"]', ["border-width", "border-color", "padding", "font-size"]),
       button: style('[data-testid="race-add"]', ["padding", "font-size", "border-width", "font-weight"]),
     };
-  }, record);
+  });
   const desktop = await collectStyles();
   if (record) {
     await page.focus(selector("race-add"));

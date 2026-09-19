@@ -4,24 +4,6 @@ import { openPage, parity, readParity, withBrowserSite, writeParity } from "./si
 const { record, site, fixture } = parity(import.meta.url, "astro-counter-bug-parity.json");
 const selector = (id) => `[data-testid="${id}"]`;
 
-async function annotateAstro(page) {
-  await page.evaluate(() => {
-    document.querySelector("#counter-bug").dataset.testid = "counter-bug";
-    for (const kind of ["bug", "fix", "counter"]) {
-      const rig = document.querySelector(`[data-counter-bug="${kind}"]`);
-      rig.dataset.testid = `rig-${kind}`;
-      rig.querySelector("[data-play]").dataset.testid = `play-${kind}`;
-      rig.querySelector("[data-reset]").dataset.testid = `reset-${kind}`;
-      rig.querySelector("[data-cb-pace]").dataset.testid = `pace-${kind}`;
-      rig.querySelector('[data-cell="a"]').dataset.testid = `value-${kind}-a`;
-      rig.querySelector('[data-cell="b"]').dataset.testid = `value-${kind}-b`;
-      rig.querySelector("[data-caption]").dataset.testid = `caption-${kind}`;
-    }
-    document.querySelector("[data-cb-fallback]").dataset.testid =
-      "counter-bug-fallback";
-  });
-}
-
 async function snapshot(page) {
   return page.evaluate(() => {
     const text = (node) =>
@@ -98,8 +80,7 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.setViewport({ width: 1440, height: 1000 });
   assert.equal((await page.goto(`${origin}/counter-bug/`)).status(), 200);
   await page.evaluate(() => document.fonts.ready);
-  await page.waitForSelector(record ? '[data-counter-bug="bug"] [data-play]' : selector("play-bug"));
-  if (record) await annotateAstro(page);
+  await page.waitForSelector(selector("play-bug"));
   const desktop = await snapshot(page);
   await page.setViewport({ width: 390, height: 844 });
   const mobile = await snapshot(page);

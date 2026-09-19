@@ -4,31 +4,6 @@ import { openPage, parity, readParity, withBrowserSite, writeParity } from "./si
 const { record, site, fixture } = parity(import.meta.url, "astro-directory-parity.json");
 const selector = (id) => `[data-testid="${id}"]`;
 
-async function annotateAstro(page) {
-  await page.evaluate(() => {
-    const nodes = {
-      "directory-demo": "#dir-demo",
-      "directory-rig": "[data-dir-rig]",
-      "client-a": '[data-client="a"]',
-      "client-b": '[data-client="b"]',
-      "client-c": '[data-client="c"]',
-      pace: "[data-dir-pace]",
-      jitter: "[data-dir-latency-variance]",
-      race: "[data-dir-race]",
-      seed: "[data-dir-seed]",
-      reset: "[data-dir-reset]",
-      status: "[data-dir-status]",
-      "operation-log": "[data-op-log]",
-      "flow-layer": "[data-flow-layer]",
-      sequence: "[data-seq-counter]",
-      "directory-fallback": "[data-dir-fallback]",
-    };
-    for (const [id, query] of Object.entries(nodes)) {
-      document.querySelector(query).dataset.testid = id;
-    }
-  });
-}
-
 async function snapshot(page) {
   return page.evaluate(() => {
     const text = (node) =>
@@ -111,7 +86,6 @@ await withBrowserSite(site, async (browser, origin) => {
       document.querySelectorAll(".dir-node").length === 3 &&
       !document.querySelector('[data-testid="race"]')?.disabled,
   );
-  if (record) await annotateAstro(page);
   const desktop = await snapshot(page);
   await page.setViewport({ width: 390, height: 844 });
   const mobile = await snapshot(page);

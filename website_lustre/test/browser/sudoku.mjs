@@ -5,39 +5,6 @@ const { record, site, fixture } = parity(import.meta.url, "astro-sudoku-parity.j
 const selector = (id) => `[data-testid="${id}"]`;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-async function annotateAstro(page) {
-  await page.evaluate(() => {
-    const nodes = {
-      "sudoku-demo": "#sudoku-demo",
-      "sudoku-rig": "[data-sudoku-rig]",
-      "client-a": '[data-client="a"]',
-      "client-b": '[data-client="b"]',
-      "client-c": '[data-client="c"]',
-      pace: "[data-sudoku-pace]",
-      jitter: "[data-sudoku-latency-variance]",
-      race: "[data-sudoku-race]",
-      seed: "[data-sudoku-seed]",
-      reset: "[data-sudoku-reset]",
-      status: "[data-sudoku-status]",
-      "operation-log": "[data-op-log]",
-      "flow-layer": "[data-flow-layer]",
-      sequence: "[data-seq-counter]",
-      "sudoku-fallback": "[data-sudoku-fallback]",
-    };
-    for (const [id, query] of Object.entries(nodes)) {
-      document.querySelector(query).dataset.testid = id;
-    }
-    for (const client of ["a", "b", "c"]) {
-      for (const cell of document.querySelectorAll(
-        `[data-client="${client}"] .sudoku-cell`,
-      )) {
-        cell.dataset.testid =
-          `cell-${client}-${cell.dataset.row}-${cell.dataset.col}`;
-      }
-    }
-  });
-}
-
 async function snapshot(page) {
   return page.evaluate(() => {
     const text = (node) =>
@@ -122,7 +89,6 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.waitForFunction(
     () => document.querySelectorAll(".sudoku-cell").length === 243,
   );
-  if (record) await annotateAstro(page);
   const desktop = await snapshot(page);
   await page.setViewport({ width: 390, height: 844 });
   const mobile = await snapshot(page);

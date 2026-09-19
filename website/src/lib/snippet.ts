@@ -4,14 +4,15 @@
 // Sheets quote the checked-in examples rather than retyping them, so a
 // snippet cannot drift from the source it claims to show. The extraction
 // itself is not done here: `tools/source-snippets` reads the marker ranges
-// declared in `website_lustre/snippets.json` and writes `src/generated/snippets.json`,
-// which is generated, ignored, and rebuilt before every build and test run.
+// declared in `website_lustre/snippets.json` and writes
+// `website_lustre/src/generated/snippets.json`, which is generated, ignored,
+// and rebuilt before every build and test run.
 //
 // This module decodes that manifest, refuses anything malformed, and hands
 // out one snippet per id. A missing id or a bad entry fails the build here
 // rather than putting unchecked code in front of a reader.
 // ──────────────────────────────────────────────────────────────────────────
-import generatedManifest from "../generated/snippets.json" with { type: "json" };
+import generatedManifest from "../../../website_lustre/src/generated/snippets.json" with { type: "json" };
 
 /** One unit of code shown to the reader. */
 export interface Snippet {
