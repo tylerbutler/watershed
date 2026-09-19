@@ -1,7 +1,7 @@
-@import url("../fonts/archivo/wdth.css");
-@import url("../fonts/jetbrains-mono/400.css");
-@import url("../fonts/jetbrains-mono/400-italic.css");
-@import url("../fonts/jetbrains-mono/700.css");
+@import url("/fonts/archivo/wdth.css");
+@import url("/fonts/jetbrains-mono/400.css");
+@import url("/fonts/jetbrains-mono/400-italic.css");
+@import url("/fonts/jetbrains-mono/700.css");
 
 .skip-link {
   position: absolute;

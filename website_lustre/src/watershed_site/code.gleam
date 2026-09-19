@@ -65,7 +65,7 @@ fn block(
   element.fragment(
     list.append(label, [
       html.figure([attribute.class("g-code")], [
-        html.pre([], [
+        html.pre([attribute.attribute("tabindex", "0")], [
           html.code(
             [
               attribute.class("language-" <> language),

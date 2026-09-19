@@ -1503,9 +1503,9 @@
   .field-note-tooltip {
     position: absolute;
     z-index: var(--z-toast);
-    left: 0;
+    right: 0;
     bottom: calc(100% + 0.65rem);
-    width: min(18rem, calc(100vw - 2rem));
+    width: min(18rem, calc(100vw - 2 * var(--content-pad)));
     padding: 0.7rem 0.85rem;
     border: 1px solid var(--ink);
     background: var(--bg);
@@ -1659,6 +1659,11 @@
   }
 
   @media (max-width: 1080px) {
+    .demo button {
+      min-inline-size: 2.75rem;
+      min-block-size: 2.75rem;
+    }
+
     .rig {
       grid-template-areas: "a" "seq" "b" "c";
       grid-template-columns: 1fr;
@@ -2682,10 +2687,7 @@
 
 @media (max-width: 640px) {
   .field-note-tooltip {
-    max-width: calc(100vw - 2 * var(--content-pad));
     white-space: normal;
-    right: 0;
-    left: auto;
   }
 
   .dep-line {

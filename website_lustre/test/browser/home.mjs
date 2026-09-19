@@ -41,8 +41,14 @@ async function snapshot(page) {
 
 await withBrowserSite(site, async (browser, origin) => {
   const { page, errors } = await openPage(browser);
-  await page.setViewport({ width: 1440, height: 1000 });
+  await page.setViewport({ width: 1280, height: 800 });
   assert.equal((await page.goto(`${origin}/`)).status(), 200);
+  assert.equal(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+    1280,
+    "homepage fits the 1280px viewport",
+  );
+  await page.setViewport({ width: 1440, height: 1000 });
   await page.waitForFunction(
     (lustre) =>
       (!lustre || document.querySelector("#demo")?.hasAttribute("data-mounted")) &&
@@ -54,6 +60,52 @@ await withBrowserSite(site, async (browser, origin) => {
   const desktop = await snapshot(page);
   await page.setViewport({ width: 390, height: 844 });
   const mobile = await snapshot(page);
+  assert.equal(
+    await page.evaluate(() => document.documentElement.scrollWidth),
+    390,
+    "homepage fits the 390px viewport",
+  );
+  assert.ok(
+    await page.$eval("[data-demo-rig]", (rig) => {
+      const regions = [...rig.children]
+        .filter((node) =>
+          node.matches(".client, .channel") && node.checkVisibility()
+        )
+        .map((node) => node.getBoundingClientRect())
+        .sort((left, right) => left.top - right.top);
+      return regions.slice(1).every(
+        (region, index) => region.top - regions[index].bottom <= 320,
+      );
+    }),
+    "mobile demo leaves no gap over 320px between visible rig regions",
+  );
+  assert.equal(
+    await page.$eval(".family-nav", (nav) => nav.getAttribute("aria-label")),
+    "Convergence models compared",
+    "convergence-model navigation has an accessible label",
+  );
+  assert.deepEqual(
+    await page.$$eval("pre", (nodes) =>
+      nodes
+        .filter((node) => node.scrollWidth > node.clientWidth)
+        .map((node) => node.getAttribute("tabindex")),
+    ),
+    ["0"],
+    "scrollable homepage code is keyboard focusable",
+  );
+  assert.deepEqual(
+    await page.$$eval("[data-demo-rig] button", (buttons) =>
+      buttons
+        .filter((button) => button.checkVisibility())
+        .filter((button) => {
+          const rect = button.getBoundingClientRect();
+          return rect.width < 44 || rect.height < 44;
+        })
+        .map((button) => button.outerHTML),
+    ),
+    [],
+    "visible mobile demo buttons have 44px touch targets",
+  );
   if (record) {
     await writeContract(fixture, { desktop, mobile });
     console.log("Recorded site homepage contract baseline.");

@@ -56,7 +56,7 @@ pub fn view(path: String) -> Element(msg) {
           h.p([a.class("annot eco-take-label")], [
             h.text("Take it into a project · Gleam ≥ 1.7"),
           ]),
-          h.pre([a.class("dep-line")], [
+          h.pre([a.class("dep-line"), a.attribute("tabindex", "0")], [
             h.code([], [
               h.text(
                 "[dependencies]\nwatershed = { git = \"https://github.com/tylerbutler/watershed\", ref = \"<commit-sha>\" }",

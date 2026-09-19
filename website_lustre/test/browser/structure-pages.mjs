@@ -98,10 +98,30 @@ async function snapshot(page) {
 await withBrowserSite(site, async (browser, origin) => {
   for (const slug of slugs) {
     const { page, errors } = await openPage(browser);
+    const fontResponses = [];
+    page.on("response", (response) => {
+      if (new URL(response.url()).pathname.startsWith("/fonts/")) {
+        fontResponses.push([new URL(response.url()).pathname, response.status()]);
+      }
+    });
     await page.setJavaScriptEnabled(false);
-    await page.setViewport({ width: 1440, height: 1000 });
+    await page.setViewport({ width: 1280, height: 800 });
     assert.equal((await page.goto(`${origin}/structures/${slug}/`)).status(), 200);
     await page.evaluate(() => document.fonts.ready);
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+      1280,
+      `${slug} fits the 1280px viewport`,
+    );
+    if (slug === "maps") {
+      assert.ok(fontResponses.length > 0, "maps loads local font assets");
+      assert.deepEqual(
+        fontResponses.filter(([, status]) => status !== 200),
+        [],
+        "every maps font response succeeds",
+      );
+    }
+    await page.setViewport({ width: 1440, height: 1000 });
     const desktop = await snapshot(page);
     await page.setViewport({ width: 390, height: 844 });
     const mobile = await snapshot(page);
@@ -114,7 +134,30 @@ await withBrowserSite(site, async (browser, origin) => {
     }
     const baseline = await readContract(fixture);
     assert.deepEqual({ desktop, mobile }, baseline);
-    assert.equal(mobile.fitsViewport, true, `${slug} fits the mobile viewport`);
+    assert.equal(
+      await page.evaluate(() => document.documentElement.scrollWidth),
+      390,
+      `${slug} fits the 390px viewport`,
+    );
+    if (slug === "maps") {
+      assert.ok(
+        Number.parseFloat(mobile.styles.heading["font-size"]) >= 36,
+        "Maps heading stays at least 36px wide on mobile",
+      );
+    }
+    assert.deepEqual(
+      await page.$$eval("pre", (nodes) =>
+        nodes
+          .filter((node) => node.scrollWidth > node.clientWidth)
+          .map((node) => node.getAttribute("tabindex")),
+      ),
+      await page.$$eval("pre", (nodes) =>
+        nodes
+          .filter((node) => node.scrollWidth > node.clientWidth)
+          .map(() => "0"),
+      ),
+      `${slug} scrollable code is keyboard focusable`,
+    );
     assert.equal(await page.$("script[src*='@vite']"), null);
     assert.deepEqual(
       await page.$$eval('script[type="module"]', (nodes) => nodes.map((node) => new URL(node.src).pathname)),
@@ -139,10 +182,29 @@ await withBrowserSite(site, async (browser, origin) => {
 
   for (const [slug, structures] of Object.entries(liveControls)) {
     const { page, errors } = await openPage(browser);
+    await page.setViewport({
+      width: 390,
+      height: 844,
+      hasTouch: true,
+      isMobile: true,
+    });
     await page.goto(`${origin}/structures/${slug}/`);
     for (const [id, control] of Object.entries(structures)) {
       await page.click(`[data-structure-toggle="${id}"]`);
       await page.waitForSelector(`#${id}-demo #demo`, { visible: true });
+      assert.deepEqual(
+        await page.$$eval(`#${id}-demo button`, (buttons) =>
+          buttons
+            .filter((button) => button.checkVisibility())
+            .filter((button) => {
+              const rect = button.getBoundingClientRect();
+              return rect.width < 44 || rect.height < 44;
+            })
+            .map((button) => button.outerHTML),
+        ),
+        [],
+        `${id} visible controls have 44px touch targets`,
+      );
       assert.deepEqual(
         await page.$$eval(`#${id}-demo button`, (buttons) =>
           buttons.filter((button) => button.checkVisibility() && button.disabled)

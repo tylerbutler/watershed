@@ -47,7 +47,7 @@
 
   @media (max-width: 30rem) {
     h1 {
-      font-size: clamp(2.1rem, 10vw, 2.7rem);
+      font-size: clamp(2.25rem, 10vw, 2.7rem);
       font-stretch: 100%;
       letter-spacing: -0.03em;
     }
