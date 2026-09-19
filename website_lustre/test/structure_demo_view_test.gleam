@@ -52,7 +52,7 @@ pub fn mv_register_renders_current_draft_and_submit_controls_test() {
 
 pub fn visible_error_is_rendered_independently_of_link_state_test() {
   let model = runtime.ready_model(Map)
-  let #(model, _) = runtime.update(model, runtime.ToggleLink)
+  let model = runtime.transition(model, runtime.ToggleLink)
   let #(model, _) =
     runtime.update(model, runtime.RuntimeFailed("projection failed"))
   let html =

@@ -1,7 +1,16 @@
 import assert from "node:assert/strict";
 import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { sampleJitter } from "../../src/watershed_site/client/structure_demo_ffi.mjs";
 
 const { record, site, fixture } = parity(import.meta.url, "astro-mv-register-parity.json");
+const jitterSamples = new Set(
+  Array.from({ length: 100 }, () => sampleJitter(100)),
+);
+assert.ok(jitterSamples.size > 2, "jitter samples instead of alternating");
+assert.ok(
+  [...jitterSamples].every((sample) => sample >= -100 && sample <= 100),
+  "jitter stays within the configured range",
+);
 
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -156,9 +165,7 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.waitForFunction(
     () =>
       [...document.querySelectorAll("[data-mv-register-values]")].every(
-        (node) =>
-          node.textContent.includes("catch-up first") &&
-          node.textContent.includes("b second"),
+        (node) => node.textContent === '["b second"]',
       ) &&
       [...document.querySelectorAll("[data-pending-count]")].every(
         (node) => node.textContent === "0 pending",
@@ -166,6 +173,16 @@ await withBrowserSite(site, async (browser, origin) => {
   );
   const alternatives = await values(page);
   assert.equal(new Set(alternatives).size, 1);
+  assert.deepEqual(
+    await page.$$eval("[data-op-log] li", (nodes) =>
+      nodes.map((node) => node.textContent).reverse(),
+    ),
+    [
+      "MV-register write catch-up first",
+      "MV-register write b first",
+      "MV-register write b second",
+    ],
+  );
 
   const sequenceBeforeReplay = await page.$eval(
     "[data-seq-counter]",
@@ -201,8 +218,31 @@ await withBrowserSite(site, async (browser, origin) => {
         (node) => node.textContent === '["Survey datum"]',
       ),
   );
+  await page.emulateMediaFeatures([
+    { name: "prefers-reduced-motion", value: "no-preference" },
+  ]);
   await page.click("[data-latency-variance]");
   await page.click("[data-race]");
+  await page.waitForSelector("[data-flow-id]");
+  const movingFlow = await page.$eval("[data-flow-id]", async (dot) => {
+    const animation = getComputedStyle(dot).animationName;
+    const before = getComputedStyle(dot).transform;
+    await new Promise((resolve) => setTimeout(resolve, 80));
+    return {
+      animation,
+      before,
+      after: getComputedStyle(dot).transform,
+      duration: getComputedStyle(dot).animationDuration,
+      reduced: matchMedia("(prefers-reduced-motion: reduce)").matches,
+      animations: dot.getAnimations().map((item) => item.animationName),
+    };
+  });
+  assert.notEqual(
+    movingFlow.animation,
+    "none",
+    `flow dot has a real animation: ${JSON.stringify(movingFlow)}`,
+  );
+  assert.notEqual(movingFlow.before, movingFlow.after, "flow dot changes position");
   await page.waitForFunction(
     () =>
       [...document.querySelectorAll("[data-mv-register-values]")].every(

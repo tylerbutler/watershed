@@ -3,6 +3,10 @@ export function familySlug() {
     .structureFamily ?? "";
 }
 
+export function sampleJitter(maximum) {
+  return Math.floor(Math.random() * (maximum * 2 + 1)) - maximum;
+}
+
 export function setupDemo(selector) {
   const root = document.querySelector(selector);
   if (!root) return;

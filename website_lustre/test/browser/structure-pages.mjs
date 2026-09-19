@@ -276,8 +276,48 @@ await withBrowserSite(site, async (browser, origin) => {
     ),
     "OR-map set edits survive view switching",
   );
+  assert.equal(
+    await mapsPage.$eval("#ormap-demo .demo-skip", (link) => link.hash),
+    "#ormap-after-demo",
+    "OR-map subviews keep the plate skip target",
+  );
   assert.deepEqual(mapsErrors, [], "OR-map instance switch browser errors");
   await mapsPage.close();
+
+  const { page: registerPage, errors: registerErrors } = await openPage(browser);
+  await registerPage.goto(`${origin}/structures/maps/`);
+  await registerPage.click('[data-structure-toggle="lww-map"]');
+  await registerPage.waitForSelector(
+    '#lww-map-demo [data-client="a"] [data-lww-map-input]',
+    { visible: true },
+  );
+  await registerPage.$eval(
+    '#lww-map-demo [data-client="a"] [data-lww-map-key]',
+    (input) => {
+      input.value = "typed-key";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+  );
+  await registerPage.$eval(
+    '#lww-map-demo [data-client="a"] [data-lww-map-input]',
+    (input) => {
+      input.value = "typed-value";
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    },
+  );
+  await registerPage.click(
+    '#lww-map-demo [data-client="a"] [data-lww-map-write]',
+  );
+  await registerPage.waitForFunction(() =>
+    document.querySelector(
+      '#lww-map-demo [data-client="a"] [data-lww-map-entries]',
+    ).textContent.includes("typed-key") &&
+    document.querySelector(
+      '#lww-map-demo [data-client="a"] [data-lww-map-entries]',
+    ).textContent.includes("typed-value"),
+  );
+  assert.deepEqual(registerErrors, [], "typed family input browser errors");
+  await registerPage.close();
 
   console.log(`PASS: ${slugs.join(", ")} structure page static parity.`);
 });

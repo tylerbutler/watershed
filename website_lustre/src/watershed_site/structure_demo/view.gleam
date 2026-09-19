@@ -29,6 +29,14 @@ pub fn view(model: Model, options: Options) -> Element(runtime.Msg) {
   }
 }
 
+fn key_draft(model: Model, replica: Replica) -> String {
+  case replica {
+    ClientA -> model.key_a
+    ClientB -> model.key_b
+    ClientC -> model.key_c
+  }
+}
+
 fn family_view(
   model: Model,
   requested_views: List(String),
@@ -36,6 +44,14 @@ fn family_view(
 ) -> Element(runtime.Msg) {
   let views = expand_views(requested_views)
   let initial = runtime.structure_id(model.selected)
+  let skip_target = case model.open_panel {
+    Some(structure) -> runtime.structure_id(structure)
+    None ->
+      case requested_views {
+        [first, ..] -> first
+        [] -> initial
+      }
+  }
   h.section(
     list.append(
       [
@@ -52,7 +68,7 @@ fn family_view(
       h.a(
         [
           a.class("demo-skip"),
-          a.href("#" <> runtime.structure_id(model.selected) <> "-after-demo"),
+          a.href("#" <> skip_target <> "-after-demo"),
         ],
         [
           h.text("Skip past the interactive demo"),
@@ -457,6 +473,10 @@ fn family_rig(model: Model, views: List(String)) -> Element(runtime.Msg) {
               a.attribute("data-flow-id", int.to_string(flow.id)),
               a.attribute("data-from", flow.from),
               a.attribute("data-to", flow.to),
+              a.style(
+                "--flow-duration",
+                int.to_string(model.playback_ms) <> "ms",
+              ),
             ],
             [h.span([a.class("flow-dot-label")], [h.text(flow.label)])],
           )
@@ -673,6 +693,10 @@ fn static_variant(
                   a.attribute("data-flow-id", int.to_string(flow.id)),
                   a.attribute("data-from", flow.from),
                   a.attribute("data-to", flow.to),
+                  a.style(
+                    "--flow-duration",
+                    int.to_string(model.playback_ms) <> "ms",
+                  ),
                 ],
                 [h.span([a.class("flow-dot-label")], [h.text(flow.label)])],
               )
@@ -1032,7 +1056,9 @@ fn counter_panel(
                 True -> "Add " <> amount <> " sandbags on " <> label
                 False -> "Remove " <> absolute <> " sandbags on " <> label
               }),
-              event.on_click(runtime.IncrementCounter(replica, step)),
+              event.on_click(
+                runtime.Defer(runtime.IncrementCounter(replica, step)),
+              ),
             ],
             [
               h.text(case step > 0 {
@@ -1237,7 +1263,8 @@ fn lww_map_panel(
       h.input([
         a.id("lww-map-key-" <> id),
         a.attribute("data-lww-map-key", ""),
-        a.value("gate-mode"),
+        a.value(key_draft(model, replica)),
+        event.on_input(fn(value) { runtime.SetKeyDraft(replica, value) }),
       ]),
       h.label([a.class("annot"), a.attribute("for", "lww-map-value-" <> id)], [
         h.text("Value (string)"),
@@ -1245,10 +1272,8 @@ fn lww_map_panel(
       h.input([
         a.id("lww-map-value-" <> id),
         a.attribute("data-lww-map-input", ""),
-        a.value(case id {
-          "b" -> "closed"
-          _ -> "open"
-        }),
+        a.value(draft(model, replica)),
+        event.on_input(fn(value) { runtime.SetDraft(replica, value) }),
       ]),
       h.div([a.class("mv-actions")], [
         action_button(
@@ -1256,17 +1281,14 @@ fn lww_map_panel(
           "Set string",
           runtime.WriteLwwMap(
             replica,
-            "gate-mode",
-            Some(case id {
-              "b" -> "closed"
-              _ -> "open"
-            }),
+            key_draft(model, replica),
+            Some(draft(model, replica)),
           ),
         ),
         action_button(
           "data-lww-map-remove",
           "Remove key",
-          runtime.WriteLwwMap(replica, "gate-mode", None),
+          runtime.WriteLwwMap(replica, key_draft(model, replica), None),
         ),
       ]),
     ],
@@ -1342,7 +1364,7 @@ fn ormap_mv_register_panel(
   replica: Replica,
   id: String,
   label: String,
-  revision: String,
+  _revision: String,
 ) -> Element(runtime.Msg) {
   h.div(
     [
@@ -1375,7 +1397,8 @@ fn ormap_mv_register_panel(
       h.input([
         a.id("or-map-mv-key-" <> id),
         a.attribute("data-or-map-mv-register-key", ""),
-        a.value("gate-mode"),
+        a.value(key_draft(model, replica)),
+        event.on_input(fn(value) { runtime.SetKeyDraft(replica, value) }),
       ]),
       h.label(
         [a.class("annot"), a.attribute("for", "or-map-mv-revision-" <> id)],
@@ -1384,27 +1407,32 @@ fn ormap_mv_register_panel(
       h.input([
         a.id("or-map-mv-revision-" <> id),
         a.attribute("data-or-map-mv-register-input", ""),
-        a.value(revision),
+        a.value(draft(model, replica)),
+        event.on_input(fn(value) { runtime.SetDraft(replica, value) }),
       ]),
       h.div([a.class("mv-actions")], [
         action_button(
           "data-or-map-mv-register-write",
           "Write revision",
-          runtime.WriteOrMapMv(replica, "gate-mode", Some(revision)),
+          runtime.WriteOrMapMv(
+            replica,
+            key_draft(model, replica),
+            Some(draft(model, replica)),
+          ),
         ),
         action_button(
           "data-or-map-mv-register-resolve",
           "Resolve observed",
           runtime.WriteOrMapMv(
             replica,
-            "gate-mode",
+            key_draft(model, replica),
             Some("raise crest + arm pump"),
           ),
         ),
         action_button(
           "data-or-map-mv-register-remove",
           "Remove key",
-          runtime.WriteOrMapMv(replica, "gate-mode", None),
+          runtime.WriteOrMapMv(replica, key_draft(model, replica), None),
         ),
       ]),
     ],
@@ -1531,8 +1559,14 @@ fn ormap_set_panel(
         [
           a.id("ormap-key-" <> id),
           a.attribute("data-ormap-key", ""),
+          event.on_input(fn(value) { runtime.SetKeyDraft(replica, value) }),
         ],
-        list.map(documents, fn(key) { h.option([a.value(key)], key) }),
+        list.map(documents, fn(key) {
+          h.option(
+            [a.value(key), a.selected(key == key_draft(model, replica))],
+            key,
+          )
+        }),
       ),
       h.input([
         a.id("ormap-member-" <> id),
@@ -1542,7 +1576,7 @@ fn ormap_set_panel(
         submit_on_enter(
           runtime.Defer(runtime.AddOrMapMember(
             replica,
-            "inspection-brief",
+            key_draft(model, replica),
             draft(model, replica),
           )),
         ),
@@ -1553,7 +1587,7 @@ fn ormap_set_panel(
           "Add member",
           runtime.AddOrMapMember(
             replica,
-            "inspection-brief",
+            key_draft(model, replica),
             draft(model, replica),
           ),
         ),
@@ -1562,14 +1596,14 @@ fn ormap_set_panel(
           "Remove member",
           runtime.RemoveOrMapMember(
             replica,
-            "inspection-brief",
+            key_draft(model, replica),
             draft(model, replica),
           ),
         ),
         action_button(
           "data-ormap-remove-key",
           "Remove key",
-          runtime.RemoveOrMap(replica, "inspection-brief"),
+          runtime.RemoveOrMap(replica, key_draft(model, replica)),
         ),
       ]),
     ],

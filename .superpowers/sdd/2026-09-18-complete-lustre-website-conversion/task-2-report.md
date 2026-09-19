@@ -308,3 +308,96 @@ Result: no whitespace errors.
 `just website-lustre` continues to report dependency deprecation warnings and
 unrelated warnings from the wider repository. This round introduces no known
 functional concern.
+
+## Fix round 2/5
+
+### Status
+
+All nine items left open by the fix-round-1 re-review are fixed.
+
+### Architecture and causal fixes
+
+- `update` no longer executes deferred messages recursively. Kernel creation,
+  local mutation, delivery, acknowledgement, reset, and fallible projection
+  validation run inside thunks passed to `watershed_lustre.perform`. Tagged
+  result messages apply completed transitions and discard stale generations.
+- Client B's offline MV-register writes are rolled back on reconnect. B applies
+  all missed sequenced work first, then re-authors its local writes in original
+  submission order. The final write therefore observes both catch-up and the
+  preceding local write, and acknowledgements remain FIFO.
+- Replay records the latest eligible sequenced operation and its original
+  sequence number. Re-delivery does not allocate a new sequence number or
+  restore an alternative removed by a later resolution.
+- G-counter, PN-counter, OR-map, and OR-set replicas load one shared baseline
+  summary under distinct local replica IDs. Their first delivered deltas no
+  longer merge separately authored copies of the displayed baseline.
+- Projection validation reports replica/type and map-decoding failures through
+  `visible_error` instead of replacing them with a successful default display.
+
+### Interaction and motion fixes
+
+- LWW-map, LWW-register, OR-map set, and OR-map MV-register controls use
+  controlled typed key/value drafts when they create operations.
+- Family skip links retain the open plate's after-demo anchor while an OR-map
+  subview is selected.
+- Jitter samples a random value in the configured range for each scheduled
+  hop instead of alternating by sequence parity.
+- Flow markers use model playback timing, FFI-derived endpoints, a real CSS
+  travel animation, timed cleanup, and a reduced-motion end-state.
+
+### Regression evidence
+
+- MV tests assert exact catch-up, resubmission, sequencing, acknowledgement,
+  and log order for two offline B writes.
+- Replay tests assert that the retained replay sequence is the latest one and
+  that replay leaves the sequence counter and resolved value unchanged.
+- CRDT baseline tests deliver the first post-baseline G-counter, PN-counter,
+  OR-map, and OR-set operation and assert the baseline is counted once.
+- The deferred-effect test asserts the model is unchanged before the returned
+  effect runs.
+- Projection tests inject a replica/type mismatch and assert the visible error.
+- Structure-page browser coverage types a non-preset LWW-map key and value and
+  observes both in the rendered state.
+- MV-register browser coverage checks catch-up-before-resubmit order, latest
+  replay, sampled jitter range, and visible flow movement over time.
+
+### Commands and outcomes
+
+```text
+cd website_lustre && gleam check --target javascript
+```
+
+Result: compiled successfully.
+
+```text
+cd website_lustre && gleam test --target javascript -- structure_demo
+```
+
+Result: `131 passed, no failures`.
+
+```text
+just website-lustre
+```
+
+Result: passed; all four JavaScript bundles built, 68 assets were copied for
+each bundle, and the native pages were generated in `website_lustre/dist`.
+
+```text
+CI=1 node website_lustre/test/browser/home.mjs
+CI=1 node website_lustre/test/browser/structure-pages.mjs
+CI=1 node website_lustre/test/browser/mv-register.mjs
+```
+
+Result: all three Task 2 browser suites passed.
+
+```text
+git diff --check
+```
+
+Result: no whitespace errors.
+
+### Remaining concerns
+
+`just website-lustre` still prints the existing dependency deprecation and
+unrelated wider-repository warnings. This round adds no known functional
+concern.

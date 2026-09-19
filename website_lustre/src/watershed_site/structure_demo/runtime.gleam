@@ -46,7 +46,8 @@ import watershed_site/structure_demo/model.{
 pub type Msg {
   NoOp
   Defer(Msg)
-  Deferred(generation: Int, command: Msg)
+  Deferred(generation: Int, outcome: Result(Model, String))
+  Project
   Start
   Started(generation: Int, outcome: Result(Model, String))
   SelectStructure(Structure)
@@ -65,6 +66,7 @@ pub type Msg {
   WriteOrMapMv(Replica, key: String, value: Option(String))
   WriteMv(Replica, value: String)
   SetDraft(Replica, value: String)
+  SetKeyDraft(Replica, value: String)
   SubmitDraft(Replica)
   ResolveMv(Replica)
   AddOrSet(Replica, element: String)
@@ -107,7 +109,7 @@ pub fn init(selected: Structure) -> #(Model, Effect(Msg)) {
   #(
     Model(..model, phase: Starting),
     watershed_lustre.perform(
-      operation: fn() { Ok(ready_model(selected)) },
+      operation: fn() { project_model(ready_model(selected)) },
       outcome: fn(outcome) { Started(model.generation, outcome) },
     ),
   )
@@ -141,6 +143,9 @@ pub fn ready_model(selected: Structure) -> Model {
     draft_a: "raise crest",
     draft_b: "arm pump",
     draft_c: "check datum",
+    key_a: "gate-mode",
+    key_b: "gate-mode",
+    key_c: "gate-mode",
     playback_ms: 600,
     field_notes: False,
     last_replay: None,
@@ -160,14 +165,6 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     NoOp -> #(model, effect.none())
     Start if model.phase == Static -> init(model.selected)
     Start -> #(model, effect.none())
-    Defer(command) -> #(
-      model,
-      watershed_lustre.perform(
-        operation: fn() { command },
-        outcome: fn(command) { Deferred(model.generation, command) },
-      ),
-    )
-    Deferred(_, command) -> update(model, command)
     Started(_, Ok(ready)) -> #(
       Model(
         ..ready,
@@ -181,6 +178,116 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         draft_a: model.draft_a,
         draft_b: model.draft_b,
         draft_c: model.draft_c,
+        key_a: model.key_a,
+        key_b: model.key_b,
+        key_c: model.key_c,
+        link_up: model.link_up,
+        instances: model.instances,
+      ),
+      effect.none(),
+    )
+    Started(_, Error(reason)) | RuntimeFailed(reason) -> fail(model, reason)
+    Deferred(_, Error(reason)) -> fail(model, reason)
+    Deferred(_, Ok(next)) -> finish_deferred(model, next)
+    Deliver(_) -> defer(model, message)
+    ClearFlow(_, _)
+    | SetDraft(_, _)
+    | SetKeyDraft(_, _)
+    | SetPace(_)
+    | SetJitter(_)
+    | SetFieldNotes(_) -> update_now(model, message)
+    Defer(command) -> defer(model, command)
+    _ -> defer(model, message)
+  }
+}
+
+@internal
+pub fn transition(model: Model, message: Msg) -> Model {
+  update_now(model, message).0
+}
+
+fn defer(model: Model, command: Msg) -> #(Model, Effect(Msg)) {
+  #(
+    model,
+    watershed_lustre.perform(
+      operation: fn() {
+        let next = transition(model, command)
+        project_model(next)
+      },
+      outcome: fn(outcome) { Deferred(model.generation, outcome) },
+    ),
+  )
+}
+
+fn finish_deferred(model: Model, next: Model) -> #(Model, Effect(Msg)) {
+  let pending_started =
+    list.is_empty(model.pending) && !list.is_empty(next.pending)
+  let pending_advanced = list.length(next.pending) < list.length(model.pending)
+  let reconnected = !model.link_up && next.link_up
+  let delivery = case
+    next.link_up
+    && !list.is_empty(next.pending)
+    && { pending_started || pending_advanced || reconnected }
+  {
+    True ->
+      watershed_lustre.after(
+        case reconnected {
+          True -> 0
+          False -> delivery_delay(next)
+        },
+        Deliver(next.generation),
+      )
+    False -> effect.none()
+  }
+  let old_ids = list.map(model.flows, fn(flow) { flow.id })
+  let clears =
+    next.flows
+    |> list.filter(fn(flow) { !list.contains(old_ids, flow.id) })
+    |> list.map(fn(flow) {
+      watershed_lustre.after(
+        next.playback_ms,
+        ClearFlow(next.generation, flow.id),
+      )
+    })
+  #(next, effect.batch([delivery, ..clears]))
+}
+
+fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
+  case message {
+    Started(generation, _)
+      | Deferred(generation, _)
+      | Deliver(generation)
+      | CounterFinished(generation, _)
+      | ClearFlow(generation, _)
+      if generation != model.generation
+    -> #(model, effect.none())
+    NoOp -> #(model, effect.none())
+    Start if model.phase == Static -> init(model.selected)
+    Start -> #(model, effect.none())
+    Defer(command) -> update_now(model, command)
+    Deferred(_, Ok(next)) -> #(next, effect.none())
+    Deferred(_, Error(reason)) -> fail(model, reason)
+    Project ->
+      case project_model(model) {
+        Ok(projected) -> #(projected, effect.none())
+        Error(reason) -> fail(model, reason)
+      }
+    Started(_, Ok(ready)) -> #(
+      Model(
+        ..ready,
+        generation: model.generation,
+        latency_ms: model.latency_ms,
+        jitter: model.jitter,
+        open_panel: model.open_panel,
+        or_map_set_mode: model.or_map_set_mode,
+        playback_ms: model.playback_ms,
+        field_notes: model.field_notes,
+        draft_a: model.draft_a,
+        draft_b: model.draft_b,
+        draft_c: model.draft_c,
+        key_a: model.key_a,
+        key_b: model.key_b,
+        key_c: model.key_c,
         link_up: model.link_up,
         instances: model.instances,
       ),
@@ -190,7 +297,7 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     SelectStructure(selected) -> select_structure(model, selected)
     SelectId(id) ->
       case structure_from_id(id) {
-        Ok(selected) -> update(model, SelectStructure(selected))
+        Ok(selected) -> update_now(model, SelectStructure(selected))
         Error(Nil) -> fail(model, "Unknown structure: " <> id)
       }
     TogglePanel(selected) ->
@@ -208,11 +315,22 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           enqueue_map(model, replica, key, int.max(0, current + amount))
       }
     IncrementCounter(replica, amount) -> #(
-      Model(..model, phase: Delivering),
-      watershed_lustre.perform(
-        operation: fn() { counter_increment_replicas(model, replica, amount) },
-        outcome: fn(replicas) { CounterFinished(model.generation, replicas) },
+      Model(
+        ..replace_replicas(
+          model,
+          counter_increment_replicas(model, replica, amount),
+        ),
+        sequence_number: model.sequence_number + 1,
+        log: [
+          LogEntry(
+            model.sequence_number + 1,
+            replica,
+            "increment " <> signed(amount),
+          ),
+          ..model.log
+        ],
       ),
+      effect.none(),
     )
     IncrementGCounter(replica, amount) ->
       enqueue_g_counter(model, replica, amount)
@@ -233,6 +351,10 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     WriteMv(replica, value) -> enqueue_mv(model, replica, value)
     SetDraft(replica, value) -> #(
       put_draft(model, replica, value),
+      effect.none(),
+    )
+    SetKeyDraft(replica, value) -> #(
+      put_key_draft(model, replica, value),
       effect.none(),
     )
     SubmitDraft(replica) -> enqueue_mv(model, replica, draft(model, replica))
@@ -349,17 +471,7 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           ),
           effect.none(),
         )
-        False ->
-          case model.pending {
-            [] -> #(
-              Model(..model, link_up: True, queued_for_b: 0),
-              effect.none(),
-            )
-            [_, ..] -> #(
-              Model(..model, link_up: True, queued_for_b: 0),
-              watershed_lustre.after(0, Deliver(model.generation)),
-            )
-          }
+        False -> restore_link(model)
       }
     SetPace(value) -> #(
       Model(..model, playback_ms: pace_milliseconds(value)),
@@ -381,6 +493,9 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
               flows: [],
               last_replay: None,
               or_map_set_mode: True,
+              key_a: "inspection-brief",
+              key_b: "inspection-brief",
+              key_c: "inspection-brief",
             ),
             effect.none(),
           )
@@ -470,6 +585,12 @@ pub fn update(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           open_panel: model.open_panel,
           playback_ms: model.playback_ms,
           field_notes: model.field_notes,
+          draft_a: model.draft_a,
+          draft_b: model.draft_b,
+          draft_c: model.draft_c,
+          key_a: model.key_a,
+          key_b: model.key_b,
+          key_c: model.key_c,
           instances: model.instances,
         ),
         effect.none(),
@@ -1168,15 +1289,12 @@ fn replay_all(
 }
 
 fn remember_replay(
-  current: Option(ReplayOperation),
+  _current: Option(ReplayOperation),
   operation: Operation,
   message_id: Option(Int),
   sequence_number: Int,
 ) -> Option(ReplayOperation) {
-  case current, operation {
-    Some(_), MvRegisterOperation(_) -> current
-    _, _ -> Some(ReplayOperation(operation, message_id, sequence_number))
-  }
+  Some(ReplayOperation(operation, message_id, sequence_number))
 }
 
 fn deliver_online_without_b(
@@ -1486,16 +1604,7 @@ fn fail(model: Model, reason: String) -> #(Model, Effect(Msg)) {
 
 fn delivery_delay(model: Model) -> Int {
   case model.jitter {
-    True ->
-      int.clamp(
-        model.latency_ms
-          + case model.sequence_number % 2 {
-          0 -> -100
-          _ -> 100
-        },
-        0,
-        2100,
-      )
+    True -> int.clamp(model.latency_ms + sample_jitter(100), 0, 2100)
     False -> model.latency_ms
   }
 }
@@ -1527,6 +1636,121 @@ fn put_draft(model: Model, replica: Replica, value: String) -> Model {
     ClientB -> Model(..model, draft_b: value)
     ClientC -> Model(..model, draft_c: value)
   }
+}
+
+fn put_key_draft(model: Model, replica: Replica, value: String) -> Model {
+  case replica {
+    ClientA -> Model(..model, key_a: value)
+    ClientB -> Model(..model, key_b: value)
+    ClientC -> Model(..model, key_c: value)
+  }
+}
+
+fn restore_link(model: Model) -> #(Model, Effect(Msg)) {
+  case model.selected, model.beta {
+    MvRegister, MvRegisterReplica(beta) ->
+      case rebase_mv_pending(model, beta) {
+        Error(reason) -> fail(model, reason)
+        Ok(#(beta, pending)) -> #(
+          Model(
+            ..model,
+            beta: MvRegisterReplica(beta),
+            pending: pending,
+            link_up: True,
+            queued_for_b: 0,
+            phase: case pending {
+              [] -> Ready
+              [_, ..] -> Delivering
+            },
+          ),
+          effect.none(),
+        )
+      }
+    _, _ -> #(
+      Model(..model, link_up: True, queued_for_b: 0, phase: case model.pending {
+        [] -> Ready
+        [_, ..] -> Delivering
+      }),
+      effect.none(),
+    )
+  }
+}
+
+fn rebase_mv_pending(
+  model: Model,
+  beta: mv_register_kernel.MvRegisterState,
+) -> Result(
+  #(mv_register_kernel.MvRegisterState, List(PendingOperation)),
+  String,
+) {
+  let catch_up =
+    list.filter(model.pending, fn(pending) {
+      let PendingOperation(_, _, _, _, scope) = pending
+      scope == ClientBOnly
+    })
+  let local =
+    list.filter(model.pending, fn(pending) {
+      let PendingOperation(origin, operation, _, _, scope) = pending
+      origin == ClientB
+      && scope == AllReplicas
+      && case operation {
+        MvRegisterOperation(_) -> True
+        _ -> False
+      }
+    })
+  use rolled_back <- result.try(
+    local
+    |> list.reverse
+    |> list.fold(Ok(beta), fn(outcome, pending) {
+      use state <- result.try(outcome)
+      let PendingOperation(_, operation, message_id, _, _) = pending
+      case operation, message_id {
+        MvRegisterOperation(operation), Some(message_id) ->
+          mv_register_kernel.rollback(state, operation, message_id)
+          |> result.map(fn(value) { value.0 })
+          |> result.map_error(string_error)
+        _, _ -> Error("Cannot rebase an MV-register write without its ID.")
+      }
+    }),
+  )
+  use caught_up <- result.try(
+    list.fold(catch_up, Ok(rolled_back), fn(outcome, pending) {
+      use state <- result.try(outcome)
+      let PendingOperation(origin, operation, message_id, _, _) = pending
+      deliver_to(
+        MvRegisterReplica(state),
+        ClientB,
+        origin,
+        operation,
+        message_id,
+        model.sequence_number,
+      )
+      |> result.map(fn(replica) {
+        let assert MvRegisterReplica(state) = replica
+        state
+      })
+    }),
+  )
+  local
+  |> list.fold(Ok(#(caught_up, [])), fn(outcome, pending) {
+    use pair <- result.try(outcome)
+    let PendingOperation(_, operation, _, _, _) = pending
+    let assert MvRegisterOperation(mv_register_kernel.Set(value, _)) = operation
+    let #(state, _, operation, message_id) =
+      mv_register_kernel.set(pair.0, value)
+    Ok(#(
+      state,
+      list.append(pair.1, [
+        PendingOperation(
+          ClientB,
+          MvRegisterOperation(operation),
+          Some(message_id),
+          model.generation,
+          AllReplicas,
+        ),
+      ]),
+    ))
+  })
 }
 
 fn select_structure(
@@ -1581,6 +1805,9 @@ fn select_structure(
           draft_a: model.draft_a,
           draft_b: model.draft_b,
           draft_c: model.draft_c,
+          key_a: model.key_a,
+          key_b: model.key_b,
+          key_c: model.key_c,
           playback_ms: model.playback_ms,
           field_notes: model.field_notes,
           instances:,
@@ -1650,6 +1877,10 @@ fn replicas(
       }
       #(make(ClientA), make(ClientB), make(ClientC))
     }
+    GCounter -> shared_g_counter_replicas()
+    PnCounter -> shared_pn_replicas()
+    OrMap | OrMapMvRegister -> shared_or_map_replicas(structure)
+    OrSet -> shared_or_set_replicas()
     _ -> #(
       new_replica(structure, ClientA),
       new_replica(structure, ClientB),
@@ -1661,13 +1892,96 @@ fn replicas(
 fn or_map_replicas(
   mode: or_map_kernel.OrMapMode,
 ) -> #(ReplicaState, ReplicaState, ReplicaState) {
+  let seed = or_map_kernel.new(replica_id.new("survey-ormap"), mode)
+  shared_or_map_summary(or_map_kernel.summary(seed) |> json.to_string)
+}
+
+fn shared_g_counter_replicas() {
+  let assert Ok(#(seed, _, _)) =
+    g_counter_kernel.p2p_increment(
+      g_counter_kernel.new(replica_id.new("survey-gcounter")),
+      18,
+    )
+  let summary = g_counter_kernel.summary(seed) |> json.to_string
   let make = fn(replica) {
-    OrMapReplica(or_map_kernel.new(
-      replica_id.new("client-" <> replica_id_string(replica)),
-      mode,
-    ))
+    let assert Ok(state) =
+      g_counter_kernel.from_summary(summary, local_replica_id(replica))
+    GCounterReplica(state)
   }
   #(make(ClientA), make(ClientB), make(ClientC))
+}
+
+fn shared_pn_replicas() {
+  let #(seed, _, _) =
+    pn_counter_kernel.p2p_update(
+      pn_counter_kernel.new(replica_id.new("survey-pn")),
+      44,
+    )
+  let summary = pn_counter_kernel.summary(seed) |> json.to_string
+  let make = fn(replica) {
+    let assert Ok(state) =
+      pn_counter_kernel.from_summary(summary, local_replica_id(replica))
+    PnReplica(state)
+  }
+  #(make(ClientA), make(ClientB), make(ClientC))
+}
+
+fn shared_or_map_replicas(structure: Structure) {
+  let id = replica_id.new("survey-ormap")
+  let seed = case structure {
+    OrMapMvRegister -> {
+      let assert Ok(#(state, _, _)) =
+        or_map_kernel.p2p_set_mv_register(
+          or_map_kernel.new(id, or_map_kernel.MvRegisterMode),
+          "gate-mode",
+          "surveyed",
+        )
+      state
+    }
+    _ -> {
+      let assert Ok(#(state, _, _)) =
+        or_map_kernel.p2p_increment(
+          or_map_kernel.new(id, or_map_kernel.TallyMode),
+          "spoil-north",
+          18,
+        )
+      let assert Ok(#(state, _, _)) =
+        or_map_kernel.p2p_increment(state, "borrow-pit-7", -6)
+      let assert Ok(#(state, _, _)) =
+        or_map_kernel.p2p_increment(state, "wash-fill", 12)
+      state
+    }
+  }
+  shared_or_map_summary(or_map_kernel.summary(seed) |> json.to_string)
+}
+
+fn shared_or_map_summary(summary: String) {
+  let make = fn(replica) {
+    let assert Ok(state) =
+      or_map_kernel.from_summary(summary, local_replica_id(replica))
+    OrMapReplica(state)
+  }
+  #(make(ClientA), make(ClientB), make(ClientC))
+}
+
+fn shared_or_set_replicas() {
+  let #(seed, _, _) =
+    or_set_kernel.p2p_add(
+      or_set_kernel.new(replica_id.new("survey-orset")),
+      "north-stake",
+    )
+  let #(seed, _, _) = or_set_kernel.p2p_add(seed, "sluice-tag")
+  let summary = or_set_kernel.summary(seed) |> json.to_string
+  let make = fn(replica) {
+    let assert Ok(state) =
+      or_set_kernel.from_summary(summary, local_replica_id(replica))
+    OrSetReplica(state)
+  }
+  #(make(ClientA), make(ClientB), make(ClientC))
+}
+
+fn local_replica_id(replica: Replica) {
+  replica_id.new("client-" <> replica_id_string(replica))
 }
 
 fn new_replica(structure: Structure, replica: Replica) -> ReplicaState {
@@ -1832,13 +2146,14 @@ fn replace_replicas(
 
 fn map_value(state: ReplicaState, key: String) -> Result(Int, String) {
   case state {
-    MapReplica(state) ->
-      map_kernel.get(state, key)
-      |> result.map(fn(value) {
-        json.parse(json.to_string(value), decode.int)
-        |> result.unwrap(0)
-      })
-      |> result.replace_error("Unknown map key.")
+    MapReplica(state) -> {
+      use value <- result.try(
+        map_kernel.get(state, key)
+        |> result.replace_error("Unknown map key."),
+      )
+      json.parse(json.to_string(value), decode.int)
+      |> result.map_error(fn(_) { "Map value is not an integer." })
+    }
     _ -> Error("The selected structure is not a shared map.")
   }
 }
@@ -1850,6 +2165,74 @@ pub fn map_values(model: Model, key: String) -> List(Int) {
 
 pub fn map_value_for(model: Model, replica: Replica, key: String) -> Int {
   map_value(replica_state(model, replica), key) |> result.unwrap(0)
+}
+
+fn project_model(model: Model) -> Result(Model, String) {
+  let expected = fn(replica, state) {
+    let valid = case model.selected, state {
+      Map, MapReplica(_) -> True
+      Counter, CounterReplica(_) -> True
+      GCounter, GCounterReplica(_) -> True
+      PnCounter, PnReplica(_) -> True
+      OrMap, OrMapReplica(_) | OrMapMvRegister, OrMapReplica(_) -> True
+      LwwMap, LwwMapReplica(_) -> True
+      LwwRegister, LwwRegisterReplica(_) -> True
+      MvRegister, MvRegisterReplica(_) -> True
+      OrSet, OrSetReplica(_) -> True
+      GSet, GSetReplica(_) -> True
+      TwoPSet, TwoPSetReplica(_) -> True
+      Claims, ClaimsReplica(_) -> True
+      RegisterCollection, RegisterReplica(_) -> True
+      OrderedCollection, OrderedReplica(_) -> True
+      TaskManager, TaskReplica(_) -> True
+      PactMap, PactReplica(_) -> True
+      _, _ -> False
+    }
+    case valid {
+      True -> Ok(Nil)
+      False ->
+        Error(
+          "Cannot project "
+          <> replica
+          <> " as "
+          <> structure_name(model.selected)
+          <> ".",
+        )
+    }
+  }
+  use _ <- result.try(expected("Client A", model.alpha))
+  use _ <- result.try(expected("Client B", model.beta))
+  use _ <- result.try(expected("Client C", model.gamma))
+  case model.selected {
+    Map -> {
+      use _ <- result.try(map_value(model.alpha, "mill-race"))
+      use _ <- result.try(map_value(model.beta, "mill-race"))
+      use _ <- result.try(map_value(model.gamma, "mill-race"))
+      Ok(model)
+    }
+    _ -> Ok(model)
+  }
+}
+
+fn structure_name(structure: Structure) -> String {
+  case structure {
+    Map -> "a shared map"
+    Counter -> "a shared counter"
+    GCounter -> "a G-counter"
+    PnCounter -> "a PN-counter"
+    OrMap | OrMapMvRegister -> "an OR-map"
+    LwwMap -> "an LWW map"
+    LwwRegister -> "an LWW register"
+    MvRegister -> "an MV register"
+    OrSet -> "an OR-set"
+    GSet -> "a G-set"
+    TwoPSet -> "a 2P-set"
+    Claims -> "a claims map"
+    RegisterCollection -> "a register collection"
+    OrderedCollection -> "an ordered collection"
+    TaskManager -> "a task manager"
+    PactMap -> "a pact map"
+  }
 }
 
 pub fn counter_value(model: Model, replica: Replica) -> Int {
@@ -2175,7 +2558,8 @@ fn operation_label(operation: Operation) -> String {
     OrMapOperation(_) -> "OR-map edit"
     LwwMapOperation(_) -> "LWW-map edit"
     LwwRegisterOperation(_) -> "LWW-register write"
-    MvRegisterOperation(_) -> "MV-register write"
+    MvRegisterOperation(mv_register_kernel.Set(value, _)) ->
+      "MV-register write " <> value
     OrSetOperation(_) -> "OR-set edit"
     GSetOperation(_) -> "G-set add"
     TwoPSetOperation(_) -> "2P-set edit"
@@ -2190,6 +2574,16 @@ fn operation_label(operation: Operation) -> String {
 fn string_error(error: a) -> String {
   "Kernel operation failed: " <> string.inspect(error)
 }
+
+fn signed(value: Int) -> String {
+  case value >= 0 {
+    True -> "+" <> int.to_string(value)
+    False -> int.to_string(value)
+  }
+}
+
+@external(javascript, "../client/structure_demo_ffi.mjs", "sampleJitter")
+fn sample_jitter(maximum: Int) -> Int
 
 pub fn map_race_values() -> List(Int) {
   let initial = map_kernel.from_sequenced([#("mill-race", json.int(24))])

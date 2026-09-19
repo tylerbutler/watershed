@@ -1380,6 +1380,19 @@
     height: 10px;
     border-radius: 50%;
     background: var(--overprint);
+    animation: demo-flow var(--flow-duration, 600ms) var(--ease-out-quart)
+      both;
+    will-change: transform;
+  }
+
+  @keyframes demo-flow {
+    from {
+      transform: translate(var(--from-x, 0), var(--from-y, 0));
+    }
+
+    to {
+      transform: translate(var(--to-x, 0), var(--to-y, 0));
+    }
   }
 
   .flow-dot.sequenced {
@@ -1404,6 +1417,14 @@
 
   .flow-dot.sequenced .flow-dot-label {
     background: var(--ink);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .flow-dot {
+      animation: none;
+      transform: translate(var(--to-x, 0), var(--to-y, 0));
+      will-change: auto;
+    }
   }
 
   .demo-controls {

@@ -1,7 +1,10 @@
 import gleam/list
 import gleam/option.{None, Some}
+import lustre/effect
+import watershed/transport_js
 import watershed_site/structure_demo/model.{
-  type Model, ClientA, ClientB, ClientC, Map, MvRegister, Ready,
+  type Model, ClientA, ClientB, ClientC, GCounter, Map, Model, MvRegister, OrMap,
+  OrSet, PnCounter, Ready, ReplayOperation,
 }
 import watershed_site/structure_demo/runtime
 
@@ -46,51 +49,60 @@ pub fn ordered_collection_second_acquire_is_empty_test() {
 
 pub fn cut_link_queues_local_and_remote_work_test() {
   let model = runtime.ready_model(Map)
-  let #(model, _) = runtime.update(model, runtime.ToggleLink)
-  let #(model, _) =
-    runtime.update(model, runtime.StepMap(ClientA, "mill-race", 1))
-  let #(model, _) =
-    runtime.update(model, runtime.StepMap(ClientB, "mill-race", 1))
+  let model = runtime.transition(model, runtime.ToggleLink)
+  let model =
+    runtime.transition(model, runtime.StepMap(ClientA, "mill-race", 1))
+  let model =
+    runtime.transition(model, runtime.StepMap(ClientB, "mill-race", 1))
   should_equal(model.queued_for_b > 0, True)
   should_equal(model.pending != [], True)
 }
 
 pub fn restored_link_converges_concurrent_mv_writes_test() {
   let model = runtime.ready_model(MvRegister)
-  let #(model, _) = runtime.update(model, runtime.ToggleLink)
-  let #(model, _) =
-    runtime.update(model, runtime.WriteMv(ClientA, "raise crest"))
-  let #(model, _) = runtime.update(model, runtime.WriteMv(ClientB, "arm pump"))
-  let #(model, _) = runtime.update(model, runtime.ToggleLink)
-  let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
-  let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+  let model = runtime.transition(model, runtime.ToggleLink)
+  let model = runtime.transition(model, runtime.WriteMv(ClientA, "raise crest"))
+  let model = runtime.transition(model, runtime.WriteMv(ClientB, "arm pump"))
+  let model = runtime.transition(model, runtime.ToggleLink)
+  let model = runtime.transition(model, runtime.Deliver(model.generation))
+  let model = runtime.transition(model, runtime.Deliver(model.generation))
   let alpha = runtime.mv_values(model, ClientA)
   should_equal(alpha, runtime.mv_values(model, ClientB))
   should_equal(alpha, runtime.mv_values(model, ClientC))
-  should_equal(list.length(alpha), 2)
+  should_equal(alpha, ["arm pump"])
 }
 
 pub fn two_offline_b_writes_acknowledge_in_submission_order_test() {
   let model = runtime.ready_model(MvRegister)
-  let #(model, _) = runtime.update(model, runtime.ToggleLink)
-  let #(model, _) =
-    runtime.update(model, runtime.WriteMv(ClientA, "catch-up first"))
-  let #(model, _) = runtime.update(model, runtime.WriteMv(ClientB, "b first"))
-  let #(model, _) = runtime.update(model, runtime.WriteMv(ClientB, "b second"))
-  let #(model, _) = runtime.update(model, runtime.ToggleLink)
+  let model = runtime.transition(model, runtime.ToggleLink)
+  let model =
+    runtime.transition(model, runtime.WriteMv(ClientA, "catch-up first"))
+  let model = runtime.transition(model, runtime.WriteMv(ClientB, "b first"))
+  let model = runtime.transition(model, runtime.WriteMv(ClientB, "b second"))
+  let model = runtime.transition(model, runtime.ToggleLink)
   let model = deliver_all(model)
   let values = runtime.mv_values(model, ClientA)
   should_equal(values, runtime.mv_values(model, ClientB))
   should_equal(values, runtime.mv_values(model, ClientC))
-  should_equal(list.contains(values, "b second"), True)
+  should_equal(values, ["b second"])
+  should_equal(
+    model.log
+      |> list.reverse
+      |> list.map(fn(entry) { entry.label }),
+    [
+      "MV-register write catch-up first",
+      "MV-register write b first",
+      "MV-register write b second",
+    ],
+  )
 }
 
 pub fn cut_b_link_keeps_a_and_c_online_test() {
   let model = runtime.ready_model(Map)
-  let #(model, _) = runtime.update(model, runtime.ToggleLink)
-  let #(model, _) =
-    runtime.update(model, runtime.StepMap(ClientA, "mill-race", 1))
-  let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+  let model = runtime.transition(model, runtime.ToggleLink)
+  let model =
+    runtime.transition(model, runtime.StepMap(ClientA, "mill-race", 1))
+  let model = runtime.transition(model, runtime.Deliver(model.generation))
   should_equal(runtime.map_value_for(model, ClientA, "mill-race"), 25)
   should_equal(runtime.map_value_for(model, ClientC, "mill-race"), 25)
   should_equal(runtime.map_value_for(model, ClientB, "mill-race"), 24)
@@ -98,24 +110,91 @@ pub fn cut_b_link_keeps_a_and_c_online_test() {
 
 pub fn replay_reuses_sequence_and_does_not_restore_resolved_values_test() {
   let model = runtime.ready_model(MvRegister)
-  let #(model, _) =
-    runtime.update(model, runtime.WriteMv(ClientA, "raise crest"))
-  let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+  let model = runtime.transition(model, runtime.WriteMv(ClientA, "raise crest"))
+  let model = runtime.transition(model, runtime.Deliver(model.generation))
   let sequenced = model.sequence_number
-  let #(model, _) = runtime.update(model, runtime.ResolveMv(ClientA))
-  let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+  let model = runtime.transition(model, runtime.ResolveMv(ClientA))
+  let model = runtime.transition(model, runtime.Deliver(model.generation))
   let resolved_sequence = model.sequence_number
-  let #(model, _) = runtime.update(model, runtime.Replay)
-  let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+  let assert Some(ReplayOperation(_, _, replay_sequence)) = model.last_replay
+  should_equal(replay_sequence, resolved_sequence)
+  let model = runtime.transition(model, runtime.Replay)
+  let model = runtime.transition(model, runtime.Deliver(model.generation))
   should_equal(sequenced, 1)
   should_equal(model.sequence_number, resolved_sequence)
   should_equal(runtime.mv_values(model, ClientA), ["raise crest + arm pump"])
 }
 
+pub fn kernel_mutation_is_deferred_until_effect_runs_test() {
+  let model = runtime.ready_model(Map)
+  let #(waiting, pending) =
+    runtime.update(model, runtime.StepMap(ClientA, "mill-race", 1))
+  should_equal(runtime.map_value_for(waiting, ClientA, "mill-race"), 24)
+  let messages = transport_js.new_cell([])
+  effect.perform(
+    pending,
+    fn(message) {
+      transport_js.set_cell(messages, [
+        message,
+        ..transport_js.get_cell(messages)
+      ])
+    },
+    fn(_, _) { Nil },
+    fn(_) { Nil },
+    fn() { panic as "This effect does not use the root." },
+    fn(_, _) { Nil },
+    fn(_, _) { Nil },
+    fn(_) { Nil },
+  )
+  should_equal(transport_js.get_cell(messages), [])
+}
+
+pub fn shared_crdt_baselines_use_one_summary_test() {
+  let g = runtime.ready_model(GCounter)
+  let g = runtime.transition(g, runtime.IncrementGCounter(ClientA, 1))
+  let g = deliver_all(g)
+  should_equal(runtime.g_counter_value(g, ClientA), 19)
+  should_equal(runtime.g_counter_value(g, ClientB), 19)
+
+  let pn = runtime.ready_model(PnCounter)
+  let pn = runtime.transition(pn, runtime.UpdatePnCounter(ClientA, 1))
+  let pn = deliver_all(pn)
+  should_equal(runtime.pn_value(pn, ClientA), 45)
+  should_equal(runtime.pn_value(pn, ClientB), 45)
+
+  let or_map = runtime.ready_model(OrMap)
+  let or_map =
+    runtime.transition(
+      or_map,
+      runtime.IncrementOrMap(ClientA, "spoil-north", 1),
+    )
+  let or_map = deliver_all(or_map)
+  should_equal(runtime.or_map_value(or_map, ClientA, "spoil-north"), "19")
+  should_equal(runtime.or_map_value(or_map, ClientB, "spoil-north"), "19")
+
+  let or_set = runtime.ready_model(OrSet)
+  let or_set =
+    runtime.transition(or_set, runtime.RemoveOrSet(ClientA, "north-stake"))
+  let or_set = deliver_all(or_set)
+  should_equal(runtime.set_contains(or_set, ClientA, "north-stake"), False)
+  should_equal(runtime.set_contains(or_set, ClientB, "north-stake"), False)
+}
+
+pub fn projection_failure_is_visible_test() {
+  let map = runtime.ready_model(Map)
+  let counter = runtime.ready_model(GCounter)
+  let broken = Model(..map, alpha: counter.alpha)
+  let projected = runtime.transition(broken, runtime.Project)
+  should_equal(
+    projected.visible_error,
+    Some("Cannot project Client A as a shared map."),
+  )
+}
+
 pub fn reset_invalidates_old_delivery_test() {
   let model = runtime.ready_model(MvRegister)
   let old_generation = model.generation
-  let #(reset, _) = runtime.update(model, runtime.Reset)
+  let reset = runtime.transition(model, runtime.Reset)
   let #(after_stale, _) = runtime.update(reset, runtime.Deliver(old_generation))
   should_equal(after_stale.generation, old_generation + 1)
   should_equal(after_stale, reset)
@@ -126,7 +205,7 @@ fn deliver_all(model: Model) -> Model {
   case model.pending {
     [] -> model
     [_, ..] -> {
-      let #(model, _) = runtime.update(model, runtime.Deliver(model.generation))
+      let model = runtime.transition(model, runtime.Deliver(model.generation))
       deliver_all(model)
     }
   }
