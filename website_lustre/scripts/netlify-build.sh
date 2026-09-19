@@ -6,6 +6,7 @@ cd "${repo_root}"
 
 GLEAM_VERSION="${GLEAM_VERSION:-1.18.1}"
 OTP_VERSION="${OTP_VERSION:-28.5}"
+REBAR3_VERSION="${REBAR3_VERSION:-3.27.0}"
 PNPM_VERSION="${PNPM_VERSION:-11.13.1}"
 
 otp_install_dir="${HOME}/.otp/${OTP_VERSION}"
@@ -36,6 +37,17 @@ if [ ! -f "${otp_install_dir}/.installed" ]; then
 fi
 export PATH="${otp_install_dir}/bin:${PATH}"
 
+rebar3_install_dir="${HOME}/.rebar3/bin"
+export PATH="${rebar3_install_dir}:${PATH}"
+if ! command -v rebar3 >/dev/null 2>&1 ||
+  ! rebar3 version | grep -q "rebar ${REBAR3_VERSION} "; then
+  mkdir -p "${rebar3_install_dir}"
+  curl -fsSL \
+    "https://github.com/erlang/rebar3/releases/download/${REBAR3_VERSION}/rebar3" \
+    -o "${rebar3_install_dir}/rebar3"
+  chmod +x "${rebar3_install_dir}/rebar3"
+fi
+
 if ! command -v gleam >/dev/null 2>&1 || [ "$(gleam --version)" != "gleam ${GLEAM_VERSION}" ]; then
   install_dir="${HOME}/.gleam-bin"
   mkdir -p "${install_dir}"
@@ -64,6 +76,7 @@ if [ "${otp_release}" != "${OTP_VERSION%%.*}" ]; then
 fi
 
 erl -version
+rebar3 version
 gleam --version
 run_pnpm --version
 

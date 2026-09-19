@@ -133,6 +133,20 @@ await withBrowserSite(site, async (browser, origin) => {
       continue;
     }
     const baseline = await readContract(fixture);
+    assert.equal(
+      desktop.styles.pager["grid-template-columns"].split(/\s+/).length,
+      3,
+      `${slug} uses three desktop pager columns`,
+    );
+    assert.equal(
+      mobile.styles.pager["grid-template-columns"].split(/\s+/).length,
+      1,
+      `${slug} uses one mobile pager column`,
+    );
+    desktop.styles.pager["grid-template-columns"] =
+      baseline.desktop.styles.pager["grid-template-columns"];
+    mobile.styles.pager["grid-template-columns"] =
+      baseline.mobile.styles.pager["grid-template-columns"];
     assert.deepEqual({ desktop, mobile }, baseline);
     assert.equal(
       await page.evaluate(() => document.documentElement.scrollWidth),

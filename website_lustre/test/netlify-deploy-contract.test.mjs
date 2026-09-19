@@ -24,6 +24,7 @@ test("Netlify publishes the generated Lustre artifact", () => {
   assert.match(netlify, /publish\s*=\s*"website_lustre\/dist"/);
   assert.match(netlify, /GLEAM_VERSION\s*=\s*"1\.18\.1"/);
   assert.match(netlify, /OTP_VERSION\s*=\s*"28\.5"/);
+  assert.match(netlify, /REBAR3_VERSION\s*=\s*"3\.27\.0"/);
   assert.match(netlify, /PNPM_VERSION\s*=\s*"11\.13\.1"/);
   assert.doesNotMatch(netlify, /base\s*=\s*"website"/);
 });
@@ -35,6 +36,7 @@ test("Netlify runs the same checked-in production build", async () => {
   assert.match(build, /run_pnpm --dir website_lustre install --frozen-lockfile/);
   assert.match(build, /corepack "pnpm@\$\{PNPM_VERSION\}"/);
   assert.match(build, /builds\.hex\.pm\/builds\/otp/);
+  assert.match(build, /erlang\/rebar3\/releases\/download/);
   assert.match(build, /erlang:system_info\(otp_release\)/);
   assert.match(build, /website_lustre && gleam deps download/);
   assert.match(build, /\.\/tools\/build-website-lustre\.sh/);
@@ -43,6 +45,7 @@ test("Netlify runs the same checked-in production build", async () => {
 });
 
 test("Actions deploys tested previews while Netlify owns production", () => {
+  assert.match(workflow, /rebar3-version:\s*"3\.27\.0"/);
   assert.match(workflow, /^name: Lustre website$/m);
   assert.match(workflow, /netlify deploy/);
   assert.match(workflow, /--dir website_lustre\/dist/);
