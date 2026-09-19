@@ -12,7 +12,7 @@ pub fn component_model_index_renders_its_catalog_test() {
   let component_model = support.route("/component-model")
   let assert Ok(source) = content.load(component_model)
   let assert Ok(manifest) =
-    snippet.load("../website/src/generated/snippets.json")
+    snippet.load("src/generated/snippets.json")
   let assert Ok(document) =
     page.render(source, component_model, manifest, "test")
   let html = element.to_document_string(document)

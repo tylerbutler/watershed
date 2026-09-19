@@ -8,7 +8,7 @@ import watershed_site/snippet
 
 pub fn foundations_pages_render_shared_layout_and_snippets_test() {
   let assert Ok(manifest) =
-    snippet.load("../website/src/generated/snippets.json")
+    snippet.load("src/generated/snippets.json")
   [
     #(
       "/foundations/schema",

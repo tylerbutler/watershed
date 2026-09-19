@@ -4,7 +4,7 @@
 // Sheets quote the checked-in examples rather than retyping them, so a
 // snippet cannot drift from the source it claims to show. The extraction
 // itself is not done here: `tools/source-snippets` reads the marker ranges
-// declared in `website/snippets.json` and writes `src/generated/snippets.json`,
+// declared in `website_lustre/snippets.json` and writes `src/generated/snippets.json`,
 // which is generated, ignored, and rebuilt before every build and test run.
 //
 // This module decodes that manifest, refuses anything malformed, and hands
@@ -77,7 +77,7 @@ const snippets = decodeManifest(generatedManifest);
 /**
  * The generated snippet with this id.
  *
- * The id is the one declared in `website/snippets.json`. An id nothing
+ * The id is the one declared in `website_lustre/snippets.json`. An id nothing
  * generates is a typo or a stale reference, and either way the reader would
  * get a blank where code belongs, so it throws.
  */
@@ -85,7 +85,7 @@ export function sourceSnippet(id: string): Snippet {
   const snippet = snippets.get(id);
   if (snippet === undefined) {
     throw new Error(
-      `snippet: no generated snippet with id "${id}" — website/snippets.json declares the ids, and the manifest is generated from it`,
+      `snippet: no generated snippet with id "${id}" — website_lustre/snippets.json declares the ids, and the manifest is generated from it`,
     );
   }
   return snippet;

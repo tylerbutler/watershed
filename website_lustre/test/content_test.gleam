@@ -1,10 +1,10 @@
+import fixtures/catalog_contract
 import gleam/dict
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import gleeunit/should
 import jot
-import simplifile
 import support
 import watershed_site/content
 import watershed_site/error
@@ -149,25 +149,8 @@ pub fn nested_raw_html_is_rejected_test() {
   |> should.equal(Error(error.RawHtml("nested.djot")))
 }
 
-pub fn guide_catalog_matches_astro_test() {
-  let assert Ok(source) = simplifile.read("../website/src/data/guide.ts")
-  string.split(source, "slug: \"")
-  |> list.length
-  |> should.equal(list.length(guide.all()) + 1)
-  guide.all()
-  |> list.each(fn(step) {
-    [
-      #("n", step.number),
-      #("slug", string.replace(guide.path(step.slug), "/guide/", "")),
-      #("title", step.title),
-      #("goal", step.goal),
-      #("surface", step.surface),
-    ]
-    |> list.each(fn(field) {
-      string.contains(source, field.0 <> ": \"" <> field.1 <> "\"")
-      |> should.be_true()
-    })
-  })
+pub fn guide_catalog_matches_contract_test() {
+  guide.all() |> should.equal(catalog_contract.guide())
   guide.neighbours(guide.Race)
   |> should.equal(#(Some(guide.get(guide.Notes)), Some(guide.get(guide.Votes))))
   guide.neighbours(guide.Connect).0 |> should.equal(None)

@@ -42,6 +42,9 @@ pub fn build_routes(
         "/favicon.svg",
         "/og.png",
         "/scripts/field-notes.js",
+        "/scripts/motion.js",
+        "/scripts/guide-index.js",
+        "/scripts/concept-index.js",
         ..list.flat_map(routes, route.stylesheets)
       ],
       list.filter_map(routes, fn(route) {
@@ -62,23 +65,6 @@ pub fn build_routes(
       }
     }),
   )
-  use motion <- result.try(
-    case
-      list.any(routes, fn(route) {
-        route.layout == route.GuideIndex || route.layout == route.ConceptIndex
-      })
-    {
-      False -> Ok(option.None)
-      True -> {
-        let path = "../website/src/scripts/motion.js"
-        simplifile.read(path)
-        |> result.map(fn(source) { option.Some(source <> "\ninitReveals();\n") })
-        |> result.map_error(fn(reason) {
-          error.CannotRead(path, string.inspect(reason))
-        })
-      }
-    },
-  )
   case pages {
     [] ->
       Error(error.InvalidContent(
@@ -91,13 +77,6 @@ pub fn build_routes(
         |> ssg.add_static_dir(static_dir)
         |> ssg.use_index_routes
         |> ssg.add_static_route(path, page)
-      let config = case motion {
-        option.None -> config
-        option.Some(source) ->
-          config
-          |> ssg.add_static_asset("/scripts/guide-index.js", source)
-          |> ssg.add_static_asset("/scripts/concept-index.js", source)
-      }
       let config =
         ssg.add_static_asset(
           config,

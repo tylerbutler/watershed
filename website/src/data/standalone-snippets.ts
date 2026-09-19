@@ -3,7 +3,7 @@
 // runtime sheets, and the SharedTree comparison quote, plus the Fluid
 // TypeScript the comparison sets beside it.
 //
-// The Gleam side is generated: `website/snippets.json` declares each range,
+// The Gleam side is generated: `website_lustre/snippets.json` declares each range,
 // `tools/source-snippets` extracts it, and the loader fails the build on an
 // id nothing generates. The TypeScript side stays illustrative — Fluid
 // Framework is external, so there is no checked-in source to quote — and

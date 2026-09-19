@@ -8,7 +8,7 @@ import watershed_site/route
 
 const output = ".cache/generated-site-test"
 
-const manifest = "../website/src/generated/snippets.json"
+const manifest = "src/generated/snippets.json"
 
 pub fn generated_route_and_assets_test() {
   let assert Ok(_) = simplifile.create_directory_all(".cache")
@@ -31,6 +31,9 @@ pub fn generated_route_and_assets_test() {
   })
   [
     "guide_race.js",
+    "scripts/motion.js",
+    "scripts/guide-index.js",
+    "scripts/concept-index.js",
     "styles/site.css",
     "styles/guide-race.css",
     "fonts/archivo/wdth.css",

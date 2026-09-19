@@ -11,7 +11,7 @@ export function parity(importMetaUrl, fixtureName) {
   return {
     root,
     record,
-    site: resolve(root, record ? "../website/dist" : "dist"),
+    site: resolve(root, "dist"),
     fixture: fixtureName
       ? resolve(root, "test/fixtures", fixtureName)
       : undefined,

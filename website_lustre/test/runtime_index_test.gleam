@@ -1,10 +1,10 @@
+import fixtures/catalog_contract
 import gleam/list
 import gleam/option.{None}
 import gleam/string
 import gleeunit/should
 import html_parser
 import lustre/element
-import simplifile
 import support
 import watershed_site/content
 import watershed_site/page
@@ -12,24 +12,8 @@ import watershed_site/route
 import watershed_site/runtime
 import watershed_site/snippet
 
-pub fn runtime_catalog_matches_astro_test() {
-  let assert Ok(source) = simplifile.read("../website/src/data/runtime.ts")
-  string.split(source, "slug: \"")
-  |> list.length
-  |> should.equal(list.length(runtime.all()) + 1)
-  runtime.all()
-  |> list.each(fn(item) {
-    [
-      #("slug", item.slug),
-      #("title", item.title),
-      #("concept", item.concept),
-    ]
-    |> list.each(fn(field) {
-      string.contains(source, field.0 <> ": \"" <> field.1 <> "\"")
-      |> should.be_true()
-    })
-    string.contains(source, item.gloss) |> should.be_true()
-  })
+pub fn runtime_catalog_matches_contract_test() {
+  runtime.all() |> should.equal(catalog_contract.runtime())
 }
 
 pub fn runtime_index_renders_the_catalog_without_a_client_test() {
@@ -45,8 +29,7 @@ pub fn runtime_index_renders_the_catalog_without_a_client_test() {
   |> should.equal(["/styles/site.css", "/styles/concept-index.css"])
   let assert Ok(source) = content.load(runtime_route)
   source.metadata.kind |> should.equal(content.ConceptIndex)
-  let assert Ok(manifest) =
-    snippet.load("../website/src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, runtime_route, manifest, "test")
   let html = element.to_document_string(document)
   [

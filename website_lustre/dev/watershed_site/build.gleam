@@ -11,12 +11,9 @@ import watershed_site/system
 
 pub fn main() -> Nil {
   case argv.load().arguments {
-    [] ->
-      run("./dist", "./build/static", "../website/src/generated/snippets.json")
-    [output] ->
-      run(output, "./build/static", "../website/src/generated/snippets.json")
-    [output, assets] ->
-      run(output, assets, "../website/src/generated/snippets.json")
+    [] -> run("./dist", "./build/static", "./src/generated/snippets.json")
+    [output] -> run(output, "./build/static", "./src/generated/snippets.json")
+    [output, assets] -> run(output, assets, "./src/generated/snippets.json")
     [output, assets, manifest] -> run(output, assets, manifest)
     _ -> {
       io.println_error(

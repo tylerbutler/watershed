@@ -33,7 +33,7 @@ pub fn home_has_one_lustre_owned_demo_mount_test() {
 pub fn home_ffi_only_owns_contour_animation_test() {
   let assert Ok(source) =
     simplifile.read("src/watershed_site/client/home_ffi.mjs")
-  ["MutationObserver", "data-gauge-strip", "website/src"]
+  ["MutationObserver", "data-gauge-strip", "website" <> "/src"]
   |> list.each(fn(forbidden) {
     let assert False = string.contains(source, forbidden) as forbidden
   })

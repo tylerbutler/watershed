@@ -92,13 +92,13 @@ _test-compile-fail:
 _test-website-snippets: snippets
     cd website && pnpm check:types && pnpm test:gleam-values && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:navigation && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles && pnpm test:netlify-contract && pnpm test:snippet-config
 
-# Generate the website's snippet manifest from `website/snippets.json`.
-# The output, `website/src/generated/snippets.json`, is ignored rather than
+# Generate the website's snippet manifest from `website_lustre/snippets.json`.
+# The output, `website_lustre/src/generated/snippets.json`, is ignored rather than
 # committed: it is derived from the marked sources and the configuration, so
 # a checked-in copy could only ever disagree with them. `pnpm build` and
 # `pnpm dev` run this too, so the website never reads a stale manifest.
 snippets:
-    cd tools/source-snippets && gleam run -m source_snippets/cli -- ../../website/snippets.json ../../website/src/generated/snippets.json
+    cd tools/source-snippets && gleam run -m source_snippets/cli -- ../../website_lustre/snippets.json ../../website_lustre/src/generated/snippets.json
 
 alias website-snippets := snippets
 

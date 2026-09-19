@@ -2,7 +2,7 @@
 // Tests for the generated manifest against the configuration that produced
 // it, and against the code each id is supposed to show.
 //
-// `website/snippets.json` is the checked-in declaration; the manifest under
+// `website_lustre/snippets.json` is the checked-in declaration; the manifest under
 // `src/generated/` is built from it by `tools/source-snippets`. These tests
 // prove the two agree, and that the ranges the sheets quote still hold the
 // code the prose talks about.

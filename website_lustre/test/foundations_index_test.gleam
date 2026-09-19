@@ -14,7 +14,7 @@ pub fn foundations_index_renders_the_catalog_without_a_client_test() {
     |> list.find(fn(item) { item.path == "/foundations" })
   let assert Ok(source) = content.load(foundations)
   let assert Ok(manifest) =
-    snippet.load("../website/src/generated/snippets.json")
+    snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, foundations, manifest, "test")
   let html = element.to_document_string(document)
   [

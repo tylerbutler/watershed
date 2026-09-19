@@ -21,7 +21,7 @@ pub fn guide_index_renders_all_six_steps_without_a_client_test() {
   route.client_script |> should.equal(None)
   let assert Ok(source) = content.load(route)
   let assert Ok(manifest) =
-    snippet.load("../website/src/generated/snippets.json")
+    snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, route, manifest, "test")
   let html = element.to_document_string(document)
   [

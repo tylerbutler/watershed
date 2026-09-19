@@ -12,7 +12,7 @@ pub fn patterns_page_renders_every_practice_test() {
   let patterns = support.route("/patterns")
   let assert Ok(source) = content.load(patterns)
   let assert Ok(manifest) =
-    snippet.load("../website/src/generated/snippets.json")
+    snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, patterns, manifest, "test")
   let html = element.to_document_string(document)
   [

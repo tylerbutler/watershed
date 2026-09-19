@@ -12,7 +12,7 @@ import watershed_site/content
 import watershed_site/error
 import watershed_site/snippet
 
-const manifest_path = "../website/src/generated/snippets.json"
+const manifest_path = "src/generated/snippets.json"
 
 pub fn real_manifest_decodes_test() {
   let assert Ok(manifest) = snippet.load(manifest_path)

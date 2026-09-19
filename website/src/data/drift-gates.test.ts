@@ -3,7 +3,7 @@
 // snippets drift from the compiled source they claim to show.
 //
 // The code itself is selected by `tools/source-snippets`, which reads
-// `website/snippets.json` and writes an ignored manifest. Marker integrity
+// `website_lustre/snippets.json` and writes an ignored manifest. Marker integrity
 // (uniqueness, pairing, orphans) and configuration shape (selectors,
 // separators, source paths) are enforced by the Gleam generator, which runs
 // before these gates do. These gates police the frontend seams: ids stay

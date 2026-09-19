@@ -3,7 +3,7 @@
 // snippet each field note shows. One line per practice: a practice id on the
 // left, the generated id on the right.
 //
-// The code itself is not selected here. `website/snippets.json` declares the
+// The code itself is not selected here. `website_lustre/snippets.json` declares the
 // marker ranges, `tools/source-snippets` extracts them, and the loader fails
 // the build on an id nothing generates. Practice metadata and the source
 // links stay local, in `practices.ts`.

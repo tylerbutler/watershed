@@ -12,7 +12,7 @@ pub fn structures_index_renders_the_field_atlas_without_a_client_test() {
   let structures = support.route("/structures")
   let assert Ok(source) = content.load(structures)
   let assert Ok(manifest) =
-    snippet.load("../website/src/generated/snippets.json")
+    snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, structures, manifest, "test")
   let html = element.to_document_string(document)
   [

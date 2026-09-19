@@ -12,7 +12,7 @@ pub fn models_page_renders_all_three_convergence_models_test() {
   let models = support.route("/models")
   let assert Ok(source) = content.load(models)
   let assert Ok(manifest) =
-    snippet.load("../website/src/generated/snippets.json")
+    snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, models, manifest, "test")
   let html = element.to_document_string(document)
   [

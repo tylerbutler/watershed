@@ -18,7 +18,7 @@ pub fn reference_links_to_the_typed_practice_test() {
 
 pub fn connect_renders_six_source_backed_notes_test() {
   let assert Ok(manifest) =
-    snippet.load("../website/src/generated/snippets.json")
+    snippet.load("src/generated/snippets.json")
   let assert Ok(view) = field_notes.view(guide.Connect, manifest)
   let html = element.to_string(view)
   string.contains(html, "How the examples do it") |> should.be_true()
