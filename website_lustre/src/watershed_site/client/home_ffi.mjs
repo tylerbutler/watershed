@@ -47,9 +47,11 @@ export function contourField(root) {
   return root?.ownerDocument?.querySelector("[data-contour-field]") ?? null;
 }
 
-export function prefersReducedMotion(root) {
-  return root?.ownerDocument?.defaultView
-    ?.matchMedia("(prefers-reduced-motion: reduce)").matches ?? false;
+export function subscribeReducedMotion(root, onChange) {
+  const media = root?.ownerDocument?.defaultView
+    ?.matchMedia("(prefers-reduced-motion: reduce)");
+  onChange(media?.matches ?? false);
+  media?.addEventListener("change", (event) => onChange(event.matches));
 }
 
 export function stopHeroDrift(field) {

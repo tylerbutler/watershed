@@ -242,3 +242,45 @@
    ```
 
    Result: `PASS: Homepage SharedMap demo converges without Astro runtime.`
+
+## Fix round 2
+
+- Added a homepage-client `ReducedMotionChanged` message and model field.
+- Replaced the startup-only preference read with one media-query subscription
+  that dispatches the initial value and every live change into Lustre.
+- Kept animation control explicit: the Lustre update effect supplies the
+  contour SVG and current reduced-motion Boolean to `startHeroDrift`.
+- Extended the homepage browser regression to prove contour drift is active,
+  stops after switching to reduced motion, and resumes after switching back.
+
+### Fix evidence
+
+1. Browser regression before the fix:
+
+   ```text
+   CI=1 node website_lustre/test/browser/home.mjs
+   ```
+
+   Result: expected failure. The contour path changed during the
+   reduced-motion window, proving that the startup snapshot did not handle a
+   live preference change.
+
+2. Focused tests after the fix:
+
+   ```text
+   cd website_lustre && gleam test --target javascript -- home
+   node --test test/*.test.mjs
+   ```
+
+   Result: `147 passed, no failures`; `4 passed, no failures`.
+
+3. Build and live browser test after the fix:
+
+   ```text
+   just website-lustre
+   CI=1 node website_lustre/test/browser/home.mjs
+   ```
+
+   Result: successful static-site generation and
+   `PASS: Homepage SharedMap demo converges without Astro runtime.` The build
+   printed the same pre-existing dependency and repository warnings.

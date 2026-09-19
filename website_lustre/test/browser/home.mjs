@@ -98,6 +98,37 @@ await withBrowserSite(site, async (browser, origin) => {
     await page.$eval("[data-strip-race]", (button) => button.disabled),
     false,
   );
+  await page.setViewport({ width: 1440, height: 1000 });
+  const contour = "[data-contour-field] #contour-0";
+  await page.$eval(contour, (path) => path.scrollIntoView());
+  const initialContour = await page.$eval(contour, (path) => path.getAttribute("d"));
+  await page.waitForFunction(
+    (selector, path) =>
+      document.querySelector(selector)?.getAttribute("d") !== path,
+    {},
+    contour,
+    initialContour,
+  );
+  await page.emulateMediaFeatures([
+    { name: "prefers-reduced-motion", value: "reduce" },
+  ]);
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  const reducedContour = await page.$eval(contour, (path) => path.getAttribute("d"));
+  await new Promise((resolve) => setTimeout(resolve, 200));
+  assert.equal(
+    await page.$eval(contour, (path) => path.getAttribute("d")),
+    reducedContour,
+  );
+  await page.emulateMediaFeatures([
+    { name: "prefers-reduced-motion", value: "no-preference" },
+  ]);
+  await page.waitForFunction(
+    (selector, path) =>
+      document.querySelector(selector)?.getAttribute("d") !== path,
+    {},
+    contour,
+    reducedContour,
+  );
   await page.click("[data-cut-link]");
   const cutValue = await page.$eval(
     '[data-client="a"] .dds-map tr[data-key="mill-race"] [data-value]',
