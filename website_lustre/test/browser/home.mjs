@@ -106,6 +106,22 @@ await withBrowserSite(site, async (browser, origin) => {
     [],
     "visible mobile demo buttons have 44px touch targets",
   );
+  assert.deepEqual(
+    await page.$$eval(
+      "[data-field-notes], [data-latency-variance]",
+      (checkboxes) =>
+        checkboxes
+          .map((checkbox) => checkbox.closest("label"))
+          .filter((label) => label?.checkVisibility())
+          .filter((label) => {
+            const rect = label.getBoundingClientRect();
+            return rect.width < 44 || rect.height < 44;
+          })
+          .map((label) => label.outerHTML),
+    ),
+    [],
+    "visible mobile demo checkbox labels have 44px touch targets",
+  );
   if (record) {
     await writeContract(fixture, { desktop, mobile });
     console.log("Recorded site homepage contract baseline.");
