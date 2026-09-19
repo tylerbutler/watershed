@@ -50,6 +50,10 @@ test("Actions deploys tested previews while Netlify owns production", () => {
   assert.match(workflow, /netlify deploy/);
   assert.match(workflow, /--dir website_lustre\/dist/);
   assert.match(workflow, /--no-build/);
+  assert.match(
+    workflow,
+    /if: env\.NETLIFY_AUTH_TOKEN != '' && env\.NETLIFY_SITE_ID != ''/,
+  );
   assert.doesNotMatch(workflow, /working-directory: website\s*$/m);
   assert.doesNotMatch(workflow, /--prod/);
 });

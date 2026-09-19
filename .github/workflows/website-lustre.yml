@@ -79,6 +79,9 @@ jobs:
        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    env:
+      NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+      NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
     steps:
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
@@ -90,10 +93,12 @@ jobs:
         with:
           name: website-lustre
           path: website_lustre/dist
+      - name: Report unavailable Actions preview
+        if: env.NETLIFY_AUTH_TOKEN == '' || env.NETLIFY_SITE_ID == ''
+        run: echo "::notice::Skipping the Actions preview because Netlify credentials are not configured."
       - name: Deploy tested artifact as a preview
+        if: env.NETLIFY_AUTH_TOKEN != '' && env.NETLIFY_SITE_ID != ''
         env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_SITE_ID: ${{ secrets.NETLIFY_SITE_ID }}
           PR_NUMBER: ${{ github.event.pull_request.number }}
         run: |
           args=()
