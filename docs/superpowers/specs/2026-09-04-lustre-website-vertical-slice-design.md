@@ -5,6 +5,12 @@
 **Status:** Complete. The parallel Astro phase ended on 2026-09-18; the Lustre
 site is the sole production implementation.
 
+The design below records the original migration plan, not the current
+development workflow. Use [`website_lustre/README.md`](../../../website_lustre/README.md)
+for builds, validation, and rollback. The last revision containing `website/`
+is `8a600a631d090338d6c4a6bf4a9047fed9c69e6e`; there is no live Astro tree
+to rebuild in the current checkout.
+
 ## Goal
 
 Replatform the watershed website on Lustre so the site demonstrates the same

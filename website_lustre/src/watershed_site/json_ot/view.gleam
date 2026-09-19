@@ -142,14 +142,17 @@ fn client(
     [
       h.header([a.class("client-head")], [
         h.h3([], [h.text(label)]),
-        h.span(        [
-          a.class(pending_class(runtime.pending_count(model, replica))),
-          a.attribute("data-pending-count", ""),
-        ], [
-          h.text(
-            int.to_string(runtime.pending_count(model, replica)) <> " pending",
-          ),
-        ]),
+        h.span(
+          [
+            a.class(pending_class(runtime.pending_count(model, replica))),
+            a.attribute("data-pending-count", ""),
+          ],
+          [
+            h.text(
+              int.to_string(runtime.pending_count(model, replica)) <> " pending",
+            ),
+          ],
+        ),
       ]),
       h.div(
         [

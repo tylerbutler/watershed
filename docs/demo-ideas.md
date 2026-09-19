@@ -154,10 +154,16 @@ Hierarchical namespace maps to sheet → row → cell; formulas as `JsonOt`. The
 
 ### Collaborative rich-text editor — `SharedRichText`
 
-Not on the original list, but FP2 makes the case. `SharedRichText` is fully present on the BEAM facade and entirely absent from the JS one, and the existing website demo works only by importing private modules. Once FP2 lands, a proper Lustre rich-text example — the Quill bridge the website demo already prototypes, packaged the way `watershed_lustre/textarea` packaged the plain-text one — is mostly extraction rather than invention.
+The native website already pairs a typed Gleam runtime with a Quill bridge,
+and `SharedRichText` is available through the JavaScript facade. A standalone
+Lustre rich-text example — the website's bridge, packaged the way
+`watershed_lustre/textarea` packaged the plain-text one — is mostly extraction
+rather than invention.
 
-**Prerequisites:** FP2, then FP5's `ensure_rich_text` / `subscribe_rich_text`.
-**Cost:** medium, and much of it already written in `website/src/scripts/rich-text-demo.ts`.
+**Prerequisites:** `ensure_rich_text` / `subscribe_rich_text` (shipped).
+**Cost:** medium, and much of it already written in
+`website_lustre/src/watershed_site/rich_text/` and the Quill adapter under
+`website_lustre/src/watershed_site/client/`.
 
 ### Whiteboard / diagram editor — `OrMap` + `SharedSequence` + presence
 

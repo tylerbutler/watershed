@@ -31,7 +31,7 @@ ink = sequenced/confirmed, waterline = linework and links.
 
 ## Typography
 
-- **Archivo Variable** (`@fontsource-variable/archivo/wdth.css`): the width
+- **Archivo Variable** (`assets/fonts/archivo/wdth.css`): the width
   axis is the voice. Display/headings at `font-stretch` 115–122%,
   weight 620–650; body at normal width.
 - **JetBrains Mono**: code, data, and the `.annot` map-margin annotation style
@@ -62,12 +62,10 @@ sections themselves get plain headings — no per-section eyebrows.
 - Scroll reveals (`assets/scripts/motion.js`) animate *visible-by-default*
   content with WAAPI at trigger time — nothing is hidden if JS fails.
   Variants: `rise` (up) and `settle` (strata settle downward).
-- Demo ops travel as dots (magenta toward the sequencer, ink outward). On
-  first reveal the demo submits one scripted op so convergence is witnessed
-  without interaction (skipped after user input). Under reduced motion the
-  scripted op still runs — dotless and without the reveal delay — so the
-  visitor lands on `SN 1` and a populated op log instead of an inert rig:
-  the alternative to motion is the outcome, not absence.
+- Demo ops travel as dots (magenta toward the sequencer, ink outward).
+  The shared rig starts at `SN 0` with seeded replicas and an empty op log;
+  edits and the race control start delivery. Reduced motion removes the
+  animation without changing the operation or its convergence outcome.
 - Global `prefers-reduced-motion` rule collapses all CSS animation to end
   state; scripts return early.
 
@@ -96,8 +94,8 @@ sections themselves get plain headings — no per-section eyebrows.
 - **Gauge strip** (`.gauge-strip`, homepage demo): below 1080px the stacked
   rig can't show action and evidence together, so a recorder strip pins to the
   viewport bottom while the section is in view — per-client mono gauge values
-  (magenta italic while pending) plus a race button proxy. It mirrors the map
-  replicas' DOM via MutationObserver; map view only.
+  (magenta italic while pending) plus a race button proxy. Lustre derives the
+  strip from the same typed model as the replicas; map view only.
 - The field-notes toggle lives with the merge-rule copy above the rig, next to
   where its panel appears (`rig.before`), not down in the control bar. A small
   question-mark stamp explains the annotations on pointer hover; the checkbox
@@ -108,15 +106,17 @@ sections themselves get plain headings — no per-section eyebrows.
 - Client-rendered elements use selectors in the shared site stylesheets.
 - The Lustre demos call the real watershed kernels through typed Gleam runtime
   modules and page-scoped client entries under `src/watershed_site/client/`.
-- The demo hosts all twelve DDS/CRDT sheets on one sequencer/SN stream, like DDSes
-  sharing a container. A segmented picker (`.dds-picker`, radios styled as
+- The shared demo supports seventeen typed DDS/CRDT views. Each structure
+  keeps its replica state, pending queue, sequence number, and log when the
+  visitor switches views; delivery resumes when that view is selected again.
+  A segmented picker (`.dds-picker`, radios styled as
   printed cells; checked cell = solid ink; stacks into a legend column below
   640px) swaps the replica view between the shared map (gauge table), the
   shared counter, the G-counter inspection tally, the PN counter, the OR-map
   stockpile ledger, OR-set markers, G-set permanent benchmarks, 2P-set retired markers, claims, registers,
-  ordered collection, TaskManager, and pact map; all kernels stay live
-  regardless of which is shown. Counter-family pending state is a *delta*,
-  annotated in magenta beside the value
+  ordered collection, TaskManager, and pact map, plus the LWW map, LWW
+  register, MV-register, and OR-map MV-register views. Counter-family pending
+  state is a *delta*, annotated in magenta beside the value
   (`Δ +8 unsequenced`). The race button relabels per structure — map races
   show last-write-wins, counter races converge on the sum, PN races converge
   on fill − cut, OR-map/OR-set races   show add-wins observed-remove, G-counter races show per-replica max merge, G-set races

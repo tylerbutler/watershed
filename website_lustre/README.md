@@ -26,42 +26,71 @@ Serve the generated artifact through Netlify's local static server:
 just website-lustre-serve
 ```
 
-Open `http://127.0.0.1:4321/foundations/`,
-`http://127.0.0.1:4321/component-model/`, or
-`http://127.0.0.1:4321/runtime/`,
-`http://127.0.0.1:4321/runtime/optimistic/`, or
-`http://127.0.0.1:4321/guide/`. The
-preview contains the foundations index and its Schema, Topology, and Lifecycle
-sheets, the component-model index and its Components, Ports, and Workspaces
-sheets, the runtime index and its Optimistic Edits, Reconnect, and Idempotent
-Re-delivery, Presence, and Peer-to-peer sheets, plus the guide index and the
-Connect, Notes, Race, Votes, Presence, and Testing sheets. Fonts, styles,
-images, and page scripts sit alongside the generated documents in
-`website_lustre/dist/`.
+Open `http://127.0.0.1:4321/`. The route registry generates 42 pages:
+the homepage, foundations, component model, runtime, field atlas, guide,
+comparison pages, and dedicated demos. Fonts, styles, images, and client
+modules sit alongside the documents in `website_lustre/dist/`. Three
+redirects preserve the former foundations URLs for components, ports, and
+workspaces. There is no separate frontend dev server; rebuild after editing
+source or content.
 
 The first build downloads Gleam dependencies and the Bun executable used
 by the official Lustre bundler. You do not need a separate Bun installation.
 The serve command uses Netlify CLI 27.4.1 in offline mode.
+
+## Validation
 
 ```sh
 just _test-website-lustre
 ```
 
 This command rebuilds snippets and the site, runs the Gleam suite, and runs
-the Puppeteer route gates against temporary loopback servers. It also runs as part
-of `just test`; `just build` includes the site build. Puppeteer installs
-Chrome with the npm dependencies. Set `WATERSHED_CHROME` to use another
-Chromium executable. A missing browser skips the gate locally and fails in
-CI. No external collaboration service is required.
+the Node contracts and all 24 Puppeteer route gates against temporary loopback
+servers. It also runs as part of `just test`; `just build` includes the site
+build. No external collaboration service is required.
+
+Puppeteer needs Chrome. If dependency installation did not download it, run
+`pnpm --dir website_lustre exec puppeteer browsers install chrome`.
+Set `WATERSHED_CHROME` to use another Chromium executable. A missing browser
+skips the gate locally and fails in CI. On a host without a usable Chromium
+sandbox, use `CI=true just _test-website-lustre`; the existing CI launch path
+uses `--no-sandbox` and makes a missing browser an error.
+
+To run the gates separately from the repository root:
+
+```sh
+just format
+just website-lustre
+(cd website_lustre && gleam test --target javascript)
+node --test website_lustre/test/*.test.mjs
+(cd website_lustre && CI=true pnpm run smoke)
+just build
+just lint
+CI=true just test
+```
+
+The Node contracts cover Netlify configuration, deployment-filter preservation
+of client imports, and the homepage animation FFI. The Gleam suite checks
+content, generated documents, typed demo behavior, and the generated JS/CSS
+budget (2.2 MB raw, 520 KB gzip). Run the build first so artifact checks inspect
+current output.
 
 The browser contract fixtures under `test/fixtures/` record the native site's copy,
-metadata, navigation, code figures, field notes, and computed styles for both
-indexes, the race sheet, and five static guide sheets. The index gates check
-keyboard navigation, no-script content, and reduced-motion behavior. The guide
-index also follows the step-03 link and back. The static-sheet gate checks
-field-note fragments on initial load and `hashchange`. To update the fixtures
-after an intentional native-site change, build this package, then run
-`pnpm run record:contracts`. Review the fixture diff before accepting a new baseline.
+metadata, navigation, code figures, field notes, and computed styles across
+the route families. Browser gates cover desktop and mobile layout, keyboard
+navigation, no-script content, reduced motion, failed-start explanations, and
+live edits, races, and resets. Static-sheet gates check field-note fragments
+on initial load and `hashchange`. To update the fixtures listed in
+`package.json` after an intentional site change, build this package, then run
+`pnpm run record:contracts` from `website_lustre/`. Review the fixture diff
+before accepting a new baseline.
+
+The smoke helper stubs Tinylytics so an external analytics outage cannot fail
+the route contracts. For a release inspection, also browse the generated
+site without interception: check console errors and failed requests on `/`,
+`/structures/maps/`, `/directory/`, `/guide/race/`, `/json-ot/`, `/rich-text/`,
+`/sequence/`, and `/text/` at desktop and mobile sizes. An unavailable
+Tinylytics request is distinct from a broken local asset or client module.
 
 ## Build and rendering
 
@@ -71,6 +100,12 @@ escript. The root recipes run that executable from `website_lustre`, so the
 bundler reads this package's configuration without trying to compile
 JavaScript-only watershed bindings for Erlang.
 
+`tools/build-website-lustre.sh` builds all eleven client entries in one
+official CLI invocation so they share chunks. Public entry shims such as
+`/home.js` import modules below `/lustre/`; keep those paths free of hidden
+directories so both GitHub artifact upload and Netlify retain them. The
+rich-text stylesheet keeps its public `/rich_text.css` path.
+
 Lustre SSG 0.12 is not on Hex. We pin upstream commit
 `2992bf78179d1be2876f834f0d923003f7f43f44` with its compatible `tom` 1.x
 parser. `code.gleam` maps Smalto tokens to Lustre elements because
@@ -78,6 +113,7 @@ parser. `code.gleam` maps Smalto tokens to Lustre elements because
 
 | Location | Purpose |
 | --- | --- |
+| `content/` | Djot prose and metadata for the full route inventory |
 | `content/guide/index.djot` | Guide landing-page prose and section markers |
 | `content/guide/*.djot` | Guide prose and TOML frontmatter |
 | `content/foundations/index.djot` | Foundations landing-page prose and section markers |
@@ -98,8 +134,9 @@ parser. `code.gleam` maps Smalto tokens to Lustre elements because
 | `src/watershed_site/view/concept_sheet.gleam` | Foundations hero, related notes, and neighboring-sheet pager |
 | `src/watershed_site/view/runtime_sheet.gleam` | Runtime hero, related notes, and neighboring-sheet pager |
 | `src/watershed_site/guide_race/` | Shared static/browser view and real sluice runtime |
-| `src/watershed_site/client/guide_race.gleam` | Page-scoped browser entry |
-| `src/watershed_site/client/guide_race_ffi.mjs` | DOM geometry and Web Animations only |
+| `src/watershed_site/structure_demo/` | Shared typed models, kernel operations, family plates, and replica views |
+| `src/watershed_site/{directory,json_ot,rich_text,sequence,text}/` | Dedicated demo runtimes and views |
+| `src/watershed_site/client/` | Page-scoped Lustre entries and narrow browser adapters |
 | `assets/scripts/field-notes.js` | Fragment-target reveal behavior for static sheets |
 | `assets/` | Copied CSS, licensed fonts, favicon, and social image |
 | `dev/watershed_site/build.gleam` | SSG command and contextual build errors |
@@ -159,13 +196,40 @@ effects.
 Reset advances a generation counter so old delivery timers cannot change
 the new board.
 
+## Typed demos and the FFI boundary
+
+Keep collaboration behavior in Gleam. The modules under
+`src/watershed_site/structure_demo/` own the shared rig's typed state,
+operations, delivery queue, and views. The homepage and structure-family
+plates use that same implementation. Dedicated demos own their runtimes and
+views under their matching directories; the guide race uses the tutorial
+board through the real sluice. These modules call the watershed kernels and
+runtimes rather than reimplementing their merge rules in browser scripts.
+
+The entries under `src/watershed_site/client/` mount page-scoped Lustre apps
+and connect effects to browser adapters. Models own pending state, sequence
+numbers, operation logs, errors, and reset generations. Views render those
+models into both static initial markup and live replicas. Mutable runtime
+work belongs in effects, with generation checks that reject stale delivery
+after reset.
+
+Use JavaScript FFI only where the browser or a third-party widget requires it:
+DOM geometry, Web Animations, media-query subscriptions, pointer capture,
+Quill editor lifecycle, and the `watershed-textarea` custom-element bridge.
+Quill can own its editor DOM; Gleam owns collaboration, sequencing, and
+failure state. Keep kernel imports and demo state machines out of the FFI.
+The small scripts in `assets/scripts/` handle static-page reveals and
+fragment navigation, not document edits.
+
 ## Add another route
 
 Add a Djot file and an explicit route entry. Extend the typed metadata and
 page renderer only if the route needs another layout or embedded component.
 For an interactive page, add a client module, name its deterministic bundle
-in the route registry, and add its official CLI build to the root recipe.
-Static pages need no client entry.
+in the route registry, and add the module to the shared entry list in
+`tools/build-website-lustre.sh`. Structure sheets use the shared
+`/structure_sheet.js` entry through `page.gleam`; they do not need one bundle
+per family. Static pages need no client entry.
 
 Add content validation, generated-document checks, and browser contract
 coverage for the new route. Build output, dependency caches, and the shared
@@ -190,3 +254,14 @@ publishes `website_lustre/dist`. That script installs the pinned Gleam and pnpm
 versions when needed, installs the root and site JavaScript dependencies,
 downloads the Gleam dependencies, and calls `tools/build-website-lustre.sh`.
 The root `just website-lustre` recipe calls the same production build script.
+
+### Rollback
+
+For a production rollback, redeploy a known-good historical Netlify artifact.
+The last commit containing the Astro source tree is
+`8a600a631d090338d6c4a6bf4a9047fed9c69e6e` (the parent of the removal commit
+`3a4b75b`). Recover `website/` from that revision in a separate checkout if
+you need to rebuild the old site. That revision already has the Lustre
+production configuration, so an Astro rebuild also needs its historical
+build and deployment settings; the current Netlify command is not an Astro
+rollback command. Do not restore a parallel legacy tree in this branch.

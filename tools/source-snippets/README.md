@@ -217,7 +217,9 @@ Entries are sorted by id for deterministic output.
 
 ## Build integration
 
-Run the generator before `pnpm build` and `pnpm dev`. Example `just` recipe:
+Run `just snippets` to regenerate the Lustre site's manifest. The root
+`just website-lustre`, `just website-lustre-serve`, `just build`, and website
+test recipes already run the generator before rendering. The recipe uses:
 
 ```just
 snippets:
