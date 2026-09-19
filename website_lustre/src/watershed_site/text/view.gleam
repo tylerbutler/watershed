@@ -89,6 +89,41 @@ fn client(
 ) -> Element(runtime.Msg) {
   let label = runtime.replica_label(replica)
   let pending = runtime.pending_count(model, replica)
+  let editor_attributes = [
+    a.id("text-editor-" <> id),
+    a.class("text-editor"),
+    a.attribute("data-text-editor", ""),
+    a.rows(3),
+    a.attribute("spellcheck", "false"),
+    a.attribute("aria-describedby", "anchor-readout-" <> id),
+    a.attribute("data-composing", case runtime.is_composing(model, replica) {
+      True -> "true"
+      False -> "false"
+    }),
+    a.disabled(unavailable),
+    event.on(
+      "input",
+      value_decoder(fn(value, start, end) {
+        runtime.Defer(runtime.InputChanged(replica, value, start, end))
+      }),
+    ),
+    event.on("select", selection_decoder(replica)),
+    event.on("keyup", selection_decoder(replica)),
+    event.on("mouseup", selection_decoder(replica)),
+    event.on("focus", selection_decoder(replica)),
+    event.on(
+      "compositionstart",
+      value_decoder(fn(value, start, end) {
+        runtime.Defer(runtime.CompositionStarted(replica, value, start, end))
+      }),
+    ),
+    event.on(
+      "compositionend",
+      value_decoder(fn(value, start, end) {
+        runtime.Defer(runtime.CompositionEnded(replica, value, start, end))
+      }),
+    ),
+  ]
   h.article(
     [
       a.class("client"),
@@ -132,52 +167,14 @@ fn client(
       h.label([a.class("editor-label annot"), a.for("text-editor-" <> id)], [
         h.text(label <> " editor, type to edit the shared text"),
       ]),
-      h.textarea(
-        [
-          a.id("text-editor-" <> id),
-          a.class("text-editor"),
-          a.attribute("data-text-editor", ""),
-          a.rows(3),
-          a.attribute("spellcheck", "false"),
-          a.attribute("aria-describedby", "anchor-readout-" <> id),
-          a.attribute(
-            "data-composing",
-            case runtime.is_composing(model, replica) {
-              True -> "true"
-              False -> "false"
-            },
-          ),
-          a.disabled(unavailable),
-          event.on(
-            "input",
-            value_decoder(fn(value, start, end) {
-              runtime.Defer(runtime.InputChanged(replica, value, start, end))
-            }),
-          ),
-          event.on("select", selection_decoder(replica)),
-          event.on("keyup", selection_decoder(replica)),
-          event.on("mouseup", selection_decoder(replica)),
-          event.on("focus", selection_decoder(replica)),
-          event.on(
-            "compositionstart",
-            value_decoder(fn(value, start, end) {
-              runtime.Defer(runtime.CompositionStarted(
-                replica,
-                value,
-                start,
-                end,
-              ))
-            }),
-          ),
-          event.on(
-            "compositionend",
-            value_decoder(fn(value, start, end) {
-              runtime.Defer(runtime.CompositionEnded(replica, value, start, end))
-            }),
-          ),
-        ],
-        runtime.rendered_value(model, replica),
-      ),
+      case runtime.is_composing(model, replica) {
+        False ->
+          h.textarea(editor_attributes, runtime.rendered_value(model, replica))
+        True ->
+          element("textarea", editor_attributes, [
+            h.text(runtime.rendered_value(model, replica)),
+          ])
+      },
       h.div([a.class("pane-actions")], [
         button(
           "node-action",
@@ -501,7 +498,11 @@ fn fallback(
 
 fn error(model: runtime.Model) -> Element(msg) {
   h.p(
-    [a.class("demo-noscript"), a.attribute("aria-live", "polite")],
+    [
+      a.class("demo-noscript"),
+      a.attribute("data-text-error", ""),
+      a.attribute("aria-live", "polite"),
+    ],
     case model.error {
       None -> []
       Some(reason) -> [h.text(reason)]

@@ -119,6 +119,33 @@ pub fn overlapping_edit_submits_both_sides_of_the_race_test() {
   should.equal(runtime.all_values_equal(deliver_all(racing)), True)
 }
 
+pub fn crowd_insert_after_overlapping_edit_is_recoverable_test() {
+  let overlapped =
+    runtime.ready_model()
+    |> runtime.transition(runtime.RaceOverlap)
+    |> deliver_all
+  let unavailable =
+    overlapped
+    |> runtime.transition(runtime.RaceInserts)
+
+  should.equal(unavailable.phase, runtime.Ready)
+  should.equal(
+    unavailable.error,
+    Some("The crowd insert target is not available. Reset to restore it."),
+  )
+
+  let edited =
+    unavailable
+    |> runtime.transition(runtime.Insert(runtime.ClientA, 0, "recovered "))
+
+  should.equal(edited.phase, runtime.Delivering)
+  should.equal(edited.error, None)
+  should.equal(
+    runtime.transition(unavailable, runtime.Reset).phase,
+    runtime.Ready,
+  )
+}
+
 pub fn pinned_anchor_resolves_after_a_remote_insert_test() {
   let ready = runtime.ready_model()
   let offset = grapheme_offset.to_utf16(runtime.seed(), 4)

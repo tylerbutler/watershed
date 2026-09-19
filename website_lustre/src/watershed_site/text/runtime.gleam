@@ -210,9 +210,10 @@ pub fn transition(model: Model, message: Msg) -> Model {
 fn defer(model: Model, command: Msg) -> #(Model, Effect(Msg)) {
   let work = fn(current: Model) {
     let next = transition(current, command)
-    case next.error {
-      Some(reason) -> Error(reason)
-      None -> Ok(#(current, next))
+    case next.phase, next.error {
+      Failed, Some(reason) -> Error(reason)
+      Failed, None -> Error("The text demo failed.")
+      _, _ -> Ok(#(current, next))
     }
   }
   let queued =
@@ -600,7 +601,11 @@ fn race_inserts(model: Model) -> #(Model, Effect(Msg)) {
       let model = transition(model, Insert(ClientB, at_b, "still "))
       #(transition(model, Insert(ClientC, at_c, "calm ")), effect.none())
     }
-    _, _ -> fail(model, "The text race target is not available.")
+    _, _ ->
+      recoverable_error(
+        model,
+        "The crowd insert target is not available. Reset to restore it.",
+      )
   }
 }
 
@@ -626,7 +631,11 @@ fn race_overlap(model: Model) -> #(Model, Effect(Msg)) {
         "delete",
       )
     }
-    _, _ -> fail(model, "The text race target is not available.")
+    _, _ ->
+      recoverable_error(
+        model,
+        "The overlapping edit target is not available. Reset to restore it.",
+      )
   }
 }
 
@@ -659,7 +668,7 @@ fn mutate(
         Ok(Nil) -> {
           let after = sluice_js.sequence_number(sluice)
           project(
-            model,
+            Model(..model, error: None),
             rig,
             list.append(model.pending, [
               Pending(
@@ -1184,4 +1193,8 @@ fn fail(model: Model, reason: String) -> #(Model, Effect(Msg)) {
     Model(..model, phase: Failed, error: Some(reason), delivery_armed: False),
     effect.none(),
   )
+}
+
+fn recoverable_error(model: Model, reason: String) -> #(Model, Effect(Msg)) {
+  #(Model(..model, error: Some(reason)), effect.none())
 }

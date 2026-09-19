@@ -97,6 +97,33 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.click("[data-text-race-overlap]");
   await waitForRevision(page);
   await converge(page);
+  await page.click("[data-text-race-insert]");
+  await page.waitForFunction(
+    () =>
+      document.querySelector("[data-text-error]")?.textContent.includes(
+        "The crowd insert target is not available. Reset to restore it.",
+      ),
+  );
+  assert.equal(
+    await page.$$eval("[data-text-editor]", (nodes) =>
+      nodes.every((node) => !node.disabled),
+    ),
+    true,
+  );
+  assert.equal(await page.$eval("[data-text-reset]", (node) => node.disabled), false);
+  await page.$eval('[data-client="a"] [data-text-editor]', (node) => {
+    node.value = `recovered ${node.value}`;
+    node.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertText",
+      data: "recovered ",
+    }));
+  });
+  await waitForRevision(page);
+  assert.match(await converge(page), /^recovered /);
+  await page.waitForFunction(
+    () => document.querySelector("[data-text-error]")?.textContent === "",
+  );
   assert.ok(
     await page.$$eval("[data-op-log] li", (nodes) => nodes.length >= 4),
     "both text races should log both replica operations",
@@ -163,6 +190,23 @@ await withBrowserSite(site, async (browser, origin) => {
       document.querySelector('[data-client="b"] [data-text-editor]')
         ?.dataset.composing === "true",
   );
+  await page.$eval('[data-client="b"] [data-text-editor]', (node) => {
+    node.value += " provisional";
+    node.setSelectionRange(node.value.length, node.value.length);
+    node.dispatchEvent(new InputEvent("input", {
+      bubbles: true,
+      inputType: "insertCompositionText",
+      data: " provisional",
+      isComposing: true,
+    }));
+  });
+  await page.waitForFunction(
+    (base) =>
+      document.querySelector('[data-client="b"] [data-text-editor]').value ===
+        `${base} provisional`,
+    {},
+    imeBase,
+  );
   await page.$eval('[data-client="c"] [data-text-editor]', (node) => {
     node.value = `remote ${node.value}`;
     node.dispatchEvent(new InputEvent("input", {
@@ -174,12 +218,13 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.waitForFunction(
     (base) =>
       document.querySelector('[data-client="a"] [data-text-editor]').value.startsWith("remote ") &&
-      document.querySelector('[data-client="b"] [data-text-editor]').value === base,
+      document.querySelector('[data-client="b"] [data-text-editor]').value ===
+        `${base} provisional`,
     {},
     imeBase,
   );
   await page.$eval('[data-client="b"] [data-text-editor]', (node) => {
-    node.value += " 水";
+    node.value = node.value.replace(/ provisional$/, " 水");
     node.setSelectionRange(node.value.length, node.value.length);
     node.dispatchEvent(new CompositionEvent("compositionend", { bubbles: true }));
     node.dispatchEvent(new InputEvent("input", {
