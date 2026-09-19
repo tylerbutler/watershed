@@ -1,6 +1,7 @@
 *.beam
 *.ez
 /build
+/tools/website-runtime/build/
 /node_modules
 erl_crash.dump
 

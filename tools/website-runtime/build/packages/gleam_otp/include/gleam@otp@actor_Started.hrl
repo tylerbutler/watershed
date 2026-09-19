@@ -1,4 +1,0 @@
--record(started, {
-    pid :: gleam@erlang@process:pid_(),
-    data :: any()
-}).
