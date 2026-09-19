@@ -12,8 +12,27 @@ rm -rf "${repo_root}/website_lustre/build/static"
 gleam build --target javascript
 
 builder="${repo_root}/tools/website-lustre-build/website_lustre_tools"
-(cd website_lustre && "${builder}" build watershed_site/client/guide_race watershed_site/client/sudoku watershed_site/client/directory watershed_site/client/counter_bug watershed_site/client/json_ot watershed_site/client/mv_register watershed_site/client/rich_text watershed_site/client/sequence)
-(cd website_lustre && "${builder}" build watershed_site/client/structure_sheet)
-(cd website_lustre && "${builder}" build watershed_site/client/text)
-(cd website_lustre && "${builder}" build watershed_site/client/home)
+entries=(
+  watershed_site/client/guide_race
+  watershed_site/client/sudoku
+  watershed_site/client/directory
+  watershed_site/client/counter_bug
+  watershed_site/client/json_ot
+  watershed_site/client/mv_register
+  watershed_site/client/rich_text
+  watershed_site/client/sequence
+  watershed_site/client/structure_sheet
+  watershed_site/client/text
+  watershed_site/client/home
+)
+(cd website_lustre && "${builder}" build "${entries[@]}")
+
+client_dir="${repo_root}/website_lustre/build/static/.lustre/build/watershed_site/client"
+for entry in "${entries[@]}"; do
+  name="${entry##*/}"
+  printf 'import "./.lustre/build/watershed_site/client/%s.js";\n' "${name}" \
+    > "${repo_root}/website_lustre/build/static/${name}.js"
+done
+mv "${client_dir}/rich_text.css" "${repo_root}/website_lustre/build/static/rich_text.css"
+
 (cd website_lustre && gleam run -m watershed_site/build)

@@ -3,7 +3,12 @@ import { readFile, stat, writeFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
+import { gzipSync } from "node:zlib";
 import puppeteer from "puppeteer";
+
+export function gzipSize(value) {
+  return gzipSync(value.rawBuffer.subarray(0, value.byteSize)).byteLength;
+}
 
 export function contract(importMetaUrl, fixtureName) {
   const root = resolve(dirname(fileURLToPath(importMetaUrl)), "../..");

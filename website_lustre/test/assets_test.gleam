@@ -1,9 +1,71 @@
 import gleam/bit_array
 import gleam/crypto
+import gleam/int
 import gleam/list
 import gleam/string
 import gleeunit/should
 import simplifile
+
+type AssetSize {
+  AssetSize(path: String, raw: Int, gzip: Int)
+}
+
+@external(javascript, "./browser/site.mjs", "gzipSize")
+fn gzip_size(bytes: BitArray) -> Int
+
+const raw_budget = 2_200_000
+
+const gzip_budget = 520_000
+
+pub fn generated_client_assets_stay_within_budget_test() {
+  let paths = client_asset_paths("build/static")
+  let sizes =
+    paths
+    |> list.map(fn(path) {
+      let assert Ok(bytes) = simplifile.read_bits(path) as path
+      AssetSize(path, bit_array.byte_size(bytes), gzip_size(bytes))
+    })
+  let raw = list.fold(sizes, 0, fn(total, asset) { total + asset.raw })
+  let gzip = list.fold(sizes, 0, fn(total, asset) { total + asset.gzip })
+  let entries =
+    sizes
+    |> list.map(fn(asset) {
+      asset.path
+      <> ": "
+      <> int.to_string(asset.raw)
+      <> " raw / "
+      <> int.to_string(asset.gzip)
+      <> " gzip"
+    })
+    |> string.join(with: "\n")
+  let report =
+    "Generated client assets exceed the budget: "
+    <> int.to_string(raw)
+    <> "/"
+    <> int.to_string(raw_budget)
+    <> " raw, "
+    <> int.to_string(gzip)
+    <> "/"
+    <> int.to_string(gzip_budget)
+    <> " gzip\n"
+    <> entries
+  let assert True = raw <= raw_budget && gzip <= gzip_budget as report
+}
+
+fn client_asset_paths(directory: String) {
+  let assert Ok(entries) = simplifile.read_directory(directory)
+  list.flat_map(entries, fn(entry) {
+    let path = directory <> "/" <> entry
+    case simplifile.is_directory(path) {
+      Ok(True) -> client_asset_paths(path)
+      _ ->
+        case string.ends_with(path, ".js") || string.ends_with(path, ".css") {
+          True -> [path]
+          False -> []
+        }
+    }
+  })
+}
 
 pub fn images_match_contract_test() {
   [
