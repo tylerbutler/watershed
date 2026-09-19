@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-sudoku-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-sudoku-contract.json");
 const selector = (id) => `[data-testid="${id}"]`;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -94,16 +94,16 @@ await withBrowserSite(site, async (browser, origin) => {
   const mobile = await snapshot(page);
   if (record) {
     assert.deepEqual(errors, [], "baseline browser errors");
-    await writeParity(fixture, { desktop, mobile });
-    console.log("Recorded Astro Sudoku parity baseline.");
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site Sudoku contract baseline.");
     return;
   }
 
-  const baseline = await readParity(fixture);
+  const baseline = await readContract(fixture);
   assert.deepEqual({ desktop, mobile }, baseline);
   assert.equal(mobile.fitsViewport, true, "mobile overflow");
   assert.equal(
-    await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"),
+    await page.$("script[src*='@vite']"),
     null,
   );
   assert.deepEqual(
@@ -306,6 +306,6 @@ await withBrowserSite(site, async (browser, origin) => {
   await pause(10);
   assert.deepEqual(errors, [], "browser errors");
   console.log(
-    "PASS: Sudoku Astro parity, cell edits, race, reset, no-JS, and failures.",
+    "PASS: Sudoku site contract, cell edits, race, reset, no-JS, and failures.",
   );
 });

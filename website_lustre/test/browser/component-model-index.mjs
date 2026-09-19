@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-component-model-index-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-component-model-index-contract.json");
 const selector = (id) => `[data-testid="${id}"]`;
 
 await withBrowserSite(site, async (browser, origin) => {
@@ -64,16 +64,16 @@ await withBrowserSite(site, async (browser, origin) => {
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "mobile overflow");
   if (record) {
     assert.deepEqual(errors, [], "baseline browser errors");
-    await writeParity(fixture, { content, desktop, mobile, focus });
-    console.log("Recorded Astro component-model index parity baseline.");
+    await writeContract(fixture, { content, desktop, mobile, focus });
+    console.log("Recorded site component-model index contract baseline.");
     return;
   }
-  const baseline = await readParity(fixture);
+  const baseline = await readContract(fixture);
   assert.deepEqual(content, baseline.content, "static copy, metadata, catalog, and navigation");
   assert.deepEqual(desktop, baseline.desktop, "desktop styles");
   assert.deepEqual(mobile, baseline.mobile, "mobile styles");
   assert.deepEqual(focus, baseline.focus, "keyboard focus");
-  assert.equal(await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"), null);
+  assert.equal(await page.$("script[src*='@vite']"), null);
   assert.deepEqual(await page.$$eval('script[type="module"]', (nodes) => nodes.map((node) => new URL(node.src).pathname)), ["/scripts/concept-index.js"]);
   assert.equal(await page.$$eval(`${selector("component-model-list")} > li`, (nodes) =>
     nodes.length === 3 && nodes.every((node) => node.checkVisibility())), true, "all entries work without JavaScript");
@@ -94,5 +94,5 @@ await withBrowserSite(site, async (browser, origin) => {
   assert.equal(await page.$$eval(`${selector("component-model-list")} > li`, (nodes) =>
     nodes.every((node) => node.checkVisibility())), true);
   assert.deepEqual(errors, [], "browser errors");
-  console.log("PASS: component-model index Astro parity, navigation, focus, and reveal motion.");
+  console.log("PASS: component-model index site contract, navigation, focus, and reveal motion.");
 });

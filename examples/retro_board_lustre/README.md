@@ -11,7 +11,7 @@ built around the two moments where naive implementations lose data:
   card is a fresh key in an add-wins OR-map, and both survive.
 - **Concurrent vote.** Two people upvote the same card while a third
   downvotes. Under `get → +1 → set`, votes are silently lost — exactly the
-  failure the website's [counter-bug page](../../website/src/pages/counter-bug.astro)
+  failure the website's [counter-bug page](../../website_lustre/content/counter-bug.djot)
   argues in prose. Here votes are per-key PN-counter leaves in a `TallyMode`
   OR-map: +1, +1, −1 lands on +1, always, on every client.
 

@@ -1620,7 +1620,7 @@
     gap: var(--space-sm);
   }
 
-  /* :global — the stamp is re-rendered from JS without Astro's scope attr */
+  /* :global — the stamp is re-rendered from JS without the original scope attribute */
   .status .stamp {
     font-family: var(--font-mono);
     font-size: 0.75rem;

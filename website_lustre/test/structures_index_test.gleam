@@ -11,8 +11,7 @@ import watershed_site/snippet
 pub fn structures_index_renders_the_field_atlas_without_a_client_test() {
   let structures = support.route("/structures")
   let assert Ok(source) = content.load(structures)
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, structures, manifest, "test")
   let html = element.to_document_string(document)
   [
@@ -38,10 +37,7 @@ pub fn structures_index_renders_the_field_atlas_without_a_client_test() {
     |> list.is_empty
     |> should.be_false()
   })
-  [
-    "/guide_race.js", "/styles/guide-race.css", "astro-island", "/_astro/",
-    "data-component", "canonical",
-  ]
+  ["/guide_race.js", "/styles/guide-race.css", "data-component", "canonical"]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent
   })

@@ -7,8 +7,7 @@ import watershed_site/page
 import watershed_site/snippet
 
 pub fn component_model_pages_render_shared_layout_and_snippets_test() {
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   [
     #(
       "components",
@@ -46,7 +45,7 @@ pub fn component_model_pages_render_shared_layout_and_snippets_test() {
     |> list.each(fn(text) {
       let assert True = string.contains(html, text) as text
     })
-    ["/guide_race.js", "astro-island", "/_astro/", "@vite", "data-component"]
+    ["/guide_race.js", "@vite", "data-component"]
     |> list.each(fn(text) {
       let assert False = string.contains(html, text) as text
     })

@@ -11,8 +11,7 @@ import watershed_site/snippet
 pub fn models_page_renders_all_three_convergence_models_test() {
   let models = support.route("/models")
   let assert Ok(source) = content.load(models)
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, models, manifest, "test")
   let html = element.to_document_string(document)
   [
@@ -33,7 +32,7 @@ pub fn models_page_renders_all_three_convergence_models_test() {
   let tree = html_parser.as_tree(html)
   find(tree, "class", "mod-card") |> list.length |> should.equal(3)
   find(tree, "class", "mod-table") |> list.length |> should.equal(1)
-  ["/guide_race.js", "astro-island", "/_astro/", "canonical"]
+  ["/guide_race.js", "canonical"]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent
   })

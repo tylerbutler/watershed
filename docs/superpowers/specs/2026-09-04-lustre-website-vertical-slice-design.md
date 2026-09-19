@@ -2,6 +2,9 @@
 
 **Date:** 2026-09-04
 
+**Status:** Complete. The parallel Astro phase ended on 2026-09-18; the Lustre
+site is the sole production implementation.
+
 ## Goal
 
 Replatform the watershed website on Lustre so the site demonstrates the same

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-home-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-home-contract.json");
 
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -55,8 +55,8 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.setViewport({ width: 390, height: 844 });
   const mobile = await snapshot(page);
   if (record) {
-    await writeParity(fixture, { desktop, mobile });
-    console.log("Recorded Astro homepage parity baseline.");
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site homepage contract baseline.");
     return;
   }
   assert.equal(
@@ -65,10 +65,10 @@ await withBrowserSite(site, async (browser, origin) => {
   );
   assert.deepEqual(
     { desktop, mobile },
-    await readParity(fixture),
+    await readContract(fixture),
   );
   assert.deepEqual(errors, []);
-  assert.equal(await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"), null);
+  assert.equal(await page.$("script[src*='@vite']"), null);
   const before = await page.$eval(
     '[data-client="a"] .dds-map tr[data-key="mill-race"] [data-value]',
     (node) => node.textContent,
@@ -204,5 +204,5 @@ await withBrowserSite(site, async (browser, origin) => {
     await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth),
     true,
   );
-  console.log("PASS: Homepage SharedMap demo converges without Astro runtime.");
+  console.log("PASS: Homepage SharedMap demo converges with the native runtime.");
 });

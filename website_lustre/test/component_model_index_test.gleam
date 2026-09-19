@@ -11,8 +11,7 @@ import watershed_site/snippet
 pub fn component_model_index_renders_its_catalog_test() {
   let component_model = support.route("/component-model")
   let assert Ok(source) = content.load(component_model)
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) =
     page.render(source, component_model, manifest, "test")
   let html = element.to_document_string(document)
@@ -38,10 +37,7 @@ pub fn component_model_index_renders_its_catalog_test() {
     |> list.is_empty
     |> should.be_false()
   })
-  [
-    "/guide_race.js", "/styles/guide-race.css", "astro-island", "/_astro/",
-    "data-component", "canonical",
-  ]
+  ["/guide_race.js", "/styles/guide-race.css", "data-component", "canonical"]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent
   })

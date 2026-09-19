@@ -3,7 +3,7 @@ import gleam/option.{Some}
 import gleeunit/should
 import watershed_site/structures
 
-pub fn field_atlas_catalog_matches_the_astro_families_test() {
+pub fn field_atlas_catalog_matches_the_site_families_test() {
   structures.all()
   |> list.map(fn(family) {
     #(

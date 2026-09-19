@@ -11,8 +11,7 @@ pub fn connect_page_contains_the_complete_guide_test() {
   |> should.equal(
     "Step one of the watershed build guide: connect the tutorial retro board to a live document, wait for it to finish catching up before you build on it, and set up its two maps with ensure_or_map before the first render.",
   )
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   content.validate_snippets(source.document, manifest, source.path)
   |> should.be_ok()
   [
@@ -70,8 +69,7 @@ pub fn notes_page_contains_the_complete_guide_test() {
   |> should.equal(
     "Step two of the watershed build guide: add a note to the board, keyed by its own id in a register OR-map, stored as one JSON value, and read back through a decoder that shows a broken note instead of crashing the board.",
   )
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   content.validate_snippets(source.document, manifest, source.path)
   |> should.be_ok()
   [
@@ -111,8 +109,7 @@ pub fn votes_page_contains_the_complete_guide_test() {
   |> should.equal(
     "Step four of the watershed build guide: store vote totals in a map where each key adds up changes instead of overwriting them, so votes cast at the same instant sum correctly instead of clobbering each other.",
   )
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   content.validate_snippets(source.document, manifest, source.path)
   |> should.be_ok()
   [
@@ -152,8 +149,7 @@ pub fn presence_page_contains_the_complete_guide_test() {
   |> should.equal(
     "Step five of the watershed build guide: publish the note a teammate is reading through presence, a roster that clears itself out when someone leaves, instead of storing it in the document where it would stick around forever.",
   )
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   content.validate_snippets(source.document, manifest, source.path)
   |> should.be_ok()
   [
@@ -194,8 +190,7 @@ pub fn testing_page_contains_the_complete_guide_test() {
   |> should.equal(
     "Step six of the watershed build guide: run two clients in one Gleam test and control when each message arrives.",
   )
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   content.validate_snippets(source.document, manifest, source.path)
   |> should.be_ok()
   [

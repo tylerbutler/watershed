@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-directory-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-directory-contract.json");
 const selector = (id) => `[data-testid="${id}"]`;
 
 async function snapshot(page) {
@@ -91,18 +91,18 @@ await withBrowserSite(site, async (browser, origin) => {
   const mobile = await snapshot(page);
   if (record) {
     assert.deepEqual(errors, [], "baseline browser errors");
-    await writeParity(fixture, { desktop, mobile });
-    console.log("Recorded Astro Directory parity baseline.");
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site Directory contract baseline.");
     return;
   }
 
   assert.deepEqual(
     { desktop, mobile },
-    await readParity(fixture),
+    await readContract(fixture),
   );
   assert.equal(mobile.fitsViewport, true, "mobile overflow");
   assert.equal(
-    await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"),
+    await page.$("script[src*='@vite']"),
     null,
   );
   assert.deepEqual(
@@ -333,6 +333,6 @@ await withBrowserSite(site, async (browser, origin) => {
 
   assert.deepEqual(errors, [], "browser errors");
   console.log(
-    "PASS: Directory Astro parity, edits, race, reset, no-JS, and failures.",
+    "PASS: Directory site contract, edits, race, reset, no-JS, and failures.",
   );
 });

@@ -53,8 +53,7 @@ jobs:
           gleam deps download
           cd ../..
           just snippets
-      - name: Install legacy runtime dependencies
-        working-directory: website
+      - name: Install repository dependencies
         run: pnpm install --frozen-lockfile
       - name: Install site and browser dependencies
         working-directory: website_lustre

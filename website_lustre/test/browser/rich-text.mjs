@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-rich-text-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-rich-text-contract.json");
 
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -114,18 +114,18 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.setViewport({ width: 390, height: 844 });
   const mobile = await snapshot(page);
   if (record) {
-    await writeParity(fixture, { desktop, mobile });
-    console.log("Recorded Astro rich text parity baseline.");
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site rich text contract baseline.");
     return;
   }
 
   assert.deepEqual(
     { desktop, mobile },
-    await readParity(fixture),
+    await readContract(fixture),
   );
   assert.equal(mobile.fitsViewport, true, "mobile overflow");
   assert.equal(
-    await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"),
+    await page.$("script[src*='@vite']"),
     null,
   );
 
@@ -254,6 +254,6 @@ await withBrowserSite(site, async (browser, origin) => {
 
   assert.deepEqual(errors, [], "browser errors");
   console.log(
-    "PASS: rich text parity, OT scenarios, reset, no-JS, and failure fallback.",
+    "PASS: rich text contract, OT scenarios, reset, no-JS, and failure fallback.",
   );
 });

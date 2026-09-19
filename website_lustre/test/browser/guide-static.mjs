@@ -1,8 +1,8 @@
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { root, record, site } = parity(import.meta.url);
+const { root, record, site } = contract(import.meta.url);
 const routes = [
   { slug: "connect", anchor: "ffi-surface" },
   { slug: "notes", anchor: "authoritative-channel" },
@@ -61,15 +61,15 @@ await withBrowserSite(site, async (browser, origin) => {
     const desktop = await snapshot(page);
     await page.setViewport({ width: 390, height: 844 });
     const mobile = await snapshot(page);
-    const fixture = resolve(root, `test/fixtures/astro-guide-${route.slug}-parity.json`);
+    const fixture = resolve(root, `test/fixtures/site-guide-${route.slug}-contract.json`);
     if (record) {
-      await writeParity(fixture, { desktop, mobile });
+      await writeContract(fixture, { desktop, mobile });
       await page.close();
       continue;
     }
-    const baseline = await readParity(fixture);
+    const baseline = await readContract(fixture);
     assert.deepEqual({ desktop, mobile }, baseline);
-    assert.equal(await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"), null);
+    assert.equal(await page.$("script[src*='@vite']"), null);
     assert.deepEqual(
       await page.$$eval('script[type="module"]', (nodes) => nodes.map((node) => new URL(node.src).pathname)),
       ["/scripts/field-notes.js"],
@@ -80,5 +80,5 @@ await withBrowserSite(site, async (browser, origin) => {
     assert.deepEqual(errors, []);
     await page.close();
   }
-  console.log(`PASS: ${routes.map(({ slug }) => slug).join(", ")} guide parity and field-note fragments.`);
+  console.log(`PASS: ${routes.map(({ slug }) => slug).join(", ")} guide contract and field-note fragments.`);
 });

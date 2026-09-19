@@ -30,7 +30,7 @@ _build-bundles:
     trellis run bundle --serial
 
 # Run tests
-test: _test-gleam _test-js _test-compile-fail _test-website-snippets _test-website-lustre
+test: _test-gleam _test-js _test-compile-fail _test-website-lustre
 
 # Every member with a `test/` directory, each on the target its own gleam.toml
 # pins. This covers the Lustre bindings package (grapheme diff, UTF-16 offset
@@ -80,17 +80,6 @@ _test-compile-fail:
       exit 1
     fi
     echo "ok  incompatible port payload types are rejected"
-
-# Source-backed snippet drift gates — the website test suite that enforces
-# every rendered snippet id is declared and generated, marker IDs are unique
-# and quoted, literal Gleam is allowlisted, only SnippetBlock renders code,
-# and only the loader reads the generated manifest. Regenerates the manifest
-# first, then runs the drift gate suite plus every targeted snippet test from
-# the website package, and the global-stylesheet test that keeps the
-# source-path chip keyboard-focusable — a snippet's citation is a link, so
-# losing its focus ring is a drift of the same system.
-_test-website-snippets: snippets
-    cd website && pnpm check:types && pnpm test:gleam-values && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:navigation && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles && pnpm test:netlify-contract && pnpm test:snippet-config
 
 # Generate the website's snippet manifest from `website_lustre/snippets.json`.
 # The output, `website_lustre/src/generated/snippets.json`, is ignored rather than

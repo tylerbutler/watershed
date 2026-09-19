@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-sequence-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-sequence-contract.json");
 
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -106,18 +106,18 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.setViewport({ width: 390, height: 844 });
   const mobile = await snapshot(page);
   if (record) {
-    await writeParity(fixture, { desktop, mobile });
-    console.log("Recorded Astro Sequence parity baseline.");
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site Sequence contract baseline.");
     return;
   }
 
   assert.deepEqual(
     { desktop, mobile },
-    await readParity(fixture),
+    await readContract(fixture),
   );
   assert.equal(mobile.fitsViewport, true, "mobile overflow");
   assert.equal(
-    await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"),
+    await page.$("script[src*='@vite']"),
     null,
   );
 
@@ -309,5 +309,5 @@ await withBrowserSite(site, async (browser, origin) => {
   });
   await blocked.close();
   assert.deepEqual(errors, [], "browser errors");
-  console.log("PASS: Sequence parity, races, edit, reset, and fallbacks.");
+  console.log("PASS: Sequence contract, races, edit, reset, and fallbacks.");
 });

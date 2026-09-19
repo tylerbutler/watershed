@@ -20,8 +20,7 @@ pub fn guide_index_renders_all_six_steps_without_a_client_test() {
   let route = index_route()
   route.client_script |> should.equal(None)
   let assert Ok(source) = content.load(route)
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, route, manifest, "test")
   let html = element.to_document_string(document)
   [
@@ -51,7 +50,7 @@ pub fn guide_index_renders_all_six_steps_without_a_client_test() {
   })
   [
     "/guide_race.js", "/styles/guide-race.css", "guide-race-mount",
-    "astro-island", "/_astro/", "data-component", "canonical",
+    "data-component", "canonical",
   ]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent

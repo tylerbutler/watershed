@@ -1,9 +1,9 @@
 import assert from "node:assert/strict";
 import { existsSync } from "node:fs";
 import { resolve } from "node:path";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-race-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-race-contract.json");
 const selector = (id) => `[data-testid="${id}"]`;
 const pause = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -35,7 +35,7 @@ await withBrowserSite(site, async (browser, origin) => {
     };
   });
   if (!record) {
-    const baseline = await readParity(fixture);
+    const baseline = await readContract(fixture);
     assert.deepEqual(content, baseline.content);
     assert.equal(await page.$$eval(selector("race-demo"), (nodes) => nodes.length), 1);
     for (const id of ["alpha", "beta", "noscript"]) {
@@ -46,7 +46,7 @@ await withBrowserSite(site, async (browser, origin) => {
     }
     assert.equal(await page.$eval(selector("race-fallback"), (node) => node.checkVisibility()), false);
     assert.deepEqual(await page.$$eval('script[type="module"]', (nodes) => nodes.map((node) => new URL(node.src).pathname)), ["/guide_race.js"]);
-    assert.equal(await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"), null);
+    assert.equal(await page.$("script[src*='@vite']"), null);
     await page.setJavaScriptEnabled(true);
     await page.reload();
     await page.waitForFunction(() => document.querySelector('[data-testid="race-demo"]')?.dataset.phase === "ready");
@@ -91,10 +91,10 @@ await withBrowserSite(site, async (browser, origin) => {
   const mobile = await collectStyles();
   assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), true, "mobile overflow");
   if (record) {
-    await writeParity(fixture, { content, desktop, mobile, focus });
-    console.log("Recorded Astro race parity baseline.");
+    await writeContract(fixture, { content, desktop, mobile, focus });
+    console.log("Recorded site race contract baseline.");
   } else {
-    const baseline = await readParity(fixture);
+    const baseline = await readContract(fixture);
     assert.deepEqual(desktop, baseline.desktop, "desktop styles");
     assert.deepEqual(mobile, baseline.mobile, "mobile styles");
     assert.deepEqual(focus, baseline.focus, "keyboard focus");
@@ -203,7 +203,7 @@ await withBrowserSite(site, async (browser, origin) => {
     assert.match(await blocked.$eval(selector("alpha-notes"), (node) => node.innerText), /ship week went smoothly/);
     assert.equal(await blocked.$eval(selector("race-add"), (node) => node.disabled), true);
     await blocked.close();
-    console.log("PASS: static content, Astro parity, race, flow, reset, reduced motion, and failures.");
+    console.log("PASS: static content, site contract, race, flow, reset, reduced motion, and failures.");
   }
   assert.deepEqual(errors, [], "browser errors");
 });

@@ -67,7 +67,7 @@ erl -version
 gleam --version
 run_pnpm --version
 
-run_pnpm --dir website install --frozen-lockfile
+run_pnpm install --frozen-lockfile
 PUPPETEER_SKIP_DOWNLOAD=true run_pnpm --dir website_lustre install --frozen-lockfile
 
 gleam deps download

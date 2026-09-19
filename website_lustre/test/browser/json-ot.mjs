@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-json-ot-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-json-ot-contract.json");
 const selector = (id) => `[data-testid="${id}"]`;
 
 async function snapshot(page) {
@@ -81,18 +81,18 @@ await withBrowserSite(site, async (browser, origin) => {
   const mobile = await snapshot(page);
   if (record) {
     assert.deepEqual(errors, [], "baseline browser errors");
-    await writeParity(fixture, { desktop, mobile });
-    console.log("Recorded Astro JSON OT parity baseline.");
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site JSON OT contract baseline.");
     return;
   }
 
   assert.deepEqual(
     { desktop, mobile },
-    await readParity(fixture),
+    await readContract(fixture),
   );
   assert.equal(mobile.fitsViewport, true, "mobile overflow");
   assert.equal(
-    await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"),
+    await page.$("script[src*='@vite']"),
     null,
   );
   assert.deepEqual(
@@ -333,6 +333,6 @@ await withBrowserSite(site, async (browser, origin) => {
 
   assert.deepEqual(errors, [], "browser errors");
   console.log(
-    "PASS: JSON OT Astro parity, transformed inserts, no-JS, and failures.",
+    "PASS: JSON OT site contract, transformed inserts, no-JS, and failures.",
   );
 });

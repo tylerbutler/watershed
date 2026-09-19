@@ -1,6 +1,6 @@
 # Design
 
-Visual system for the watershed website (`website/`). Register: brand.
+Visual system for the watershed website (`website_lustre/`). Register: brand.
 
 ## Theme: "Photorevised survey quadrangle"
 
@@ -44,7 +44,8 @@ ink = sequenced/confirmed, waterline = linework and links.
 ## Sheet grammar
 
 The page is wrapped in a neatline border with registration crosses at the
-corners and mono margin annotations above/below the frame (`Sheet.astro`).
+corners and mono margin annotations above/below the frame
+(`src/watershed_site/view/sheet.gleam`).
 This frame-level grammar is the *only* place kicker-style labels live;
 sections themselves get plain headings — no per-section eyebrows.
 
@@ -53,13 +54,12 @@ sections themselves get plain headings — no per-section eyebrows.
 - Tokens: `--ease-out-quart`, `--ease-out-expo`; 130ms feedback / 240ms state
   / 700ms entrance.
 - Hero contours draw in via `stroke-dashoffset` keyframes; headline rises.
-- After draw-in the contour field keeps flexing slowly (`hero-drift.js`):
-  path geometry is re-derived from the shared generator
-  (`contour-field.js`) with a two-frequency ~5px vertical drift, amplitude
+- After draw-in the contour field keeps flexing slowly
+  (`src/watershed_site/client/home_ffi.mjs`) with a two-frequency ~5px vertical drift, amplitude
   ramped from zero so the JS takeover never jumps. ~26fps, paused
   off-screen via IntersectionObserver, skipped (and reset to static)
   under reduced motion.
-- Scroll reveals (`src/scripts/motion.js`) animate *visible-by-default*
+- Scroll reveals (`assets/scripts/motion.js`) animate *visible-by-default*
   content with WAAPI at trigger time — nothing is hidden if JS fails.
   Variants: `rise` (up) and `settle` (strata settle downward).
 - Demo ops travel as dots (magenta toward the sequencer, ink outward). On
@@ -105,13 +105,9 @@ sections themselves get plain headings — no per-section eyebrows.
 - Demo gauges are river gauges: values clamp at 0 and each row's `−` disables
   at the floor. Reset/race writes are clamped the same way.
 - Bedrock hatching: `repeating-linear-gradient(-45deg, …)` hairline diagonal.
-- Astro scoped styles don't reach JS-created elements — use `:global()` for
-  anything rendered from `demo.js`.
-- The demo imports the real compiled kernels from
-  `../../../build/dev/javascript/watershed/watershed/{map_kernel,pn_counter_kernel,or_map_kernel,or_set_kernel,g_set_kernel,two_p_set_kernel,claims_kernel,register_collection_kernel,ordered_collection_kernel,pact_map_kernel}.mjs`
-  plus the runtime counter channel and lattice modules
-  (`lattice_counters/{pn_counter,g_counter}`, `lattice_core/replica_id`)
-  (`gleam build --target javascript` runs via `predev`/`prebuild`).
+- Client-rendered elements use selectors in the shared site stylesheets.
+- The Lustre demos call the real watershed kernels through typed Gleam runtime
+  modules and page-scoped client entries under `src/watershed_site/client/`.
 - The demo hosts all twelve DDS/CRDT sheets on one sequencer/SN stream, like DDSes
   sharing a container. A segmented picker (`.dds-picker`, radios styled as
   printed cells; checked cell = solid ink; stacks into a legend column below

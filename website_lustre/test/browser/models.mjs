@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-models-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-models-contract.json");
 
 async function snapshot(page) {
   return page.evaluate(() => {
@@ -57,14 +57,14 @@ await withBrowserSite(site, async (browser, origin) => {
   const mobile = await snapshot(page);
   if (record) {
     assert.deepEqual(errors, [], "baseline browser errors");
-    await writeParity(fixture, { desktop, mobile });
-    console.log("Recorded Astro models parity baseline.");
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site models contract baseline.");
     return;
   }
-  const baseline = await readParity(fixture);
+  const baseline = await readContract(fixture);
   assert.deepEqual({ desktop, mobile }, baseline);
   assert.equal(mobile.fitsViewport, true, "mobile overflow");
-  assert.equal(await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"), null);
+  assert.equal(await page.$("script[src*='@vite']"), null);
   assert.deepEqual(
     await page.$$eval('script[type="module"]', (nodes) => nodes.map((node) => new URL(node.src).pathname)),
     ["/scripts/concept-index.js"],
@@ -75,5 +75,5 @@ await withBrowserSite(site, async (browser, origin) => {
     "none",
   );
   assert.deepEqual(errors, [], "browser errors");
-  console.log("PASS: models Astro parity, mobile layout, and keyboard focus.");
+  console.log("PASS: models site contract, mobile layout, and keyboard focus.");
 });

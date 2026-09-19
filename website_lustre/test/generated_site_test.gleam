@@ -25,7 +25,7 @@ pub fn generated_route_and_assets_test() {
   |> list.each(fn(expected) {
     let assert True = string.contains(html, expected) as expected
   })
-  ["astro-island", "/_astro/", "@vite"]
+  ["@vite"]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent
   })

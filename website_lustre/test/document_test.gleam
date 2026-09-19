@@ -51,7 +51,7 @@ pub fn document_preserves_metadata_and_navigation_test() {
   |> list.each(fn(expected) {
     let assert True = string.contains(html, expected) as expected
   })
-  ["canonical", "/_astro/", "astro-island", "@vite", "client:load"]
+  ["canonical", "@vite", "client:load"]
   |> list.each(fn(absent) { string.contains(html, absent) |> should.be_false() })
 }
 

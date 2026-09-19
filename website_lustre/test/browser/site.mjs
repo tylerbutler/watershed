@@ -5,7 +5,7 @@ import { dirname, extname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import puppeteer from "puppeteer";
 
-export function parity(importMetaUrl, fixtureName) {
+export function contract(importMetaUrl, fixtureName) {
   const root = resolve(dirname(fileURLToPath(importMetaUrl)), "../..");
   const record = process.argv.includes("--record-baseline");
   return {
@@ -18,11 +18,11 @@ export function parity(importMetaUrl, fixtureName) {
   };
 }
 
-export async function readParity(path) {
+export async function readContract(path) {
   return JSON.parse(await readFile(path, "utf8"));
 }
 
-export async function writeParity(path, value) {
+export async function writeContract(path, value) {
   await writeFile(path, JSON.stringify(value, null, 2) + "\n");
 }
 

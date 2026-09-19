@@ -13,8 +13,7 @@ pub fn foundations_index_renders_the_catalog_without_a_client_test() {
     route.all()
     |> list.find(fn(item) { item.path == "/foundations" })
   let assert Ok(source) = content.load(foundations)
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, foundations, manifest, "test")
   let html = element.to_document_string(document)
   [
@@ -39,10 +38,7 @@ pub fn foundations_index_renders_the_catalog_without_a_client_test() {
     |> list.is_empty
     |> should.be_false()
   })
-  [
-    "/guide_race.js", "/styles/guide-race.css", "astro-island", "/_astro/",
-    "data-component", "canonical",
-  ]
+  ["/guide_race.js", "/styles/guide-race.css", "data-component", "canonical"]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent
   })

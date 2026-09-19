@@ -54,10 +54,7 @@ pub fn runtime_index_renders_the_catalog_without_a_client_test() {
     |> list.is_empty
     |> should.be_false()
   })
-  [
-    "/guide_race.js", "/styles/guide-race.css", "astro-island", "/_astro/",
-    "data-component", "canonical",
-  ]
+  ["/guide_race.js", "/styles/guide-race.css", "data-component", "canonical"]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent
   })

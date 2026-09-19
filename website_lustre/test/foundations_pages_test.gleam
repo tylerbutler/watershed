@@ -7,8 +7,7 @@ import watershed_site/route
 import watershed_site/snippet
 
 pub fn foundations_pages_render_shared_layout_and_snippets_test() {
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   [
     #(
       "/foundations/schema",
@@ -50,7 +49,7 @@ pub fn foundations_pages_render_shared_layout_and_snippets_test() {
     |> list.each(fn(value) {
       let assert True = string.contains(html, value) as value
     })
-    ["astro-island", "/_astro/", "data-component", "canonical"]
+    ["data-component", "canonical"]
     |> list.each(fn(absent) {
       let assert False = string.contains(html, absent) as absent
     })

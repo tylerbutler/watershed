@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-counter-bug-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-counter-bug-contract.json");
 const selector = (id) => `[data-testid="${id}"]`;
 
 async function snapshot(page) {
@@ -86,12 +86,12 @@ await withBrowserSite(site, async (browser, origin) => {
   const mobile = await snapshot(page);
   if (record) {
     assert.deepEqual(errors, [], "baseline browser errors");
-    await writeParity(fixture, { desktop, mobile });
-    console.log("Recorded Astro counter-bug parity baseline.");
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site counter-bug contract baseline.");
     return;
   }
 
-  const baseline = await readParity(fixture);
+  const baseline = await readContract(fixture);
   baseline.desktop.scrollWidth = desktop.scrollWidth;
   baseline.desktop.fitsViewport = desktop.fitsViewport;
   baseline.mobile.scrollWidth = mobile.scrollWidth;
@@ -99,7 +99,7 @@ await withBrowserSite(site, async (browser, origin) => {
   assert.deepEqual({ desktop, mobile }, baseline);
   assert.equal(mobile.fitsViewport, true, "mobile overflow");
   assert.equal(
-    await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"),
+    await page.$("script[src*='@vite']"),
     null,
   );
   assert.deepEqual(
@@ -226,6 +226,6 @@ await withBrowserSite(site, async (browser, origin) => {
 
   assert.deepEqual(errors, [], "browser errors");
   console.log(
-    "PASS: Counter-bug Astro parity, kernel outcomes, no-JS, and failures.",
+    "PASS: Counter-bug site contract, kernel outcomes, no-JS, and failures.",
   );
 });

@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
-import { openPage, parity, readParity, withBrowserSite, writeParity } from "./site.mjs";
+import { openPage, contract, readContract, withBrowserSite, writeContract } from "./site.mjs";
 
-const { record, site, fixture } = parity(import.meta.url, "astro-text-parity.json");
+const { record, site, fixture } = contract(import.meta.url, "site-text-contract.json");
 
 async function snapshot(page) {
   return page.evaluate(() => ({
@@ -65,13 +65,13 @@ await withBrowserSite(site, async (browser, origin) => {
   await page.setViewport({ width: 390, height: 844 });
   const mobile = await snapshot(page);
   if (record) {
-    await writeParity(fixture, { desktop, mobile });
-    console.log("Recorded Astro Text parity baseline.");
+    await writeContract(fixture, { desktop, mobile });
+    console.log("Recorded site Text contract baseline.");
     return;
   }
   assert.deepEqual(
     { desktop, mobile },
-    await readParity(fixture),
+    await readContract(fixture),
   );
   assert.equal(mobile.fitsViewport, true);
   const mainText = await page.$eval("main", (node) =>
@@ -83,7 +83,7 @@ await withBrowserSite(site, async (browser, origin) => {
     "The component owns what the naïve bridge gets wrong",
     "Cursors here hop panes through a property assignment",
   ]) assert.match(mainText, new RegExp(phrase));
-  assert.equal(await page.$("astro-island, script[src*='_astro'], script[src*='@vite']"), null);
+  assert.equal(await page.$("script[src*='@vite']"), null);
 
   await page.setViewport({ width: 1440, height: 1000 });
   const editor = await page.$('[data-client="a"] [data-text-editor]');
@@ -299,5 +299,5 @@ await withBrowserSite(site, async (browser, origin) => {
   });
   await blocked.close();
   assert.deepEqual(errors, []);
-  console.log("PASS: Text parity, edits, races, custom elements, and fallbacks.");
+  console.log("PASS: Text contract, edits, races, custom elements, and fallbacks.");
 });

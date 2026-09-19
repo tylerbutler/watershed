@@ -28,8 +28,7 @@ pub fn optimistic_renders_the_runtime_sheet_and_snippet_test() {
 
   let assert Ok(source) = content.load(page_route)
   source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, page_route, manifest, "test")
   let html = element.to_document_string(document)
   [
@@ -47,8 +46,6 @@ pub fn optimistic_renders_the_runtime_sheet_and_snippet_test() {
   })
   [
     "/guide_race.js",
-    "astro-island",
-    "/_astro/",
     "@vite",
     "data-component",
   ]
@@ -66,8 +63,7 @@ pub fn reconnect_renders_the_runtime_sheet_without_a_client_test() {
   let page_route = support.route("/runtime/" <> "reconnect")
   let assert Ok(source) = content.load(page_route)
   source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, page_route, manifest, "test")
   let html = element.to_document_string(document)
   [
@@ -80,7 +76,7 @@ pub fn reconnect_renders_the_runtime_sheet_without_a_client_test() {
   |> list.each(fn(expected) {
     let assert True = string.contains(html, expected) as expected
   })
-  ["/guide_race.js", "astro-island", "/_astro/", "@vite", "data-component"]
+  ["/guide_race.js", "@vite", "data-component"]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent
   })
@@ -95,8 +91,7 @@ pub fn redelivery_renders_the_duplicate_op_log_test() {
   let page_route = support.route("/runtime/" <> "redelivery")
   let assert Ok(source) = content.load(page_route)
   source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, page_route, manifest, "test")
   let html = element.to_document_string(document)
   [
@@ -111,7 +106,7 @@ pub fn redelivery_renders_the_duplicate_op_log_test() {
   |> list.each(fn(expected) {
     let assert True = string.contains(html, expected) as expected
   })
-  ["astro-island", "/_astro/", "@vite", "data-component"]
+  ["@vite", "data-component"]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent
   })
@@ -126,8 +121,7 @@ pub fn presence_renders_the_configuration_example_test() {
   let page_route = support.route("/runtime/" <> "presence")
   let assert Ok(source) = content.load(page_route)
   source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, page_route, manifest, "test")
   let html = element.to_document_string(document)
   [
@@ -140,7 +134,7 @@ pub fn presence_renders_the_configuration_example_test() {
   |> list.each(fn(expected) {
     let assert True = string.contains(html, expected) as expected
   })
-  ["/guide_race.js", "astro-island", "/_astro/", "@vite", "data-component"]
+  ["/guide_race.js", "@vite", "data-component"]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent
   })
@@ -154,8 +148,7 @@ pub fn p2p_renders_the_crdt_configuration_and_final_pager_test() {
   let page_route = support.route("/runtime/" <> "p2p")
   let assert Ok(source) = content.load(page_route)
   source.metadata.kind |> should.equal(content.RuntimeSheet(doc))
-  let assert Ok(manifest) =
-    snippet.load("src/generated/snippets.json")
+  let assert Ok(manifest) = snippet.load("src/generated/snippets.json")
   let assert Ok(document) = page.render(source, page_route, manifest, "test")
   let html = element.to_document_string(document)
   [
@@ -172,7 +165,7 @@ pub fn p2p_renders_the_crdt_configuration_and_final_pager_test() {
   |> list.each(fn(expected) {
     let assert True = string.contains(html, expected) as expected
   })
-  ["/guide_race.js", "astro-island", "/_astro/", "@vite", "data-component"]
+  ["/guide_race.js", "@vite", "data-component"]
   |> list.each(fn(absent) {
     let assert False = string.contains(html, absent) as absent
   })
