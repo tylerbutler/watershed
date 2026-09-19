@@ -5,10 +5,10 @@
 // others resolve it. From there, edits are ordinary facade calls the sluice
 // sequences — the runtime owns optimistic apply, pending, and resubmit — so
 // the demo just issues inserts/moves/renames/deletes and reads values back.
-import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
-import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime.mjs";
-import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
-import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
+import * as watershed from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
+import * as runtime from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/runtime.mjs";
+import * as sluice from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
+import * as json from "../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { expectOk, type ResultValue } from "./demo/gleam-values.ts";
 import { createRigNotes, type RigNotes } from "./demo/rig-notes.ts";

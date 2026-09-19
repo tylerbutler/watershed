@@ -10,12 +10,12 @@
 // detached, attaches it under the root map (the snapshot rides along), and the
 // others resolve the handle. Edits are then ordinary `submit_json_ot` calls the
 // sluice sequences; the runtime owns the transform/inflight/buffer machinery.
-import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
-import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime.mjs";
-import * as jsonOt from "../../../build/dev/javascript/watershed/watershed/json_ot.mjs";
-import * as handle from "../../../build/dev/javascript/watershed/watershed/handle.mjs";
-import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
-import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
+import * as watershed from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
+import * as runtime from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/runtime.mjs";
+import * as jsonOt from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/json_ot.mjs";
+import * as handle from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/handle.mjs";
+import * as sluice from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
+import { toList } from "../../../tools/website-runtime/build/dev/javascript/watershed/gleam.mjs";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { expectOk, resultValue } from "./demo/gleam-values.ts";
 

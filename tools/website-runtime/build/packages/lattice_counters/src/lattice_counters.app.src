@@ -1,0 +1,11 @@
+{application, lattice_counters, [
+    {vsn, "2.0.0"},
+    {applications, [gleam_json,
+                    gleam_stdlib,
+                    lattice_core]},
+    {description, "Grow-only and positive-negative counters for Gleam — conflict-free replicated counter types"},
+    {modules, [lattice_counters@@main,
+               lattice_counters@g_counter,
+               lattice_counters@pn_counter]},
+    {registered, []}
+]}.

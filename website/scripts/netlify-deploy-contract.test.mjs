@@ -267,24 +267,18 @@ describe("Netlify deploy contract", () => {
     );
     assert.match(
       buildGleam,
-      /gleam build --target javascript/,
-      "build:gleam must compile the Gleam kernel to JavaScript",
+      /cd \.\.\/tools\/website-runtime && gleam build --target javascript/,
+      "build:gleam must compile the internal website runtime package",
     );
-    const rootBuild = buildGleam.indexOf("gleam build --target javascript");
-    const lustreBuild = buildGleam.indexOf("cd watershed_lustre");
-    assert.notEqual(
-      lustreBuild,
-      -1,
-      "build:gleam must also compile watershed_lustre declarations",
+    assert.equal(
+      buildGleam.match(/gleam build --target javascript/g)?.length,
+      1,
+      "build:gleam must create one generated Gleam module tree",
     );
-    assert.ok(
-      rootBuild < lustreBuild,
-      "build the root package before watershed_lustre consumes its generated modules",
-    );
-    assert.match(
-      buildGleam.slice(lustreBuild),
-      /gleam build --target javascript/,
-      "build:gleam must compile watershed_lustre after entering its package directory",
+    assert.doesNotMatch(
+      buildGleam,
+      /cd \.\. &&|cd watershed_lustre/,
+      "build:gleam must not create separate root and Lustre runtime worlds",
     );
     assert.match(
       generate,

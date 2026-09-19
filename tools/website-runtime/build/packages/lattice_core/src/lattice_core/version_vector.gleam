@@ -1,0 +1,277 @@
+//// A version vector for tracking causal ordering between replicas.
+////
+//// Each replica has a logical clock (monotonically increasing integer). Version
+//// vectors enable detecting whether two states are causally ordered (one happened
+//// before the other) or concurrent (neither dominates). Merge takes the pairwise
+//// maximum of all clocks.
+////
+//// ## Example
+////
+//// ```gleam
+//// import lattice_core/replica_id
+//// import lattice_core/version_vector
+////
+//// let node_a = replica_id.new("node-a")
+//// let node_b = replica_id.new("node-b")
+//// let a = version_vector.new()
+////   |> version_vector.increment(node_a)
+////   |> version_vector.increment(node_a)
+//// let b = version_vector.new()
+////   |> version_vector.increment(node_b)
+//// version_vector.compare(a, b)  // -> Concurrent
+//// ```
+
+import gleam/dict
+import gleam/dynamic/decode
+import gleam/int
+import gleam/json
+import gleam/result
+import lattice_core/replica_id.{type ReplicaId}
+
+/// The causal ordering relationship between two version vectors.
+///
+/// - `Before`: the first vector happened before the second (all clocks <=,
+///   at least one strictly <)
+/// - `After`: the first vector happened after the second (all clocks >=,
+///   at least one strictly >)
+/// - `Concurrent`: neither dominates — the states diverged; at least one
+///   clock is strictly greater in each direction
+/// - `Equal`: both vectors have identical clocks for all replicas
+pub type Order {
+  Before
+  After
+  Concurrent
+  Equal
+}
+
+/// A version vector tracking logical clocks for each replica.
+///
+/// Internally holds a dictionary from replica ID to clock value. The type is
+/// opaque: use `new`, `increment`, `get`, `compare`, and `merge` to interact
+/// with it. Serialization helpers `to_dict` and `from_dict` are provided for
+/// JSON encoding and decoding.
+pub opaque type VersionVector {
+  VersionVector(dict: dict.Dict(ReplicaId, Int))
+}
+
+/// Create a new empty version vector.
+///
+/// All replica clocks start at zero (missing entries are treated as zero).
+pub fn new() -> VersionVector {
+  VersionVector(dict.new())
+}
+
+/// Increment the clock for a specific replica.
+///
+/// Returns a new version vector with `replica_id`'s clock increased by one.
+/// This is the standard way to record a new event at `replica_id`.
+pub fn increment(
+  vector: VersionVector,
+  replica_id: ReplicaId,
+) -> VersionVector {
+  let VersionVector(clocks) = vector
+  let current = result.unwrap(dict.get(clocks, replica_id), 0)
+  VersionVector(dict.insert(clocks, replica_id, current + 1))
+}
+
+/// Get the clock value for a specific replica.
+///
+/// Returns `0` if `replica_id` has not been seen (missing entries default
+/// to zero, consistent with the version vector semantics).
+pub fn get(vector: VersionVector, replica_id: ReplicaId) -> Int {
+  let VersionVector(clocks) = vector
+  result.unwrap(dict.get(clocks, replica_id), 0)
+}
+
+/// Compare two version vectors and return their causal ordering.
+///
+/// Returns `Equal` if all clocks match, `Before` if `a` is strictly dominated
+/// by `b`, `After` if `a` strictly dominates `b`, or `Concurrent` if neither
+/// dominates the other.
+pub fn compare(a: VersionVector, b: VersionVector) -> Order {
+  let VersionVector(a_clocks) = a
+  let VersionVector(b_clocks) = b
+
+  // Pass 1: Check keys in A against B
+  let #(greater, less) =
+    dict.fold(a_clocks, #(False, False), fn(acc, key, a_clock) {
+      let #(greater, less) = acc
+      let b_clock = result.unwrap(dict.get(b_clocks, key), 0)
+      #(greater || a_clock > b_clock, less || a_clock < b_clock)
+    })
+
+  // Pass 2: Check keys in B that are NOT in A. If a key is in B but not A,
+  // then its B clock is > 0 (implicitly 0 in A), so A < B => less=True
+  let #(greater, less) =
+    dict.fold(b_clocks, #(greater, less), fn(acc, key, _b_clock) {
+      let #(greater, _) = acc
+      case dict.has_key(a_clocks, key) {
+        True -> acc
+        False -> #(greater, True)
+      }
+    })
+
+  case greater, less {
+    False, False -> Equal
+    True, False -> After
+    False, True -> Before
+    True, True -> Concurrent
+  }
+}
+
+/// Check whether version vector `a` dominates `b`.
+///
+/// Returns `True` when every clock in `a` is greater than or equal to the
+/// corresponding clock in `b`. Equivalently, `compare(a, b)` is `Equal` or
+/// `After`.
+pub fn dominates(a: VersionVector, b: VersionVector) -> Bool {
+  case compare(a, b) {
+    Equal | After -> True
+    Before | Concurrent -> False
+  }
+}
+
+/// Check whether a version vector is empty (has no clock entries).
+pub fn is_empty(vector: VersionVector) -> Bool {
+  let VersionVector(clocks) = vector
+  dict.is_empty(clocks)
+}
+
+/// Set the clock for a replica to the maximum of the current value and `value`.
+///
+/// If the replica has no entry, `value` is used. This avoids round-tripping
+/// through `to_dict`/`from_dict` when building a version vector incrementally.
+pub fn set_max(
+  vv vv: VersionVector,
+  replica_id replica_id: ReplicaId,
+  value value: Int,
+) -> VersionVector {
+  let VersionVector(clocks) = vv
+  let current = result.unwrap(dict.get(clocks, replica_id), 0)
+  case value > current {
+    True -> VersionVector(dict.insert(clocks, replica_id, value))
+    False -> vv
+  }
+}
+
+/// Merge two version vectors using pairwise maximum.
+///
+/// For each replica, the merged clock is the maximum of the two inputs.
+/// This operation is commutative, associative, and idempotent.
+pub fn merge(a: VersionVector, b: VersionVector) -> VersionVector {
+  let VersionVector(a_clocks) = a
+  let VersionVector(b_clocks) = b
+
+  let merged =
+    dict.fold(b_clocks, a_clocks, fn(acc, key, b_clock) {
+      case dict.get(acc, key) {
+        Ok(a_clock) -> dict.insert(acc, key, int.max(a_clock, b_clock))
+        Error(Nil) -> dict.insert(acc, key, b_clock)
+      }
+    })
+
+  VersionVector(merged)
+}
+
+/// Encode a VersionVector as a self-describing JSON value.
+///
+/// Produces an envelope with `type`, `v` (schema version), and `state`.
+/// Format: `{"type": "version_vector", "v": 1, "state": {"clocks": {...}}}`
+///
+/// Use `from_json` to decode the result back into a `VersionVector`.
+pub fn to_json(vector: VersionVector) -> json.Json {
+  let VersionVector(clocks) = vector
+  json.object([
+    #("type", json.string("version_vector")),
+    #("v", json.int(1)),
+    #(
+      "state",
+      json.object([
+        #(
+          "clocks",
+          json.dict(clocks, fn(key) { replica_id.to_string(key) }, json.int),
+        ),
+      ]),
+    ),
+  ])
+}
+
+/// Decode a VersionVector from a JSON string produced by `to_json`.
+///
+/// Returns `Ok(VersionVector)` on success, or `Error(json.DecodeError)` if
+/// the input is not a valid version-vector JSON envelope.
+pub fn from_json(
+  json_string: String,
+) -> Result(VersionVector, json.DecodeError) {
+  let state_decoder = {
+    use state <- decode.field("state", {
+      use clocks <- decode.field(
+        "clocks",
+        decode.dict(replica_id.decoder(), decode.int),
+      )
+      decode.success(VersionVector(dict: clocks))
+    })
+    decode.success(state)
+  }
+  let envelope_decoder = {
+    use type_tag <- decode.field("type", decode.string)
+    use version <- decode.field("v", decode.int)
+    decode.success(#(type_tag, version))
+  }
+  case json.parse(from: json_string, using: envelope_decoder) {
+    Error(e) -> Error(e)
+    Ok(#(type_tag, version)) ->
+      case type_tag == "version_vector" && version == 1 {
+        True -> json.parse(from: json_string, using: state_decoder)
+        False ->
+          Error(
+            json.UnableToDecode([
+              decode.DecodeError(
+                expected: "type=version_vector and v=1",
+                found: type_tag <> " v=" <> int.to_string(version),
+                path: [],
+              ),
+            ]),
+          )
+      }
+  }
+}
+
+/// A JSON decoder for VersionVector values.
+///
+/// Decodes the self-describing envelope format produced by `to_json`.
+/// Useful as a building block in `from_json` decoders when a VersionVector
+/// is embedded inline within another JSON structure.
+pub fn decoder() -> decode.Decoder(VersionVector) {
+  use _type <- decode.field("type", decode.string)
+  use _v <- decode.field("v", decode.int)
+  use clocks <- decode.field("state", {
+    use clocks <- decode.field(
+      "clocks",
+      decode.dict(replica_id.decoder(), decode.int),
+    )
+    decode.success(clocks)
+  })
+  decode.success(VersionVector(dict: clocks))
+}
+
+/// Extract the internal clock dictionary from a VersionVector.
+///
+/// Returns a `Dict(ReplicaId, Int)` mapping replica IDs to their clock values.
+/// Useful for serialization or when you need direct access to the raw clock
+/// data. Prefer the higher-level API (`get`, `compare`, `merge`) for most
+/// use cases.
+pub fn to_dict(vector: VersionVector) -> dict.Dict(ReplicaId, Int) {
+  let VersionVector(clocks) = vector
+  clocks
+}
+
+/// Construct a VersionVector from a raw clock dictionary.
+///
+/// Creates a version vector from a `Dict(ReplicaId, Int)` mapping replica IDs
+/// to clock values. Useful for deserialization or constructing a version
+/// vector from external data. Prefer `new` and `increment` for most use
+/// cases.
+pub fn from_dict(clocks: dict.Dict(ReplicaId, Int)) -> VersionVector {
+  VersionVector(clocks)
+}

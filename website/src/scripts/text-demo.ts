@@ -7,11 +7,11 @@
 // diffs each keystroke into ONE minimal grapheme edit and issues
 // insert/delete_range/replace_range, always against CRDT grapheme indexes,
 // never raw UTF-16 offsets.
-import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
-import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime.mjs";
-import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
+import * as watershed from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
+import * as runtime from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/runtime.mjs";
+import * as sluice from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
 // The anchor bias enum lives in the sequence lattice SharedText is built on.
-import * as bias from "../../../build/dev/javascript/lattice_sequence/lattice_sequence/sequence.mjs";
+import * as bias from "../../../tools/website-runtime/build/dev/javascript/lattice_sequence/lattice_sequence/sequence.mjs";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import {
   expectOk,

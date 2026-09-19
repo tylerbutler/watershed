@@ -1,0 +1,224 @@
+//// A two-phase set (2P-Set) CRDT.
+////
+//// Supports both add and remove, but an element can only be removed once. Once
+//// removed (tombstoned), an element can never be re-added. Internally tracks
+//// two sets: `added` and `removed`. An element is active if it is in `added`
+//// but not in `removed`. Use `ORSet` if you need re-add after remove.
+////
+//// ## Example
+////
+//// ```gleam
+//// import lattice_sets/two_p_set
+////
+//// let set = two_p_set.new()
+////   |> two_p_set.add("alice")
+////   |> two_p_set.add("bob")
+////   |> two_p_set.remove("bob")
+//// two_p_set.contains(set, "alice")  // -> True
+//// two_p_set.contains(set, "bob")    // -> False (tombstoned)
+//// ```
+
+import gleam/dynamic/decode
+import gleam/int
+import gleam/json
+import gleam/set
+
+/// A 2P-Set (two-phase set) CRDT.
+///
+/// Tracks two monotonically-growing sets: `added` (elements ever added) and
+/// `removed` (elements ever tombstoned). An element is active only when it
+/// is in `added` but not in `removed`. Tombstoning is permanent — once
+/// removed, an element cannot be re-added to the active set.
+pub opaque type TwoPSet(a) {
+  TwoPSet(added: set.Set(a), removed: set.Set(a))
+}
+
+/// Create a new empty 2P-Set.
+pub fn new() -> TwoPSet(a) {
+  TwoPSet(added: set.new(), removed: set.new())
+}
+
+/// Add an element to the set.
+///
+/// If the element has already been tombstoned (removed), this call records the
+/// element in `added` but the element will not be considered active because
+/// the tombstone takes precedence.
+///
+/// See `add_with_delta` for the delta-state variant that also returns a
+/// small payload suitable for incremental sync (e.g. over websockets).
+pub fn add(two_p_set: TwoPSet(a), element: a) -> TwoPSet(a) {
+  let #(updated, _) = add_with_delta(two_p_set, element)
+  updated
+}
+
+/// Add an element and return both the new state and a delta.
+///
+/// The returned delta is a `TwoPSet` whose `added` set contains only the
+/// inserted element and whose `removed` set is empty. Merging the delta
+/// into a remote via `merge` (union of both halves) produces the same
+/// result as merging the full new state.
+pub fn add_with_delta(
+  two_p_set: TwoPSet(a),
+  element: a,
+) -> #(TwoPSet(a), TwoPSet(a)) {
+  let updated =
+    TwoPSet(
+      added: set.insert(two_p_set.added, element),
+      removed: two_p_set.removed,
+    )
+  let delta = TwoPSet(added: set.from_list([element]), removed: set.new())
+  #(updated, delta)
+}
+
+/// Remove an element from the set by adding it to the tombstone set.
+///
+/// Once tombstoned, the element is permanently inactive. Removing an element
+/// that was never added is also valid and creates a preemptive tombstone.
+///
+/// See `remove_with_delta` for the delta-state variant.
+pub fn remove(two_p_set: TwoPSet(a), element: a) -> TwoPSet(a) {
+  let #(updated, _) = remove_with_delta(two_p_set, element)
+  updated
+}
+
+/// Remove an element and return both the new state and a delta.
+///
+/// The returned delta is a `TwoPSet` whose `removed` set contains only the
+/// tombstoned element and whose `added` set is empty. Merging the delta into
+/// a remote via `merge` propagates the tombstone, deactivating the element
+/// in the remote replica regardless of its prior state.
+pub fn remove_with_delta(
+  two_p_set: TwoPSet(a),
+  element: a,
+) -> #(TwoPSet(a), TwoPSet(a)) {
+  let updated =
+    TwoPSet(
+      added: two_p_set.added,
+      removed: set.insert(two_p_set.removed, element),
+    )
+  let delta = TwoPSet(added: set.new(), removed: set.from_list([element]))
+  #(updated, delta)
+}
+
+/// Check if the set currently contains the given element.
+///
+/// Returns `True` only if `element` is in `added` and NOT in `removed`.
+pub fn contains(two_p_set: TwoPSet(a), element: a) -> Bool {
+  set.contains(two_p_set.added, element)
+  && !set.contains(two_p_set.removed, element)
+}
+
+/// Return the set of all currently active elements.
+///
+/// Active elements are those in `added` that have not been tombstoned.
+/// Equivalent to `added ∖ removed`.
+pub fn value(two_p_set: TwoPSet(a)) -> set.Set(a) {
+  set.filter(two_p_set.added, fn(element) {
+    !set.contains(two_p_set.removed, element)
+  })
+}
+
+/// Merge two 2P-Sets by taking the union of both added sets and both removed sets.
+///
+/// A tombstone on any replica propagates to all replicas after merge.
+/// Merge is commutative, associative, and idempotent (a valid CRDT join).
+pub fn merge(a: TwoPSet(el), b: TwoPSet(el)) -> TwoPSet(el) {
+  TwoPSet(
+    added: set.union(a.added, b.added),
+    removed: set.union(a.removed, b.removed),
+  )
+}
+
+/// Encode a `TwoPSet(String)` as a self-describing JSON value.
+///
+/// Format: `{"type": "two_p_set", "v": 1, "state": {"added": [...], "removed": [...]}}`
+///
+/// The encoded value can be restored with `from_json`.
+pub fn to_json(two_p_set: TwoPSet(String)) -> json.Json {
+  to_json_with(two_p_set, json.string)
+}
+
+/// Encode generic elements and permanent tombstones in the v1 envelope.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let set = two_p_set.new() |> two_p_set.add(42) |> two_p_set.remove(42)
+/// two_p_set.to_json_with(set, json.int)
+/// ```
+pub fn to_json_with(
+  two_p_set: TwoPSet(a),
+  encode: fn(a) -> json.Json,
+) -> json.Json {
+  json.object([
+    #("type", json.string("two_p_set")),
+    #("v", json.int(1)),
+    #(
+      "state",
+      json.object([
+        #("added", json.array(set.to_list(two_p_set.added), encode)),
+        #("removed", json.array(set.to_list(two_p_set.removed), encode)),
+      ]),
+    ),
+  ])
+}
+
+/// Decode a `TwoPSet(String)` from a JSON string produced by `to_json`.
+///
+/// Returns `Error` if the string is not valid JSON or does not match the
+/// expected format.
+pub fn from_json(
+  json_string: String,
+) -> Result(TwoPSet(String), json.DecodeError) {
+  from_json_with(json_string, decode.string)
+}
+
+/// Decode generic elements and permanent tombstones from the v1 envelope.
+///
+/// Invalid envelopes or elements return `Error`.
+///
+/// ## Examples
+///
+/// ```gleam
+/// let set = two_p_set.new() |> two_p_set.remove(42)
+/// let encoded = two_p_set.to_json_with(set, json.int) |> json.to_string
+/// two_p_set.from_json_with(encoded, decode.int)  // -> Ok(set)
+/// ```
+pub fn from_json_with(
+  json_string: String,
+  decoder: decode.Decoder(a),
+) -> Result(TwoPSet(a), json.DecodeError) {
+  let state_decoder = {
+    use state <- decode.field("state", {
+      use added <- decode.field("added", decode.list(decoder))
+      use removed <- decode.field("removed", decode.list(decoder))
+      decode.success(TwoPSet(
+        added: set.from_list(added),
+        removed: set.from_list(removed),
+      ))
+    })
+    decode.success(state)
+  }
+  let envelope_decoder = {
+    use type_tag <- decode.field("type", decode.string)
+    use version <- decode.field("v", decode.int)
+    decode.success(#(type_tag, version))
+  }
+  case json.parse(from: json_string, using: envelope_decoder) {
+    Error(e) -> Error(e)
+    Ok(#(type_tag, version)) ->
+      case type_tag == "two_p_set" && version == 1 {
+        True -> json.parse(from: json_string, using: state_decoder)
+        False ->
+          Error(
+            json.UnableToDecode([
+              decode.DecodeError(
+                expected: "type=two_p_set and v=1",
+                found: type_tag <> " v=" <> int.to_string(version),
+                path: [],
+              ),
+            ]),
+          )
+      }
+  }
+}

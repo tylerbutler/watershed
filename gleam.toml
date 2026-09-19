@@ -55,7 +55,7 @@ exception = ">= 2.1.0 and < 3.0.0"
 # every `trellis run` task, but get no changelog, no version bump, and no tag:
 # `@release` maps them to the `workspace` lifecycle. The compile-fail fixture is
 # not a product either.
-"@release" = ["examples/*", "tools/compile-fail/*", "tools/website-samples", "tools/source-snippets"]
+"@release" = ["examples/*", "tools/compile-fail/*", "tools/website-runtime", "tools/website-samples", "tools/source-snippets"]
 
 # `gleam test` is an error, not a no-op, in a package with no `test/` directory,
 # so the suite-less packages are named out of the fan-out. Delete an entry here
@@ -88,6 +88,7 @@ bundle = [
     "examples/dice_cli",
     "examples/scoreboard_cli",
     "tools/compile-fail/*",
+    "tools/website-runtime",
     "tools/website-samples",
     "tools/source-snippets",
 ]

@@ -1,0 +1,46 @@
+[packages]
+signet = "0.1.0"
+gleam_json = "3.1.0"
+gleam_erlang = "1.3.0"
+gleam_otp = "1.3.0"
+gun = "2.6.0"
+gleam_fetch = "1.4.1"
+lattice_maps = "2.0.0"
+lattice_sets = "1.2.0"
+exception = "2.1.1"
+gleam_http = "4.4.0"
+gluegun = "0.1.0"
+lattice_text = "2.0.0"
+lattice_core = "2.0.0"
+houdini = "1.2.1"
+roost = "0.1.0"
+lattice_counters = "2.0.0"
+lattice_text_core = "1.0.1"
+gleam_stdlib = "1.0.5"
+aquamarine = "0.1.0"
+lustre = "5.7.1"
+cowlib = "2.20.0"
+watershed_lustre = "0.1.0"
+spillway = "0.1.0"
+gleeunit = "1.11.0"
+lattice_sequence = "2.0.0"
+gleam_crypto = "1.6.0"
+watershed = "0.1.0"
+gleam_httpc = "5.0.0"
+gleam_javascript = "1.0.1"
+lattice_registers = "2.0.0"
+
+[git.roost]
+commit = "7e4dc7c327ec233c9dc22a9d2037a620e700e127"
+
+[git.signet]
+commit = "51843ffe6f38a57c295e1a139fd926dc947eca6d"
+
+[git.gluegun]
+commit = "532af1ac0308ff93c8a957467dbb638859593c93"
+
+[git.aquamarine]
+commit = "45451e8a5b8846258dd4a5e72094078423b82017"
+
+[git.spillway]
+commit = "25f515cf67027e4b2db2344c3abb2141056e45fc"

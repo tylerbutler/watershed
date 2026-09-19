@@ -5,7 +5,7 @@
   "packageManager": "pnpm@11.13.1",
   "scripts": {
     "generate:snippets": "cd ../tools/source-snippets && gleam run -m source_snippets/cli -- ../../website/snippets.json ../../website/src/generated/snippets.json",
-    "build:gleam": "cd .. && gleam build --target javascript && cd watershed_lustre && gleam build --target javascript",
+    "build:gleam": "cd ../tools/website-runtime && gleam build --target javascript",
     "predev": "pnpm check:types",
     "dev": "astro dev",
     "prebuild": "pnpm check:types && pnpm test:navigation && node --strip-types --test src/data/drift-gates.test.ts && node --strip-types --test src/data/copy-gates.test.ts",

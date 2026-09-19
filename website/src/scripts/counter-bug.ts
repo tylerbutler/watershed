@@ -22,10 +22,10 @@
 //     `increment(-1)`); clients never read-modify-write, so there is nothing
 //     to overwrite and deltas sum the same in any order.
 import { annotate } from "rough-notation";
-import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
-import * as counterKernel from "../../../build/dev/javascript/watershed/watershed/counter_kernel.mjs";
-import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
-import { toList } from "../../../build/dev/javascript/watershed/gleam.mjs";
+import * as mapKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/map_kernel.mjs";
+import * as counterKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/counter_kernel.mjs";
+import * as json from "../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
+import { toList } from "../../../tools/website-runtime/build/dev/javascript/watershed/gleam.mjs";
 import { prefersReducedMotion, wait } from "./demo/timing.ts";
 import { createOpLog } from "./demo/op-log.ts";
 import { resultValue } from "./demo/gleam-values.ts";

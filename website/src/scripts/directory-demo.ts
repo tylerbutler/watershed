@@ -6,11 +6,11 @@
 // resolve the handle. From there, folder/reading edits are ordinary runtime
 // calls the sluice sequences — the runtime owns optimistic apply, pending, and
 // resubmit, so the demo just issues edits and reads the tree back.
-import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
-import * as runtime from "../../../build/dev/javascript/watershed/watershed/runtime.mjs";
-import * as handle from "../../../build/dev/javascript/watershed/watershed/handle.mjs";
-import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
-import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
+import * as watershed from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
+import * as runtime from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/runtime.mjs";
+import * as handle from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/handle.mjs";
+import * as sluice from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
+import * as json from "../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { expectOk } from "./demo/gleam-values.ts";
 

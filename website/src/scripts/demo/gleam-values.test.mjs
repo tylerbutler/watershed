@@ -2,25 +2,13 @@ import test from "node:test";
 import assert from "node:assert/strict";
 
 import {
-  is_none as rootIsNone,
-  unwrap as rootUnwrap,
-} from "../../../../build/dev/javascript/gleam_stdlib/gleam/option.mjs";
-import {
-  is_none as lustreIsNone,
-  unwrap as lustreUnwrap,
-} from "../../../../watershed_lustre/build/dev/javascript/gleam_stdlib/gleam/option.mjs";
+  is_none,
+  unwrap,
+} from "../../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/option.mjs";
 import { none, some } from "./gleam-values.ts";
 
-test("constructs Options with the selected Gleam runtime", () => {
-  assert.equal(rootUnwrap(some("root"), "fallback"), "root");
-  assert.equal(rootUnwrap(none(), "fallback"), "fallback");
-  assert.equal(rootIsNone(none()), true);
-  assert.equal(lustreIsNone(none()), false);
-  assert.equal(
-    lustreUnwrap(some("lustre", "lustre"), "fallback"),
-    "lustre",
-  );
-  assert.equal(lustreUnwrap(none("lustre"), "fallback"), "fallback");
-  assert.equal(lustreIsNone(none("lustre")), true);
-  assert.equal(rootIsNone(none("lustre")), false);
+test("constructs Options from the website's single Gleam runtime", () => {
+  assert.equal(unwrap(some("value"), "fallback"), "value");
+  assert.equal(unwrap(none(), "fallback"), "fallback");
+  assert.equal(is_none(none()), true);
 });

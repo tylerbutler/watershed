@@ -5,37 +5,37 @@
 // in order, the same protocol shape as a Fluid-compatible service. All
 // structures ride the one op stream, like DDSes sharing a container; the
 // picker only changes which replica view is shown.
-import * as mapKernel from "../../../build/dev/javascript/watershed/watershed/map_kernel.mjs";
-import * as pnKernel from "../../../build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
-import * as gCounterKernel from "../../../build/dev/javascript/watershed/watershed/g_counter_kernel.mjs";
-import * as lwwRegisterKernel from "../../../build/dev/javascript/watershed/watershed/lww_register_kernel.mjs";
-import * as lwwMapKernel from "../../../build/dev/javascript/watershed/watershed/lww_map_kernel.mjs";
-import * as mvKernel from "../../../build/dev/javascript/watershed/watershed/mv_register_kernel.mjs";
-import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
-import * as orSetKernel from "../../../build/dev/javascript/watershed/watershed/or_set_kernel.mjs";
-import * as gSetKernel from "../../../build/dev/javascript/watershed/watershed/g_set_kernel.mjs";
-import * as twoPSetKernel from "../../../build/dev/javascript/watershed/watershed/two_p_set_kernel.mjs";
-import * as claimsKernel from "../../../build/dev/javascript/watershed/watershed/claims_kernel.mjs";
-import * as registerKernel from "../../../build/dev/javascript/watershed/watershed/register_collection_kernel.mjs";
-import * as orderedKernel from "../../../build/dev/javascript/watershed/watershed/ordered_collection_kernel.mjs";
-import * as taskManagerKernel from "../../../build/dev/javascript/watershed/watershed/task_manager_kernel.mjs";
-import * as pactKernel from "../../../build/dev/javascript/watershed/watershed/pact_map_kernel.mjs";
-import * as channel from "../../../build/dev/javascript/watershed/watershed/channel.mjs";
-import * as runtimeCore from "../../../build/dev/javascript/watershed/watershed/runtime_core.mjs";
-import * as gdict from "../../../build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
-import * as gset from "../../../build/dev/javascript/gleam_stdlib/gleam/set.mjs";
-import * as decode from "../../../build/dev/javascript/gleam_stdlib/gleam/dynamic/decode.mjs";
-import * as pnLattice from "../../../build/dev/javascript/lattice_counters/lattice_counters/pn_counter.mjs";
-import * as gCounter from "../../../build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
-import * as replicaId from "../../../build/dev/javascript/lattice_core/lattice_core/replica_id.mjs";
-import * as json from "../../../build/dev/javascript/gleam_json/gleam/json.mjs";
-import * as signet from "../../../build/dev/javascript/signet/signet/types.mjs";
-import * as message from "../../../build/dev/javascript/spillway/spillway/message.mjs";
-import * as spillway from "../../../build/dev/javascript/spillway/spillway/types.mjs";
+import * as mapKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/map_kernel.mjs";
+import * as pnKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
+import * as gCounterKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/g_counter_kernel.mjs";
+import * as lwwRegisterKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/lww_register_kernel.mjs";
+import * as lwwMapKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/lww_map_kernel.mjs";
+import * as mvKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/mv_register_kernel.mjs";
+import * as orMapKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
+import * as orSetKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/or_set_kernel.mjs";
+import * as gSetKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/g_set_kernel.mjs";
+import * as twoPSetKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/two_p_set_kernel.mjs";
+import * as claimsKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/claims_kernel.mjs";
+import * as registerKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/register_collection_kernel.mjs";
+import * as orderedKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/ordered_collection_kernel.mjs";
+import * as taskManagerKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/task_manager_kernel.mjs";
+import * as pactKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/pact_map_kernel.mjs";
+import * as channel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/channel.mjs";
+import * as runtimeCore from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/runtime_core.mjs";
+import * as gdict from "../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
+import * as gset from "../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/set.mjs";
+import * as decode from "../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/dynamic/decode.mjs";
+import * as pnLattice from "../../../tools/website-runtime/build/dev/javascript/lattice_counters/lattice_counters/pn_counter.mjs";
+import * as gCounter from "../../../tools/website-runtime/build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
+import * as replicaId from "../../../tools/website-runtime/build/dev/javascript/lattice_core/lattice_core/replica_id.mjs";
+import * as json from "../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
+import * as signet from "../../../tools/website-runtime/build/dev/javascript/signet/signet/types.mjs";
+import * as message from "../../../tools/website-runtime/build/dev/javascript/spillway/spillway/message.mjs";
+import * as spillway from "../../../tools/website-runtime/build/dev/javascript/spillway/spillway/types.mjs";
 import {
   toList,
   type List,
-} from "../../../build/dev/javascript/watershed/gleam.mjs";
+} from "../../../tools/website-runtime/build/dev/javascript/watershed/gleam.mjs";
 import { createFieldNotes } from "./tutorial.js";
 import { createFlowLayer } from "./demo/flow-dots.ts";
 import { createLatencyControls } from "./demo/controls.ts";

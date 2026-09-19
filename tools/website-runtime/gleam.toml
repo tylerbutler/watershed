@@ -1,0 +1,17 @@
+name = "website_runtime"
+version = "0.1.0"
+description = "Internal Gleam runtime bridge for the watershed website"
+licences = ["MIT"]
+gleam = ">= 1.11.0"
+target = "javascript"
+
+[javascript]
+typescript_declarations = true
+
+[dependencies]
+gleam_stdlib = ">= 0.62.0 and < 2.0.0"
+watershed = { path = "../.." }
+watershed_lustre = { path = "../../watershed_lustre" }
+
+[dev-dependencies]
+gleeunit = ">= 1.0.0 and < 2.0.0"

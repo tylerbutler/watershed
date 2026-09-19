@@ -352,6 +352,14 @@ function gleamContainerImports(source: string): string[] {
   return [...found].sort();
 }
 
+function legacyGleamBuildImports(source: string): string[] {
+  return [...source.matchAll(/\bfrom\s+["']([^"']*build\/dev\/javascript\/[^"']+)["']/g)]
+    .map((match) => match[1])
+    .filter(
+      (path) => !path.includes("tools/website-runtime/build/dev/javascript"),
+    );
+}
+
 describe("Gate: Gleam Result and Option constructors stay behind the typed helper", () => {
   it("the boundary scan includes TypeScript test modules", () => {
     const modules = findAllAuthoredModules({ includeTests: true }).map((path) =>
@@ -435,6 +443,30 @@ describe("Gate: Gleam Result and Option constructors stay behind the typed helpe
       import { Set } from "../../../build/dev/javascript/watershed/watershed/pact_map_kernel.mjs";
     `;
     assert.deepEqual(gleamContainerImports(fake), []);
+  });
+});
+
+describe("Gate: website scripts use one generated Gleam runtime", () => {
+  it("rejects legacy root and watershed_lustre build imports", () => {
+    const fake = `
+      import * as root from "../../../build/dev/javascript/watershed/watershed.mjs";
+      import * as lustre from "../../../watershed_lustre/build/dev/javascript/watershed/watershed.mjs";
+      import * as current from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
+    `;
+    assert.deepEqual(legacyGleamBuildImports(fake), [
+      "../../../build/dev/javascript/watershed/watershed.mjs",
+      "../../../watershed_lustre/build/dev/javascript/watershed/watershed.mjs",
+    ]);
+  });
+
+  it("has no legacy generated-runtime imports", () => {
+    const violations = findAllAuthoredModules({ includeTests: true }).flatMap(
+      (absModule) =>
+        legacyGleamBuildImports(readFileSync(absModule, "utf-8")).map(
+          (path) => `${relative(websiteRoot, absModule)} -> ${path}`,
+        ),
+    );
+    assert.deepEqual(violations, []);
   });
 });
 

@@ -1,6 +1,6 @@
-import * as watershed from "../../../build/dev/javascript/watershed/watershed.mjs";
-import * as orMapKernel from "../../../build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
-import * as sluice from "../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
+import * as watershed from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
+import * as orMapKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
+import * as sluice from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { expectOk, type ResultValue } from "./demo/gleam-values.ts";
 

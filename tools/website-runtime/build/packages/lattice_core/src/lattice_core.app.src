@@ -1,0 +1,11 @@
+{application, lattice_core, [
+    {vsn, "2.0.0"},
+    {applications, [gleam_json,
+                    gleam_stdlib]},
+    {description, "Core types for lattice CRDTs — version vectors, dot contexts, and causal infrastructure"},
+    {modules, [lattice_core@@main,
+               lattice_core@dot_context,
+               lattice_core@replica_id,
+               lattice_core@version_vector]},
+    {registered, []}
+]}.

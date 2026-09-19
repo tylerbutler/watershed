@@ -15,7 +15,7 @@
 //
 // The sluice is DDS-agnostic (it sequences opaque wire frames), so this harness
 // is too: it never mentions maps, folders, or text.
-import * as sluice from "../../../../build/dev/javascript/watershed/watershed/sluice_js.mjs";
+import * as sluice from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
 import { optionValue, resultValue, type ResultValue } from "./gleam-values.ts";
 import { prefersReducedMotion } from "./timing.ts";
 import { createFlowLayer, type FlowLayer } from "./flow-dots.ts";

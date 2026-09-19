@@ -1,0 +1,8 @@
+{application, lattice_text_core, [
+    {vsn, "1.0.1"},
+    {applications, [gleam_stdlib]},
+    {description, "Backend-agnostic grapheme and range helpers shared by lattice text CRDTs"},
+    {modules, [lattice_text_core@@main,
+               lattice_text_core@grapheme]},
+    {registered, []}
+]}.
