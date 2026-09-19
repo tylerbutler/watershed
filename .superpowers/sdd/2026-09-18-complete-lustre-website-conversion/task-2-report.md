@@ -488,3 +488,73 @@ Result: no whitespace errors.
 `just website-lustre` still prints the existing dependency deprecation and
 unrelated wider-repository warnings. This round adds no known functional
 concern.
+
+## Fix round 4/5
+
+### Status
+
+Fixed the three remaining findings from the fix-round-3 re-review. No
+subagents were dispatched.
+
+### Changes
+
+- Before sequencing a new offline A/C write, drain earlier A/C submissions
+  in queue order. Keep their B-only catch-up entries and leave B's local
+  submissions parked. This prevents an MV-register acknowledgement from
+  bypassing an older write from the same origin. Reconnect still applies
+  catch-up before rebasing B's local writes.
+- Dispatch two member additions for the OR-map string-set race: A adds
+  `draft` and B adds `reviewed` to `inspection-brief`. Keep the tally-mode
+  remove/increment race unchanged.
+- Track delivery ownership with `delivery_armed` and schedule delivery only
+  in `finish_deferred`. Ordinary completions, projections, and flow cleanup
+  cannot add a second timer. Keep ownership while a fired delivery waits in
+  the deferred queue; release it when that delivery completes. Reset, mode
+  changes, and structure selection start a new generation without inherited
+  timer ownership. A restored busy instance arms one new-generation timer.
+  Old-generation messages remain no-ops.
+
+### Exact regressions
+
+- For both A and C: submit `first` while connected, cut B's link before
+  delivery, then submit `second` from the same origin. Assert FIFO log order,
+  A/C progress while B stays isolated, no visible error, no stranded kernel
+  writes, sequence number 2, and optimistic/sequenced convergence on `second`
+  after reconnect. A separate test keeps B's two-write cut-between-submissions
+  case covered. The MV browser suite repeats the A and C scenarios.
+- Assert separate optimistic `draft` and `reviewed` sets before delivery and
+  the exact union `["draft", "reviewed"]` on all three replicas afterward.
+  Assert two sequenced operations, empty pending queues, and no mode error.
+  The structure-page browser suite checks the same union in string-set mode
+  before its existing state-retention checks.
+- Execute real deferred and timer effects and count emitted `Deliver`
+  messages. Assert one timer across multiple completions, one successor
+  after delivery with remaining work, and none after the queue drains.
+  Switch Map to busy MV-register and back; assert one timer per generation,
+  stale-message rejection, and delivery of the restored Map edit. Also
+  exercise a fired timer queued behind an in-flight projection.
+- Keep the previous regressions. Delivery-draining test helpers now fail
+  on an error or lack of queue progress instead of looping on stranded work.
+
+### Verification evidence
+
+The pre-fix regression run reported `140 passed, 4 failures`: same-origin
+FIFO, string-set union, duplicate timers, and duplicate timers on restoration.
+The final targeted run reported `145 passed, no failures`.
+
+| Command | Result |
+| --- | --- |
+| `cd website_lustre && gleam test --target javascript -- structure_demo` | 145 passed, no failures |
+| `cd website_lustre && gleam check --target javascript` | Passed |
+| `just website-lustre` | Four browser bundles built, 68 assets copied per bundle, native pages generated |
+| `CI=1 node website_lustre/test/browser/home.mjs` | Passed |
+| `CI=1 node website_lustre/test/browser/structure-pages.mjs` | Passed, including string-set race semantics |
+| `CI=1 node website_lustre/test/browser/mv-register.mjs` | Passed, including same-origin cut-link FIFO |
+| `rg 'website/src/scripts/demo' website_lustre/src` | No matches |
+| `git diff --check` | Passed |
+
+### Remaining concerns
+
+The build still reports the existing dependency deprecations and unrelated
+wider-repository warnings. No known remaining defect in the three requested
+fixes. This round uses one commit without a `Co-authored-by` trailer.

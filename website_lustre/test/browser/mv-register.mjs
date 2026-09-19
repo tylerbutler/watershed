@@ -252,6 +252,65 @@ await withBrowserSite(site, async (browser, origin) => {
       ),
   );
 
+  for (const client of ["a", "c"]) {
+    await page.click("[data-reset]");
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("[data-mv-register-values]")].every(
+        (node) => node.textContent === '["Survey datum"]',
+      ),
+    );
+    await page.$eval(
+      `[data-client="${client}"] [data-mv-register-input]`,
+      (input) => {
+        input.value = "first";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      },
+    );
+    await page.evaluate((id) => {
+      document.querySelector(`[data-client="${id}"] [data-mv-register-write]`).click();
+      document.querySelector("[data-cut-link]").click();
+    }, client);
+    await page.waitForFunction(() =>
+      document.querySelector("[data-cut-link]").getAttribute("aria-pressed") === "true",
+    );
+    await page.$eval(
+      `[data-client="${client}"] [data-mv-register-input]`,
+      (input) => {
+        input.value = "second";
+        input.dispatchEvent(new Event("input", { bubbles: true }));
+      },
+    );
+    await page.click(`[data-client="${client}"] [data-mv-register-write]`);
+    await page.waitForFunction(() =>
+      ["a", "c"].every((id) =>
+        document.querySelector(`[data-client="${id}"] [data-mv-register-values]`)
+          .textContent === '["second"]',
+      ),
+    );
+    assert.equal(
+      await page.$eval('[data-client="b"] [data-mv-register-values]', (node) => node.textContent),
+      '["Survey datum"]',
+      "B stays isolated while A and C acknowledge writes in order",
+    );
+    await page.click("[data-cut-link]");
+    await page.waitForFunction(() =>
+      [...document.querySelectorAll("[data-mv-register-values]")].every(
+        (node) => node.textContent === '["second"]',
+      ) &&
+      [...document.querySelectorAll("[data-pending-count]")].every(
+        (node) => node.textContent === "0 pending",
+      ),
+    );
+    assert.deepEqual(
+      await page.$$eval("[data-op-log] li", (nodes) =>
+        nodes.map((node) => node.textContent).reverse(),
+      ),
+      ["MV-register write first", "MV-register write second"],
+      `${client.toUpperCase()} preserves same-origin FIFO across a cut link`,
+    );
+    assert.equal(await page.$(".demo-error"), null);
+  }
+
   const noJs = await browser.newPage();
   await noJs.setJavaScriptEnabled(false);
   await noJs.goto(`${origin}/mv-register/`);

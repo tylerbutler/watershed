@@ -152,6 +152,7 @@ pub fn ready_model(selected: Structure) -> Model {
     instances: [],
     deferred_work: [],
     work_running: False,
+    delivery_armed: False,
   )
 }
 
@@ -269,11 +270,16 @@ fn finish_deferred(
       ),
       deferred_work: remaining,
       work_running: False,
+      delivery_armed: next.delivery_armed,
     )
-  let delivery = case next.link_up && !list.is_empty(next.pending) {
-    True ->
-      watershed_lustre.after(delivery_delay(next), Deliver(next.generation))
-    False -> effect.none()
+  let #(next, delivery) = case
+    !next.delivery_armed && next.link_up && !list.is_empty(next.pending)
+  {
+    True -> #(
+      Model(..next, delivery_armed: True),
+      watershed_lustre.after(delivery_delay(next), Deliver(next.generation)),
+    )
+    False -> #(next, effect.none())
   }
   let old_ids = list.map(model.flows, fn(flow) { flow.id })
   let clears =
@@ -471,10 +477,17 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
           UpdatePnCounter(ClientA, 8),
           UpdatePnCounter(ClientB, -5),
         ]
-        OrMap -> [
-          RemoveOrMap(ClientA, "spoil-north"),
-          IncrementOrMap(ClientB, "spoil-north", 6),
-        ]
+        OrMap ->
+          case model.or_map_set_mode {
+            True -> [
+              AddOrMapMember(ClientA, "inspection-brief", "draft"),
+              AddOrMapMember(ClientB, "inspection-brief", "reviewed"),
+            ]
+            False -> [
+              RemoveOrMap(ClientA, "spoil-north"),
+              IncrementOrMap(ClientB, "spoil-north", 6),
+            ]
+          }
         OrMapMvRegister -> [
           WriteOrMapMv(ClientA, "gate-mode", Some("raise crest")),
           WriteOrMapMv(ClientB, "gate-mode", Some("arm pump")),
@@ -529,26 +542,17 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
     Replay ->
       case model.last_replay {
         None -> #(model, effect.none())
-        Some(ReplayOperation(operation, message_id, sequence_number)) -> {
-          let #(next, _) =
-            queue_pending(
-              model,
-              PendingOperation(
-                ClientA,
-                operation,
-                message_id,
-                model.generation,
-                ReplayAll(sequence_number),
-              ),
-            )
-          #(
-            next,
-            watershed_lustre.after(
-              delivery_delay(model),
-              Deliver(model.generation),
+        Some(ReplayOperation(operation, message_id, sequence_number)) ->
+          queue_pending(
+            model,
+            PendingOperation(
+              ClientA,
+              operation,
+              message_id,
+              model.generation,
+              ReplayAll(sequence_number),
             ),
           )
-        }
       }
     ToggleLink ->
       case model.link_up {
@@ -581,6 +585,7 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
               log: [],
               flows: [],
               last_replay: None,
+              delivery_armed: False,
               or_map_set_mode: True,
               key_a: "inspection-brief",
               key_b: "inspection-brief",
@@ -600,6 +605,7 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
               log: [],
               flows: [],
               last_replay: None,
+              delivery_armed: False,
               or_map_set_mode: False,
             ),
             effect.none(),
@@ -608,41 +614,31 @@ fn update_now(model: Model, message: Msg) -> #(Model, Effect(Msg)) {
         _ -> #(model, effect.none())
       }
     Deliver(_) if !model.link_up -> #(
-      Model(..model, queued_for_b: list.length(model.pending)),
+      Model(
+        ..model,
+        queued_for_b: list.length(model.pending),
+        delivery_armed: False,
+      ),
       effect.none(),
     )
-    Deliver(_) ->
+    Deliver(_) -> {
+      let model = Model(..model, delivery_armed: False)
       case model.pending {
         [] -> #(Model(..model, phase: Ready), effect.none())
         [pending, ..rest] ->
           case deliver(model, pending) {
             Error(reason) -> fail(model, reason)
             Ok(delivered) -> {
-              let clear = case delivered.flows {
-                [flow, ..] ->
-                  watershed_lustre.after(
-                    model.playback_ms,
-                    ClearFlow(model.generation, flow.id),
-                  )
-                [] -> effect.none()
-              }
               let next =
                 Model(..delivered, pending: rest, phase: case rest {
                   [] -> Ready
                   [_, ..] -> Delivering
                 })
-              let schedule = case rest {
-                [] -> effect.none()
-                [_, ..] ->
-                  watershed_lustre.after(
-                    delivery_delay(model),
-                    Deliver(model.generation),
-                  )
-              }
-              #(next, effect.batch([schedule, clear]))
+              #(next, effect.none())
             }
           }
       }
+    }
     CounterFinished(_, replicas) -> #(
       Model(
         ..replace_replicas(model, replicas),
@@ -1183,15 +1179,12 @@ fn enqueue(
           AllReplicas,
         ),
       )
-    False, ClientA | False, ClientC ->
-      case
-        deliver_online_without_b(
-          model,
-          origin,
-          operation,
-          option.unwrap(message_id, -1),
-        )
-      {
+    False, ClientA | False, ClientC -> {
+      let delivered = {
+        use model <- result.try(sequence_online_pending(model))
+        deliver_online_without_b(model, origin, operation, message_id)
+      }
+      case delivered {
         Error(reason) -> fail(model, reason)
         Ok(model) ->
           queue_pending(
@@ -1205,8 +1198,8 @@ fn enqueue(
             ),
           )
       }
+    }
     True, _ -> {
-      let was_empty = list.is_empty(model.pending)
       let pending =
         list.append(model.pending, [
           PendingOperation(
@@ -1218,14 +1211,7 @@ fn enqueue(
           ),
         ])
       let next = Model(..model, pending:, phase: Delivering)
-      #(next, case was_empty {
-        True ->
-          watershed_lustre.after(
-            delivery_delay(model),
-            Deliver(model.generation),
-          )
-        False -> effect.none()
-      })
+      #(next, effect.none())
     }
   }
 }
@@ -1394,7 +1380,7 @@ fn deliver_online_without_b(
   model: Model,
   origin: Replica,
   operation: Operation,
-  message_id: Int,
+  message_id: Option(Int),
 ) -> Result(Model, String) {
   let sequence = model.sequence_number + 1
   use alpha <- result.try(deliver_to(
@@ -1402,7 +1388,7 @@ fn deliver_online_without_b(
     ClientA,
     origin,
     operation,
-    Some(message_id),
+    message_id,
     sequence,
   ))
   use gamma <- result.try(deliver_to(
@@ -1410,7 +1396,7 @@ fn deliver_online_without_b(
     ClientC,
     origin,
     operation,
-    Some(message_id),
+    message_id,
     sequence,
   ))
   Ok(
@@ -1432,7 +1418,7 @@ fn deliver_online_without_b(
       last_replay: remember_replay(
         model.last_replay,
         operation,
-        Some(message_id),
+        message_id,
         sequence,
       ),
     ),
@@ -1757,6 +1743,29 @@ fn put_key_draft(model: Model, replica: Replica, value: String) -> Model {
   }
 }
 
+fn sequence_online_pending(model: Model) -> Result(Model, String) {
+  let queued = Model(..model, pending: [], queued_for_b: 0)
+  list.try_fold(model.pending, queued, fn(current, pending) {
+    case pending.scope, pending.origin {
+      AllReplicas, ClientA | AllReplicas, ClientC -> {
+        use delivered <- result.try(deliver_online_without_b(
+          current,
+          pending.origin,
+          pending.operation,
+          pending.message_id,
+        ))
+        Ok(
+          queue_pending(
+            delivered,
+            PendingOperation(..pending, scope: ClientBOnly),
+          ).0,
+        )
+      }
+      _, _ -> Ok(queue_pending(current, pending).0)
+    }
+  })
+}
+
 fn restore_link(model: Model) -> #(Model, Effect(Msg)) {
   case model.selected, model.beta {
     MvRegister, MvRegisterReplica(beta) ->
@@ -1966,11 +1975,7 @@ fn select_structure(
             [_, ..] -> Delivering
           },
         )
-      #(next, case next.pending, next.link_up {
-        [_, ..], True ->
-          watershed_lustre.after(delivery_delay(next), Deliver(generation))
-        _, _ -> effect.none()
-      })
+      #(next, effect.none())
     }
   }
 }

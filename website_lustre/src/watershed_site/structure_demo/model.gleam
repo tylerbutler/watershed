@@ -166,5 +166,7 @@ pub type Model {
     instances: List(Instance),
     deferred_work: List(fn(Model) -> Result(#(Model, Model), String)),
     work_running: Bool,
+    // Keep ownership until deferred delivery completes, including queue time.
+    delivery_armed: Bool,
   )
 }

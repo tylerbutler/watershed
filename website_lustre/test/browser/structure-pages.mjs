@@ -249,6 +249,20 @@ await withBrowserSite(site, async (browser, origin) => {
     '#ormap-demo [data-client="a"] .ormap-set-panel',
     { visible: true },
   );
+  await mapsPage.click('#ormap-demo [data-race]');
+  await mapsPage.waitForFunction(() =>
+    [...document.querySelectorAll(
+      '#ormap-demo [data-ormap-set-row="inspection-brief"] [data-ormap-members]',
+    )].every((node) => node.textContent === '["draft", "reviewed"]') &&
+    [...document.querySelectorAll('#ormap-demo [data-pending-count]')]
+      .every((node) => node.textContent === "0 pending"),
+  );
+  assert.equal(
+    await mapsPage.$eval('#ormap-demo [data-seq-counter]', (node) => node.textContent),
+    "SN 2",
+    "string-set race sequences two additions",
+  );
+  assert.equal(await mapsPage.$('#ormap-demo .demo-error'), null);
   await mapsPage.$eval(
     '#ormap-demo [data-client="a"] [data-ormap-set-input]',
     (input) => {

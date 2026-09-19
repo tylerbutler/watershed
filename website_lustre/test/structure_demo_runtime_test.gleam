@@ -2,6 +2,7 @@ import gleam/javascript/promise
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
+import gleeunit/should
 import lustre/effect
 import watershed/map_kernel
 import watershed/transport_js
@@ -125,6 +126,59 @@ pub fn offline_a_delivery_does_not_bypass_b_submission_order_test() {
       "MV-register write b second",
     ],
   )
+}
+
+pub fn same_origin_mv_writes_stay_fifo_across_a_cut_link_test() {
+  [ClientA, ClientC]
+  |> list.each(fn(origin) {
+    let model = runtime.ready_model(MvRegister)
+    let model = runtime.transition(model, runtime.WriteMv(origin, "first"))
+    should_equal(runtime.pending_count(model, origin), 1)
+    should_equal(model.sequence_number, 0)
+    let model = runtime.transition(model, runtime.ToggleLink)
+    let model = runtime.transition(model, runtime.WriteMv(origin, "second"))
+    should_equal(model.visible_error, None)
+    should_equal(runtime.pending_count(model, origin), 0)
+    should_equal(runtime.mv_sequenced_values(model, ClientA), ["second"])
+    should_equal(runtime.mv_sequenced_values(model, ClientC), ["second"])
+    should_equal(runtime.mv_values(model, ClientB), ["Survey datum"])
+    should_equal(
+      model.log |> list.reverse |> list.map(fn(entry) { entry.label }),
+      ["MV-register write first", "MV-register write second"],
+    )
+    let model = runtime.transition(model, runtime.ToggleLink) |> deliver_all
+    should_equal(model.visible_error, None)
+    should_equal(model.pending, [])
+    should_equal(model.sequence_number, 2)
+    [ClientA, ClientB, ClientC]
+    |> list.each(fn(replica) {
+      should_equal(runtime.pending_count(model, replica), 0)
+      should_equal(runtime.mv_values(model, replica), ["second"])
+      should_equal(runtime.mv_sequenced_values(model, replica), ["second"])
+    })
+  })
+}
+
+pub fn b_mv_writes_stay_fifo_when_cut_between_submissions_test() {
+  let model = runtime.ready_model(MvRegister)
+  let model = runtime.transition(model, runtime.WriteMv(ClientB, "b first"))
+  let model = runtime.transition(model, runtime.ToggleLink)
+  let model = runtime.transition(model, runtime.WriteMv(ClientB, "b second"))
+  should_equal(runtime.pending_count(model, ClientB), 2)
+  should_equal(model.sequence_number, 0)
+  let model = runtime.transition(model, runtime.ToggleLink) |> deliver_all
+  should_equal(model.visible_error, None)
+  should_equal(model.pending, [])
+  should_equal(
+    model.log |> list.reverse |> list.map(fn(entry) { entry.label }),
+    ["MV-register write b first", "MV-register write b second"],
+  )
+  [ClientA, ClientB, ClientC]
+  |> list.each(fn(replica) {
+    should_equal(runtime.pending_count(model, replica), 0)
+    should_equal(runtime.mv_values(model, replica), ["b second"])
+    should_equal(runtime.mv_sequenced_values(model, replica), ["b second"])
+  })
 }
 
 pub fn cut_b_link_keeps_a_and_c_online_test() {
@@ -275,6 +329,180 @@ pub fn every_structure_race_performs_visible_operations_test() {
   })
 }
 
+pub fn or_map_string_set_race_unions_concurrent_members_test() {
+  let model =
+    runtime.ready_model(OrMap)
+    |> runtime.transition(runtime.SetOrMapMode("set"))
+    |> runtime.transition(runtime.RunRace)
+  should_equal(model.visible_error, None)
+  should_equal(list.length(model.pending), 2)
+  should_equal(
+    runtime.or_map_value(model, ClientA, "inspection-brief"),
+    "[\"draft\"]",
+  )
+  should_equal(
+    runtime.or_map_value(model, ClientB, "inspection-brief"),
+    "[\"reviewed\"]",
+  )
+  let model = deliver_all(model)
+  should_equal(model.visible_error, None)
+  should_equal(model.sequence_number, 2)
+  should_equal(model.pending, [])
+  [ClientA, ClientB, ClientC]
+  |> list.each(fn(replica) {
+    should_equal(
+      runtime.or_map_value(model, replica, "inspection-brief"),
+      "[\"draft\", \"reviewed\"]",
+    )
+    should_equal(runtime.pending_count(model, replica), 0)
+  })
+}
+
+pub fn deferred_completions_keep_one_delivery_timer_until_it_fires_test() -> promise.Promise(
+  Nil,
+) {
+  let model = Model(..runtime.ready_model(Map), latency_ms: 0, playback_ms: 0)
+  use #(model, first) <- promise.await(complete_command(
+    model,
+    runtime.StepMap(ClientA, "mill-race", 1),
+  ))
+  use #(model, second) <- promise.await(complete_command(
+    model,
+    runtime.StepMap(ClientC, "kettle-run", 1),
+  ))
+  use #(model, projection) <- promise.await(complete_command(
+    model,
+    runtime.Project,
+  ))
+  use #(model, cleanup) <- promise.await(complete_command(
+    model,
+    runtime.ClearFlow(model.generation, -1),
+  ))
+  let messages = transport_js.new_cell([])
+  perform(effect.batch([first, second, projection, cleanup]), messages)
+  use _ <- promise.await(promise.wait(0))
+  should_equal(delivery_messages(messages), [runtime.Deliver(model.generation)])
+  transport_js.set_cell(messages, [])
+  use #(model, next) <- promise.await(complete_command(
+    model,
+    runtime.Deliver(model.generation),
+  ))
+  should_equal(model.sequence_number, 1)
+  should_equal(list.length(model.pending), 1)
+  use #(model, projection) <- promise.await(complete_command(
+    model,
+    runtime.Project,
+  ))
+  perform(effect.batch([next, projection]), messages)
+  use _ <- promise.await(promise.wait(0))
+  should_equal(delivery_messages(messages), [runtime.Deliver(model.generation)])
+  transport_js.set_cell(messages, [])
+  use #(model, last) <- promise.await(complete_command(
+    model,
+    runtime.Deliver(model.generation),
+  ))
+  should_equal(model.sequence_number, 2)
+  should_equal(model.pending, [])
+  perform(last, messages)
+  use _ <- promise.map(promise.wait(0))
+  should_equal(delivery_messages(messages), [])
+  Nil
+}
+
+pub fn restored_busy_structure_rearms_one_timer_in_its_new_generation_test() -> promise.Promise(
+  Nil,
+) {
+  let model = Model(..runtime.ready_model(Map), latency_ms: 0, playback_ms: 0)
+  use #(model, map_timer) <- promise.await(complete_command(
+    model,
+    runtime.StepMap(ClientA, "mill-race", 1),
+  ))
+  let map_generation = model.generation
+  use #(model, select_mv) <- promise.await(complete_command(
+    model,
+    runtime.SelectStructure(MvRegister),
+  ))
+  use #(model, mv_timer) <- promise.await(complete_command(
+    model,
+    runtime.WriteMv(ClientA, "busy mv"),
+  ))
+  let mv_generation = model.generation
+  use #(model, restored_timer) <- promise.await(complete_command(
+    model,
+    runtime.SelectStructure(Map),
+  ))
+  should_equal(model.selected, Map)
+  should_equal(list.length(model.pending), 1)
+  should_equal(model.generation, mv_generation + 1)
+  use #(model, projection) <- promise.await(complete_command(
+    model,
+    runtime.Project,
+  ))
+  let messages = transport_js.new_cell([])
+  perform(
+    effect.batch([map_timer, select_mv, mv_timer, restored_timer, projection]),
+    messages,
+  )
+  use _ <- promise.await(promise.wait(0))
+  [map_generation, mv_generation, model.generation]
+  |> list.each(fn(generation) {
+    delivery_messages(messages)
+    |> list.filter(fn(message) { message == runtime.Deliver(generation) })
+    |> should_equal([runtime.Deliver(generation)])
+  })
+  transport_js.set_cell(messages, [])
+  let #(unchanged, stale) =
+    runtime.update(model, runtime.Deliver(map_generation))
+  should_equal(unchanged, model)
+  perform(stale, messages)
+  use #(model, delivered) <- promise.await(complete_command(
+    model,
+    runtime.Deliver(model.generation),
+  ))
+  should_equal(model.pending, [])
+  should_equal(runtime.map_values(model, "mill-race"), [25, 25, 25])
+  perform(delivered, messages)
+  use _ <- promise.map(promise.wait(0))
+  should_equal(delivery_messages(messages), [])
+  Nil
+}
+
+pub fn fired_delivery_keeps_timer_ownership_while_queued_behind_work_test() -> promise.Promise(
+  Nil,
+) {
+  let model = Model(..runtime.ready_model(Map), latency_ms: 0, playback_ms: 0)
+  use #(model, timer) <- promise.await(complete_command(
+    model,
+    runtime.StepMap(ClientA, "mill-race", 1),
+  ))
+  let messages = transport_js.new_cell([])
+  perform(timer, messages)
+  use _ <- promise.await(promise.wait(0))
+  let assert [delivery] = delivery_messages(messages)
+  transport_js.set_cell(messages, [])
+  let #(model, projection) = runtime.update(model, runtime.Project)
+  let #(waiting, queued) = runtime.update(model, delivery)
+  perform(effect.batch([projection, queued]), messages)
+  use _ <- promise.await(promise.wait(0))
+  let assert [projected] = transport_js.get_cell(messages)
+  transport_js.set_cell(messages, [])
+  let #(waiting, work) = runtime.update(waiting, projected)
+  perform(work, messages)
+  use _ <- promise.await(promise.wait(0))
+  should_equal(delivery_messages(messages), [])
+  let assert [runtime.Deferred(_, _) as delivered] =
+    transport_js.get_cell(messages)
+  transport_js.set_cell(messages, [])
+  let #(model, completed) = runtime.update(waiting, delivered)
+  should_equal(model.sequence_number, 1)
+  should_equal(model.pending, [])
+  should_equal(runtime.map_values(model, "mill-race"), [25, 25, 25])
+  perform(completed, messages)
+  use _ <- promise.map(promise.wait(0))
+  should_equal(delivery_messages(messages), [])
+  Nil
+}
+
 pub fn shared_crdt_baselines_use_one_summary_test() {
   let g = runtime.ready_model(GCounter)
   let g = runtime.transition(g, runtime.IncrementGCounter(ClientA, 1))
@@ -389,16 +617,42 @@ fn perform(pending_effect, messages) {
   )
 }
 
+fn complete_command(model: Model, command: runtime.Msg) {
+  let #(waiting, work) = runtime.update(model, command)
+  let messages = transport_js.new_cell([])
+  perform(work, messages)
+  use _ <- promise.map(promise.wait(0))
+  let assert [runtime.Deferred(_, _) as completed] =
+    transport_js.get_cell(messages)
+  runtime.update(waiting, completed)
+}
+
+fn delivery_messages(messages) {
+  transport_js.get_cell(messages)
+  |> list.filter(fn(message) {
+    case message {
+      runtime.Deliver(_) -> True
+      _ -> False
+    }
+  })
+}
+
 fn deliver_all(model: Model) -> Model {
   case model.pending {
     [] -> model
     [_, ..] -> {
-      let model = runtime.transition(model, runtime.Deliver(model.generation))
-      deliver_all(model)
+      let delivered =
+        runtime.transition(model, runtime.Deliver(model.generation))
+      should_equal(delivered.visible_error, None)
+      should_equal(
+        list.length(delivered.pending),
+        list.length(model.pending) - 1,
+      )
+      deliver_all(delivered)
     }
   }
 }
 
 fn should_equal(actual: a, expected: a) {
-  let assert True = actual == expected
+  should.equal(actual, expected)
 }
