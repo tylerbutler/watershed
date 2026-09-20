@@ -256,6 +256,7 @@ describe("Netlify deploy contract", () => {
   it("the prebuild generates the manifest before Astro reads it", () => {
     const prebuild = websitePackage.scripts?.prebuild ?? "";
     const checkTypes = websitePackage.scripts?.["check:types"] ?? "";
+    const buildSamples = websitePackage.scripts?.["build:samples"] ?? "";
     const buildGleam = websitePackage.scripts?.["build:gleam"] ?? "";
     const generate = websitePackage.scripts?.["generate:snippets"] ?? "";
 
@@ -270,6 +271,11 @@ describe("Netlify deploy contract", () => {
       "the prebuild hook must run the generated Gleam/TypeScript integration tests",
     );
 
+    assert.match(
+      checkTypes,
+      /build:samples/,
+      "check:types must compile the source-backed Gleam samples",
+    );
     assert.match(
       checkTypes,
       /build:gleam/,
@@ -289,6 +295,11 @@ describe("Netlify deploy contract", () => {
       checkTypes,
       /tsc --noEmit/,
       "check:types must run the TypeScript compiler",
+    );
+    assert.match(
+      buildSamples,
+      /cd \.\.\/tools\/website-samples && gleam build --target javascript/,
+      "build:samples must compile the source-backed Gleam samples for JavaScript",
     );
     assert.match(
       buildGleam,
@@ -317,10 +328,15 @@ describe("Netlify deploy contract", () => {
       "build must be plain `astro build`, so npm's prebuild hook is what orders generation before it",
     );
 
+    const samples = checkTypes.indexOf("build:samples");
     const kernel = checkTypes.indexOf("build:gleam");
     const snippets = checkTypes.indexOf("generate:snippets");
     const astroTypes = checkTypes.indexOf("astro sync");
     const typescript = checkTypes.indexOf("tsc --noEmit");
+    assert.ok(
+      samples < snippets,
+      "compile source-backed samples before generating their snippets",
+    );
     assert.ok(
       kernel < snippets,
       "compile the kernel before generating snippets; the generator scans sources, not build output, " +
