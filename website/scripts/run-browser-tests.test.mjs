@@ -3,10 +3,25 @@ import { EventEmitter } from "node:events";
 import test from "node:test";
 import { attachBrowserErrorCapture } from "./browser-test-harness.mjs";
 import {
+  browserTestFiles,
   findBrowserIn,
   requireBrowser,
   resolveStaticPath,
 } from "./run-browser-tests.mjs";
+import { browserTestFiles as sharedBrowserTestFiles } from "./test-files.mjs";
+
+test("uses the shared browser test manifest", () => {
+  assert.strictEqual(browserTestFiles, sharedBrowserTestFiles);
+  assert.deepEqual(browserTestFiles, [
+    "scripts/structure-demos.test.mjs",
+    "scripts/mv-register-demo.test.mjs",
+    "scripts/ormap-demo.test.mjs",
+    "scripts/lww-map-demo.test.mjs",
+    "scripts/or-map-mv-register-demo.test.mjs",
+    "scripts/runtime-demos.test.mjs",
+    "scripts/structure-runtime-contract.test.mjs",
+  ]);
+});
 
 test("maps route paths to Astro index files", () => {
   assert.equal(

@@ -1,0 +1,32 @@
+export const nodeTestFiles = [
+  "scripts/browser-workflow-contract.test.mjs",
+  "scripts/netlify-deploy-contract.test.mjs",
+  "scripts/run-browser-tests.test.mjs",
+  "scripts/snippet-config.test.mjs",
+  "scripts/test-files.test.mjs",
+  "src/data/copy-gates.test.ts",
+  "src/data/drift-gates.test.ts",
+  "src/data/navigation.test.ts",
+  "src/data/practice-snippets.test.ts",
+  "src/data/standalone-snippets.test.ts",
+  "src/data/structures.test.ts",
+  "src/lib/snippet-manifest.test.ts",
+  "src/lib/snippet.test.ts",
+  "src/scripts/demo/boot.test.ts",
+  "src/scripts/demo/dom.test.ts",
+  "src/scripts/demo/gleam-values.test.mjs",
+  "src/scripts/demo/rich-text-adapter.test.mjs",
+  "src/scripts/demo/sequencer.test.ts",
+  "src/scripts/demo/sluice-transport.test.ts",
+  "src/styles/global.test.mjs",
+];
+
+export const browserTestFiles = [
+  "scripts/structure-demos.test.mjs",
+  "scripts/mv-register-demo.test.mjs",
+  "scripts/ormap-demo.test.mjs",
+  "scripts/lww-map-demo.test.mjs",
+  "scripts/or-map-mv-register-demo.test.mjs",
+  "scripts/runtime-demos.test.mjs",
+  "scripts/structure-runtime-contract.test.mjs",
+];

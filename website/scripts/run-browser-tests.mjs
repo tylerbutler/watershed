@@ -12,20 +12,13 @@ import {
 } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { spawn } from "node:child_process";
+import { browserTestFiles } from "./test-files.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const websiteRoot = resolve(__dirname, "..");
 const distRoot = resolve(websiteRoot, "dist");
 
-const browserTests = [
-  "scripts/structure-demos.test.mjs",
-  "scripts/mv-register-demo.test.mjs",
-  "scripts/ormap-demo.test.mjs",
-  "scripts/lww-map-demo.test.mjs",
-  "scripts/or-map-mv-register-demo.test.mjs",
-  "scripts/runtime-demos.test.mjs",
-  "scripts/structure-runtime-contract.test.mjs",
-];
+export { browserTestFiles };
 
 export function resolveStaticPath(root, pathname) {
   const decoded = decodeURIComponent(pathname);
@@ -177,7 +170,7 @@ async function main() {
   await run("pnpm", ["build"], { cwd: websiteRoot });
   const server = await startServer();
   try {
-    await run(process.execPath, ["--test", ...browserTests], {
+    await run(process.execPath, ["--test", ...browserTestFiles], {
       cwd: websiteRoot,
       env: {
         ...process.env,

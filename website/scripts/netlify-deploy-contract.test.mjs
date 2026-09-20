@@ -42,6 +42,10 @@ const buildScriptPath = resolve(websiteRoot, "scripts", "netlify-build.sh");
 const buildScript = readFileSync(buildScriptPath, "utf8");
 const netlifyToml = readFileSync(resolve(repoRoot, "netlify.toml"), "utf8");
 const justfile = readFileSync(resolve(repoRoot, "justfile"), "utf8");
+const testFiles = readFileSync(
+  resolve(websiteRoot, "scripts", "test-files.mjs"),
+  "utf8",
+);
 const websitePackage = JSON.parse(
   readFileSync(resolve(websiteRoot, "package.json"), "utf8"),
 );
@@ -135,22 +139,24 @@ const canonicalCommands = [
 
 describe("Netlify deploy contract", () => {
   it("defines the website integration gates", () => {
-    assert.match(
-      websitePackage.scripts?.["test:integration:node"] ?? "",
-      /dom\.test\.ts/,
+    assert.equal(
+      websitePackage.scripts?.["test:unit"],
+      "node scripts/run-node-tests.mjs",
+    );
+    assert.equal(
+      websitePackage.scripts?.["test:integration:node"],
+      "pnpm test:unit",
     );
     assert.equal(
       websitePackage.scripts?.["test:integration:browser"],
       "node scripts/run-browser-tests.mjs",
     );
     assert.match(
-      readFileSync(
-        resolve(websiteRoot, "scripts", "run-browser-tests.mjs"),
-        "utf8",
-      ),
+      testFiles,
       /runtime-demos\.test\.mjs/,
     );
-    assert.match(justfile, /pnpm test:integration:node/);
+    assert.match(testFiles, /src\/data\/structures\.test\.ts/);
+    assert.match(justfile, /pnpm test:unit/);
     assert.match(justfile, /pnpm test:integration:browser/);
   });
 
@@ -267,8 +273,8 @@ describe("Netlify deploy contract", () => {
     );
     assert.match(
       prebuild,
-      /test:integration:node/,
-      "the prebuild hook must run the generated Gleam/TypeScript integration tests",
+      /test:unit/,
+      "the prebuild hook must run the complete Node test suite",
     );
 
     assert.match(

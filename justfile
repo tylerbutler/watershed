@@ -81,17 +81,12 @@ _test-compile-fail:
     fi
     echo "ok  incompatible port payload types are rejected"
 
-# Source-backed snippet drift gates — the website test suite that enforces
-# every rendered snippet id is declared and generated, marker IDs are unique
-# and quoted, literal Gleam is allowlisted, only SnippetBlock renders code,
-# and only the loader reads the generated manifest. Regenerates the manifest
-# first, then runs the drift gate suite plus every targeted snippet test from
-# the website package, and the global-stylesheet test that keeps the
-# source-path chip keyboard-focusable — a snippet's citation is a link, so
-# losing its focus ring is a drift of the same system.
+# Build the source-backed snippets, then run every registered website test.
+# The Node registry covers the snippet drift gates and component contracts;
+# the browser registry covers the built-site integration scenarios.
 _test-website-snippets: snippets
     cd tools/website-samples && gleam build --target javascript
-    cd website && pnpm check:types && pnpm test:integration:node && pnpm test:snippet && pnpm test:snippet-manifest && pnpm test:practice-snippets && pnpm test:standalone-snippets && pnpm test:navigation && pnpm test:drift-gates && pnpm test:copy-gates && pnpm test:global-styles && pnpm test:netlify-contract && pnpm test:snippet-config && pnpm test:integration:browser
+    cd website && pnpm check:types && pnpm test:unit && pnpm test:integration:browser
 
 # Generate the website's snippet manifest from `website/snippets.json`.
 # The output, `website/src/generated/snippets.json`, is ignored rather than

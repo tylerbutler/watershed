@@ -185,6 +185,11 @@ const COVERAGE_EXCLUSIONS = [
       "the site itself renders snippets; the sources it quotes live in tools/website-samples",
   },
   {
+    prefix: "tools/website-runtime/",
+    reason:
+      "the site's internal Gleam runtime; quoted teaching sources live in tools/website-samples",
+  },
+  {
     prefix: ".agents/",
     reason: "skill assets vendored by apm install, overwritten on every sync",
   },
