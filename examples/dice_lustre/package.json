@@ -10,7 +10,7 @@
   },
   "dependencies": {
     "esbuild": "^0.28.1",
-    "phoenix": "^1.8.8",
+    "phoenix": "^1.8.9",
     "ws": "^8.21.0"
   },
   "allowScripts": {
