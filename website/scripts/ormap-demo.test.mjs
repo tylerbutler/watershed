@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import puppeteer from "puppeteer-core";
-import { findBrowser } from "../../smoke/cdp.mjs";
+import { openBrowserTest } from "./browser-test-harness.mjs";
 
 const base = process.env.WATERSHED_WEBSITE_URL ?? "http://127.0.0.1:4321";
 const client = (id, selector) => `[data-client="${id}"] ${selector}`;
@@ -27,11 +26,10 @@ async function edit(page, id, key, member, action = "add") {
 }
 
 async function setup(t, width = 1500, path = "/structures/maps") {
-  const executablePath = findBrowser();
-  assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
-  const browser = await puppeteer.launch({ executablePath, headless: true });
-  t.after(() => browser.close());
-  const page = await browser.newPage();
+  const { page, errors } = await openBrowserTest(t, {
+    width,
+    height: 1100,
+  });
   // Analytics availability is independent of the compiled demo under test.
   await page.setRequestInterception(true);
   page.on("request", (request) => {
@@ -40,13 +38,6 @@ async function setup(t, width = 1500, path = "/structures/maps") {
     } else {
       void request.continue();
     }
-  });
-  await page.setViewport({ width, height: 1100 });
-  await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
-  const errors = [];
-  page.on("pageerror", (error) => errors.push(error.message));
-  page.on("console", (message) => {
-    if (message.type() === "error") errors.push(message.text());
   });
   t.after(() => assert.deepEqual(errors, []));
   assert.equal((await page.goto(new URL(path, base).href)).status(), 200);

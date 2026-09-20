@@ -1,8 +1,8 @@
-import * as watershed from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
-import * as orMapKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
-import * as sluice from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
+import { watershed } from "./demo/generated-runtime.ts";
+import { orMapKernel } from "./demo/generated-runtime.ts";
+import { sluice } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
-import { expectOk, type ResultValue } from "./demo/gleam-values.ts";
+import { expectOk, type ResultValue } from "./demo/generated-runtime.ts";
 
 const CLIENT_IDS = ["a", "b"];
 const CLIENT_LABEL: Record<string, string> = {

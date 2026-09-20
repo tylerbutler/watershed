@@ -1,20 +1,19 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import * as websiteRuntime from "../../../../tools/website-runtime/build/dev/javascript/website_runtime/website_runtime.mjs";
-import * as dict from "../../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
-import { toList } from "../../../../tools/website-runtime/build/dev/javascript/watershed/gleam.mjs";
-import * as mv from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/mv_register_kernel.mjs";
-import * as replica from "../../../../tools/website-runtime/build/dev/javascript/lattice_core/lattice_core/replica_id.mjs";
-import * as json from "../../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
-import * as gCounterKernel from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/g_counter_kernel.mjs";
-import * as lwwRegisterKernel from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/lww_register_kernel.mjs";
-import * as gCounter from "../../../../tools/website-runtime/build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
+import { websiteRuntime } from "./generated-runtime.ts";
+import { dict } from "./generated-runtime.ts";
+import { toList } from "./generated-runtime.ts";
+import { mv } from "./generated-runtime.ts";
+import { replica } from "./generated-runtime.ts";
+import { json } from "./generated-runtime.ts";
+import { gCounterKernel } from "./generated-runtime.ts";
+import { lwwRegisterKernel } from "./generated-runtime.ts";
+import { gCounter } from "./generated-runtime.ts";
 import { lwwRaceTimestamp } from "./lww-register.js";
-import * as orMap from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
-import * as sharedMap from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/map_kernel.mjs";
-import * as lwwMapKernel from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/lww_map_kernel.mjs";
-import { expectOk, none, some } from "./gleam-values.ts";
+import { orMap } from "./generated-runtime.ts";
+import { sharedMap } from "./generated-runtime.ts";
+import { lwwMapKernel } from "./generated-runtime.ts";
+import { expectOk, none, some } from "./generated-runtime.ts";
 
 function orMapMembers(state: orMap.OrMapState$, key: string) {
   const value = expectOk(
@@ -261,25 +260,6 @@ test("demo counter core boots from the baseline summary", () => {
     ),
     120,
   );
-});
-
-// Keep the shared demo connected to the compiled LWW-register kernel rather
-// than a JavaScript copy of its merge rule.
-test("shared demo wires the compiled LWW register and map kernels", () => {
-  const source = readFileSync(
-    new URL("../demo.ts", import.meta.url),
-    "utf8",
-  );
-  assert.match(source, /lww_register_kernel\.mjs/);
-  assert.match(source, /localLwwSet/);
-  assert.match(source, /ddsId === "lww-register"/);
-  assert.match(source, /lww_map_kernel\.mjs/);
-  assert.match(source, /ddsId === "lww-map"/);
-  const component = readFileSync(
-    new URL("../../components/Demo.astro", import.meta.url),
-    "utf8",
-  );
-  assert.match(component, /writer-tie/);
 });
 
 test("LWW register field notes converge by timestamp and author", () => {

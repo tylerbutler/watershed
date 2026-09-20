@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import puppeteer from "puppeteer-core";
-import { findBrowser } from "../../smoke/cdp.mjs";
+import { openBrowserTest } from "./browser-test-harness.mjs";
 
 const base = process.env.WATERSHED_WEBSITE_URL ?? "http://127.0.0.1:4321";
 const view = "or-map-mv-register";
@@ -47,17 +46,11 @@ async function reset(page) {
 }
 
 test("OR-map MV registers share the maps rig without replacing stockpiles", { timeout: 120_000 }, async (t) => {
-  const executablePath = findBrowser();
-  assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
-  const browser = await puppeteer.launch({
-    executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  const { page, errors } = await openBrowserTest(t, {
+    width: 1500,
+    height: 1100,
+    captureConsoleErrors: false,
   });
-  try {
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1500, height: 1100 });
-    await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
-    const errors = [];
-    page.on("pageerror", (error) => errors.push(error.stack));
     assert.equal((await page.goto(new URL("/structures/maps", base).href)).status(), 200);
     await page.waitForSelector("[data-dds-pick]:not([disabled])");
     assert.ok(await page.$(`[data-dds-pick][value="${view}"]`),
@@ -236,7 +229,4 @@ test("OR-map MV registers share the maps rig without replacing stockpiles", { ti
         links.filter((link) => /\bOrMap\b/.test(link.textContent)).length), 1);
     });
     assert.deepEqual(errors, []);
-  } finally {
-    await browser.close();
-  }
 });

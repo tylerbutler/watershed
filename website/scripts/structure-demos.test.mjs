@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import puppeteer from "puppeteer-core";
-import { findBrowser } from "../../smoke/cdp.mjs";
+import { launchBrowserTest } from "./browser-test-harness.mjs";
 
 const base = process.env.WATERSHED_WEBSITE_URL ?? "http://127.0.0.1:4321";
 const families = [
@@ -14,9 +13,7 @@ const families = [
 
 for (const width of [1440, 1100, 390]) {
   test(`structure demos replace descriptions in place at ${width}px`, { timeout: 90_000 }, async () => {
-    const executablePath = findBrowser();
-    assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
-    const browser = await puppeteer.launch({ executablePath, headless: true });
+    const browser = await launchBrowserTest();
     try {
       const page = await browser.newPage();
       await page.setViewport({ width, height: 1000 });
@@ -76,9 +73,7 @@ for (const width of [1440, 1100, 390]) {
 }
 
 test("structure demo panel slides open and closed", { timeout: 90_000 }, async () => {
-  const executablePath = findBrowser();
-  assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
-  const browser = await puppeteer.launch({ executablePath, headless: true });
+  const browser = await launchBrowserTest();
   try {
     const page = await browser.newPage();
     await page.setViewport({ width: 1440, height: 1000 });
@@ -138,9 +133,7 @@ test("structure demo panel slides open and closed", { timeout: 90_000 }, async (
 });
 
 test("PactMap shows accepted state and settles a proposal", { timeout: 90_000 }, async () => {
-  const executablePath = findBrowser();
-  assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
-  const browser = await puppeteer.launch({ executablePath, headless: true });
+  const browser = await launchBrowserTest();
   try {
     const page = await browser.newPage();
     await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
@@ -177,9 +170,7 @@ test("PactMap shows accepted state and settles a proposal", { timeout: 90_000 },
 });
 
 test("descriptions and dedicated demo links work without JavaScript", async () => {
-  const executablePath = findBrowser();
-  assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
-  const browser = await puppeteer.launch({ executablePath, headless: true });
+  const browser = await launchBrowserTest();
   try {
     const page = await browser.newPage();
     await page.setJavaScriptEnabled(false);

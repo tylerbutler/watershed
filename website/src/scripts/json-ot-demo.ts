@@ -10,14 +10,14 @@
 // detached, attaches it under the root map (the snapshot rides along), and the
 // others resolve the handle. Edits are then ordinary `submit_json_ot` calls the
 // sluice sequences; the runtime owns the transform/inflight/buffer machinery.
-import * as watershed from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
-import * as runtime from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/runtime.mjs";
-import * as jsonOt from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/json_ot.mjs";
-import * as handle from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/handle.mjs";
-import * as sluice from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
-import { toList } from "../../../tools/website-runtime/build/dev/javascript/watershed/gleam.mjs";
+import { watershed } from "./demo/generated-runtime.ts";
+import { runtime } from "./demo/generated-runtime.ts";
+import { jsonOt } from "./demo/generated-runtime.ts";
+import { handle } from "./demo/generated-runtime.ts";
+import { sluice } from "./demo/generated-runtime.ts";
+import { toList } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
-import { expectOk, resultValue } from "./demo/gleam-values.ts";
+import { expectOk, resultValue } from "./demo/generated-runtime.ts";
 
 const S = (s: string) => new jsonOt.VString(s);
 const N = (n: number) => new jsonOt.VNumber(new jsonOt.NInt(n));

@@ -1,10 +1,10 @@
-import * as pactMap from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/pact_map_kernel.mjs";
-import type { Option$ } from "../../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/option.mjs";
-import * as watershed from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
+import { pactMap } from "./generated-runtime.ts";
+import type { Option$ } from "./generated-runtime.ts";
+import { watershed } from "./generated-runtime.ts";
 import {
   optionValue,
   resultValue,
-} from "./gleam-values.ts";
+} from "./generated-runtime.ts";
 
 declare const state: pactMap.PactMapState;
 declare const setResult: ReturnType<typeof pactMap.set>;

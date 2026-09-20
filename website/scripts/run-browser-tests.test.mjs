@@ -1,7 +1,10 @@
 import assert from "node:assert/strict";
+import { EventEmitter } from "node:events";
 import test from "node:test";
+import { attachBrowserErrorCapture } from "./browser-test-harness.mjs";
 import {
   findBrowserIn,
+  requireBrowser,
   resolveStaticPath,
 } from "./run-browser-tests.mjs";
 
@@ -42,4 +45,22 @@ test("finds a Playwright Chromium headless shell", () => {
     }),
     executable,
   );
+});
+
+test("requires Chromium only when strict browser integration is enabled", () => {
+  assert.equal(requireBrowser(null, false), null);
+  assert.throws(
+    () => requireBrowser(null, true),
+    /Chromium is required for website browser integration/,
+  );
+  assert.equal(requireBrowser("/usr/bin/chrome", true), "/usr/bin/chrome");
+});
+
+test("browser error capture records page and console failures", () => {
+  const page = new EventEmitter();
+  const errors = [];
+  attachBrowserErrorCapture(page, errors);
+  page.emit("pageerror", new Error("page failed"));
+  page.emit("console", { type: () => "error", text: () => "console failed" });
+  assert.deepEqual(errors, ["page failed", "console failed"]);
 });

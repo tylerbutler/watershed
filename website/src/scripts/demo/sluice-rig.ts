@@ -15,13 +15,20 @@
 //
 // The sluice is DDS-agnostic (it sequences opaque wire frames), so this harness
 // is too: it never mentions maps, folders, or text.
-import * as sluice from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
-import { optionValue, resultValue, type ResultValue } from "./gleam-values.ts";
+import { sluice } from "./generated-runtime.ts";
+import { optionValue, type ResultValue } from "./generated-runtime.ts";
 import { prefersReducedMotion } from "./timing.ts";
 import { createFlowLayer, type FlowLayer } from "./flow-dots.ts";
 import { createLatencyControls, type LatencyControls } from "./controls.ts";
 import { requiredInstance } from "./dom.ts";
 import { createOpLog, type OpLog } from "./op-log.ts";
+import {
+  createSluiceNetwork,
+  peekDelivery,
+  stepDelivery,
+  stepDeliveryWave,
+  type SluiceNetwork,
+} from "./sluice-transport.ts";
 
 const FIFO_GAP_MS = 25;
 
@@ -177,6 +184,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   }
 
   const clients: Record<string, RigClient> = {};
+  let network: SluiceNetwork;
   let server: ReturnType<typeof sluice.start>;
   const sidToId: Record<string, string> = {};
   const labelBySn = new Map<number, string>();
@@ -191,9 +199,15 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   let inFlight = 0;
 
   function boot() {
-    server = sluice.start(config.document, config.document);
+    network = createSluiceNetwork({
+      tenant: config.document,
+      document: config.document,
+      clientIds: config.clientIds,
+      connectId: (id) => `user-${id}`,
+    });
+    server = network.server;
     for (const id of config.clientIds) {
-      const doc = sluice.connect(server, `user-${id}`);
+      const doc = network.documents[id];
       const client = clients[id];
       if (client) {
         client.doc = doc;
@@ -213,14 +227,8 @@ export function createSluiceRig(config: RigConfig): Rig | null {
         };
       }
     }
-    // Complete every handshake before the DDS-specific shared-instance setup.
-    sluice.settle(server);
     for (const key of Object.keys(sidToId)) delete sidToId[key];
-    for (const id of config.clientIds) {
-      const result = sluice.client_id(server, clients[id].doc);
-      const sid = resultValue(result);
-      if (sid !== null) sidToId[sid] = id;
-    }
+    Object.assign(sidToId, network.sidToId);
     config.setup(clients, server);
     // The setup may have pushed handshake/attach ops; drain them silently so
     // the visible timeline starts clean.
@@ -266,7 +274,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
 
   function pump() {
     if (pumpTimer != null) return;
-    const next = resultValue(sluice.peek_info(server));
+    const next = peekDelivery(network);
     if (next == null) {
       renderStatus();
       return;
@@ -352,7 +360,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
 
   function pumpTick() {
     pumpTimer = null;
-    const first = resultValue(sluice.peek_info(server));
+    const first = peekDelivery(network);
     if (first == null) {
       renderStatus();
       return;
@@ -367,20 +375,12 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     if (first.event === "op") {
       const waveSn = first.sequence_number;
       if (outboundBySn.delete(waveSn)) inFlight = Math.max(0, inFlight - 1);
-      let next: Delivery | null = first;
-      while (next != null && next.event === "op" && next.sequence_number === waveSn) {
-        // step_info's delivery to the runtime is synchronous — fire the hook
-        // (e.g. to stamp the upcoming subscribe callback with its author)
-        // just before that side effect, using the still-undelivered peek.
-        fireBeforeDeliver(next);
-        const delivery = resultValue(sluice.step_info(server));
-        if (delivery == null) break;
+      for (const delivery of stepDeliveryWave(network, fireBeforeDeliver)) {
         deliver(delivery);
-        next = resultValue(sluice.peek_info(server));
       }
     } else {
       fireBeforeDeliver(first);
-      const delivery = resultValue(sluice.step_info(server));
+      const delivery = stepDelivery(network);
       if (delivery != null) deliver(delivery);
     }
 
@@ -417,11 +417,11 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     let guard = 0;
     const GUARD_LIMIT = 20000; // pathological-loop backstop, never expected
     while (guard < GUARD_LIMIT) {
-      const next = resultValue(sluice.peek_info(server));
+      const next = peekDelivery(network);
       if (next == null) break;
       if (next.event === "op") outboundBySn.delete(next.sequence_number);
       fireBeforeDeliver(next);
-      const delivery = resultValue(sluice.step_info(server));
+      const delivery = stepDelivery(network);
       if (delivery == null) break;
       const toId = sidToId[delivery.to];
       if (delivery.event === "op" && toId) {

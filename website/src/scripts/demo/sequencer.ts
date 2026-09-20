@@ -12,10 +12,16 @@
 
 import type { FlowLayer } from "./flow-dots.ts";
 import type { LatencyControls } from "./controls.ts";
-import * as watershed from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
-import * as sluice from "../../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
-import * as json from "../../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
-import { resultValue } from "./gleam-values.ts";
+import { watershed } from "./generated-runtime.ts";
+import { sluice } from "./generated-runtime.ts";
+import { json } from "./generated-runtime.ts";
+import {
+  createSluiceNetwork,
+  peekDelivery,
+  stepDelivery,
+  stepDeliveryWave,
+  type SluiceNetwork,
+} from "./sluice-transport.ts";
 
 /** A replica the sequencer can animate to and deliver to. */
 export interface SeqClient {
@@ -88,6 +94,7 @@ export function createSequencer<C extends SeqClient>(
     begin: (seq: number) => (target: C) => void;
   };
 
+  let network: SluiceNetwork;
   let server: ReturnType<typeof sluice.start>;
   let documents: Record<string, ReturnType<typeof sluice.connect>>;
   let sidToId: Record<string, string>;
@@ -100,17 +107,14 @@ export function createSequencer<C extends SeqClient>(
   const pendingBySequence = new Map<number, PendingOperation>();
 
   function bootTransport() {
-    server = sluice.start("website", "structure-atlas");
-    documents = {};
-    sidToId = {};
-    for (const id of Object.keys(clients)) {
-      documents[id] = sluice.connect(server, id);
-    }
-    sluice.settle(server);
-    for (const id of Object.keys(clients)) {
-      const sid = resultValue(sluice.client_id(server, documents[id]));
-      if (sid !== null) sidToId[sid] = id;
-    }
+    network = createSluiceNetwork({
+      tenant: "website",
+      document: "structure-atlas",
+      clientIds: Object.keys(clients),
+    });
+    server = network.server;
+    documents = network.documents;
+    sidToId = network.sidToId;
     baseSequence = sluice.sequence_number(server);
   }
 
@@ -163,14 +167,14 @@ export function createSequencer<C extends SeqClient>(
     if (pumpTimer !== null) return;
     pumpTimer = setTimeout(() => {
       pumpTimer = null;
-      const first = resultValue(sluice.peek_info(server));
+      const first = peekDelivery(network);
       if (first === null) {
         onChange();
         return;
       }
       const operation = pendingBySequence.get(first.sequence_number);
       if (first.event !== "op" || !operation) {
-        sluice.step_info(server);
+        stepDelivery(network);
         pump();
         return;
       }
@@ -181,13 +185,7 @@ export function createSequencer<C extends SeqClient>(
       const deliver = operation.isStale()
         ? null
         : operation.begin(logicalSequence);
-      let next = first;
-      while (
-        next.event === "op" &&
-        next.sequence_number === first.sequence_number
-      ) {
-        const landed = resultValue(sluice.step_info(server));
-        if (landed === null) break;
+      for (const landed of stepDeliveryWave(network)) {
         const targetId = sidToId[landed.to];
         const target = targetId ? clients[targetId] : undefined;
         if (target && deliver !== null) {
@@ -198,9 +196,6 @@ export function createSequencer<C extends SeqClient>(
             operation.label,
           );
         }
-        const peeked = resultValue(sluice.peek_info(server));
-        if (peeked === null) break;
-        next = peeked;
       }
       inFlight = Math.max(0, inFlight - 1);
       onChange();

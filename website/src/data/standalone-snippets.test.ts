@@ -209,6 +209,18 @@ describe("no handwritten Gleam literals in migrated pages", () => {
 // ── 4. Fixture is in root build configuration ──────────────────────────────
 
 describe("fixture build integration", () => {
+  it("the website test gate compiles website-samples before checking snippets", () => {
+    const justfile = readFileSync(resolve(repoRoot, "justfile"), "utf8");
+    const websiteGate = justfile.match(
+      /_test-website-snippets:[\s\S]*?(?=\n\S|\n#)/,
+    );
+    assert.ok(websiteGate, "_test-website-snippets recipe not found");
+    assert.match(
+      websiteGate[0],
+      /cd tools\/website-samples && gleam build --target javascript/,
+    );
+  });
+
   it("gleam.toml trellis @release excludes website-samples", () => {
     const toml = readFileSync(resolve(repoRoot, "gleam.toml"), "utf8");
     assert.match(toml, /tools\/website-samples/);

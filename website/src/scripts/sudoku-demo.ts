@@ -3,10 +3,10 @@
 // ./demo/sluice-rig.ts for the shared orchestration). No fake TS sequencer, no
 // server — a cell edit renders optimistically and pushes an op the sluice
 // sequences; delivery is paced one hop at a time and every replica converges.
-import * as watershed from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
-import * as json from "../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
+import { watershed } from "./demo/generated-runtime.ts";
+import { json } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
-import { resultValue } from "./demo/gleam-values.ts";
+import { resultValue } from "./demo/generated-runtime.ts";
 
 const CLIENT_IDS = ["a", "b", "c"];
 const CLIENT_LABEL: Record<string, string> = {

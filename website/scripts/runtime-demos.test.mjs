@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import puppeteer from "puppeteer-core";
-import { findBrowser } from "../../smoke/cdp.mjs";
+import { launchBrowserTest } from "./browser-test-harness.mjs";
 
 const base = process.env.WATERSHED_WEBSITE_URL ?? "http://127.0.0.1:4321";
 const demos = [
@@ -15,14 +14,7 @@ const demos = [
 ];
 
 test("dedicated demos execute compiled Gleam and converge", { timeout: 120_000 }, async (t) => {
-  const executablePath = findBrowser();
-  assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
-  const browser = await puppeteer.launch({
-    executablePath,
-    headless: true,
-    args: ["--no-sandbox", "--disable-dev-shm-usage"],
-  });
-  t.after(() => browser.close());
+  const browser = await launchBrowserTest(t);
 
   for (const [path, action, status, settle] of demos) {
     await t.test(path, async () => {

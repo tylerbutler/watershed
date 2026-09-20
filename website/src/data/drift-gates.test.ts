@@ -58,8 +58,8 @@ const SNIPPET_MANIFEST = "src/generated/snippets.json";
  *  validation and render an entry it decoded itself. */
 const MANIFEST_READER = "src/lib/snippet.ts";
 
-/** The one module allowed to import Gleam's Result and Option constructors. */
-const GLEAM_VALUE_HELPER = "src/scripts/demo/gleam-values.ts";
+/** The one authored module allowed to import generated Gleam output. */
+const GENERATED_RUNTIME_GATEWAY = "src/scripts/demo/generated-runtime.ts";
 
 const GLEAM_CONTAINER_ESCAPES = new Set([
   "Error",
@@ -360,6 +360,27 @@ function legacyGleamBuildImports(source: string): string[] {
     );
 }
 
+function generatedRuntimeImports(source: string): string[] {
+  return [...source.matchAll(
+    /\bfrom\s+["']([^"']*tools\/website-runtime\/build\/dev\/javascript\/[^"']+)["']/g,
+  )].map((match) => match[1]);
+}
+
+describe("Gate: generated Gleam imports stay behind one gateway", () => {
+  it("only the generated runtime gateway imports compiled modules", () => {
+    const violations = findAllAuthoredModules({ includeTests: true }).flatMap(
+      (absModule) => {
+        const relModule = relative(websiteRoot, absModule);
+        if (relModule === GENERATED_RUNTIME_GATEWAY) return [];
+        return generatedRuntimeImports(readFileSync(absModule, "utf-8")).map(
+          (path) => `${relModule} -> ${path}`,
+        );
+      },
+    );
+    assert.deepEqual(violations, []);
+  });
+});
+
 describe("Gate: Gleam Result and Option constructors stay behind the typed helper", () => {
   it("the boundary scan includes TypeScript test modules", () => {
     const modules = findAllAuthoredModules({ includeTests: true }).map((path) =>
@@ -371,7 +392,7 @@ describe("Gate: Gleam Result and Option constructors stay behind the typed helpe
   it("no authored module imports container constructors directly", () => {
     for (const absModule of findAllAuthoredModules({ includeTests: true })) {
       const relModule = relative(websiteRoot, absModule);
-      if (relModule === GLEAM_VALUE_HELPER) continue;
+      if (relModule === GENERATED_RUNTIME_GATEWAY) continue;
       assert.deepEqual(
         gleamContainerImports(readFileSync(absModule, "utf-8")),
         [],
@@ -474,7 +495,7 @@ describe("Gate: website scripts use one generated Gleam runtime", () => {
       resolve(websiteRoot, "src/scripts/demo/sequencer.ts"),
       "utf-8",
     );
-    assert.match(source, /watershed\/sluice_js\.mjs/);
+    assert.match(source, /import \{ sluice \} from "\.\/generated-runtime\.ts"/);
     assert.doesNotMatch(source, /\bsn\s*\+=\s*1\b/);
   });
 

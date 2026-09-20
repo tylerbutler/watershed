@@ -38,10 +38,10 @@
 //     entry is already post-edit by the time it lands here; `applyChange`
 //     is called with `authorSelectionAlreadyApplied: true` so the adapter
 //     leaves that one cached entry alone instead of double-shifting it.
-import * as watershed from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
-import * as richText from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/rich_text.mjs";
-import * as sluice from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
-import * as json from "../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
+import { watershed } from "./demo/generated-runtime.ts";
+import { richText } from "./demo/generated-runtime.ts";
+import { sluice } from "./demo/generated-runtime.ts";
+import { json } from "./demo/generated-runtime.ts";
 import {
   createSluiceRig,
   type Delivery,
@@ -53,7 +53,7 @@ import {
   resultError,
   resultValue,
   type ResultValue,
-} from "./demo/gleam-values.ts";
+} from "./demo/generated-runtime.ts";
 import {
   createRichTextAdapter,
   type RichTextAdapter,

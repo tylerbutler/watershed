@@ -13,11 +13,11 @@
 // compiled world. Mixing it with the root build the rig demo uses would give
 // two copies of every Gleam class, and pattern matches (`instanceof`) across
 // copies fail; each demo therefore keeps to its own consistent world.
-import { register } from "../../../tools/website-runtime/build/dev/javascript/watershed_lustre/watershed_lustre/textarea_element.mjs";
-import * as watershed from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed.mjs";
-import * as runtime from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/runtime.mjs";
-import * as sluice from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/sluice_js.mjs";
-import { expectOk, type ResultValue } from "./demo/gleam-values.ts";
+import { textareaRegister as register } from "./demo/generated-runtime.ts";
+import { watershed } from "./demo/generated-runtime.ts";
+import { runtime } from "./demo/generated-runtime.ts";
+import { sluice } from "./demo/generated-runtime.ts";
+import { expectOk, type ResultValue } from "./demo/generated-runtime.ts";
 
 const SEED =
   "Select a few words here, then look at the other pane. Type in one editor while your caret is in the other — it stays on its text.";

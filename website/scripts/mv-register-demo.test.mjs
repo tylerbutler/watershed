@@ -1,7 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import puppeteer from "puppeteer-core";
-import { findBrowser } from "../../smoke/cdp.mjs";
+import { openBrowserTest } from "./browser-test-harness.mjs";
 
 const base = process.env.WATERSHED_WEBSITE_URL ?? "http://127.0.0.1:4321";
 const client = (id, selector) => `[data-client="${id}"] ${selector}`;
@@ -23,18 +22,12 @@ async function write(page, id, text) {
 }
 
 for (const path of ["/structures/registers", "/mv-register"]) {
-  test(`MV register race, resolution, replay and reset on ${path}`, { timeout: 90_000 }, async () => {
-    const executablePath = findBrowser();
-    assert.ok(executablePath, "Chromium is required; set WATERSHED_CHROME");
-    const browser = await puppeteer.launch({
-      executablePath, headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"],
+  test(`MV register race, resolution, replay and reset on ${path}`, { timeout: 90_000 }, async (t) => {
+    const { page, errors } = await openBrowserTest(t, {
+      width: 1500,
+      height: 1100,
+      captureConsoleErrors: false,
     });
-    try {
-      const page = await browser.newPage();
-      await page.setViewport({ width: 1500, height: 1100 });
-      await page.emulateMediaFeatures([{ name: "prefers-reduced-motion", value: "reduce" }]);
-      const errors = [];
-      page.on("pageerror", (error) => errors.push(error.message));
       const response = await page.goto(new URL(path, base).href);
       assert.equal(response.status(), 200);
       await page.waitForSelector('[data-mv-register-write]:not([disabled])', { timeout: 10_000 });
@@ -89,8 +82,5 @@ for (const path of ["/structures/registers", "/mv-register"]) {
       await settled(page, ["<b>literal text</b>"]);
       assert.equal(await page.$(client("c", "[data-mv-register-values] b")), null);
       assert.deepEqual(errors, []);
-    } finally {
-      await browser.close();
-    }
   });
 }

@@ -5,32 +5,32 @@
 // in order, the same protocol shape as a Fluid-compatible service. All
 // structures ride the one op stream, like DDSes sharing a container; the
 // picker only changes which replica view is shown.
-import * as mapKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/map_kernel.mjs";
-import * as pnKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/pn_counter_kernel.mjs";
-import * as gCounterKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/g_counter_kernel.mjs";
-import * as lwwRegisterKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/lww_register_kernel.mjs";
-import * as lwwMapKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/lww_map_kernel.mjs";
-import * as mvKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/mv_register_kernel.mjs";
-import * as orMapKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/or_map_kernel.mjs";
-import * as orSetKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/or_set_kernel.mjs";
-import * as gSetKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/g_set_kernel.mjs";
-import * as twoPSetKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/two_p_set_kernel.mjs";
-import * as claimsKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/claims_kernel.mjs";
-import * as registerKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/register_collection_kernel.mjs";
-import * as orderedKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/ordered_collection_kernel.mjs";
-import * as taskManagerKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/task_manager_kernel.mjs";
-import * as pactKernel from "../../../tools/website-runtime/build/dev/javascript/watershed/watershed/pact_map_kernel.mjs";
-import * as websiteRuntime from "../../../tools/website-runtime/build/dev/javascript/website_runtime/website_runtime.mjs";
-import * as gdict from "../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/dict.mjs";
-import * as gset from "../../../tools/website-runtime/build/dev/javascript/gleam_stdlib/gleam/set.mjs";
-import * as pnLattice from "../../../tools/website-runtime/build/dev/javascript/lattice_counters/lattice_counters/pn_counter.mjs";
-import * as gCounter from "../../../tools/website-runtime/build/dev/javascript/lattice_counters/lattice_counters/g_counter.mjs";
-import * as replicaId from "../../../tools/website-runtime/build/dev/javascript/lattice_core/lattice_core/replica_id.mjs";
-import * as json from "../../../tools/website-runtime/build/dev/javascript/gleam_json/gleam/json.mjs";
+import { mapKernel } from "./demo/generated-runtime.ts";
+import { pnKernel } from "./demo/generated-runtime.ts";
+import { gCounterKernel } from "./demo/generated-runtime.ts";
+import { lwwRegisterKernel } from "./demo/generated-runtime.ts";
+import { lwwMapKernel } from "./demo/generated-runtime.ts";
+import { mvKernel } from "./demo/generated-runtime.ts";
+import { orMapKernel } from "./demo/generated-runtime.ts";
+import { orSetKernel } from "./demo/generated-runtime.ts";
+import { gSetKernel } from "./demo/generated-runtime.ts";
+import { twoPSetKernel } from "./demo/generated-runtime.ts";
+import { claimsKernel } from "./demo/generated-runtime.ts";
+import { registerKernel } from "./demo/generated-runtime.ts";
+import { orderedKernel } from "./demo/generated-runtime.ts";
+import { taskManagerKernel } from "./demo/generated-runtime.ts";
+import { pactKernel } from "./demo/generated-runtime.ts";
+import { websiteRuntime } from "./demo/generated-runtime.ts";
+import { gdict } from "./demo/generated-runtime.ts";
+import { gset } from "./demo/generated-runtime.ts";
+import { pnLattice } from "./demo/generated-runtime.ts";
+import { gCounter } from "./demo/generated-runtime.ts";
+import { replicaId } from "./demo/generated-runtime.ts";
+import { json } from "./demo/generated-runtime.ts";
 import {
   toList,
   type List,
-} from "../../../tools/website-runtime/build/dev/javascript/watershed/gleam.mjs";
+} from "./demo/generated-runtime.ts";
 import { createFieldNotes } from "./tutorial.js";
 import { createFlowLayer } from "./demo/flow-dots.ts";
 import { createLatencyControls } from "./demo/controls.ts";
@@ -45,7 +45,7 @@ import {
   type ResultValue,
   resultValue,
   some,
-} from "./demo/gleam-values.ts";
+} from "./demo/generated-runtime.ts";
 import { lwwRaceTimestamp } from "./demo/lww-register.js";
 
 type ClientId = "a" | "b" | "c";

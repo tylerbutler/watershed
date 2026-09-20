@@ -24,6 +24,7 @@ const browserTests = [
   "scripts/lww-map-demo.test.mjs",
   "scripts/or-map-mv-register-demo.test.mjs",
   "scripts/runtime-demos.test.mjs",
+  "scripts/structure-runtime-contract.test.mjs",
 ];
 
 export function resolveStaticPath(root, pathname) {
@@ -101,6 +102,14 @@ function findBrowser() {
   return findBrowserIn();
 }
 
+export function requireBrowser(browser, required) {
+  if (browser !== null) return browser;
+  if (required) {
+    throw new Error("Chromium is required for website browser integration");
+  }
+  return null;
+}
+
 function run(command, args, options = {}) {
   return new Promise((resolveRun, rejectRun) => {
     const child = spawn(command, args, { stdio: "inherit", ...options });
@@ -156,7 +165,10 @@ async function startServer() {
 }
 
 async function main() {
-  const browser = findBrowser();
+  const browser = requireBrowser(
+    findBrowser(),
+    process.env.WATERSHED_REQUIRE_BROWSER === "1",
+  );
   if (browser === null) {
     console.log("SKIP website browser integration: Chromium is unavailable");
     return;
