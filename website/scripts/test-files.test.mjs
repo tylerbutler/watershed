@@ -6,6 +6,10 @@ import test from "node:test";
 const websiteRoot = resolve(import.meta.dirname, "..");
 const manifestUrl = new URL("./test-files.mjs", import.meta.url);
 
+function normalizeDiscoveredPath(file) {
+  return file.replaceAll("\\", "/");
+}
+
 function discoverTests(directory) {
   return readdirSync(resolve(websiteRoot, directory), {
     recursive: true,
@@ -17,9 +21,18 @@ function discoverTests(directory) {
         (entry.name.endsWith(".test.ts") || entry.name.endsWith(".test.mjs")),
     )
     .map((entry) =>
-      relative(websiteRoot, resolve(entry.parentPath, entry.name)),
+      normalizeDiscoveredPath(
+        relative(websiteRoot, resolve(entry.parentPath, entry.name)),
+      ),
     );
 }
+
+test("normalizes Windows-style discovered paths to manifest form", () => {
+  assert.equal(
+    normalizeDiscoveredPath(String.raw`scripts\test-files.test.mjs`),
+    "scripts/test-files.test.mjs",
+  );
+});
 
 test("classifies every test file in exactly one suite", async () => {
   assert.ok(existsSync(manifestUrl), "shared test manifest is missing");
