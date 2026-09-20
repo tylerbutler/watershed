@@ -35,6 +35,14 @@ pub type CounterPending {
   CounterPending(count: Int, delta: Int)
 }
 
+pub type RegisterEntry {
+  RegisterEntry(key: String, value: String)
+}
+
+pub type TallyEntry {
+  TallyEntry(key: String, value: Int)
+}
+
 pub fn json_ot_parse(raw: String) -> Result(json_ot.JsonValue, String) {
   json_ot.parse_json(raw)
   |> result.map_error(fn(_) { "invalid JSON" })
@@ -56,6 +64,27 @@ pub fn json_ot_index(index: Int) -> json_ot.PathKey {
 
 pub fn json_ot_integer(value: Int) -> json_ot.Number {
   json_ot.NInt(value)
+}
+
+pub fn json_ot_key_value(path_key: json_ot.PathKey) -> Result(String, String) {
+  case path_key {
+    json_ot.Key(value) -> Ok(value)
+    json_ot.Index(_) -> Error("JSON-OT path is not an object key")
+  }
+}
+
+pub fn json_ot_index_value(path_key: json_ot.PathKey) -> Result(Int, String) {
+  case path_key {
+    json_ot.Index(value) -> Ok(value)
+    json_ot.Key(_) -> Error("JSON-OT path is not an array index")
+  }
+}
+
+pub fn json_ot_integer_value(number: json_ot.Number) -> Result(Int, String) {
+  case number {
+    json_ot.NInt(value) -> Ok(value)
+    json_ot.NFloat(_) -> Error("JSON-OT number is not an integer")
+  }
 }
 
 pub fn create_register_or_map(
@@ -80,6 +109,14 @@ pub fn tally_entries(
   or_map: watershed.OrMap,
 ) -> Result(List(#(String, Int)), String) {
   decode_tally_entries(watershed.or_map_entries(or_map))
+}
+
+pub fn read_register_entry(entry: #(String, String)) -> RegisterEntry {
+  RegisterEntry(key: entry.0, value: entry.1)
+}
+
+pub fn read_tally_entry(entry: #(String, Int)) -> TallyEntry {
+  TallyEntry(key: entry.0, value: entry.1)
 }
 
 pub fn counter_core(

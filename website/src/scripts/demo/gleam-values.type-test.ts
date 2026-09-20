@@ -4,7 +4,7 @@ import { watershed } from "./generated-runtime.ts";
 import {
   optionValue,
   resultValue,
-} from "./generated-runtime.ts";
+} from "./gleam-interop.ts";
 
 declare const state: pactMap.PactMapState;
 declare const setResult: ReturnType<typeof pactMap.set>;

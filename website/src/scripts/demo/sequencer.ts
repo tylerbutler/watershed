@@ -12,14 +12,19 @@
 
 import type { FlowLayer } from "./flow-dots.ts";
 import type { LatencyControls } from "./controls.ts";
-import { watershed } from "./generated-runtime.ts";
-import { sluice } from "./generated-runtime.ts";
-import { json } from "./generated-runtime.ts";
 import {
+  networkPending,
+  sequenceNumber,
+  writeSequenceMarker,
+  type DemoDocument,
+  type DemoServer,
+} from "./sluice-runtime.ts";
+import {
+  createDeliveryEngine,
   createSluiceNetwork,
-  peekDelivery,
-  stepDelivery,
-  stepDeliveryWave,
+  type DeliveryEngine,
+  type DeliveryScheduler,
+  type SluiceDelivery,
   type SluiceNetwork,
 } from "./sluice-transport.ts";
 
@@ -82,8 +87,15 @@ export interface Sequencer<C extends SeqClient> {
   reset(): void;
 }
 
+const browserScheduler: DeliveryScheduler = {
+  now: () => performance.now(),
+  set: (delayMs, callback) => setTimeout(callback, delayMs),
+  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
 export function createSequencer<C extends SeqClient>(
   config: SequencerConfig<C>,
+  scheduler: DeliveryScheduler = browserScheduler,
 ): Sequencer<C> {
   const { clients, seqNode, flow, controls, onChange } = config;
   const fifoGap = config.fifoGap ?? 25;
@@ -94,16 +106,16 @@ export function createSequencer<C extends SeqClient>(
     begin: (seq: number) => (target: C) => void;
   };
 
-  let network: SluiceNetwork;
-  let server: ReturnType<typeof sluice.start>;
-  let documents: Record<string, ReturnType<typeof sluice.connect>>;
-  let sidToId: Record<string, string>;
+  let network!: SluiceNetwork;
+  let server!: DemoServer;
+  let documents!: Record<string, DemoDocument>;
+  let sidToId!: Record<string, string>;
   let baseSequence = 0;
   let sn = 0;
   let inFlight = 0;
   let seqLastArrival = 0;
   let generation = 0;
-  let pumpTimer: ReturnType<typeof setTimeout> | null = null;
+  let engine: DeliveryEngine;
   const pendingBySequence = new Map<number, PendingOperation>();
 
   function bootTransport() {
@@ -115,7 +127,7 @@ export function createSequencer<C extends SeqClient>(
     server = network.server;
     documents = network.documents;
     sidToId = network.sidToId;
-    baseSequence = sluice.sequence_number(server);
+    baseSequence = sequenceNumber(server);
   }
 
   function deliverTo(
@@ -139,18 +151,18 @@ export function createSequencer<C extends SeqClient>(
       label,
       hopLatency,
     );
-    const now = performance.now();
+    const now = scheduler.now();
     const arrival = Math.max(
       now + controls.paced(hopLatency),
       target.lastArrival + controls.paced(fifoGap),
     );
     target.lastArrival = arrival;
     inFlight += 1;
-    setTimeout(() => {
+    scheduler.set(arrival - now, () => {
       if (!isStale()) deliver();
       inFlight = Math.max(0, inFlight - 1);
       onChange();
-    }, arrival - now);
+    });
   }
 
   function fanOut(
@@ -163,47 +175,48 @@ export function createSequencer<C extends SeqClient>(
     }
   }
 
-  function pump() {
-    if (pumpTimer !== null) return;
-    pumpTimer = setTimeout(() => {
-      pumpTimer = null;
-      const first = peekDelivery(network);
-      if (first === null) {
-        onChange();
-        return;
-      }
-      const operation = pendingBySequence.get(first.sequence_number);
-      if (first.event !== "op" || !operation) {
-        stepDelivery(network);
-        pump();
-        return;
-      }
+  function deliverWave(deliveries: readonly SluiceDelivery[]) {
+    const first = deliveries[0];
+    if (first?.event !== "op") {
+      if (networkPending(server)) engine.schedule(0);
+      return;
+    }
+    const operation = pendingBySequence.get(first.sequence_number);
+    if (!operation) {
+      if (networkPending(server)) engine.schedule(0);
+      return;
+    }
 
-      pendingBySequence.delete(first.sequence_number);
-      const logicalSequence = first.sequence_number - baseSequence;
-      sn = Math.max(sn, logicalSequence);
-      const deliver = operation.isStale()
-        ? null
-        : operation.begin(logicalSequence);
-      for (const landed of stepDeliveryWave(network)) {
-        const targetId = sidToId[landed.to];
-        const target = targetId ? clients[targetId] : undefined;
-        if (target && deliver !== null) {
-          deliverTo(
-            target,
-            operation.isStale,
-            () => deliver(target),
-            operation.label,
-          );
-        }
+    pendingBySequence.delete(first.sequence_number);
+    const logicalSequence = first.sequence_number - baseSequence;
+    sn = Math.max(sn, logicalSequence);
+    const deliver = operation.isStale()
+      ? null
+      : operation.begin(logicalSequence);
+    for (const landed of deliveries) {
+      const targetId = sidToId[landed.to];
+      const target = targetId ? clients[targetId] : undefined;
+      if (target && deliver !== null) {
+        deliverTo(
+          target,
+          operation.isStale,
+          () => deliver(target),
+          operation.label,
+        );
       }
-      inFlight = Math.max(0, inFlight - 1);
-      onChange();
-      if (sluice.pending(server)) pump();
-    }, 0);
+    }
+    inFlight = Math.max(0, inFlight - 1);
+    onChange();
+    if (networkPending(server)) engine.schedule(0);
   }
 
   bootTransport();
+  engine = createDeliveryEngine({
+    network,
+    scheduler,
+    onWave: deliverWave,
+    onIdle: onChange,
+  });
 
   return {
     get inFlight() {
@@ -230,25 +243,24 @@ export function createSequencer<C extends SeqClient>(
         originLatency,
       );
 
-      const now = performance.now();
+      const now = scheduler.now();
       const arrival = Math.max(
         now + controls.paced(originLatency),
         seqLastArrival + controls.paced(fifoGap),
       );
       seqLastArrival = arrival;
 
-      setTimeout(() => {
+      scheduler.set(arrival - now, () => {
         if (isStale()) {
           inFlight = Math.max(0, inFlight - 1);
           onChange();
           return;
         }
-        watershed.set(
-          watershed.root(documents[opts.originId]),
-          "__atlas_sequence__",
-          json.int(sn + pendingBySequence.size + 1),
+        writeSequenceMarker(
+          documents[opts.originId],
+          sn + pendingBySequence.size + 1,
         );
-        const sequence = sluice.sequence_number(server);
+        const sequence = sequenceNumber(server);
         pendingBySequence.set(sequence, {
           isStale,
           label: opts.label,
@@ -258,8 +270,8 @@ export function createSequencer<C extends SeqClient>(
               opts.onDeliver(target, { seq: logicalSequence, extra });
           },
         });
-        pump();
-      }, arrival - now);
+        engine.schedule(0);
+      });
     },
 
     broadcast(opts: BroadcastOptions<C>) {
@@ -274,15 +286,13 @@ export function createSequencer<C extends SeqClient>(
 
     reset() {
       generation += 1;
-      if (pumpTimer !== null) {
-        clearTimeout(pumpTimer);
-        pumpTimer = null;
-      }
+      engine.cancel();
       pendingBySequence.clear();
       sn = 0;
       inFlight = 0;
       seqLastArrival = 0;
       bootTransport();
+      engine.reset(network);
     },
   };
 }

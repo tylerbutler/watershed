@@ -15,18 +15,27 @@
 //
 // The sluice is DDS-agnostic (it sequences opaque wire frames), so this harness
 // is too: it never mentions maps, folders, or text.
-import { sluice } from "./generated-runtime.ts";
-import { optionValue, type ResultValue } from "./generated-runtime.ts";
+import { optionValue } from "./gleam-interop.ts";
+import {
+  networkPending,
+  sequenceNumber,
+  settleNetwork,
+  type DemoDelivery,
+  type DemoDocument,
+  type DemoServer,
+} from "./sluice-runtime.ts";
 import { prefersReducedMotion } from "./timing.ts";
 import { createFlowLayer, type FlowLayer } from "./flow-dots.ts";
 import { createLatencyControls, type LatencyControls } from "./controls.ts";
 import { requiredInstance } from "./dom.ts";
 import { createOpLog, type OpLog } from "./op-log.ts";
 import {
+  createDeliveryEngine,
   createSluiceNetwork,
   peekDelivery,
-  stepDelivery,
-  stepDeliveryWave,
+  type DeliveryEngine,
+  type DeliveryScheduler,
+  type SluiceDelivery,
   type SluiceNetwork,
 } from "./sluice-transport.ts";
 
@@ -34,7 +43,7 @@ const FIFO_GAP_MS = 25;
 
 export interface RigClient {
   id: string;
-  doc: ReturnType<typeof sluice.connect>;
+  doc: DemoDocument;
   el: Element;
   /** DDS-specific handle set by `setup` (a SharedMap, an address, …). */
   handle: unknown;
@@ -60,7 +69,7 @@ export interface RigConfig {
   clientLabel: Record<string, string>;
   setup: (
     clients: Record<string, RigClient>,
-    server: ReturnType<typeof sluice.start>,
+    server: DemoServer,
   ) => void;
   render: (client: RigClient) => void;
   canonical: (client: RigClient) => string;
@@ -111,9 +120,18 @@ export interface Rig {
 
 export const some = optionValue;
 
-export type Delivery = ResultValue<ReturnType<typeof sluice.peek_info>>;
+export type Delivery = DemoDelivery;
 
-export function createSluiceRig(config: RigConfig): Rig | null {
+const browserScheduler: DeliveryScheduler = {
+  now: () => performance.now(),
+  set: (delayMs, callback) => setTimeout(callback, delayMs),
+  clear: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
+};
+
+export function createSluiceRig(
+  config: RigConfig,
+  scheduler: DeliveryScheduler = browserScheduler,
+): Rig | null {
   const rig = document.querySelector(config.rig);
   if (!rig) return null;
 
@@ -184,8 +202,8 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   }
 
   const clients: Record<string, RigClient> = {};
-  let network: SluiceNetwork;
-  let server: ReturnType<typeof sluice.start>;
+  let network!: SluiceNetwork;
+  let server!: DemoServer;
   const sidToId: Record<string, string> = {};
   const labelBySn = new Map<number, string>();
   const outboundBySn = new Map<
@@ -193,8 +211,9 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     { client: RigClient; label: string; arrivalAt: number }
   >();
   const pendingBySn = new Map<number, { client: RigClient; marker: string }>();
-  const deliveryTimers = new Set<ReturnType<typeof setTimeout>>();
-  let pumpTimer: ReturnType<typeof setTimeout> | null = null;
+  const deliveryTimers = new Set<unknown>();
+  let engine: DeliveryEngine;
+  let settlingNow = false;
   let lastOutboundArrival = 0;
   let inFlight = 0;
 
@@ -232,7 +251,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     config.setup(clients, server);
     // The setup may have pushed handshake/attach ops; drain them silently so
     // the visible timeline starts clean.
-    sluice.settle(server);
+    settleNetwork(server);
     labelBySn.clear();
   }
 
@@ -240,7 +259,11 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     const sigs = config.clientIds.map((id) => config.canonical(clients[id]));
     const identical = sigs.every((s) => s === sigs[0]);
     const anyPending = config.clientIds.some((id) => clients[id].pending.length > 0);
-    return identical && !anyPending && !sluice.pending(server) && inFlight === 0;
+    return identical &&
+      !anyPending &&
+      !networkPending(server) &&
+      !engine?.pending &&
+      inFlight === 0;
   }
 
   function renderStatus() {
@@ -273,18 +296,17 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   }
 
   function pump() {
-    if (pumpTimer != null) return;
-    const next = peekDelivery(network);
-    if (next == null) {
+    if (!networkPending(server)) {
       renderStatus();
       return;
     }
+    const next = peekDelivery(network);
     const outbound =
-      next.event === "op" ? outboundBySn.get(next.sequence_number) : null;
+      next?.event === "op" ? outboundBySn.get(next.sequence_number) : null;
     const delay = outbound
-      ? Math.max(0, outbound.arrivalAt - performance.now())
+      ? Math.max(0, outbound.arrivalAt - scheduler.now())
       : controls.paced(controls.sampleLatency());
-    pumpTimer = setTimeout(pumpTick, delay);
+    engine.schedule(delay);
   }
 
   /** Stamp the sequencer counter and append an op-log line, but only once —
@@ -337,12 +359,12 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     );
     ackIfAuthor(delivery);
     inFlight += 1;
-    const timer = setTimeout(() => {
+    const timer = scheduler.set(duration, () => {
       deliveryTimers.delete(timer);
       landDelivery(toId, delivery);
       inFlight = Math.max(0, inFlight - 1);
       renderStatus();
-    }, duration);
+    });
     deliveryTimers.add(timer);
   }
 
@@ -358,14 +380,9 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     );
   }
 
-  function pumpTick() {
-    pumpTimer = null;
-    const first = peekDelivery(network);
-    if (first == null) {
-      renderStatus();
-      return;
-    }
-
+  function deliverWave(deliveries: readonly SluiceDelivery[]) {
+    const first = deliveries[0];
+    if (!first) return;
     // A real server fans one op out to every client at once, so drain the whole
     // broadcast wave — every queued frame sharing this op's sequence number — in
     // a single tick. Each recipient's dot still carries its own sampled latency,
@@ -375,60 +392,46 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     if (first.event === "op") {
       const waveSn = first.sequence_number;
       if (outboundBySn.delete(waveSn)) inFlight = Math.max(0, inFlight - 1);
-      for (const delivery of stepDeliveryWave(network, fireBeforeDeliver)) {
+    }
+    for (const delivery of deliveries) {
+      if (settlingNow) {
+        const toId = sidToId[delivery.to];
+        if (delivery.event === "op" && toId) {
+          ackIfAuthor(delivery);
+          landDelivery(toId, delivery);
+        }
+      } else {
         deliver(delivery);
       }
-    } else {
-      fireBeforeDeliver(first);
-      const delivery = stepDelivery(network);
-      if (delivery != null) deliver(delivery);
     }
 
     renderStatus();
-    if (sluice.pending(server)) pump();
+    if (!settlingNow && networkPending(server)) pump();
   }
 
   /** Deliver exactly the next queued wave immediately, no paced delay. */
   function step() {
-    if (pumpTimer != null) {
-      clearTimeout(pumpTimer);
-      pumpTimer = null;
-    }
-    pumpTick();
+    engine.step();
   }
 
   /**
    * Drain every queued frame immediately (no animation, no paced delay) —
    * "fast forward to convergence". Unlike calling `sluice.settle` directly,
    * this still routes each delivery through `deliver`'s ack/pending-clear
-   * bookkeeping and `config.onBeforeDeliver` (one delivery at a time, via
-   * `peek_info`/`step_info`, exactly like `pumpTick`'s wave loop), so the op
-   * log, sequence counter, and any author-routing a caller hooked in stay
-   * correct after a bulk settle, not just after the paced path.
+   * bookkeeping and `config.onBeforeDeliver`, so the op log, sequence counter,
+   * and any author-routing a caller hooked in stay correct after a bulk settle,
+   * not just after the paced path.
    */
   function settleNow() {
-    if (pumpTimer != null) {
-      clearTimeout(pumpTimer);
-      pumpTimer = null;
-    }
-    for (const timer of deliveryTimers) clearTimeout(timer);
+    engine.cancel();
+    for (const timer of deliveryTimers) scheduler.clear(timer);
     deliveryTimers.clear();
     inFlight = 0;
-    let guard = 0;
-    const GUARD_LIMIT = 20000; // pathological-loop backstop, never expected
-    while (guard < GUARD_LIMIT) {
-      const next = peekDelivery(network);
-      if (next == null) break;
-      if (next.event === "op") outboundBySn.delete(next.sequence_number);
-      fireBeforeDeliver(next);
-      const delivery = stepDelivery(network);
-      if (delivery == null) break;
-      const toId = sidToId[delivery.to];
-      if (delivery.event === "op" && toId) {
-        ackIfAuthor(delivery);
-        landDelivery(toId, delivery);
-      }
-      guard += 1;
+    settlingNow = true;
+    try {
+      engine.settle();
+    } finally {
+      settlingNow = false;
     }
     outboundBySn.clear();
     pendingBySn.clear();
@@ -445,9 +448,9 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     label: string,
   ) {
     write();
-    const sn = sluice.sequence_number(server);
+    const sn = sequenceNumber(server);
     labelBySn.set(sn, label);
-    const now = performance.now();
+    const now = scheduler.now();
     const latency = controls.sampleLatency();
     const arrivalAt = Math.max(
       now + controls.paced(latency),
@@ -475,11 +478,8 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   }
 
   function reset() {
-    if (pumpTimer != null) {
-      clearTimeout(pumpTimer);
-      pumpTimer = null;
-    }
-    for (const timer of deliveryTimers) clearTimeout(timer);
+    engine.cancel();
+    for (const timer of deliveryTimers) scheduler.clear(timer);
     deliveryTimers.clear();
     outboundBySn.clear();
     pendingBySn.clear();
@@ -487,6 +487,7 @@ export function createSluiceRig(config: RigConfig): Rig | null {
     inFlight = 0;
     flowLayerEl.replaceChildren();
     boot();
+    engine.reset(network);
     seqCounterEl.textContent = "SN 0";
     opLog.clear();
     renderAll();
@@ -494,12 +495,19 @@ export function createSluiceRig(config: RigConfig): Rig | null {
   }
 
   boot();
+  engine = createDeliveryEngine({
+    network,
+    scheduler,
+    onBeforeDelivery: fireBeforeDeliver,
+    onWave: deliverWave,
+    onIdle: renderStatus,
+  });
   renderAll();
   renderStatus();
 
   return {
     clients,
-    serverPending: () => sluice.pending(server),
+    serverPending: () => networkPending(server),
     submit,
     reset,
     renderAll,

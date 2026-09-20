@@ -3,6 +3,8 @@ import { sluice } from "./demo/generated-runtime.ts";
 import { websiteRuntime } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { expectOk, type ResultValue } from "./demo/generated-runtime.ts";
+import { settleNetwork } from "./demo/sluice-runtime.ts";
+import { withLegacyGeneratedDocument } from "./demo/legacy-generated-document.ts";
 
 const CLIENT_IDS = ["a", "b"];
 const CLIENT_LABEL: Record<string, string> = {
@@ -323,11 +325,17 @@ export function initGuideRaceDemo() {
     clientIds: CLIENT_IDS,
     clientLabel: CLIENT_LABEL,
     setup: (clients, server) => {
-      clients["a"].handle = seedChannels(clients["a"].doc);
+      clients["a"].handle = withLegacyGeneratedDocument(
+        clients["a"].doc,
+        seedChannels,
+      );
       // Seed the real channels on A, then settle so B can resolve the same
       // OR-map handles from the attached root map before the first render.
-      sluice.settle(server);
-      clients["b"].handle = resolveChannels(clients["b"].doc);
+      settleNetwork(server);
+      clients["b"].handle = withLegacyGeneratedDocument(
+        clients["b"].doc,
+        resolveChannels,
+      );
     },
     render: renderBoard,
     canonical: canonicalBoard,

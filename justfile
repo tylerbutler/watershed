@@ -85,7 +85,7 @@ _test-compile-fail:
 # The Node registry covers the snippet drift gates and component contracts;
 # the browser registry covers the built-site integration scenarios.
 _test-website-snippets: snippets
-    cd tools/website-samples && gleam build --target javascript
+    cd tools/website-samples && gleam test
     cd website && pnpm check:types && pnpm test:unit && pnpm test:integration:browser
 
 # Generate the website's snippet manifest from `website/snippets.json`.

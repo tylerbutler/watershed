@@ -6,7 +6,7 @@ import {
   none,
   optionValue,
   some,
-} from "./generated-runtime.ts";
+} from "./gleam-interop.ts";
 
 test("constructs Options from the website's single Gleam runtime", () => {
   assert.equal(optionValue(some("value")), "value");

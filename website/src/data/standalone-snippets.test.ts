@@ -209,7 +209,7 @@ describe("no handwritten Gleam literals in migrated pages", () => {
 // ── 4. Fixture is in root build configuration ──────────────────────────────
 
 describe("fixture build integration", () => {
-  it("the website test gate compiles website-samples before checking snippets", () => {
+  it("the website test gate tests website-samples before checking snippets", () => {
     const justfile = readFileSync(resolve(repoRoot, "justfile"), "utf8");
     const websiteGate = justfile.match(
       /_test-website-snippets:[\s\S]*?(?=\n\S|\n#)/,
@@ -217,7 +217,7 @@ describe("fixture build integration", () => {
     assert.ok(websiteGate, "_test-website-snippets recipe not found");
     assert.match(
       websiteGate[0],
-      /cd tools\/website-samples && gleam build --target javascript/,
+      /cd tools\/website-samples && gleam test/,
     );
   });
 
@@ -226,11 +226,11 @@ describe("fixture build integration", () => {
     assert.match(toml, /tools\/website-samples/);
   });
 
-  it("gleam.toml trellis test excludes website-samples (no test dir)", () => {
+  it("gleam.toml trellis test includes website-samples", () => {
     const toml = readFileSync(resolve(repoRoot, "gleam.toml"), "utf8");
     const testSection = toml.match(/test\s*=\s*\[([^\]]+)\]/s);
     assert.ok(testSection, "test exclusion section not found");
-    assert.match(testSection![1], /website-samples/);
+    assert.doesNotMatch(testSection![1], /website-samples/);
   });
 
   it("gleam.toml trellis build-erlang excludes website-samples", () => {

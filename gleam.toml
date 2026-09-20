@@ -69,7 +69,6 @@ test = [
     "examples/scoreboard_cli",
     "examples/text_lustre",
     "tools/compile-fail/*",
-    "tools/website-samples",
 ]
 
 # Two target families live here, and only `watershed` belongs to both: it and

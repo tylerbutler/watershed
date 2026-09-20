@@ -9,10 +9,11 @@
 import { watershed } from "./demo/generated-runtime.ts";
 import { runtime } from "./demo/generated-runtime.ts";
 import { handle } from "./demo/generated-runtime.ts";
-import { sluice } from "./demo/generated-runtime.ts";
 import { json } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { expectOk } from "./demo/generated-runtime.ts";
+import { settleNetwork } from "./demo/sluice-runtime.ts";
+import { withLegacyGeneratedDocument } from "./demo/legacy-generated-document.ts";
 
 const CLIENT_IDS = ["a", "b", "c"];
 const CLIENT_LABEL: Record<string, string> = {
@@ -221,7 +222,10 @@ export function initDirectoryDemo() {
       // One client creates the directory and attaches it under the root map;
       // the others resolve the shared handle once the attach has propagated.
       const a = clients["a"];
-      const runtimeA = watershed.runtime_of(a.doc);
+      const runtimeA = withLegacyGeneratedDocument(
+        a.doc,
+        watershed.runtime_of,
+      );
       const address = expectOk(
         runtime.create_directory(runtimeA),
         "directory creation failed",
@@ -229,10 +233,13 @@ export function initDirectoryDemo() {
       runtime.set(runtimeA, "root", DIR_ADDRESS, handle.encode_handle(address));
       a.handle = { runtime: runtimeA, address };
       a.data = { folderCursor: 0, readingCursor: 0 };
-      sluice.settle(server);
+      settleNetwork(server);
       CLIENT_IDS.slice(1).forEach((id, i) => {
         const client = clients[id];
-        const rt = watershed.runtime_of(client.doc);
+        const rt = withLegacyGeneratedDocument(
+          client.doc,
+          watershed.runtime_of,
+        );
         const stored = expectOk(
           runtime.get(rt, "root", DIR_ADDRESS),
           "directory handle lookup failed",

@@ -17,7 +17,9 @@ export const nodeTestFiles = [
   "src/scripts/demo/gleam-values.test.mjs",
   "src/scripts/demo/rich-text-adapter.test.mjs",
   "src/scripts/demo/sequencer.test.ts",
+  "src/scripts/demo/sluice-rig.test.ts",
   "src/scripts/demo/sluice-transport.test.ts",
+  "src/scripts/demo/website-runtime-contract.test.ts",
   "src/styles/global.test.mjs",
 ];
 

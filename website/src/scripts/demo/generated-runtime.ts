@@ -43,6 +43,10 @@ import * as bias from "../../../../tools/website-runtime/build/dev/javascript/la
 import { register as textareaRegister } from "../../../../tools/website-runtime/build/dev/javascript/watershed_lustre/watershed_lustre/textarea_element.mjs";
 
 export {
+  GleamError as Error,
+  None,
+  Ok,
+  Some,
   bias,
   claimsKernel,
   counterKernel,
@@ -85,42 +89,16 @@ export {
   pactKernel as pactMap,
   replicaId as replica,
 };
-export type { List, Option };
+export type { List, Option, Result };
 export type Option$<T> = Option<T>;
-
-export type ResultValue<R> =
-  R extends Result<infer T, infer _E> ? T : never;
-
-export function isOk<T, E>(result: Result<T, E>): result is Ok<T, E> {
-  return result instanceof Ok;
-}
-
-export function resultValue<T, E>(result: Result<T, E>): T | null {
-  return isOk(result) ? result[0] : null;
-}
-
-export function resultError<T, E>(result: Result<T, E>): E | null {
-  return result instanceof GleamError ? result[0] : null;
-}
-
-export function expectOk<T, E>(result: Result<T, E>, detail: string): T {
-  if (isOk(result)) return result[0];
-  const error = result instanceof GleamError ? result[0] : result;
-  throw new Error(`${detail}: ${String(error)}`);
-}
-
-export function isSome<T>(option: Option<T>): option is Some<T> {
-  return option instanceof Some;
-}
-
-export function optionValue<T>(option: Option<T>): T | null {
-  return isSome(option) ? option[0] : null;
-}
-
-export function some<T>(value: T): Option<T> {
-  return new Some(value);
-}
-
-export function none<T>(): Option<T> {
-  return new None();
-}
+export {
+  expectOk,
+  isOk,
+  isSome,
+  none,
+  optionValue,
+  resultError,
+  resultValue,
+  some,
+  type ResultValue,
+} from "./gleam-interop.ts";

@@ -40,7 +40,6 @@
 //     leaves that one cached entry alone instead of double-shifting it.
 import { watershed } from "./demo/generated-runtime.ts";
 import { richText } from "./demo/generated-runtime.ts";
-import { sluice } from "./demo/generated-runtime.ts";
 import { json } from "./demo/generated-runtime.ts";
 import {
   createSluiceRig,
@@ -54,6 +53,8 @@ import {
   resultValue,
   type ResultValue,
 } from "./demo/generated-runtime.ts";
+import { settleNetwork } from "./demo/sluice-runtime.ts";
+import { withLegacyGeneratedDocument } from "./demo/legacy-generated-document.ts";
 import {
   createRichTextAdapter,
   type RichTextAdapter,
@@ -438,17 +439,17 @@ export function initRichTextDemo() {
 
       const a = clients["a"];
       const rtA = expectOk(
-        watershed.create_rich_text(a.doc),
+        withLegacyGeneratedDocument(a.doc, watershed.create_rich_text),
         "rich-text channel creation failed",
       );
       seedInto(rtA);
       watershed.set(
-        watershed.root(a.doc),
+        withLegacyGeneratedDocument(a.doc, watershed.root),
         DOC_KEY,
         watershed.rich_text_handle_of(rtA),
       );
       a.handle = rtA;
-      sluice.settle(server);
+      settleNetwork(server);
 
       for (const id of CLIENT_IDS) {
         const client = clients[id];
@@ -457,11 +458,18 @@ export function initRichTextDemo() {
           rt = rtA;
         } else {
           const stored = expectOk(
-            watershed.get(watershed.root(client.doc), DOC_KEY),
+            watershed.get(
+              withLegacyGeneratedDocument(client.doc, watershed.root),
+              DOC_KEY,
+            ),
             "rich-text handle lookup failed",
           );
           rt = expectOk(
-            watershed.resolve_rich_text(client.doc, stored),
+            withLegacyGeneratedDocument(
+              client.doc,
+              watershed.resolve_rich_text,
+              stored,
+            ),
             "rich-text channel resolve failed",
           );
           client.handle = rt;

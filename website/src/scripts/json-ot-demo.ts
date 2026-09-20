@@ -14,11 +14,12 @@ import { watershed } from "./demo/generated-runtime.ts";
 import { runtime } from "./demo/generated-runtime.ts";
 import { jsonOt } from "./demo/generated-runtime.ts";
 import { handle } from "./demo/generated-runtime.ts";
-import { sluice } from "./demo/generated-runtime.ts";
 import { toList } from "./demo/generated-runtime.ts";
 import { websiteRuntime } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { expectOk, resultValue } from "./demo/generated-runtime.ts";
+import { settleNetwork } from "./demo/sluice-runtime.ts";
+import { withLegacyGeneratedDocument } from "./demo/legacy-generated-document.ts";
 
 const jsonValue = (value: PlainJson) =>
   expectOk(
@@ -323,7 +324,7 @@ export function initJsonOtDemo() {
     clientLabel: CLIENT_LABEL,
     setup: (clients, server) => {
       const a = clients["a"];
-      const rtA = watershed.runtime_of(a.doc);
+      const rtA = withLegacyGeneratedDocument(a.doc, watershed.runtime_of);
       const address = expectOk(
         runtime.create_json_ot(rtA),
         "json-ot channel creation failed",
@@ -334,10 +335,13 @@ export function initJsonOtDemo() {
       runtime.set(rtA, "root", DOC_KEY, handle.encode_handle(address));
       a.handle = { runtime: rtA, address };
       a.data = { name: 0, site: 0, trend: 0 };
-      sluice.settle(server);
+      settleNetwork(server);
       CLIENT_IDS.slice(1).forEach((id) => {
         const client = clients[id];
-        const rt = watershed.runtime_of(client.doc);
+        const rt = withLegacyGeneratedDocument(
+          client.doc,
+          watershed.runtime_of,
+        );
         const stored = expectOk(
           runtime.get(rt, "root", DOC_KEY),
           "json-ot handle lookup failed",

@@ -7,11 +7,12 @@
 // the demo just issues inserts/moves/renames/deletes and reads values back.
 import { watershed } from "./demo/generated-runtime.ts";
 import { runtime } from "./demo/generated-runtime.ts";
-import { sluice } from "./demo/generated-runtime.ts";
 import { json } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { expectOk, type ResultValue } from "./demo/generated-runtime.ts";
 import { createRigNotes, type RigNotes } from "./demo/rig-notes.ts";
+import { settleNetwork } from "./demo/sluice-runtime.ts";
+import { withLegacyGeneratedDocument } from "./demo/legacy-generated-document.ts";
 
 const CLIENT_IDS = ["a", "b", "c"];
 const CLIENT_LABEL: Record<string, string> = {
@@ -348,11 +349,14 @@ export function initSequenceDemo() {
       // this drains inside setup's settle, so the visible timeline is clean.
       const a = clients["a"];
       const seq = expectOk(
-        watershed.create_sequence(a.doc),
+        withLegacyGeneratedDocument(a.doc, watershed.create_sequence),
         "sequence creation failed",
       );
       a.handle = seq;
-      const runtimeA = watershed.runtime_of(a.doc);
+      const runtimeA = withLegacyGeneratedDocument(
+        a.doc,
+        watershed.runtime_of,
+      );
       runtime.set(
         runtimeA,
         "root",
@@ -362,17 +366,24 @@ export function initSequenceDemo() {
       INITIAL_ROUTE.forEach((name, i) => {
         watershed.sequence_insert(seq, i, json.string(name));
       });
-      sluice.settle(server);
+      settleNetwork(server);
       CLIENT_IDS.forEach((id, i) => {
         const client = clients[id];
         if (id !== "a") {
-          const rt = watershed.runtime_of(client.doc);
+          const rt = withLegacyGeneratedDocument(
+            client.doc,
+            watershed.runtime_of,
+          );
           const stored = expectOk(
             runtime.get(rt, "root", SEQ_ADDRESS),
             "sequence handle lookup failed",
           );
           client.handle = expectOk(
-            watershed.resolve_sequence(client.doc, stored),
+            withLegacyGeneratedDocument(
+              client.doc,
+              watershed.resolve_sequence,
+              stored,
+            ),
             "sequence resolve failed",
           );
         }

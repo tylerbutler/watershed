@@ -79,9 +79,9 @@ fn render_header(_title: String) -> Nil {
 
 // ── Record schema ─────────────────────────────────────────────────────────────
 
-type Card
+pub type Card
 
-type CardState {
+pub type CardState {
   CardState(title: String, column: String, owner: Option(String))
 }
 
@@ -102,7 +102,7 @@ fn card_owner() -> schema.Field(Card, String) {
 /// prop list, so the two can never drift. `sealed_known` seals the
 /// schema to exactly these keys without a hand-repeated list, and
 /// `versioned` stamps a version and rejects any stored version that differs.
-fn card_schema() -> Result(schema.Schema(Card, CardState), Nil) {
+pub fn card_schema() -> Result(schema.Schema(Card, CardState), Nil) {
   schema.record3(
     CardState,
     schema.prop(card_title(), fn(c: CardState) { c.title }),
@@ -116,8 +116,9 @@ fn card_schema() -> Result(schema.Schema(Card, CardState), Nil) {
 // `write` emits one op per key, never a blob — so a peer editing
 // `owner` at the same time keeps their edit. An optional prop that is
 // `None` deletes its key rather than skipping it.
-fn write_card(card: watershed.TypedMap(Card)) -> Result(Nil, Nil) {
+pub fn write_card(card: watershed.TypedMap(Card)) -> Result(Nil, Nil) {
   use card_schema <- result.try(card_schema())
+  watershed.stamp(card, card_schema)
   watershed.write(
     card,
     card_schema,

@@ -10,7 +10,9 @@ import watershed/p2p_transport_js.{type Signaling}
 import watershed/schema
 
 // docs:snippet-start p2p-config
-fn p2p_config(signaling: Signaling) -> crdt_js.Config(schema.PnCounterChannel) {
+pub fn p2p_config(
+  signaling: Signaling,
+) -> crdt_js.Config(schema.PnCounterChannel) {
   // Auto starts on WebRTC and attempts the relay in parallel — it never
   // waits for one, and prefers it while healthy.
   let config =

@@ -7,6 +7,7 @@ import { watershed } from "./demo/generated-runtime.ts";
 import { json } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { resultValue } from "./demo/generated-runtime.ts";
+import { withLegacyGeneratedDocument } from "./demo/legacy-generated-document.ts";
 
 const CLIENT_IDS = ["a", "b", "c"];
 const CLIENT_LABEL: Record<string, string> = {
@@ -237,7 +238,12 @@ export function initSudokuDemo() {
     clientIds: CLIENT_IDS,
     clientLabel: CLIENT_LABEL,
     setup: (clients) => {
-      for (const id of CLIENT_IDS) clients[id].handle = watershed.root(clients[id].doc);
+      for (const id of CLIENT_IDS) {
+        clients[id].handle = withLegacyGeneratedDocument(
+          clients[id].doc,
+          watershed.root,
+        );
+      }
     },
     render: renderBoard,
     canonical: canonicalBoard,

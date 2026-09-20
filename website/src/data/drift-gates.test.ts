@@ -60,6 +60,52 @@ const MANIFEST_READER = "src/lib/snippet.ts";
 
 /** The one authored module allowed to import generated Gleam output. */
 const GENERATED_RUNTIME_GATEWAY = "src/scripts/demo/generated-runtime.ts";
+const AUTHORED_INTEROP_MODULE = "src/scripts/demo/gleam-interop.ts";
+const LEGACY_GENERATED_DOCUMENT_MODULE =
+  "src/scripts/demo/legacy-generated-document.ts";
+// Remove this exception only with the later full atlas façade migration.
+const ATLAS_RAW_RUNTIME_EXCEPTION = "src/scripts/demo.ts";
+
+const GENERATED_RUNTIME_RAW_CONSUMERS = new Set([
+  "src/scripts/counter-bug.ts",
+  "src/scripts/directory-demo.ts",
+  "src/scripts/demo/sluice-runtime.ts",
+  "src/scripts/demo/sluice-runtime.type-test.ts",
+  "src/scripts/demo/legacy-generated-document.ts",
+  ATLAS_RAW_RUNTIME_EXCEPTION,
+  "src/scripts/demo/boot.test.ts",
+  "src/scripts/demo/gleam-values.type-test.ts",
+  "src/scripts/demo/website-runtime-contract.test.ts",
+  "src/scripts/guide-race-demo.ts",
+  "src/scripts/json-ot-demo.ts",
+  "src/scripts/rich-text-demo.ts",
+  "src/scripts/sequence-demo.ts",
+  "src/scripts/sudoku-demo.ts",
+  "src/scripts/text-demo.ts",
+  "src/scripts/text-element-demo.ts",
+]);
+
+const LEGACY_GENERATED_DOCUMENT_CONSUMERS = new Set([
+  "src/scripts/directory-demo.ts",
+  "src/scripts/guide-race-demo.ts",
+  "src/scripts/json-ot-demo.ts",
+  "src/scripts/rich-text-demo.ts",
+  "src/scripts/sequence-demo.ts",
+  "src/scripts/sudoku-demo.ts",
+  "src/scripts/text-demo.ts",
+]);
+
+const AUTHORED_INTEROP_EXPORTS = new Set([
+  "ResultValue",
+  "expectOk",
+  "isOk",
+  "isSome",
+  "none",
+  "optionValue",
+  "resultError",
+  "resultValue",
+  "some",
+]);
 
 const GLEAM_CONTAINER_ESCAPES = new Set([
   "Error",
@@ -203,19 +249,35 @@ function skipString(source: string, start: number, len: number): number {
   return i;
 }
 
-function skipTemplateLiteral(source: string, start: number, len: number): number {
+function skipTemplateLiteral(
+  source: string, start: number, len: number,
+  onExpression?: (start: number, end: number) => void,
+): number {
   let i = start;
   while (i < len) {
     if (source[i] === "\\") { i += 2; continue; }
     if (source[i] === "`") return i + 1;
     if (source[i] === "$" && i + 1 < len && source[i + 1] === "{") {
-      // Template expression — skip balanced braces
-      i = skipBalanced(source, i + 1, len, "{", "}");
+      const end = skipBalanced(source, i + 1, len, "{", "}");
+      onExpression?.(i + 2, end - 1);
+      i = end;
       continue;
     }
     i++;
   }
   return i;
+}
+
+function skipComment(source: string, start: number, len: number): number {
+  if (source.startsWith("//", start)) {
+    const end = source.indexOf("\n", start + 2);
+    return end === -1 ? len : Math.min(end, len);
+  }
+  if (source.startsWith("/*", start)) {
+    const end = source.indexOf("*/", start + 2);
+    return end === -1 ? len : Math.min(end + 2, len);
+  }
+  return start;
 }
 
 function skipBalanced(
@@ -225,6 +287,8 @@ function skipBalanced(
   let depth = 0;
   let i = start;
   while (i < len) {
+    const commentEnd = skipComment(source, i, len);
+    if (commentEnd !== i) { i = commentEnd; continue; }
     const c = source[i];
     if (c === open) depth++;
     else if (c === close) { depth--; if (depth === 0) return i + 1; }
@@ -366,6 +430,119 @@ function generatedRuntimeImports(source: string): string[] {
   )].map((match) => match[1]);
 }
 
+function importBindingsFrom(
+  source: string,
+  importerPath: string,
+  modulePath: string,
+): string[] {
+  const found: string[] = [];
+  const targetPath = resolve(modulePath);
+  const tokens: { kind: "code" | "string" | "template"; value: string }[] = [];
+  const identifier = /[A-Za-z_$][\w$]*/y;
+  function scan(start: number, end: number): void {
+    let i = start;
+    while (i < end) {
+      const next = skipComment(source, i, end);
+      if (next !== i) { i = next; continue; }
+      if (/\s/.test(source[i])) { i++; continue; }
+      if (source[i] === '"' || source[i] === "'") {
+        const next = skipString(source, i, end);
+        tokens.push({ kind: "string", value: source.slice(i + 1, next - 1) });
+        i = next;
+      } else if (source[i] === "`") {
+        let interpolated = false;
+        const next = skipTemplateLiteral(source, i + 1, end, (start, end) => {
+          interpolated = true;
+          tokens.push({ kind: "code", value: "`" });
+          scan(start, end);
+        });
+        tokens.push(interpolated
+          ? { kind: "code", value: "`" }
+          : { kind: "template", value: source.slice(i + 1, next - 1) });
+        i = next;
+      } else {
+        identifier.lastIndex = i;
+        const value = identifier.exec(source)?.[0] ?? source[i];
+        tokens.push({ kind: "code", value });
+        i += value.length;
+      }
+    }
+  }
+  scan(0, source.length);
+  const is = (index: number, value: string): boolean =>
+    tokens[index]?.kind === "code" && tokens[index].value === value;
+  const matchesTarget = (index: number, allowTemplate = false): boolean => {
+    const token = tokens[index];
+    return token !== undefined &&
+      (token.kind === "string" || (allowTemplate && token.kind === "template")) &&
+      resolve(dirname(importerPath), token.value) === targetPath;
+  };
+  for (let i = 0; i < tokens.length; i++) {
+    if (!is(i, "import") && !is(i, "export")) continue;
+    const declaration = tokens[i].value;
+    let j = i + 1;
+    if (declaration === "import") {
+      if (is(j, "(")) {
+        if (matchesTarget(j + 1, true) && (is(j + 2, ")") || is(j + 2, ","))) {
+          found.push("dynamic import");
+        }
+        continue;
+      }
+      if (matchesTarget(j)) {
+        found.push("side-effect import");
+        continue;
+      }
+    }
+    const bindings: string[] = [];
+    const typeOnly = is(j, "type") && !is(j + 1, "from");
+    if (typeOnly) j++;
+    if (declaration === "import" && tokens[j]?.kind === "code" &&
+        /^[A-Za-z_$]/.test(tokens[j].value)) {
+      bindings.push("default");
+      j++;
+      if (is(j, ",")) j++;
+    }
+    if (is(j, "{")) {
+      j++;
+      if (is(j, "}")) bindings.push("side-effect import");
+      while (j < tokens.length && !is(j, "}") && !is(j, ";")) {
+        if (!typeOnly && is(j, "type") && !is(j + 1, ",") &&
+            !is(j + 1, "}") && !is(j + 1, "as")) j++;
+        bindings.push(tokens[j].value);
+        j++;
+        if (is(j, "as")) j += 2;
+        if (!is(j, ",")) break;
+        j++;
+      }
+      if (!is(j, "}")) continue;
+      j++;
+    } else if (is(j, "*")) {
+      j++;
+      if (is(j, "as")) {
+        bindings.push(`* as ${tokens[j + 1]?.value}`);
+        j += 2;
+      } else {
+        bindings.push(`${declaration} *`);
+      }
+    }
+    if (is(j, "from") && matchesTarget(j + 1)) found.push(...bindings);
+  }
+  return found;
+}
+
+function legacyGeneratedDocumentImportViolations(
+  source: string,
+  importerPath: string,
+): string[] {
+  const relModule = relative(websiteRoot, importerPath);
+  if (LEGACY_GENERATED_DOCUMENT_CONSUMERS.has(relModule)) return [];
+  return importBindingsFrom(
+    source,
+    importerPath,
+    resolve(websiteRoot, LEGACY_GENERATED_DOCUMENT_MODULE),
+  ).map((binding) => `${relModule} -> ${binding}`);
+}
+
 function jsonOtRepresentationAccesses(source: string): string[] {
   return [...source.matchAll(
     /\bjsonOt\.(VNull|VBool|VNumber|VString|VArray|VObject|Key|Index|NInt)\b/g,
@@ -394,12 +571,21 @@ describe("Gate: generated Gleam imports stay behind one gateway", () => {
 });
 
 describe("Gate: demos keep generated representations behind the Gleam façade", () => {
-  it("the JSON-OT demo does not construct or match generated value types", () => {
+  it("the JSON-OT demo uses every dedicated façade operation", () => {
     const source = readFileSync(
       resolve(websiteRoot, "src/scripts/json-ot-demo.ts"),
       "utf-8",
     );
     assert.deepEqual(jsonOtRepresentationAccesses(source), []);
+    for (const operation of [
+      "json_ot_parse",
+      "json_ot_stringify",
+      "json_ot_key",
+      "json_ot_index",
+      "json_ot_integer",
+    ]) {
+      assert.match(source, new RegExp(`\\bwebsiteRuntime\\.${operation}\\b`));
+    }
   });
 
   it("detects direct JSON-OT representation access", () => {
@@ -415,12 +601,20 @@ describe("Gate: demos keep generated representations behind the Gleam façade", 
     ]);
   });
 
-  it("the guide race does not construct or match generated OR-map values", () => {
+  it("the guide race uses every dedicated façade operation", () => {
     const source = readFileSync(
       resolve(websiteRoot, "src/scripts/guide-race-demo.ts"),
       "utf-8",
     );
     assert.deepEqual(orMapRepresentationAccesses(source), []);
+    for (const operation of [
+      "create_register_or_map",
+      "create_tally_or_map",
+      "register_entries",
+      "tally_entries",
+    ]) {
+      assert.match(source, new RegExp(`\\bwebsiteRuntime\\.${operation}\\b`));
+    }
   });
 
   it("detects direct OR-map representation access", () => {
@@ -526,6 +720,32 @@ describe("Gate: Gleam Result and Option constructors stay behind the typed helpe
 });
 
 describe("Gate: website scripts use one generated Gleam runtime", () => {
+  it("resolves generated-runtime imports relative to each importer", () => {
+    const gateway = resolve(websiteRoot, GENERATED_RUNTIME_GATEWAY);
+    const directImporter = resolve(websiteRoot, "src/scripts/demo.ts");
+    const nestedImporter = resolve(
+      websiteRoot,
+      "src/scripts/nested/consumer.ts",
+    );
+
+    assert.deepEqual(
+      importBindingsFrom(
+        'import { sluice } from "./demo/generated-runtime.ts";',
+        directImporter,
+        gateway,
+      ),
+      ["sluice"],
+    );
+    assert.deepEqual(
+      importBindingsFrom(
+        'import { watershed } from "../demo/generated-runtime.ts";',
+        nestedImporter,
+        gateway,
+      ),
+      ["watershed"],
+    );
+  });
+
   it("rejects legacy root and watershed_lustre build imports", () => {
     const fake = `
       import * as root from "../../../build/dev/javascript/watershed/watershed.mjs";
@@ -548,12 +768,312 @@ describe("Gate: website scripts use one generated Gleam runtime", () => {
     assert.deepEqual(violations, []);
   });
 
+  it("shared demo infrastructure consumes the authored interop contract", () => {
+    for (const path of [
+      "src/scripts/demo/sluice-transport.ts",
+      "src/scripts/demo/sequencer.ts",
+      "src/scripts/demo/sluice-rig.ts",
+    ]) {
+      const source = readFileSync(resolve(websiteRoot, path), "utf-8");
+      assert.doesNotMatch(source, /from ["'].\/generated-runtime\.ts["']/);
+    }
+  });
+
+  it("the shared sluice adapter has no raw-document callback escape", () => {
+    const source = readFileSync(
+      resolve(websiteRoot, "src/scripts/demo/sluice-runtime.ts"),
+      "utf-8",
+    );
+    assert.doesNotMatch(source, /\bexport function withDocument\b/);
+  });
+
+  it("dedicated legacy demos use the named document compatibility module", () => {
+    const compatibilityModule = resolve(
+      websiteRoot,
+      LEGACY_GENERATED_DOCUMENT_MODULE,
+    );
+    const runtimeModule = resolve(
+      websiteRoot,
+      "src/scripts/demo/sluice-runtime.ts",
+    );
+    for (const path of LEGACY_GENERATED_DOCUMENT_CONSUMERS) {
+      const absModule = resolve(websiteRoot, path);
+      const source = readFileSync(absModule, "utf-8");
+      assert.deepEqual(
+        importBindingsFrom(source, absModule, compatibilityModule),
+        ["withLegacyGeneratedDocument"],
+        `${path} does not use the legacy document compatibility module`,
+      );
+      assert.ok(
+        !importBindingsFrom(source, absModule, runtimeModule).includes(
+          "withDocument",
+        ),
+        `${path} still imports withDocument from the shared adapter`,
+      );
+    }
+  });
+
+  it("legacy document compatibility stays limited to dedicated demos", () => {
+    const violations = findAllAuthoredModules({ includeTests: true }).flatMap(
+      (absModule) =>
+        legacyGeneratedDocumentImportViolations(
+          readFileSync(absModule, "utf-8"),
+          absModule,
+        ),
+    );
+    assert.deepEqual(violations, []);
+  });
+
+  it("rejects unauthorized legacy document compatibility imports", () => {
+    const importer = resolve(
+      websiteRoot,
+      "src/scripts/demo/unauthorized-consumer.ts",
+    );
+    const fake =
+      'import { withLegacyGeneratedDocument } from "./legacy-generated-document.ts";';
+    assert.deepEqual(
+      legacyGeneratedDocumentImportViolations(fake, importer),
+      [
+        "src/scripts/demo/unauthorized-consumer.ts -> withLegacyGeneratedDocument",
+      ],
+    );
+  });
+
+  const compatibilityReferences = [
+    {
+      name: "named import",
+      source: 'import { withLegacyGeneratedDocument as legacy } from "MODULE";',
+      binding: "withLegacyGeneratedDocument",
+    },
+    {
+      name: "default import",
+      source: 'import legacy from "MODULE";',
+      binding: "default",
+    },
+    {
+      name: "namespace import",
+      source: 'import * as legacy from "MODULE";',
+      binding: "* as legacy",
+    },
+    {
+      name: "side-effect import",
+      source: 'import "MODULE";',
+      binding: "side-effect import",
+    },
+    {
+      name: "empty import",
+      source: 'import {} from "MODULE";',
+      binding: "side-effect import",
+    },
+    {
+      name: "dynamic import",
+      source: 'const { withLegacyGeneratedDocument } = await import /* legacy */ (\n "MODULE"\n);',
+      binding: "dynamic import",
+    },
+    {
+      name: "static template dynamic import",
+      source: 'await import(`MODULE`);',
+      binding: "dynamic import",
+    },
+    {
+      name: "quoted import inside a template import argument",
+      source: 'await import(`./${(await import("MODULE")).name}.ts`);',
+      binding: "dynamic import",
+    },
+    {
+      name: "template import inside a template import argument",
+      source: 'await import(`./${(await import(`MODULE`)).name}.ts`);',
+      binding: "dynamic import",
+    },
+    {
+      name: "import inside nested template interpolation",
+      source: 'const text = `outer ${`inner ${await import("MODULE")}`}`;',
+      binding: "dynamic import",
+    },
+    {
+      name: "import after comments and nested braces in interpolation",
+      source: 'const text = `${({ name: "}" /* } ` */ }).name + /* } */ (await import("MODULE"))}`;',
+      binding: "dynamic import",
+    },
+    {
+      name: "named re-export",
+      source: 'export /* legacy */ { withLegacyGeneratedDocument as legacy } from "MODULE";',
+      binding: "withLegacyGeneratedDocument",
+    },
+    {
+      name: "star re-export",
+      source: "export * from 'MODULE';",
+      binding: "export *",
+    },
+    {
+      name: "namespace re-export",
+      source: 'export * as legacy from "MODULE";',
+      binding: "* as legacy",
+    },
+  ];
+  for (const [path, modulePath] of [
+    ["src/scripts/demo/unauthorized-consumer.ts", "./legacy-generated-document.ts"],
+    ["src/scripts/nested/consumer.ts", "../demo/legacy-generated-document.ts"],
+    ["src/scripts/demo/sluice-transport.ts", "../demo/legacy-generated-document.ts"],
+    ["src/scripts/demo/sequencer.ts", "./legacy-generated-document.ts"],
+    ["src/scripts/demo/sluice-rig.ts", "./legacy-generated-document.ts"],
+  ]) {
+    for (const { name, source, binding } of compatibilityReferences) {
+      it(`rejects legacy document ${name} in ${path}`, () => {
+        assert.deepEqual(
+          legacyGeneratedDocumentImportViolations(
+            source.replace("MODULE", modulePath),
+            resolve(websiteRoot, path),
+          ),
+          [`${path} -> ${binding}`],
+        );
+      });
+    }
+  }
+
+  it("allows compatibility references only from the exact dedicated-demo paths", () => {
+    for (const path of LEGACY_GENERATED_DOCUMENT_CONSUMERS) {
+      for (const { source, binding } of compatibilityReferences) {
+        const fake = source.replace("MODULE", "./demo/legacy-generated-document.ts");
+        assert.deepEqual(
+          legacyGeneratedDocumentImportViolations(fake, resolve(websiteRoot, path)),
+          [],
+        );
+        const unauthorizedPath = path.replace(/\.ts$/, "-copy.ts");
+        assert.deepEqual(
+          legacyGeneratedDocumentImportViolations(
+            fake,
+            resolve(websiteRoot, unauthorizedPath),
+          ),
+          [`${unauthorizedPath} -> ${binding}`],
+        );
+      }
+    }
+  });
+
+  it("ignores compatibility-shaped strings, templates, and comments", () => {
+    const fake = `
+      // import { withLegacyGeneratedDocument } from "./legacy-generated-document.ts";
+      /* export * from "./legacy-generated-document.ts"; */
+      const example = 'import { withLegacyGeneratedDocument } from "./legacy-generated-document.ts";';
+      const dynamic = "import('./legacy-generated-document.ts')";
+      const named = 'export { withLegacyGeneratedDocument } from "./legacy-generated-document.ts";';
+      const star = \`export * from "./legacy-generated-document.ts";\`;
+    `;
+    assert.deepEqual(
+      legacyGeneratedDocumentImportViolations(
+        fake,
+        resolve(websiteRoot, "src/scripts/demo/unauthorized-consumer.ts"),
+      ),
+      [],
+    );
+  });
+
+  it("does not extend an empty export into an illustrative re-export string", () => {
+    const fake = `export {};
+const example =
+  'export { withLegacyGeneratedDocument } from "./legacy-generated-document.ts";';`;
+    assert.deepEqual(
+      legacyGeneratedDocumentImportViolations(
+        fake,
+        resolve(websiteRoot, "src/scripts/demo/unauthorized-consumer.ts"),
+      ),
+      [],
+    );
+  });
+
+  it("bounds named declarations across strings, templates, and comments", () => {
+    const fake = `
+      const local = 1;
+      export { local };
+      const example = "export { withLegacyGeneratedDocument } from './legacy-generated-document.ts';";
+      export {};
+      const template = \`export { withLegacyGeneratedDocument } from "./legacy-generated-document.ts";\`;
+      export { /* } from "./legacy-generated-document.ts"; */ local as renamed };
+      // export { withLegacyGeneratedDocument } from "./legacy-generated-document.ts";
+      export { "} from './legacy-generated-document.ts';" as harmless } from "./other.ts";
+    `;
+    assert.deepEqual(
+      legacyGeneratedDocumentImportViolations(
+        fake,
+        resolve(websiteRoot, "src/scripts/demo/unauthorized-consumer.ts"),
+      ),
+      [],
+    );
+  });
+
+  it("ignores inert template text but scans real imports after it", () => {
+    const fake = `
+      const example = \`escaped \\ \\\` \\\${import("./legacy-generated-document.ts")}\`;
+      const text = \`\${"import('./legacy-generated-document.ts')"}\`;
+      const dynamic = import(\`./\${name}/legacy-generated-document.ts\`);
+      export {};
+      export { /* } */ withLegacyGeneratedDocument as legacy } /* gap */ from "./legacy-generated-document.ts";
+    `;
+    assert.deepEqual(
+      legacyGeneratedDocumentImportViolations(
+        fake,
+        resolve(websiteRoot, "src/scripts/demo/unauthorized-consumer.ts"),
+      ),
+      ["src/scripts/demo/unauthorized-consumer.ts -> withLegacyGeneratedDocument"],
+    );
+  });
+
+  it("does not confuse other modules with the compatibility module", () => {
+    for (const { source } of compatibilityReferences) {
+      for (const modulePath of [
+        "./other/legacy-generated-document.ts",
+        "./legacy-generated-document.ts.backup",
+        "./sluice-runtime.ts",
+      ]) {
+        assert.deepEqual(
+          legacyGeneratedDocumentImportViolations(
+            source.replace("MODULE", modulePath),
+            resolve(websiteRoot, "src/scripts/demo/unauthorized-consumer.ts"),
+          ),
+          [],
+        );
+      }
+    }
+  });
+
+  it("raw generated exports stay confined to the gateway and named legacy consumers", () => {
+    const violations = findAllAuthoredModules({ includeTests: true }).flatMap(
+      (absModule) => {
+        const relModule = relative(websiteRoot, absModule);
+        if (
+          relModule === GENERATED_RUNTIME_GATEWAY ||
+          relModule === AUTHORED_INTEROP_MODULE ||
+          GENERATED_RUNTIME_RAW_CONSUMERS.has(relModule)
+        ) {
+          return [];
+        }
+        return importBindingsFrom(
+          readFileSync(absModule, "utf-8"),
+          absModule,
+          resolve(websiteRoot, GENERATED_RUNTIME_GATEWAY),
+        )
+          .filter((binding) => !AUTHORED_INTEROP_EXPORTS.has(binding))
+          .map((binding) => `${relModule} -> ${binding}`);
+      },
+    );
+    assert.deepEqual(violations, []);
+  });
+
   it("the atlas sequencer delegates sequence numbers to sluice", () => {
     const source = readFileSync(
       resolve(websiteRoot, "src/scripts/demo/sequencer.ts"),
       "utf-8",
     );
-    assert.match(source, /import \{ sluice \} from "\.\/generated-runtime\.ts"/);
+    const runtimeImports = importBindingsFrom(
+      source,
+      resolve(websiteRoot, "src/scripts/demo/sequencer.ts"),
+      resolve(websiteRoot, "src/scripts/demo/sluice-runtime.ts"),
+    );
+    assert.ok(runtimeImports.includes("sequenceNumber"));
+    assert.ok(runtimeImports.includes("writeSequenceMarker"));
+    assert.ok(runtimeImports.includes("DemoDocument"));
+    assert.ok(runtimeImports.includes("DemoServer"));
     assert.doesNotMatch(source, /\bsn\s*\+=\s*1\b/);
   });
 
@@ -570,8 +1090,15 @@ describe("Gate: website scripts use one generated Gleam runtime", () => {
       source,
       /new runtimeCore\.Summary|new message\.ConnectedMessage|new spillway\./,
     );
-    assert.match(source, /websiteRuntime\.counter_core/);
-    assert.match(source, /websiteRuntime\.deliver_counter/);
+    for (const operation of [
+      "counter_core",
+      "counter_increment",
+      "counter_pending",
+      "counter_value",
+      "deliver_counter",
+    ]) {
+      assert.match(source, new RegExp(`\\bwebsiteRuntime\\.${operation}\\b`));
+    }
   });
 });
 

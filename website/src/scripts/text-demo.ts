@@ -9,7 +9,6 @@
 // never raw UTF-16 offsets.
 import { watershed } from "./demo/generated-runtime.ts";
 import { runtime } from "./demo/generated-runtime.ts";
-import { sluice } from "./demo/generated-runtime.ts";
 // The anchor bias enum lives in the sequence lattice SharedText is built on.
 import { bias } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
@@ -18,6 +17,8 @@ import {
   resultValue,
   type ResultValue,
 } from "./demo/generated-runtime.ts";
+import { settleNetwork } from "./demo/sluice-runtime.ts";
+import { withLegacyGeneratedDocument } from "./demo/legacy-generated-document.ts";
 import {
   minimalGraphemeEdit,
   graphemeLength,
@@ -332,24 +333,34 @@ export function initTextDemo() {
       // setup's settle, so the visible timeline starts clean.
       const a = clients["a"];
       const text = expectOk(
-        watershed.create_text(a.doc),
+        withLegacyGeneratedDocument(a.doc, watershed.create_text),
         "text channel creation failed",
       );
       a.handle = text;
-      const runtimeA = watershed.runtime_of(a.doc);
+      const runtimeA = withLegacyGeneratedDocument(
+        a.doc,
+        watershed.runtime_of,
+      );
       runtime.set(runtimeA, "root", TEXT_ADDRESS, watershed.text_handle_of(text));
       watershed.text_insert(text, 0, SEED);
-      sluice.settle(server);
+      settleNetwork(server);
       for (const id of CLIENT_IDS) {
         const client = clients[id];
         if (id !== "a") {
-          const rt = watershed.runtime_of(client.doc);
+          const rt = withLegacyGeneratedDocument(
+            client.doc,
+            watershed.runtime_of,
+          );
           const stored = expectOk(
             runtime.get(rt, "root", TEXT_ADDRESS),
             "text handle lookup failed",
           );
           client.handle = expectOk(
-            watershed.resolve_text(client.doc, stored),
+            withLegacyGeneratedDocument(
+              client.doc,
+              watershed.resolve_text,
+              stored,
+            ),
             "text channel resolve failed",
           );
         }
