@@ -22,6 +22,7 @@ export const nodeTestFiles = [
 ];
 
 export const browserTestFiles = [
+  "scripts/guide-race-styles.test.mjs",
   "scripts/structure-demos.test.mjs",
   "scripts/mv-register-demo.test.mjs",
   "scripts/ormap-demo.test.mjs",

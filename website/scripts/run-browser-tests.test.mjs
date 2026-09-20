@@ -13,6 +13,7 @@ import { browserTestFiles as sharedBrowserTestFiles } from "./test-files.mjs";
 test("uses the shared browser test manifest", () => {
   assert.strictEqual(browserTestFiles, sharedBrowserTestFiles);
   assert.deepEqual(browserTestFiles, [
+    "scripts/guide-race-styles.test.mjs",
     "scripts/structure-demos.test.mjs",
     "scripts/mv-register-demo.test.mjs",
     "scripts/ormap-demo.test.mjs",
