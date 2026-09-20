@@ -47,7 +47,15 @@ test("guide race styles reach dynamically created notes", { timeout: 30_000 }, a
   await page.evaluate(() => {
     Math.random = () => 1;
   });
-  await page.click("[data-guide-race-latency-variance]");
+  await page.$eval("[data-guide-race-latency-variance]", (el) => {
+    el.checked = true;
+    el.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+  assert.equal(
+    await page.$eval("[data-guide-race-latency-variance]", (el) => el.checked),
+    true,
+    "latency variance must be enabled before sampling jitter",
+  );
   await page.click("[data-guide-race-add]");
   await page.waitForSelector("[data-flow-layer] .flow-dot-label");
   const flowLabel = await page.$eval(
