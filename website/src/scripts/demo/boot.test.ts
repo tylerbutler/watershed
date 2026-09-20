@@ -260,6 +260,39 @@ test("demo counter core boots from the baseline summary", () => {
     ),
     120,
   );
+  const change = expectOk(
+    websiteRuntime.counter_increment(core, "sandbags-counter", 5),
+    "counter increment returned an error",
+  );
+  const pending = websiteRuntime.counter_pending(
+    change.core,
+    "sandbags-counter",
+  );
+  assert.equal(pending.count, 1);
+  assert.equal(pending.delta, 5);
+
+  const delivered = expectOk(
+    websiteRuntime.deliver_counter(
+      change.core,
+      "demo-client-a",
+      1,
+      change.write,
+    ),
+    "counter delivery returned an error",
+  );
+  assert.equal(
+    expectOk(
+      websiteRuntime.counter_value(delivered, "sandbags-counter"),
+      "delivered counter value lookup failed",
+    ),
+    125,
+  );
+  const settled = websiteRuntime.counter_pending(
+    delivered,
+    "sandbags-counter",
+  );
+  assert.equal(settled.count, 0);
+  assert.equal(settled.delta, 0);
 });
 
 test("LWW register field notes converge by timestamp and author", () => {
