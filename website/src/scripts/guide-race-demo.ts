@@ -1,6 +1,6 @@
 import { watershed } from "./demo/generated-runtime.ts";
-import { orMapKernel } from "./demo/generated-runtime.ts";
 import { sluice } from "./demo/generated-runtime.ts";
+import { websiteRuntime } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { expectOk, type ResultValue } from "./demo/generated-runtime.ts";
 
@@ -15,7 +15,7 @@ const CHANNEL_KEYS = {
 } as const;
 const WENT_WELL = "went_well";
 
-type OrMap = ResultValue<ReturnType<typeof watershed.create_or_map>>;
+type OrMap = ResultValue<ReturnType<typeof websiteRuntime.create_register_or_map>>;
 
 interface GuideRaceChannels {
   notes: OrMap;
@@ -128,14 +128,19 @@ function voteText(votes: number): string {
 
 function cards(client: RigClient): GuideRaceCard[] {
   const votes = new Map<string, number>();
-  for (const [id, value] of watershed.or_map_entries(channels(client).votes).toArray()) {
-    if (value instanceof orMapKernel.Tally) votes.set(id, value[0]);
+  for (const [id, value] of expectOk(
+    websiteRuntime.tally_entries(channels(client).votes),
+    "guide race votes mode mismatch",
+  ).toArray()) {
+    votes.set(id, value);
   }
 
   const boardCards: GuideRaceCard[] = [];
-  for (const [id, value] of watershed.or_map_entries(channels(client).notes).toArray()) {
-    if (!(value instanceof orMapKernel.Register)) continue;
-    const note = readNote(value[0]);
+  for (const [id, value] of expectOk(
+    websiteRuntime.register_entries(channels(client).notes),
+    "guide race notes mode mismatch",
+  ).toArray()) {
+    const note = readNote(value);
     if (note.column !== WENT_WELL) continue;
     boardCards.push({
       id,
@@ -168,11 +173,11 @@ function seedChannels(
 ): GuideRaceChannels {
   const root = watershed.root(doc);
   const notes = expectOk(
-    watershed.create_or_map(doc, new orMapKernel.RegisterMode()),
+    websiteRuntime.create_register_or_map(doc),
     "guide race notes bootstrap failed",
   );
   const votes = expectOk(
-    watershed.create_or_map(doc, new orMapKernel.TallyMode()),
+    websiteRuntime.create_tally_or_map(doc),
     "guide race votes bootstrap failed",
   );
   watershed.set(root, CHANNEL_KEYS.notes, watershed.or_map_handle_of(notes));

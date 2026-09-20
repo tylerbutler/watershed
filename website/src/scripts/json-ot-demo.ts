@@ -16,24 +16,26 @@ import { jsonOt } from "./demo/generated-runtime.ts";
 import { handle } from "./demo/generated-runtime.ts";
 import { sluice } from "./demo/generated-runtime.ts";
 import { toList } from "./demo/generated-runtime.ts";
+import { websiteRuntime } from "./demo/generated-runtime.ts";
 import { createSluiceRig, type RigClient } from "./demo/sluice-rig.ts";
 import { expectOk, resultValue } from "./demo/generated-runtime.ts";
 
-const S = (s: string) => new jsonOt.VString(s);
-const N = (n: number) => new jsonOt.VNumber(new jsonOt.NInt(n));
-const K = (k: string) => new jsonOt.Key(k);
-const IDX = (i: number) => new jsonOt.Index(i);
+const jsonValue = (value: PlainJson) =>
+  expectOk(
+    websiteRuntime.json_ot_parse(JSON.stringify(value)),
+    "JSON-OT value conversion failed",
+  );
+const S = (s: string) => jsonValue(s);
+const K = (k: string) => websiteRuntime.json_ot_key(k);
+const IDX = (i: number) => websiteRuntime.json_ot_index(i);
 const path = (...keys: jsonOt.PathKey$[]) => toList(keys);
 const op = (...components: jsonOt.Component$[]) => toList(components);
 
 function vArray(values: string[]) {
-  return new jsonOt.VArray(toList(values.map(S)));
+  return jsonValue(values);
 }
-function vObject(pairs: Array<[string, jsonOt.JsonValue$]>) {
-  const sorted = [...pairs].sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0));
-  return new jsonOt.VObject(
-    toList(sorted.map(([k, v]): [string, jsonOt.JsonValue$] => [k, v])),
-  );
+function vObject(pairs: Array<[string, PlainJson]>) {
+  return jsonValue(Object.fromEntries(pairs));
 }
 
 const CREW_BASE = ["Ada", "Ben"];
@@ -71,20 +73,6 @@ interface DemoDocument {
   site: string;
 }
 
-function toPlain(v: jsonOt.JsonValue$): PlainJson {
-  if (v instanceof jsonOt.VNull) return null;
-  if (v instanceof jsonOt.VBool) return v[0];
-  if (v instanceof jsonOt.VNumber) return v[0][0];
-  if (v instanceof jsonOt.VString) return v[0];
-  if (v instanceof jsonOt.VArray) return v[0].toArray().map(toPlain);
-  if (v instanceof jsonOt.VObject) {
-    const out: { [key: string]: PlainJson } = {};
-    for (const [k, val] of v[0].toArray()) out[k] = toPlain(val);
-    return out;
-  }
-  return null;
-}
-
 function isPlainObject(
   value: PlainJson,
 ): value is { [key: string]: PlainJson } {
@@ -117,7 +105,9 @@ function optimistic(client: RigClient): DemoDocument | null {
   const hd = h(client);
   const view = resultValue(runtime.json_ot_view(hd.runtime, hd.address));
   if (view === null) return null;
-  const document = toPlain(view);
+  const document = JSON.parse(
+    websiteRuntime.json_ot_stringify(view),
+  ) as PlainJson;
   if (!isDemoDocument(document)) {
     throw new Error("json-ot view did not match the demo document");
   }
@@ -154,7 +144,12 @@ export function initJsonOtDemo() {
     submit(
       client,
       "field:gauge.stage",
-      op(jsonOt.number_add(path(K("gauge"), K("stage")), new jsonOt.NInt(delta))),
+      op(
+        jsonOt.number_add(
+          path(K("gauge"), K("stage")),
+          websiteRuntime.json_ot_integer(delta),
+        ),
+      ),
       `add .gauge.stage ${sign}${delta}`,
     );
   }
@@ -309,8 +304,8 @@ export function initJsonOtDemo() {
         jsonOt.object_insert(
           path(K("gauge")),
           vObject([
-            ["stage", N(STAGE_BASE)],
-            ["trend", S(TREND_BASE)],
+            ["stage", STAGE_BASE],
+            ["trend", TREND_BASE],
           ]),
         ),
         jsonOt.object_insert(path(K("site")), S(SITE_BASE)),

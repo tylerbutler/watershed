@@ -11,8 +11,11 @@ import gleam/string
 import signet/types as token
 import spillway/message
 import spillway/types
+import watershed
 import watershed/channel
 import watershed/counter_kernel
+import watershed/json_ot
+import watershed/or_map_kernel
 import watershed/runtime_core
 import watershed/wire
 
@@ -30,6 +33,53 @@ pub type CounterChange {
 
 pub type CounterPending {
   CounterPending(count: Int, delta: Int)
+}
+
+pub fn json_ot_parse(raw: String) -> Result(json_ot.JsonValue, String) {
+  json_ot.parse_json(raw)
+  |> result.map_error(fn(_) { "invalid JSON" })
+}
+
+pub fn json_ot_stringify(value: json_ot.JsonValue) -> String {
+  value
+  |> json_ot.to_json
+  |> json.to_string
+}
+
+pub fn json_ot_key(key: String) -> json_ot.PathKey {
+  json_ot.Key(key)
+}
+
+pub fn json_ot_index(index: Int) -> json_ot.PathKey {
+  json_ot.Index(index)
+}
+
+pub fn json_ot_integer(value: Int) -> json_ot.Number {
+  json_ot.NInt(value)
+}
+
+pub fn create_register_or_map(
+  document: watershed.Document(root),
+) -> Result(watershed.OrMap, String) {
+  watershed.create_or_map(document, or_map_kernel.RegisterMode)
+}
+
+pub fn create_tally_or_map(
+  document: watershed.Document(root),
+) -> Result(watershed.OrMap, String) {
+  watershed.create_or_map(document, or_map_kernel.TallyMode)
+}
+
+pub fn register_entries(
+  or_map: watershed.OrMap,
+) -> Result(List(#(String, String)), String) {
+  decode_register_entries(watershed.or_map_entries(or_map))
+}
+
+pub fn tally_entries(
+  or_map: watershed.OrMap,
+) -> Result(List(#(String, Int)), String) {
+  decode_tally_entries(watershed.or_map_entries(or_map))
 }
 
 pub fn counter_core(
@@ -163,4 +213,46 @@ pub fn deliver_counter(
 fn json_to_dynamic(value: json.Json) -> Dynamic {
   let assert Ok(dynamic) = json.parse(json.to_string(value), decode.dynamic)
   dynamic
+}
+
+fn decode_register_entries(
+  entries: List(#(String, or_map_kernel.OrMapValue)),
+) -> Result(List(#(String, String)), String) {
+  case entries {
+    [] -> Ok([])
+    [#(key, value), ..rest] ->
+      case value {
+        or_map_kernel.Register(value) -> {
+          use rest <- result.try(decode_register_entries(rest))
+          Ok([#(key, value), ..rest])
+        }
+        or_map_kernel.Tally(_) ->
+          Error("register OR-map contains tally value at key: " <> key)
+        or_map_kernel.SetMembers(_) ->
+          Error("register OR-map contains set value at key: " <> key)
+        or_map_kernel.MvRegister(_) ->
+          Error("register OR-map contains MV-register value at key: " <> key)
+      }
+  }
+}
+
+fn decode_tally_entries(
+  entries: List(#(String, or_map_kernel.OrMapValue)),
+) -> Result(List(#(String, Int)), String) {
+  case entries {
+    [] -> Ok([])
+    [#(key, value), ..rest] ->
+      case value {
+        or_map_kernel.Tally(value) -> {
+          use rest <- result.try(decode_tally_entries(rest))
+          Ok([#(key, value), ..rest])
+        }
+        or_map_kernel.Register(_) ->
+          Error("tally OR-map contains register value at key: " <> key)
+        or_map_kernel.SetMembers(_) ->
+          Error("tally OR-map contains set value at key: " <> key)
+        or_map_kernel.MvRegister(_) ->
+          Error("tally OR-map contains MV-register value at key: " <> key)
+      }
+  }
 }

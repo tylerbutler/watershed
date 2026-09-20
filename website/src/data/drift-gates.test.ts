@@ -366,6 +366,18 @@ function generatedRuntimeImports(source: string): string[] {
   )].map((match) => match[1]);
 }
 
+function jsonOtRepresentationAccesses(source: string): string[] {
+  return [...source.matchAll(
+    /\bjsonOt\.(VNull|VBool|VNumber|VString|VArray|VObject|Key|Index|NInt)\b/g,
+  )].map((match) => match[1]);
+}
+
+function orMapRepresentationAccesses(source: string): string[] {
+  return [...source.matchAll(
+    /\borMapKernel\.(RegisterMode|TallyMode|Register|Tally)\b/g,
+  )].map((match) => match[1]);
+}
+
 describe("Gate: generated Gleam imports stay behind one gateway", () => {
   it("only the generated runtime gateway imports compiled modules", () => {
     const violations = findAllAuthoredModules({ includeTests: true }).flatMap(
@@ -378,6 +390,52 @@ describe("Gate: generated Gleam imports stay behind one gateway", () => {
       },
     );
     assert.deepEqual(violations, []);
+  });
+});
+
+describe("Gate: demos keep generated representations behind the Gleam façade", () => {
+  it("the JSON-OT demo does not construct or match generated value types", () => {
+    const source = readFileSync(
+      resolve(websiteRoot, "src/scripts/json-ot-demo.ts"),
+      "utf-8",
+    );
+    assert.deepEqual(jsonOtRepresentationAccesses(source), []);
+  });
+
+  it("detects direct JSON-OT representation access", () => {
+    const fake = `
+      const value = new jsonOt.VString("ready");
+      const key = new jsonOt.Key("site");
+      if (value instanceof jsonOt.VString) return value[0];
+    `;
+    assert.deepEqual(jsonOtRepresentationAccesses(fake), [
+      "VString",
+      "Key",
+      "VString",
+    ]);
+  });
+
+  it("the guide race does not construct or match generated OR-map values", () => {
+    const source = readFileSync(
+      resolve(websiteRoot, "src/scripts/guide-race-demo.ts"),
+      "utf-8",
+    );
+    assert.deepEqual(orMapRepresentationAccesses(source), []);
+  });
+
+  it("detects direct OR-map representation access", () => {
+    const fake = `
+      const notes = new orMapKernel.RegisterMode();
+      const votes = new orMapKernel.TallyMode();
+      if (value instanceof orMapKernel.Register) return value[0];
+      if (value instanceof orMapKernel.Tally) return value[0];
+    `;
+    assert.deepEqual(orMapRepresentationAccesses(fake), [
+      "RegisterMode",
+      "TallyMode",
+      "Register",
+      "Tally",
+    ]);
   });
 });
 
