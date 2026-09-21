@@ -1,0 +1,18 @@
+{
+  "name": "watershed-shared-tree-oracle",
+  "version": "0.0.0",
+  "private": true,
+  "description": "Pinned Fluid SharedTree interoperability oracle",
+  "type": "module",
+  "scripts": {
+    "test": "node --test *.test.mjs",
+    "source:prepare": "node source.mjs prepare",
+    "source:verify": "node source.mjs verify",
+    "source:capture": "node source.mjs generate"
+  },
+  "dependencies": {
+    "@fluidframework/local-driver": "3.1.0",
+    "@fluidframework/tree": "3.1.0",
+    "fluid-framework": "3.1.0"
+  }
+}

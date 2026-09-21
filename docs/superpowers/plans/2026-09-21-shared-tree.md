@@ -230,6 +230,15 @@ number of executions. Record coverage by case ID, target, and comparison domain.
 
 ### Task 1: pin and exercise the real upstream oracle
 
+Implementation: the pinned npm collaboration test and source capture run on the
+current `sharedtree` branch, as requested. Source compilation uses upstream's
+`build:compile` rather than its full lint/API-report build, and isolated Mocha
+uses the required `allow-ff-test-exports` Node condition. The runner obtains
+pnpm 11.15.1 through npm exec and excludes only the upstream generated snapshot
+output directory to avoid a macOS filename case collision. See the oracle README
+for reproduction and the observed codec versions. Full corpus generation and
+`--check` remain Task 3 work; no success profile is inferred from this smoke case.
+
 **Files:** Create the oracle package, schema, source runner, upstream oracle test,
 oracle tests, and README from the file map. Modify `.gitignore` to ignore only
 the oracle package's `node_modules/`, its owned reference checkout, and temporary
@@ -243,7 +252,7 @@ output. Do not add a broad ignore for all tools or all fixtures.
 - `generate.mjs --check` compares newly generated artifacts with committed ones
   without rewriting them; a mismatch exits nonzero.
 
-- [ ] **1. Add the smallest upstream collaboration test.**
+- [x] **1. Add the smallest upstream collaboration test.**
 
 Use the public construction pattern verified in `apiExamples.spec.ts`:
 
@@ -275,7 +284,7 @@ test("two upstream clients edit the same object tree", async () => {
 });
 ```
 
-- [ ] **2. Add the isolated package manifest, install, and run the failing test.**
+- [x] **2. Add the isolated package manifest, install, and run the failing test.**
 
 Use exact `3.1.0` dependencies for `fluid-framework`,
 `@fluidframework/tree`, and `@fluidframework/local-driver`. Add a service driver
@@ -310,7 +319,7 @@ rtk proxy npm --prefix tools/shared-tree-oracle test
 Expected initial failure: missing `schema.mjs`, not a network or dependency
 failure. Resolve install/tool failures before calling this the red test.
 
-- [ ] **3. Implement the shared schema.**
+- [x] **3. Implement the shared schema.**
 
 ```js
 import {
@@ -352,7 +361,7 @@ export const rootStore = defineTreeDataStore({
 The alpha construction API belongs to this pinned test harness. Its release tag
 does not extend the production compatibility claim to experimental tree features.
 
-- [ ] **4. Implement source verification and low-level capture.**
+- [x] **4. Implement source verification and low-level capture.**
 
 Use an owned checkout at `tools/shared-tree-oracle/.reference/FluidFramework`.
 `source.mjs prepare` clones `client_v3.1.0`, verifies the commit SHA, and installs
@@ -377,7 +386,7 @@ status. Do not depend on an unverified installed-package private file path.
 Use `getCodecTreeForSharedTreeFormat` and `jsonableCodecTree`, as the upstream
 codec-tree test does, to record the selected codec dependency graph.
 
-- [ ] **5. Make version and corruption checks executable.**
+- [x] **5. Make version and corruption checks executable.**
 
 Require generation to fail for a changed checkout SHA, a resolved tree package
 other than 3.1.0, an absent output case, or a source test that exits nonzero.
@@ -385,7 +394,7 @@ The fixture generator must not replace these failures with empty data.
 Record the actual oldest-supported-client setting, message/schema/forest/
 history/field codec versions, and compressor serialization version.
 
-- [ ] **6. Run the oracle test and commit.**
+- [x] **6. Run the oracle test and commit.**
 
 Expected: two upstream clients converge; source verification succeeds; invalid
 source/package identities fail. Commit subject:

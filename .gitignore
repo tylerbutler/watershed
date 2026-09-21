@@ -2,6 +2,9 @@
 *.ez
 /build
 /tools/website-runtime/build/
+/tools/shared-tree-oracle/node_modules/
+/tools/shared-tree-oracle/.reference/
+/tools/shared-tree-oracle/.output/
 /node_modules
 erl_crash.dump
 
