@@ -1,6 +1,6 @@
 [tools]
 erlang = "latest"
 gleam = "1.18"
-"github:tylerbutler/trellis" = "latest"
+"github:tylerbutler/trellis" = "1.0.0"
 "github:tylerbutler/code-map" = "0.0.2"
 "github:tylerbutler/license_audit" = "latest"
