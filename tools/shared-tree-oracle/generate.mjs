@@ -51,7 +51,9 @@ const observations = {
   "reconnect-before-ack": ["server-accepted-before-ack", "never-submitted-before-reconnect"],
   "summary-tail": ["summary-captured", "replayed-through-publication", "later-edit-after-reload"],
   "summary-writer-matrix": ["upstream-reader-loaded-summary", "upstream-reader-reload-after-edit"],
-  "id-ranges": ["before-finalization", "after-finalization", "remote-normalization", "restoration", "document-unique", "precision-limits"],
+  "id-ranges": ["before-finalization", "after-finalization", "remote-normalization", "restoration",
+    "document-unique", "precision-limits", "creation-ranges", "serialization",
+    "cluster-growth-and-pending", "uuid-carry", "safe-integer-offsets"],
   "field-compose-invert-rebase": ["compose", "invert", "rebase", "simultaneous-swap",
     "simultaneous-swap-direct-application-refusal", "simultaneous-swap-algebra-mapping", "replace-revisions"],
   "modular-nested-algebra": ["compose", "invert", "rebase", "replace-revisions", "prune", "refreshers"],
@@ -137,6 +139,32 @@ export function validateCases(cases) {
         && nonemptyArray(value.input.schedule)
         && object(value.raw.serialized) && value.raw.ranges !== undefined,
       `${value.id}: missing compressor inputs or serialized state`);
+      const restoration = value.input.operations?.restoration;
+      assert(typeof restoration?.ongoing?.serialized === "string"
+        && typeof restoration?.summary?.serialized === "string",
+      `${value.id}: missing restoration bytes in input`);
+      const serialized = value.expected.observations.find((item) => item.stage === "serialization")?.value;
+      assert(typeof serialized?.withSession === "string" && typeof serialized?.summary === "string",
+        `${value.id}: missing serialized output comparison`);
+      assert(nonemptyArray(value.expected.observations.find((item) => item.stage === "creation-ranges")?.value),
+        `${value.id}: missing creation range comparison`);
+      for (const [name, stage] of [
+        ["growth", "cluster-growth-and-pending"],
+        ["uuidCarry", "uuid-carry"],
+        ["safeIntegers", "safe-integer-offsets"],
+      ]) {
+        const trace = value.input.traces?.[name];
+        const observed = value.expected.observations.find((item) => item.stage === stage)?.value;
+        assert(nonemptyArray(trace?.sessions) && nonemptyArray(trace?.steps)
+          && Array.isArray(observed) && observed.length === trace.steps.length,
+        `${value.id}: incomplete ${name} trace`);
+        for (const step of trace.steps) {
+          if (step.op === "restore") {
+            assert(typeof step.serialized === "string" && typeof step.session === "string",
+              `${value.id}: incomplete ${name} restoration input`);
+          }
+        }
+      }
     }
     if (value.id === "invalid-profile") {
       assert(nonemptyArray(value.input.mutations) && nonemptyArray(value.raw.mutations),
@@ -301,7 +329,7 @@ export async function writeCorpus(output, cases, smoke) {
       documentSchema: profile.container.documentSchema,
       gcMetadataVersion: profile.container.gcFeature,
     },
-    nativeSemanticRunners: { javascript: "not-implemented", erlang: "not-implemented" },
+    nativeSemanticRunners: { javascript: ["id-ranges"], erlang: ["id-ranges"] },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),
   };
   for (const { id, file } of manifest.cases) {

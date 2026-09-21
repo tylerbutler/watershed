@@ -629,8 +629,17 @@ service/transport prerequisite. Do not begin Task 4 with this gate blocked.
 
 ### Task 4: implement document-level ID compression
 
+Implementation: the M0 review gate was released for Task 4. The native compressor
+now runs on JavaScript and BEAM, with opaque identities, persistent allocation
+state, range finalization, eager IDs, normalization, UUID conversion, and
+format-2 persistence. The test-only adapter in `test/watershed/tree/id_fixture.gleam`
+receives only fixture input and compares the complete output. The extended
+upstream case adds creation-range and serialization comparisons, both cluster
+growth paths, pending-state restoration, UUID carry across reserved bits, and
+large numeric offsets. Task 5 has not started.
+
 **Files:** Create `src/watershed/fluid_ids.gleam` and
-`test/watershed/shared_tree_ids_test.gleam`.
+`test/watershed/shared_tree_ids_test.gleam`; add the test-only fixture adapter.
 
 **Interfaces:** Opaque `SessionId`, `StableId`, `SessionSpaceId`, `OpId`, and
 `Compressor`; concrete `CreationRange` and typed `IdError`. Session ID parsing
@@ -661,7 +670,15 @@ pub fn serialize(state: Compressor, include_local: Bool) -> Result(Json, IdError
 pub fn deserialize(data: Json, session: SessionId) -> Result(Compressor, IdError)
 ```
 
-- [ ] **1. Add a same-session identity preservation test.**
+`serialize` returns a JSON string containing the upstream base64 bytes, not a
+JSON compressor object. `deserialize` requires the saved session for local-state
+restoration and a new session for a summary. `recompress`, typed numeric
+constructors/accessors, creation-range JSON codecs, and `take_unfinalized_range`
+complete the ID conversion and reconnect surfaces. `with_cluster_size` selects
+the next range's reservation; restoration resets this transient setting to 512,
+as upstream does.
+
+- [x] **1. Add a same-session identity preservation test.**
 
 ```gleam
 pub fn shared_tree_id_finalization_preserves_identity_test() {
@@ -670,14 +687,14 @@ pub fn shared_tree_id_finalization_preserves_identity_test() {
   let assert Ok(#(state, local)) =
     fluid_ids.new(session) |> fluid_ids.generate
   let assert Ok(before) = fluid_ids.decompress(state, local)
-  let #(state, Some(range)) = fluid_ids.take_creation_range(state)
+  let assert #(state, Some(range)) = fluid_ids.take_creation_range(state)
   let assert Ok(state) = fluid_ids.finalize(state, range)
   let assert Ok(after) = fluid_ids.decompress(state, local)
   after |> expect.to_equal(before)
 }
 ```
 
-- [ ] **2. Implement the allocator from the pinned compressor contract.**
+- [x] **2. Implement the allocator from the pinned compressor contract.**
 
 Represent clusters, session allocation ranges, local allocations, and finalized
 ranges. Implement the exact range-finalization order and cluster extension rules.
@@ -690,7 +707,7 @@ BEAM-sized integers; reject wire IDs outside the supported safe integer domain.
 Return an allocation error before exhausting that domain, without changing the
 compressor state.
 
-- [ ] **3. Add the `id-ranges` fixture adapter and negative cases.**
+- [x] **3. Add the `id-ranges` fixture adapter and negative cases.**
 
 Fold fixture actions through `generate`, `take_creation_range`, `finalize`,
 normalization, and persistence. Compare stable UUIDs and both numeric spaces
@@ -698,7 +715,12 @@ with upstream. Cover interleaved sessions, duplicate/out-of-order ranges,
 cluster boundaries, eager final IDs, summaries without local pending state, and
 local restore with pending state.
 
-- [ ] **4. Run the focused pair and commit.**
+- [x] **4. Run the focused pair and commit.**
+
+The focused pair passes 33 tests on each target. Corpus guard tests pass, and
+`rtk just shared-tree-oracle-check` reproduces all 20 upstream cases. Review
+found a missing UUID-exhaustion check for restored pending IDs; a failing
+regression test and the fix now cover it on both targets.
 
 Commit subject: `feat(tree): implement Fluid ID compression`.
 

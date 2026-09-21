@@ -206,8 +206,12 @@
     "gcMetadataVersion": 3
   },
   "nativeSemanticRunners": {
-    "javascript": "not-implemented",
-    "erlang": "not-implemented"
+    "javascript": [
+      "id-ranges"
+    ],
+    "erlang": [
+      "id-ranges"
+    ]
   },
   "cases": [
     {

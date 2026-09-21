@@ -47,6 +47,35 @@ test("corpus validation refuses placeholder observations and incomplete domain e
   assert.throws(() => validateCases(missingAlgebra), /algebra/);
 });
 
+test("ID corpus requires replayable restoration and complete cluster and precision traces", () => {
+  for (const mutate of [
+    (value) => { delete value.input.operations.restoration.ongoing.serialized; },
+    (value) => { delete value.input.operations.restoration.summary.serialized; },
+    (value) => { delete value.input.traces.growth; },
+    (value) => { value.input.traces.uuidCarry.steps = []; },
+    (value) => { delete value.input.traces.safeIntegers; },
+    (value) => {
+      delete value.input.traces.growth.steps.find((step) => step.op === "restore").serialized;
+    },
+    (value) => {
+      delete value.input.traces.growth.steps.find((step) => step.op === "restore").session;
+    },
+    (value) => {
+      value.expected.observations.find((item) => item.stage === "cluster-growth-and-pending").value.pop();
+    },
+    (value) => {
+      value.expected.observations.find((item) => item.stage === "creation-ranges").value = [];
+    },
+    (value) => {
+      delete value.expected.observations.find((item) => item.stage === "serialization").value.withSession;
+    },
+  ]) {
+    const corpus = cases();
+    mutate(corpus.find((value) => value.id === "id-ranges"));
+    assert.throws(() => validateCases(corpus), /id-ranges/);
+  }
+});
+
 test("artifact comparison rejects changed content, missing files, and extra files", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "watershed-tree-compare-"));
   t.after(() => rm(root, { recursive: true, force: true }));

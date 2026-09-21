@@ -27,11 +27,13 @@
     "operations": {
       "restoration": {
         "ongoing": {
-          "includeLocalState": true
+          "includeLocalState": true,
+          "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAAAEABAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAAFEAAAAAAAAAUQAAAAAAAABRAAAAAAAAAGEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAEA="
         },
         "summary": {
           "includeLocalState": false,
-          "newSessionId": "30000000-0000-4000-8000-000000000003"
+          "newSessionId": "30000000-0000-4000-8000-000000000003",
+          "serialized": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEABAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAAFEAAAAAAAAAUQA=="
         }
       },
       "precision": {
@@ -61,6 +63,330 @@
             ]
           }
         }
+      }
+    },
+    "traces": {
+      "growth": {
+        "sessions": [
+          "60000000-0000-4000-8000-000000000006",
+          "70000000-0000-4000-8000-000000000007"
+        ],
+        "clusterSize": 2,
+        "steps": [
+          {
+            "op": "generate",
+            "client": 0,
+            "count": 3
+          },
+          {
+            "op": "take",
+            "client": 0
+          },
+          {
+            "op": "finalize",
+            "client": 0,
+            "range": 0
+          },
+          {
+            "op": "finalize",
+            "client": 1,
+            "range": 0
+          },
+          {
+            "op": "generate",
+            "client": 1,
+            "count": 1
+          },
+          {
+            "op": "take",
+            "client": 1
+          },
+          {
+            "op": "finalize",
+            "client": 0,
+            "range": 1
+          },
+          {
+            "op": "finalize",
+            "client": 1,
+            "range": 1
+          },
+          {
+            "op": "generate",
+            "client": 0,
+            "count": 5
+          },
+          {
+            "op": "take",
+            "client": 0
+          },
+          {
+            "op": "generate",
+            "client": 0,
+            "count": 2
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "local": true
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "local": false
+          },
+          {
+            "op": "restore",
+            "client": 2,
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAAAEAGAAAAAAAAAAAAAAAAAIABBwAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAAAAFEAAAAAAAAAIQAAAAAAAAPA/AAAAAAAACEAAAAAAAADwPwAAAAAAACRAAAAAAAAAIkAAAAAAAAAAQAAAAAAAAPA/AAAAAAAACEAAAAAAAAAYQAAAAAAAABRA",
+            "session": "60000000-0000-4000-8000-000000000006"
+          },
+          {
+            "op": "restore",
+            "client": 3,
+            "serialized": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAGAAAAAAAAAAAAAAAAAIABBwAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAAAAFEAAAAAAAAAIQAAAAAAAAPA/AAAAAAAACEAAAAAAAADwPw==",
+            "session": "80000000-0000-4000-8000-000000000008"
+          },
+          {
+            "op": "describe",
+            "client": 2,
+            "ids": [
+              -1,
+              3,
+              4,
+              -6,
+              -8,
+              -9,
+              -10
+            ]
+          },
+          {
+            "op": "take",
+            "client": 2
+          },
+          {
+            "op": "take",
+            "client": 2
+          },
+          {
+            "op": "generate",
+            "client": 3,
+            "count": 1
+          },
+          {
+            "op": "finalize",
+            "client": 0,
+            "range": 2
+          },
+          {
+            "op": "finalize",
+            "client": 1,
+            "range": 2
+          },
+          {
+            "op": "finalize",
+            "client": 2,
+            "range": 2
+          },
+          {
+            "op": "generate",
+            "client": 0,
+            "count": 1
+          },
+          {
+            "op": "take",
+            "client": 0
+          },
+          {
+            "op": "finalize",
+            "client": 0,
+            "range": 5
+          },
+          {
+            "op": "finalize",
+            "client": 1,
+            "range": 5
+          },
+          {
+            "op": "generate",
+            "client": 0,
+            "count": 2
+          },
+          {
+            "op": "normalize",
+            "client": 0,
+            "origin": "20000000-0000-4000-8000-000000000002",
+            "id": 0
+          },
+          {
+            "op": "normalize",
+            "client": 1,
+            "origin": "60000000-0000-4000-8000-000000000006",
+            "id": -8
+          },
+          {
+            "op": "describe",
+            "client": 0,
+            "ids": [
+              -1,
+              -6,
+              -8,
+              -9,
+              -10,
+              -11,
+              14,
+              15
+            ]
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "local": true
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "local": false
+          }
+        ]
+      },
+      "uuidCarry": {
+        "sessions": [
+          "00000000-0000-4fff-bfff-fffffffffffe"
+        ],
+        "clusterSize": 1,
+        "steps": [
+          {
+            "op": "generate",
+            "client": 0,
+            "count": 3
+          },
+          {
+            "op": "take",
+            "client": 0
+          },
+          {
+            "op": "finalize",
+            "client": 0,
+            "range": 0
+          },
+          {
+            "op": "generate",
+            "client": 0,
+            "count": 1
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "local": true
+          },
+          {
+            "op": "restore",
+            "client": 1,
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D/+//////////8DAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAAAAAAhAAAAAAAAAEEAAAAAAAAAQQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAIQA==",
+            "session": "00000000-0000-4fff-bfff-fffffffffffe"
+          },
+          {
+            "op": "generate",
+            "client": 1,
+            "count": 1
+          }
+        ]
+      },
+      "safeIntegers": {
+        "sessions": [
+          "10000000-0000-4000-8000-000000000001"
+        ],
+        "clusterSize": 1,
+        "steps": [
+          {
+            "op": "finalize-input",
+            "client": 0,
+            "range": {
+              "sessionId": "20000000-0000-4000-8000-000000000002",
+              "ids": {
+                "firstGenCount": 1,
+                "count": 4503599627370496,
+                "requestedClusterSize": 1,
+                "localIdRanges": [
+                  [
+                    1,
+                    4503599627370496
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "finalize-input",
+            "client": 0,
+            "range": {
+              "sessionId": "30000000-0000-4000-8000-000000000003",
+              "ids": {
+                "firstGenCount": 1,
+                "count": 1,
+                "requestedClusterSize": 1,
+                "localIdRanges": [
+                  [
+                    1,
+                    1
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "finalize-input",
+            "client": 0,
+            "range": {
+              "sessionId": "20000000-0000-4000-8000-000000000002",
+              "ids": {
+                "firstGenCount": 4503599627370497,
+                "count": 3,
+                "requestedClusterSize": 1,
+                "localIdRanges": [
+                  [
+                    4503599627370498,
+                    2
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "normalize",
+            "client": 0,
+            "origin": "20000000-0000-4000-8000-000000000002",
+            "id": -4503599627370498
+          },
+          {
+            "op": "describe",
+            "client": 0,
+            "ids": [
+              4503599627370499,
+              4503599627370500
+            ]
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "local": true
+          },
+          {
+            "op": "restore",
+            "client": 1,
+            "serialized": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAAhAAAAAAAAACEABAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAMAAAAAAAAAAAAAAAAAwAAAAAAAAADwPwEAAAAAADBDAQAAAAAAMEMAAAAAAAAAQAAAAAAAAABAAAAAAAAA8D8AAAAAAADwPwAAAAAAAAhAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAAAAA=",
+            "session": "10000000-0000-4000-8000-000000000001"
+          },
+          {
+            "op": "describe",
+            "client": 1,
+            "ids": [
+              4503599627370499,
+              4503599627370500
+            ]
+          }
+        ]
       }
     }
   },
@@ -250,6 +576,699 @@
         "error": "Error: 0x755",
         "statePreserved": true,
         "postState": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAFAAAAAAAAAAAAAAAAAEABAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+      },
+      {
+        "stage": "creation-ranges",
+        "value": [
+          {
+            "sessionId": "10000000-0000-4000-8000-000000000001",
+            "ids": {
+              "firstGenCount": 1,
+              "count": 2,
+              "requestedClusterSize": 3,
+              "localIdRanges": [
+                [
+                  1,
+                  2
+                ]
+              ]
+            }
+          },
+          {
+            "sessionId": "20000000-0000-4000-8000-000000000002",
+            "ids": {
+              "firstGenCount": 1,
+              "count": 2,
+              "requestedClusterSize": 3,
+              "localIdRanges": [
+                [
+                  1,
+                  2
+                ]
+              ]
+            }
+          },
+          {
+            "sessionId": "10000000-0000-4000-8000-000000000001",
+            "ids": {
+              "firstGenCount": 3,
+              "count": 3,
+              "requestedClusterSize": 3,
+              "localIdRanges": []
+            }
+          },
+          {
+            "sessionId": "20000000-0000-4000-8000-000000000002",
+            "ids": {
+              "firstGenCount": 3,
+              "count": 3,
+              "requestedClusterSize": 3,
+              "localIdRanges": []
+            }
+          }
+        ]
+      },
+      {
+        "stage": "serialization",
+        "value": {
+          "withSession": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAAAEABAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAAFEAAAAAAAAAUQAAAAAAAABRAAAAAAAAAGEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAEA=",
+          "summary": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEABAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAAFEAAAAAAAAAUQA=="
+        }
+      },
+      {
+        "stage": "cluster-growth-and-pending",
+        "value": [
+          {
+            "op": "generate",
+            "client": 0,
+            "value": [
+              {
+                "session": -1,
+                "op": -1,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-000000000006",
+                "recompressed": -1
+              },
+              {
+                "session": -2,
+                "op": -2,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-000000000007",
+                "recompressed": -2
+              },
+              {
+                "session": -3,
+                "op": -3,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-000000000008",
+                "recompressed": -3
+              }
+            ]
+          },
+          {
+            "op": "take",
+            "client": 0,
+            "value": {
+              "sessionId": "60000000-0000-4000-8000-000000000006",
+              "ids": {
+                "firstGenCount": 1,
+                "count": 3,
+                "requestedClusterSize": 2,
+                "localIdRanges": [
+                  [
+                    1,
+                    3
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "finalize",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8GAAAAAAAAAAAAAAAAAIABAAAAAAAAAAAAAAAAAAAUQAAAAAAAAAhA"
+          },
+          {
+            "op": "finalize",
+            "client": 1,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8GAAAAAAAAAAAAAAAAAIABAAAAAAAAAAAAAAAAAAAUQAAAAAAAAAhA"
+          },
+          {
+            "op": "generate",
+            "client": 1,
+            "value": [
+              {
+                "session": -1,
+                "op": -1,
+                "final": false,
+                "stable": "70000000-0000-4000-8000-000000000007",
+                "recompressed": -1
+              }
+            ]
+          },
+          {
+            "op": "take",
+            "client": 1,
+            "value": {
+              "sessionId": "70000000-0000-4000-8000-000000000007",
+              "ids": {
+                "firstGenCount": 1,
+                "count": 1,
+                "requestedClusterSize": 2,
+                "localIdRanges": [
+                  [
+                    1,
+                    1
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "finalize",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAGAAAAAAAAAAAAAAAAAIABBwAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAAAAFEAAAAAAAAAIQAAAAAAAAPA/AAAAAAAACEAAAAAAAADwPw=="
+          },
+          {
+            "op": "finalize",
+            "client": 1,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAHAAAAAAAAAAAAAAAAAMABBgAAAAAAAAAAAAAAAACAAQAAAAAAAPA/AAAAAAAAFEAAAAAAAAAIQAAAAAAAAAAAAAAAAAAACEAAAAAAAADwPw=="
+          },
+          {
+            "op": "generate",
+            "client": 0,
+            "value": [
+              {
+                "session": 3,
+                "op": 3,
+                "final": true,
+                "stable": "60000000-0000-4000-8000-000000000009",
+                "recompressed": 3
+              },
+              {
+                "session": 4,
+                "op": 4,
+                "final": true,
+                "stable": "60000000-0000-4000-8000-00000000000a",
+                "recompressed": 4
+              },
+              {
+                "session": -6,
+                "op": -6,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000b",
+                "recompressed": -6
+              },
+              {
+                "session": -7,
+                "op": -7,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000c",
+                "recompressed": -7
+              },
+              {
+                "session": -8,
+                "op": -8,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000d",
+                "recompressed": -8
+              }
+            ]
+          },
+          {
+            "op": "take",
+            "client": 0,
+            "value": {
+              "sessionId": "60000000-0000-4000-8000-000000000006",
+              "ids": {
+                "firstGenCount": 4,
+                "count": 5,
+                "requestedClusterSize": 2,
+                "localIdRanges": [
+                  [
+                    6,
+                    3
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "generate",
+            "client": 0,
+            "value": [
+              {
+                "session": -9,
+                "op": -9,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000e",
+                "recompressed": -9
+              },
+              {
+                "session": -10,
+                "op": -10,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000f",
+                "recompressed": -10
+              }
+            ]
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAAAEAGAAAAAAAAAAAAAAAAAIABBwAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAAAAFEAAAAAAAAAIQAAAAAAAAPA/AAAAAAAACEAAAAAAAADwPwAAAAAAACRAAAAAAAAAIkAAAAAAAAAAQAAAAAAAAPA/AAAAAAAACEAAAAAAAAAYQAAAAAAAABRA"
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEAGAAAAAAAAAAAAAAAAAIABBwAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAAAAFEAAAAAAAAAIQAAAAAAAAPA/AAAAAAAACEAAAAAAAADwPw=="
+          },
+          {
+            "op": "restore",
+            "client": 2,
+            "value": "60000000-0000-4000-8000-000000000006"
+          },
+          {
+            "op": "restore",
+            "client": 3,
+            "value": "80000000-0000-4000-8000-000000000008"
+          },
+          {
+            "op": "describe",
+            "client": 2,
+            "value": [
+              {
+                "session": -1,
+                "op": 0,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-000000000006",
+                "recompressed": -1
+              },
+              {
+                "session": 3,
+                "op": 3,
+                "final": true,
+                "stable": "60000000-0000-4000-8000-000000000009",
+                "recompressed": 3
+              },
+              {
+                "session": 4,
+                "op": 4,
+                "final": true,
+                "stable": "60000000-0000-4000-8000-00000000000a",
+                "recompressed": 4
+              },
+              {
+                "session": -6,
+                "op": -6,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000b",
+                "recompressed": -6
+              },
+              {
+                "session": -8,
+                "op": -8,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000d",
+                "recompressed": -8
+              },
+              {
+                "session": -9,
+                "op": -9,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000e",
+                "recompressed": -9
+              },
+              {
+                "session": -10,
+                "op": -10,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000f",
+                "recompressed": -10
+              }
+            ]
+          },
+          {
+            "op": "take",
+            "client": 2,
+            "value": {
+              "sessionId": "60000000-0000-4000-8000-000000000006",
+              "ids": {
+                "firstGenCount": 9,
+                "count": 2,
+                "requestedClusterSize": 512,
+                "localIdRanges": [
+                  [
+                    9,
+                    2
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "take",
+            "client": 2,
+            "value": {
+              "sessionId": "60000000-0000-4000-8000-000000000006"
+            }
+          },
+          {
+            "op": "generate",
+            "client": 3,
+            "value": [
+              {
+                "session": -1,
+                "op": -1,
+                "final": false,
+                "stable": "80000000-0000-4000-8000-000000000008",
+                "recompressed": -1
+              }
+            ]
+          },
+          {
+            "op": "finalize",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAACEAGAAAAAAAAAAAAAAAAAIABBwAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAACEAAAAAAAADwPwAAAAAAAAAAAAAAAAAAFEAAAAAAAAAIQA=="
+          },
+          {
+            "op": "finalize",
+            "client": 1,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAACEAHAAAAAAAAAAAAAAAAAMABBgAAAAAAAAAAAAAAAACAAQAAAAAAAPA/AAAAAAAAFEAAAAAAAAAUQAAAAAAAAAAAAAAAAAAACEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAFEAAAAAAAAAIQA=="
+          },
+          {
+            "op": "finalize",
+            "client": 2,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAACEAGAAAAAAAAAAAAAAAAAIABBwAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAACEAAAAAAAADwPwAAAAAAAAAAAAAAAAAAFEAAAAAAAAAIQA=="
+          },
+          {
+            "op": "generate",
+            "client": 0,
+            "value": [
+              {
+                "session": -11,
+                "op": -11,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-000000000010",
+                "recompressed": -11
+              }
+            ]
+          },
+          {
+            "op": "take",
+            "client": 0,
+            "value": {
+              "sessionId": "60000000-0000-4000-8000-000000000006",
+              "ids": {
+                "firstGenCount": 9,
+                "count": 3,
+                "requestedClusterSize": 2,
+                "localIdRanges": [
+                  [
+                    9,
+                    3
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "finalize",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAACEAGAAAAAAAAAAAAAAAAAIABBwAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAACEAAAAAAAADwPwAAAAAAAAAAAAAAAAAAIEAAAAAAAAAYQA=="
+          },
+          {
+            "op": "finalize",
+            "client": 1,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAACEAHAAAAAAAAAAAAAAAAAMABBgAAAAAAAAAAAAAAAACAAQAAAAAAAPA/AAAAAAAAFEAAAAAAAAAUQAAAAAAAAAAAAAAAAAAACEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAIEAAAAAAAAAYQA=="
+          },
+          {
+            "op": "generate",
+            "client": 0,
+            "value": [
+              {
+                "session": 14,
+                "op": 14,
+                "final": true,
+                "stable": "60000000-0000-4000-8000-000000000011",
+                "recompressed": 14
+              },
+              {
+                "session": 15,
+                "op": 15,
+                "final": true,
+                "stable": "60000000-0000-4000-8000-000000000012",
+                "recompressed": 15
+              }
+            ]
+          },
+          {
+            "op": "normalize",
+            "client": 0,
+            "value": {
+              "session": -1,
+              "op": 0,
+              "final": false,
+              "stable": "60000000-0000-4000-8000-000000000006",
+              "recompressed": -1
+            }
+          },
+          {
+            "op": "normalize",
+            "client": 1,
+            "value": {
+              "session": 10,
+              "op": 10,
+              "final": true,
+              "stable": "60000000-0000-4000-8000-00000000000d",
+              "recompressed": 10
+            }
+          },
+          {
+            "op": "describe",
+            "client": 0,
+            "value": [
+              {
+                "session": -1,
+                "op": 0,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-000000000006",
+                "recompressed": -1
+              },
+              {
+                "session": -6,
+                "op": 8,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000b",
+                "recompressed": -6
+              },
+              {
+                "session": -8,
+                "op": 10,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000d",
+                "recompressed": -8
+              },
+              {
+                "session": -9,
+                "op": 11,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000e",
+                "recompressed": -9
+              },
+              {
+                "session": -10,
+                "op": 12,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-00000000000f",
+                "recompressed": -10
+              },
+              {
+                "session": -11,
+                "op": 13,
+                "final": false,
+                "stable": "60000000-0000-4000-8000-000000000010",
+                "recompressed": -11
+              },
+              {
+                "session": 14,
+                "op": 14,
+                "final": true,
+                "stable": "60000000-0000-4000-8000-000000000011",
+                "recompressed": 14
+              },
+              {
+                "session": 15,
+                "op": 15,
+                "final": true,
+                "stable": "60000000-0000-4000-8000-000000000012",
+                "recompressed": 15
+              }
+            ]
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAACEAGAAAAAAAAAAAAAAAAAIABBwAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAACEAAAAAAAADwPwAAAAAAAAAAAAAAAAAAIEAAAAAAAAAYQAAAAAAAACpAAAAAAAAAKEAAAAAAAAAAQAAAAAAAAPA/AAAAAAAACEAAAAAAAAAYQAAAAAAAABhA"
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAACEAGAAAAAAAAAAAAAAAAAIABBwAAAAAAAAAAAAAAAADAAQAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAACEAAAAAAAADwPwAAAAAAAAAAAAAAAAAAIEAAAAAAAAAYQA=="
+          }
+        ]
+      },
+      {
+        "stage": "uuid-carry",
+        "value": [
+          {
+            "op": "generate",
+            "client": 0,
+            "value": [
+              {
+                "session": -1,
+                "op": -1,
+                "final": false,
+                "stable": "00000000-0000-4fff-bfff-fffffffffffe",
+                "recompressed": -1
+              },
+              {
+                "session": -2,
+                "op": -2,
+                "final": false,
+                "stable": "00000000-0000-4fff-bfff-ffffffffffff",
+                "recompressed": -2
+              },
+              {
+                "session": -3,
+                "op": -3,
+                "final": false,
+                "stable": "00000000-0001-4000-8000-000000000000",
+                "recompressed": -3
+              }
+            ]
+          },
+          {
+            "op": "take",
+            "client": 0,
+            "value": {
+              "sessionId": "00000000-0000-4fff-bfff-fffffffffffe",
+              "ids": {
+                "firstGenCount": 1,
+                "count": 3,
+                "requestedClusterSize": 1,
+                "localIdRanges": [
+                  [
+                    1,
+                    3
+                  ]
+                ]
+              }
+            }
+          },
+          {
+            "op": "finalize",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D/+//////////8DAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAAAAAAhA"
+          },
+          {
+            "op": "generate",
+            "client": 0,
+            "value": [
+              {
+                "session": 3,
+                "op": 3,
+                "final": true,
+                "stable": "00000000-0001-4000-8000-000000000001",
+                "recompressed": 3
+              }
+            ]
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D/+//////////8DAAAAAAAAAAAAAAAAAAAAAAAAAAAQQAAAAAAAAAhAAAAAAAAAEEAAAAAAAAAQQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAIQA=="
+          },
+          {
+            "op": "restore",
+            "client": 1,
+            "value": "00000000-0000-4fff-bfff-fffffffffffe"
+          },
+          {
+            "op": "generate",
+            "client": 1,
+            "value": [
+              {
+                "session": -5,
+                "op": -5,
+                "final": false,
+                "stable": "00000000-0001-4000-8000-000000000002",
+                "recompressed": -5
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "stage": "safe-integer-offsets",
+        "value": [
+          {
+            "op": "finalize-input",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D8CAAAAAAAAAAAAAAAAAIAAAAAAAAAAAAABAAAAAAAwQwAAAAAAADBD"
+          },
+          {
+            "op": "finalize-input",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEACAAAAAAAAAAAAAAAAAIAAAwAAAAAAAAAAAAAAAADAAAAAAAAAAAAAAQAAAAAAMEMAAAAAAAAwQwAAAAAAAPA/AAAAAAAAAEAAAAAAAADwPw=="
+          },
+          {
+            "op": "finalize-input",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAACEACAAAAAAAAAAAAAAAAAIAAAwAAAAAAAAAAAAAAAADAAAAAAAAAAAAAAQAAAAAAMEMBAAAAAAAwQwAAAAAAAPA/AAAAAAAAAEAAAAAAAADwPwAAAAAAAAAAAAAAAAAACEAAAAAAAAAAQA=="
+          },
+          {
+            "op": "normalize",
+            "client": 0,
+            "value": {
+              "session": 4503599627370499,
+              "op": 4503599627370499,
+              "final": true,
+              "stable": "20000000-0000-4000-8010-000000000003",
+              "recompressed": 4503599627370499
+            }
+          },
+          {
+            "op": "describe",
+            "client": 0,
+            "value": [
+              {
+                "session": 4503599627370499,
+                "op": 4503599627370499,
+                "final": true,
+                "stable": "20000000-0000-4000-8010-000000000003",
+                "recompressed": 4503599627370499
+              },
+              {
+                "session": 4503599627370500,
+                "op": 4503599627370500,
+                "final": true,
+                "stable": "20000000-0000-4000-8010-000000000004",
+                "recompressed": 4503599627370500
+              }
+            ]
+          },
+          {
+            "op": "save",
+            "client": 0,
+            "value": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAAhAAAAAAAAACEABAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAMAAAAAAAAAAAAAAAAAwAAAAAAAAADwPwEAAAAAADBDAQAAAAAAMEMAAAAAAAAAQAAAAAAAAABAAAAAAAAA8D8AAAAAAADwPwAAAAAAAAhAAAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAAAAA="
+          },
+          {
+            "op": "restore",
+            "client": 1,
+            "value": "10000000-0000-4000-8000-000000000001"
+          },
+          {
+            "op": "describe",
+            "client": 1,
+            "value": [
+              {
+                "session": 4503599627370499,
+                "op": 4503599627370499,
+                "final": true,
+                "stable": "20000000-0000-4000-8010-000000000003",
+                "recompressed": 4503599627370499
+              },
+              {
+                "session": 4503599627370500,
+                "op": 4503599627370500,
+                "final": true,
+                "stable": "20000000-0000-4000-8010-000000000004",
+                "recompressed": 4503599627370500
+              }
+            ]
+          }
+        ]
       }
     ]
   },

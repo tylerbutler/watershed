@@ -9,6 +9,7 @@ import path from "node:path";
 
 import type {
 	IIdCompressor,
+	OpSpaceCompressedId,
 	SessionSpaceCompressedId,
 	StableId,
 } from "@fluidframework/id-compressor";
@@ -20,6 +21,9 @@ import {
 	serializeIdCompressor,
 	toIdCompressorWithCore,
 	type IdCreationRange,
+	type SerializedIdCompressor,
+	type SerializedIdCompressorWithNoSession,
+	type SerializedIdCompressorWithOngoingSession,
 } from "@fluidframework/id-compressor/internal";
 import { modifyClusterSize } from "@fluidframework/id-compressor/internal/test-utils";
 
@@ -473,6 +477,85 @@ function makeMalformedAllocationFragment(): MalformedAllocationFragment {
 	};
 }
 
+type IdStep =
+	| { op: "generate"; client: number; count: number }
+	| { op: "take"; client: number }
+	| { op: "finalize"; client: number; range: number }
+	| { op: "finalize-input"; client: number; range: IdCreationRange }
+	| { op: "save"; client: number; local: boolean }
+	| { op: "restore"; client: number; saved: number; session?: string }
+	| { op: "describe"; client: number; ids: number[] }
+	| { op: "normalize"; client: number; origin: string; id: number };
+
+function makeIdTrace(sessions: string[], clusterSize: number, steps: IdStep[]) {
+	const clients = sessions.map((session) => {
+		const compressor = toIdCompressorWithCore(createIdCompressor(assertIsSessionId(session)));
+		modifyClusterSize(compressor, clusterSize);
+		return compressor;
+	});
+	const ranges: IdCreationRange[] = [];
+	const saved: SerializedIdCompressor[] = [];
+	const inputSteps: object[] = [];
+	const observations: object[] = [];
+	for (const step of steps) {
+		let value: unknown;
+		if (step.op === "restore") {
+			const serialized = saved[step.saved];
+			assert(serialized !== undefined);
+			const compressor = step.session === undefined
+				? deserializeIdCompressor(serialized as SerializedIdCompressorWithOngoingSession)
+				: deserializeIdCompressor(serialized as SerializedIdCompressorWithNoSession, assertIsSessionId(step.session));
+			clients[step.client] = toIdCompressorWithCore(compressor);
+			inputSteps.push({ op: step.op, client: step.client, serialized, session: compressor.localSessionId });
+			value = compressor.localSessionId;
+		} else {
+			inputSteps.push(step);
+			const compressor = clients[step.client];
+			assert(compressor !== undefined);
+			switch (step.op) {
+				case "generate":
+					value = Array.from({ length: step.count }, () =>
+						describeCompressedId(compressor, compressor.generateCompressedId()));
+					break;
+				case "take": {
+					const range = compressor.takeNextCreationRange();
+					ranges.push(range);
+					value = range;
+					break;
+				}
+				case "finalize":
+				case "finalize-input": {
+					const range = step.op === "finalize" ? ranges[step.range] : step.range;
+					assert(range !== undefined);
+					compressor.finalizeCreationRange(range);
+					value = serializeIdCompressor(compressor, false);
+					break;
+				}
+				case "save": {
+					const serialized = step.local
+						? serializeIdCompressor(compressor, true)
+						: serializeIdCompressor(compressor, false);
+					saved.push(serialized);
+					value = serialized;
+					break;
+				}
+				case "describe":
+					value = step.ids.map((id) =>
+						describeCompressedId(compressor, id as SessionSpaceCompressedId));
+					break;
+				case "normalize": {
+					const id = compressor.normalizeToSessionSpace(
+						step.id as OpSpaceCompressedId, assertIsSessionId(step.origin));
+					value = describeCompressedId(compressor, id);
+					break;
+				}
+			}
+		}
+		observations.push({ op: step.op, client: step.client, value });
+	}
+	return { input: { sessions, clusterSize, steps: inputSteps }, observations };
+}
+
 function makeIdCase(commit: string): OracleCase {
 	const sessionA = assertIsSessionId("10000000-0000-4000-8000-000000000001");
 	const sessionB = assertIsSessionId("20000000-0000-4000-8000-000000000002");
@@ -537,6 +620,85 @@ function makeIdCase(commit: string): OracleCase {
 		),
 	};
 	const malformedAllocation = makeMalformedAllocationFragment();
+	const growth = makeIdTrace(
+		["60000000-0000-4000-8000-000000000006", "70000000-0000-4000-8000-000000000007"],
+		2,
+		[
+			{ op: "generate", client: 0, count: 3 },
+			{ op: "take", client: 0 },
+			{ op: "finalize", client: 0, range: 0 },
+			{ op: "finalize", client: 1, range: 0 },
+			{ op: "generate", client: 1, count: 1 },
+			{ op: "take", client: 1 },
+			{ op: "finalize", client: 0, range: 1 },
+			{ op: "finalize", client: 1, range: 1 },
+			{ op: "generate", client: 0, count: 5 },
+			{ op: "take", client: 0 },
+			{ op: "generate", client: 0, count: 2 },
+			{ op: "save", client: 0, local: true },
+			{ op: "save", client: 0, local: false },
+			{ op: "restore", client: 2, saved: 0 },
+			{ op: "restore", client: 3, saved: 1, session: "80000000-0000-4000-8000-000000000008" },
+			{ op: "describe", client: 2, ids: [-1, 3, 4, -6, -8, -9, -10] },
+			{ op: "take", client: 2 },
+			{ op: "take", client: 2 },
+			{ op: "generate", client: 3, count: 1 },
+			{ op: "finalize", client: 0, range: 2 },
+			{ op: "finalize", client: 1, range: 2 },
+			{ op: "finalize", client: 2, range: 2 },
+			{ op: "generate", client: 0, count: 1 },
+			{ op: "take", client: 0 },
+			{ op: "finalize", client: 0, range: 5 },
+			{ op: "finalize", client: 1, range: 5 },
+			{ op: "generate", client: 0, count: 2 },
+			{ op: "normalize", client: 0, origin: sessionB, id: 0 },
+			{ op: "normalize", client: 1, origin: "60000000-0000-4000-8000-000000000006", id: -8 },
+			{ op: "describe", client: 0, ids: [-1, -6, -8, -9, -10, -11, 14, 15] },
+			{ op: "save", client: 0, local: true },
+			{ op: "save", client: 0, local: false },
+		],
+	);
+	const uuidCarry = makeIdTrace(
+		["00000000-0000-4fff-bfff-fffffffffffe"], 1,
+		[
+			{ op: "generate", client: 0, count: 3 },
+			{ op: "take", client: 0 },
+			{ op: "finalize", client: 0, range: 0 },
+			{ op: "generate", client: 0, count: 1 },
+			{ op: "save", client: 0, local: true },
+			{ op: "restore", client: 1, saved: 0 },
+			{ op: "generate", client: 1, count: 1 },
+		],
+	);
+	const half = 2 ** 52;
+	const safeIntegers = makeIdTrace([sessionA], 1, [
+		{
+			op: "finalize-input", client: 0,
+			range: {
+				sessionId: sessionB,
+				ids: { firstGenCount: 1, count: half, requestedClusterSize: 1, localIdRanges: [[1, half]] },
+			},
+		},
+		{
+			op: "finalize-input", client: 0,
+			range: {
+				sessionId: restoredSession,
+				ids: { firstGenCount: 1, count: 1, requestedClusterSize: 1, localIdRanges: [[1, 1]] },
+			},
+		},
+		{
+			op: "finalize-input", client: 0,
+			range: {
+				sessionId: sessionB,
+				ids: { firstGenCount: half + 1, count: 3, requestedClusterSize: 1, localIdRanges: [[half + 2, 2]] },
+			},
+		},
+		{ op: "normalize", client: 0, origin: sessionB, id: -half - 2 },
+		{ op: "describe", client: 0, ids: [half + 3, half + 4] },
+		{ op: "save", client: 0, local: true },
+		{ op: "restore", client: 1, saved: 0 },
+		{ op: "describe", client: 1, ids: [half + 3, half + 4] },
+	]);
 
 	const observations: (JsonCompatibleReadOnly | object)[] = [
 		{
@@ -591,6 +753,11 @@ function makeIdCase(commit: string): OracleCase {
 		},
 		{ stage: "precision-limits", value: precision },
 		malformedAllocation.expected.observation,
+		{ stage: "creation-ranges", value: [rangeA0, rangeB0, rangeA1, rangeB1] },
+		{ stage: "serialization", value: { withSession: serializedWithSession, summary: serializedSummary } },
+		{ stage: "cluster-growth-and-pending", value: growth.observations },
+		{ stage: "uuid-carry", value: uuidCarry.observations },
+		{ stage: "safe-integer-offsets", value: safeIntegers.observations },
 	];
 
 	return {
@@ -617,15 +784,17 @@ function makeIdCase(commit: string): OracleCase {
 			],
 			operations: {
 				restoration: {
-					ongoing: { includeLocalState: true },
+					ongoing: { includeLocalState: true, serialized: serializedWithSession },
 					summary: {
 						includeLocalState: false,
 						newSessionId: restoredSession,
+						serialized: serializedSummary,
 					},
 				},
 				precision: precisionInputs,
 				malformedAllocation: malformedAllocation.input,
 			},
+			traces: { growth: growth.input, uuidCarry: uuidCarry.input, safeIntegers: safeIntegers.input },
 		},
 		expected: { observations },
 		raw: {

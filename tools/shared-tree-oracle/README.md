@@ -232,8 +232,39 @@ The Gleam reader validates manifest membership, canonical paths, pinned
 identities, and nonempty observations on both targets. `assert_case` gives only
 `input` to a runner and compares its complete result with `expected`, including
 the first differing JSON path on failure. Necessary initial state and replay
-bytes therefore live in `input`; `raw` preserves supporting evidence. No native
-semantic runner or native writer-matrix result exists yet.
+bytes therefore live in `input`; `raw` preserves supporting evidence. Task 4 adds
+the native `id-ranges` runner on both targets. Tree, container, and summary
+semantic runners and native writer-matrix results remain future work.
+
+### Native ID compression
+
+`src/watershed/fluid_ids.gleam` implements the document compressor in pure Gleam.
+It distinguishes session UUIDs, stable UUIDs, session-space integers, and op-space
+integers with opaque types. Callers receive a candidate state on success and a
+typed error on invalid ranges, unknown IDs, UUID collisions, or corrupt persistence
+data. No compressor operation mutates the input state.
+
+The `id-ranges` adapter executes only `input` through that native API. Its
+comparisons include creation ranges and exact serialized base64 strings, plus
+numeric and UUID observations. The upstream producer supplies explicit restore
+bytes and session IDs in the input. The added traces cover interleaved cluster
+splits, extension of the last document cluster, eager IDs, pending IDs across
+restoration, UUID carry across version/variant positions, and offsets above
+`2^52`. Generator checks reject missing trace steps or restoration inputs.
+
+The selected serialization format is version 2: little-endian float64 integer
+fields and a 122-bit UUID payload without its fixed version/variant bits.
+The native implementation uses four bounded integer limbs for that payload.
+It rejects unsafe wire integers and UUID-space exhaustion on both targets.
+Local generation stops before its next-range cursor would exceed the safe
+integer domain.
+
+`serialize(state, true)` includes local pending state; `serialize(state, false)`
+writes sequenced state for a summary. `deserialize` requires the saved session
+when restoring local state and a new session when loading a summary. Range
+reservation size is transient and resets to 512 after restoration, matching
+upstream. The document runtime will adopt this module in Task 11; Task 4 does
+not yet enable native SharedTree editing.
 
 ### Compatibility inventory and implementation owners
 
