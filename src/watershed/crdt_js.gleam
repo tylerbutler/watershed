@@ -83,6 +83,9 @@
 ////
 //// JavaScript target only.
 
+@internal
+pub const compilation_target = "javascript"
+
 @target(javascript)
 import gleam/dict.{type Dict}
 @target(javascript)
@@ -130,6 +133,7 @@ import watershed/p2p.{type P2pError}
 import watershed/p2p_transport_js.{
   type IceServer, type Signaling, type Transport,
 }
+@target(javascript)
 import watershed/pn_counter_kernel
 @target(javascript)
 import watershed/schema

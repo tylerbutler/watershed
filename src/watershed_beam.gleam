@@ -23,6 +23,9 @@
 //// `subscribe_counter` / `subscribe_typed` deliver narrowed, decoded events.
 //// See the "Typed maps" and "Typed channel fields" sections below.
 
+@internal
+pub const compilation_target = "erlang"
+
 @target(erlang)
 import gleam/bit_array
 @target(erlang)
@@ -86,6 +89,7 @@ import watershed/or_set_kernel
 import watershed/ordered_collection_kernel
 @target(erlang)
 import watershed/pact_map_kernel
+@target(erlang)
 import watershed/pn_counter_kernel
 @target(erlang)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}

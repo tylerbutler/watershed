@@ -39,6 +39,9 @@
 ////
 //// JavaScript target only.
 
+@internal
+pub const compilation_target = "javascript"
+
 @target(javascript)
 import gleam/dict
 @target(javascript)
@@ -99,6 +102,7 @@ import watershed/or_set_kernel
 import watershed/ordered_collection_kernel
 @target(javascript)
 import watershed/pact_map_kernel
+@target(javascript)
 import watershed/pn_counter_kernel
 @target(javascript)
 import watershed/register_collection_kernel.{type ReadPolicy, Atomic}

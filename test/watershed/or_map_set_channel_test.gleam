@@ -19,6 +19,10 @@ fn coherent(state: kernel.OrMapState) -> Nil {
   kernel.check_cache_coherence(state) |> expect.to_equal(Ok(Nil))
 }
 
+fn unsafe_counter() -> Int {
+  9_007_199_254_740_991 + 1
+}
+
 pub fn missing_empty_and_noop_removals_test() -> Nil {
   let empty = fresh("a")
   let assert Ok(#(state, events, operation)) =
@@ -334,7 +338,7 @@ pub fn counter_exhaustion_is_fallible_but_noop_removal_is_allowed_test() -> Nil 
 }
 
 pub fn unsafe_typed_snapshots_rejected_before_native_merge_test() -> Nil {
-  list.each([-1, 9_007_199_254_740_992], fn(counter) {
+  list.each([-1, unsafe_counter()], fn(counter) {
     kernel.from_summary(seed_json(counter), replica_id.new("b"))
     |> expect.to_be_error()
     let #(native, _) = native_with_leaf_clock(counter)
@@ -456,7 +460,7 @@ pub fn typed_unsafe_delta_rejected_even_for_noop_intent_test() -> Nil {
     kernel.RemoveMember("absent", "absent", safe_delta),
   )
   |> expect.to_equal(Ok(Nil))
-  list.each([-1, 9_007_199_254_740_992], fn(counter) {
+  list.each([-1, unsafe_counter()], fn(counter) {
     let #(_, delta) = native_with_leaf_clock(counter)
     let operation = kernel.RemoveMember("absent", "absent", delta)
     let assert Error(kernel.InvalidSetState(_)) =

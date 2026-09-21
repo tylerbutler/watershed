@@ -387,7 +387,7 @@ pub fn acquired_job_re_releases_on_client_leave_test() -> Nil {
   let #(core_a, acq2) =
     expect_ok(runtime_core.ordered_acquire(core_a, ordered_address, "acq-2"))
   let assert [acq2_operation] = acq2
-  let #(core_a, ingested_a) =
+  let #(_core_a, ingested_a) =
     ingest(core_a, sequenced_message(id_a, sequence_number + 2, acq2_operation))
   let assert Ok(acquired) = acquired_value(ingested_a.events)
   acquired |> expect.to_equal(json.to_string(json.string("job1")))

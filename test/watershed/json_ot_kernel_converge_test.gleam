@@ -199,7 +199,6 @@ fn do_deliver_one(simulation: Simulation, id: Int) -> Simulation {
                 simulation,
                 id,
                 ClientSimulation(
-                  ..c,
                   state: state,
                   delivered: c.delivered + 1,
                   outbox: outbox,

@@ -6,6 +6,9 @@
 ////
 //// JavaScript target only.
 
+@internal
+pub const compilation_target = "javascript"
+
 @target(javascript)
 import gleam/option.{type Option, None, Some}
 @target(javascript)
@@ -17,8 +20,10 @@ import watershed/timer_js
 @target(javascript)
 import watershed/transport_js.{type Cell, type Scheduler}
 
+@target(javascript)
 const debounce_milliseconds = 500
 
+@target(javascript)
 const sweep_milliseconds = 5000
 
 @target(javascript)

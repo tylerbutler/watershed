@@ -23,6 +23,9 @@
 //// - and a relay that comes back merges both sides before it is trusted
 ////   again.
 
+@internal
+pub const compilation_target = "javascript"
+
 @target(javascript)
 import gleam/int
 @target(javascript)
@@ -974,7 +977,7 @@ pub fn a_restarted_relay_recovers_from_its_log_test() -> Nil {
   // that digest described.
   relay_fake.log_size(hub_of(environment), room) |> expect.to_equal(2)
   relay_fake.attested(hub_of(environment), room) |> expect.to_equal("")
-  { list.length(relay_fake.lines(hub_of(environment), room)) > 0 }
+  { !list.is_empty(relay_fake.lines(hub_of(environment), room)) }
   |> expect.to_be_true()
 
   relay_fake.stop(hub_of(environment))

@@ -1,6 +1,6 @@
 import startest/expect
 import watershed/json_ot.{
-  type JsonValue, Index, Key, NInt, VArray, VNumber, VObject, VString,
+  type JsonValue, Index, Key, NInt, VNumber, VObject, VString,
 }
 
 fn parse(raw: String) -> JsonValue {

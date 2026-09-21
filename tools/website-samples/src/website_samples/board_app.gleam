@@ -12,7 +12,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import lustre/effect.{type Effect}
 import watershed.{type SharedCounter, type SharedMap}
-import watershed/schema.{type FieldChange, FieldChange}
+import watershed/schema.{FieldChange}
 import watershed_lustre
 import website_samples/board_schema as document_schema
 
@@ -21,7 +21,6 @@ import website_samples/board_schema as document_schema
 type Msg {
   EnsuredCards(Result(SharedMap, String))
   EnsuredBreaches(Result(SharedCounter, String))
-  SharedChanged
 }
 
 // ── Bootstrap ─────────────────────────────────────────────────────────────────
@@ -151,5 +150,15 @@ fn subscribe_title(
 // docs:snippet-end sharedtree-events
 
 fn keep_previous_header() -> Nil {
+  Nil
+}
+
+pub fn typecheck_examples(
+  document: watershed.Document(document_schema.Board),
+  root: watershed.TypedMap(document_schema.Board),
+) -> Nil {
+  let _ = bootstrap(document)
+  read_write_example(root)
+  let _ = subscribe_title(root)
   Nil
 }

@@ -6,6 +6,9 @@
 ////
 //// JavaScript target only.
 
+@internal
+pub const compilation_target = "javascript"
+
 @target(javascript)
 import gleam/json
 @target(javascript)
@@ -38,8 +41,10 @@ import watershed/transport_js
 @target(javascript)
 import watershed/wire
 
+@target(javascript)
 const room = "persist-controller-room"
 
+@target(javascript)
 const compatibility = "persist-controller-test/v1"
 
 @target(javascript)

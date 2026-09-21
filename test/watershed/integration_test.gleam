@@ -12,6 +12,9 @@
 ////
 //// Or `just integration` for the whole cycle, teardown included.
 
+@internal
+pub const compilation_target = "erlang"
+
 @target(erlang)
 import envoy
 @target(erlang)
@@ -3209,6 +3212,7 @@ fn entries_eq(
 // Typed channel fields (TX2)
 // ─────────────────────────────────────────────────────────────────────────────
 
+@target(erlang)
 /// Schema tag for the typed-channel-field round-trip test.
 type FieldDocument
 

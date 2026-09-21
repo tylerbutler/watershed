@@ -4,6 +4,9 @@
 //// watershed's own suite can exercise the JS runtime without the optional
 //// `phoenix` peer dep, since the sluice injects its own transport.
 
+@internal
+pub const compilation_target = "javascript"
+
 @target(javascript)
 import gleam/json
 @target(javascript)
@@ -900,7 +903,7 @@ pub fn subscribe_pn_counter_observes_a_peer_update_test() -> Nil {
   watershed.pn_counter_update(counter_a, -3)
   sluice_js.settle(sluice)
 
-  { list.length(transport_js.get_cell(seen)) > 0 } |> expect.to_be_true()
+  { !list.is_empty(transport_js.get_cell(seen)) } |> expect.to_be_true()
   watershed.pn_counter_value(counter_b) |> expect.to_equal(Ok(-3))
 }
 
@@ -975,7 +978,7 @@ pub fn subscribe_ordered_collection_observes_a_peer_add_test() -> Nil {
   watershed.ordered_add(queue_a, json.string("job1"))
   sluice_js.settle(sluice)
 
-  { list.length(transport_js.get_cell(seen)) > 0 } |> expect.to_be_true()
+  { !list.is_empty(transport_js.get_cell(seen)) } |> expect.to_be_true()
   watershed.ordered_size(queue_b) |> expect.to_equal(Ok(1))
 }
 
