@@ -1,7 +1,7 @@
 # Native SharedTree interoperability
 
 **Date:** 2026-09-21
-**Status:** Design approved in conversation; written specification awaiting review.
+**Status:** Written specification approved on 2026-09-21.
 **Deliverable:** A compatibility roadmap and an implementation plan for the first
 end-to-end milestone. This work does not implement SharedTree.
 
@@ -46,6 +46,7 @@ Repository baseline: `9379499` (`chore: pin trellis version`).
 | `src/watershed/channel.gleam` | Extend the closed sums for channel kinds, initialization, state, operations, events, and snapshots. Follow dispatch exhaustiveness, then check the non-type-driven codecs. |
 | `src/watershed/runtime_core.gleam` | Reuse pure sequencing and bootstrap discipline. Extend document state for Fluid routing, ID allocation, and tree history requirements. |
 | `src/watershed/runtime.gleam`, `runtime_beam.gleam` | Keep target-specific I/O and delivery outside the kernel. Wire both implementations in the same milestone. |
+| `src/watershed/transport_ffi.mjs`, `transport_js.gleam` | The current JS transport uses Phoenix Channels. The service preflight must establish how an upstream Fluid driver reaches the same document; matching operation names does not establish socket-protocol compatibility. |
 | `src/watershed/wire/op.gleam` | Replace the project-specific direct channel envelopes where Fluid container/datastore/channel routing requires a different format. Its existing comments disclaim a compatibility contract. |
 | `src/watershed/wire/summary_blob.gleam` | Replace the version-4 Watershed-only snapshot representation where it cannot represent Fluid summaries. |
 | `src/watershed/git_storage.gleam` | Extend beyond one `header` JSON blob to the required hierarchy of protocol, container, datastore, and DDS summary trees and blobs. |
@@ -85,6 +86,13 @@ Use an upstream-created container with a fixed, documented datastore/channel
 layout containing one SharedTree. Include and implement any bootstrap DDS that
 the selected upstream container construction actually creates. Do not assume
 that naming a tree as an initial object removes its enclosing runtime state.
+
+For the first service profile, use a real upstream SharedMap bootstrap channel
+with a `"tree"` handle entry. Watershed's `root(document)` API assumes a map;
+resolve that map through the container registry rather than inserting a phantom
+`"root"` map while loading a tree-only document. Handle serialization must support
+the profile's datastore/channel paths. These bootstrap handles are distinct
+from the deferred feature of handle-valued leaves inside the SharedTree schema.
 
 The profile records the container construction, package versions, channel
 attributes, datastore addresses and aliases, schema identifiers, and runtime
