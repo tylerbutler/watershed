@@ -1,0 +1,242 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "service": {
+    "implementation": "floodgate",
+    "revision": "0eb493fc46d1bb9baf1151a6ccdde93544e057e7",
+    "transport": "socket.io",
+    "driverPolicies": {
+      "enableDiscovery": false,
+      "enableLongPollingDowngrade": false,
+      "enableRestLess": true,
+      "enableWholeSummaryUpload": false
+    },
+    "deltaStorageRoute": "/deltas/{tenantId}/{documentId}",
+    "nativeTransport": {
+      "protocol": "phoenix",
+      "endpoint": "/socket/websocket",
+      "javascript": "watershed/transport_js",
+      "erlang": "aquamarine/phoenix"
+    }
+  },
+  "container": {
+    "runtimeOptions": {
+      "enableRuntimeIdCompressor": "on",
+      "compressionOptions": {
+        "minimumBatchSizeInBytes": "Infinity",
+        "compressionAlgorithm": "lz4"
+      },
+      "summaryOptions": {
+        "summaryConfigOverrides": {
+          "state": "disabled"
+        }
+      }
+    },
+    "summarizerRuntimeOptions": {
+      "enableRuntimeIdCompressor": "on",
+      "compressionOptions": {
+        "minimumBatchSizeInBytes": "Infinity",
+        "compressionAlgorithm": "lz4"
+      },
+      "summaryOptions": {
+        "summaryConfigOverrides": {
+          "state": "disableHeuristics",
+          "maxAckWaitTime": 15000,
+          "maxOpsSinceLastSummary": 7000,
+          "initialSummarizerDelayMs": 0
+        }
+      }
+    },
+    "oldestSupportedClient": "2.117.0",
+    "documentSchema": {
+      "version": 1,
+      "refSeq": 0,
+      "info": {
+        "minVersionForCollab": "2.117.0"
+      },
+      "runtime": {
+        "explicitSchemaControl": true,
+        "idCompressorMode": "on",
+        "opGroupingEnabled": true
+      }
+    },
+    "summaryFormatVersion": 1,
+    "gcFeature": 3,
+    "summaryPaths": [
+      "/.metadata",
+      "/.idCompressor",
+      "/.recentBatchInfo",
+      "/.aliases",
+      "/.channels/A/.component",
+      "/.channels/A/.channels/root/header",
+      "/.channels/A/.channels/root/.attributes",
+      "/.channels/A/.channels/_C/.metadata",
+      "/.channels/A/.channels/_C/.attributes",
+      "/.channels/A/.channels/_C/indexes/EditManager/.metadata",
+      "/.channels/A/.channels/_C/indexes/EditManager/String",
+      "/.channels/A/.channels/_C/indexes/Schema/.metadata",
+      "/.channels/A/.channels/_C/indexes/Schema/SchemaString",
+      "/.channels/A/.channels/_C/indexes/Forest/.metadata",
+      "/.channels/A/.channels/_C/indexes/Forest/contents",
+      "/.channels/A/.channels/_C/indexes/DetachedFieldIndex/.metadata",
+      "/.channels/A/.channels/_C/indexes/DetachedFieldIndex/DetachedFieldIndexBlob",
+      "/gc/__gc_root",
+      "/.protocol/attributes",
+      "/.protocol/quorumMembers",
+      "/.protocol/quorumProposals",
+      "/.protocol/quorumValues"
+    ],
+    "bootstrapPath": "/A/root",
+    "treePath": "/A/_C",
+    "channelAttributes": {
+      "bootstrap": {
+        "type": "https://graph.microsoft.com/types/map",
+        "snapshotFormatVersion": "0.2",
+        "packageVersion": "3.1.0"
+      },
+      "tree": {
+        "type": "https://graph.microsoft.com/types/tree",
+        "snapshotFormatVersion": "0.0.0",
+        "packageVersion": "3.1.0"
+      }
+    },
+    "dataStoreTypes": [
+      "org.watershed.shared-tree.m1.bootstrap"
+    ],
+    "bootstrapChannelTypes": [
+      "https://graph.microsoft.com/types/map"
+    ]
+  },
+  "codecTree": {
+    "name": "SharedTree",
+    "version": "null",
+    "children": [
+      {
+        "name": "Forest",
+        "version": 2
+      },
+      {
+        "name": "Schema",
+        "version": 2
+      },
+      {
+        "name": "DetachedFieldIndex",
+        "version": 2
+      },
+      {
+        "name": "EditManager",
+        "version": 7,
+        "children": [
+          {
+            "name": "SharedTreeChange",
+            "version": 5,
+            "children": [
+              {
+                "name": "ModularChange",
+                "version": 5,
+                "children": [
+                  {
+                    "name": "FieldKind:Value",
+                    "version": 2
+                  },
+                  {
+                    "name": "FieldKind:Optional",
+                    "version": 2
+                  },
+                  {
+                    "name": "FieldKind:Sequence",
+                    "version": 3
+                  },
+                  {
+                    "name": "FieldKind:Forbidden",
+                    "version": 1
+                  },
+                  {
+                    "name": "FieldKind:Identifier",
+                    "version": 1
+                  }
+                ]
+              },
+              {
+                "name": "Schema",
+                "version": 2
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "Message",
+        "version": 7,
+        "children": [
+          {
+            "name": "SharedTreeChange",
+            "version": 5,
+            "children": [
+              {
+                "name": "ModularChange",
+                "version": 5,
+                "children": [
+                  {
+                    "name": "FieldKind:Value",
+                    "version": 2
+                  },
+                  {
+                    "name": "FieldKind:Optional",
+                    "version": 2
+                  },
+                  {
+                    "name": "FieldKind:Sequence",
+                    "version": 3
+                  },
+                  {
+                    "name": "FieldKind:Forbidden",
+                    "version": 1
+                  },
+                  {
+                    "name": "FieldKind:Identifier",
+                    "version": 1
+                  }
+                ]
+              },
+              {
+                "name": "Schema",
+                "version": 2
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "name": "FieldBatch",
+        "version": 2
+      }
+    ]
+  },
+  "compressorFormat": {
+    "version": 2,
+    "byteOrder": "LE"
+  },
+  "supportedFeatures": [
+    "fixed-object-schema",
+    "primitive-leaves",
+    "optional-string",
+    "nested-object",
+    "bootstrap-map-handle",
+    "grouped-batches",
+    "gc-metadata"
+  ],
+  "excludedFeatures": [
+    "arrays",
+    "maps-in-tree",
+    "schema-evolution",
+    "shared-branches",
+    "gc-sweep",
+    "compressed-ops",
+    "chunked-ops"
+  ]
+}

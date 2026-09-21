@@ -15,8 +15,16 @@ export const reference = {
   commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
   tag: "client_v3.1.0",
   packages: [
+    "@fluidframework/container-definitions",
+    "@fluidframework/container-loader",
+    "@fluidframework/container-runtime",
+    "@fluidframework/driver-definitions",
     "@fluidframework/tree",
     "@fluidframework/local-driver",
+    "@fluidframework/map",
+    "@fluidframework/routerlicious-driver",
+    "@fluidframework/runtime-utils",
+    "@fluidframework/shared-object-base",
     "fluid-framework",
   ],
 };
@@ -43,7 +51,7 @@ function git(root, ...args) {
   return execFileSync("git", ["-C", root, ...args], { encoding: "utf8" }).trim();
 }
 
-export async function verifyCheckout(root = checkout, expectedCommit = reference.commit) {
+export async function verifyRepository(root, expectedCommit, allowedUntracked = []) {
   if ((await lstat(root)).isSymbolicLink()) {
     throw new Error("The reference checkout must not be a symbolic link");
   }
@@ -63,9 +71,16 @@ export async function verifyCheckout(root = checkout, expectedCommit = reference
     .split("\0")
     .filter(Boolean);
   for (const path of untracked) {
-    if (path !== injectedTestPath) {
+    if (!allowedUntracked.includes(path)) {
       throw new Error(`Reference checkout has an unrelated untracked file: ${path}`);
     }
+  }
+  return { commit, untracked };
+}
+
+export async function verifyCheckout(root = checkout, expectedCommit = reference.commit) {
+  const { commit, untracked } = await verifyRepository(root, expectedCommit, [injectedTestPath]);
+  for (const path of untracked) {
     const [actual, expected] = await Promise.all([
       readFile(join(root, path)),
       readFile(oracleSource),

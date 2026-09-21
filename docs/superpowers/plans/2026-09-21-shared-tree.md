@@ -402,6 +402,18 @@ source/package identities fail. Commit subject:
 
 ### Task 2: establish one real-service profile
 
+Implementation: Floodgate commit
+`0eb493fc46d1bb9baf1151a6ccdde93544e057e7` passes the upstream create/edit/
+summary/reload case, the official delta-storage read, and native JavaScript
+and BEAM Phoenix joins to the same document and published summary. No transport
+bridge is needed. The committed profile records the actual formats and paths.
+The stock driver's attach rewrite requires `/deltas/{tenantId}/{documentId}`.
+An explicit summarizer client avoids depending on asynchronous leader startup.
+Runtime GC metadata version 3 is present even with sweep disabled and belongs
+to Task 13's required enclosing-summary metadata. Native probes are in
+`test/watershed/shared_tree_transport_probe.gleam`; they do not implement tree
+loading or edits.
+
 **Files:** Create `tools/shared-tree-oracle/service.mjs`; extend its package
 manifest/lockfile and README. Modify the service fixture configuration only as
 required. Record service identity and endpoint protocol in `profile.json`.
@@ -420,7 +432,7 @@ never created. Pin `@fluidframework/map` to `3.1.0` when adding the bootstrap.
 Keep this construction in `service.mjs` and use it for container-format fixtures;
 do not label tree-only health-check snapshots as the service profile.
 
-- [ ] **1. Write preflight result assertions.**
+- [x] **1. Write preflight result assertions.**
 
 The service runner returns and writes this diagnostic result on success:
 
@@ -437,7 +449,7 @@ assert.equal(result.mockService, false);
 These fields report completed operations, not selected options. On failure,
 print the failed stage and error, exit nonzero, and do not write a success result.
 
-- [ ] **2. Probe Floodgate's actual protocol.**
+- [x] **2. Probe Floodgate's actual protocol.**
 
 Use the current development service with a fresh document ID and explicit test
 credentials supplied through the environment. Establish the stock driver's
@@ -453,7 +465,7 @@ Expected initially: either an upstream-only pass or a named protocol failure.
 The existing Phoenix transport makes a direct stock-driver success unproven.
 An upstream in-memory service does not satisfy this task.
 
-- [ ] **3. Resolve the service path before proceeding.**
+- [x] **3. Resolve the service path before proceeding.**
 
 If stock Fluid and Floodgate interoperate, lock that service revision and driver
 configuration. If they do not, run the same upstream case against an actual
@@ -467,7 +479,7 @@ Any new transport must have the same production capability on JS and BEAM.
 If this requires an independent service/transport project, stop and obtain its
 plan and completed prerequisite before M1. Do not guess its implementation here.
 
-- [ ] **4. Freeze the profile manifest from observed behavior.**
+- [x] **4. Freeze the profile manifest from observed behavior.**
 
 The generator writes this schema, with actual populated values:
 
@@ -495,7 +507,7 @@ This TypeScript type describes a generated artifact, not production Gleam state.
 the recorded structures into concrete types. Do not guess version numbers from
 the npm major version.
 
-- [ ] **5. Re-run preflight and commit the evidence.**
+- [x] **5. Re-run preflight and commit the evidence.**
 
 Required: real-service create/edit/summary/reload, an immutable service reference,
 and an explicit JS/BEAM transport path. Commit subject:

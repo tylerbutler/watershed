@@ -8,10 +8,19 @@
     "test": "node --test *.test.mjs",
     "source:prepare": "node source.mjs prepare",
     "source:verify": "node source.mjs verify",
-    "source:capture": "node source.mjs generate"
+    "source:capture": "node source.mjs generate",
+    "preflight": "node service.mjs preflight"
   },
   "dependencies": {
+    "@fluidframework/container-definitions": "3.1.0",
+    "@fluidframework/container-loader": "3.1.0",
+    "@fluidframework/container-runtime": "3.1.0",
+    "@fluidframework/driver-definitions": "3.1.0",
     "@fluidframework/local-driver": "3.1.0",
+    "@fluidframework/map": "3.1.0",
+    "@fluidframework/routerlicious-driver": "3.1.0",
+    "@fluidframework/runtime-utils": "3.1.0",
+    "@fluidframework/shared-object-base": "3.1.0",
     "@fluidframework/tree": "3.1.0",
     "fluid-framework": "3.1.0"
   }

@@ -5,18 +5,20 @@ production dependency, a native tree implementation, or evidence that Watershed
 can yet load a SharedTree document.
 
 The public collaboration test uses an in-memory service. The source capture uses
-upstream's deterministic DDS test runtimes. Neither substitutes for the M0
-real-service preflight or the full conformance corpus.
+upstream's deterministic DDS test runtimes. The separate preflight uses a real
+Floodgate server. None of these is a substitute for the full conformance corpus.
 
 ## Reference
 
 | Item | Pin |
 | --- | --- |
 | `fluid-framework`, `@fluidframework/tree`, `@fluidframework/local-driver` | `3.1.0` |
+| Other direct `@fluidframework/*` service dependencies | `3.1.0` |
 | Source tag | `client_v3.1.0` |
 | Source commit | `c3c5bf0ecd313362e83fe8a02b7d39e7e0736960` |
 | Source package manager | `pnpm@11.15.1`, from the pinned manifest |
 | Source Node requirement | `>=22.22.2` |
+| Floodgate source commit | `0eb493fc46d1bb9baf1151a6ccdde93544e057e7` |
 
 The release uses Node-only test tooling. Its dependencies and build outputs stay
 under the ignored `.reference/` directory. The npm lockfile covers this package's
@@ -106,3 +108,78 @@ The object schema in `schema.mjs` is the planned M1 schema. Its tree-only
 `rootStore` is an oracle health check. The service profile must instead create a
 real SharedMap bootstrap channel with a `"tree"` handle. A passing smoke case
 does not freeze that profile or satisfy the M0 exit gate.
+
+## Real-service preflight
+
+Install Watershed's root npm dependencies as well as this package's dependencies.
+The native JavaScript probe uses the existing optional Phoenix peer dependency.
+Gleam and Erlang must be on `PATH`; Docker is not required.
+
+```sh
+npm --prefix tools/shared-tree-oracle run preflight -- --service floodgate --local
+```
+
+The local runner verifies an owned Floodgate checkout at the pinned commit,
+exports its Erlang shipment, and starts that shipment on a loopback port with a
+random test credential and an isolated Shelf/DETS data directory. It checks
+server health before connecting. It stops its own Erlang process and removes its
+own data directory on completion. The Git bare-repository exception needed by
+Gleam's Git dependency installer applies only to that build subprocess, not to
+the user's Git configuration.
+
+For an already running instance of the pinned server, omit `--local` and provide
+`FLOODGATE_JWT_SECRET` and `FLOODGATE_REVISION`. `FLOODGATE_HTTP_URL` defaults to
+`http://127.0.0.1:3000`; `FLOODGATE_SOCKET_URL` defaults to the same address, and
+`FLOODGATE_TENANT_ID` defaults to `fluid`. The operator must ensure that a remote
+instance actually runs the supplied revision. The current BEAM probe targets
+the selected plain-HTTP development profile, not an HTTPS deployment.
+
+The command must complete all of these operations:
+
+1. Create and attach an upstream container with a real SharedMap root channel
+   whose `"tree"` entry is a SharedTree handle.
+2. Load a peer and exchange edits in both directions.
+3. Use a dedicated upstream summarizer client to upload and publish a full
+   summary; match the acknowledgement to the stored document head.
+4. Read every sequenced message through the official delta-storage API, in
+   sequence order, and fetch every blob of the published snapshot.
+5. Close the original clients, reload the published state in a fresh client,
+   and acknowledge another edit.
+6. Join that same document over Phoenix using Watershed's JavaScript transport
+   and its BEAM Aquamarine transport. Both use the existing Gleam connection
+   decoder and must identify the exact published summary.
+
+The native probes verify the transport and summary-discovery path only. They do
+not load a tree into Watershed or claim native tree-edit interoperability.
+
+Successful output contains `result.json`, `profile.json`, and `capture.json`
+under `.output/service/`. `--output <absolute-directory>` selects another
+directory. Failure names its stage, exits nonzero, and publishes no new success
+result. Credentials and authorization headers are not part of these artifacts.
+The committed profile is `test/fixtures/shared_tree/profile.json`.
+
+### Observed profile requirements
+
+The stock Routerlicious driver uses Socket.IO; both native targets use Phoenix
+against the same Floodgate document and storage. Discovery and whole-summary
+upload are disabled. RestLess is enabled. The delta URL must be
+`/deltas/{tenantId}/{documentId}`: attach replaces the final URL segment with
+the server-assigned document ID. The superficially similar
+`/documents/{tenantId}/{documentId}/deltas` route breaks that rewrite.
+
+Runtime ID compression and grouped batches are enabled. Wire compression is
+disabled through its supported infinite threshold, which also prevents chunked
+ops. JSON records that threshold as the string `"Infinity"`, not `null`.
+Interactive clients disable automatic summarization; the dedicated summarizer
+uses `disableHeuristics` and publishes on demand.
+
+The actual summary contains runtime format 1, document schema 1, ID compressor
+format 2, and GC metadata version 3. GC sweep is disabled, but GC metadata cannot
+be omitted: Task 13 must preserve it. The profile records the observed full blob
+paths, including protocol data, aliases, recent batches, datastore metadata,
+bootstrap map, and tree indexes.
+
+The pinned server logs warnings for some Socket.IO control packets and logs
+`Failed to eval` during SIGTERM shutdown. These messages were observed even on
+successful preflights; the command's stage assertions and exit status determine
+the outcome.
