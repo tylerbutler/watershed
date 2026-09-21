@@ -1,0 +1,1103 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "summary-tail",
+  "domain": "summary",
+  "input": {
+    "service": "LocalDeltaConnectionServer",
+    "runtimeProfile": {
+      "oldestSupportedClient": "2.117.0",
+      "enableRuntimeIdCompressor": "on",
+      "compressionOptions": {
+        "minimumBatchSizeInBytes": "Infinity",
+        "compressionAlgorithm": "lz4"
+      },
+      "opGroupingEnabled": true,
+      "summaryConfiguration": "dedicated-summarizer-disable-heuristics"
+    },
+    "schedules": [
+      {
+        "id": "data-edit-between-summary-and-publication",
+        "steps": [
+          {
+            "summarize": "capture snapshot at S while summarizer outbound is paused"
+          },
+          {
+            "edit": "set title after S"
+          },
+          {
+            "deliver": "data edit to the server before the summary operation"
+          },
+          {
+            "summarize": "resume summary publication at P"
+          },
+          {
+            "load": "fresh upstream reader from the published summary and replay S..P"
+          },
+          {
+            "check": "reader observes the between-S-and-P edit"
+          },
+          {
+            "edit": "set point.y after publication"
+          },
+          {
+            "deliver": "later tail"
+          },
+          {
+            "load": "second fresh upstream reader"
+          },
+          {
+            "check": "reader observes the replayed edit and later tail"
+          }
+        ]
+      }
+    ],
+    "replayInput": {
+      "snapshotAtS": {
+        "version": {
+          "id": "32d983e7-a7e4-4bcc-b6b5-a3c02967943f",
+          "treeId": "32d983e7-a7e4-4bcc-b6b5-a3c02967943f"
+        },
+        "tree": {
+          "id": "32d983e7-a7e4-4bcc-b6b5-a3c02967943f",
+          "blobs": {
+            ".metadata": "04abd0c9f8d7e7b480feee6924c249bc19bc4f35",
+            ".idCompressor": "bd98558309affda9d1f369b002bdec28604c4111",
+            ".recentBatchInfo": "b7db2bd6294d5d5c67821458290b91a53bb5856a",
+            ".aliases": "b7eaed263a0416d12ecdf6d32ab66449588d8740"
+          },
+          "trees": {
+            ".channels": {
+              "id": "a4f21abf-2b68-4db4-9951-8334bbfe73b9",
+              "blobs": {},
+              "commits": {},
+              "trees": {
+                "A": {
+                  "id": "7ddaf38c-e74a-4246-a648-18ab7a20e2f2",
+                  "blobs": {
+                    ".component": "5abb699d683d484ef9704d143f896c09b0415d1f"
+                  },
+                  "commits": {},
+                  "trees": {
+                    ".channels": {
+                      "id": "d325b4f8-bca7-4c3d-a08f-f20ccf1c60b5",
+                      "blobs": {},
+                      "commits": {},
+                      "trees": {
+                        "root": {
+                          "id": "1364891a-aa4e-49a8-92eb-bbf7d732d7e7",
+                          "blobs": {
+                            "header": "5d01ff212536d2276a2aefa0e4a4daa9f15df513",
+                            ".attributes": "70bdb34dc708303244e40538850ab26963c6a6ae"
+                          },
+                          "commits": {},
+                          "trees": {}
+                        },
+                        "_C": {
+                          "id": "e7086995-2600-4588-aae1-1e9803443378",
+                          "blobs": {
+                            ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                            ".attributes": "8f145888a8de06e36d34a81b141bb9ce3a7dce4c"
+                          },
+                          "commits": {},
+                          "trees": {
+                            "indexes": {
+                              "id": "7910973f-2eea-4e58-b91e-fd505084a950",
+                              "blobs": {},
+                              "commits": {},
+                              "trees": {
+                                "EditManager": {
+                                  "id": "2ebf31a9-c5f8-454f-a14a-ece366ba91c0",
+                                  "blobs": {
+                                    ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                    "String": "fd9d8cc1cc3bf2b5f91d3c8a31ffb35a8986cc80"
+                                  },
+                                  "commits": {},
+                                  "trees": {}
+                                },
+                                "Schema": {
+                                  "id": "71989480-b9d4-4013-aabb-af4618cbb437",
+                                  "blobs": {
+                                    ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                    "SchemaString": "f21b6b415257ad3295f356a2dff68f2a2e7c7767"
+                                  },
+                                  "commits": {},
+                                  "trees": {}
+                                },
+                                "Forest": {
+                                  "id": "fb3f447f-fcbe-4d10-891c-084bdff0190f",
+                                  "blobs": {
+                                    ".metadata": "f93d3984472d9905af008117584103f3768bd1f9",
+                                    "contents": "696da57e6c4d4b96a913c50c08153f2b1f33281b"
+                                  },
+                                  "commits": {},
+                                  "trees": {}
+                                },
+                                "DetachedFieldIndex": {
+                                  "id": "5e82f9a2-8b39-45f6-8314-f5fd899a0202",
+                                  "blobs": {
+                                    ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                    "DetachedFieldIndexBlob": "ca01d3f7d8294cfa7d4ec2afcf16b95174b61b9c"
+                                  },
+                                  "commits": {},
+                                  "trees": {}
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "gc": {
+              "id": "d20fe503-10c0-4c61-8bbb-1096942884e5",
+              "blobs": {
+                "__gc_root": "05831b70119c0995ccc86bea033e7f1bacce6575"
+              },
+              "commits": {},
+              "trees": {}
+            },
+            ".protocol": {
+              "id": "fc9301cc-1736-4974-939d-0225d3e76079",
+              "blobs": {
+                "quorumMembers": "3f5fb543482bb9026d42aa48032f8189161661f8",
+                "quorumProposals": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
+                "quorumValues": "a94b9eab69689a0fdc0616c9465c8e39fbaeb179",
+                "attributes": "6d8b6db82a97f11a18751027ff24457a68f8354d"
+              },
+              "commits": {},
+              "trees": {}
+            },
+            ".logTail": {
+              "id": "8dbd62ed-eb00-4fa0-b989-16beda29a994",
+              "blobs": {
+                "logTail": "2170a36bbee772d52686576163e8672baf75d724"
+              },
+              "commits": {},
+              "trees": {}
+            },
+            ".serviceProtocol": {
+              "id": "1d4eb710-57c5-4c54-84cc-b4c2cd4e527a",
+              "blobs": {
+                "deli": "cc192137a714310fe8e36162ecc877ad7acb2042",
+                "scribe": "c16f82170715d26a41c52b872fb1201a0fc555d1"
+              },
+              "commits": {},
+              "trees": {}
+            }
+          }
+        },
+        "blobs": {
+          "04abd0c9f8d7e7b480feee6924c249bc19bc4f35": "eyJjcmVhdGVDb250YWluZXJSdW50aW1lVmVyc2lvbiI6IjMuMS4wIiwiY3JlYXRlQ29udGFpbmVyVGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJzdW1tYXJ5TnVtYmVyIjoyLCJzdW1tYXJ5Rm9ybWF0VmVyc2lvbiI6MSwiZ2NGZWF0dXJlIjozLCJzZXNzaW9uRXhwaXJ5VGltZW91dE1zIjoyNTkyMDAwMDAwLCJzd2VlcEVuYWJsZWQiOmZhbHNlLCJ0b21ic3RvbmVUaW1lb3V0TXMiOjMxMTA0MDAwMDAsInRlbGVtZXRyeURvY3VtZW50SWQiOiJlMzc4MTdhMi0yNmY4LTQwY2QtOWJlOS1iODg0MTViMzQyODkiLCJtZXNzYWdlIjp7InNlcXVlbmNlTnVtYmVyIjotMX0sImxhc3RNZXNzYWdlIjp7ImNsaWVudElkIjoiMTI0NGU5YjEtZDdmZC00YzBkLTg5YTAtN2IzY2U2MDY5MDFiIiwiY2xpZW50U2VxdWVuY2VOdW1iZXIiOjEsIm1pbmltdW1TZXF1ZW5jZU51bWJlciI6MCwicmVmZXJlbmNlU2VxdWVuY2VOdW1iZXIiOjMsInNlcXVlbmNlTnVtYmVyIjo0LCJ0aW1lc3RhbXAiOjE3MDAwMDAwMDAwMDAsInR5cGUiOiJvcCJ9LCJkb2N1bWVudFNjaGVtYSI6eyJ2ZXJzaW9uIjoxLCJyZWZTZXEiOjAsImluZm8iOnsibWluVmVyc2lvbkZvckNvbGxhYiI6IjIuMTE3LjAifSwicnVudGltZSI6eyJleHBsaWNpdFNjaGVtYUNvbnRyb2wiOnRydWUsImlkQ29tcHJlc3Nvck1vZGUiOiJvbiIsIm9wR3JvdXBpbmdFbmFibGVkIjp0cnVlfX19",
+          "bd98558309affda9d1f369b002bdec28604c4111": "IkFBQUFBQUFBQUVBQUFBQUFBQUFBQUFBQUFBQUFBUEEvQUFBQUFBQUE4RDlQUUxKbEZsK1cyeWc0cFVWYUR5a0FBQUFBQUFBQUFBQUFBQUFBQUFpQVFBQUFBQUFBQUFCQSI=",
+          "b7db2bd6294d5d5c67821458290b91a53bb5856a": "W1s0LCJjMTM3MjJiMC1kNjdkLTRjMGEtOTE1Zi04OTA1OGI1YjdhZWFfWzFdIl1d",
+          "b7eaed263a0416d12ecdf6d32ab66449588d8740": "W1sicm9vdCIsIkEiXV0=",
+          "5abb699d683d484ef9704d143f896c09b0415d1f": "eyJwa2ciOiJbXCJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLmJvb3RzdHJhcFwiXSIsInN1bW1hcnlGb3JtYXRWZXJzaW9uIjoyLCJpc1Jvb3REYXRhU3RvcmUiOnRydWV9",
+          "5d01ff212536d2276a2aefa0e4a4daa9f15df513": "eyJibG9icyI6W10sImNvbnRlbnQiOnsidHJlZSI6eyJ0eXBlIjoiUGxhaW4iLCJ2YWx1ZSI6eyJ0eXBlIjoiX19mbHVpZF9oYW5kbGVfXyIsInVybCI6Ii9BL19DIn19fX0=",
+          "70bdb34dc708303244e40538850ab26963c6a6ae": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL21hcCIsInNuYXBzaG90Rm9ybWF0VmVyc2lvbiI6IjAuMiIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+          "218abba1699bfa0eb8016a25bffa0508ee592ab2": "eyJ2ZXJzaW9uIjoyfQ==",
+          "8f145888a8de06e36d34a81b141bb9ce3a7dce4c": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL3RyZWUiLCJzbmFwc2hvdEZvcm1hdFZlcnNpb24iOiIwLjAuMCIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+          "fd9d8cc1cc3bf2b5f91d3c8a31ffb35a8986cc80": "eyJ0cnVuayI6W3siY2hhbmdlIjpbeyJkYXRhIjp7Im1heElkIjoyLCJjaGFuZ2VzIjpbeyJmaWVsZEtleSI6InJvb3RGaWVsZEtleSIsImZpZWxkS2luZCI6Ik1vZHVsYXJFZGl0QnVpbGRlci5HZW5lcmljIiwiY2hhbmdlIjpbWzAseyJmaWVsZENoYW5nZXMiOlt7ImZpZWxkS2V5IjoidGl0bGUiLCJmaWVsZEtpbmQiOiJWYWx1ZSIsImNoYW5nZSI6eyJyIjp7ImUiOmZhbHNlLCJkIjoxLCJzIjowfX19XX1dXX1dLCJidWlsZHMiOnsiYnVpbGRzIjpbW1tbMCwwXV1dXSwidHJlZXMiOnsidmVyc2lvbiI6MiwiaWRlbnRpZmllcnMiOltdLCJzaGFwZXMiOlt7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyIsInZhbHVlIjp0cnVlfX1dLCJkYXRhIjpbWzAsInN0YXRlLWF0LXMiXV19fX19XSwicmV2aXNpb24iOjEsInNlc3Npb25JZCI6IjBhNDNkNjkxLTY5NGUtNDBhMy05Yjk2LTVmMTY2NWIyNDA0ZiIsInNlcXVlbmNlTnVtYmVyIjo0fV0sImJyYW5jaGVzIjpbWyIwYTQzZDY5MS02OTRlLTQwYTMtOWI5Ni01ZjE2NjViMjQwNGYiLHsiYmFzZSI6MSwiY29tbWl0cyI6W119XV0sInZlcnNpb24iOjd9",
+          "f21b6b415257ad3295f356a2dff68f2a2e7c7767": "eyJ2ZXJzaW9uIjoyLCJub2RlcyI6eyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5ib29sZWFuIjp7ImtpbmQiOnsibGVhZiI6Mn19LCJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIjp7ImtpbmQiOnsibGVhZiI6NH19LCJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udW1iZXIiOnsia2luZCI6eyJsZWFmIjowfX0sImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyI6eyJraW5kIjp7ImxlYWYiOjF9fSwib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCI6eyJraW5kIjp7Im9iamVjdCI6eyJ4Ijp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciJdfSwieSI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udW1iZXIiXX19fX0sIm9yZy53YXRlcnNoZWQuc2hhcmVkLXRyZWUubTEuUm9vdCI6eyJraW5kIjp7Im9iamVjdCI6eyJlbmFibGVkIjp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLmJvb2xlYW4iXX0sIm1hcmtlciI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIl19LCJub3RlIjp7ImtpbmQiOiJPcHRpb25hbCIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyJdfSwicG9pbnQiOnsia2luZCI6IlZhbHVlIiwidHlwZXMiOlsib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCJdfSwicmF0aW5nIjp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciJdfSwidGl0bGUiOnsia2luZCI6IlZhbHVlIiwidHlwZXMiOlsiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYuc3RyaW5nIl19fX19fSwicm9vdCI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLlJvb3QiXX19",
+          "f93d3984472d9905af008117584103f3768bd1f9": "eyJ2ZXJzaW9uIjozfQ==",
+          "696da57e6c4d4b96a913c50c08153f2b1f33281b": "eyJrZXlzIjpbInJvb3RGaWVsZEtleSIsInJlcGFpci0yIl0sImZpZWxkcyI6eyJ2ZXJzaW9uIjoyLCJpZGVudGlmaWVycyI6W10sInNoYXBlcyI6W3siYyI6eyJ0eXBlIjoiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYuc3RyaW5nIiwidmFsdWUiOnRydWV9fSx7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciIsInZhbHVlIjp0cnVlfX0seyJjIjp7InR5cGUiOiJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLlJvb3QiLCJ2YWx1ZSI6ZmFsc2UsImZpZWxkcyI6W1siZW5hYmxlZCIsM10sWyJtYXJrZXIiLDRdLFsibm90ZSIsNV0sWyJwb2ludCIsNl0sWyJyYXRpbmciLDFdLFsidGl0bGUiLDBdXX19LHsiYyI6eyJ0eXBlIjoiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYuYm9vbGVhbiIsInZhbHVlIjp0cnVlfX0seyJjIjp7InR5cGUiOiJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIiwidmFsdWUiOltudWxsXX19LHsiYSI6MH0seyJjIjp7InR5cGUiOiJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLlBvaW50IiwidmFsdWUiOmZhbHNlLCJmaWVsZHMiOltbIngiLDFdLFsieSIsMV1dfX1dLCJkYXRhIjpbWzIsZmFsc2UsMCwwLDAsMCwic3RhdGUtYXQtcyJdLFswLCIiXV19LCJ2ZXJzaW9uIjoyfQ==",
+          "ca01d3f7d8294cfa7d4ec2afcf16b95174b61b9c": "eyJ2ZXJzaW9uIjoyLCJkYXRhIjpbWzEsMSwyXV0sIm1heElkIjoyfQ==",
+          "05831b70119c0995ccc86bea033e7f1bacce6575": "eyJnY05vZGVzIjp7Ii8iOnsib3V0Ym91bmRSb3V0ZXMiOlsiL0EiXX0sIi9BIjp7Im91dGJvdW5kUm91dGVzIjpbIi9BL19DIiwiL0Evcm9vdCJdfSwiL0EvX0MiOnsib3V0Ym91bmRSb3V0ZXMiOlsiL0EiXX0sIi9BL3Jvb3QiOnsib3V0Ym91bmRSb3V0ZXMiOlsiL0EiLCIvQS9fQyJdfX19",
+          "3f5fb543482bb9026d42aa48032f8189161661f8": "W1siMTVhNWU0YWMtOGY3ZS00YmFkLTg1ZmEtODQyMjYwNjY3MzczIix7ImNsaWVudCI6eyJkZXRhaWxzIjp7ImNhcGFiaWxpdGllcyI6eyJpbnRlcmFjdGl2ZSI6dHJ1ZX0sImVudmlyb25tZW50IjoiOyBsb2FkZXJWZXJzaW9uOjMuMS4wOyBjb250YWluZXJJZDozMGYzZjhlNy0yOWY2LTQ2NGQtYmRkMy1jOTVkYjBjMGNmMTEifSwibW9kZSI6IndyaXRlIiwicGVybWlzc2lvbiI6W10sInNjb3BlcyI6WyJkb2M6cmVhZCIsImRvYzp3cml0ZSJdLCJ1c2VyIjp7ImlkIjoiNzJjYmU4ZjktM2IxMS00OWZmLTk5NjEtNzNlM2RmZmQ5MjUxIiwibmFtZSI6IjcyY2JlOGY5LTNiMTEifX0sInNlcXVlbmNlTnVtYmVyIjoxfV0sWyI3ZTQ4NWExYi0wM2U2LTRmMGQtOTUwZC01NTI1NWUzNTFmZWMiLHsiY2xpZW50Ijp7ImRldGFpbHMiOnsiY2FwYWJpbGl0aWVzIjp7ImludGVyYWN0aXZlIjpmYWxzZX0sInR5cGUiOiJzdW1tYXJpemVyIiwiZW52aXJvbm1lbnQiOiI7IGxvYWRlclZlcnNpb246My4xLjA7IGNvbnRhaW5lcklkOjkxNWIxY2E5LTM1YjQtNDI2ZS04Y2M3LTI0ZjRhM2U0MjM0MyJ9LCJtb2RlIjoid3JpdGUiLCJwZXJtaXNzaW9uIjpbXSwic2NvcGVzIjpbImRvYzpyZWFkIiwiZG9jOndyaXRlIiwic3VtbWFyeTp3cml0ZSJdLCJ1c2VyIjp7ImlkIjoiYmVkNzdjZTktZDFkMi00ZmY2LWEwNjItYTdmZDhhZjFkZGYzIiwibmFtZSI6ImJlZDc3Y2U5LWQxZDIifX0sInNlcXVlbmNlTnVtYmVyIjoyfV0sWyIxMjQ0ZTliMS1kN2ZkLTRjMGQtODlhMC03YjNjZTYwNjkwMWIiLHsiY2xpZW50Ijp7ImRldGFpbHMiOnsiY2FwYWJpbGl0aWVzIjp7ImludGVyYWN0aXZlIjp0cnVlfSwiZW52aXJvbm1lbnQiOiI7IGxvYWRlclZlcnNpb246My4xLjA7IGNvbnRhaW5lcklkOmMwNzIyY2NlLWRhYWUtNDc5ZS05ZjQwLTVkMzA5YmM3NGU0NCJ9LCJtb2RlIjoid3JpdGUiLCJwZXJtaXNzaW9uIjpbXSwic2NvcGVzIjpbImRvYzpyZWFkIiwiZG9jOndyaXRlIl0sInVzZXIiOnsiaWQiOiI2Nzk2OTRjMC0zYjQ2LTQzODQtYjA4YS1iZGY3MDliNmQzZTciLCJuYW1lIjoiNjc5Njk0YzAtM2I0NiJ9fSwic2VxdWVuY2VOdW1iZXIiOjN9XV0=",
+          "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc": "W10=",
+          "a94b9eab69689a0fdc0616c9465c8e39fbaeb179": "W1siY29kZSIseyJrZXkiOiJjb2RlIiwidmFsdWUiOnsicGFja2FnZSI6IndhdGVyc2hlZC10cmVlLW9yYWNsZSJ9LCJhcHByb3ZhbFNlcXVlbmNlTnVtYmVyIjowLCJjb21taXRTZXF1ZW5jZU51bWJlciI6MCwic2VxdWVuY2VOdW1iZXIiOjB9XV0=",
+          "6d8b6db82a97f11a18751027ff24457a68f8354d": "eyJtaW5pbXVtU2VxdWVuY2VOdW1iZXIiOjAsInNlcXVlbmNlTnVtYmVyIjo0fQ==",
+          "2170a36bbee772d52686576163e8672baf75d724": "W3siY2xpZW50SWQiOiIxMjQ0ZTliMS1kN2ZkLTRjMGQtODlhMC03YjNjZTYwNjkwMWIiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MiwiY29udGVudHMiOiJ7XCJ0eXBlXCI6XCJncm91cGVkQmF0Y2hcIixcImNvbnRlbnRzXCI6W3tcImNvbnRlbnRzXCI6e1widHlwZVwiOlwiaWRBbGxvY2F0aW9uXCIsXCJjb250ZW50c1wiOntcInNlc3Npb25JZFwiOlwiMGE0M2Q2OTEtNjk0ZS00MGEzLTliOTYtNWYxNjY1YjI0MDRmXCIsXCJpZHNcIjp7XCJmaXJzdEdlbkNvdW50XCI6MyxcImNvdW50XCI6MSxcInJlcXVlc3RlZENsdXN0ZXJTaXplXCI6NTEyLFwibG9jYWxJZFJhbmdlc1wiOltdfX19LFwibWV0YWRhdGFcIjp7XCJiYXRjaFwiOnRydWV9fSx7XCJjb250ZW50c1wiOntcInR5cGVcIjpcImNvbXBvbmVudFwiLFwiY29udGVudHNcIjp7XCJhZGRyZXNzXCI6XCJBXCIsXCJjb250ZW50c1wiOntcImNvbnRlbnRcIjp7XCJhZGRyZXNzXCI6XCJfQ1wiLFwiY29udGVudHNcIjp7XCJyZXZpc2lvblwiOjIsXCJvcmlnaW5hdG9ySWRcIjpcIjBhNDNkNjkxLTY5NGUtNDBhMy05Yjk2LTVmMTY2NWIyNDA0ZlwiLFwiY2hhbmdlc2V0XCI6W3tcImRhdGFcIjp7XCJtYXhJZFwiOjUsXCJjaGFuZ2VzXCI6W3tcImZpZWxkS2V5XCI6XCJyb290RmllbGRLZXlcIixcImZpZWxkS2luZFwiOlwiTW9kdWxhckVkaXRCdWlsZGVyLkdlbmVyaWNcIixcImNoYW5nZVwiOltbMCx7XCJmaWVsZENoYW5nZXNcIjpbe1wiZmllbGRLZXlcIjpcInRpdGxlXCIsXCJmaWVsZEtpbmRcIjpcIlZhbHVlXCIsXCJjaGFuZ2VcIjp7XCJyXCI6e1wiZVwiOmZhbHNlLFwiZFwiOjQsXCJzXCI6M319fV19XV19XSxcImJ1aWxkc1wiOntcImJ1aWxkc1wiOltbW1szLDBdXV1dLFwidHJlZXNcIjp7XCJ2ZXJzaW9uXCI6MixcImlkZW50aWZpZXJzXCI6W10sXCJzaGFwZXNcIjpbe1wiY1wiOntcInR5cGVcIjpcImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZ1wiLFwidmFsdWVcIjp0cnVlfX1dLFwiZGF0YVwiOltbMCxcImVkaXQtYmV0d2Vlbi1zLWFuZC1wXCJdXX19fX1dLFwidmVyc2lvblwiOjd9fSxcInR5cGVcIjpcIm9wXCJ9fX0sXCJtZXRhZGF0YVwiOntcImJhdGNoXCI6ZmFsc2V9fV19IiwibWV0YWRhdGEiOnsiZ3JvdXBlZE9wQ291bnQiOjJ9LCJtaW5pbXVtU2VxdWVuY2VOdW1iZXIiOjAsInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyIjo0LCJzZXF1ZW5jZU51bWJlciI6NSwidGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJ0eXBlIjoib3AiLCJleHBIYXNoMSI6Ii00Y2E0NDE4OSJ9LHsiY2xpZW50SWQiOiI3ZTQ4NWExYi0wM2U2LTRmMGQtOTUwZC01NTI1NWUzNTFmZWMiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MSwiY29udGVudHMiOiJ7XCJoYW5kbGVcIjpcIjYwODhmZjM4LTg1MDAtNGZlNy05YjUwLTg2NzkyYjUzNzFiZFwiLFwiaGVhZFwiOlwiNmFhNjQwYjMtYmIwMi00M2M5LTllOWQtM2NiYjE5ZDc5YTg2XCIsXCJtZXNzYWdlXCI6XCJTdW1tYXJ5IEA0OjBcIixcInBhcmVudHNcIjpbXCI2YWE2NDBiMy1iYjAyLTQzYzktOWU5ZC0zY2JiMTlkNzlhODZcIl0sXCJkZXRhaWxzXCI6e1wiaW5jbHVkZXNQcm90b2NvbFRyZWVcIjpmYWxzZX19IiwibWluaW11bVNlcXVlbmNlTnVtYmVyIjowLCJyZWZlcmVuY2VTZXF1ZW5jZU51bWJlciI6NCwic2VxdWVuY2VOdW1iZXIiOjYsInRpbWVzdGFtcCI6MTcwMDAwMDAwMDAwMCwidHlwZSI6InN1bW1hcml6ZSIsImFkZGl0aW9uYWxDb250ZW50Ijoie1wiY2xpZW50c1wiOlt7XCJjYW5FdmljdFwiOnRydWUsXCJjbGllbnRJZFwiOlwiMTVhNWU0YWMtOGY3ZS00YmFkLTg1ZmEtODQyMjYwNjY3MzczXCIsXCJjbGllbnRTZXF1ZW5jZU51bWJlclwiOjAsXCJsYXN0VXBkYXRlXCI6MTcwMDAwMDAwMDAwMCxcIm5hY2tcIjpmYWxzZSxcInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyXCI6MCxcInNjb3Blc1wiOltcImRvYzpyZWFkXCIsXCJkb2M6d3JpdGVcIl19LHtcImNhbkV2aWN0XCI6dHJ1ZSxcImNsaWVudElkXCI6XCI3ZTQ4NWExYi0wM2U2LTRmMGQtOTUwZC01NTI1NWUzNTFmZWNcIixcImNsaWVudFNlcXVlbmNlTnVtYmVyXCI6MSxcImxhc3RVcGRhdGVcIjoxNzAwMDAwMDAwMDAwLFwibmFja1wiOmZhbHNlLFwicmVmZXJlbmNlU2VxdWVuY2VOdW1iZXJcIjo0LFwic2NvcGVzXCI6W1wiZG9jOnJlYWRcIixcImRvYzp3cml0ZVwiLFwic3VtbWFyeTp3cml0ZVwiXX0se1wiY2FuRXZpY3RcIjp0cnVlLFwiY2xpZW50SWRcIjpcIjEyNDRlOWIxLWQ3ZmQtNGMwZC04OWEwLTdiM2NlNjA2OTAxYlwiLFwiY2xpZW50U2VxdWVuY2VOdW1iZXJcIjoyLFwibGFzdFVwZGF0ZVwiOjE3MDAwMDAwMDAwMDAsXCJuYWNrXCI6ZmFsc2UsXCJyZWZlcmVuY2VTZXF1ZW5jZU51bWJlclwiOjQsXCJzY29wZXNcIjpbXCJkb2M6cmVhZFwiLFwiZG9jOndyaXRlXCJdfV0sXCJkdXJhYmxlU2VxdWVuY2VOdW1iZXJcIjowLFwiZXhwSGFzaDFcIjpcIi00Y2E0NDE4OVwiLFwibG9nT2Zmc2V0XCI6NSxcInNlcXVlbmNlTnVtYmVyXCI6NixcInNpZ25hbENsaWVudENvbm5lY3Rpb25OdW1iZXJcIjowLFwibGFzdFNlbnRNU05cIjowLFwibmFja01lc3NhZ2VzXCI6W10sXCJjaGVja3BvaW50VGltZXN0YW1wXCI6MTcwMDAwMDAwMDAwMH0iLCJleHBIYXNoMSI6Ii0xZGJhZDQwOCJ9XQ==",
+          "cc192137a714310fe8e36162ecc877ad7acb2042": "eyJjbGllbnRzIjpbeyJjYW5FdmljdCI6dHJ1ZSwiY2xpZW50SWQiOiIxNWE1ZTRhYy04ZjdlLTRiYWQtODVmYS04NDIyNjA2NjczNzMiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MCwibGFzdFVwZGF0ZSI6MTcwMDAwMDAwMDAwMCwibmFjayI6ZmFsc2UsInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyIjowLCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiXX0seyJjYW5FdmljdCI6dHJ1ZSwiY2xpZW50SWQiOiI3ZTQ4NWExYi0wM2U2LTRmMGQtOTUwZC01NTI1NWUzNTFmZWMiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MSwibGFzdFVwZGF0ZSI6MTcwMDAwMDAwMDAwMCwibmFjayI6ZmFsc2UsInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyIjo0LCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiLCJzdW1tYXJ5OndyaXRlIl19LHsiY2FuRXZpY3QiOnRydWUsImNsaWVudElkIjoiMTI0NGU5YjEtZDdmZC00YzBkLTg5YTAtN2IzY2U2MDY5MDFiIiwiY2xpZW50U2VxdWVuY2VOdW1iZXIiOjIsImxhc3RVcGRhdGUiOjE3MDAwMDAwMDAwMDAsIm5hY2siOmZhbHNlLCJyZWZlcmVuY2VTZXF1ZW5jZU51bWJlciI6NCwic2NvcGVzIjpbImRvYzpyZWFkIiwiZG9jOndyaXRlIl19XSwiZHVyYWJsZVNlcXVlbmNlTnVtYmVyIjowLCJleHBIYXNoMSI6Ii00Y2E0NDE4OSIsImxvZ09mZnNldCI6NSwic2VxdWVuY2VOdW1iZXIiOjYsInNpZ25hbENsaWVudENvbm5lY3Rpb25OdW1iZXIiOjAsImxhc3RTZW50TVNOIjowLCJuYWNrTWVzc2FnZXMiOltdLCJjaGVja3BvaW50VGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwfQ==",
+          "c16f82170715d26a41c52b872fb1201a0fc555d1": "eyJsYXN0U3VtbWFyeVNlcXVlbmNlTnVtYmVyIjowLCJsb2dPZmZzZXQiOjUsIm1pbmltdW1TZXF1ZW5jZU51bWJlciI6MCwicHJvdG9jb2xTdGF0ZSI6eyJzZXF1ZW5jZU51bWJlciI6NCwibWluaW11bVNlcXVlbmNlTnVtYmVyIjowLCJtZW1iZXJzIjpbWyIxNWE1ZTRhYy04ZjdlLTRiYWQtODVmYS04NDIyNjA2NjczNzMiLHsiY2xpZW50Ijp7ImRldGFpbHMiOnsiY2FwYWJpbGl0aWVzIjp7ImludGVyYWN0aXZlIjp0cnVlfSwiZW52aXJvbm1lbnQiOiI7IGxvYWRlclZlcnNpb246My4xLjA7IGNvbnRhaW5lcklkOjMwZjNmOGU3LTI5ZjYtNDY0ZC1iZGQzLWM5NWRiMGMwY2YxMSJ9LCJtb2RlIjoid3JpdGUiLCJwZXJtaXNzaW9uIjpbXSwic2NvcGVzIjpbImRvYzpyZWFkIiwiZG9jOndyaXRlIl0sInVzZXIiOnsiaWQiOiI3MmNiZThmOS0zYjExLTQ5ZmYtOTk2MS03M2UzZGZmZDkyNTEiLCJuYW1lIjoiNzJjYmU4ZjktM2IxMSJ9fSwic2VxdWVuY2VOdW1iZXIiOjF9XSxbIjdlNDg1YTFiLTAzZTYtNGYwZC05NTBkLTU1MjU1ZTM1MWZlYyIseyJjbGllbnQiOnsiZGV0YWlscyI6eyJjYXBhYmlsaXRpZXMiOnsiaW50ZXJhY3RpdmUiOmZhbHNlfSwidHlwZSI6InN1bW1hcml6ZXIiLCJlbnZpcm9ubWVudCI6IjsgbG9hZGVyVmVyc2lvbjozLjEuMDsgY29udGFpbmVySWQ6OTE1YjFjYTktMzViNC00MjZlLThjYzctMjRmNGEzZTQyMzQzIn0sIm1vZGUiOiJ3cml0ZSIsInBlcm1pc3Npb24iOltdLCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiLCJzdW1tYXJ5OndyaXRlIl0sInVzZXIiOnsiaWQiOiJiZWQ3N2NlOS1kMWQyLTRmZjYtYTA2Mi1hN2ZkOGFmMWRkZjMiLCJuYW1lIjoiYmVkNzdjZTktZDFkMiJ9fSwic2VxdWVuY2VOdW1iZXIiOjJ9XSxbIjEyNDRlOWIxLWQ3ZmQtNGMwZC04OWEwLTdiM2NlNjA2OTAxYiIseyJjbGllbnQiOnsiZGV0YWlscyI6eyJjYXBhYmlsaXRpZXMiOnsiaW50ZXJhY3RpdmUiOnRydWV9LCJlbnZpcm9ubWVudCI6IjsgbG9hZGVyVmVyc2lvbjozLjEuMDsgY29udGFpbmVySWQ6YzA3MjJjY2UtZGFhZS00NzllLTlmNDAtNWQzMDliYzc0ZTQ0In0sIm1vZGUiOiJ3cml0ZSIsInBlcm1pc3Npb24iOltdLCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiXSwidXNlciI6eyJpZCI6IjY3OTY5NGMwLTNiNDYtNDM4NC1iMDhhLWJkZjcwOWI2ZDNlNyIsIm5hbWUiOiI2Nzk2OTRjMC0zYjQ2In19LCJzZXF1ZW5jZU51bWJlciI6M31dXSwicHJvcG9zYWxzIjpbXSwidmFsdWVzIjpbWyJjb2RlIix7ImtleSI6ImNvZGUiLCJ2YWx1ZSI6eyJwYWNrYWdlIjoid2F0ZXJzaGVkLXRyZWUtb3JhY2xlIn0sImFwcHJvdmFsU2VxdWVuY2VOdW1iZXIiOjAsImNvbW1pdFNlcXVlbmNlTnVtYmVyIjowLCJzZXF1ZW5jZU51bWJlciI6MH1dXX0sInNlcXVlbmNlTnVtYmVyIjo2LCJpc0NvcnJ1cHQiOmZhbHNlLCJwcm90b2NvbEhlYWQiOjAsImNoZWNrcG9pbnRUaW1lc3RhbXAiOjE3MDAwMDAwMDAwMDB9"
+        },
+        "blobEncoding": "base64"
+      },
+      "summaryReferenceSequenceNumber": 4,
+      "publicationSequenceNumber": 7,
+      "summaryToPublicationMessages": [
+        {
+          "clientId": "1244e9b1-d7fd-4c0d-89a0-7b3ce606901b",
+          "clientSequenceNumber": 2,
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0a43d691-694e-40a3-9b96-5f1665b2404f\",\"ids\":{\"firstGenCount\":3,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":2,\"originatorId\":\"0a43d691-694e-40a3-9b96-5f1665b2404f\",\"changeset\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":4,\"s\":3}}}]}]]}],\"builds\":{\"builds\":[[[[3,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"edit-between-s-and-p\"]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "metadata": {
+            "groupedOpCount": 2
+          },
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": 4,
+          "sequenceNumber": 5,
+          "timestamp": 1700000000000,
+          "type": "op",
+          "expHash1": "-4ca44189",
+          "traces": []
+        },
+        {
+          "clientId": "7e485a1b-03e6-4f0d-950d-55255e351fec",
+          "clientSequenceNumber": 1,
+          "contents": "{\"handle\":\"6088ff38-8500-4fe7-9b50-86792b5371bd\",\"head\":\"6aa640b3-bb02-43c9-9e9d-3cbb19d79a86\",\"message\":\"Summary @4:0\",\"parents\":[\"6aa640b3-bb02-43c9-9e9d-3cbb19d79a86\"],\"details\":{\"includesProtocolTree\":false}}",
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": 4,
+          "sequenceNumber": 6,
+          "timestamp": 1700000000000,
+          "type": "summarize",
+          "additionalContent": "{\"clients\":[{\"canEvict\":true,\"clientId\":\"15a5e4ac-8f7e-4bad-85fa-842260667373\",\"clientSequenceNumber\":0,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":0,\"scopes\":[\"doc:read\",\"doc:write\"]},{\"canEvict\":true,\"clientId\":\"7e485a1b-03e6-4f0d-950d-55255e351fec\",\"clientSequenceNumber\":1,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":4,\"scopes\":[\"doc:read\",\"doc:write\",\"summary:write\"]},{\"canEvict\":true,\"clientId\":\"1244e9b1-d7fd-4c0d-89a0-7b3ce606901b\",\"clientSequenceNumber\":2,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":4,\"scopes\":[\"doc:read\",\"doc:write\"]}],\"durableSequenceNumber\":0,\"expHash1\":\"-4ca44189\",\"logOffset\":5,\"sequenceNumber\":6,\"signalClientConnectionNumber\":0,\"lastSentMSN\":0,\"nackMessages\":[],\"checkpointTimestamp\":1700000000000}",
+          "expHash1": "-1dbad408",
+          "traces": []
+        },
+        {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": {
+            "handle": "32d983e7-a7e4-4bcc-b6b5-a3c02967943f",
+            "summaryProposal": {
+              "summarySequenceNumber": 6
+            }
+          },
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 7,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "summaryAck",
+          "data": "{\"handle\":\"32d983e7-a7e4-4bcc-b6b5-a3c02967943f\",\"summaryProposal\":{\"summarySequenceNumber\":6}}",
+          "expHash1": "-13321fdb"
+        }
+      ],
+      "laterTailMessages": [
+        {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": null,
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 8,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "leave",
+          "data": "\"7e485a1b-03e6-4f0d-950d-55255e351fec\"",
+          "expHash1": "-5f0ad1c"
+        },
+        {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": null,
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 9,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "join",
+          "data": "{\"clientId\":\"a154d6e4-2cfd-4de8-9a4b-de7d83b27d73\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:e5dc4308-bce3-4bc7-94a5-975503429add\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"21408dba-75f0-4aea-9b9b-2a3c6938002d\",\"name\":\"21408dba-75f0\"}}}",
+          "expHash1": "619ff595"
+        },
+        {
+          "clientId": "a154d6e4-2cfd-4de8-9a4b-de7d83b27d73",
+          "clientSequenceNumber": 1,
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"f03e87dd-3dcc-49f0-b942-b332e4422ec4\",\"ids\":{\"firstGenCount\":1,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[[1,1]]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":-1,\"originatorId\":\"f03e87dd-3dcc-49f0-b942-b332e4422ec4\",\"changeset\":[{\"data\":{\"maxId\":3,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"point\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"y\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}}],\"data\":[[0,21]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "metadata": {
+            "groupedOpCount": 2
+          },
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": 9,
+          "sequenceNumber": 10,
+          "timestamp": 1700000000000,
+          "type": "op",
+          "expHash1": "-f95307e",
+          "traces": []
+        },
+        {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": null,
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 11,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "leave",
+          "data": "\"a154d6e4-2cfd-4de8-9a4b-de7d83b27d73\"",
+          "expHash1": "-318748be"
+        },
+        {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": null,
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 12,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "join",
+          "data": "{\"clientId\":\"dc8403a9-34aa-44d1-8ad7-5691734e1b92\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:f6633442-0baa-469b-8139-24834fd8834a\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"00f08820-06ad-4392-a21d-a396a74bf03b\",\"name\":\"00f08820-06ad\"}}}",
+          "expHash1": "27aadca1"
+        }
+      ]
+    }
+  },
+  "expected": {
+    "observations": [
+      {
+        "checkpoint": "summary-captured",
+        "sequenceNumber": 4,
+        "root": {
+          "title": "state-at-s",
+          "enabled": false,
+          "rating": 0,
+          "marker": null,
+          "point": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      {
+        "checkpoint": "replayed-through-publication",
+        "sequenceNumber": 7,
+        "replayedSequenceNumbers": [
+          5,
+          6,
+          7
+        ],
+        "root": {
+          "title": "edit-between-s-and-p",
+          "enabled": false,
+          "rating": 0,
+          "marker": null,
+          "point": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      {
+        "checkpoint": "later-edit-after-reload",
+        "root": {
+          "title": "edit-between-s-and-p",
+          "enabled": false,
+          "rating": 0,
+          "marker": null,
+          "point": {
+            "x": 0,
+            "y": 21
+          }
+        }
+      }
+    ]
+  },
+  "raw": {
+    "messages": [
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 1,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "join",
+        "data": "{\"clientId\":\"15a5e4ac-8f7e-4bad-85fa-842260667373\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:30f3f8e7-29f6-464d-bdd3-c95db0c0cf11\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"72cbe8f9-3b11-49ff-9961-73e3dffd9251\",\"name\":\"72cbe8f9-3b11\"}}}",
+        "expHash1": "-6e923249"
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 2,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "join",
+        "data": "{\"clientId\":\"7e485a1b-03e6-4f0d-950d-55255e351fec\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":false},\"type\":\"summarizer\",\"environment\":\"; loaderVersion:3.1.0; containerId:915b1ca9-35b4-426e-8cc7-24f4a3e42343\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\",\"summary:write\"],\"user\":{\"id\":\"bed77ce9-d1d2-4ff6-a062-a7fd8af1ddf3\",\"name\":\"bed77ce9-d1d2\"}}}",
+        "expHash1": "626e5c83"
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 3,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "join",
+        "data": "{\"clientId\":\"1244e9b1-d7fd-4c0d-89a0-7b3ce606901b\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:c0722cce-daae-479e-9f40-5d309bc74e44\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"679694c0-3b46-4384-b08a-bdf709b6d3e7\",\"name\":\"679694c0-3b46\"}}}",
+        "expHash1": "68ab973c"
+      },
+      {
+        "clientId": "1244e9b1-d7fd-4c0d-89a0-7b3ce606901b",
+        "clientSequenceNumber": 1,
+        "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0a43d691-694e-40a3-9b96-5f1665b2404f\",\"ids\":{\"firstGenCount\":2,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true,\"batchId\":\"c13722b0-d67d-4c0a-915f-89058b5b7aea_[1]\"}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":1,\"originatorId\":\"0a43d691-694e-40a3-9b96-5f1665b2404f\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"state-at-s\"]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+        "metadata": {
+          "batchId": "c13722b0-d67d-4c0a-915f-89058b5b7aea_[1]",
+          "groupedOpCount": 2
+        },
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 3,
+        "sequenceNumber": 4,
+        "timestamp": 1700000000000,
+        "type": "op",
+        "expHash1": "-2aaa50c9",
+        "traces": []
+      },
+      {
+        "clientId": "1244e9b1-d7fd-4c0d-89a0-7b3ce606901b",
+        "clientSequenceNumber": 2,
+        "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0a43d691-694e-40a3-9b96-5f1665b2404f\",\"ids\":{\"firstGenCount\":3,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":2,\"originatorId\":\"0a43d691-694e-40a3-9b96-5f1665b2404f\",\"changeset\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":4,\"s\":3}}}]}]]}],\"builds\":{\"builds\":[[[[3,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"edit-between-s-and-p\"]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+        "metadata": {
+          "groupedOpCount": 2
+        },
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 4,
+        "sequenceNumber": 5,
+        "timestamp": 1700000000000,
+        "type": "op",
+        "expHash1": "-4ca44189",
+        "traces": []
+      },
+      {
+        "clientId": "7e485a1b-03e6-4f0d-950d-55255e351fec",
+        "clientSequenceNumber": 1,
+        "contents": "{\"handle\":\"6088ff38-8500-4fe7-9b50-86792b5371bd\",\"head\":\"6aa640b3-bb02-43c9-9e9d-3cbb19d79a86\",\"message\":\"Summary @4:0\",\"parents\":[\"6aa640b3-bb02-43c9-9e9d-3cbb19d79a86\"],\"details\":{\"includesProtocolTree\":false}}",
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 4,
+        "sequenceNumber": 6,
+        "timestamp": 1700000000000,
+        "type": "summarize",
+        "additionalContent": "{\"clients\":[{\"canEvict\":true,\"clientId\":\"15a5e4ac-8f7e-4bad-85fa-842260667373\",\"clientSequenceNumber\":0,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":0,\"scopes\":[\"doc:read\",\"doc:write\"]},{\"canEvict\":true,\"clientId\":\"7e485a1b-03e6-4f0d-950d-55255e351fec\",\"clientSequenceNumber\":1,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":4,\"scopes\":[\"doc:read\",\"doc:write\",\"summary:write\"]},{\"canEvict\":true,\"clientId\":\"1244e9b1-d7fd-4c0d-89a0-7b3ce606901b\",\"clientSequenceNumber\":2,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":4,\"scopes\":[\"doc:read\",\"doc:write\"]}],\"durableSequenceNumber\":0,\"expHash1\":\"-4ca44189\",\"logOffset\":5,\"sequenceNumber\":6,\"signalClientConnectionNumber\":0,\"lastSentMSN\":0,\"nackMessages\":[],\"checkpointTimestamp\":1700000000000}",
+        "expHash1": "-1dbad408",
+        "traces": []
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": {
+          "handle": "32d983e7-a7e4-4bcc-b6b5-a3c02967943f",
+          "summaryProposal": {
+            "summarySequenceNumber": 6
+          }
+        },
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 7,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "summaryAck",
+        "data": "{\"handle\":\"32d983e7-a7e4-4bcc-b6b5-a3c02967943f\",\"summaryProposal\":{\"summarySequenceNumber\":6}}",
+        "expHash1": "-13321fdb"
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 8,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "leave",
+        "data": "\"7e485a1b-03e6-4f0d-950d-55255e351fec\"",
+        "expHash1": "-5f0ad1c"
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 9,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "join",
+        "data": "{\"clientId\":\"a154d6e4-2cfd-4de8-9a4b-de7d83b27d73\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:e5dc4308-bce3-4bc7-94a5-975503429add\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"21408dba-75f0-4aea-9b9b-2a3c6938002d\",\"name\":\"21408dba-75f0\"}}}",
+        "expHash1": "619ff595"
+      },
+      {
+        "clientId": "a154d6e4-2cfd-4de8-9a4b-de7d83b27d73",
+        "clientSequenceNumber": 1,
+        "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"f03e87dd-3dcc-49f0-b942-b332e4422ec4\",\"ids\":{\"firstGenCount\":1,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[[1,1]]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":-1,\"originatorId\":\"f03e87dd-3dcc-49f0-b942-b332e4422ec4\",\"changeset\":[{\"data\":{\"maxId\":3,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"point\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"y\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}}],\"data\":[[0,21]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+        "metadata": {
+          "groupedOpCount": 2
+        },
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 9,
+        "sequenceNumber": 10,
+        "timestamp": 1700000000000,
+        "type": "op",
+        "expHash1": "-f95307e",
+        "traces": []
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 11,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "leave",
+        "data": "\"a154d6e4-2cfd-4de8-9a4b-de7d83b27d73\"",
+        "expHash1": "-318748be"
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 12,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "join",
+        "data": "{\"clientId\":\"dc8403a9-34aa-44d1-8ad7-5691734e1b92\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:f6633442-0baa-469b-8139-24834fd8834a\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"00f08820-06ad-4392-a21d-a396a74bf03b\",\"name\":\"00f08820-06ad\"}}}",
+        "expHash1": "27aadca1"
+      }
+    ],
+    "snapshot": {
+      "version": {
+        "id": "32d983e7-a7e4-4bcc-b6b5-a3c02967943f",
+        "treeId": "32d983e7-a7e4-4bcc-b6b5-a3c02967943f"
+      },
+      "tree": {
+        "id": "32d983e7-a7e4-4bcc-b6b5-a3c02967943f",
+        "blobs": {
+          ".metadata": "04abd0c9f8d7e7b480feee6924c249bc19bc4f35",
+          ".idCompressor": "bd98558309affda9d1f369b002bdec28604c4111",
+          ".recentBatchInfo": "b7db2bd6294d5d5c67821458290b91a53bb5856a",
+          ".aliases": "b7eaed263a0416d12ecdf6d32ab66449588d8740"
+        },
+        "trees": {
+          ".channels": {
+            "id": "a4f21abf-2b68-4db4-9951-8334bbfe73b9",
+            "blobs": {},
+            "commits": {},
+            "trees": {
+              "A": {
+                "id": "7ddaf38c-e74a-4246-a648-18ab7a20e2f2",
+                "blobs": {
+                  ".component": "5abb699d683d484ef9704d143f896c09b0415d1f"
+                },
+                "commits": {},
+                "trees": {
+                  ".channels": {
+                    "id": "d325b4f8-bca7-4c3d-a08f-f20ccf1c60b5",
+                    "blobs": {},
+                    "commits": {},
+                    "trees": {
+                      "root": {
+                        "id": "1364891a-aa4e-49a8-92eb-bbf7d732d7e7",
+                        "blobs": {
+                          "header": "5d01ff212536d2276a2aefa0e4a4daa9f15df513",
+                          ".attributes": "70bdb34dc708303244e40538850ab26963c6a6ae"
+                        },
+                        "commits": {},
+                        "trees": {}
+                      },
+                      "_C": {
+                        "id": "e7086995-2600-4588-aae1-1e9803443378",
+                        "blobs": {
+                          ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                          ".attributes": "8f145888a8de06e36d34a81b141bb9ce3a7dce4c"
+                        },
+                        "commits": {},
+                        "trees": {
+                          "indexes": {
+                            "id": "7910973f-2eea-4e58-b91e-fd505084a950",
+                            "blobs": {},
+                            "commits": {},
+                            "trees": {
+                              "EditManager": {
+                                "id": "2ebf31a9-c5f8-454f-a14a-ece366ba91c0",
+                                "blobs": {
+                                  ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                  "String": "fd9d8cc1cc3bf2b5f91d3c8a31ffb35a8986cc80"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              },
+                              "Schema": {
+                                "id": "71989480-b9d4-4013-aabb-af4618cbb437",
+                                "blobs": {
+                                  ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                  "SchemaString": "f21b6b415257ad3295f356a2dff68f2a2e7c7767"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              },
+                              "Forest": {
+                                "id": "fb3f447f-fcbe-4d10-891c-084bdff0190f",
+                                "blobs": {
+                                  ".metadata": "f93d3984472d9905af008117584103f3768bd1f9",
+                                  "contents": "696da57e6c4d4b96a913c50c08153f2b1f33281b"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              },
+                              "DetachedFieldIndex": {
+                                "id": "5e82f9a2-8b39-45f6-8314-f5fd899a0202",
+                                "blobs": {
+                                  ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                  "DetachedFieldIndexBlob": "ca01d3f7d8294cfa7d4ec2afcf16b95174b61b9c"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "gc": {
+            "id": "d20fe503-10c0-4c61-8bbb-1096942884e5",
+            "blobs": {
+              "__gc_root": "05831b70119c0995ccc86bea033e7f1bacce6575"
+            },
+            "commits": {},
+            "trees": {}
+          },
+          ".protocol": {
+            "id": "fc9301cc-1736-4974-939d-0225d3e76079",
+            "blobs": {
+              "quorumMembers": "3f5fb543482bb9026d42aa48032f8189161661f8",
+              "quorumProposals": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
+              "quorumValues": "a94b9eab69689a0fdc0616c9465c8e39fbaeb179",
+              "attributes": "6d8b6db82a97f11a18751027ff24457a68f8354d"
+            },
+            "commits": {},
+            "trees": {}
+          },
+          ".logTail": {
+            "id": "8dbd62ed-eb00-4fa0-b989-16beda29a994",
+            "blobs": {
+              "logTail": "2170a36bbee772d52686576163e8672baf75d724"
+            },
+            "commits": {},
+            "trees": {}
+          },
+          ".serviceProtocol": {
+            "id": "1d4eb710-57c5-4c54-84cc-b4c2cd4e527a",
+            "blobs": {
+              "deli": "cc192137a714310fe8e36162ecc877ad7acb2042",
+              "scribe": "c16f82170715d26a41c52b872fb1201a0fc555d1"
+            },
+            "commits": {},
+            "trees": {}
+          }
+        }
+      },
+      "blobs": {
+        "04abd0c9f8d7e7b480feee6924c249bc19bc4f35": "eyJjcmVhdGVDb250YWluZXJSdW50aW1lVmVyc2lvbiI6IjMuMS4wIiwiY3JlYXRlQ29udGFpbmVyVGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJzdW1tYXJ5TnVtYmVyIjoyLCJzdW1tYXJ5Rm9ybWF0VmVyc2lvbiI6MSwiZ2NGZWF0dXJlIjozLCJzZXNzaW9uRXhwaXJ5VGltZW91dE1zIjoyNTkyMDAwMDAwLCJzd2VlcEVuYWJsZWQiOmZhbHNlLCJ0b21ic3RvbmVUaW1lb3V0TXMiOjMxMTA0MDAwMDAsInRlbGVtZXRyeURvY3VtZW50SWQiOiJlMzc4MTdhMi0yNmY4LTQwY2QtOWJlOS1iODg0MTViMzQyODkiLCJtZXNzYWdlIjp7InNlcXVlbmNlTnVtYmVyIjotMX0sImxhc3RNZXNzYWdlIjp7ImNsaWVudElkIjoiMTI0NGU5YjEtZDdmZC00YzBkLTg5YTAtN2IzY2U2MDY5MDFiIiwiY2xpZW50U2VxdWVuY2VOdW1iZXIiOjEsIm1pbmltdW1TZXF1ZW5jZU51bWJlciI6MCwicmVmZXJlbmNlU2VxdWVuY2VOdW1iZXIiOjMsInNlcXVlbmNlTnVtYmVyIjo0LCJ0aW1lc3RhbXAiOjE3MDAwMDAwMDAwMDAsInR5cGUiOiJvcCJ9LCJkb2N1bWVudFNjaGVtYSI6eyJ2ZXJzaW9uIjoxLCJyZWZTZXEiOjAsImluZm8iOnsibWluVmVyc2lvbkZvckNvbGxhYiI6IjIuMTE3LjAifSwicnVudGltZSI6eyJleHBsaWNpdFNjaGVtYUNvbnRyb2wiOnRydWUsImlkQ29tcHJlc3Nvck1vZGUiOiJvbiIsIm9wR3JvdXBpbmdFbmFibGVkIjp0cnVlfX19",
+        "bd98558309affda9d1f369b002bdec28604c4111": "IkFBQUFBQUFBQUVBQUFBQUFBQUFBQUFBQUFBQUFBUEEvQUFBQUFBQUE4RDlQUUxKbEZsK1cyeWc0cFVWYUR5a0FBQUFBQUFBQUFBQUFBQUFBQUFpQVFBQUFBQUFBQUFCQSI=",
+        "b7db2bd6294d5d5c67821458290b91a53bb5856a": "W1s0LCJjMTM3MjJiMC1kNjdkLTRjMGEtOTE1Zi04OTA1OGI1YjdhZWFfWzFdIl1d",
+        "b7eaed263a0416d12ecdf6d32ab66449588d8740": "W1sicm9vdCIsIkEiXV0=",
+        "5abb699d683d484ef9704d143f896c09b0415d1f": "eyJwa2ciOiJbXCJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLmJvb3RzdHJhcFwiXSIsInN1bW1hcnlGb3JtYXRWZXJzaW9uIjoyLCJpc1Jvb3REYXRhU3RvcmUiOnRydWV9",
+        "5d01ff212536d2276a2aefa0e4a4daa9f15df513": "eyJibG9icyI6W10sImNvbnRlbnQiOnsidHJlZSI6eyJ0eXBlIjoiUGxhaW4iLCJ2YWx1ZSI6eyJ0eXBlIjoiX19mbHVpZF9oYW5kbGVfXyIsInVybCI6Ii9BL19DIn19fX0=",
+        "70bdb34dc708303244e40538850ab26963c6a6ae": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL21hcCIsInNuYXBzaG90Rm9ybWF0VmVyc2lvbiI6IjAuMiIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+        "218abba1699bfa0eb8016a25bffa0508ee592ab2": "eyJ2ZXJzaW9uIjoyfQ==",
+        "8f145888a8de06e36d34a81b141bb9ce3a7dce4c": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL3RyZWUiLCJzbmFwc2hvdEZvcm1hdFZlcnNpb24iOiIwLjAuMCIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+        "fd9d8cc1cc3bf2b5f91d3c8a31ffb35a8986cc80": "eyJ0cnVuayI6W3siY2hhbmdlIjpbeyJkYXRhIjp7Im1heElkIjoyLCJjaGFuZ2VzIjpbeyJmaWVsZEtleSI6InJvb3RGaWVsZEtleSIsImZpZWxkS2luZCI6Ik1vZHVsYXJFZGl0QnVpbGRlci5HZW5lcmljIiwiY2hhbmdlIjpbWzAseyJmaWVsZENoYW5nZXMiOlt7ImZpZWxkS2V5IjoidGl0bGUiLCJmaWVsZEtpbmQiOiJWYWx1ZSIsImNoYW5nZSI6eyJyIjp7ImUiOmZhbHNlLCJkIjoxLCJzIjowfX19XX1dXX1dLCJidWlsZHMiOnsiYnVpbGRzIjpbW1tbMCwwXV1dXSwidHJlZXMiOnsidmVyc2lvbiI6MiwiaWRlbnRpZmllcnMiOltdLCJzaGFwZXMiOlt7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyIsInZhbHVlIjp0cnVlfX1dLCJkYXRhIjpbWzAsInN0YXRlLWF0LXMiXV19fX19XSwicmV2aXNpb24iOjEsInNlc3Npb25JZCI6IjBhNDNkNjkxLTY5NGUtNDBhMy05Yjk2LTVmMTY2NWIyNDA0ZiIsInNlcXVlbmNlTnVtYmVyIjo0fV0sImJyYW5jaGVzIjpbWyIwYTQzZDY5MS02OTRlLTQwYTMtOWI5Ni01ZjE2NjViMjQwNGYiLHsiYmFzZSI6MSwiY29tbWl0cyI6W119XV0sInZlcnNpb24iOjd9",
+        "f21b6b415257ad3295f356a2dff68f2a2e7c7767": "eyJ2ZXJzaW9uIjoyLCJub2RlcyI6eyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5ib29sZWFuIjp7ImtpbmQiOnsibGVhZiI6Mn19LCJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIjp7ImtpbmQiOnsibGVhZiI6NH19LCJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udW1iZXIiOnsia2luZCI6eyJsZWFmIjowfX0sImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyI6eyJraW5kIjp7ImxlYWYiOjF9fSwib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCI6eyJraW5kIjp7Im9iamVjdCI6eyJ4Ijp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciJdfSwieSI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udW1iZXIiXX19fX0sIm9yZy53YXRlcnNoZWQuc2hhcmVkLXRyZWUubTEuUm9vdCI6eyJraW5kIjp7Im9iamVjdCI6eyJlbmFibGVkIjp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLmJvb2xlYW4iXX0sIm1hcmtlciI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIl19LCJub3RlIjp7ImtpbmQiOiJPcHRpb25hbCIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyJdfSwicG9pbnQiOnsia2luZCI6IlZhbHVlIiwidHlwZXMiOlsib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCJdfSwicmF0aW5nIjp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciJdfSwidGl0bGUiOnsia2luZCI6IlZhbHVlIiwidHlwZXMiOlsiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYuc3RyaW5nIl19fX19fSwicm9vdCI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLlJvb3QiXX19",
+        "f93d3984472d9905af008117584103f3768bd1f9": "eyJ2ZXJzaW9uIjozfQ==",
+        "696da57e6c4d4b96a913c50c08153f2b1f33281b": "eyJrZXlzIjpbInJvb3RGaWVsZEtleSIsInJlcGFpci0yIl0sImZpZWxkcyI6eyJ2ZXJzaW9uIjoyLCJpZGVudGlmaWVycyI6W10sInNoYXBlcyI6W3siYyI6eyJ0eXBlIjoiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYuc3RyaW5nIiwidmFsdWUiOnRydWV9fSx7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciIsInZhbHVlIjp0cnVlfX0seyJjIjp7InR5cGUiOiJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLlJvb3QiLCJ2YWx1ZSI6ZmFsc2UsImZpZWxkcyI6W1siZW5hYmxlZCIsM10sWyJtYXJrZXIiLDRdLFsibm90ZSIsNV0sWyJwb2ludCIsNl0sWyJyYXRpbmciLDFdLFsidGl0bGUiLDBdXX19LHsiYyI6eyJ0eXBlIjoiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYuYm9vbGVhbiIsInZhbHVlIjp0cnVlfX0seyJjIjp7InR5cGUiOiJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIiwidmFsdWUiOltudWxsXX19LHsiYSI6MH0seyJjIjp7InR5cGUiOiJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLlBvaW50IiwidmFsdWUiOmZhbHNlLCJmaWVsZHMiOltbIngiLDFdLFsieSIsMV1dfX1dLCJkYXRhIjpbWzIsZmFsc2UsMCwwLDAsMCwic3RhdGUtYXQtcyJdLFswLCIiXV19LCJ2ZXJzaW9uIjoyfQ==",
+        "ca01d3f7d8294cfa7d4ec2afcf16b95174b61b9c": "eyJ2ZXJzaW9uIjoyLCJkYXRhIjpbWzEsMSwyXV0sIm1heElkIjoyfQ==",
+        "05831b70119c0995ccc86bea033e7f1bacce6575": "eyJnY05vZGVzIjp7Ii8iOnsib3V0Ym91bmRSb3V0ZXMiOlsiL0EiXX0sIi9BIjp7Im91dGJvdW5kUm91dGVzIjpbIi9BL19DIiwiL0Evcm9vdCJdfSwiL0EvX0MiOnsib3V0Ym91bmRSb3V0ZXMiOlsiL0EiXX0sIi9BL3Jvb3QiOnsib3V0Ym91bmRSb3V0ZXMiOlsiL0EiLCIvQS9fQyJdfX19",
+        "3f5fb543482bb9026d42aa48032f8189161661f8": "W1siMTVhNWU0YWMtOGY3ZS00YmFkLTg1ZmEtODQyMjYwNjY3MzczIix7ImNsaWVudCI6eyJkZXRhaWxzIjp7ImNhcGFiaWxpdGllcyI6eyJpbnRlcmFjdGl2ZSI6dHJ1ZX0sImVudmlyb25tZW50IjoiOyBsb2FkZXJWZXJzaW9uOjMuMS4wOyBjb250YWluZXJJZDozMGYzZjhlNy0yOWY2LTQ2NGQtYmRkMy1jOTVkYjBjMGNmMTEifSwibW9kZSI6IndyaXRlIiwicGVybWlzc2lvbiI6W10sInNjb3BlcyI6WyJkb2M6cmVhZCIsImRvYzp3cml0ZSJdLCJ1c2VyIjp7ImlkIjoiNzJjYmU4ZjktM2IxMS00OWZmLTk5NjEtNzNlM2RmZmQ5MjUxIiwibmFtZSI6IjcyY2JlOGY5LTNiMTEifX0sInNlcXVlbmNlTnVtYmVyIjoxfV0sWyI3ZTQ4NWExYi0wM2U2LTRmMGQtOTUwZC01NTI1NWUzNTFmZWMiLHsiY2xpZW50Ijp7ImRldGFpbHMiOnsiY2FwYWJpbGl0aWVzIjp7ImludGVyYWN0aXZlIjpmYWxzZX0sInR5cGUiOiJzdW1tYXJpemVyIiwiZW52aXJvbm1lbnQiOiI7IGxvYWRlclZlcnNpb246My4xLjA7IGNvbnRhaW5lcklkOjkxNWIxY2E5LTM1YjQtNDI2ZS04Y2M3LTI0ZjRhM2U0MjM0MyJ9LCJtb2RlIjoid3JpdGUiLCJwZXJtaXNzaW9uIjpbXSwic2NvcGVzIjpbImRvYzpyZWFkIiwiZG9jOndyaXRlIiwic3VtbWFyeTp3cml0ZSJdLCJ1c2VyIjp7ImlkIjoiYmVkNzdjZTktZDFkMi00ZmY2LWEwNjItYTdmZDhhZjFkZGYzIiwibmFtZSI6ImJlZDc3Y2U5LWQxZDIifX0sInNlcXVlbmNlTnVtYmVyIjoyfV0sWyIxMjQ0ZTliMS1kN2ZkLTRjMGQtODlhMC03YjNjZTYwNjkwMWIiLHsiY2xpZW50Ijp7ImRldGFpbHMiOnsiY2FwYWJpbGl0aWVzIjp7ImludGVyYWN0aXZlIjp0cnVlfSwiZW52aXJvbm1lbnQiOiI7IGxvYWRlclZlcnNpb246My4xLjA7IGNvbnRhaW5lcklkOmMwNzIyY2NlLWRhYWUtNDc5ZS05ZjQwLTVkMzA5YmM3NGU0NCJ9LCJtb2RlIjoid3JpdGUiLCJwZXJtaXNzaW9uIjpbXSwic2NvcGVzIjpbImRvYzpyZWFkIiwiZG9jOndyaXRlIl0sInVzZXIiOnsiaWQiOiI2Nzk2OTRjMC0zYjQ2LTQzODQtYjA4YS1iZGY3MDliNmQzZTciLCJuYW1lIjoiNjc5Njk0YzAtM2I0NiJ9fSwic2VxdWVuY2VOdW1iZXIiOjN9XV0=",
+        "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc": "W10=",
+        "a94b9eab69689a0fdc0616c9465c8e39fbaeb179": "W1siY29kZSIseyJrZXkiOiJjb2RlIiwidmFsdWUiOnsicGFja2FnZSI6IndhdGVyc2hlZC10cmVlLW9yYWNsZSJ9LCJhcHByb3ZhbFNlcXVlbmNlTnVtYmVyIjowLCJjb21taXRTZXF1ZW5jZU51bWJlciI6MCwic2VxdWVuY2VOdW1iZXIiOjB9XV0=",
+        "6d8b6db82a97f11a18751027ff24457a68f8354d": "eyJtaW5pbXVtU2VxdWVuY2VOdW1iZXIiOjAsInNlcXVlbmNlTnVtYmVyIjo0fQ==",
+        "2170a36bbee772d52686576163e8672baf75d724": "W3siY2xpZW50SWQiOiIxMjQ0ZTliMS1kN2ZkLTRjMGQtODlhMC03YjNjZTYwNjkwMWIiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MiwiY29udGVudHMiOiJ7XCJ0eXBlXCI6XCJncm91cGVkQmF0Y2hcIixcImNvbnRlbnRzXCI6W3tcImNvbnRlbnRzXCI6e1widHlwZVwiOlwiaWRBbGxvY2F0aW9uXCIsXCJjb250ZW50c1wiOntcInNlc3Npb25JZFwiOlwiMGE0M2Q2OTEtNjk0ZS00MGEzLTliOTYtNWYxNjY1YjI0MDRmXCIsXCJpZHNcIjp7XCJmaXJzdEdlbkNvdW50XCI6MyxcImNvdW50XCI6MSxcInJlcXVlc3RlZENsdXN0ZXJTaXplXCI6NTEyLFwibG9jYWxJZFJhbmdlc1wiOltdfX19LFwibWV0YWRhdGFcIjp7XCJiYXRjaFwiOnRydWV9fSx7XCJjb250ZW50c1wiOntcInR5cGVcIjpcImNvbXBvbmVudFwiLFwiY29udGVudHNcIjp7XCJhZGRyZXNzXCI6XCJBXCIsXCJjb250ZW50c1wiOntcImNvbnRlbnRcIjp7XCJhZGRyZXNzXCI6XCJfQ1wiLFwiY29udGVudHNcIjp7XCJyZXZpc2lvblwiOjIsXCJvcmlnaW5hdG9ySWRcIjpcIjBhNDNkNjkxLTY5NGUtNDBhMy05Yjk2LTVmMTY2NWIyNDA0ZlwiLFwiY2hhbmdlc2V0XCI6W3tcImRhdGFcIjp7XCJtYXhJZFwiOjUsXCJjaGFuZ2VzXCI6W3tcImZpZWxkS2V5XCI6XCJyb290RmllbGRLZXlcIixcImZpZWxkS2luZFwiOlwiTW9kdWxhckVkaXRCdWlsZGVyLkdlbmVyaWNcIixcImNoYW5nZVwiOltbMCx7XCJmaWVsZENoYW5nZXNcIjpbe1wiZmllbGRLZXlcIjpcInRpdGxlXCIsXCJmaWVsZEtpbmRcIjpcIlZhbHVlXCIsXCJjaGFuZ2VcIjp7XCJyXCI6e1wiZVwiOmZhbHNlLFwiZFwiOjQsXCJzXCI6M319fV19XV19XSxcImJ1aWxkc1wiOntcImJ1aWxkc1wiOltbW1szLDBdXV1dLFwidHJlZXNcIjp7XCJ2ZXJzaW9uXCI6MixcImlkZW50aWZpZXJzXCI6W10sXCJzaGFwZXNcIjpbe1wiY1wiOntcInR5cGVcIjpcImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZ1wiLFwidmFsdWVcIjp0cnVlfX1dLFwiZGF0YVwiOltbMCxcImVkaXQtYmV0d2Vlbi1zLWFuZC1wXCJdXX19fX1dLFwidmVyc2lvblwiOjd9fSxcInR5cGVcIjpcIm9wXCJ9fX0sXCJtZXRhZGF0YVwiOntcImJhdGNoXCI6ZmFsc2V9fV19IiwibWV0YWRhdGEiOnsiZ3JvdXBlZE9wQ291bnQiOjJ9LCJtaW5pbXVtU2VxdWVuY2VOdW1iZXIiOjAsInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyIjo0LCJzZXF1ZW5jZU51bWJlciI6NSwidGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJ0eXBlIjoib3AiLCJleHBIYXNoMSI6Ii00Y2E0NDE4OSJ9LHsiY2xpZW50SWQiOiI3ZTQ4NWExYi0wM2U2LTRmMGQtOTUwZC01NTI1NWUzNTFmZWMiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MSwiY29udGVudHMiOiJ7XCJoYW5kbGVcIjpcIjYwODhmZjM4LTg1MDAtNGZlNy05YjUwLTg2NzkyYjUzNzFiZFwiLFwiaGVhZFwiOlwiNmFhNjQwYjMtYmIwMi00M2M5LTllOWQtM2NiYjE5ZDc5YTg2XCIsXCJtZXNzYWdlXCI6XCJTdW1tYXJ5IEA0OjBcIixcInBhcmVudHNcIjpbXCI2YWE2NDBiMy1iYjAyLTQzYzktOWU5ZC0zY2JiMTlkNzlhODZcIl0sXCJkZXRhaWxzXCI6e1wiaW5jbHVkZXNQcm90b2NvbFRyZWVcIjpmYWxzZX19IiwibWluaW11bVNlcXVlbmNlTnVtYmVyIjowLCJyZWZlcmVuY2VTZXF1ZW5jZU51bWJlciI6NCwic2VxdWVuY2VOdW1iZXIiOjYsInRpbWVzdGFtcCI6MTcwMDAwMDAwMDAwMCwidHlwZSI6InN1bW1hcml6ZSIsImFkZGl0aW9uYWxDb250ZW50Ijoie1wiY2xpZW50c1wiOlt7XCJjYW5FdmljdFwiOnRydWUsXCJjbGllbnRJZFwiOlwiMTVhNWU0YWMtOGY3ZS00YmFkLTg1ZmEtODQyMjYwNjY3MzczXCIsXCJjbGllbnRTZXF1ZW5jZU51bWJlclwiOjAsXCJsYXN0VXBkYXRlXCI6MTcwMDAwMDAwMDAwMCxcIm5hY2tcIjpmYWxzZSxcInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyXCI6MCxcInNjb3Blc1wiOltcImRvYzpyZWFkXCIsXCJkb2M6d3JpdGVcIl19LHtcImNhbkV2aWN0XCI6dHJ1ZSxcImNsaWVudElkXCI6XCI3ZTQ4NWExYi0wM2U2LTRmMGQtOTUwZC01NTI1NWUzNTFmZWNcIixcImNsaWVudFNlcXVlbmNlTnVtYmVyXCI6MSxcImxhc3RVcGRhdGVcIjoxNzAwMDAwMDAwMDAwLFwibmFja1wiOmZhbHNlLFwicmVmZXJlbmNlU2VxdWVuY2VOdW1iZXJcIjo0LFwic2NvcGVzXCI6W1wiZG9jOnJlYWRcIixcImRvYzp3cml0ZVwiLFwic3VtbWFyeTp3cml0ZVwiXX0se1wiY2FuRXZpY3RcIjp0cnVlLFwiY2xpZW50SWRcIjpcIjEyNDRlOWIxLWQ3ZmQtNGMwZC04OWEwLTdiM2NlNjA2OTAxYlwiLFwiY2xpZW50U2VxdWVuY2VOdW1iZXJcIjoyLFwibGFzdFVwZGF0ZVwiOjE3MDAwMDAwMDAwMDAsXCJuYWNrXCI6ZmFsc2UsXCJyZWZlcmVuY2VTZXF1ZW5jZU51bWJlclwiOjQsXCJzY29wZXNcIjpbXCJkb2M6cmVhZFwiLFwiZG9jOndyaXRlXCJdfV0sXCJkdXJhYmxlU2VxdWVuY2VOdW1iZXJcIjowLFwiZXhwSGFzaDFcIjpcIi00Y2E0NDE4OVwiLFwibG9nT2Zmc2V0XCI6NSxcInNlcXVlbmNlTnVtYmVyXCI6NixcInNpZ25hbENsaWVudENvbm5lY3Rpb25OdW1iZXJcIjowLFwibGFzdFNlbnRNU05cIjowLFwibmFja01lc3NhZ2VzXCI6W10sXCJjaGVja3BvaW50VGltZXN0YW1wXCI6MTcwMDAwMDAwMDAwMH0iLCJleHBIYXNoMSI6Ii0xZGJhZDQwOCJ9XQ==",
+        "cc192137a714310fe8e36162ecc877ad7acb2042": "eyJjbGllbnRzIjpbeyJjYW5FdmljdCI6dHJ1ZSwiY2xpZW50SWQiOiIxNWE1ZTRhYy04ZjdlLTRiYWQtODVmYS04NDIyNjA2NjczNzMiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MCwibGFzdFVwZGF0ZSI6MTcwMDAwMDAwMDAwMCwibmFjayI6ZmFsc2UsInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyIjowLCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiXX0seyJjYW5FdmljdCI6dHJ1ZSwiY2xpZW50SWQiOiI3ZTQ4NWExYi0wM2U2LTRmMGQtOTUwZC01NTI1NWUzNTFmZWMiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MSwibGFzdFVwZGF0ZSI6MTcwMDAwMDAwMDAwMCwibmFjayI6ZmFsc2UsInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyIjo0LCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiLCJzdW1tYXJ5OndyaXRlIl19LHsiY2FuRXZpY3QiOnRydWUsImNsaWVudElkIjoiMTI0NGU5YjEtZDdmZC00YzBkLTg5YTAtN2IzY2U2MDY5MDFiIiwiY2xpZW50U2VxdWVuY2VOdW1iZXIiOjIsImxhc3RVcGRhdGUiOjE3MDAwMDAwMDAwMDAsIm5hY2siOmZhbHNlLCJyZWZlcmVuY2VTZXF1ZW5jZU51bWJlciI6NCwic2NvcGVzIjpbImRvYzpyZWFkIiwiZG9jOndyaXRlIl19XSwiZHVyYWJsZVNlcXVlbmNlTnVtYmVyIjowLCJleHBIYXNoMSI6Ii00Y2E0NDE4OSIsImxvZ09mZnNldCI6NSwic2VxdWVuY2VOdW1iZXIiOjYsInNpZ25hbENsaWVudENvbm5lY3Rpb25OdW1iZXIiOjAsImxhc3RTZW50TVNOIjowLCJuYWNrTWVzc2FnZXMiOltdLCJjaGVja3BvaW50VGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwfQ==",
+        "c16f82170715d26a41c52b872fb1201a0fc555d1": "eyJsYXN0U3VtbWFyeVNlcXVlbmNlTnVtYmVyIjowLCJsb2dPZmZzZXQiOjUsIm1pbmltdW1TZXF1ZW5jZU51bWJlciI6MCwicHJvdG9jb2xTdGF0ZSI6eyJzZXF1ZW5jZU51bWJlciI6NCwibWluaW11bVNlcXVlbmNlTnVtYmVyIjowLCJtZW1iZXJzIjpbWyIxNWE1ZTRhYy04ZjdlLTRiYWQtODVmYS04NDIyNjA2NjczNzMiLHsiY2xpZW50Ijp7ImRldGFpbHMiOnsiY2FwYWJpbGl0aWVzIjp7ImludGVyYWN0aXZlIjp0cnVlfSwiZW52aXJvbm1lbnQiOiI7IGxvYWRlclZlcnNpb246My4xLjA7IGNvbnRhaW5lcklkOjMwZjNmOGU3LTI5ZjYtNDY0ZC1iZGQzLWM5NWRiMGMwY2YxMSJ9LCJtb2RlIjoid3JpdGUiLCJwZXJtaXNzaW9uIjpbXSwic2NvcGVzIjpbImRvYzpyZWFkIiwiZG9jOndyaXRlIl0sInVzZXIiOnsiaWQiOiI3MmNiZThmOS0zYjExLTQ5ZmYtOTk2MS03M2UzZGZmZDkyNTEiLCJuYW1lIjoiNzJjYmU4ZjktM2IxMSJ9fSwic2VxdWVuY2VOdW1iZXIiOjF9XSxbIjdlNDg1YTFiLTAzZTYtNGYwZC05NTBkLTU1MjU1ZTM1MWZlYyIseyJjbGllbnQiOnsiZGV0YWlscyI6eyJjYXBhYmlsaXRpZXMiOnsiaW50ZXJhY3RpdmUiOmZhbHNlfSwidHlwZSI6InN1bW1hcml6ZXIiLCJlbnZpcm9ubWVudCI6IjsgbG9hZGVyVmVyc2lvbjozLjEuMDsgY29udGFpbmVySWQ6OTE1YjFjYTktMzViNC00MjZlLThjYzctMjRmNGEzZTQyMzQzIn0sIm1vZGUiOiJ3cml0ZSIsInBlcm1pc3Npb24iOltdLCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiLCJzdW1tYXJ5OndyaXRlIl0sInVzZXIiOnsiaWQiOiJiZWQ3N2NlOS1kMWQyLTRmZjYtYTA2Mi1hN2ZkOGFmMWRkZjMiLCJuYW1lIjoiYmVkNzdjZTktZDFkMiJ9fSwic2VxdWVuY2VOdW1iZXIiOjJ9XSxbIjEyNDRlOWIxLWQ3ZmQtNGMwZC04OWEwLTdiM2NlNjA2OTAxYiIseyJjbGllbnQiOnsiZGV0YWlscyI6eyJjYXBhYmlsaXRpZXMiOnsiaW50ZXJhY3RpdmUiOnRydWV9LCJlbnZpcm9ubWVudCI6IjsgbG9hZGVyVmVyc2lvbjozLjEuMDsgY29udGFpbmVySWQ6YzA3MjJjY2UtZGFhZS00NzllLTlmNDAtNWQzMDliYzc0ZTQ0In0sIm1vZGUiOiJ3cml0ZSIsInBlcm1pc3Npb24iOltdLCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiXSwidXNlciI6eyJpZCI6IjY3OTY5NGMwLTNiNDYtNDM4NC1iMDhhLWJkZjcwOWI2ZDNlNyIsIm5hbWUiOiI2Nzk2OTRjMC0zYjQ2In19LCJzZXF1ZW5jZU51bWJlciI6M31dXSwicHJvcG9zYWxzIjpbXSwidmFsdWVzIjpbWyJjb2RlIix7ImtleSI6ImNvZGUiLCJ2YWx1ZSI6eyJwYWNrYWdlIjoid2F0ZXJzaGVkLXRyZWUtb3JhY2xlIn0sImFwcHJvdmFsU2VxdWVuY2VOdW1iZXIiOjAsImNvbW1pdFNlcXVlbmNlTnVtYmVyIjowLCJzZXF1ZW5jZU51bWJlciI6MH1dXX0sInNlcXVlbmNlTnVtYmVyIjo2LCJpc0NvcnJ1cHQiOmZhbHNlLCJwcm90b2NvbEhlYWQiOjAsImNoZWNrcG9pbnRUaW1lc3RhbXAiOjE3MDAwMDAwMDAwMDB9"
+      },
+      "blobEncoding": "base64"
+    },
+    "snapshotPaths": [
+      "/.metadata",
+      "/.idCompressor",
+      "/.recentBatchInfo",
+      "/.aliases",
+      "/.channels",
+      "/.channels/A",
+      "/.channels/A/.component",
+      "/.channels/A/.channels",
+      "/.channels/A/.channels/root",
+      "/.channels/A/.channels/root/header",
+      "/.channels/A/.channels/root/.attributes",
+      "/.channels/A/.channels/_C",
+      "/.channels/A/.channels/_C/.metadata",
+      "/.channels/A/.channels/_C/.attributes",
+      "/.channels/A/.channels/_C/indexes",
+      "/.channels/A/.channels/_C/indexes/EditManager",
+      "/.channels/A/.channels/_C/indexes/EditManager/.metadata",
+      "/.channels/A/.channels/_C/indexes/EditManager/String",
+      "/.channels/A/.channels/_C/indexes/Schema",
+      "/.channels/A/.channels/_C/indexes/Schema/.metadata",
+      "/.channels/A/.channels/_C/indexes/Schema/SchemaString",
+      "/.channels/A/.channels/_C/indexes/Forest",
+      "/.channels/A/.channels/_C/indexes/Forest/.metadata",
+      "/.channels/A/.channels/_C/indexes/Forest/contents",
+      "/.channels/A/.channels/_C/indexes/DetachedFieldIndex",
+      "/.channels/A/.channels/_C/indexes/DetachedFieldIndex/.metadata",
+      "/.channels/A/.channels/_C/indexes/DetachedFieldIndex/DetachedFieldIndexBlob",
+      "/gc",
+      "/gc/__gc_root",
+      "/.protocol",
+      "/.protocol/quorumMembers",
+      "/.protocol/quorumProposals",
+      "/.protocol/quorumValues",
+      "/.protocol/attributes",
+      "/.logTail",
+      "/.logTail/logTail",
+      "/.serviceProtocol",
+      "/.serviceProtocol/deli",
+      "/.serviceProtocol/scribe"
+    ],
+    "summary": {
+      "referenceSequenceNumber": 4,
+      "submitted": {
+        "stage": "submit",
+        "referenceSequenceNumber": 4,
+        "minimumSequenceNumber": 0,
+        "summaryTree": {
+          "type": 1,
+          "tree": {
+            ".channels": {
+              "type": 1,
+              "tree": {
+                "A": {
+                  "type": 1,
+                  "tree": {
+                    ".channels": {
+                      "type": 1,
+                      "tree": {
+                        "root": {
+                          "type": 1,
+                          "tree": {
+                            "header": {
+                              "type": 2,
+                              "content": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}"
+                            },
+                            ".attributes": {
+                              "type": 2,
+                              "content": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}"
+                            }
+                          }
+                        },
+                        "_C": {
+                          "type": 1,
+                          "tree": {
+                            ".metadata": {
+                              "type": 2,
+                              "content": "{\"version\":2}"
+                            },
+                            "indexes": {
+                              "type": 1,
+                              "tree": {
+                                "EditManager": {
+                                  "type": 1,
+                                  "tree": {
+                                    ".metadata": {
+                                      "type": 2,
+                                      "content": "{\"version\":2}"
+                                    },
+                                    "String": {
+                                      "type": 2,
+                                      "content": "{\"trunk\":[{\"change\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"state-at-s\"]]}}}}],\"revision\":1,\"sessionId\":\"0a43d691-694e-40a3-9b96-5f1665b2404f\",\"sequenceNumber\":4}],\"branches\":[[\"0a43d691-694e-40a3-9b96-5f1665b2404f\",{\"base\":1,\"commits\":[]}]],\"version\":7}"
+                                    }
+                                  }
+                                },
+                                "Schema": {
+                                  "type": 1,
+                                  "tree": {
+                                    ".metadata": {
+                                      "type": 2,
+                                      "content": "{\"version\":2}"
+                                    },
+                                    "SchemaString": {
+                                      "type": 2,
+                                      "content": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m1.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m1.Root\":{\"kind\":{\"object\":{\"enabled\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.boolean\"]},\"marker\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.null\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Point\"]},\"rating\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Root\"]}}"
+                                    }
+                                  }
+                                },
+                                "Forest": {
+                                  "type": 1,
+                                  "tree": {
+                                    ".metadata": {
+                                      "type": 2,
+                                      "content": "{\"version\":3}"
+                                    },
+                                    "contents": {
+                                      "type": 2,
+                                      "content": "{\"keys\":[\"rootFieldKey\",\"repair-2\"],\"fields\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m1.Root\",\"value\":false,\"fields\":[[\"enabled\",3],[\"marker\",4],[\"note\",5],[\"point\",6],[\"rating\",1],[\"title\",0]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.boolean\",\"value\":true}},{\"c\":{\"type\":\"com.fluidframework.leaf.null\",\"value\":[null]}},{\"a\":0},{\"c\":{\"type\":\"org.watershed.shared-tree.m1.Point\",\"value\":false,\"fields\":[[\"x\",1],[\"y\",1]]}}],\"data\":[[2,false,0,0,0,0,\"state-at-s\"],[0,\"\"]]},\"version\":2}"
+                                    }
+                                  }
+                                },
+                                "DetachedFieldIndex": {
+                                  "type": 1,
+                                  "tree": {
+                                    ".metadata": {
+                                      "type": 2,
+                                      "content": "{\"version\":2}"
+                                    },
+                                    "DetachedFieldIndexBlob": {
+                                      "type": 2,
+                                      "content": "{\"version\":2,\"data\":[[1,1,2]],\"maxId\":2}"
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            ".attributes": {
+                              "type": 2,
+                              "content": "{\"type\":\"https://graph.microsoft.com/types/tree\",\"snapshotFormatVersion\":\"0.0.0\",\"packageVersion\":\"3.1.0\"}"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    ".component": {
+                      "type": 2,
+                      "content": "{\"pkg\":\"[\\\"org.watershed.shared-tree.m1.bootstrap\\\"]\",\"summaryFormatVersion\":2,\"isRootDataStore\":true}"
+                    }
+                  }
+                }
+              }
+            },
+            ".metadata": {
+              "type": 2,
+              "content": "{\"createContainerRuntimeVersion\":\"3.1.0\",\"createContainerTimestamp\":1700000000000,\"summaryNumber\":2,\"summaryFormatVersion\":1,\"gcFeature\":3,\"sessionExpiryTimeoutMs\":2592000000,\"sweepEnabled\":false,\"tombstoneTimeoutMs\":3110400000,\"telemetryDocumentId\":\"e37817a2-26f8-40cd-9be9-b88415b34289\",\"message\":{\"sequenceNumber\":-1},\"lastMessage\":{\"clientId\":\"1244e9b1-d7fd-4c0d-89a0-7b3ce606901b\",\"clientSequenceNumber\":1,\"minimumSequenceNumber\":0,\"referenceSequenceNumber\":3,\"sequenceNumber\":4,\"timestamp\":1700000000000,\"type\":\"op\"},\"documentSchema\":{\"version\":1,\"refSeq\":0,\"info\":{\"minVersionForCollab\":\"2.117.0\"},\"runtime\":{\"explicitSchemaControl\":true,\"idCompressorMode\":\"on\",\"opGroupingEnabled\":true}}}"
+            },
+            ".idCompressor": {
+              "type": 2,
+              "content": "\"AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D9PQLJlFl+W2yg4pUVaDykAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAABA\""
+            },
+            ".recentBatchInfo": {
+              "type": 2,
+              "content": "[[4,\"c13722b0-d67d-4c0a-915f-89058b5b7aea_[1]\"]]"
+            },
+            ".aliases": {
+              "type": 2,
+              "content": "[[\"root\",\"A\"]]"
+            },
+            "gc": {
+              "type": 1,
+              "tree": {
+                "__gc_root": {
+                  "type": 2,
+                  "content": "{\"gcNodes\":{\"/\":{\"outboundRoutes\":[\"/A\"]},\"/A\":{\"outboundRoutes\":[\"/A/_C\",\"/A/root\"]},\"/A/_C\":{\"outboundRoutes\":[\"/A\"]},\"/A/root\":{\"outboundRoutes\":[\"/A\",\"/A/_C\"]}}}"
+                }
+              }
+            }
+          }
+        },
+        "summaryStats": {
+          "dataStoreCount": 1,
+          "summarizedDataStoreCount": 1,
+          "gcStateUpdatedDataStoreCount": 1,
+          "gcBlobNodeCount": 1,
+          "gcTotalBlobsSize": 165,
+          "summaryNumber": 2,
+          "treeNodeCount": 12,
+          "blobNodeCount": 18,
+          "handleNodeCount": 0,
+          "totalBlobSize": 3726,
+          "unreferencedBlobSize": 0
+        },
+        "generateDuration": 0,
+        "handle": "6088ff38-8500-4fe7-9b50-86792b5371bd",
+        "uploadDuration": 0,
+        "clientSequenceNumber": 1,
+        "submitOpDuration": 0
+      }
+    },
+    "publication": {
+      "sequenceNumber": 7,
+      "broadcast": {
+        "summarizeOp": {
+          "clientId": "7e485a1b-03e6-4f0d-950d-55255e351fec",
+          "clientSequenceNumber": 1,
+          "contents": {
+            "handle": "6088ff38-8500-4fe7-9b50-86792b5371bd",
+            "head": "6aa640b3-bb02-43c9-9e9d-3cbb19d79a86",
+            "message": "Summary @4:0",
+            "parents": [
+              "6aa640b3-bb02-43c9-9e9d-3cbb19d79a86"
+            ],
+            "details": {
+              "includesProtocolTree": false
+            }
+          },
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": 4,
+          "sequenceNumber": 6,
+          "timestamp": 1700000000000,
+          "type": "summarize",
+          "additionalContent": "{\"clients\":[{\"canEvict\":true,\"clientId\":\"15a5e4ac-8f7e-4bad-85fa-842260667373\",\"clientSequenceNumber\":0,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":0,\"scopes\":[\"doc:read\",\"doc:write\"]},{\"canEvict\":true,\"clientId\":\"7e485a1b-03e6-4f0d-950d-55255e351fec\",\"clientSequenceNumber\":1,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":4,\"scopes\":[\"doc:read\",\"doc:write\",\"summary:write\"]},{\"canEvict\":true,\"clientId\":\"1244e9b1-d7fd-4c0d-89a0-7b3ce606901b\",\"clientSequenceNumber\":2,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":4,\"scopes\":[\"doc:read\",\"doc:write\"]}],\"durableSequenceNumber\":0,\"expHash1\":\"-4ca44189\",\"logOffset\":5,\"sequenceNumber\":6,\"signalClientConnectionNumber\":0,\"lastSentMSN\":0,\"nackMessages\":[],\"checkpointTimestamp\":1700000000000}",
+          "expHash1": "-1dbad408"
+        },
+        "broadcastDuration": 0
+      },
+      "acknowledged": {
+        "summaryAckOp": {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": {
+            "handle": "32d983e7-a7e4-4bcc-b6b5-a3c02967943f",
+            "summaryProposal": {
+              "summarySequenceNumber": 6
+            }
+          },
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 7,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "summaryAck",
+          "data": "{\"handle\":\"32d983e7-a7e4-4bcc-b6b5-a3c02967943f\",\"summaryProposal\":{\"summarySequenceNumber\":6}}",
+          "expHash1": "-13321fdb"
+        },
+        "ackNackDuration": 0
+      }
+    },
+    "summaryToPublicationMessages": [
+      {
+        "dataEdit": true,
+        "message": {
+          "clientId": "1244e9b1-d7fd-4c0d-89a0-7b3ce606901b",
+          "clientSequenceNumber": 2,
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0a43d691-694e-40a3-9b96-5f1665b2404f\",\"ids\":{\"firstGenCount\":3,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":2,\"originatorId\":\"0a43d691-694e-40a3-9b96-5f1665b2404f\",\"changeset\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":4,\"s\":3}}}]}]]}],\"builds\":{\"builds\":[[[[3,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"edit-between-s-and-p\"]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "metadata": {
+            "groupedOpCount": 2
+          },
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": 4,
+          "sequenceNumber": 5,
+          "timestamp": 1700000000000,
+          "type": "op",
+          "expHash1": "-4ca44189",
+          "traces": []
+        }
+      },
+      {
+        "dataEdit": false,
+        "message": {
+          "clientId": "7e485a1b-03e6-4f0d-950d-55255e351fec",
+          "clientSequenceNumber": 1,
+          "contents": "{\"handle\":\"6088ff38-8500-4fe7-9b50-86792b5371bd\",\"head\":\"6aa640b3-bb02-43c9-9e9d-3cbb19d79a86\",\"message\":\"Summary @4:0\",\"parents\":[\"6aa640b3-bb02-43c9-9e9d-3cbb19d79a86\"],\"details\":{\"includesProtocolTree\":false}}",
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": 4,
+          "sequenceNumber": 6,
+          "timestamp": 1700000000000,
+          "type": "summarize",
+          "additionalContent": "{\"clients\":[{\"canEvict\":true,\"clientId\":\"15a5e4ac-8f7e-4bad-85fa-842260667373\",\"clientSequenceNumber\":0,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":0,\"scopes\":[\"doc:read\",\"doc:write\"]},{\"canEvict\":true,\"clientId\":\"7e485a1b-03e6-4f0d-950d-55255e351fec\",\"clientSequenceNumber\":1,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":4,\"scopes\":[\"doc:read\",\"doc:write\",\"summary:write\"]},{\"canEvict\":true,\"clientId\":\"1244e9b1-d7fd-4c0d-89a0-7b3ce606901b\",\"clientSequenceNumber\":2,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":4,\"scopes\":[\"doc:read\",\"doc:write\"]}],\"durableSequenceNumber\":0,\"expHash1\":\"-4ca44189\",\"logOffset\":5,\"sequenceNumber\":6,\"signalClientConnectionNumber\":0,\"lastSentMSN\":0,\"nackMessages\":[],\"checkpointTimestamp\":1700000000000}",
+          "expHash1": "-1dbad408",
+          "traces": []
+        }
+      },
+      {
+        "dataEdit": false,
+        "message": {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": {
+            "handle": "32d983e7-a7e4-4bcc-b6b5-a3c02967943f",
+            "summaryProposal": {
+              "summarySequenceNumber": 6
+            }
+          },
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 7,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "summaryAck",
+          "data": "{\"handle\":\"32d983e7-a7e4-4bcc-b6b5-a3c02967943f\",\"summaryProposal\":{\"summarySequenceNumber\":6}}",
+          "expHash1": "-13321fdb"
+        }
+      }
+    ],
+    "laterTailMessages": [
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 8,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "leave",
+        "data": "\"7e485a1b-03e6-4f0d-950d-55255e351fec\"",
+        "expHash1": "-5f0ad1c"
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 9,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "join",
+        "data": "{\"clientId\":\"a154d6e4-2cfd-4de8-9a4b-de7d83b27d73\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:e5dc4308-bce3-4bc7-94a5-975503429add\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"21408dba-75f0-4aea-9b9b-2a3c6938002d\",\"name\":\"21408dba-75f0\"}}}",
+        "expHash1": "619ff595"
+      },
+      {
+        "clientId": "a154d6e4-2cfd-4de8-9a4b-de7d83b27d73",
+        "clientSequenceNumber": 1,
+        "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"f03e87dd-3dcc-49f0-b942-b332e4422ec4\",\"ids\":{\"firstGenCount\":1,\"count\":1,\"requestedClusterSize\":512,\"localIdRanges\":[[1,1]]}}},\"metadata\":{\"batch\":true}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":-1,\"originatorId\":\"f03e87dd-3dcc-49f0-b942-b332e4422ec4\",\"changeset\":[{\"data\":{\"maxId\":3,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"point\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"y\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}}],\"data\":[[0,21]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+        "metadata": {
+          "groupedOpCount": 2
+        },
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 9,
+        "sequenceNumber": 10,
+        "timestamp": 1700000000000,
+        "type": "op",
+        "expHash1": "-f95307e",
+        "traces": []
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 11,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "leave",
+        "data": "\"a154d6e4-2cfd-4de8-9a4b-de7d83b27d73\"",
+        "expHash1": "-318748be"
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 12,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "join",
+        "data": "{\"clientId\":\"dc8403a9-34aa-44d1-8ad7-5691734e1b92\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:f6633442-0baa-469b-8139-24834fd8834a\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"00f08820-06ad-4392-a21d-a396a74bf03b\",\"name\":\"00f08820-06ad\"}}}",
+        "expHash1": "27aadca1"
+      }
+    ]
+  }
+}

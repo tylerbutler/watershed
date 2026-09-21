@@ -1,0 +1,400 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "id-ranges",
+  "domain": "ids",
+  "input": {
+    "sessions": {
+      "a": "10000000-0000-4000-8000-000000000001",
+      "b": "20000000-0000-4000-8000-000000000002",
+      "summaryRestoration": "30000000-0000-4000-8000-000000000003",
+      "malformedProducer": "40000000-0000-4000-8000-000000000004",
+      "malformedTarget": "50000000-0000-4000-8000-000000000005"
+    },
+    "clusterSize": 3,
+    "schedule": [
+      "generate-two-each",
+      "finalize-a0",
+      "finalize-b0",
+      "generate-eager-and-expansion",
+      "finalize-a1",
+      "finalize-b1"
+    ],
+    "operations": {
+      "restoration": {
+        "ongoing": {
+          "includeLocalState": true
+        },
+        "summary": {
+          "includeLocalState": false,
+          "newSessionId": "30000000-0000-4000-8000-000000000003"
+        }
+      },
+      "precision": {
+        "lastExactOffset": "10000000-0000-4000-801f-ffffffffffff",
+        "firstRejectedOffset": "10000000-0000-4000-8020-000000000000"
+      },
+      "malformedAllocation": {
+        "operation": "finalizeCreationRange",
+        "targetSession": "50000000-0000-4000-8000-000000000005",
+        "initialSerializedState": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAFAAAAAAAAAAAAAAAAAEABAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+        "corruption": {
+          "path": "$.ids.count",
+          "valid": 2,
+          "corrupted": 0
+        },
+        "range": {
+          "sessionId": "40000000-0000-4000-8000-000000000004",
+          "ids": {
+            "firstGenCount": 1,
+            "count": 0,
+            "requestedClusterSize": 512,
+            "localIdRanges": [
+              [
+                1,
+                2
+              ]
+            ]
+          }
+        }
+      }
+    }
+  },
+  "expected": {
+    "observations": [
+      {
+        "stage": "before-finalization",
+        "value": {
+          "a": [
+            {
+              "session": -1,
+              "op": -1,
+              "final": false,
+              "stable": "10000000-0000-4000-8000-000000000001",
+              "recompressed": -1
+            },
+            {
+              "session": -2,
+              "op": -2,
+              "final": false,
+              "stable": "10000000-0000-4000-8000-000000000002",
+              "recompressed": -2
+            }
+          ],
+          "b": [
+            {
+              "session": -1,
+              "op": -1,
+              "final": false,
+              "stable": "20000000-0000-4000-8000-000000000002",
+              "recompressed": -1
+            },
+            {
+              "session": -2,
+              "op": -2,
+              "final": false,
+              "stable": "20000000-0000-4000-8000-000000000003",
+              "recompressed": -2
+            }
+          ]
+        }
+      },
+      {
+        "stage": "after-finalization",
+        "value": {
+          "initialA": [
+            {
+              "session": -1,
+              "op": 0,
+              "final": false,
+              "stable": "10000000-0000-4000-8000-000000000001",
+              "recompressed": -1
+            },
+            {
+              "session": -2,
+              "op": 1,
+              "final": false,
+              "stable": "10000000-0000-4000-8000-000000000002",
+              "recompressed": -2
+            }
+          ],
+          "initialB": [
+            {
+              "session": -1,
+              "op": 5,
+              "final": false,
+              "stable": "20000000-0000-4000-8000-000000000002",
+              "recompressed": -1
+            },
+            {
+              "session": -2,
+              "op": 6,
+              "final": false,
+              "stable": "20000000-0000-4000-8000-000000000003",
+              "recompressed": -2
+            }
+          ],
+          "eagerA": {
+            "session": 2,
+            "op": 2,
+            "final": true,
+            "stable": "10000000-0000-4000-8000-000000000003",
+            "recompressed": 2
+          },
+          "eagerB": {
+            "session": 7,
+            "op": 7,
+            "final": true,
+            "stable": "20000000-0000-4000-8000-000000000004",
+            "recompressed": 7
+          },
+          "expansionA": [
+            {
+              "session": 3,
+              "op": 3,
+              "final": true,
+              "stable": "10000000-0000-4000-8000-000000000004",
+              "recompressed": 3
+            },
+            {
+              "session": 4,
+              "op": 4,
+              "final": true,
+              "stable": "10000000-0000-4000-8000-000000000005",
+              "recompressed": 4
+            }
+          ],
+          "expansionB": [
+            {
+              "session": 8,
+              "op": 8,
+              "final": true,
+              "stable": "20000000-0000-4000-8000-000000000005",
+              "recompressed": 8
+            },
+            {
+              "session": 9,
+              "op": 9,
+              "final": true,
+              "stable": "20000000-0000-4000-8000-000000000006",
+              "recompressed": 9
+            }
+          ]
+        }
+      },
+      {
+        "stage": "remote-normalization",
+        "value": {
+          "aToB": {
+            "op": 4,
+            "session": 4,
+            "stable": "10000000-0000-4000-8000-000000000005",
+            "matchesOrigin": true
+          },
+          "bToA": {
+            "op": 9,
+            "session": 9,
+            "stable": "20000000-0000-4000-8000-000000000006",
+            "matchesOrigin": true
+          }
+        }
+      },
+      {
+        "stage": "restoration",
+        "value": {
+          "ongoingSession": "10000000-0000-4000-8000-000000000001",
+          "ongoingNext": {
+            "session": -6,
+            "op": -6,
+            "final": false,
+            "stable": "10000000-0000-4000-8000-000000000006",
+            "recompressed": -6
+          },
+          "summarySession": "30000000-0000-4000-8000-000000000003",
+          "summaryNext": {
+            "session": -1,
+            "op": -1,
+            "final": false,
+            "stable": "30000000-0000-4000-8000-000000000003",
+            "recompressed": -1
+          }
+        }
+      },
+      {
+        "stage": "document-unique",
+        "value": {
+          "id": "10000000-0000-4000-8000-000000000006",
+          "isStable": true
+        }
+      },
+      {
+        "stage": "precision-limits",
+        "value": {
+          "lastExactOffset": {
+            "status": "accepted",
+            "value": null
+          },
+          "firstRejectedOffset": {
+            "status": "accepted",
+            "value": null
+          }
+        }
+      },
+      {
+        "operation": "malformed-allocation-refusal",
+        "status": "rejected",
+        "error": "Error: 0x755",
+        "statePreserved": true,
+        "postState": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAFAAAAAAAAAAAAAAAAAEABAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+      }
+    ]
+  },
+  "raw": {
+    "ranges": [
+      {
+        "sessionId": "10000000-0000-4000-8000-000000000001",
+        "ids": {
+          "firstGenCount": 1,
+          "count": 2,
+          "requestedClusterSize": 3,
+          "localIdRanges": [
+            [
+              1,
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "sessionId": "20000000-0000-4000-8000-000000000002",
+        "ids": {
+          "firstGenCount": 1,
+          "count": 2,
+          "requestedClusterSize": 3,
+          "localIdRanges": [
+            [
+              1,
+              2
+            ]
+          ]
+        }
+      },
+      {
+        "sessionId": "10000000-0000-4000-8000-000000000001",
+        "ids": {
+          "firstGenCount": 3,
+          "count": 3,
+          "requestedClusterSize": 3,
+          "localIdRanges": []
+        }
+      },
+      {
+        "sessionId": "20000000-0000-4000-8000-000000000002",
+        "ids": {
+          "firstGenCount": 3,
+          "count": 3,
+          "requestedClusterSize": 3,
+          "localIdRanges": []
+        }
+      }
+    ],
+    "serialized": {
+      "withSession": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAABAAAAAAAAAAEABAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAAFEAAAAAAAAAUQAAAAAAAABRAAAAAAAAAGEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAEA=",
+      "summary": "AAAAAAAAAEAAAAAAAAAAAAAAAAAAAABAAAAAAAAAAEABAAAAAAAAAAAAAAAAAEAAAgAAAAAAAAAAAAAAAACAAAAAAAAAAAAAAAAAAAAAFEAAAAAAAAAUQAAAAAAAAPA/AAAAAAAAFEAAAAAAAAAUQA=="
+    },
+    "stableDocumentId": "10000000-0000-4000-8000-000000000006",
+    "precision": {
+      "inputs": {
+        "lastExactOffset": "10000000-0000-4000-801f-ffffffffffff",
+        "firstRejectedOffset": "10000000-0000-4000-8020-000000000000"
+      },
+      "results": {
+        "lastExactOffset": {
+          "status": "accepted",
+          "value": null
+        },
+        "firstRejectedOffset": {
+          "status": "accepted",
+          "value": null
+        }
+      }
+    },
+    "malformedAllocation": {
+      "input": {
+        "operation": "finalizeCreationRange",
+        "targetSession": "50000000-0000-4000-8000-000000000005",
+        "initialSerializedState": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAFAAAAAAAAAAAAAAAAAEABAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+        "corruption": {
+          "path": "$.ids.count",
+          "valid": 2,
+          "corrupted": 0
+        },
+        "range": {
+          "sessionId": "40000000-0000-4000-8000-000000000004",
+          "ids": {
+            "firstGenCount": 1,
+            "count": 0,
+            "requestedClusterSize": 512,
+            "localIdRanges": [
+              [
+                1,
+                2
+              ]
+            ]
+          }
+        }
+      },
+      "expected": {
+        "observation": {
+          "operation": "malformed-allocation-refusal",
+          "status": "rejected",
+          "error": "Error: 0x755",
+          "statePreserved": true,
+          "postState": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAFAAAAAAAAAAAAAAAAAEABAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+        }
+      },
+      "raw": {
+        "validRange": {
+          "sessionId": "40000000-0000-4000-8000-000000000004",
+          "ids": {
+            "firstGenCount": 1,
+            "count": 2,
+            "requestedClusterSize": 512,
+            "localIdRanges": [
+              [
+                1,
+                2
+              ]
+            ]
+          }
+        },
+        "corruptedRange": {
+          "sessionId": "40000000-0000-4000-8000-000000000004",
+          "ids": {
+            "firstGenCount": 1,
+            "count": 0,
+            "requestedClusterSize": 512,
+            "localIdRanges": [
+              [
+                1,
+                2
+              ]
+            ]
+          }
+        },
+        "error": {
+          "status": "rejected",
+          "error": "Error: 0x755"
+        },
+        "serialized": {
+          "before": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAFAAAAAAAAAAAAAAAAAEABAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA",
+          "after": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAAAAAFAAAAAAAAAAAAAAAAAEABAAAAAAAAAAAAAAAAAADwPwAAAAAAAAAA"
+        }
+      }
+    }
+  }
+}

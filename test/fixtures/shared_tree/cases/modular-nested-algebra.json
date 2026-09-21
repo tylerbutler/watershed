@@ -1,0 +1,1614 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "modular-nested-algebra",
+  "domain": "modular",
+  "input": {
+    "compiler": "2.117.0",
+    "codecs": {
+      "modular": 5,
+      "optional": 2,
+      "required": 2
+    },
+    "compression": 0,
+    "oldestCompatibleClient": "2.117.0",
+    "changes": {
+      "first": {
+        "maxId": 41,
+        "revisions": [
+          {
+            "revision": 4
+          }
+        ],
+        "changes": [
+          {
+            "fieldKey": "root",
+            "fieldKind": "Optional",
+            "change": {
+              "r": {
+                "e": true,
+                "d": [
+                  31,
+                  4
+                ],
+                "s": [
+                  30,
+                  4
+                ]
+              },
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "nested-required",
+                        "fieldKind": "Value",
+                        "change": {
+                          "r": {
+                            "e": false,
+                            "d": [
+                              41,
+                              4
+                            ],
+                            "s": [
+                              40,
+                              4
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "fieldKey": "pruned-optional",
+                        "fieldKind": "Optional",
+                        "change": {
+                          "c": [
+                            [
+                              null,
+                              {}
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          }
+        ],
+        "builds": {
+          "builds": [
+            [
+              [
+                [
+                  20,
+                  0
+                ]
+              ],
+              4
+            ]
+          ],
+          "trees": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "extraFields": 1
+                }
+              },
+              {
+                "a": 0
+              }
+            ],
+            "data": [
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "built",
+                  []
+                ]
+              ]
+            ]
+          }
+        },
+        "refreshers": {
+          "builds": [
+            [
+              [
+                [
+                  21,
+                  0
+                ]
+              ],
+              5
+            ]
+          ],
+          "trees": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "extraFields": 1
+                }
+              },
+              {
+                "a": 0
+              }
+            ],
+            "data": [
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "stale",
+                  []
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "second": {
+        "maxId": 51,
+        "revisions": [
+          {
+            "revision": 5
+          }
+        ],
+        "changes": [
+          {
+            "fieldKey": "root",
+            "fieldKind": "Optional",
+            "change": {
+              "r": {
+                "e": false,
+                "d": [
+                  51,
+                  5
+                ],
+                "s": [
+                  50,
+                  5
+                ]
+              }
+            }
+          }
+        ]
+      }
+    },
+    "revisions": {
+      "first": 4,
+      "second": 5,
+      "replacement": 6
+    },
+    "operations": {
+      "compose": {
+        "changes": [
+          "first",
+          "second"
+        ],
+        "revisions": [
+          4,
+          5
+        ]
+      },
+      "invert": {
+        "change": "first",
+        "revision": 4,
+        "isRollback": false,
+        "inverseRevision": 5
+      },
+      "rebase": {
+        "change": "second",
+        "revision": 5,
+        "over": "first",
+        "overRevision": 4,
+        "revisionMetadata": [
+          4,
+          5
+        ]
+      },
+      "replaceRevisions": {
+        "change": "second",
+        "obsolete": [
+          5
+        ],
+        "updated": 6
+      },
+      "prune": {
+        "change": "first"
+      },
+      "refreshers": {
+        "change": "first",
+        "roots": [
+          {
+            "id": {
+              "minor": 40,
+              "major": 4
+            },
+            "trees": [
+              "refreshed:4:40"
+            ]
+          },
+          {
+            "id": {
+              "minor": 30,
+              "major": 4
+            },
+            "trees": [
+              "refreshed:4:30"
+            ]
+          }
+        ]
+      }
+    }
+  },
+  "expected": {
+    "observations": [
+      {
+        "operation": "compose",
+        "encoded": {
+          "maxId": 51,
+          "revisions": [
+            {
+              "revision": 4
+            },
+            {
+              "revision": 5
+            }
+          ],
+          "changes": [
+            {
+              "fieldKey": "root",
+              "fieldKind": "Optional",
+              "change": {
+                "m": [
+                  [
+                    [
+                      30,
+                      4
+                    ],
+                    [
+                      51,
+                      5
+                    ]
+                  ]
+                ],
+                "r": {
+                  "e": true,
+                  "d": [
+                    31,
+                    4
+                  ],
+                  "s": [
+                    50,
+                    5
+                  ]
+                },
+                "c": [
+                  [
+                    null,
+                    {
+                      "fieldChanges": [
+                        {
+                          "fieldKey": "nested-required",
+                          "fieldKind": "Value",
+                          "change": {
+                            "r": {
+                              "e": false,
+                              "d": [
+                                41,
+                                4
+                              ],
+                              "s": [
+                                40,
+                                4
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "fieldKey": "pruned-optional",
+                          "fieldKind": "Optional",
+                          "change": {
+                            "c": [
+                              [
+                                null,
+                                {}
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                ]
+              }
+            }
+          ],
+          "builds": {
+            "builds": [
+              [
+                [
+                  [
+                    20,
+                    0
+                  ]
+                ],
+                4
+              ]
+            ],
+            "trees": {
+              "version": 2,
+              "identifiers": [],
+              "shapes": [
+                {
+                  "c": {
+                    "extraFields": 1
+                  }
+                },
+                {
+                  "a": 0
+                }
+              ],
+              "data": [
+                [
+                  1,
+                  [
+                    "com.fluidframework.leaf.string",
+                    true,
+                    "built",
+                    []
+                  ]
+                ]
+              ]
+            }
+          },
+          "refreshers": {
+            "builds": [
+              [
+                [
+                  [
+                    21,
+                    0
+                  ]
+                ],
+                5
+              ]
+            ],
+            "trees": {
+              "version": 2,
+              "identifiers": [],
+              "shapes": [
+                {
+                  "c": {
+                    "extraFields": 1
+                  }
+                },
+                {
+                  "a": 0
+                }
+              ],
+              "data": [
+                [
+                  1,
+                  [
+                    "com.fluidframework.leaf.string",
+                    true,
+                    "stale",
+                    []
+                  ]
+                ]
+              ]
+            }
+          }
+        }
+      },
+      {
+        "operation": "invert",
+        "encoded": {
+          "maxId": 43,
+          "revisions": [
+            {
+              "revision": 5
+            }
+          ],
+          "changes": [
+            {
+              "fieldKey": "root",
+              "fieldKind": "Optional",
+              "change": {
+                "r": {
+                  "e": false,
+                  "d": [
+                    42,
+                    5
+                  ]
+                },
+                "c": [
+                  [
+                    null,
+                    {
+                      "fieldChanges": [
+                        {
+                          "fieldKey": "nested-required",
+                          "fieldKind": "Value",
+                          "change": {
+                            "r": {
+                              "e": false,
+                              "d": [
+                                43,
+                                5
+                              ],
+                              "s": [
+                                41,
+                                4
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "fieldKey": "pruned-optional",
+                          "fieldKind": "Optional",
+                          "change": {
+                            "c": [
+                              [
+                                null,
+                                {}
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": "rebase",
+        "encoded": {
+          "maxId": 51,
+          "revisions": [
+            {
+              "revision": 5
+            }
+          ],
+          "changes": [
+            {
+              "fieldKey": "root",
+              "fieldKind": "Optional",
+              "change": {
+                "r": {
+                  "e": false,
+                  "d": [
+                    51,
+                    5
+                  ],
+                  "s": [
+                    50,
+                    5
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": "replace-revisions",
+        "encoded": {
+          "maxId": 51,
+          "revisions": [
+            {
+              "revision": 6
+            }
+          ],
+          "changes": [
+            {
+              "fieldKey": "root",
+              "fieldKind": "Optional",
+              "change": {
+                "r": {
+                  "e": false,
+                  "d": [
+                    51,
+                    6
+                  ],
+                  "s": [
+                    50,
+                    6
+                  ]
+                }
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": "prune",
+        "encoded": {
+          "maxId": 41,
+          "revisions": [
+            {
+              "revision": 4
+            }
+          ],
+          "changes": [
+            {
+              "fieldKey": "root",
+              "fieldKind": "Optional",
+              "change": {
+                "r": {
+                  "e": true,
+                  "d": [
+                    31,
+                    4
+                  ],
+                  "s": [
+                    30,
+                    4
+                  ]
+                },
+                "c": [
+                  [
+                    null,
+                    {
+                      "fieldChanges": [
+                        {
+                          "fieldKey": "nested-required",
+                          "fieldKind": "Value",
+                          "change": {
+                            "r": {
+                              "e": false,
+                              "d": [
+                                41,
+                                4
+                              ],
+                              "s": [
+                                40,
+                                4
+                              ]
+                            }
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                ]
+              }
+            }
+          ],
+          "builds": {
+            "builds": [
+              [
+                [
+                  [
+                    20,
+                    0
+                  ]
+                ],
+                4
+              ]
+            ],
+            "trees": {
+              "version": 2,
+              "identifiers": [],
+              "shapes": [
+                {
+                  "c": {
+                    "extraFields": 1
+                  }
+                },
+                {
+                  "a": 0
+                }
+              ],
+              "data": [
+                [
+                  1,
+                  [
+                    "com.fluidframework.leaf.string",
+                    true,
+                    "built",
+                    []
+                  ]
+                ]
+              ]
+            }
+          },
+          "refreshers": {
+            "builds": [
+              [
+                [
+                  [
+                    21,
+                    0
+                  ]
+                ],
+                5
+              ]
+            ],
+            "trees": {
+              "version": 2,
+              "identifiers": [],
+              "shapes": [
+                {
+                  "c": {
+                    "extraFields": 1
+                  }
+                },
+                {
+                  "a": 0
+                }
+              ],
+              "data": [
+                [
+                  1,
+                  [
+                    "com.fluidframework.leaf.string",
+                    true,
+                    "stale",
+                    []
+                  ]
+                ]
+              ]
+            }
+          }
+        }
+      },
+      {
+        "operation": "refreshers",
+        "removedRoots": [
+          {
+            "minor": 40,
+            "major": 4
+          },
+          {
+            "minor": 30,
+            "major": 4
+          }
+        ],
+        "encoded": {
+          "maxId": 41,
+          "revisions": [
+            {
+              "revision": 4
+            }
+          ],
+          "changes": [
+            {
+              "fieldKey": "root",
+              "fieldKind": "Optional",
+              "change": {
+                "r": {
+                  "e": true,
+                  "d": [
+                    31,
+                    4
+                  ],
+                  "s": [
+                    30,
+                    4
+                  ]
+                },
+                "c": [
+                  [
+                    null,
+                    {
+                      "fieldChanges": [
+                        {
+                          "fieldKey": "nested-required",
+                          "fieldKind": "Value",
+                          "change": {
+                            "r": {
+                              "e": false,
+                              "d": [
+                                41,
+                                4
+                              ],
+                              "s": [
+                                40,
+                                4
+                              ]
+                            }
+                          }
+                        },
+                        {
+                          "fieldKey": "pruned-optional",
+                          "fieldKind": "Optional",
+                          "change": {
+                            "c": [
+                              [
+                                null,
+                                {}
+                              ]
+                            ]
+                          }
+                        }
+                      ]
+                    }
+                  ]
+                ]
+              }
+            }
+          ],
+          "builds": {
+            "builds": [
+              [
+                [
+                  [
+                    20,
+                    0
+                  ]
+                ],
+                4
+              ]
+            ],
+            "trees": {
+              "version": 2,
+              "identifiers": [],
+              "shapes": [
+                {
+                  "c": {
+                    "extraFields": 1
+                  }
+                },
+                {
+                  "a": 0
+                }
+              ],
+              "data": [
+                [
+                  1,
+                  [
+                    "com.fluidframework.leaf.string",
+                    true,
+                    "built",
+                    []
+                  ]
+                ]
+              ]
+            }
+          },
+          "refreshers": {
+            "builds": [
+              [
+                [
+                  [
+                    30,
+                    0
+                  ],
+                  [
+                    40,
+                    1
+                  ]
+                ],
+                4
+              ]
+            ],
+            "trees": {
+              "version": 2,
+              "identifiers": [],
+              "shapes": [
+                {
+                  "c": {
+                    "extraFields": 1
+                  }
+                },
+                {
+                  "a": 0
+                }
+              ],
+              "data": [
+                [
+                  1,
+                  [
+                    "com.fluidframework.leaf.string",
+                    true,
+                    "refreshed:4:30",
+                    []
+                  ]
+                ],
+                [
+                  1,
+                  [
+                    "com.fluidframework.leaf.string",
+                    true,
+                    "refreshed:4:40",
+                    []
+                  ]
+                ]
+              ]
+            }
+          }
+        }
+      }
+    ]
+  },
+  "raw": {
+    "encoded": {
+      "input": {
+        "maxId": 41,
+        "revisions": [
+          {
+            "revision": 4
+          }
+        ],
+        "changes": [
+          {
+            "fieldKey": "root",
+            "fieldKind": "Optional",
+            "change": {
+              "r": {
+                "e": true,
+                "d": [
+                  31,
+                  4
+                ],
+                "s": [
+                  30,
+                  4
+                ]
+              },
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "nested-required",
+                        "fieldKind": "Value",
+                        "change": {
+                          "r": {
+                            "e": false,
+                            "d": [
+                              41,
+                              4
+                            ],
+                            "s": [
+                              40,
+                              4
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "fieldKey": "pruned-optional",
+                        "fieldKind": "Optional",
+                        "change": {
+                          "c": [
+                            [
+                              null,
+                              {}
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          }
+        ],
+        "builds": {
+          "builds": [
+            [
+              [
+                [
+                  20,
+                  0
+                ]
+              ],
+              4
+            ]
+          ],
+          "trees": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "extraFields": 1
+                }
+              },
+              {
+                "a": 0
+              }
+            ],
+            "data": [
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "built",
+                  []
+                ]
+              ]
+            ]
+          }
+        },
+        "refreshers": {
+          "builds": [
+            [
+              [
+                [
+                  21,
+                  0
+                ]
+              ],
+              5
+            ]
+          ],
+          "trees": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "extraFields": 1
+                }
+              },
+              {
+                "a": 0
+              }
+            ],
+            "data": [
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "stale",
+                  []
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "second": {
+        "maxId": 51,
+        "revisions": [
+          {
+            "revision": 5
+          }
+        ],
+        "changes": [
+          {
+            "fieldKey": "root",
+            "fieldKind": "Optional",
+            "change": {
+              "r": {
+                "e": false,
+                "d": [
+                  51,
+                  5
+                ],
+                "s": [
+                  50,
+                  5
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "compose": {
+        "maxId": 51,
+        "revisions": [
+          {
+            "revision": 4
+          },
+          {
+            "revision": 5
+          }
+        ],
+        "changes": [
+          {
+            "fieldKey": "root",
+            "fieldKind": "Optional",
+            "change": {
+              "m": [
+                [
+                  [
+                    30,
+                    4
+                  ],
+                  [
+                    51,
+                    5
+                  ]
+                ]
+              ],
+              "r": {
+                "e": true,
+                "d": [
+                  31,
+                  4
+                ],
+                "s": [
+                  50,
+                  5
+                ]
+              },
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "nested-required",
+                        "fieldKind": "Value",
+                        "change": {
+                          "r": {
+                            "e": false,
+                            "d": [
+                              41,
+                              4
+                            ],
+                            "s": [
+                              40,
+                              4
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "fieldKey": "pruned-optional",
+                        "fieldKind": "Optional",
+                        "change": {
+                          "c": [
+                            [
+                              null,
+                              {}
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          }
+        ],
+        "builds": {
+          "builds": [
+            [
+              [
+                [
+                  20,
+                  0
+                ]
+              ],
+              4
+            ]
+          ],
+          "trees": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "extraFields": 1
+                }
+              },
+              {
+                "a": 0
+              }
+            ],
+            "data": [
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "built",
+                  []
+                ]
+              ]
+            ]
+          }
+        },
+        "refreshers": {
+          "builds": [
+            [
+              [
+                [
+                  21,
+                  0
+                ]
+              ],
+              5
+            ]
+          ],
+          "trees": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "extraFields": 1
+                }
+              },
+              {
+                "a": 0
+              }
+            ],
+            "data": [
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "stale",
+                  []
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "invert": {
+        "maxId": 43,
+        "revisions": [
+          {
+            "revision": 5
+          }
+        ],
+        "changes": [
+          {
+            "fieldKey": "root",
+            "fieldKind": "Optional",
+            "change": {
+              "r": {
+                "e": false,
+                "d": [
+                  42,
+                  5
+                ]
+              },
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "nested-required",
+                        "fieldKind": "Value",
+                        "change": {
+                          "r": {
+                            "e": false,
+                            "d": [
+                              43,
+                              5
+                            ],
+                            "s": [
+                              41,
+                              4
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "fieldKey": "pruned-optional",
+                        "fieldKind": "Optional",
+                        "change": {
+                          "c": [
+                            [
+                              null,
+                              {}
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      "rebase": {
+        "maxId": 51,
+        "revisions": [
+          {
+            "revision": 5
+          }
+        ],
+        "changes": [
+          {
+            "fieldKey": "root",
+            "fieldKind": "Optional",
+            "change": {
+              "r": {
+                "e": false,
+                "d": [
+                  51,
+                  5
+                ],
+                "s": [
+                  50,
+                  5
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "replaced": {
+        "maxId": 51,
+        "revisions": [
+          {
+            "revision": 6
+          }
+        ],
+        "changes": [
+          {
+            "fieldKey": "root",
+            "fieldKind": "Optional",
+            "change": {
+              "r": {
+                "e": false,
+                "d": [
+                  51,
+                  6
+                ],
+                "s": [
+                  50,
+                  6
+                ]
+              }
+            }
+          }
+        ]
+      },
+      "pruned": {
+        "maxId": 41,
+        "revisions": [
+          {
+            "revision": 4
+          }
+        ],
+        "changes": [
+          {
+            "fieldKey": "root",
+            "fieldKind": "Optional",
+            "change": {
+              "r": {
+                "e": true,
+                "d": [
+                  31,
+                  4
+                ],
+                "s": [
+                  30,
+                  4
+                ]
+              },
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "nested-required",
+                        "fieldKind": "Value",
+                        "change": {
+                          "r": {
+                            "e": false,
+                            "d": [
+                              41,
+                              4
+                            ],
+                            "s": [
+                              40,
+                              4
+                            ]
+                          }
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          }
+        ],
+        "builds": {
+          "builds": [
+            [
+              [
+                [
+                  20,
+                  0
+                ]
+              ],
+              4
+            ]
+          ],
+          "trees": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "extraFields": 1
+                }
+              },
+              {
+                "a": 0
+              }
+            ],
+            "data": [
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "built",
+                  []
+                ]
+              ]
+            ]
+          }
+        },
+        "refreshers": {
+          "builds": [
+            [
+              [
+                [
+                  21,
+                  0
+                ]
+              ],
+              5
+            ]
+          ],
+          "trees": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "extraFields": 1
+                }
+              },
+              {
+                "a": 0
+              }
+            ],
+            "data": [
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "stale",
+                  []
+                ]
+              ]
+            ]
+          }
+        }
+      },
+      "refreshed": {
+        "maxId": 41,
+        "revisions": [
+          {
+            "revision": 4
+          }
+        ],
+        "changes": [
+          {
+            "fieldKey": "root",
+            "fieldKind": "Optional",
+            "change": {
+              "r": {
+                "e": true,
+                "d": [
+                  31,
+                  4
+                ],
+                "s": [
+                  30,
+                  4
+                ]
+              },
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "nested-required",
+                        "fieldKind": "Value",
+                        "change": {
+                          "r": {
+                            "e": false,
+                            "d": [
+                              41,
+                              4
+                            ],
+                            "s": [
+                              40,
+                              4
+                            ]
+                          }
+                        }
+                      },
+                      {
+                        "fieldKey": "pruned-optional",
+                        "fieldKind": "Optional",
+                        "change": {
+                          "c": [
+                            [
+                              null,
+                              {}
+                            ]
+                          ]
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          }
+        ],
+        "builds": {
+          "builds": [
+            [
+              [
+                [
+                  20,
+                  0
+                ]
+              ],
+              4
+            ]
+          ],
+          "trees": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "extraFields": 1
+                }
+              },
+              {
+                "a": 0
+              }
+            ],
+            "data": [
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "built",
+                  []
+                ]
+              ]
+            ]
+          }
+        },
+        "refreshers": {
+          "builds": [
+            [
+              [
+                [
+                  30,
+                  0
+                ],
+                [
+                  40,
+                  1
+                ]
+              ],
+              4
+            ]
+          ],
+          "trees": {
+            "version": 2,
+            "identifiers": [],
+            "shapes": [
+              {
+                "c": {
+                  "extraFields": 1
+                }
+              },
+              {
+                "a": 0
+              }
+            ],
+            "data": [
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "refreshed:4:30",
+                  []
+                ]
+              ],
+              [
+                1,
+                [
+                  "com.fluidframework.leaf.string",
+                  true,
+                  "refreshed:4:40",
+                  []
+                ]
+              ]
+            ]
+          }
+        }
+      }
+    },
+    "removedRoots": [
+      {
+        "minor": 40,
+        "major": 4
+      },
+      {
+        "minor": 30,
+        "major": 4
+      }
+    ],
+    "revisionReplacement": {
+      "obsolete": [
+        5
+      ],
+      "updated": 6
+    },
+    "ids": {
+      "rootNode": {
+        "revision": 4,
+        "localId": 4
+      },
+      "rootAlias": {
+        "revision": 5,
+        "localId": 4
+      },
+      "prunedNode": {
+        "revision": 4,
+        "localId": 5
+      },
+      "fill": {
+        "revision": 4,
+        "localId": 30
+      },
+      "detach": {
+        "revision": 4,
+        "localId": 31
+      },
+      "buildId": {
+        "revision": 4,
+        "localId": 20
+      },
+      "staleRefresherId": {
+        "revision": 5,
+        "localId": 21
+      }
+    }
+  }
+}

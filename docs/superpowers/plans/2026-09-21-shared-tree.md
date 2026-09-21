@@ -515,6 +515,24 @@ and an explicit JS/BEAM transport path. Commit subject:
 
 ### Task 3: generate the corpus and strict native fixture reader
 
+Implementation: `generate.mjs` assembles the named source/algebra and complete
+container cases. The native reader accepts only pinned, manifest-listed cases
+and compares complete observations; native semantic runners remain unimplemented.
+The oracle README contains the codec/runtime/summary inventory and ownership
+table for Tasks 4-16. Source and container fixtures preserve raw upstream data
+and carry the initial state and wire inputs needed by an input-only runner.
+
+The pinned public API refuses edits made through an already removed reference.
+The detached-child case therefore includes both that refusal and a delayed peer
+edit authored while the node was attached, which updates retained content and
+survives reload. Unsupported wire data invalidates the upstream public view;
+the oracle records fail-stop behavior separately from internal state preservation.
+The local container service supplies repeatable protocol artifacts, not a
+substitute for Task 2's real-service evidence.
+The field case records simultaneous child-change mapping and the pinned forest
+visitor's refusal of a direct occupied two-way rename; it does not manufacture
+a successful application through a test-owned lowering.
+
 **Files:** Create the fixture manifest/cases, `test/watershed/tree/fixtures.gleam`,
 and `test/watershed/shared_tree_fixture_test.gleam`. Extend both oracle generators
 and tests. Add `shared-tree-oracle` and `shared-tree-oracle-check` recipes.
@@ -544,7 +562,7 @@ compares complete normalized observations with the upstream expectation.
 It reports the first differing JSON path and case ID. Domain runners are added
 with the native tasks; no absent runner counts as success.
 
-- [ ] **1. Add strict fixture-reader tests.**
+- [x] **1. Add strict fixture-reader tests.**
 
 ```gleam
 pub fn shared_tree_fixture_missing_case_is_error_test() {
@@ -557,7 +575,7 @@ Add cases for the wrong fixture version, a mismatched reference version, missing
 observations, an empty manifest, and malformed JSON. Confirm failure before
 implementing the reader.
 
-- [ ] **2. Generate the named corpus.**
+- [x] **2. Generate the named corpus.**
 
 Use seeded upstream source helpers to record field algebra and edit-manager
 state. Use complete upstream containers for runtime envelopes and summary
@@ -571,7 +589,7 @@ data, applicable event observations, pending commits, relevant detached content,
 and IDs/history needed by that domain. Avoid requiring the native forest's
 private in-memory layout to match upstream's.
 
-- [ ] **3. Implement fixture checks and reproducible regeneration.**
+- [x] **3. Implement fixture checks and reproducible regeneration.**
 
 `generate --check` generates into an owned temporary directory, compares file
 sets and content, and removes only that directory after inspection. The command
@@ -584,7 +602,7 @@ rtk proxy gleam test --target erlang -- --test-name-filter=shared_tree
 rtk proxy gleam test --target javascript -- --test-name-filter=shared_tree
 ```
 
-- [ ] **4. Review the M0 contract before native implementation.**
+- [x] **4. Review the M0 contract before native implementation.**
 
 Record a coverage table linking the generated codec families, runtime messages,
 summary paths, and service requirements to Tasks 4-16. Identify reachable generic
@@ -597,7 +615,7 @@ behavior in a named task or narrow the supported upstream configuration through
 a supported option and regenerate the corpus. Obtain approval if this changes
 the specification's capabilities.
 
-- [ ] **5. Commit and stop at the review gate.**
+- [x] **5. Commit and stop at the review gate.**
 
 Commit subject: `test(tree): capture wire and merge conformance corpus`.
 

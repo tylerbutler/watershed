@@ -1,0 +1,314 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "provenance": {
+    "source": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    "seed": "watershed-tree-corpus-v1",
+    "epochMilliseconds": 1700000000000,
+    "containerPerformanceMilliseconds": 0,
+    "identityNormalization": "none",
+    "scope": "development-only upstream oracle; real-service preflight is separate"
+  },
+  "inventory": {
+    "codecTree": {
+      "name": "SharedTree",
+      "version": "null",
+      "children": [
+        {
+          "name": "Forest",
+          "version": 2
+        },
+        {
+          "name": "Schema",
+          "version": 2
+        },
+        {
+          "name": "DetachedFieldIndex",
+          "version": 2
+        },
+        {
+          "name": "EditManager",
+          "version": 7,
+          "children": [
+            {
+              "name": "SharedTreeChange",
+              "version": 5,
+              "children": [
+                {
+                  "name": "ModularChange",
+                  "version": 5,
+                  "children": [
+                    {
+                      "name": "FieldKind:Value",
+                      "version": 2
+                    },
+                    {
+                      "name": "FieldKind:Optional",
+                      "version": 2
+                    },
+                    {
+                      "name": "FieldKind:Sequence",
+                      "version": 3
+                    },
+                    {
+                      "name": "FieldKind:Forbidden",
+                      "version": 1
+                    },
+                    {
+                      "name": "FieldKind:Identifier",
+                      "version": 1
+                    }
+                  ]
+                },
+                {
+                  "name": "Schema",
+                  "version": 2
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "Message",
+          "version": 7,
+          "children": [
+            {
+              "name": "SharedTreeChange",
+              "version": 5,
+              "children": [
+                {
+                  "name": "ModularChange",
+                  "version": 5,
+                  "children": [
+                    {
+                      "name": "FieldKind:Value",
+                      "version": 2
+                    },
+                    {
+                      "name": "FieldKind:Optional",
+                      "version": 2
+                    },
+                    {
+                      "name": "FieldKind:Sequence",
+                      "version": 3
+                    },
+                    {
+                      "name": "FieldKind:Forbidden",
+                      "version": 1
+                    },
+                    {
+                      "name": "FieldKind:Identifier",
+                      "version": 1
+                    }
+                  ]
+                },
+                {
+                  "name": "Schema",
+                  "version": 2
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "name": "FieldBatch",
+          "version": 2
+        }
+      ]
+    },
+    "compressorFormat": {
+      "version": 2,
+      "byteOrder": "LE"
+    },
+    "observedFieldKinds": [
+      "ModularEditBuilder.Generic",
+      "Optional",
+      "Value"
+    ],
+    "messages": {
+      "types": [
+        "component",
+        "groupedBatch",
+        "idAllocation",
+        "join",
+        "leave",
+        "noClient",
+        "op",
+        "summarize",
+        "summaryAck"
+      ],
+      "treeVersions": [
+        7
+      ],
+      "fieldKinds": [
+        "ModularEditBuilder.Generic",
+        "Optional",
+        "Value"
+      ]
+    },
+    "treeSummaryMetadata": {
+      "/.metadata": {
+        "version": 2
+      },
+      "/indexes/EditManager/.metadata": {
+        "version": 2
+      },
+      "/indexes/Schema/.metadata": {
+        "version": 2
+      },
+      "/indexes/Forest/.metadata": {
+        "version": 3
+      },
+      "/indexes/DetachedFieldIndex/.metadata": {
+        "version": 2
+      }
+    },
+    "serviceSummaryPaths": [
+      "/.metadata",
+      "/.idCompressor",
+      "/.recentBatchInfo",
+      "/.aliases",
+      "/.channels/A/.component",
+      "/.channels/A/.channels/root/header",
+      "/.channels/A/.channels/root/.attributes",
+      "/.channels/A/.channels/_C/.metadata",
+      "/.channels/A/.channels/_C/.attributes",
+      "/.channels/A/.channels/_C/indexes/EditManager/.metadata",
+      "/.channels/A/.channels/_C/indexes/EditManager/String",
+      "/.channels/A/.channels/_C/indexes/Schema/.metadata",
+      "/.channels/A/.channels/_C/indexes/Schema/SchemaString",
+      "/.channels/A/.channels/_C/indexes/Forest/.metadata",
+      "/.channels/A/.channels/_C/indexes/Forest/contents",
+      "/.channels/A/.channels/_C/indexes/DetachedFieldIndex/.metadata",
+      "/.channels/A/.channels/_C/indexes/DetachedFieldIndex/DetachedFieldIndexBlob",
+      "/gc/__gc_root",
+      "/.protocol/attributes",
+      "/.protocol/quorumMembers",
+      "/.protocol/quorumProposals",
+      "/.protocol/quorumValues"
+    ],
+    "documentSchema": {
+      "version": 1,
+      "refSeq": 0,
+      "info": {
+        "minVersionForCollab": "2.117.0"
+      },
+      "runtime": {
+        "explicitSchemaControl": true,
+        "idCompressorMode": "on",
+        "opGroupingEnabled": true
+      }
+    },
+    "gcMetadataVersion": 3
+  },
+  "nativeSemanticRunners": {
+    "javascript": "not-implemented",
+    "erlang": "not-implemented"
+  },
+  "cases": [
+    {
+      "id": "schema-profile",
+      "domain": "schema",
+      "file": "cases/schema-profile.json"
+    },
+    {
+      "id": "bootstrap-map-handles",
+      "domain": "container",
+      "file": "cases/bootstrap-map-handles.json"
+    },
+    {
+      "id": "independent-fields",
+      "domain": "tree",
+      "file": "cases/independent-fields.json"
+    },
+    {
+      "id": "same-field-both-orders",
+      "domain": "tree",
+      "file": "cases/same-field-both-orders.json"
+    },
+    {
+      "id": "optional-set-clear",
+      "domain": "tree",
+      "file": "cases/optional-set-clear.json"
+    },
+    {
+      "id": "null-and-absence",
+      "domain": "tree",
+      "file": "cases/null-and-absence.json"
+    },
+    {
+      "id": "nested-independent",
+      "domain": "tree",
+      "file": "cases/nested-independent.json"
+    },
+    {
+      "id": "parent-child-both-orders",
+      "domain": "tree",
+      "file": "cases/parent-child-both-orders.json"
+    },
+    {
+      "id": "detached-child-edit",
+      "domain": "tree",
+      "file": "cases/detached-child-edit.json"
+    },
+    {
+      "id": "multiple-pending",
+      "domain": "history",
+      "file": "cases/multiple-pending.json"
+    },
+    {
+      "id": "batched-commits",
+      "domain": "runtime",
+      "file": "cases/batched-commits.json"
+    },
+    {
+      "id": "reconnect-before-ack",
+      "domain": "history",
+      "file": "cases/reconnect-before-ack.json"
+    },
+    {
+      "id": "summary-tail",
+      "domain": "summary",
+      "file": "cases/summary-tail.json"
+    },
+    {
+      "id": "summary-writer-matrix",
+      "domain": "summary",
+      "file": "cases/summary-writer-matrix.json"
+    },
+    {
+      "id": "id-ranges",
+      "domain": "ids",
+      "file": "cases/id-ranges.json"
+    },
+    {
+      "id": "field-compose-invert-rebase",
+      "domain": "field",
+      "file": "cases/field-compose-invert-rebase.json"
+    },
+    {
+      "id": "modular-nested-algebra",
+      "domain": "modular",
+      "file": "cases/modular-nested-algebra.json"
+    },
+    {
+      "id": "history-window",
+      "domain": "history",
+      "file": "cases/history-window.json"
+    },
+    {
+      "id": "unicode-and-numbers",
+      "domain": "values",
+      "file": "cases/unicode-and-numbers.json"
+    },
+    {
+      "id": "invalid-profile",
+      "domain": "invalid",
+      "file": "cases/invalid-profile.json"
+    }
+  ]
+}

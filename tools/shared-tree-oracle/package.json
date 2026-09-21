@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "test": "node --test *.test.mjs",
+    "generate": "node generate.mjs",
+    "check": "node generate.mjs --check",
     "source:prepare": "node source.mjs prepare",
     "source:verify": "node source.mjs verify",
     "source:capture": "node source.mjs generate",

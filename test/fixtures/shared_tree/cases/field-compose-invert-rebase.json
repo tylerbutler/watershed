@@ -1,0 +1,652 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "field-compose-invert-rebase",
+  "domain": "field",
+  "input": {
+    "codecs": {
+      "optional": 2,
+      "required": 2
+    },
+    "revisions": {
+      "first": 0,
+      "second": 1,
+      "inverse": 2,
+      "replacement": 3
+    },
+    "changes": {
+      "optional": {
+        "r": {
+          "e": true,
+          "d": 1,
+          "s": 0
+        }
+      },
+      "required": {
+        "r": {
+          "e": false,
+          "d": 3,
+          "s": 2
+        }
+      },
+      "swap": {
+        "m": [
+          [
+            4,
+            5
+          ],
+          [
+            5,
+            4
+          ]
+        ]
+      }
+    },
+    "operations": {
+      "compose": {
+        "left": "optional",
+        "right": "required",
+        "revisionMetadata": {
+          "revisions": [
+            0,
+            1
+          ],
+          "base": 1,
+          "rollbackRevisions": [
+            0
+          ]
+        }
+      },
+      "invert": {
+        "change": "compose",
+        "isRollback": false,
+        "inverseRevision": 2
+      },
+      "rebase": {
+        "change": "required",
+        "over": "optional"
+      },
+      "replaceRevisions": {
+        "change": "swap",
+        "obsolete": [
+          0,
+          1
+        ],
+        "updated": 3
+      }
+    },
+    "swapApplication": {
+      "operation": "apply-original-simultaneous-swap",
+      "revision": 0,
+      "registers": [
+        {
+          "id": {
+            "revision": 0,
+            "localId": 4
+          },
+          "content": "register-four"
+        },
+        {
+          "id": {
+            "revision": 0,
+            "localId": 5
+          },
+          "content": "register-five"
+        }
+      ]
+    },
+    "swapAlgebra": {
+      "operation": "rebase-child-changes-over-simultaneous-swap",
+      "change": {
+        "moves": [],
+        "childChanges": [
+          [
+            {
+              "revision": 0,
+              "localId": 4
+            },
+            {
+              "revision": 0,
+              "localId": 40
+            }
+          ],
+          [
+            {
+              "revision": 0,
+              "localId": 5
+            },
+            {
+              "revision": 0,
+              "localId": 41
+            }
+          ]
+        ]
+      },
+      "over": {
+        "moves": [
+          [
+            {
+              "revision": 0,
+              "localId": 4
+            },
+            {
+              "revision": 0,
+              "localId": 5
+            }
+          ],
+          [
+            {
+              "revision": 0,
+              "localId": 5
+            },
+            {
+              "revision": 0,
+              "localId": 4
+            }
+          ]
+        ],
+        "childChanges": []
+      }
+    }
+  },
+  "expected": {
+    "observations": [
+      {
+        "operation": "compose",
+        "encoded": {
+          "m": [
+            [
+              [
+                0,
+                0
+              ],
+              3
+            ]
+          ],
+          "r": {
+            "e": true,
+            "d": [
+              1,
+              0
+            ],
+            "s": 2
+          }
+        }
+      },
+      {
+        "operation": "invert",
+        "encoded": {
+          "m": [
+            [
+              [
+                3,
+                1
+              ],
+              [
+                0,
+                0
+              ]
+            ]
+          ],
+          "r": {
+            "e": false,
+            "d": 0
+          }
+        }
+      },
+      {
+        "operation": "rebase",
+        "encoded": {
+          "r": {
+            "e": false,
+            "d": 3,
+            "s": 2
+          }
+        }
+      },
+      {
+        "operation": "simultaneous-swap",
+        "encoded": {
+          "m": [
+            [
+              4,
+              5
+            ],
+            [
+              5,
+              4
+            ]
+          ]
+        }
+      },
+      {
+        "operation": "simultaneous-swap-direct-application-refusal",
+        "status": "rejected",
+        "error": "Error: 0x7cf",
+        "postFailureForestRead": {
+          "status": "accepted",
+          "value": {
+            "first": "register-four",
+            "second": "register-five"
+          }
+        }
+      },
+      {
+        "operation": "simultaneous-swap-algebra-mapping",
+        "mappings": [
+          {
+            "node": {
+              "revision": 0,
+              "localId": 40
+            },
+            "from": {
+              "revision": 0,
+              "localId": 4
+            },
+            "to": {
+              "revision": 0,
+              "localId": 5
+            }
+          },
+          {
+            "node": {
+              "revision": 0,
+              "localId": 41
+            },
+            "from": {
+              "revision": 0,
+              "localId": 5
+            },
+            "to": {
+              "revision": 0,
+              "localId": 4
+            }
+          }
+        ]
+      },
+      {
+        "operation": "replace-revisions",
+        "encoded": {
+          "m": [
+            [
+              4,
+              5
+            ],
+            [
+              5,
+              4
+            ]
+          ]
+        }
+      }
+    ]
+  },
+  "raw": {
+    "changes": {
+      "setOptional": {
+        "moves": [],
+        "childChanges": [],
+        "valueReplace": {
+          "isEmpty": true,
+          "src": {
+            "revision": 0,
+            "localId": 0
+          },
+          "dst": {
+            "revision": 0,
+            "localId": 1
+          }
+        }
+      },
+      "setRequired": {
+        "moves": [],
+        "childChanges": [],
+        "valueReplace": {
+          "isEmpty": false,
+          "src": {
+            "revision": 1,
+            "localId": 2
+          },
+          "dst": {
+            "revision": 1,
+            "localId": 3
+          }
+        }
+      },
+      "swap": {
+        "moves": [
+          [
+            {
+              "revision": 0,
+              "localId": 4
+            },
+            {
+              "revision": 0,
+              "localId": 5
+            }
+          ],
+          [
+            {
+              "revision": 0,
+              "localId": 5
+            },
+            {
+              "revision": 0,
+              "localId": 4
+            }
+          ]
+        ],
+        "childChanges": []
+      },
+      "composed": {
+        "moves": [
+          [
+            {
+              "revision": 0,
+              "localId": 0
+            },
+            {
+              "revision": 1,
+              "localId": 3
+            }
+          ]
+        ],
+        "childChanges": [],
+        "valueReplace": {
+          "isEmpty": true,
+          "dst": {
+            "revision": 0,
+            "localId": 1
+          },
+          "src": {
+            "revision": 1,
+            "localId": 2
+          }
+        }
+      },
+      "inverted": {
+        "moves": [
+          [
+            {
+              "revision": 1,
+              "localId": 3
+            },
+            {
+              "revision": 0,
+              "localId": 0
+            }
+          ]
+        ],
+        "childChanges": [],
+        "valueReplace": {
+          "isEmpty": false,
+          "dst": {
+            "localId": 0,
+            "revision": 2
+          }
+        }
+      },
+      "rebased": {
+        "moves": [],
+        "childChanges": [],
+        "valueReplace": {
+          "isEmpty": false,
+          "dst": {
+            "revision": 1,
+            "localId": 3
+          },
+          "src": {
+            "revision": 1,
+            "localId": 2
+          }
+        }
+      },
+      "replaced": {
+        "childChanges": [],
+        "moves": [
+          [
+            {
+              "revision": 3,
+              "localId": 4
+            },
+            {
+              "revision": 3,
+              "localId": 5
+            }
+          ],
+          [
+            {
+              "revision": 3,
+              "localId": 5
+            },
+            {
+              "revision": 3,
+              "localId": 4
+            }
+          ]
+        ]
+      }
+    },
+    "encoded": {
+      "optional": {
+        "r": {
+          "e": true,
+          "d": 1,
+          "s": 0
+        }
+      },
+      "required": {
+        "r": {
+          "e": false,
+          "d": 3,
+          "s": 2
+        }
+      },
+      "compose": {
+        "m": [
+          [
+            [
+              0,
+              0
+            ],
+            3
+          ]
+        ],
+        "r": {
+          "e": true,
+          "d": [
+            1,
+            0
+          ],
+          "s": 2
+        }
+      },
+      "invert": {
+        "m": [
+          [
+            [
+              3,
+              1
+            ],
+            [
+              0,
+              0
+            ]
+          ]
+        ],
+        "r": {
+          "e": false,
+          "d": 0
+        }
+      },
+      "rebase": {
+        "r": {
+          "e": false,
+          "d": 3,
+          "s": 2
+        }
+      },
+      "swap": {
+        "m": [
+          [
+            4,
+            5
+          ],
+          [
+            5,
+            4
+          ]
+        ]
+      },
+      "replacedSwap": {
+        "m": [
+          [
+            4,
+            5
+          ],
+          [
+            5,
+            4
+          ]
+        ]
+      }
+    },
+    "swapApplication": {
+      "sourceDelta": {
+        "rename": [
+          {
+            "count": 1,
+            "oldId": {
+              "minor": 4,
+              "major": 0
+            },
+            "newId": {
+              "minor": 5,
+              "major": 0
+            }
+          },
+          {
+            "count": 1,
+            "oldId": {
+              "minor": 5,
+              "major": 0
+            },
+            "newId": {
+              "minor": 4,
+              "major": 0
+            }
+          }
+        ]
+      },
+      "before": {
+        "registers": [
+          "register-four",
+          "register-five"
+        ],
+        "detachedIndex": [
+          {
+            "id": {
+              "major": 0,
+              "minor": 4
+            },
+            "root": 0,
+            "latestRelevantRevision": 0
+          },
+          {
+            "id": {
+              "major": 0,
+              "minor": 5
+            },
+            "root": 1,
+            "latestRelevantRevision": 0
+          }
+        ]
+      },
+      "refusal": {
+        "status": "rejected",
+        "error": "Error: 0x7cf"
+      },
+      "postFailureForestRead": {
+        "status": "accepted",
+        "value": {
+          "first": "register-four",
+          "second": "register-five"
+        }
+      },
+      "detachedIndexAfterRefusal": [
+        {
+          "id": {
+            "major": 0,
+            "minor": 4
+          },
+          "root": 0,
+          "latestRelevantRevision": 0
+        },
+        {
+          "id": {
+            "major": 0,
+            "minor": 5
+          },
+          "root": 1,
+          "latestRelevantRevision": 0
+        }
+      ]
+    },
+    "swapAlgebra": {
+      "rebased": {
+        "moves": [],
+        "childChanges": [
+          [
+            {
+              "revision": 0,
+              "localId": 5
+            },
+            {
+              "revision": 0,
+              "localId": 40
+            }
+          ],
+          [
+            {
+              "revision": 0,
+              "localId": 4
+            },
+            {
+              "revision": 0,
+              "localId": 41
+            }
+          ]
+        ]
+      },
+      "callbacks": [
+        {
+          "node": {
+            "revision": 0,
+            "localId": 40
+          },
+          "over": null,
+          "state": 1
+        },
+        {
+          "node": {
+            "revision": 0,
+            "localId": 41
+          },
+          "over": null,
+          "state": 1
+        }
+      ]
+    },
+    "revisionReplacement": {
+      "obsolete": [
+        0,
+        1
+      ],
+      "updated": 3
+    }
+  }
+}

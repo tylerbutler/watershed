@@ -1,0 +1,997 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "batched-commits",
+  "domain": "runtime",
+  "input": {
+    "service": "LocalDeltaConnectionServer",
+    "runtimeProfile": {
+      "oldestSupportedClient": "2.117.0",
+      "enableRuntimeIdCompressor": "on",
+      "compressionOptions": {
+        "minimumBatchSizeInBytes": "Infinity",
+        "compressionAlgorithm": "lz4"
+      },
+      "opGroupingEnabled": true,
+      "summaryConfiguration": "dedicated-summarizer-disable-heuristics"
+    },
+    "schedules": [
+      {
+        "id": "three-tree-commits-one-runtime-batch",
+        "steps": [
+          {
+            "edit": "set title, enabled, and rating inside runtime.orderSequentially"
+          },
+          {
+            "deliver": "one grouped outer operation"
+          },
+          {
+            "check": "record outer sequence number and each inner position"
+          }
+        ]
+      }
+    ],
+    "decoderInput": {
+      "initialSnapshot": {
+        "version": {
+          "id": "700e0d0c-fbe3-4a3b-add8-142371b5c167",
+          "treeId": "700e0d0c-fbe3-4a3b-add8-142371b5c167"
+        },
+        "tree": {
+          "id": "700e0d0c-fbe3-4a3b-add8-142371b5c167",
+          "blobs": {
+            ".metadata": "c005629ce475932371e954d572f0a537e64421e6",
+            ".idCompressor": "812e9abea1b272062d81fb08487272f1980ef3db",
+            ".aliases": "b7eaed263a0416d12ecdf6d32ab66449588d8740"
+          },
+          "trees": {
+            ".channels": {
+              "id": "88c80bf9-6446-421c-976b-698b7fdba6ea",
+              "blobs": {},
+              "commits": {},
+              "trees": {
+                "A": {
+                  "id": "7784ab3a-70e3-4007-989b-ff6c96d89ad6",
+                  "blobs": {
+                    ".component": "5abb699d683d484ef9704d143f896c09b0415d1f"
+                  },
+                  "commits": {},
+                  "trees": {
+                    ".channels": {
+                      "id": "f919a1e4-c28e-4610-8e74-340c90a9cdb3",
+                      "blobs": {},
+                      "commits": {},
+                      "trees": {
+                        "root": {
+                          "id": "331fed19-ea5d-4bed-b025-2075deb11bca",
+                          "blobs": {
+                            "header": "5d01ff212536d2276a2aefa0e4a4daa9f15df513",
+                            ".attributes": "70bdb34dc708303244e40538850ab26963c6a6ae"
+                          },
+                          "commits": {},
+                          "trees": {}
+                        },
+                        "_C": {
+                          "id": "7f90956b-fd60-4147-a5bd-20b071b42d91",
+                          "blobs": {
+                            ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                            ".attributes": "8f145888a8de06e36d34a81b141bb9ce3a7dce4c"
+                          },
+                          "commits": {},
+                          "trees": {
+                            "indexes": {
+                              "id": "013ee3b4-cc87-4f99-899e-67d03b668598",
+                              "blobs": {},
+                              "commits": {},
+                              "trees": {
+                                "EditManager": {
+                                  "id": "2a561a3d-2052-4d29-85f9-5f91c5390b02",
+                                  "blobs": {
+                                    ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                    "String": "d1c9478cdcf5d0921ca7851cf38f9b557ae3ac5f"
+                                  },
+                                  "commits": {},
+                                  "trees": {}
+                                },
+                                "Schema": {
+                                  "id": "cd59b6ab-195a-4a8e-a0fb-23284e58588b",
+                                  "blobs": {
+                                    ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                    "SchemaString": "f21b6b415257ad3295f356a2dff68f2a2e7c7767"
+                                  },
+                                  "commits": {},
+                                  "trees": {}
+                                },
+                                "Forest": {
+                                  "id": "46e04f00-bc72-413c-9a98-e523af5e4b7c",
+                                  "blobs": {
+                                    ".metadata": "f93d3984472d9905af008117584103f3768bd1f9",
+                                    "contents": "e7d6503cb3e6156e1bbc81e3993961722008f4a9"
+                                  },
+                                  "commits": {},
+                                  "trees": {}
+                                },
+                                "DetachedFieldIndex": {
+                                  "id": "210c003c-8b45-4735-8ac0-c0368d1a5334",
+                                  "blobs": {
+                                    ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                    "DetachedFieldIndexBlob": "8e202fd7762bd1d60b8ecf33ba8b849815161ea8"
+                                  },
+                                  "commits": {},
+                                  "trees": {}
+                                }
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            ".protocol": {
+              "id": "9fb1a500-edb4-498c-b20b-6f9f17638359",
+              "blobs": {
+                "quorumMembers": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
+                "quorumProposals": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
+                "quorumValues": "a94b9eab69689a0fdc0616c9465c8e39fbaeb179",
+                "attributes": "0050eb3b8e41f9ecdf14c2aa21706018474c3b78"
+              },
+              "commits": {},
+              "trees": {}
+            }
+          }
+        },
+        "blobs": {
+          "c005629ce475932371e954d572f0a537e64421e6": "eyJjcmVhdGVDb250YWluZXJSdW50aW1lVmVyc2lvbiI6IjMuMS4wIiwiY3JlYXRlQ29udGFpbmVyVGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJzdW1tYXJ5TnVtYmVyIjoxLCJzdW1tYXJ5Rm9ybWF0VmVyc2lvbiI6MSwiZ2NGZWF0dXJlIjozLCJzZXNzaW9uRXhwaXJ5VGltZW91dE1zIjoyNTkyMDAwMDAwLCJzd2VlcEVuYWJsZWQiOmZhbHNlLCJ0b21ic3RvbmVUaW1lb3V0TXMiOjMxMTA0MDAwMDAsInRlbGVtZXRyeURvY3VtZW50SWQiOiIxMWU4MTA0NC0yYTc1LTQzYWUtYWRjZS05MTRlMGI4NTk3YWQiLCJtZXNzYWdlIjp7InNlcXVlbmNlTnVtYmVyIjotMX0sImRvY3VtZW50U2NoZW1hIjp7InZlcnNpb24iOjEsInJlZlNlcSI6MCwiaW5mbyI6eyJtaW5WZXJzaW9uRm9yQ29sbGFiIjoiMi4xMTcuMCJ9LCJydW50aW1lIjp7ImV4cGxpY2l0U2NoZW1hQ29udHJvbCI6dHJ1ZSwiaWRDb21wcmVzc29yTW9kZSI6Im9uIiwib3BHcm91cGluZ0VuYWJsZWQiOnRydWV9fX0=",
+          "812e9abea1b272062d81fb08487272f1980ef3db": "IkFBQUFBQUFBQUVBQUFBQUFBQUFBQUFBQUFBQUFBUEEvQUFBQUFBQUE4RDl6KzF2RDNpSVdPVkUzWUQxYnV6UUFBQUFBQUFBQUFBQUFBQUFBQUFpQVFBQUFBQUFBQVBBLyI=",
+          "b7eaed263a0416d12ecdf6d32ab66449588d8740": "W1sicm9vdCIsIkEiXV0=",
+          "5abb699d683d484ef9704d143f896c09b0415d1f": "eyJwa2ciOiJbXCJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLmJvb3RzdHJhcFwiXSIsInN1bW1hcnlGb3JtYXRWZXJzaW9uIjoyLCJpc1Jvb3REYXRhU3RvcmUiOnRydWV9",
+          "5d01ff212536d2276a2aefa0e4a4daa9f15df513": "eyJibG9icyI6W10sImNvbnRlbnQiOnsidHJlZSI6eyJ0eXBlIjoiUGxhaW4iLCJ2YWx1ZSI6eyJ0eXBlIjoiX19mbHVpZF9oYW5kbGVfXyIsInVybCI6Ii9BL19DIn19fX0=",
+          "70bdb34dc708303244e40538850ab26963c6a6ae": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL21hcCIsInNuYXBzaG90Rm9ybWF0VmVyc2lvbiI6IjAuMiIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+          "218abba1699bfa0eb8016a25bffa0508ee592ab2": "eyJ2ZXJzaW9uIjoyfQ==",
+          "8f145888a8de06e36d34a81b141bb9ce3a7dce4c": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL3RyZWUiLCJzbmFwc2hvdEZvcm1hdFZlcnNpb24iOiIwLjAuMCIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+          "d1c9478cdcf5d0921ca7851cf38f9b557ae3ac5f": "eyJ0cnVuayI6W10sImJyYW5jaGVzIjpbXSwidmVyc2lvbiI6N30=",
+          "f21b6b415257ad3295f356a2dff68f2a2e7c7767": "eyJ2ZXJzaW9uIjoyLCJub2RlcyI6eyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5ib29sZWFuIjp7ImtpbmQiOnsibGVhZiI6Mn19LCJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIjp7ImtpbmQiOnsibGVhZiI6NH19LCJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udW1iZXIiOnsia2luZCI6eyJsZWFmIjowfX0sImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyI6eyJraW5kIjp7ImxlYWYiOjF9fSwib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCI6eyJraW5kIjp7Im9iamVjdCI6eyJ4Ijp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciJdfSwieSI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udW1iZXIiXX19fX0sIm9yZy53YXRlcnNoZWQuc2hhcmVkLXRyZWUubTEuUm9vdCI6eyJraW5kIjp7Im9iamVjdCI6eyJlbmFibGVkIjp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLmJvb2xlYW4iXX0sIm1hcmtlciI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIl19LCJub3RlIjp7ImtpbmQiOiJPcHRpb25hbCIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyJdfSwicG9pbnQiOnsia2luZCI6IlZhbHVlIiwidHlwZXMiOlsib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCJdfSwicmF0aW5nIjp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciJdfSwidGl0bGUiOnsia2luZCI6IlZhbHVlIiwidHlwZXMiOlsiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYuc3RyaW5nIl19fX19fSwicm9vdCI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLlJvb3QiXX19",
+          "f93d3984472d9905af008117584103f3768bd1f9": "eyJ2ZXJzaW9uIjozfQ==",
+          "e7d6503cb3e6156e1bbc81e3993961722008f4a9": "eyJrZXlzIjpbInJvb3RGaWVsZEtleSJdLCJmaWVsZHMiOnsidmVyc2lvbiI6MiwiaWRlbnRpZmllcnMiOltdLCJzaGFwZXMiOlt7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciIsInZhbHVlIjp0cnVlfX0seyJjIjp7InR5cGUiOiJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5zdHJpbmciLCJ2YWx1ZSI6dHJ1ZX19LHsiYyI6eyJ0eXBlIjoib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Sb290IiwidmFsdWUiOmZhbHNlLCJmaWVsZHMiOltbInRpdGxlIiwxXSxbImVuYWJsZWQiLDNdLFsicmF0aW5nIiwwXSxbIm1hcmtlciIsNF0sWyJub3RlIiw1XSxbInBvaW50Iiw2XV19fSx7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLmJvb2xlYW4iLCJ2YWx1ZSI6dHJ1ZX19LHsiYyI6eyJ0eXBlIjoiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYubnVsbCIsInZhbHVlIjpbbnVsbF19fSx7ImEiOjF9LHsiYyI6eyJ0eXBlIjoib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCIsInZhbHVlIjpmYWxzZSwiZmllbGRzIjpbWyJ4IiwwXSxbInkiLDBdXX19XSwiZGF0YSI6W1syLCIiLGZhbHNlLDAsMCwwLDBdXX0sInZlcnNpb24iOjJ9",
+          "8e202fd7762bd1d60b8ecf33ba8b849815161ea8": "eyJ2ZXJzaW9uIjoyLCJkYXRhIjpbXSwibWF4SWQiOjB9",
+          "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc": "W10=",
+          "a94b9eab69689a0fdc0616c9465c8e39fbaeb179": "W1siY29kZSIseyJrZXkiOiJjb2RlIiwidmFsdWUiOnsicGFja2FnZSI6IndhdGVyc2hlZC10cmVlLW9yYWNsZSJ9LCJhcHByb3ZhbFNlcXVlbmNlTnVtYmVyIjowLCJjb21taXRTZXF1ZW5jZU51bWJlciI6MCwic2VxdWVuY2VOdW1iZXIiOjB9XV0=",
+          "0050eb3b8e41f9ecdf14c2aa21706018474c3b78": "eyJtaW5pbXVtU2VxdWVuY2VOdW1iZXIiOjAsInNlcXVlbmNlTnVtYmVyIjowfQ=="
+        },
+        "blobEncoding": "base64"
+      },
+      "groupedWireMessages": [
+        {
+          "clientId": "3966f62e-8d91-4c3a-9675-3b760f14be63",
+          "clientSequenceNumber": 1,
+          "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"ids\":{\"firstGenCount\":2,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true,\"batchId\":\"fb880d34-1aa4-443b-9707-d168d8a5768f_[1]\"}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":1,\"originatorId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"batched\"]]}}}}],\"version\":7}},\"type\":\"op\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":2,\"originatorId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"changeset\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"enabled\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":4,\"s\":3}}}]}]]}],\"builds\":{\"builds\":[[[[3,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.boolean\",\"value\":true}}],\"data\":[[0,true]]}}}}],\"version\":7}},\"type\":\"op\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":3,\"originatorId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"changeset\":[{\"data\":{\"maxId\":8,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"rating\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":7,\"s\":6}}}]}]]}],\"builds\":{\"builds\":[[[[6,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}}],\"data\":[[0,3]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+          "metadata": {
+            "batchId": "fb880d34-1aa4-443b-9707-d168d8a5768f_[1]",
+            "groupedOpCount": 4
+          },
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": 2,
+          "sequenceNumber": 3,
+          "timestamp": 1700000000000,
+          "type": "op",
+          "expHash1": "235047bb",
+          "traces": []
+        }
+      ]
+    }
+  },
+  "expected": {
+    "observations": [
+      {
+        "checkpoint": "local-after-batch",
+        "root": {
+          "title": "batched",
+          "enabled": true,
+          "rating": 3,
+          "marker": null,
+          "point": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      },
+      {
+        "checkpoint": "peer-after-delivery",
+        "root": {
+          "title": "batched",
+          "enabled": true,
+          "rating": 3,
+          "marker": null,
+          "point": {
+            "x": 0,
+            "y": 0
+          }
+        }
+      }
+    ]
+  },
+  "raw": {
+    "messages": [
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 1,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "join",
+        "data": "{\"clientId\":\"e4268f12-8c96-400d-ac32-58903a6aec70\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:86d33de4-24a6-4c26-aa00-b1742dccc117\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"432ba8db-7831-4d99-a6ed-c2877912eb9b\",\"name\":\"432ba8db-7831\"}}}",
+        "expHash1": "6a62296e"
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 2,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "join",
+        "data": "{\"clientId\":\"3966f62e-8d91-4c3a-9675-3b760f14be63\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:0f796255-b8e4-4278-a445-4c3e1c81acf6\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"6b9ee8be-81b3-4333-8c83-6d8496e428ed\",\"name\":\"6b9ee8be-81b3\"}}}",
+        "expHash1": "-8eff0cc"
+      },
+      {
+        "clientId": "3966f62e-8d91-4c3a-9675-3b760f14be63",
+        "clientSequenceNumber": 1,
+        "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"ids\":{\"firstGenCount\":2,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true,\"batchId\":\"fb880d34-1aa4-443b-9707-d168d8a5768f_[1]\"}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":1,\"originatorId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"batched\"]]}}}}],\"version\":7}},\"type\":\"op\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":2,\"originatorId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"changeset\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"enabled\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":4,\"s\":3}}}]}]]}],\"builds\":{\"builds\":[[[[3,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.boolean\",\"value\":true}}],\"data\":[[0,true]]}}}}],\"version\":7}},\"type\":\"op\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":3,\"originatorId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"changeset\":[{\"data\":{\"maxId\":8,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"rating\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":7,\"s\":6}}}]}]]}],\"builds\":{\"builds\":[[[[6,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}}],\"data\":[[0,3]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+        "metadata": {
+          "batchId": "fb880d34-1aa4-443b-9707-d168d8a5768f_[1]",
+          "groupedOpCount": 4
+        },
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 2,
+        "sequenceNumber": 3,
+        "timestamp": 1700000000000,
+        "type": "op",
+        "expHash1": "235047bb",
+        "traces": []
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": null,
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 4,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "join",
+        "data": "{\"clientId\":\"0260e5de-609f-4fb2-87bb-b93a9e765233\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":false},\"type\":\"summarizer\",\"environment\":\"; loaderVersion:3.1.0; containerId:da8347d9-a9b6-48bf-9a4e-35a657d0c27f\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\",\"summary:write\"],\"user\":{\"id\":\"78a4466d-f948-477e-b798-faaea7e19073\",\"name\":\"78a4466d-f948\"}}}",
+        "expHash1": "41b920aa"
+      },
+      {
+        "clientId": "0260e5de-609f-4fb2-87bb-b93a9e765233",
+        "clientSequenceNumber": 1,
+        "contents": "{\"handle\":\"e9039425-4ab6-4741-9c89-c56b6d26466a\",\"head\":\"700e0d0c-fbe3-4a3b-add8-142371b5c167\",\"message\":\"Summary @4:0\",\"parents\":[\"700e0d0c-fbe3-4a3b-add8-142371b5c167\"],\"details\":{\"includesProtocolTree\":false}}",
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 4,
+        "sequenceNumber": 5,
+        "timestamp": 1700000000000,
+        "type": "summarize",
+        "additionalContent": "{\"clients\":[{\"canEvict\":true,\"clientId\":\"e4268f12-8c96-400d-ac32-58903a6aec70\",\"clientSequenceNumber\":0,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":0,\"scopes\":[\"doc:read\",\"doc:write\"]},{\"canEvict\":true,\"clientId\":\"3966f62e-8d91-4c3a-9675-3b760f14be63\",\"clientSequenceNumber\":1,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":2,\"scopes\":[\"doc:read\",\"doc:write\"]},{\"canEvict\":true,\"clientId\":\"0260e5de-609f-4fb2-87bb-b93a9e765233\",\"clientSequenceNumber\":1,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":4,\"scopes\":[\"doc:read\",\"doc:write\",\"summary:write\"]}],\"durableSequenceNumber\":0,\"expHash1\":\"41b920aa\",\"logOffset\":4,\"sequenceNumber\":5,\"signalClientConnectionNumber\":0,\"lastSentMSN\":0,\"nackMessages\":[],\"checkpointTimestamp\":1700000000000}",
+        "expHash1": "-42b9a57c",
+        "traces": []
+      },
+      {
+        "clientId": null,
+        "clientSequenceNumber": -1,
+        "contents": {
+          "handle": "3e7a9fd8-b2cf-4a35-a044-d449665e5bcd",
+          "summaryProposal": {
+            "summarySequenceNumber": 5
+          }
+        },
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": -1,
+        "sequenceNumber": 6,
+        "timestamp": 1700000000000,
+        "traces": [],
+        "type": "summaryAck",
+        "data": "{\"handle\":\"3e7a9fd8-b2cf-4a35-a044-d449665e5bcd\",\"summaryProposal\":{\"summarySequenceNumber\":5}}",
+        "expHash1": "746fe200"
+      }
+    ],
+    "snapshot": {
+      "version": {
+        "id": "3e7a9fd8-b2cf-4a35-a044-d449665e5bcd",
+        "treeId": "3e7a9fd8-b2cf-4a35-a044-d449665e5bcd"
+      },
+      "tree": {
+        "id": "3e7a9fd8-b2cf-4a35-a044-d449665e5bcd",
+        "blobs": {
+          ".metadata": "4a0ca8eab46061826bbad0b77ed12aeafd81ef10",
+          ".idCompressor": "75e18a2cafa6b5671b0098be29b59fdf67067c32",
+          ".recentBatchInfo": "87a4107ca873b5ed1713f898e20885e6f8bcd7cb",
+          ".aliases": "b7eaed263a0416d12ecdf6d32ab66449588d8740"
+        },
+        "trees": {
+          ".channels": {
+            "id": "12d1c3e1-d131-451b-a0ab-509313a96b46",
+            "blobs": {},
+            "commits": {},
+            "trees": {
+              "A": {
+                "id": "07b7e09b-937b-4ca2-b97c-95b3a77be770",
+                "blobs": {
+                  ".component": "5abb699d683d484ef9704d143f896c09b0415d1f"
+                },
+                "commits": {},
+                "trees": {
+                  ".channels": {
+                    "id": "eaf59afa-f266-490b-8405-62cd3d291a17",
+                    "blobs": {},
+                    "commits": {},
+                    "trees": {
+                      "root": {
+                        "id": "6e642e38-cf17-4e62-bd39-a0f6dd1bdf4a",
+                        "blobs": {
+                          "header": "5d01ff212536d2276a2aefa0e4a4daa9f15df513",
+                          ".attributes": "70bdb34dc708303244e40538850ab26963c6a6ae"
+                        },
+                        "commits": {},
+                        "trees": {}
+                      },
+                      "_C": {
+                        "id": "0f15c276-8dd0-4545-8094-cc4de5945023",
+                        "blobs": {
+                          ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                          ".attributes": "8f145888a8de06e36d34a81b141bb9ce3a7dce4c"
+                        },
+                        "commits": {},
+                        "trees": {
+                          "indexes": {
+                            "id": "8e590999-a5f3-469d-8be8-2f6c4a4fab9c",
+                            "blobs": {},
+                            "commits": {},
+                            "trees": {
+                              "EditManager": {
+                                "id": "4e4d68ca-19e8-4c9e-ab80-27f2b5300f0d",
+                                "blobs": {
+                                  ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                  "String": "f8aa6f6bbbfcc88d842aa299567102c8b4a9c61a"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              },
+                              "Schema": {
+                                "id": "9ad3a0a5-935e-4933-b5b4-f73f04c2a546",
+                                "blobs": {
+                                  ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                  "SchemaString": "f21b6b415257ad3295f356a2dff68f2a2e7c7767"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              },
+                              "Forest": {
+                                "id": "5e593dc4-f9ff-4348-934a-8845f4ac29c8",
+                                "blobs": {
+                                  ".metadata": "f93d3984472d9905af008117584103f3768bd1f9",
+                                  "contents": "f52084001fcea6cca8d5e36e166da929d01cd2db"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              },
+                              "DetachedFieldIndex": {
+                                "id": "f55fed8a-dbb9-47b6-9afc-220b200cc77b",
+                                "blobs": {
+                                  ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                  "DetachedFieldIndexBlob": "ddbccd28a308ab7fca2fc3a5beb33fad01e75b8c"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          "gc": {
+            "id": "b73dcfd0-2761-458d-8a4e-4c93305deedb",
+            "blobs": {
+              "__gc_root": "05831b70119c0995ccc86bea033e7f1bacce6575"
+            },
+            "commits": {},
+            "trees": {}
+          },
+          ".protocol": {
+            "id": "a870acda-6254-4e40-817d-bcf05c9d982e",
+            "blobs": {
+              "quorumMembers": "1a0a816d7a37b1fcc6450919002cf0141d01ddf9",
+              "quorumProposals": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
+              "quorumValues": "a94b9eab69689a0fdc0616c9465c8e39fbaeb179",
+              "attributes": "6d8b6db82a97f11a18751027ff24457a68f8354d"
+            },
+            "commits": {},
+            "trees": {}
+          },
+          ".logTail": {
+            "id": "387c5707-d636-497f-a058-fc089bb2591c",
+            "blobs": {
+              "logTail": "e343c8738f5d3671f329a203a26605499ef0e6c9"
+            },
+            "commits": {},
+            "trees": {}
+          },
+          ".serviceProtocol": {
+            "id": "cf11a034-8179-493a-8a92-91f4b1ae83f2",
+            "blobs": {
+              "deli": "4d9ab2dd0e6bdeb22e527457a3722cf2748b1b89",
+              "scribe": "ba4dfc3066beda131238ff16a0576214abcf987e"
+            },
+            "commits": {},
+            "trees": {}
+          }
+        }
+      },
+      "blobs": {
+        "4a0ca8eab46061826bbad0b77ed12aeafd81ef10": "eyJjcmVhdGVDb250YWluZXJSdW50aW1lVmVyc2lvbiI6IjMuMS4wIiwiY3JlYXRlQ29udGFpbmVyVGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJzdW1tYXJ5TnVtYmVyIjoyLCJzdW1tYXJ5Rm9ybWF0VmVyc2lvbiI6MSwiZ2NGZWF0dXJlIjozLCJzZXNzaW9uRXhwaXJ5VGltZW91dE1zIjoyNTkyMDAwMDAwLCJzd2VlcEVuYWJsZWQiOmZhbHNlLCJ0b21ic3RvbmVUaW1lb3V0TXMiOjMxMTA0MDAwMDAsInRlbGVtZXRyeURvY3VtZW50SWQiOiIxMWU4MTA0NC0yYTc1LTQzYWUtYWRjZS05MTRlMGI4NTk3YWQiLCJtZXNzYWdlIjp7InNlcXVlbmNlTnVtYmVyIjotMX0sImxhc3RNZXNzYWdlIjp7ImNsaWVudElkIjpudWxsLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6LTEsIm1pbmltdW1TZXF1ZW5jZU51bWJlciI6MCwicmVmZXJlbmNlU2VxdWVuY2VOdW1iZXIiOi0xLCJzZXF1ZW5jZU51bWJlciI6NCwidGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJ0eXBlIjoiam9pbiJ9LCJkb2N1bWVudFNjaGVtYSI6eyJ2ZXJzaW9uIjoxLCJyZWZTZXEiOjAsImluZm8iOnsibWluVmVyc2lvbkZvckNvbGxhYiI6IjIuMTE3LjAifSwicnVudGltZSI6eyJleHBsaWNpdFNjaGVtYUNvbnRyb2wiOnRydWUsImlkQ29tcHJlc3Nvck1vZGUiOiJvbiIsIm9wR3JvdXBpbmdFbmFibGVkIjp0cnVlfX19",
+        "75e18a2cafa6b5671b0098be29b59fdf67067c32": "IkFBQUFBQUFBQUVBQUFBQUFBQUFBQUFBQUFBQUFBUEEvQUFBQUFBQUE4RDl6KzF2RDNpSVdPVkUzWUQxYnV6UUFBQUFBQUFBQUFBQUFBQUFBQUFpQVFBQUFBQUFBQUJCQSI=",
+        "87a4107ca873b5ed1713f898e20885e6f8bcd7cb": "W1szLCJmYjg4MGQzNC0xYWE0LTQ0M2ItOTcwNy1kMTY4ZDhhNTc2OGZfWzFdIl1d",
+        "b7eaed263a0416d12ecdf6d32ab66449588d8740": "W1sicm9vdCIsIkEiXV0=",
+        "5abb699d683d484ef9704d143f896c09b0415d1f": "eyJwa2ciOiJbXCJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLmJvb3RzdHJhcFwiXSIsInN1bW1hcnlGb3JtYXRWZXJzaW9uIjoyLCJpc1Jvb3REYXRhU3RvcmUiOnRydWV9",
+        "5d01ff212536d2276a2aefa0e4a4daa9f15df513": "eyJibG9icyI6W10sImNvbnRlbnQiOnsidHJlZSI6eyJ0eXBlIjoiUGxhaW4iLCJ2YWx1ZSI6eyJ0eXBlIjoiX19mbHVpZF9oYW5kbGVfXyIsInVybCI6Ii9BL19DIn19fX0=",
+        "70bdb34dc708303244e40538850ab26963c6a6ae": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL21hcCIsInNuYXBzaG90Rm9ybWF0VmVyc2lvbiI6IjAuMiIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+        "218abba1699bfa0eb8016a25bffa0508ee592ab2": "eyJ2ZXJzaW9uIjoyfQ==",
+        "8f145888a8de06e36d34a81b141bb9ce3a7dce4c": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL3RyZWUiLCJzbmFwc2hvdEZvcm1hdFZlcnNpb24iOiIwLjAuMCIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+        "f8aa6f6bbbfcc88d842aa299567102c8b4a9c61a": "eyJ0cnVuayI6W3siY2hhbmdlIjpbeyJkYXRhIjp7Im1heElkIjoyLCJjaGFuZ2VzIjpbeyJmaWVsZEtleSI6InJvb3RGaWVsZEtleSIsImZpZWxkS2luZCI6Ik1vZHVsYXJFZGl0QnVpbGRlci5HZW5lcmljIiwiY2hhbmdlIjpbWzAseyJmaWVsZENoYW5nZXMiOlt7ImZpZWxkS2V5IjoidGl0bGUiLCJmaWVsZEtpbmQiOiJWYWx1ZSIsImNoYW5nZSI6eyJyIjp7ImUiOmZhbHNlLCJkIjoxLCJzIjowfX19XX1dXX1dLCJidWlsZHMiOnsiYnVpbGRzIjpbW1tbMCwwXV1dXSwidHJlZXMiOnsidmVyc2lvbiI6MiwiaWRlbnRpZmllcnMiOltdLCJzaGFwZXMiOlt7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyIsInZhbHVlIjp0cnVlfX1dLCJkYXRhIjpbWzAsImJhdGNoZWQiXV19fX19XSwicmV2aXNpb24iOjEsInNlc3Npb25JZCI6IjBkMmVkNmNmLTU4MGQtNGQ0NC1iOTE2LTIyZGVjMzViZmI3MyIsInNlcXVlbmNlTnVtYmVyIjozfSx7ImNoYW5nZSI6W3siZGF0YSI6eyJtYXhJZCI6NSwiY2hhbmdlcyI6W3siZmllbGRLZXkiOiJyb290RmllbGRLZXkiLCJmaWVsZEtpbmQiOiJNb2R1bGFyRWRpdEJ1aWxkZXIuR2VuZXJpYyIsImNoYW5nZSI6W1swLHsiZmllbGRDaGFuZ2VzIjpbeyJmaWVsZEtleSI6ImVuYWJsZWQiLCJmaWVsZEtpbmQiOiJWYWx1ZSIsImNoYW5nZSI6eyJyIjp7ImUiOmZhbHNlLCJkIjo0LCJzIjozfX19XX1dXX1dLCJidWlsZHMiOnsiYnVpbGRzIjpbW1tbMywwXV1dXSwidHJlZXMiOnsidmVyc2lvbiI6MiwiaWRlbnRpZmllcnMiOltdLCJzaGFwZXMiOlt7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLmJvb2xlYW4iLCJ2YWx1ZSI6dHJ1ZX19XSwiZGF0YSI6W1swLHRydWVdXX19fX1dLCJyZXZpc2lvbiI6Miwic2Vzc2lvbklkIjoiMGQyZWQ2Y2YtNTgwZC00ZDQ0LWI5MTYtMjJkZWMzNWJmYjczIiwic2VxdWVuY2VOdW1iZXIiOjMsImluZGV4SW5CYXRjaCI6MX0seyJjaGFuZ2UiOlt7ImRhdGEiOnsibWF4SWQiOjgsImNoYW5nZXMiOlt7ImZpZWxkS2V5Ijoicm9vdEZpZWxkS2V5IiwiZmllbGRLaW5kIjoiTW9kdWxhckVkaXRCdWlsZGVyLkdlbmVyaWMiLCJjaGFuZ2UiOltbMCx7ImZpZWxkQ2hhbmdlcyI6W3siZmllbGRLZXkiOiJyYXRpbmciLCJmaWVsZEtpbmQiOiJWYWx1ZSIsImNoYW5nZSI6eyJyIjp7ImUiOmZhbHNlLCJkIjo3LCJzIjo2fX19XX1dXX1dLCJidWlsZHMiOnsiYnVpbGRzIjpbW1tbNiwwXV1dXSwidHJlZXMiOnsidmVyc2lvbiI6MiwiaWRlbnRpZmllcnMiOltdLCJzaGFwZXMiOlt7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciIsInZhbHVlIjp0cnVlfX1dLCJkYXRhIjpbWzAsM11dfX19fV0sInJldmlzaW9uIjozLCJzZXNzaW9uSWQiOiIwZDJlZDZjZi01ODBkLTRkNDQtYjkxNi0yMmRlYzM1YmZiNzMiLCJzZXF1ZW5jZU51bWJlciI6MywiaW5kZXhJbkJhdGNoIjoyfV0sImJyYW5jaGVzIjpbWyIwZDJlZDZjZi01ODBkLTRkNDQtYjkxNi0yMmRlYzM1YmZiNzMiLHsiYmFzZSI6MywiY29tbWl0cyI6W119XV0sInZlcnNpb24iOjd9",
+        "f21b6b415257ad3295f356a2dff68f2a2e7c7767": "eyJ2ZXJzaW9uIjoyLCJub2RlcyI6eyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5ib29sZWFuIjp7ImtpbmQiOnsibGVhZiI6Mn19LCJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIjp7ImtpbmQiOnsibGVhZiI6NH19LCJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udW1iZXIiOnsia2luZCI6eyJsZWFmIjowfX0sImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyI6eyJraW5kIjp7ImxlYWYiOjF9fSwib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCI6eyJraW5kIjp7Im9iamVjdCI6eyJ4Ijp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciJdfSwieSI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udW1iZXIiXX19fX0sIm9yZy53YXRlcnNoZWQuc2hhcmVkLXRyZWUubTEuUm9vdCI6eyJraW5kIjp7Im9iamVjdCI6eyJlbmFibGVkIjp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLmJvb2xlYW4iXX0sIm1hcmtlciI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIl19LCJub3RlIjp7ImtpbmQiOiJPcHRpb25hbCIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyJdfSwicG9pbnQiOnsia2luZCI6IlZhbHVlIiwidHlwZXMiOlsib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCJdfSwicmF0aW5nIjp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciJdfSwidGl0bGUiOnsia2luZCI6IlZhbHVlIiwidHlwZXMiOlsiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYuc3RyaW5nIl19fX19fSwicm9vdCI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLlJvb3QiXX19",
+        "f93d3984472d9905af008117584103f3768bd1f9": "eyJ2ZXJzaW9uIjozfQ==",
+        "f52084001fcea6cca8d5e36e166da929d01cd2db": "eyJrZXlzIjpbInJvb3RGaWVsZEtleSIsInJlcGFpci00IiwicmVwYWlyLTUiLCJyZXBhaXItNiJdLCJmaWVsZHMiOnsidmVyc2lvbiI6MiwiaWRlbnRpZmllcnMiOltdLCJzaGFwZXMiOlt7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciIsInZhbHVlIjp0cnVlfX0seyJjIjp7InR5cGUiOiJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5zdHJpbmciLCJ2YWx1ZSI6dHJ1ZX19LHsiYyI6eyJ0eXBlIjoiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYuYm9vbGVhbiIsInZhbHVlIjp0cnVlfX0seyJjIjp7InR5cGUiOiJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLlJvb3QiLCJ2YWx1ZSI6ZmFsc2UsImZpZWxkcyI6W1siZW5hYmxlZCIsMl0sWyJtYXJrZXIiLDRdLFsibm90ZSIsNV0sWyJwb2ludCIsNl0sWyJyYXRpbmciLDBdLFsidGl0bGUiLDFdXX19LHsiYyI6eyJ0eXBlIjoiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYubnVsbCIsInZhbHVlIjpbbnVsbF19fSx7ImEiOjF9LHsiYyI6eyJ0eXBlIjoib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCIsInZhbHVlIjpmYWxzZSwiZmllbGRzIjpbWyJ4IiwwXSxbInkiLDBdXX19XSwiZGF0YSI6W1szLHRydWUsMCwwLDAsMywiYmF0Y2hlZCJdLFsxLCIiXSxbMixmYWxzZV0sWzAsMF1dfSwidmVyc2lvbiI6Mn0=",
+        "ddbccd28a308ab7fca2fc3a5beb33fad01e75b8c": "eyJ2ZXJzaW9uIjoyLCJkYXRhIjpbWzEsMSw0XSxbMiw0LDVdLFszLDcsNl1dLCJtYXhJZCI6Nn0=",
+        "05831b70119c0995ccc86bea033e7f1bacce6575": "eyJnY05vZGVzIjp7Ii8iOnsib3V0Ym91bmRSb3V0ZXMiOlsiL0EiXX0sIi9BIjp7Im91dGJvdW5kUm91dGVzIjpbIi9BL19DIiwiL0Evcm9vdCJdfSwiL0EvX0MiOnsib3V0Ym91bmRSb3V0ZXMiOlsiL0EiXX0sIi9BL3Jvb3QiOnsib3V0Ym91bmRSb3V0ZXMiOlsiL0EiLCIvQS9fQyJdfX19",
+        "1a0a816d7a37b1fcc6450919002cf0141d01ddf9": "W1siZTQyNjhmMTItOGM5Ni00MDBkLWFjMzItNTg5MDNhNmFlYzcwIix7ImNsaWVudCI6eyJkZXRhaWxzIjp7ImNhcGFiaWxpdGllcyI6eyJpbnRlcmFjdGl2ZSI6dHJ1ZX0sImVudmlyb25tZW50IjoiOyBsb2FkZXJWZXJzaW9uOjMuMS4wOyBjb250YWluZXJJZDo4NmQzM2RlNC0yNGE2LTRjMjYtYWEwMC1iMTc0MmRjY2MxMTcifSwibW9kZSI6IndyaXRlIiwicGVybWlzc2lvbiI6W10sInNjb3BlcyI6WyJkb2M6cmVhZCIsImRvYzp3cml0ZSJdLCJ1c2VyIjp7ImlkIjoiNDMyYmE4ZGItNzgzMS00ZDk5LWE2ZWQtYzI4Nzc5MTJlYjliIiwibmFtZSI6IjQzMmJhOGRiLTc4MzEifX0sInNlcXVlbmNlTnVtYmVyIjoxfV0sWyIzOTY2ZjYyZS04ZDkxLTRjM2EtOTY3NS0zYjc2MGYxNGJlNjMiLHsiY2xpZW50Ijp7ImRldGFpbHMiOnsiY2FwYWJpbGl0aWVzIjp7ImludGVyYWN0aXZlIjp0cnVlfSwiZW52aXJvbm1lbnQiOiI7IGxvYWRlclZlcnNpb246My4xLjA7IGNvbnRhaW5lcklkOjBmNzk2MjU1LWI4ZTQtNDI3OC1hNDQ1LTRjM2UxYzgxYWNmNiJ9LCJtb2RlIjoid3JpdGUiLCJwZXJtaXNzaW9uIjpbXSwic2NvcGVzIjpbImRvYzpyZWFkIiwiZG9jOndyaXRlIl0sInVzZXIiOnsiaWQiOiI2YjllZThiZS04MWIzLTQzMzMtOGM4My02ZDg0OTZlNDI4ZWQiLCJuYW1lIjoiNmI5ZWU4YmUtODFiMyJ9fSwic2VxdWVuY2VOdW1iZXIiOjJ9XSxbIjAyNjBlNWRlLTYwOWYtNGZiMi04N2JiLWI5M2E5ZTc2NTIzMyIseyJjbGllbnQiOnsiZGV0YWlscyI6eyJjYXBhYmlsaXRpZXMiOnsiaW50ZXJhY3RpdmUiOmZhbHNlfSwidHlwZSI6InN1bW1hcml6ZXIiLCJlbnZpcm9ubWVudCI6IjsgbG9hZGVyVmVyc2lvbjozLjEuMDsgY29udGFpbmVySWQ6ZGE4MzQ3ZDktYTliNi00OGJmLTlhNGUtMzVhNjU3ZDBjMjdmIn0sIm1vZGUiOiJ3cml0ZSIsInBlcm1pc3Npb24iOltdLCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiLCJzdW1tYXJ5OndyaXRlIl0sInVzZXIiOnsiaWQiOiI3OGE0NDY2ZC1mOTQ4LTQ3N2UtYjc5OC1mYWFlYTdlMTkwNzMiLCJuYW1lIjoiNzhhNDQ2NmQtZjk0OCJ9fSwic2VxdWVuY2VOdW1iZXIiOjR9XV0=",
+        "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc": "W10=",
+        "a94b9eab69689a0fdc0616c9465c8e39fbaeb179": "W1siY29kZSIseyJrZXkiOiJjb2RlIiwidmFsdWUiOnsicGFja2FnZSI6IndhdGVyc2hlZC10cmVlLW9yYWNsZSJ9LCJhcHByb3ZhbFNlcXVlbmNlTnVtYmVyIjowLCJjb21taXRTZXF1ZW5jZU51bWJlciI6MCwic2VxdWVuY2VOdW1iZXIiOjB9XV0=",
+        "6d8b6db82a97f11a18751027ff24457a68f8354d": "eyJtaW5pbXVtU2VxdWVuY2VOdW1iZXIiOjAsInNlcXVlbmNlTnVtYmVyIjo0fQ==",
+        "e343c8738f5d3671f329a203a26605499ef0e6c9": "W3siY2xpZW50SWQiOiIwMjYwZTVkZS02MDlmLTRmYjItODdiYi1iOTNhOWU3NjUyMzMiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MSwiY29udGVudHMiOiJ7XCJoYW5kbGVcIjpcImU5MDM5NDI1LTRhYjYtNDc0MS05Yzg5LWM1NmI2ZDI2NDY2YVwiLFwiaGVhZFwiOlwiNzAwZTBkMGMtZmJlMy00YTNiLWFkZDgtMTQyMzcxYjVjMTY3XCIsXCJtZXNzYWdlXCI6XCJTdW1tYXJ5IEA0OjBcIixcInBhcmVudHNcIjpbXCI3MDBlMGQwYy1mYmUzLTRhM2ItYWRkOC0xNDIzNzFiNWMxNjdcIl0sXCJkZXRhaWxzXCI6e1wiaW5jbHVkZXNQcm90b2NvbFRyZWVcIjpmYWxzZX19IiwibWluaW11bVNlcXVlbmNlTnVtYmVyIjowLCJyZWZlcmVuY2VTZXF1ZW5jZU51bWJlciI6NCwic2VxdWVuY2VOdW1iZXIiOjUsInRpbWVzdGFtcCI6MTcwMDAwMDAwMDAwMCwidHlwZSI6InN1bW1hcml6ZSIsImFkZGl0aW9uYWxDb250ZW50Ijoie1wiY2xpZW50c1wiOlt7XCJjYW5FdmljdFwiOnRydWUsXCJjbGllbnRJZFwiOlwiZTQyNjhmMTItOGM5Ni00MDBkLWFjMzItNTg5MDNhNmFlYzcwXCIsXCJjbGllbnRTZXF1ZW5jZU51bWJlclwiOjAsXCJsYXN0VXBkYXRlXCI6MTcwMDAwMDAwMDAwMCxcIm5hY2tcIjpmYWxzZSxcInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyXCI6MCxcInNjb3Blc1wiOltcImRvYzpyZWFkXCIsXCJkb2M6d3JpdGVcIl19LHtcImNhbkV2aWN0XCI6dHJ1ZSxcImNsaWVudElkXCI6XCIzOTY2ZjYyZS04ZDkxLTRjM2EtOTY3NS0zYjc2MGYxNGJlNjNcIixcImNsaWVudFNlcXVlbmNlTnVtYmVyXCI6MSxcImxhc3RVcGRhdGVcIjoxNzAwMDAwMDAwMDAwLFwibmFja1wiOmZhbHNlLFwicmVmZXJlbmNlU2VxdWVuY2VOdW1iZXJcIjoyLFwic2NvcGVzXCI6W1wiZG9jOnJlYWRcIixcImRvYzp3cml0ZVwiXX0se1wiY2FuRXZpY3RcIjp0cnVlLFwiY2xpZW50SWRcIjpcIjAyNjBlNWRlLTYwOWYtNGZiMi04N2JiLWI5M2E5ZTc2NTIzM1wiLFwiY2xpZW50U2VxdWVuY2VOdW1iZXJcIjoxLFwibGFzdFVwZGF0ZVwiOjE3MDAwMDAwMDAwMDAsXCJuYWNrXCI6ZmFsc2UsXCJyZWZlcmVuY2VTZXF1ZW5jZU51bWJlclwiOjQsXCJzY29wZXNcIjpbXCJkb2M6cmVhZFwiLFwiZG9jOndyaXRlXCIsXCJzdW1tYXJ5OndyaXRlXCJdfV0sXCJkdXJhYmxlU2VxdWVuY2VOdW1iZXJcIjowLFwiZXhwSGFzaDFcIjpcIjQxYjkyMGFhXCIsXCJsb2dPZmZzZXRcIjo0LFwic2VxdWVuY2VOdW1iZXJcIjo1LFwic2lnbmFsQ2xpZW50Q29ubmVjdGlvbk51bWJlclwiOjAsXCJsYXN0U2VudE1TTlwiOjAsXCJuYWNrTWVzc2FnZXNcIjpbXSxcImNoZWNrcG9pbnRUaW1lc3RhbXBcIjoxNzAwMDAwMDAwMDAwfSIsImV4cEhhc2gxIjoiLTQyYjlhNTdjIn1d",
+        "4d9ab2dd0e6bdeb22e527457a3722cf2748b1b89": "eyJjbGllbnRzIjpbeyJjYW5FdmljdCI6dHJ1ZSwiY2xpZW50SWQiOiJlNDI2OGYxMi04Yzk2LTQwMGQtYWMzMi01ODkwM2E2YWVjNzAiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MCwibGFzdFVwZGF0ZSI6MTcwMDAwMDAwMDAwMCwibmFjayI6ZmFsc2UsInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyIjowLCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiXX0seyJjYW5FdmljdCI6dHJ1ZSwiY2xpZW50SWQiOiIzOTY2ZjYyZS04ZDkxLTRjM2EtOTY3NS0zYjc2MGYxNGJlNjMiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MSwibGFzdFVwZGF0ZSI6MTcwMDAwMDAwMDAwMCwibmFjayI6ZmFsc2UsInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyIjoyLCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiXX0seyJjYW5FdmljdCI6dHJ1ZSwiY2xpZW50SWQiOiIwMjYwZTVkZS02MDlmLTRmYjItODdiYi1iOTNhOWU3NjUyMzMiLCJjbGllbnRTZXF1ZW5jZU51bWJlciI6MSwibGFzdFVwZGF0ZSI6MTcwMDAwMDAwMDAwMCwibmFjayI6ZmFsc2UsInJlZmVyZW5jZVNlcXVlbmNlTnVtYmVyIjo0LCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiLCJzdW1tYXJ5OndyaXRlIl19XSwiZHVyYWJsZVNlcXVlbmNlTnVtYmVyIjowLCJleHBIYXNoMSI6IjQxYjkyMGFhIiwibG9nT2Zmc2V0Ijo0LCJzZXF1ZW5jZU51bWJlciI6NSwic2lnbmFsQ2xpZW50Q29ubmVjdGlvbk51bWJlciI6MCwibGFzdFNlbnRNU04iOjAsIm5hY2tNZXNzYWdlcyI6W10sImNoZWNrcG9pbnRUaW1lc3RhbXAiOjE3MDAwMDAwMDAwMDB9",
+        "ba4dfc3066beda131238ff16a0576214abcf987e": "eyJsYXN0U3VtbWFyeVNlcXVlbmNlTnVtYmVyIjowLCJsb2dPZmZzZXQiOjQsIm1pbmltdW1TZXF1ZW5jZU51bWJlciI6MCwicHJvdG9jb2xTdGF0ZSI6eyJzZXF1ZW5jZU51bWJlciI6NCwibWluaW11bVNlcXVlbmNlTnVtYmVyIjowLCJtZW1iZXJzIjpbWyJlNDI2OGYxMi04Yzk2LTQwMGQtYWMzMi01ODkwM2E2YWVjNzAiLHsiY2xpZW50Ijp7ImRldGFpbHMiOnsiY2FwYWJpbGl0aWVzIjp7ImludGVyYWN0aXZlIjp0cnVlfSwiZW52aXJvbm1lbnQiOiI7IGxvYWRlclZlcnNpb246My4xLjA7IGNvbnRhaW5lcklkOjg2ZDMzZGU0LTI0YTYtNGMyNi1hYTAwLWIxNzQyZGNjYzExNyJ9LCJtb2RlIjoid3JpdGUiLCJwZXJtaXNzaW9uIjpbXSwic2NvcGVzIjpbImRvYzpyZWFkIiwiZG9jOndyaXRlIl0sInVzZXIiOnsiaWQiOiI0MzJiYThkYi03ODMxLTRkOTktYTZlZC1jMjg3NzkxMmViOWIiLCJuYW1lIjoiNDMyYmE4ZGItNzgzMSJ9fSwic2VxdWVuY2VOdW1iZXIiOjF9XSxbIjM5NjZmNjJlLThkOTEtNGMzYS05Njc1LTNiNzYwZjE0YmU2MyIseyJjbGllbnQiOnsiZGV0YWlscyI6eyJjYXBhYmlsaXRpZXMiOnsiaW50ZXJhY3RpdmUiOnRydWV9LCJlbnZpcm9ubWVudCI6IjsgbG9hZGVyVmVyc2lvbjozLjEuMDsgY29udGFpbmVySWQ6MGY3OTYyNTUtYjhlNC00Mjc4LWE0NDUtNGMzZTFjODFhY2Y2In0sIm1vZGUiOiJ3cml0ZSIsInBlcm1pc3Npb24iOltdLCJzY29wZXMiOlsiZG9jOnJlYWQiLCJkb2M6d3JpdGUiXSwidXNlciI6eyJpZCI6IjZiOWVlOGJlLTgxYjMtNDMzMy04YzgzLTZkODQ5NmU0MjhlZCIsIm5hbWUiOiI2YjllZThiZS04MWIzIn19LCJzZXF1ZW5jZU51bWJlciI6Mn1dLFsiMDI2MGU1ZGUtNjA5Zi00ZmIyLTg3YmItYjkzYTllNzY1MjMzIix7ImNsaWVudCI6eyJkZXRhaWxzIjp7ImNhcGFiaWxpdGllcyI6eyJpbnRlcmFjdGl2ZSI6ZmFsc2V9LCJ0eXBlIjoic3VtbWFyaXplciIsImVudmlyb25tZW50IjoiOyBsb2FkZXJWZXJzaW9uOjMuMS4wOyBjb250YWluZXJJZDpkYTgzNDdkOS1hOWI2LTQ4YmYtOWE0ZS0zNWE2NTdkMGMyN2YifSwibW9kZSI6IndyaXRlIiwicGVybWlzc2lvbiI6W10sInNjb3BlcyI6WyJkb2M6cmVhZCIsImRvYzp3cml0ZSIsInN1bW1hcnk6d3JpdGUiXSwidXNlciI6eyJpZCI6Ijc4YTQ0NjZkLWY5NDgtNDc3ZS1iNzk4LWZhYWVhN2UxOTA3MyIsIm5hbWUiOiI3OGE0NDY2ZC1mOTQ4In19LCJzZXF1ZW5jZU51bWJlciI6NH1dXSwicHJvcG9zYWxzIjpbXSwidmFsdWVzIjpbWyJjb2RlIix7ImtleSI6ImNvZGUiLCJ2YWx1ZSI6eyJwYWNrYWdlIjoid2F0ZXJzaGVkLXRyZWUtb3JhY2xlIn0sImFwcHJvdmFsU2VxdWVuY2VOdW1iZXIiOjAsImNvbW1pdFNlcXVlbmNlTnVtYmVyIjowLCJzZXF1ZW5jZU51bWJlciI6MH1dXX0sInNlcXVlbmNlTnVtYmVyIjo1LCJpc0NvcnJ1cHQiOmZhbHNlLCJwcm90b2NvbEhlYWQiOjAsImNoZWNrcG9pbnRUaW1lc3RhbXAiOjE3MDAwMDAwMDAwMDB9"
+      },
+      "blobEncoding": "base64"
+    },
+    "snapshotPaths": [
+      "/.metadata",
+      "/.idCompressor",
+      "/.recentBatchInfo",
+      "/.aliases",
+      "/.channels",
+      "/.channels/A",
+      "/.channels/A/.component",
+      "/.channels/A/.channels",
+      "/.channels/A/.channels/root",
+      "/.channels/A/.channels/root/header",
+      "/.channels/A/.channels/root/.attributes",
+      "/.channels/A/.channels/_C",
+      "/.channels/A/.channels/_C/.metadata",
+      "/.channels/A/.channels/_C/.attributes",
+      "/.channels/A/.channels/_C/indexes",
+      "/.channels/A/.channels/_C/indexes/EditManager",
+      "/.channels/A/.channels/_C/indexes/EditManager/.metadata",
+      "/.channels/A/.channels/_C/indexes/EditManager/String",
+      "/.channels/A/.channels/_C/indexes/Schema",
+      "/.channels/A/.channels/_C/indexes/Schema/.metadata",
+      "/.channels/A/.channels/_C/indexes/Schema/SchemaString",
+      "/.channels/A/.channels/_C/indexes/Forest",
+      "/.channels/A/.channels/_C/indexes/Forest/.metadata",
+      "/.channels/A/.channels/_C/indexes/Forest/contents",
+      "/.channels/A/.channels/_C/indexes/DetachedFieldIndex",
+      "/.channels/A/.channels/_C/indexes/DetachedFieldIndex/.metadata",
+      "/.channels/A/.channels/_C/indexes/DetachedFieldIndex/DetachedFieldIndexBlob",
+      "/gc",
+      "/gc/__gc_root",
+      "/.protocol",
+      "/.protocol/quorumMembers",
+      "/.protocol/quorumProposals",
+      "/.protocol/quorumValues",
+      "/.protocol/attributes",
+      "/.logTail",
+      "/.logTail/logTail",
+      "/.serviceProtocol",
+      "/.serviceProtocol/deli",
+      "/.serviceProtocol/scribe"
+    ],
+    "groupedCommits": [
+      {
+        "outerSequenceNumber": 3,
+        "outerClientSequenceNumber": 1,
+        "outerReferenceSequenceNumber": 2,
+        "commits": [
+          {
+            "innerPosition": 0,
+            "contents": {
+              "type": "idAllocation",
+              "contents": {
+                "sessionId": "0d2ed6cf-580d-4d44-b916-22dec35bfb73",
+                "ids": {
+                  "firstGenCount": 2,
+                  "count": 3,
+                  "requestedClusterSize": 512,
+                  "localIdRanges": []
+                }
+              }
+            },
+            "metadata": {
+              "batch": true,
+              "batchId": "fb880d34-1aa4-443b-9707-d168d8a5768f_[1]"
+            }
+          },
+          {
+            "innerPosition": 1,
+            "contents": {
+              "type": "component",
+              "contents": {
+                "address": "A",
+                "contents": {
+                  "content": {
+                    "address": "_C",
+                    "contents": {
+                      "revision": 1,
+                      "originatorId": "0d2ed6cf-580d-4d44-b916-22dec35bfb73",
+                      "changeset": [
+                        {
+                          "data": {
+                            "maxId": 2,
+                            "changes": [
+                              {
+                                "fieldKey": "rootFieldKey",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "title",
+                                          "fieldKind": "Value",
+                                          "change": {
+                                            "r": {
+                                              "e": false,
+                                              "d": 1,
+                                              "s": 0
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ],
+                            "builds": {
+                              "builds": [
+                                [
+                                  [
+                                    [
+                                      0,
+                                      0
+                                    ]
+                                  ]
+                                ]
+                              ],
+                              "trees": {
+                                "version": 2,
+                                "identifiers": [],
+                                "shapes": [
+                                  {
+                                    "c": {
+                                      "type": "com.fluidframework.leaf.string",
+                                      "value": true
+                                    }
+                                  }
+                                ],
+                                "data": [
+                                  [
+                                    0,
+                                    "batched"
+                                  ]
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "version": 7
+                    }
+                  },
+                  "type": "op"
+                }
+              }
+            }
+          },
+          {
+            "innerPosition": 2,
+            "contents": {
+              "type": "component",
+              "contents": {
+                "address": "A",
+                "contents": {
+                  "content": {
+                    "address": "_C",
+                    "contents": {
+                      "revision": 2,
+                      "originatorId": "0d2ed6cf-580d-4d44-b916-22dec35bfb73",
+                      "changeset": [
+                        {
+                          "data": {
+                            "maxId": 5,
+                            "changes": [
+                              {
+                                "fieldKey": "rootFieldKey",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "enabled",
+                                          "fieldKind": "Value",
+                                          "change": {
+                                            "r": {
+                                              "e": false,
+                                              "d": 4,
+                                              "s": 3
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ],
+                            "builds": {
+                              "builds": [
+                                [
+                                  [
+                                    [
+                                      3,
+                                      0
+                                    ]
+                                  ]
+                                ]
+                              ],
+                              "trees": {
+                                "version": 2,
+                                "identifiers": [],
+                                "shapes": [
+                                  {
+                                    "c": {
+                                      "type": "com.fluidframework.leaf.boolean",
+                                      "value": true
+                                    }
+                                  }
+                                ],
+                                "data": [
+                                  [
+                                    0,
+                                    true
+                                  ]
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "version": 7
+                    }
+                  },
+                  "type": "op"
+                }
+              }
+            }
+          },
+          {
+            "innerPosition": 3,
+            "contents": {
+              "type": "component",
+              "contents": {
+                "address": "A",
+                "contents": {
+                  "content": {
+                    "address": "_C",
+                    "contents": {
+                      "revision": 3,
+                      "originatorId": "0d2ed6cf-580d-4d44-b916-22dec35bfb73",
+                      "changeset": [
+                        {
+                          "data": {
+                            "maxId": 8,
+                            "changes": [
+                              {
+                                "fieldKey": "rootFieldKey",
+                                "fieldKind": "ModularEditBuilder.Generic",
+                                "change": [
+                                  [
+                                    0,
+                                    {
+                                      "fieldChanges": [
+                                        {
+                                          "fieldKey": "rating",
+                                          "fieldKind": "Value",
+                                          "change": {
+                                            "r": {
+                                              "e": false,
+                                              "d": 7,
+                                              "s": 6
+                                            }
+                                          }
+                                        }
+                                      ]
+                                    }
+                                  ]
+                                ]
+                              }
+                            ],
+                            "builds": {
+                              "builds": [
+                                [
+                                  [
+                                    [
+                                      6,
+                                      0
+                                    ]
+                                  ]
+                                ]
+                              ],
+                              "trees": {
+                                "version": 2,
+                                "identifiers": [],
+                                "shapes": [
+                                  {
+                                    "c": {
+                                      "type": "com.fluidframework.leaf.number",
+                                      "value": true
+                                    }
+                                  }
+                                ],
+                                "data": [
+                                  [
+                                    0,
+                                    3
+                                  ]
+                                ]
+                              }
+                            }
+                          }
+                        }
+                      ],
+                      "version": 7
+                    }
+                  },
+                  "type": "op"
+                }
+              }
+            },
+            "metadata": {
+              "batch": false
+            }
+          }
+        ]
+      }
+    ],
+    "summary": {
+      "submitted": {
+        "stage": "submit",
+        "referenceSequenceNumber": 4,
+        "minimumSequenceNumber": 0,
+        "summaryTree": {
+          "type": 1,
+          "tree": {
+            ".channels": {
+              "type": 1,
+              "tree": {
+                "A": {
+                  "type": 1,
+                  "tree": {
+                    ".channels": {
+                      "type": 1,
+                      "tree": {
+                        "root": {
+                          "type": 1,
+                          "tree": {
+                            "header": {
+                              "type": 2,
+                              "content": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}"
+                            },
+                            ".attributes": {
+                              "type": 2,
+                              "content": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}"
+                            }
+                          }
+                        },
+                        "_C": {
+                          "type": 1,
+                          "tree": {
+                            ".metadata": {
+                              "type": 2,
+                              "content": "{\"version\":2}"
+                            },
+                            "indexes": {
+                              "type": 1,
+                              "tree": {
+                                "EditManager": {
+                                  "type": 1,
+                                  "tree": {
+                                    ".metadata": {
+                                      "type": 2,
+                                      "content": "{\"version\":2}"
+                                    },
+                                    "String": {
+                                      "type": 2,
+                                      "content": "{\"trunk\":[{\"change\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"batched\"]]}}}}],\"revision\":1,\"sessionId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"sequenceNumber\":3},{\"change\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"enabled\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":4,\"s\":3}}}]}]]}],\"builds\":{\"builds\":[[[[3,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.boolean\",\"value\":true}}],\"data\":[[0,true]]}}}}],\"revision\":2,\"sessionId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"sequenceNumber\":3,\"indexInBatch\":1},{\"change\":[{\"data\":{\"maxId\":8,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"rating\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":7,\"s\":6}}}]}]]}],\"builds\":{\"builds\":[[[[6,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}}],\"data\":[[0,3]]}}}}],\"revision\":3,\"sessionId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"sequenceNumber\":3,\"indexInBatch\":2}],\"branches\":[[\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",{\"base\":3,\"commits\":[]}]],\"version\":7}"
+                                    }
+                                  }
+                                },
+                                "Schema": {
+                                  "type": 1,
+                                  "tree": {
+                                    ".metadata": {
+                                      "type": 2,
+                                      "content": "{\"version\":2}"
+                                    },
+                                    "SchemaString": {
+                                      "type": 2,
+                                      "content": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.boolean\":{\"kind\":{\"leaf\":2}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}},\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"org.watershed.shared-tree.m1.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m1.Root\":{\"kind\":{\"object\":{\"enabled\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.boolean\"]},\"marker\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.null\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]},\"point\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Point\"]},\"rating\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"title\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Root\"]}}"
+                                    }
+                                  }
+                                },
+                                "Forest": {
+                                  "type": 1,
+                                  "tree": {
+                                    ".metadata": {
+                                      "type": 2,
+                                      "content": "{\"version\":3}"
+                                    },
+                                    "contents": {
+                                      "type": 2,
+                                      "content": "{\"keys\":[\"rootFieldKey\",\"repair-4\",\"repair-5\",\"repair-6\"],\"fields\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}},{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}},{\"c\":{\"type\":\"com.fluidframework.leaf.boolean\",\"value\":true}},{\"c\":{\"type\":\"org.watershed.shared-tree.m1.Root\",\"value\":false,\"fields\":[[\"enabled\",2],[\"marker\",4],[\"note\",5],[\"point\",6],[\"rating\",0],[\"title\",1]]}},{\"c\":{\"type\":\"com.fluidframework.leaf.null\",\"value\":[null]}},{\"a\":1},{\"c\":{\"type\":\"org.watershed.shared-tree.m1.Point\",\"value\":false,\"fields\":[[\"x\",0],[\"y\",0]]}}],\"data\":[[3,true,0,0,0,3,\"batched\"],[1,\"\"],[2,false],[0,0]]},\"version\":2}"
+                                    }
+                                  }
+                                },
+                                "DetachedFieldIndex": {
+                                  "type": 1,
+                                  "tree": {
+                                    ".metadata": {
+                                      "type": 2,
+                                      "content": "{\"version\":2}"
+                                    },
+                                    "DetachedFieldIndexBlob": {
+                                      "type": 2,
+                                      "content": "{\"version\":2,\"data\":[[1,1,4],[2,4,5],[3,7,6]],\"maxId\":6}"
+                                    }
+                                  }
+                                }
+                              }
+                            },
+                            ".attributes": {
+                              "type": 2,
+                              "content": "{\"type\":\"https://graph.microsoft.com/types/tree\",\"snapshotFormatVersion\":\"0.0.0\",\"packageVersion\":\"3.1.0\"}"
+                            }
+                          }
+                        }
+                      }
+                    },
+                    ".component": {
+                      "type": 2,
+                      "content": "{\"pkg\":\"[\\\"org.watershed.shared-tree.m1.bootstrap\\\"]\",\"summaryFormatVersion\":2,\"isRootDataStore\":true}"
+                    }
+                  }
+                }
+              }
+            },
+            ".metadata": {
+              "type": 2,
+              "content": "{\"createContainerRuntimeVersion\":\"3.1.0\",\"createContainerTimestamp\":1700000000000,\"summaryNumber\":2,\"summaryFormatVersion\":1,\"gcFeature\":3,\"sessionExpiryTimeoutMs\":2592000000,\"sweepEnabled\":false,\"tombstoneTimeoutMs\":3110400000,\"telemetryDocumentId\":\"11e81044-2a75-43ae-adce-914e0b8597ad\",\"message\":{\"sequenceNumber\":-1},\"lastMessage\":{\"clientId\":null,\"clientSequenceNumber\":-1,\"minimumSequenceNumber\":0,\"referenceSequenceNumber\":-1,\"sequenceNumber\":4,\"timestamp\":1700000000000,\"type\":\"join\"},\"documentSchema\":{\"version\":1,\"refSeq\":0,\"info\":{\"minVersionForCollab\":\"2.117.0\"},\"runtime\":{\"explicitSchemaControl\":true,\"idCompressorMode\":\"on\",\"opGroupingEnabled\":true}}}"
+            },
+            ".idCompressor": {
+              "type": 2,
+              "content": "\"AAAAAAAAAEAAAAAAAAAAAAAAAAAAAPA/AAAAAAAA8D9z+1vD3iIWOVE3YD1buzQAAAAAAAAAAAAAAAAAAAiAQAAAAAAAABBA\""
+            },
+            ".recentBatchInfo": {
+              "type": 2,
+              "content": "[[3,\"fb880d34-1aa4-443b-9707-d168d8a5768f_[1]\"]]"
+            },
+            ".aliases": {
+              "type": 2,
+              "content": "[[\"root\",\"A\"]]"
+            },
+            "gc": {
+              "type": 1,
+              "tree": {
+                "__gc_root": {
+                  "type": 2,
+                  "content": "{\"gcNodes\":{\"/\":{\"outboundRoutes\":[\"/A\"]},\"/A\":{\"outboundRoutes\":[\"/A/_C\",\"/A/root\"]},\"/A/_C\":{\"outboundRoutes\":[\"/A\"]},\"/A/root\":{\"outboundRoutes\":[\"/A\",\"/A/_C\"]}}}"
+                }
+              }
+            }
+          }
+        },
+        "summaryStats": {
+          "dataStoreCount": 1,
+          "summarizedDataStoreCount": 1,
+          "gcStateUpdatedDataStoreCount": 1,
+          "gcBlobNodeCount": 1,
+          "gcTotalBlobsSize": 165,
+          "summaryNumber": 2,
+          "treeNodeCount": 12,
+          "blobNodeCount": 18,
+          "handleNodeCount": 0,
+          "totalBlobSize": 4724,
+          "unreferencedBlobSize": 0
+        },
+        "generateDuration": 0,
+        "handle": "e9039425-4ab6-4741-9c89-c56b6d26466a",
+        "uploadDuration": 0,
+        "clientSequenceNumber": 1,
+        "submitOpDuration": 0
+      },
+      "broadcast": {
+        "summarizeOp": {
+          "clientId": "0260e5de-609f-4fb2-87bb-b93a9e765233",
+          "clientSequenceNumber": 1,
+          "contents": {
+            "handle": "e9039425-4ab6-4741-9c89-c56b6d26466a",
+            "head": "700e0d0c-fbe3-4a3b-add8-142371b5c167",
+            "message": "Summary @4:0",
+            "parents": [
+              "700e0d0c-fbe3-4a3b-add8-142371b5c167"
+            ],
+            "details": {
+              "includesProtocolTree": false
+            }
+          },
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": 4,
+          "sequenceNumber": 5,
+          "timestamp": 1700000000000,
+          "type": "summarize",
+          "additionalContent": "{\"clients\":[{\"canEvict\":true,\"clientId\":\"e4268f12-8c96-400d-ac32-58903a6aec70\",\"clientSequenceNumber\":0,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":0,\"scopes\":[\"doc:read\",\"doc:write\"]},{\"canEvict\":true,\"clientId\":\"3966f62e-8d91-4c3a-9675-3b760f14be63\",\"clientSequenceNumber\":1,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":2,\"scopes\":[\"doc:read\",\"doc:write\"]},{\"canEvict\":true,\"clientId\":\"0260e5de-609f-4fb2-87bb-b93a9e765233\",\"clientSequenceNumber\":1,\"lastUpdate\":1700000000000,\"nack\":false,\"referenceSequenceNumber\":4,\"scopes\":[\"doc:read\",\"doc:write\",\"summary:write\"]}],\"durableSequenceNumber\":0,\"expHash1\":\"41b920aa\",\"logOffset\":4,\"sequenceNumber\":5,\"signalClientConnectionNumber\":0,\"lastSentMSN\":0,\"nackMessages\":[],\"checkpointTimestamp\":1700000000000}",
+          "expHash1": "-42b9a57c"
+        },
+        "broadcastDuration": 0
+      },
+      "acknowledged": {
+        "summaryAckOp": {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": {
+            "handle": "3e7a9fd8-b2cf-4a35-a044-d449665e5bcd",
+            "summaryProposal": {
+              "summarySequenceNumber": 5
+            }
+          },
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 6,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "summaryAck",
+          "data": "{\"handle\":\"3e7a9fd8-b2cf-4a35-a044-d449665e5bcd\",\"summaryProposal\":{\"summarySequenceNumber\":5}}",
+          "expHash1": "746fe200"
+        },
+        "ackNackDuration": 0
+      }
+    }
+  }
+}

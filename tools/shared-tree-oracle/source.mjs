@@ -30,6 +30,10 @@ export const reference = {
 };
 
 export const injectedTestPath = "packages/dds/tree/src/test/watershedOracle.spec.ts";
+const injections = new Map([
+  [injectedTestPath, oracleSource],
+  ["packages/dds/tree/src/test/watershedAlgebra.spec.ts", join(directory, "upstream-algebra.spec.ts")],
+]);
 
 export async function verifyPackages(root = directory) {
   const versions = {};
@@ -79,11 +83,13 @@ export async function verifyRepository(root, expectedCommit, allowedUntracked = 
 }
 
 export async function verifyCheckout(root = checkout, expectedCommit = reference.commit) {
-  const { commit, untracked } = await verifyRepository(root, expectedCommit, [injectedTestPath]);
+  const { commit, untracked } = await verifyRepository(root, expectedCommit, [
+    ...injections.keys(),
+  ]);
   for (const path of untracked) {
     const [actual, expected] = await Promise.all([
       readFile(join(root, path)),
-      readFile(oracleSource),
+      readFile(injections.get(path)),
     ]);
     if (!actual.equals(expected)) {
       throw new Error(`The injected oracle test has unexpected content: ${path}`);
@@ -98,23 +104,25 @@ export async function verifyCheckout(root = checkout, expectedCommit = reference
   return { commit, version: manifest.version };
 }
 
-function run(command, args, cwd, env = process.env) {
-  execFileSync(command, args, { cwd, env, stdio: "inherit" });
+function run(command, args, cwd, env = process.env, timeout) {
+  execFileSync(command, args, { cwd, env, stdio: "inherit", timeout });
 }
 
-async function pnpm(args, cwd, env = process.env) {
+async function pnpm(args, cwd, env = process.env, timeout) {
   const manifest = JSON.parse(await readFile(join(checkout, "package.json"), "utf8"));
   const manager = manifest.packageManager.split("+")[0];
   if (!/^pnpm@\d+\.\d+\.\d+$/.test(manager)) {
     throw new Error(`Unsupported reference package manager: ${manifest.packageManager}`);
   }
-  run("npm", ["exec", "--yes", `--package=${manager}`, "--", "pnpm", ...args], cwd, env);
+  run("npm", ["exec", "--yes", `--package=${manager}`, "--", "pnpm", ...args], cwd, env, timeout);
 }
 
 async function injectOracle() {
-  const target = join(checkout, injectedTestPath);
-  await mkdir(dirname(target), { recursive: true });
-  await copyFile(oracleSource, target);
+  for (const [path, source] of injections) {
+    const target = join(checkout, path);
+    await mkdir(dirname(target), { recursive: true });
+    await copyFile(source, target);
+  }
 }
 
 export async function prepareSource() {
@@ -182,25 +190,32 @@ export async function publishCapture(output, produce) {
   }
 }
 
-export async function captureSource(output) {
+export async function runSource(output, { corpus = false } = {}) {
   await verifyPackages();
   await verifyCheckout();
   await injectOracle();
   const tree = join(checkout, "packages/dds/tree");
   await pnpm(["run", "build:compile"], tree);
   await pnpm(["run", "build:test:esm"], tree);
-  await publishCapture(output, async (temporary) => {
-    await pnpm([
-      "exec", "mocha", "--no-config", "--fail-zero", "--timeout", "30000",
-      "--node-option", "conditions=allow-ff-test-exports",
-      "lib/test/watershedOracle.spec.js",
-    ], tree, {
-      ...process.env,
-      WATERSHED_ORACLE_OUTPUT: temporary,
-      WATERSHED_ORACLE_COMMIT: reference.commit,
-    });
-    await verifyCheckout();
-  });
+  await mkdir(output, { recursive: true });
+  await pnpm([
+    "exec", "mocha", "--no-config", "--fail-zero", "--timeout", "30000",
+    "--node-option", "conditions=allow-ff-test-exports",
+    "--node-option", `import=${pathToFileURL(join(directory, "determinism.mjs")).href}`,
+    "lib/test/watershedOracle.spec.js",
+    ...(corpus ? ["lib/test/watershedAlgebra.spec.js"] : []),
+  ], tree, {
+    ...process.env,
+    WATERSHED_ORACLE_OUTPUT: resolve(output),
+    WATERSHED_ORACLE_COMMIT: reference.commit,
+    WATERSHED_ORACLE_DETERMINISTIC: "1",
+    WATERSHED_ORACLE_CORPUS: corpus ? "1" : "0",
+  }, 90_000);
+  await verifyCheckout();
+}
+
+export async function captureSource(output) {
+  await publishCapture(output, (temporary) => runSource(temporary));
 }
 
 async function main() {

@@ -176,6 +176,13 @@ relay-test:
     gleam test --target javascript
     node tools/relay/test.mjs
 
+# Pinned upstream-only fixtures, not native SharedTree acceptance.
+shared-tree-oracle:
+    npm --prefix tools/shared-tree-oracle run generate
+
+shared-tree-oracle-check:
+    npm --prefix tools/shared-tree-oracle run check
+
 # The p2p gate: two *real* browser pages join a room through the real
 # signaling process, clap concurrently, and must converge on the same total
 # and the same canonical digest — with the late page ready only after its
