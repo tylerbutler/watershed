@@ -184,6 +184,191 @@ fn effectful(replacement: Replacement) -> Bool {
   && { !replacement.was_empty || replacement.source != None }
 }
 
+fn source(change: FieldChange) -> Option(RegisterId) {
+  option.then(change.replacement, fn(replacement) { replacement.source })
+}
+
+fn effectful_destination(change: FieldChange) -> Option(AtomId) {
+  case change.replacement {
+    Some(replacement)
+      if !replacement.was_empty && replacement.source != Some(Active)
+    -> Some(replacement.detach_id)
+    _ -> None
+  }
+}
+
+fn lookup(entries: List(#(a, b)), key: a) -> Option(b) {
+  entries |> list.key_find(key) |> option.from_result
+}
+
+fn put(entries: List(#(a, b)), key: a, value: b) -> List(#(a, b)) {
+  case list.key_find(entries, key) {
+    Error(Nil) -> list.append(entries, [#(key, value)])
+    Ok(_) ->
+      list.map(entries, fn(entry) {
+        case entry.0 == key {
+          True -> #(key, value)
+          False -> entry
+        }
+      })
+  }
+}
+
+// Nested maps preserve the first occurrence of each outer key.
+fn grouped(entries: List(a), key: fn(a) -> b) -> List(a) {
+  let keys = entries |> list.map(key) |> list.unique
+  list.flat_map(keys, fn(group) {
+    list.filter(entries, fn(entry) { key(entry) == group })
+  })
+}
+
+fn register_group(entry: #(RegisterId, a)) -> Option(Int) {
+  case entry.0 {
+    Active -> None
+    Detached(id) -> Some(id.local_id)
+  }
+}
+
+fn moved(id: AtomId, moves: List(#(AtomId, AtomId))) -> AtomId {
+  option.unwrap(lookup(moves, id), id)
+}
+
+fn before_move(id: AtomId, moves: List(#(AtomId, AtomId))) -> AtomId {
+  case list.find(moves, fn(move) { move.1 == id }) {
+    Ok(move) -> move.0
+    Error(Nil) -> id
+  }
+}
+
+pub fn compose(
+  first: FieldChange,
+  second: FieldChange,
+  context: context,
+  compose_child: fn(Option(AtomId), Option(AtomId), context) ->
+    Result(#(AtomId, context), TreeError),
+) -> Result(#(FieldChange, context), TreeError) {
+  use first <- result.try(validate(first))
+  use second <- result.try(validate(second))
+  let first_source = source(first)
+  let first_destination = effectful_destination(first)
+  let composed_source = case source(second) {
+    Some(Active) -> Some(option.unwrap(first_source, Active))
+    Some(Detached(id)) -> {
+      case first_destination == Some(id) {
+        True -> Some(Active)
+        False -> Some(Detached(before_move(id, first.moves)))
+      }
+    }
+    None -> {
+      case second.replacement {
+        None -> first_source
+        Some(_) -> None
+      }
+    }
+  }
+  let second_children =
+    list.fold(second.child_changes, [], fn(children, child) {
+      let original = case child.0 {
+        Active -> option.unwrap(first_source, Active)
+        Detached(id) -> {
+          case first_destination == Some(id) {
+            True -> Active
+            False -> Detached(before_move(id, first.moves))
+          }
+        }
+      }
+      put(children, original, child.1)
+    })
+    |> grouped(register_group)
+  use #(children, remaining, context) <- result.try(
+    list.try_fold(
+      first.child_changes,
+      #([], second_children, context),
+      fn(acc, child) {
+        use #(node, context) <- result.try(compose_child(
+          Some(child.1),
+          lookup(acc.1, child.0),
+          acc.2,
+        ))
+        Ok(#(
+          [#(child.0, node), ..acc.0],
+          list.filter(acc.1, fn(entry) { entry.0 != child.0 }),
+          context,
+        ))
+      },
+    ),
+  )
+  use #(children, context) <- result.try(
+    list.try_fold(remaining, #(children, context), fn(acc, child) {
+      use #(node, context) <- result.try(compose_child(
+        None,
+        Some(child.1),
+        acc.1,
+      ))
+      Ok(#([#(child.0, node), ..acc.0], context))
+    }),
+  )
+  let first_moves = grouped(first.moves, fn(move) { move.0.revision })
+  let #(moves, remaining_moves) =
+    list.fold(second.moves, #([], first_moves), fn(acc, move) {
+      case list.find(acc.1, fn(prior) { prior.1 == move.0 }) {
+        Ok(prior) -> #(
+          [#(prior.0, move.1), ..acc.0],
+          list.filter(acc.1, fn(entry) { entry.0 != prior.0 }),
+        )
+        Error(Nil) -> {
+          case first_destination == Some(move.0) {
+            True -> acc
+            False -> #([move, ..acc.0], acc.1)
+          }
+        }
+      }
+    })
+  let moves =
+    list.append(
+      list.reverse(moves),
+      list.filter(remaining_moves, fn(move) {
+        composed_source != Some(Detached(move.0))
+      }),
+    )
+  let moves = case first_source, second.replacement {
+    Some(Detached(fill)), Some(replacement) -> {
+      case effectful(replacement) && fill != replacement.detach_id {
+        True -> list.append(moves, [#(fill, replacement.detach_id)])
+        False -> moves
+      }
+    }
+    _, _ -> moves
+  }
+  let replacement = case first.replacement, second.replacement {
+    None, None -> None
+    None, Some(replacement) ->
+      Some(Replacement(..replacement, source: composed_source))
+    Some(replacement), None ->
+      Some(
+        Replacement(
+          ..replacement,
+          source: composed_source,
+          detach_id: moved(replacement.detach_id, second.moves),
+        ),
+      )
+    Some(prior), Some(next) -> {
+      let detach_id = case
+        prior.source == Some(Active)
+        || next.source == Some(Detached(prior.detach_id))
+      {
+        True -> next.detach_id
+        False -> moved(prior.detach_id, second.moves)
+      }
+      Some(Replacement(prior.was_empty, composed_source, detach_id))
+    }
+  }
+  use change <- result.try(
+    validate(FieldChange(moves, list.reverse(children), replacement)),
+  )
+  Ok(#(change, context))
+}
+
 pub fn into_delta(
   change: FieldChange,
   delta_from_child: fn(AtomId) ->

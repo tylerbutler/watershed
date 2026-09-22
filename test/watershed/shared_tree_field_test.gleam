@@ -270,3 +270,210 @@ pub fn shared_tree_field_unknown_attach_is_atomic_test() -> Nil {
     ])
   forest.export_data(initial) |> expect.to_equal(before)
 }
+
+fn no_compose(
+  _: Option(types.AtomId),
+  _: Option(types.AtomId),
+  _: Nil,
+) -> Result(#(types.AtomId, Nil), types.TreeError) {
+  Error(types.CorruptData("test.child", "Unexpected child callback"))
+}
+
+pub fn shared_tree_field_compose_preserves_replaced_fill_test() -> Nil {
+  field.compose(
+    field.set(True, atom(0), atom(1)),
+    field.set(False, atom(2), atom(3)),
+    Nil,
+    no_compose,
+  )
+  |> expect.to_equal(
+    Ok(#(
+      field.FieldChange(
+        [#(atom(0), atom(3))],
+        [],
+        Some(field.Replacement(True, Some(field.Detached(atom(2))), atom(1))),
+      ),
+      Nil,
+    )),
+  )
+}
+
+pub fn shared_tree_field_compose_editor_pairs_test() -> Nil {
+  [
+    #(
+      field.set(True, atom(0), atom(1)),
+      field.clear(False, atom(2)),
+      field.FieldChange(
+        [#(atom(0), atom(2))],
+        [],
+        Some(field.Replacement(True, None, atom(1))),
+      ),
+    ),
+    #(
+      field.clear(False, atom(1)),
+      field.set(True, atom(2), atom(3)),
+      field.FieldChange(
+        [],
+        [],
+        Some(field.Replacement(False, Some(field.Detached(atom(2))), atom(1))),
+      ),
+    ),
+    #(
+      field.clear(False, atom(1)),
+      field.clear(True, atom(2)),
+      field.clear(False, atom(1)),
+    ),
+    #(
+      field.clear(False, atom(1)),
+      field.set(True, atom(1), atom(2)),
+      field.FieldChange(
+        [],
+        [],
+        Some(field.Replacement(False, Some(field.Active), atom(2))),
+      ),
+    ),
+  ]
+  |> list.each(fn(item) {
+    field.compose(item.0, item.1, Nil, no_compose)
+    |> expect.to_equal(Ok(#(item.2, Nil)))
+  })
+}
+
+pub fn shared_tree_field_compose_routes_children_to_input_registers_test() -> Nil {
+  let first =
+    field.FieldChange(
+      [],
+      [#(field.Active, atom(40)), #(field.Detached(atom(0)), atom(41))],
+      Some(field.Replacement(False, Some(field.Detached(atom(0))), atom(1))),
+    )
+  let second =
+    field.FieldChange(
+      [],
+      [
+        #(field.Active, atom(42)),
+        #(field.Detached(atom(1)), atom(43)),
+        #(field.Detached(atom(9)), atom(44)),
+      ],
+      None,
+    )
+  let compose_child = fn(left, right, calls) {
+    case left, right {
+      Some(types.AtomId(_, 40)), Some(types.AtomId(_, 43)) ->
+        Ok(#(atom(50), list.append(calls, [#(left, right)])))
+      Some(types.AtomId(_, 41)), Some(types.AtomId(_, 42)) ->
+        Ok(#(atom(51), list.append(calls, [#(left, right)])))
+      None, Some(types.AtomId(_, 44)) ->
+        Ok(#(atom(52), list.append(calls, [#(left, right)])))
+      _, _ -> Error(types.CorruptData("callback", "Unexpected arguments"))
+    }
+  }
+  let assert Ok(#(change, calls)) =
+    field.compose(first, second, [], compose_child)
+  calls
+  |> expect.to_equal([
+    #(Some(atom(40)), Some(atom(43))),
+    #(Some(atom(41)), Some(atom(42))),
+    #(None, Some(atom(44))),
+  ])
+  change.child_changes
+  |> expect.to_equal([
+    #(field.Active, atom(50)),
+    #(field.Detached(atom(0)), atom(51)),
+    #(field.Detached(atom(9)), atom(52)),
+  ])
+}
+
+pub fn shared_tree_field_compose_moves_and_nested_map_order_test() -> Nil {
+  let other = fn(id) { types.AtomId(Some(revision("02")), id) }
+  let first =
+    field.FieldChange(
+      [
+        #(atom(0), atom(1)),
+        #(other(2), other(3)),
+        #(atom(4), atom(5)),
+      ],
+      [],
+      None,
+    )
+  let second =
+    field.FieldChange(
+      [#(atom(1), atom(6))],
+      [
+        #(field.Detached(atom(10)), atom(40)),
+        #(field.Detached(atom(11)), atom(41)),
+        #(field.Detached(other(10)), atom(42)),
+      ],
+      None,
+    )
+  let callback = fn(left, right, calls) {
+    case left, right {
+      None, Some(id) -> Ok(#(id, list.append(calls, [id])))
+      _, _ -> Error(types.CorruptData("callback", "Unexpected arguments"))
+    }
+  }
+  let assert Ok(#(change, calls)) = field.compose(first, second, [], callback)
+  change.moves
+  |> expect.to_equal([
+    #(atom(0), atom(6)),
+    #(atom(4), atom(5)),
+    #(other(2), other(3)),
+  ])
+  calls |> expect.to_equal([atom(40), atom(42), atom(41)])
+}
+
+pub fn shared_tree_field_compose_failure_has_no_partial_context_test() -> Nil {
+  let original = [atom(99)]
+  let change =
+    field.FieldChange(
+      [],
+      [#(field.Active, atom(40)), #(field.Detached(atom(1)), atom(41))],
+      None,
+    )
+  let error = types.InvalidHistory("Child composition failed")
+  let callback = fn(left, _, context) {
+    case left {
+      Some(types.AtomId(_, 40)) -> Ok(#(atom(50), [atom(50), ..context]))
+      _ -> Error(error)
+    }
+  }
+  field.compose(change, field.empty(), original, callback)
+  |> expect.to_equal(Error(error))
+  original |> expect.to_equal([atom(99)])
+  let invalid = field.FieldChange([#(atom(-1), atom(0))], [], None)
+  let assert Error(types.CorruptData(_, _)) =
+    field.compose(invalid, change, original, fn(_, _, _) {
+      Error(types.InvalidHistory("Input validation did not run"))
+    })
+  Nil
+}
+
+pub fn shared_tree_field_composition_matches_sequential_forest_test() -> Nil {
+  let initial = new_forest(False, Some(types.StringValue("old")))
+  let assert Ok(original) = forest.locate(initial, [])
+  let first = field.set(False, atom(0), atom(1))
+  let second = field.set(False, atom(2), atom(3))
+  let builds = [
+    forest.Build(atom(0), [types.StringValue("first")]),
+    forest.Build(atom(2), [types.StringValue("second")]),
+  ]
+  let assert Ok(built) = apply(initial, field.empty(), builds)
+  let assert Ok(first_state) = apply(built, first, [])
+  let assert Ok(sequential) = apply(first_state, second, [])
+  let assert Ok(#(composed, Nil)) =
+    field.compose(first, second, Nil, no_compose)
+  let assert Ok(composed_state) = apply(built, composed, [])
+  forest.visible_root(composed_state)
+  |> expect.to_equal(Ok(Some(types.StringValue("second"))))
+  forest.visible_root(composed_state)
+  |> expect.to_equal(forest.visible_root(sequential))
+  list.each([composed_state, sequential], fn(state) {
+    forest.is_attached(state, original) |> expect.to_equal(Ok(False))
+    let assert Ok(old) = forest.locate_detached(state, atom(1))
+    old |> expect.to_equal(original)
+    forest.read_node(state, old)
+    |> expect.to_equal(Ok(types.StringValue("old")))
+    let assert Ok(replaced) = forest.locate_detached(state, atom(3))
+    forest.read_node(state, replaced)
+    |> expect.to_equal(Ok(types.StringValue("first")))
+  })
+}
