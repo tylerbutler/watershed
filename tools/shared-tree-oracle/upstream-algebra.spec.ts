@@ -1518,7 +1518,7 @@ function makeFieldCase(commit: string): OracleCase {
 	};
 }
 
-function makeModularFamily(): {
+export function makeModularFamily(): {
 	readonly family: ModularChangeFamily;
 	readonly codecOptions: CodecWriteOptions;
 } {
@@ -1541,7 +1541,7 @@ function makeModularFamily(): {
 	};
 }
 
-function withRootAndNestedChanges(
+export function withRootAndNestedChanges(
 	revision: RevisionTag,
 	rootField: FieldKey,
 	nestedField: FieldKey,

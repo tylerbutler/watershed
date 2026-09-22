@@ -697,6 +697,213 @@ function validateFieldCase(value) {
   }
 }
 
+function validateModularCase(value) {
+  const label = "modular-nested-algebra";
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  const exact = (value, keys, location) => {
+    check(object(value), `${location} must be an object`);
+    assert.deepEqual(Object.keys(value).sort(), [...keys].sort(), `${label}: ${location} fields`);
+  };
+  const stable = (id) => typeof id === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(id);
+  const safe = (value) => Number.isSafeInteger(value) && value >= 0;
+  const atom = (value) => {
+    exact(value, ["revision", "localId"], "atom");
+    check(value.revision === null || stable(value.revision), "atom revision");
+    check(safe(value.localId), "atom local ID");
+  };
+  const register = (value) => { if (value !== "active") atom(value); };
+  const entries = (value, key, item, name) => {
+    check(Array.isArray(value), `${name} must be an array`);
+    const seen = new Set();
+    for (const entry of value) {
+      check(Array.isArray(entry) && entry.length === 2, `${name} entry`);
+      key(entry[0]);
+      const identity = JSON.stringify(entry[0]);
+      check(!seen.has(identity), `${name} duplicate key`);
+      seen.add(identity);
+      item(entry[1]);
+    }
+  };
+  const text = (value) => check(typeof value === "string", "field name");
+  function fields(value) {
+    entries(value, text, (field) => {
+      check(object(field), "field change");
+      if (field.kind === "Generic") {
+        exact(field, ["kind", "children"], "Generic field");
+        entries(field.children, (index) => check(index === 0, "unsupported Generic index"), atom, "Generic children");
+      } else {
+        exact(field, ["kind", "moves", "children", "replacement"], "register field");
+        check(["Value", "Optional"].includes(field.kind), "unsupported field kind");
+        entries(field.moves, atom, atom, "moves");
+        entries(field.children, register, atom, "children");
+        if (field.replacement !== null) {
+          exact(field.replacement, ["wasEmpty", "source", "detach"], "replacement");
+          check(typeof field.replacement.wasEmpty === "boolean", "replacement presence");
+          if (field.replacement.source !== null) register(field.replacement.source);
+          atom(field.replacement.detach);
+        }
+      }
+    }, "fields");
+  }
+  function builds(value) {
+    check(Array.isArray(value), "build list");
+    for (const build of value) {
+      exact(build, ["id", "trees"], "build");
+      atom(build.id);
+      check(Array.isArray(build.trees), "build trees");
+      for (const tree of build.trees) validateTaggedValue(tree, label);
+    }
+  }
+  function structure(value) {
+    exact(value, ["maxLocalId", "revisions", "fields", "nodes", "parents", "aliases",
+      "builds", "destroys", "refreshers"], "change");
+    check(Number.isSafeInteger(value.maxLocalId) && value.maxLocalId >= -1, "allocation watermark");
+    check(Array.isArray(value.revisions), "revision metadata");
+    for (const info of value.revisions) {
+      exact(info, ["revision", "rollbackOf"], "revision metadata");
+      check(stable(info.revision) && (info.rollbackOf === null || stable(info.rollbackOf)), "revision identity");
+    }
+    fields(value.fields);
+    entries(value.nodes, atom, (node) => {
+      exact(node, ["fields"], "node"); fields(node.fields);
+    }, "nodes");
+    entries(value.parents, atom, (parent) => {
+      exact(parent, ["parent", "field"], "parent");
+      if (parent.parent !== null) atom(parent.parent);
+      text(parent.field);
+    }, "parents");
+    entries(value.aliases, atom, atom, "aliases");
+    builds(value.builds); builds(value.refreshers);
+    check(Array.isArray(value.destroys), "destroys");
+    for (const destroy of value.destroys) {
+      exact(destroy, ["id", "count"], "destroy");
+      atom(destroy.id); check(safe(destroy.count) && destroy.count > 0, "destroy count");
+    }
+  }
+  const expanded = value.input.expanded;
+  exact(expanded, ["changes", "tags", "revisions", "operations", "scenarios"], "expanded");
+  exact(expanded.changes, ["first", "second"], "input changes");
+  exact(expanded.tags, ["first", "second"], "input tags");
+  structure(expanded.changes.first); structure(expanded.changes.second);
+  check(expanded.changes.first.aliases.length > 0 && expanded.changes.first.parents.length > 0,
+    "missing alias and parent evidence");
+  check(nonemptyArray(expanded.revisions), "revision identity mapping");
+  const revisions = new Set();
+  const encoded = new Set();
+  for (const entry of expanded.revisions) {
+    exact(entry, ["encoded", "stable"], "revision mapping");
+    check(safe(entry.encoded) && stable(entry.stable), "revision mapping value");
+    check(!revisions.has(entry.stable) && !encoded.has(entry.encoded), "duplicate revision mapping");
+    revisions.add(entry.stable); encoded.add(entry.encoded);
+  }
+  check(Object.values(expanded.tags).every((tag) => revisions.has(tag)), "unknown input tag");
+  const names = new Set(["first", "second"]);
+  const requireName = (name) => check(names.has(name), `unknown change ${name}`);
+  check(nonemptyArray(expanded.operations), "operations");
+  for (const action of expanded.operations) {
+    check(object(action) && typeof action.id === "string" && !names.has(action.id), "operation identity");
+    switch (action.op) {
+      case "edit":
+        exact(action, ["op", "id", "revision", "schema", "root", "path", "value"], "edit");
+        check(revisions.has(action.revision), "edit revision");
+        check(typeof action.schema === "string" && JSON.parse(action.schema).version === 2, "edit schema");
+        check(Array.isArray(action.path) && action.path.every((key) => typeof key === "string"), "edit path");
+        if (action.root !== null) validateTaggedValue(action.root, label);
+        if (action.value !== null) validateTaggedValue(action.value, label);
+        break;
+      case "compose":
+        exact(action, ["op", "id", "changes"], "compose");
+        check(nonemptyArray(action.changes), "compose inputs");
+        action.changes.forEach(requireName);
+        break;
+      case "invert":
+        exact(action, ["op", "id", "change", "isRollback", "inverseRevision"], "invert");
+        requireName(action.change);
+        check(typeof action.isRollback === "boolean" && revisions.has(action.inverseRevision), "inverse arguments");
+        break;
+      case "rebase":
+        exact(action, ["op", "id", "change", "over", "revisionMetadata"], "rebase");
+        requireName(action.change); requireName(action.over);
+        check(nonemptyArray(action.revisionMetadata), "rebase revision metadata");
+        for (const info of action.revisionMetadata) {
+          exact(info, ["revision", "rollbackOf"], "rebase revision");
+          check(revisions.has(info.revision) && (info.rollbackOf === null || revisions.has(info.rollbackOf)),
+            "rebase revision identity");
+        }
+        break;
+      case "replace-revisions":
+        exact(action, ["op", "id", "change", "obsolete", "updated"], "revision replacement");
+        requireName(action.change);
+        check(nonemptyArray(action.obsolete) && action.obsolete.every((id) => id === null || revisions.has(id))
+          && revisions.has(action.updated), "revision replacement identities");
+        break;
+      case "prune":
+        exact(action, ["op", "id", "change"], "prune"); requireName(action.change);
+        break;
+      case "refreshers":
+        exact(action, ["op", "id", "change", "roots", "repair"], "refreshers"); requireName(action.change);
+        check(Array.isArray(action.roots), "refresher roots");
+        action.roots.forEach(atom); builds(action.repair);
+        break;
+      default: check(false, `unsupported operation ${action.op}`);
+    }
+    names.add(action.id);
+  }
+  const operationIds = [
+    "child-x", "child-y", "parent", "title", "optional-set", "optional-clear-empty",
+    "nested-composed", "three-composed", "four-composed", "synthetic-composed",
+    "child-rollback", "child-undo", "multi-rollback", "multi-undo",
+    "x-over-y", "x-over-parent", "parent-over-x", "parent-then-detached",
+    "collision-replaced", "alias-replaced", "pruned", "refreshed", "build-destroy-cancelled",
+  ];
+  assert.deepEqual(expanded.operations.map(({ id }) => id), operationIds, `${label}: operation coverage`);
+  const scenarioIds = ["nested-independent", "nested-composed", "parent-then-child", "child-then-parent",
+    "composed-detached-child", "rollback-restores", "undo-restores-value", "three-fields", "four-fields"];
+  check(nonemptyArray(expanded.scenarios), "forest scenarios");
+  assert.deepEqual(expanded.scenarios.map(({ id }) => id), scenarioIds, `${label}: scenario coverage`);
+  for (const scenario of expanded.scenarios) {
+    exact(scenario, ["id", "schema", "root", "actions"], "scenario");
+    check(typeof scenario.schema === "string" && JSON.parse(scenario.schema).version === 2, "scenario schema");
+    validateTaggedValue(scenario.root, label);
+    check(nonemptyArray(scenario.actions), "scenario actions");
+    for (const action of scenario.actions) {
+      if (action.op === "retain") {
+        exact(action, ["id", "op", "name", "path"], "retain");
+        check(typeof action.name === "string" && Array.isArray(action.path)
+          && action.path.every((key) => typeof key === "string"), "retained reference");
+      } else {
+        exact(action, ["id", "op", "change"], "apply");
+        check(action.op === "apply", "unsupported forest action");
+        requireName(action.change);
+      }
+    }
+  }
+  const observed = value.expected.observations.slice(6);
+  check(observed.length === operationIds.length + scenarioIds.length, "observation count");
+  assert.deepEqual(observed.map(({ id }) => id), [...operationIds, ...scenarioIds], `${label}: observation order`);
+  for (const observation of observed.slice(0, operationIds.length)) {
+    check(observation.operation === "modular" && typeof observation.accepted === "boolean", "operation observation");
+    if (!observation.accepted) {
+      exact(observation, ["operation", "id", "accepted"], "refusal");
+      check(observation.id === "alias-replaced", "unexpected source refusal");
+    } else {
+      structure(observation.change);
+      exact(observation.delta, ["latestRevision", "fields", "build", "refreshers", "global", "rename", "destroy"], "delta");
+      if (observation.id === "refreshed") check(nonemptyArray(observation.removedRoots), "removed-root observations");
+    }
+  }
+  for (const [index, observation] of observed.slice(operationIds.length).entries()) {
+    check(observation.operation === "modular-forest"
+      && observation.checkpoints.length === expanded.scenarios[index].actions.length, "forest checkpoints");
+    for (const checkpoint of observation.checkpoints) {
+      check(checkpoint.accepted === true && object(checkpoint.state), "forest application failure");
+      exact(checkpoint.state, ["root", "references", "detached", "nextDetachedRootId"], "forest state");
+      check(nonemptyArray(checkpoint.state.references) && Array.isArray(checkpoint.state.detached), "retained state");
+    }
+  }
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -775,6 +982,7 @@ export function validateCases(cases) {
       `${value.id}: missing algebra inputs or encoded outputs`);
     }
     if (value.id === "field-compose-invert-rebase") validateFieldCase(value);
+    if (value.id === "modular-nested-algebra") validateModularCase(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
         && nonemptyArray(value.input.schedule)

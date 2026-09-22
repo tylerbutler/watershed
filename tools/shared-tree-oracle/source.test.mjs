@@ -7,6 +7,7 @@ import test from "node:test";
 import {
   forestInjectedTestPath,
   injectedTestPath,
+  modularInjectedTestPath,
   publishCapture,
   reference,
   validateCapture,
@@ -112,6 +113,17 @@ test("source verification byte-checks the owned forest injection", async (t) => 
   const { directory, commit } = await checkoutFixture(t);
   const target = join(directory, forestInjectedTestPath);
   const contents = await readFile(new URL("./upstream-forest.spec.ts", import.meta.url));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// changed by someone else\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
+});
+
+test("source verification byte-checks the owned modular injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, modularInjectedTestPath);
+  const contents = await readFile(new URL("./upstream-modular.spec.ts", import.meta.url));
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, contents);
   await verifyCheckout(directory, commit);
