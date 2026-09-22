@@ -200,7 +200,7 @@ gleam test --target erlang -- --test-name-filter=shared_tree
 gleam test --target javascript -- --test-name-filter=shared_tree
 ```
 
-`generate` produces all 22 named cases under `test/fixtures/shared_tree/cases/`
+`generate` produces all 24 named cases under `test/fixtures/shared_tree/cases/`
 and their manifest. `check` regenerates them in an owned temporary directory and
 compares the complete file set and every byte without changing the fixtures.
 Missing files, extra files, incomplete observations, and changed outputs fail.
@@ -235,10 +235,71 @@ identities, and nonempty observations on both targets. `assert_case` gives only
 the first differing JSON path on failure. Necessary initial state and replay
 bytes therefore live in `input`; `raw` preserves supporting evidence. Tasks 4
 and 5 add the native `id-ranges` and `schema-validation` runners on both targets.
-Task 6 adds the input-only `forest-delta` runner. Task 7 adds
-`field-compose-invert-rebase`. Full tree reconciliation,
-container and summary semantic runners, and native writer-matrix results remain
-future work.
+Task 6 adds the input-only `forest-delta` runner. The foundation wave adds
+`field-compose-invert-rebase`, `container-foundations`, and
+`summary-foundations`. Only these six complete cases are registered as native
+semantic runners on both targets. Full tree reconciliation, document runtime
+replay, and native writer-matrix results remain future work.
+
+### Field algebra and foundation scope
+
+The expanded `field-compose-invert-rebase` case contains 24 ordered
+observations. It covers pairwise composition, rollback and undo inversion,
+rebasing with child callbacks, field deltas, and revision replacement. The
+native adapter executes the supplied operation arguments and compares register
+identities, callback traces, and allocator results. Its V2 decoding is test-only;
+Task 10 still owns production tree codecs.
+
+`src/watershed/tree/optional_field.gleam` implements the shared required/optional
+field algebra. Child callbacks return candidate state through typed results.
+The schema/forest boundary rejects a required field left empty. Simultaneous
+register mappings remain valid algebra even though the forest rejects direct
+transfers around an occupied rename cycle.
+
+Two narrower cases follow the five original container captures, so their
+additional operations do not change the earlier captures' deterministic IDs:
+
+- `container-foundations` covers envelope structure, ordered batch metadata,
+  allocation data, attach/alias messages, contextual handles, and bootstrap-map
+  bytes. It uses pinned upstream runtime consumers for encoding evidence.
+- `summary-foundations` covers snapshot paths and bytes, nested Git entries,
+  binary content, prior-summary tree/blob handles, and reference refusals. It
+  invokes the pinned `SummaryTreeUploadManager`.
+
+These cases do not close the existing `bootstrap-map-handles`,
+`batched-commits`, or `summary-tail` runtime scenarios. Native document loading,
+publication, and mixed-client editing still require the later integration tasks.
+
+The contextual `handle.resolve_path` and `handle.encode_path` APIs preserve full
+document paths. Existing single-segment helpers and their live callers retain
+their behavior until the coordinated runtime cutover.
+
+### Hierarchical storage foundations
+
+`fluid_summary` materializes snapshot trees and resolves summary handles against
+an explicit prior summary. Blob content stays in `BitArray`; a summary handle
+names a prior-summary path, not a Git object ID.
+
+`git_storage.fetch_hierarchy` accepts a published commit ID and reads its tree
+and blobs. A missing commit is an error. `stage_hierarchy` validates a resolved
+tree, writes blobs and nested trees, and returns the staged root tree ID. It
+does not publish a document summary or create a commit. Failed uploads may leave
+unreferenced immutable objects on the server.
+
+Run the controlled HTTP probe from the repository root:
+
+```sh
+node smoke/shared_tree_storage.mjs
+```
+
+The probe exercises the real JavaScript and BEAM storage APIs against a local
+Historian-shaped server. It fetches, stages, and refetches the complete captured
+`summary-tail` snapshot, comparing every path, kind, and blob byte, alongside
+binary, escaped-name, empty-tree, and failure probes. It also runs as part of
+`just test` and does not require a running Floodgate instance. Existing
+`fetch_summary` and `upload_summary` callers still use the single-header format;
+Task 13 replaces that path after the runtime and tree codecs can form a complete
+document summary.
 
 ### Field algebra source contract
 
