@@ -10,6 +10,7 @@ const fixtures = resolve(directory, "../../test/fixtures/shared_tree");
 
 export const requiredCases = [
   ["schema-profile", "schema"],
+  ["schema-validation", "schema"],
   ["bootstrap-map-handles", "container"],
   ["independent-fields", "tree"],
   ["same-field-both-orders", "tree"],
@@ -29,6 +30,40 @@ export const requiredCases = [
   ["history-window", "history"],
   ["unicode-and-numbers", "values"],
   ["invalid-profile", "invalid"],
+];
+
+const schemaValidationCheckIds = [
+  "matching-view",
+  "string-root-mismatch",
+  "required-stored-optional-view",
+  "optional-stored-required-view",
+  "field-cardinality-mismatch",
+  "field-type-mismatch",
+  "added-object-field",
+  "removed-object-field",
+  "allowed-types-reordered",
+  "allowed-types-duplicated",
+  "allowed-types-widened",
+  "empty-allowed-types",
+  "unused-definition",
+  "common-node-mismatch",
+  "metadata-tolerance",
+  "recursive-matching-view",
+  "recursive-node-mismatch",
+  "valid-profile-root",
+  "absent-required-root",
+  "absent-optional-root",
+  "absent-note",
+  "present-note",
+  "null-marker",
+  "null-note",
+  "required-field-absence",
+  "wrong-nested-type",
+  "missing-nested-field",
+  "unknown-field",
+  "unicode-and-empty-keys",
+  "minimum-finite-number",
+  "maximum-finite-number",
 ];
 
 const identity = { package: "@fluidframework/tree", version: reference.version, commit: reference.commit };
@@ -60,6 +95,95 @@ const observations = {
 };
 const nonemptyArray = (value) => Array.isArray(value) && value.length > 0;
 const summary = (value) => object(value) && value.type === 1 && object(value.tree);
+
+function validateSchemaString(value, label) {
+  assert(typeof value === "string" && value.length > 0, `schema-validation: missing ${label}`);
+  let schema;
+  try {
+    schema = JSON.parse(value);
+  } catch {
+    assert.fail(`schema-validation: malformed ${label}`);
+  }
+  assert(object(schema) && schema.version === 2 && object(schema.nodes) && object(schema.root),
+    `schema-validation: incomplete ${label}`);
+  return schema;
+}
+
+function validateTaggedValue(value) {
+  assert(object(value) && typeof value.kind === "string", "schema-validation: malformed value");
+  if (value.kind === "null") {
+    assert.deepEqual(Object.keys(value), ["kind"], "schema-validation: malformed null value");
+  } else if (value.kind === "string") {
+    assert(typeof value.value === "string", "schema-validation: malformed string value");
+  } else if (value.kind === "number") {
+    assert(typeof value.value === "number" && Number.isFinite(value.value),
+      "schema-validation: malformed number value");
+  } else if (value.kind === "boolean") {
+    assert(typeof value.value === "boolean", "schema-validation: malformed boolean value");
+  } else {
+    assert.equal(value.kind, "object", "schema-validation: unknown value kind");
+    assert(typeof value.type === "string" && value.type.length > 0 && Array.isArray(value.fields),
+      "schema-validation: malformed object value");
+    for (const entry of value.fields) {
+      assert(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string",
+        "schema-validation: malformed object field");
+      validateTaggedValue(entry[1]);
+    }
+  }
+}
+
+function validateSchemaCase(value) {
+  const checks = value.input.checks;
+  const observed = value.expected.observations;
+  const schemas = value.raw.schemas;
+  const reports = value.raw.reports;
+  assert(nonemptyArray(checks), "schema-validation: checks must be nonempty");
+  assert(Array.isArray(observed) && Array.isArray(schemas) && Array.isArray(reports),
+    "schema-validation: missing paired evidence");
+  assert.deepEqual(checks.map((check) => check.id), schemaValidationCheckIds,
+    "schema-validation: required check IDs");
+  assert.deepEqual(observed.map((observation) => observation.id), schemaValidationCheckIds,
+    "schema-validation: observation order");
+  assert.deepEqual(schemas.map((schema) => schema.id), schemaValidationCheckIds,
+    "schema-validation: raw schema order");
+  assert.deepEqual(reports.map((report) => report.id), schemaValidationCheckIds,
+    "schema-validation: raw report order");
+  for (let index = 0; index < checks.length; index += 1) {
+    const check = checks[index];
+    const observation = observed[index];
+    const schema = schemas[index];
+    const report = reports[index];
+    assert(object(check) && typeof check.id === "string", "schema-validation: malformed check");
+    const stored = validateSchemaString(check.stored, `${check.id}.stored`);
+    assert(object(observation) && observation.id === check.id
+      && typeof observation.accepted === "boolean", `schema-validation: malformed observation ${check.id}`);
+    assert(object(schema) && schema.id === check.id && object(schema.stored),
+      `schema-validation: missing raw schema ${check.id}`);
+    assert.deepEqual(schema.stored, stored, `schema-validation: raw stored schema ${check.id}`);
+    assert(object(report) && report.id === check.id && Object.hasOwn(report, "report"),
+      `schema-validation: missing raw report ${check.id}`);
+    if (check.operation === "canView") {
+      const view = validateSchemaString(check.view, `${check.id}.view`);
+      assert(object(schema.view), `schema-validation: missing raw view ${check.id}`);
+      assert.deepEqual(schema.view, view, `schema-validation: raw view schema ${check.id}`);
+      assert(object(report.report) && report.report.canView === observation.accepted,
+        `schema-validation: raw compatibility report ${check.id}`);
+    } else {
+      assert(check.operation === "root" || check.operation === "field",
+        `schema-validation: unknown operation ${check.id}`);
+      assert.equal(report.report === null, observation.accepted,
+        `schema-validation: raw validation report ${check.id}`);
+      assert(Object.hasOwn(check, "value"), `schema-validation: missing value ${check.id}`);
+      if (check.value !== null) validateTaggedValue(check.value);
+      if (check.operation === "field") {
+        assert(typeof check.parentType === "string" && check.parentType.length > 0,
+          `schema-validation: missing parentType ${check.id}`);
+        assert(typeof check.field === "string",
+          `schema-validation: missing field ${check.id}`);
+      }
+    }
+  }
+}
 
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
@@ -129,6 +253,7 @@ export function validateCases(cases) {
       assert(summary(value.input.summary) && summary(value.raw.summary)
         && object(value.expected.observations[0].compatibility), `${value.id}: missing schema evidence`);
     }
+    if (value.id === "schema-validation") validateSchemaCase(value);
     if (value.domain === "field" || value.domain === "modular") {
       assert(object(value.input.changes) && Object.keys(value.input.changes).length > 0
         && object(value.raw.encoded) && Object.keys(value.raw.encoded).length > 0,

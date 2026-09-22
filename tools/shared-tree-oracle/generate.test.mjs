@@ -7,6 +7,40 @@ import { join } from "node:path";
 import test from "node:test";
 import { compareDirectories, requiredCases, validateCases } from "./generate.mjs";
 
+const schemaValidationCheckIds = [
+  "matching-view",
+  "string-root-mismatch",
+  "required-stored-optional-view",
+  "optional-stored-required-view",
+  "field-cardinality-mismatch",
+  "field-type-mismatch",
+  "added-object-field",
+  "removed-object-field",
+  "allowed-types-reordered",
+  "allowed-types-duplicated",
+  "allowed-types-widened",
+  "empty-allowed-types",
+  "unused-definition",
+  "common-node-mismatch",
+  "metadata-tolerance",
+  "recursive-matching-view",
+  "recursive-node-mismatch",
+  "valid-profile-root",
+  "absent-required-root",
+  "absent-optional-root",
+  "absent-note",
+  "present-note",
+  "null-marker",
+  "null-note",
+  "required-field-absence",
+  "wrong-nested-type",
+  "missing-nested-field",
+  "unknown-field",
+  "unicode-and-empty-keys",
+  "minimum-finite-number",
+  "maximum-finite-number",
+];
+
 function cases() {
   return requiredCases.map(([id]) => JSON.parse(readFileSync(
     new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url), "utf8",
@@ -14,7 +48,7 @@ function cases() {
 }
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 20);
+  assert.equal(requiredCases.length, 21);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);
@@ -27,6 +61,63 @@ test("corpus validation requires every named case and nonempty observations", ()
   const duplicate = cases();
   duplicate.push(duplicate[0]);
   assert.throws(() => validateCases(duplicate), /duplicate/i);
+});
+
+test("schema validation requires independently replayable paired evidence", () => {
+  const corpus = cases();
+  const schemaCase = corpus.find((item) => item.id === "schema-validation");
+  assert(schemaCase, "schema-validation case is required");
+  assert.deepEqual(schemaCase.input.checks.map(({ id }) => id), schemaValidationCheckIds);
+  assert.deepEqual(schemaCase.expected.observations.map(({ id }) => id), schemaValidationCheckIds);
+  assert.deepEqual(schemaCase.raw.schemas.map(({ id }) => id), schemaValidationCheckIds);
+  assert.deepEqual(schemaCase.raw.reports.map(({ id }) => id), schemaValidationCheckIds);
+  assert.doesNotThrow(() => validateCases(corpus));
+
+  for (const mutate of [
+    (value) => { delete value.input.checks[0].stored; },
+    (value) => { value.input.checks[0].stored = "{"; },
+    (value) => { delete value.input.checks[0].view; },
+    (value) => { delete value.input.checks.find(({ operation }) => operation === "field").parentType; },
+    (value) => { delete value.input.checks.find(({ operation }) => operation === "field").field; },
+    (value) => { value.input.checks[0].operation = "unknown"; },
+    (value) => { value.input.checks[1].id = value.input.checks[0].id; },
+    (value) => {
+      const index = value.input.checks.findIndex(({ id }) => id === "metadata-tolerance");
+      value.input.checks.splice(index, 1);
+      value.expected.observations.splice(index, 1);
+      value.raw.schemas.splice(index, 1);
+      value.raw.reports.splice(index, 1);
+    },
+    (value) => { value.expected.observations.reverse(); },
+    (value) => { value.expected.observations[0].accepted = "yes"; },
+    (value) => { value.raw.schemas.pop(); },
+    (value) => { value.raw.schemas[0].stored.version = 1; },
+    (value) => { value.raw.reports[1].report.canView = true; },
+    (value) => { delete value.raw.reports[0].report; },
+  ]) {
+    const changed = cases();
+    mutate(changed.find((item) => item.id === "schema-validation"));
+    assert.throws(() => validateCases(changed), /schema-validation/);
+  }
+});
+
+test("schema validation refuses malformed tagged values", () => {
+  for (const mutate of [
+    (value) => { value.kind = "unknown"; },
+    (value) => { value.kind = "number"; value.value = "1"; },
+    (value) => { value.kind = "null"; value.value = null; },
+    (value) => { value.kind = "object"; value.type = ""; value.fields = []; },
+    (value) => { value.kind = "object"; value.type = "Example"; value.fields = [["field"]]; },
+  ]) {
+    const corpus = cases();
+    const schemaCase = corpus.find((item) => item.id === "schema-validation");
+    assert(schemaCase, "schema-validation case is required");
+    const root = schemaCase.input.checks.find((item) =>
+      item.operation === "root" && item.value !== null);
+    assert(root, "schema-validation requires a present root value");
+    mutate(root.value);
+    assert.throws(() => validateCases(corpus), /schema-validation/);
+  }
 });
 
 test("corpus validation refuses placeholder observations and incomplete domain evidence", () => {

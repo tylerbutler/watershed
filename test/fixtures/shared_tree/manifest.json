@@ -220,6 +220,11 @@
       "file": "cases/schema-profile.json"
     },
     {
+      "id": "schema-validation",
+      "domain": "schema",
+      "file": "cases/schema-validation.json"
+    },
+    {
       "id": "bootstrap-map-handles",
       "domain": "container",
       "file": "cases/bootstrap-map-handles.json"

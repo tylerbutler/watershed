@@ -7,12 +7,30 @@ import { createSessionId, deserializeIdCompressor, serializeIdCompressor } from 
 import { FlushMode } from "@fluidframework/runtime-definitions/internal";
 import { MockFluidDataStoreRuntime, MockSharedObjectServices } from "@fluidframework/test-runtime-utils/internal";
 
-import { FluidClientVersion, jsonableCodecTree } from "../codec/index.js";
+import { FluidClientVersion, FormatValidatorNoOp, type ICodecOptions, jsonableCodecTree } from "../codec/index.js";
+import {
+	type FieldKey,
+	type MapTree,
+	ObjectNodeStoredSchema,
+	type TreeStoredSchema,
+} from "../core/index.js";
+import {
+	defaultSchemaPolicy,
+	isFieldInSchema,
+	schemaCodecBuilder,
+} from "../feature-libraries/index.js";
 import { ObjectForest } from "../feature-libraries/object-forest/objectForest.js";
 import { getCodecTreeForSharedTreeFormat } from "../shared-tree/index.js";
 import { EditManager } from "../shared-tree-core/index.js";
-import { SchemaFactory, TreeViewConfiguration } from "../simple-tree/index.js";
+import {
+	comparePersistedSchema,
+	extractPersistedSchema,
+	type ImplicitFieldSchema,
+	SchemaFactory,
+	TreeViewConfiguration,
+} from "../simple-tree/index.js";
 import { configuredSharedTreeInternal } from "../treeFactory.js";
+import { brand } from "../util/index.js";
 import { MockContainerRuntimeWithOpBunching } from "./mocksForOpBunching.js";
 import { TestTreeProviderLite } from "./utils.js";
 
@@ -78,6 +96,49 @@ describe("Watershed oracle", () => {
 	class KeyProbe extends schema.object("KeyProbe", {
 		"": schema.string, "\u6c34": schema.string,
 	}) {}
+	const changedSchema = new SchemaFactory("org.watershed.shared-tree.m1");
+	class RootRequiredNote extends changedSchema.object("Root", {
+		title: changedSchema.string, enabled: changedSchema.boolean, rating: changedSchema.number,
+		marker: changedSchema.null, note: changedSchema.string, point: Point,
+	}) {}
+	class RootNumberTitle extends changedSchema.object("Root", {
+		title: changedSchema.number, enabled: changedSchema.boolean, rating: changedSchema.number,
+		marker: changedSchema.null, note: changedSchema.optional(changedSchema.string), point: Point,
+	}) {}
+	class RootAddedField extends changedSchema.object("Root", {
+		title: changedSchema.string, enabled: changedSchema.boolean, rating: changedSchema.number,
+		marker: changedSchema.null, note: changedSchema.optional(changedSchema.string), point: Point,
+		extra: changedSchema.optional(changedSchema.string),
+	}) {}
+	class RootRemovedField extends changedSchema.object("Root", {
+		title: changedSchema.string, enabled: changedSchema.boolean, rating: changedSchema.number,
+		marker: changedSchema.null, point: Point,
+	}) {}
+	class ChangedPoint extends changedSchema.object("Point", {
+		x: changedSchema.string, y: changedSchema.number,
+	}) {}
+	class RootChangedPoint extends changedSchema.object("Root", {
+		title: changedSchema.string, enabled: changedSchema.boolean, rating: changedSchema.number,
+		marker: changedSchema.null, note: changedSchema.optional(changedSchema.string), point: ChangedPoint,
+	}) {}
+	const unionSchema = new SchemaFactory("org.watershed.shared-tree.union");
+	class UnionRoot extends unionSchema.object("Root", {
+		choice: unionSchema.required([unionSchema.string, unionSchema.number]),
+	}) {}
+	const narrowUnionSchema = new SchemaFactory("org.watershed.shared-tree.union");
+	class NarrowUnionRoot extends narrowUnionSchema.object("Root", {
+		choice: narrowUnionSchema.string,
+	}) {}
+	const recursiveSchema = new SchemaFactory("org.watershed.shared-tree.recursive");
+	class RecursiveNode extends recursiveSchema.objectRecursive("Node", {
+		value: recursiveSchema.number,
+		child: recursiveSchema.optionalRecursive([() => RecursiveNode]),
+	}) {}
+	const changedRecursiveSchema = new SchemaFactory("org.watershed.shared-tree.recursive");
+	class ChangedRecursiveNode extends changedRecursiveSchema.objectRecursive("Node", {
+		value: changedRecursiveSchema.string,
+		child: changedRecursiveSchema.optionalRecursive([() => ChangedRecursiveNode]),
+	}) {}
 	class ExcludedArray extends schema.array("ExcludedArray", schema.number) {}
 	class ExcludedMap extends schema.map("ExcludedMap", schema.number) {}
 	const configuration = new TreeViewConfiguration({ schema: Root });
@@ -101,6 +162,44 @@ describe("Watershed oracle", () => {
 
 	type EditValue = string | number | boolean | null | undefined | { x: number; y: number };
 	type EditPath = "title" | "enabled" | "rating" | "note" | "point" | "point.x" | "point.y";
+	type Value =
+		| { kind: "string"; value: string }
+		| { kind: "number"; value: number }
+		| { kind: "boolean"; value: boolean }
+		| { kind: "null" }
+		| { kind: "object"; type: string; fields: [string, Value][] };
+	type Check =
+		| { id: string; operation: "canView"; stored: string; view: string }
+		| { id: string; operation: "root"; stored: string; value: Value | null }
+		| {
+				id: string;
+				operation: "field";
+				stored: string;
+				parentType: string;
+				field: string;
+				value: Value | null;
+		  };
+	type Observation = { id: string; accepted: boolean };
+	type PersistedField = {
+		kind: string;
+		types: string[];
+		metadata?: unknown;
+		[key: string]: unknown;
+	};
+	type PersistedNode = {
+		kind: {
+			object?: Record<string, PersistedField>;
+			leaf?: number;
+		};
+		metadata?: unknown;
+		[key: string]: unknown;
+	};
+	type PersistedSchema = {
+		version: number;
+		nodes: Record<string, PersistedNode>;
+		root: PersistedField;
+		[key: string]: unknown;
+	};
 
 	function harness(note?: string, flushMode = FlushMode.Immediate) {
 		const provider = new TestTreeProviderLite(2, factory, true, flushMode);
@@ -217,6 +316,181 @@ describe("Watershed oracle", () => {
 			expected: { observations },
 			raw,
 		};
+	}
+
+	function persistedSchema(raw: string): PersistedSchema {
+		const parsed: PersistedSchema = JSON.parse(raw);
+		assert.equal(parsed.version, 2);
+		assert(parsed.nodes !== null && typeof parsed.nodes === "object");
+		assert(parsed.root !== null && typeof parsed.root === "object");
+		return parsed;
+	}
+
+	function objectFields(schema: PersistedSchema, type: string): Record<string, PersistedField> {
+		const fields = schema.nodes[type]?.kind.object;
+		assert(fields !== undefined);
+		return fields;
+	}
+
+	function mutateSchema(raw: string, mutate: (schema: PersistedSchema) => void): string {
+		const parsed = persistedSchema(raw);
+		mutate(parsed);
+		return JSON.stringify(parsed);
+	}
+
+	function mapTree(value: Value): MapTree {
+		switch (value.kind) {
+			case "string":
+				return { type: brand("com.fluidframework.leaf.string"), value: value.value, fields: new Map() };
+			case "number":
+				return { type: brand("com.fluidframework.leaf.number"), value: value.value, fields: new Map() };
+			case "boolean":
+				return { type: brand("com.fluidframework.leaf.boolean"), value: value.value, fields: new Map() };
+			case "null":
+				return { type: brand("com.fluidframework.leaf.null"), value: null, fields: new Map() };
+			case "object": {
+				const fields = new Map<FieldKey, readonly MapTree[]>();
+				for (const [key, child] of value.fields) fields.set(brand(key), [mapTree(child)]);
+				return { type: brand(value.type), fields };
+			}
+		}
+	}
+
+	function schemaValidationCase(profileSchema: string) {
+		const options: ICodecOptions = { jsonValidator: FormatValidatorNoOp };
+		const decoder = schemaCodecBuilder.buildDecoder(options);
+		const checks: Check[] = [];
+		const observations: Observation[] = [];
+		const schemas: object[] = [];
+		const reports: object[] = [];
+		const encode = (view: ImplicitFieldSchema) =>
+			JSON.stringify(extractPersistedSchema(view, FluidClientVersion.v2_117, () => false));
+
+		function addCanView(id: string, stored: string, viewSchema: ImplicitFieldSchema): void {
+			const view = encode(viewSchema);
+			const report = comparePersistedSchema(JSON.parse(stored), viewSchema, options);
+			checks.push({ id, operation: "canView", stored, view });
+			observations.push({ id, accepted: report.canView });
+			schemas.push({ id, stored: JSON.parse(stored), view: JSON.parse(view) });
+			reports.push({ id, report });
+		}
+
+		function addValue(check: Exclude<Check, { operation: "canView" }>): void {
+			const stored: TreeStoredSchema = decoder.decode(JSON.parse(check.stored));
+			const field = check.value === null ? [] : [mapTree(check.value)];
+			const report = check.operation === "root"
+				? isFieldInSchema(
+						field,
+						stored.rootFieldSchema,
+						{ schema: stored, policy: defaultSchemaPolicy },
+						(details) => details,
+					)
+				: (() => {
+						const parent = stored.nodeSchema.get(brand(check.parentType));
+						assert(parent instanceof ObjectNodeStoredSchema);
+						return isFieldInSchema(
+							field,
+							parent.getFieldSchema(brand(check.field)),
+							{ schema: stored, policy: defaultSchemaPolicy },
+							(details) => details,
+						);
+					})();
+			checks.push(check);
+			observations.push({ id: check.id, accepted: report === undefined });
+			schemas.push({ id: check.id, stored: JSON.parse(check.stored) });
+			reports.push({ id: check.id, report: report ?? null });
+		}
+
+		const optionalRoot = encode(schema.optional(Root));
+		const union = encode(UnionRoot);
+		const unionReordered = mutateSchema(union, (stored) => {
+			objectFields(stored, UnionRoot.identifier).choice.types.reverse();
+		});
+		const unionDuplicated = mutateSchema(union, (stored) => {
+			const types = objectFields(stored, UnionRoot.identifier).choice.types;
+			types.push(types[0]);
+		});
+		const unusedDefinition = mutateSchema(profileSchema, (stored) => {
+			stored.nodes["org.watershed.shared-tree.m1.Unused"] = { kind: { object: {} } };
+		});
+		const metadata = mutateSchema(profileSchema, (stored) => {
+			stored.metadataProbe = { ignored: true };
+			stored.root.metadata = { description: "root metadata" };
+			stored.nodes[Root.identifier].metadata = { description: "node metadata" };
+			objectFields(stored, Root.identifier).title.metadata = { description: "field metadata" };
+			objectFields(stored, Root.identifier).title.extra = "ignored";
+		});
+		const recursive = encode(RecursiveNode);
+		const keyProbe = encode(KeyProbe);
+		const numberRoot = encode(SchemaFactory.number);
+
+		addCanView("matching-view", profileSchema, Root);
+		addCanView("string-root-mismatch", profileSchema, SchemaFactory.string);
+		addCanView("required-stored-optional-view", profileSchema, schema.optional(Root));
+		addCanView("optional-stored-required-view", optionalRoot, Root);
+		addCanView("field-cardinality-mismatch", profileSchema, RootRequiredNote);
+		addCanView("field-type-mismatch", profileSchema, RootNumberTitle);
+		addCanView("added-object-field", profileSchema, RootAddedField);
+		addCanView("removed-object-field", profileSchema, RootRemovedField);
+		addCanView("allowed-types-reordered", unionReordered, UnionRoot);
+		addCanView("allowed-types-duplicated", unionDuplicated, UnionRoot);
+		addCanView("allowed-types-widened", encode(NarrowUnionRoot), UnionRoot);
+		addCanView("empty-allowed-types", encode(SchemaFactory.optional([])), SchemaFactory.optional([]));
+		addCanView("unused-definition", unusedDefinition, Root);
+		addCanView("common-node-mismatch", profileSchema, RootChangedPoint);
+		addCanView("metadata-tolerance", metadata, Root);
+		addCanView("recursive-matching-view", recursive, RecursiveNode);
+		addCanView("recursive-node-mismatch", recursive, ChangedRecursiveNode);
+
+		const point = (fields: [string, Value][]): Value => ({
+			kind: "object", type: Point.identifier, fields,
+		});
+		const root = (fields: [string, Value][]): Value => ({
+			kind: "object", type: Root.identifier, fields,
+		});
+		const validPoint: [string, Value][] = [
+			["x", { kind: "number", value: 1 }],
+			["y", { kind: "number", value: 2 }],
+		];
+		const validRoot: [string, Value][] = [
+			["title", { kind: "string", value: "\u6c34\u{1f30a}\u0000e\u0301" }],
+			["enabled", { kind: "boolean", value: true }],
+			["rating", { kind: "number", value: -0 }],
+			["marker", { kind: "null" }],
+			["point", point(validPoint)],
+		];
+		addValue({ id: "valid-profile-root", operation: "root", stored: profileSchema, value: root(validRoot) });
+		addValue({ id: "absent-required-root", operation: "root", stored: profileSchema, value: null });
+		addValue({ id: "absent-optional-root", operation: "root", stored: optionalRoot, value: null });
+		addValue({ id: "absent-note", operation: "field", stored: profileSchema,
+			parentType: Root.identifier, field: "note", value: null });
+		addValue({ id: "present-note", operation: "field", stored: profileSchema,
+			parentType: Root.identifier, field: "note", value: { kind: "string", value: "present" } });
+		addValue({ id: "null-marker", operation: "field", stored: profileSchema,
+			parentType: Root.identifier, field: "marker", value: { kind: "null" } });
+		addValue({ id: "null-note", operation: "field", stored: profileSchema,
+			parentType: Root.identifier, field: "note", value: { kind: "null" } });
+		addValue({ id: "required-field-absence", operation: "field", stored: profileSchema,
+			parentType: Root.identifier, field: "title", value: null });
+		addValue({ id: "wrong-nested-type", operation: "field", stored: profileSchema,
+			parentType: Root.identifier, field: "point",
+			value: point([["x", { kind: "string", value: "wrong" }], ["y", { kind: "number", value: 2 }]]) });
+		addValue({ id: "missing-nested-field", operation: "field", stored: profileSchema,
+			parentType: Root.identifier, field: "point",
+			value: point([["y", { kind: "number", value: 2 }]]) });
+		addValue({ id: "unknown-field", operation: "root", stored: profileSchema,
+			value: root([...validRoot, ["extra", { kind: "string", value: "unexpected" }]]) });
+		addValue({ id: "unicode-and-empty-keys", operation: "root", stored: keyProbe,
+			value: { kind: "object", type: KeyProbe.identifier, fields: [
+				["", { kind: "string", value: "empty-key" }],
+				["\u6c34", { kind: "string", value: "\u{1f30a}" }],
+			] } });
+		addValue({ id: "minimum-finite-number", operation: "root", stored: numberRoot,
+			value: { kind: "number", value: -Number.MAX_VALUE } });
+		addValue({ id: "maximum-finite-number", operation: "root", stored: numberRoot,
+			value: { kind: "number", value: Number.MAX_VALUE } });
+
+		return caseFile("schema-validation", "schema", { checks }, observations, { schemas, reports });
 	}
 
 	async function scenario(
@@ -455,6 +729,7 @@ describe("Watershed oracle", () => {
 					[{ visible: schemaSummary.observation.visible, compatibility: incompatible.compatibility,
 						storedSchema: JSON.parse(schemaBlob.content) }],
 					{ summary: schemaSummary.summary, compressor: schemaSummary.compressor }));
+				cases.push(schemaValidationCase(schemaBlob.content));
 				const invalidInputs: unknown[] = [];
 				const invalidObservations: unknown[] = [];
 				const invalidRaw: unknown[] = [];

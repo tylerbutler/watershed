@@ -231,6 +231,7 @@ pub fn shared_tree_fixture_nested_difference_reports_first_path_test() -> Nil {
 pub fn shared_tree_fixture_loads_all_required_corpus_ids_test() -> Nil {
   [
     #("schema-profile", "schema"),
+    #("schema-validation", "schema"),
     #("bootstrap-map-handles", "container"),
     #("independent-fields", "tree"),
     #("same-field-both-orders", "tree"),
