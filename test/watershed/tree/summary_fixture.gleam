@@ -29,7 +29,18 @@ type SnapshotNode {
 }
 
 type Scenario {
-  Scenario(label: String, entries: List(InputEntry))
+  SnapshotScenario(label: String)
+  EmitScenario(label: String, entries: List(InputEntry))
+  RefusalScenario(
+    label: String,
+    previous: PreviousSummary,
+    entries: List(InputEntry),
+  )
+}
+
+type PreviousSummary {
+  PreviousSnapshot
+  MissingPrevious
 }
 
 type InputEntry {
@@ -69,53 +80,47 @@ fn run_scenario(
   snapshot: SnapshotNode,
   previous: fluid_summary.SummaryEntry,
 ) -> Result(Json, String) {
-  let summary = fluid_summary.SummaryTree(to_summary_entries(scenario.entries))
-  case scenario.label {
-    "snapshot-entries" -> {
+  case scenario {
+    SnapshotScenario(label) -> {
       use entries <- result.try(observe_snapshot(snapshot, previous, []))
       Ok(
         json.object([
-          #("label", json.string(scenario.label)),
+          #("label", json.string(label)),
           #("entries", array(entries)),
         ]),
       )
     }
-    "emitted-entries" -> {
+    EmitScenario(label, inputs) -> {
+      let summary = fluid_summary.SummaryTree(to_summary_entries(inputs))
       use resolved <- result.try(
         fluid_summary.resolve(summary, Some(previous))
         |> result.map_error(summary_error),
       )
-      let allocation =
-        allocate_trees(scenario.entries, [], Allocation(1, dict.new()))
+      let allocation = allocate_trees(inputs, [], Allocation(1, dict.new()))
       let assert fluid_summary.SummaryTree(entries) = resolved
       use observed <- result.try(
-        observe_entries(
-          scenario.entries,
-          entries,
-          snapshot,
-          allocation.trees,
-          [],
-        ),
+        observe_entries(inputs, entries, snapshot, allocation.trees, []),
       )
       Ok(
         json.object([
-          #("label", json.string(scenario.label)),
+          #("label", json.string(label)),
           #("entries", array(observed)),
         ]),
       )
     }
-    _ -> {
-      let previous = case scenario.label {
-        "missing-parent" -> None
-        _ -> Some(previous)
+    RefusalScenario(label, previous_summary, inputs) -> {
+      let summary = fluid_summary.SummaryTree(to_summary_entries(inputs))
+      let previous_summary = case previous_summary {
+        PreviousSnapshot -> Some(previous)
+        MissingPrevious -> None
       }
-      case fluid_summary.resolve(summary, previous) {
-        Ok(_) -> Error("summary scenario did not fail: " <> scenario.label)
-        Error(error) ->
+      case fluid_summary.resolve(summary, previous_summary) {
+        Ok(_) -> Error("summary scenario did not fail: " <> label)
+        Error(_) ->
           Ok(
             json.object([
-              #("label", json.string(scenario.label)),
-              #("refused", json.string(upstream_refusal(scenario, error))),
+              #("label", json.string(label)),
+              #("refused", json.bool(True)),
             ]),
           )
       }
@@ -393,38 +398,6 @@ fn decode_path(
   })
 }
 
-fn upstream_refusal(
-  scenario: Scenario,
-  error: fluid_summary.SummaryError,
-) -> String {
-  case scenario.label, error {
-    "missing-parent", fluid_summary.MissingEntry(_) ->
-      "Parent summary does not exist to reference by handle."
-    "malformed-percent-encoding", fluid_summary.MalformedEntry(_, _) ->
-      "URI malformed"
-    _, fluid_summary.MissingEntry(_) ->
-      case first_handle_kind(scenario.entries) {
-        fluid_summary.BlobHandle -> "0x0b4"
-        fluid_summary.TreeHandle -> "0x0b5"
-      }
-    _, fluid_summary.WrongKind(_, expected) ->
-      case expected {
-        fluid_summary.BlobHandle -> "0x0b4"
-        fluid_summary.TreeHandle -> "0x0b5"
-      }
-    _, _ -> summary_error(error)
-  }
-}
-
-fn first_handle_kind(entries: List(InputEntry)) -> fluid_summary.HandleKind {
-  case entries {
-    [HandleInput(_, _, kind), ..] -> kind
-    [TreeInput(_, children), ..] -> first_handle_kind(children)
-    [_, ..rest] -> first_handle_kind(rest)
-    [] -> fluid_summary.TreeHandle
-  }
-}
-
 fn input_name(entry: InputEntry) -> String {
   case entry {
     BlobInput(name, _) | TreeInput(name, _) | HandleInput(name, _, _) -> name
@@ -526,12 +499,30 @@ fn snapshot_node_decoder() -> decode.Decoder(SnapshotNode) {
 
 fn scenario_decoder() -> decode.Decoder(Scenario) {
   use label <- decode.field("label", decode.string)
-  use entries <- decode.optional_field(
-    "summary",
-    [],
-    decode.list(input_entry_decoder()),
-  )
-  decode.success(Scenario(label:, entries:))
+  use operation <- decode.field("operation", decode.string)
+  case operation {
+    "snapshot" -> decode.success(SnapshotScenario(label))
+    "emit" -> {
+      use previous <- decode.field("previous", decode.string)
+      use entries <- decode.field("summary", decode.list(input_entry_decoder()))
+      case previous {
+        "snapshot" -> decode.success(EmitScenario(label, entries))
+        _ -> decode.failure(SnapshotScenario(""), "emitted summary previous")
+      }
+    }
+    "refuse" -> {
+      use previous <- decode.field("previous", decode.string)
+      use entries <- decode.field("summary", decode.list(input_entry_decoder()))
+      case previous {
+        "snapshot" ->
+          decode.success(RefusalScenario(label, PreviousSnapshot, entries))
+        "missing" ->
+          decode.success(RefusalScenario(label, MissingPrevious, entries))
+        _ -> decode.failure(SnapshotScenario(""), "refusal summary previous")
+      }
+    }
+    _ -> decode.failure(SnapshotScenario(""), "summary scenario operation")
+  }
 }
 
 fn input_entry_decoder() -> decode.Decoder(InputEntry) {

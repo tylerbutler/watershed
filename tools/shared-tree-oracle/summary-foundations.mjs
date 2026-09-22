@@ -187,9 +187,11 @@ function uploadedCounts(entries) {
 
 function scenarioInput() {
   return [
-    { label: "snapshot-entries" },
+    { label: "snapshot-entries", operation: "snapshot" },
     {
       label: "emitted-entries",
+      operation: "emit",
+      previous: "snapshot",
       summary: [
         { name: "binary", kind: "blob", bytes: "AP+A" },
         { name: "empty", kind: "blob", bytes: "" },
@@ -228,6 +230,8 @@ function scenarioInput() {
     },
     {
       label: "missing-parent",
+      operation: "refuse",
+      previous: "missing",
       summary: [{
         name: "copy",
         kind: "handle",
@@ -237,6 +241,8 @@ function scenarioInput() {
     },
     {
       label: "missing-path",
+      operation: "refuse",
+      previous: "snapshot",
       summary: [{
         name: "copy",
         kind: "handle",
@@ -246,6 +252,8 @@ function scenarioInput() {
     },
     {
       label: "wrong-kind",
+      operation: "refuse",
+      previous: "snapshot",
       summary: [{
         name: "copy",
         kind: "handle",
@@ -255,6 +263,8 @@ function scenarioInput() {
     },
     {
       label: "malformed-percent-encoding",
+      operation: "refuse",
+      previous: "snapshot",
       summary: [{
         name: "copy",
         kind: "handle",
@@ -390,7 +400,7 @@ async function refusedObservation(
   const manager = new SummaryTreeUploadManager(
     raw.manager,
     new Map(),
-    async () => scenario.label === "missing-parent" ? undefined : previousSnapshot,
+    async () => scenario.previous === "missing" ? undefined : previousSnapshot,
   );
   const logged = [];
   const originalLog = console.log;
@@ -407,10 +417,11 @@ async function refusedObservation(
     return {
       observation: {
         label: scenario.label,
-        refused: error instanceof Error ? error.message : String(error),
+        refused: true,
       },
       raw: {
         label: scenario.label,
+        error: error instanceof Error ? error.message : String(error),
         blobs: raw.blobs,
         trees: raw.trees,
         logged,
@@ -433,7 +444,7 @@ export async function captureSummaryFoundations(existingCases) {
 
   const { SummaryTreeUploadManager, SummaryType } = await oracleModules();
   const scenarios = scenarioInput();
-  const emittedScenario = scenarios.find(({ label }) => label === "emitted-entries");
+  const emittedScenario = scenarios.find(({ operation }) => operation === "emit");
   const emittedRaw = recordingManager();
   const manager = new SummaryTreeUploadManager(
     emittedRaw.manager,
@@ -447,8 +458,8 @@ export async function captureSummaryFoundations(existingCases) {
   );
 
   const refused = [];
-  for (const scenario of scenarios.filter(({ label }) =>
-    label !== "snapshot-entries" && label !== "emitted-entries")) {
+  for (const scenario of scenarios.filter(({ operation }) =>
+    operation === "refuse")) {
     refused.push(await refusedObservation(
       scenario,
       SummaryTreeUploadManager,
@@ -599,8 +610,9 @@ export function validateSummaryFoundationsCase(value) {
     "summary-foundations: refusal observations",
   );
   for (const [index, refusal] of value.raw.refusals.entries()) {
-    exactKeys(refusal, ["label", "blobs", "trees", "logged"],
+    exactKeys(refusal, ["label", "error", "blobs", "trees", "logged"],
       `summary-foundations refusal ${index}`);
+    nonemptyString(refusal.error, `summary-foundations refusal ${index}: error`);
     assert(Array.isArray(refusal.blobs), `summary-foundations refusal ${index}: blobs`);
     assert(Array.isArray(refusal.trees), `summary-foundations refusal ${index}: trees`);
     assert(Array.isArray(refusal.logged), `summary-foundations refusal ${index}: logged`);
@@ -613,17 +625,7 @@ export function validateSummaryFoundationsCase(value) {
     const observation = value.expected.observations[index + 2];
     exactKeys(observation, ["label", "refused"],
       `summary-foundations refusal observation ${index}`);
-    nonemptyString(observation.refused,
-      `summary-foundations refusal observation ${index}: refused`);
+    assert.equal(observation.refused, true,
+      "summary-foundations: refusal observations");
   }
-  assert.deepEqual(
-    value.expected.observations.slice(2).map(({ refused }) => refused),
-    [
-      "Parent summary does not exist to reference by handle.",
-      "0x0b4",
-      "0x0b5",
-      "URI malformed",
-    ],
-    "summary-foundations: refusal messages",
-  );
 }
