@@ -2260,16 +2260,6 @@ function makeFieldCase(commit: string): OracleCase {
 									dst: atom(revisionA, 20),
 								},
 							},
-							replaceRevisions: {
-								id: "all-atom-positions",
-								change: {
-									revision: revisionB,
-									data: encoded.richRevisionChange,
-								},
-								obsolete: [revisionA, revisionB],
-								updated: revisionReplacement,
-								outputRevision: revisionReplacement,
-							},
 							revisionB,
 						),
 					},
@@ -2277,6 +2267,16 @@ function makeFieldCase(commit: string): OracleCase {
 						selector: "local-id-count",
 						field: "child",
 					},
+				},
+				replaceRevisions: {
+					id: "all-atom-positions",
+					change: {
+						revision: revisionB,
+						data: encoded.richRevisionChange,
+					},
+					obsolete: [revisionA, revisionB],
+					updated: revisionReplacement,
+					outputRevision: revisionReplacement,
 				},
 				invalidMappings: [
 					{
