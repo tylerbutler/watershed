@@ -62,16 +62,18 @@ this plan; do those actions in Task 1 after adding its manifests.
 
 ### Dependency order
 
-Tasks 1-7 are complete: the pinned oracle, real-service profile, corpus, ID
-compression, fixed schemas, persistent forest, and field algebra. Tasks 8-16
-remain open; standalone foundation slices do not close their parent tasks.
+Tasks 1-8 are complete: the pinned oracle, real-service profile, corpus, ID
+compression, fixed schemas, persistent forest, field algebra, and nested modular
+changes. Tasks 9-16 remain open; standalone foundation slices do not close their
+parent tasks.
 The manifest records native semantic runners for `id-ranges`,
 `schema-validation`, `forest-delta`, `field-compose-invert-rebase`,
-`container-foundations`, and `summary-foundations` on both targets. The other
-generated cases are not evidence of implemented native semantics.
+`modular-nested-algebra`, `container-foundations`, and `summary-foundations` on
+both targets. The other generated cases are not evidence of implemented native
+semantics.
 
 The work follows three lanes. The foundation wave (7, 11a, and 13a) is complete;
-Task 8 is the next semantics task. The diagram retains the original dependency
+Task 9 is the next semantics task. The diagram retains the original dependency
 split:
 
 ```text
@@ -1107,13 +1109,28 @@ Commit subject: `feat(tree): port optional-field change algebra`.
 
 ### Task 8: compose and rebase nested modular changes
 
-**Files:** Create `tree/change.gleam` and
-`test/watershed/shared_tree_change_test.gleam`.
+**Status:** Complete. The checked pure change boundary is ready for Task 9;
+history, production codecs, runtime integration, and document clients remain
+outside this task.
 
-**Interfaces:** Define opaque `Changeset`, concrete `TaggedChange`, `RevisionInfo`,
-`RepairContext`, and `RebaseContext`. These contexts contain the upstream
-revision/repair information the supported modular algorithm requires; they are
-not empty marker types. Export:
+**Files:** Create `tree/change.gleam`,
+`test/watershed/shared_tree_change_test.gleam`,
+`test/watershed/tree/change_fixture.gleam`,
+`test/watershed/tree/change_fixture_codec.gleam`, and
+`test/watershed/shared_tree_change_fixture_test.gleam`. Add read-only
+`schema.root_field_schema` and `forest.delta_data` accessors.
+
+**Interfaces:** Define opaque checked `Changeset`, `IdentityOrder`, and
+`RebaseContext`, plus
+concrete `ChangeData`, `TaggedChange`, and `RevisionInfo`. `RebaseContext`
+contains ordered revision and rollback relationships. Inversion takes an
+explicit rollback flag and inverse revision, as the pinned upstream API does.
+Repair content is supplied to `update_refreshers`, not to inversion.
+Each changeset stores the explicit compressed-revision ordering supplied at
+construction. UUID text and temporal revision metadata cannot determine that
+order: it affects inverse allocation as well as table serialization. Composition
+and rebasing combine compatible ordering contexts; missing or conflicting
+identity mappings are errors.
 
 ```gleam
 pub fn edit(
@@ -1121,19 +1138,39 @@ pub fn edit(
   forest: Forest,
   revision: StableId,
   operation: Edit,
+  identity_order: IdentityOrder,
 ) -> Result(Changeset, TreeError)
-pub fn compose(
-  changes: List(TaggedChange),
-  context: RebaseContext,
-) -> Result(Changeset, TreeError)
+pub fn empty() -> Changeset
+pub fn identity_order(entries: List(#(StableId, Int)))
+  -> Result(IdentityOrder, TreeError)
+pub fn from_data(data: ChangeData, identity_order: IdentityOrder)
+  -> Result(Changeset, TreeError)
+pub fn to_data(change: Changeset) -> ChangeData
+pub fn rebase_context(revisions: List(RevisionInfo))
+  -> Result(RebaseContext, TreeError)
+pub fn compose(changes: List(TaggedChange)) -> Result(Changeset, TreeError)
 pub fn invert(
   change: TaggedChange,
-  repair: RepairContext,
+  is_rollback: Bool,
+  inverse_revision: StableId,
 ) -> Result(Changeset, TreeError)
 pub fn rebase(
-  change: Changeset,
+  change: TaggedChange,
   over: TaggedChange,
   context: RebaseContext,
+) -> Result(Changeset, TreeError)
+pub fn replace_revisions(
+  change: Changeset,
+  obsolete: List(Option(StableId)),
+  updated: StableId,
+) -> Result(Changeset, TreeError)
+pub fn prune(change: Changeset) -> Result(Changeset, TreeError)
+pub fn relevant_removed_roots(change: Changeset)
+  -> Result(List(AtomId), TreeError)
+pub fn update_refreshers(
+  change: Changeset,
+  roots: List(AtomId),
+  repair: List(Build),
 ) -> Result(Changeset, TreeError)
 pub fn into_delta(change: TaggedChange) -> Result(Delta, TreeError)
 ```
@@ -1144,41 +1181,52 @@ reachable in the profile. Include generic field changes used by nested edits.
 For constraint or cross-field structures outside the profile, prove absence in
 M0 and reject their presence; do not parse and discard them.
 
-- [ ] **1. Add the parent/child conflict and modular algebra tests.**
+- [x] **1. Add the parent/child conflict and modular algebra tests.**
 
 ```gleam
 pub fn shared_tree_nested_change_algebra_matches_upstream_test() {
-  fixtures.assert_case("modular-nested-algebra", run_change_case)
+  fixtures.assert_case("modular-nested-algebra", change_fixture.run)
 }
 ```
 
-The adapter encodes resulting changesets, deltas, and applied forest observations.
-Compare identity aliases as well as visible values.
+The expanded case has 60 input-only observations: the original six encodings,
+36 structural operations, and 18 forest schedules. The adapter compares aliases,
+parents, revision metadata, allocation watermarks, complete deltas, and visible
+and retained trees. Original encoded inputs are checked against their full
+structural inputs before execution; encoding alone would lose the source alias
+and parent identities. Separate real compressor sessions prove that compressed
+revision order can differ from UUID order. V5/V2 fixture encoding stays in test
+code.
 
-- [ ] **2. Implement local editing and delta production.**
+- [x] **2. Implement local editing and delta production.**
 
 Resolve the target in the current forest, validate against stored schema, create
 build/detach identities, and construct the actual required/optional change.
 Nested edits reference the original target node even if a peer replaces its
 parent before sequencing.
 
-- [ ] **3. Port modular composition/inversion/rebase.**
+- [x] **3. Port modular composition/inversion/rebase.**
 
 Follow the pinned modular family and field-handler callbacks. Preserve aliases
 when two changes identify the same node with different atom IDs. Keep revision
 replacement and repair content consistent across compose, invert, rebase, and
 prune. Map Gleam field kinds through a closed sum; do not create a plugin registry.
 
-- [ ] **4. Run all nested-object corpus schedules.**
+- [x] **4. Run the pure nested-object schedules.**
 
-Execute `nested-independent`, `parent-child-both-orders`, and
-`detached-child-edit`, including repeated replace/edit/rebase cycles.
+Execute the modular equivalents of `nested-independent`,
+`parent-child-both-orders`, and `detached-child-edit`, including repeated
+replace/edit/rebase cycles, both composition orders, optional roots, and null
+versus absence. The original lifecycle cases also observe sequencing, history,
+and reloads; leave those whole cases unregistered until their later tasks.
 Add negative tests for alias cycles, missing builds, invalid parent references,
 and reused local IDs with incompatible meaning.
 
-- [ ] **5. Run the focused pair and commit.**
+- [x] **5. Run the focused pair and commit.**
 
-Commit subject: `feat(tree): rebase nested object changes`.
+Checkpoint commits cover the model, edits, composition, inversion/rebase, and
+identity-order corrections. Final conformance commit:
+`test(tree): verify nested modular conformance`.
 
 ### Task 9: implement edit history and pending-commit reconciliation
 

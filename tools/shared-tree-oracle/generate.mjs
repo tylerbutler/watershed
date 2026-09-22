@@ -1228,11 +1228,13 @@ export async function writeCorpus(output, cases, smoke) {
     nativeSemanticRunners: {
       javascript: [
         "id-ranges", "schema-validation", "forest-delta",
-        "field-compose-invert-rebase", "container-foundations", "summary-foundations",
+        "field-compose-invert-rebase", "modular-nested-algebra",
+        "container-foundations", "summary-foundations",
       ],
       erlang: [
         "id-ranges", "schema-validation", "forest-delta",
-        "field-compose-invert-rebase", "container-foundations", "summary-foundations",
+        "field-compose-invert-rebase", "modular-nested-algebra",
+        "container-foundations", "summary-foundations",
       ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),
