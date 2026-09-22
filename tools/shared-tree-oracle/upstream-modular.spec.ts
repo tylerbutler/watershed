@@ -234,9 +234,9 @@ function expand(
 	function edit(
 		id: string, editRevision: RevisionTag, path: string[], value: TaggedValue | null,
 		optional = false, wasEmpty = false,
+		initial: { schema: string; root: TaggedValue | null } = { schema, root: root() },
 	) {
-		inputs.push({ op: "edit", id, revision: revision(editRevision), schema,
-			root: root(), path, value });
+		inputs.push({ op: "edit", id, revision: revision(editRevision), ...initial, path, value });
 		let authored: TaggedChange<ModularChangeset> | undefined;
 		const editor = new DefaultEditBuilder(family, () => editRevision, (change) => {
 			assert.equal(authored, undefined, "An edit must emit exactly one change");
@@ -322,25 +322,60 @@ function expand(
 		return treeChunk(repair[position].trees, testIdCompressor);
 	}, roots), revisionA), { removedRoots: roots.map(detached) });
 	compose("build-destroy-cancelled", ["child-x", "child-rollback"]);
+	const optionalRoot = { schema: schemaString(sf.optional(sf.string)), root: null };
+	const presentRoot = { schema: optionalRoot.schema, root: { kind: "string" as const, value: "before" } };
+	const nullRoot = { schema: schemaString(sf.optional(sf.null)), root: null };
+	edit("optional-root-set", revisionA, [], { kind: "string", value: "after" }, true, true, optionalRoot);
+	edit("optional-root-clear", revisionB, [], null, true, false, presentRoot);
+	edit("optional-root-null", revisionA, [], { kind: "null" }, true, true, nullRoot);
+	const withNote = root();
+	assert(withNote.kind === "object");
+	withNote.fields.push(["note", { kind: "string", value: "present" }]);
+	const presentNote = { schema, root: withNote };
+	edit("optional-clear-present", revisionA, ["note"], null, true, false, presentNote);
+	const replaced = root();
+	assert(replaced.kind === "object");
+	const afterParent = {
+		schema,
+		root: { ...replaced, fields: replaced.fields.map(([key, value]): [string, TaggedValue] =>
+			[key, key === "point" ? {
+				kind: "object", type: Point.identifier,
+				fields: [["x", { kind: "number", value: 10 }], ["y", { kind: "number", value: 20 }]],
+			} : value]) },
+	};
+	edit("parent-again", revisionC, ["point"], {
+		kind: "object", type: Point.identifier,
+		fields: [["x", { kind: "number", value: 100 }], ["y", { kind: "number", value: 200 }]],
+	}, false, false, afterParent);
+	rebase("delayed-after-two-parents", "x-over-parent", "parent-again");
+	compose("nested-reversed", ["child-y", "child-x"]);
 
 	const scenarioInputs: object[] = [];
 	const scenarioObservations: object[] = [];
 	const decoder = schemaCodecBuilder.buildDecoder({ jsonValidator: FormatValidatorNoOp });
-	function scenario(id: string, names: string[]) {
+	function scenario(
+		id: string, names: string[],
+		initial: { schema: string; root: TaggedValue | null } = { schema, root: root() },
+		retainPath: string[] | null = ["point"],
+	) {
+		const retain: Scenario["actions"] = retainPath === null ? [] : [
+			{ id: retainPath.length === 0 ? "retain-root" : "retain-point",
+				op: "retain", name: retainPath.length === 0 ? "old-root" : "old-point", path: retainPath },
+		];
 		const actions: Scenario["actions"] = [
-			{ id: "retain-point", op: "retain", name: "old-point", path: ["point"] },
+			...retain,
 			...names.map((name) => {
 				const change = get(name);
 				return { id: name, op: "apply" as const,
 					delta: deltaData(intoDelta(change), change.revision) };
 			}),
 		];
-		const definition: Scenario = { id, schema, root: root(), actions };
+		const definition: Scenario = { id, ...initial, actions };
 		const result = runScenario(definition, testIdCompressor, decoder);
 		assert(result.observation.checkpoints.every((checkpoint) => checkpoint.accepted),
 			`${id}: all supported modular deltas must apply`);
-		scenarioInputs.push({ id, schema, root: root(), actions: [
-			actions[0], ...names.map((change) => ({ id: change, op: "apply", change })),
+		scenarioInputs.push({ id, ...initial, actions: [
+			...retain, ...names.map((change) => ({ id: change, op: "apply", change })),
 		] });
 		scenarioObservations.push({ operation: "modular-forest", ...result.observation });
 	}
@@ -353,6 +388,12 @@ function expand(
 	scenario("undo-restores-value", ["child-x", "child-undo"]);
 	scenario("three-fields", ["three-composed"]);
 	scenario("four-fields", ["four-composed"]);
+	scenario("optional-root-set", ["optional-root-set"], optionalRoot, null);
+	scenario("optional-root-clear", ["optional-root-clear"], presentRoot, []);
+	scenario("optional-root-null", ["optional-root-null"], nullRoot, null);
+	scenario("optional-clear-present", ["optional-clear-present"], presentNote);
+	scenario("replace-twice-then-delayed", ["parent", "parent-again", "delayed-after-two-parents"]);
+	scenario("nested-reversed", ["nested-reversed"]);
 
 	return {
 		input: {

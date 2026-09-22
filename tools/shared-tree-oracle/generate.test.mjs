@@ -86,13 +86,40 @@ test("modular corpus rejects incomplete operations and retained identity observa
     (fixture) => { fixture.input.expanded.scenarios[0].actions[1].change = "missing"; },
     (fixture) => { fixture.expected.observations[6].change.fields[0][1].children[0][0] = 1; },
     (fixture) => { delete fixture.expected.observations[6].delta.global; },
+    (fixture) => { fixture.expected.observations[6].delta.fields[0][1].marks[0].count = -1; },
+    (fixture) => { fixture.expected.observations[6].delta.build[0].id.localId = "zero"; },
+    (fixture) => { fixture.expected.observations[6].delta.build[0].trees = []; },
     (fixture) => { fixture.expected.observations.find(({ operation }) => operation === "modular-forest").checkpoints.pop(); },
     (fixture) => { delete fixture.expected.observations.at(-1).checkpoints[0].state.detached; },
+    (fixture) => {
+      fixture.expected.observations.find(({ operation }) => operation === "modular-forest")
+        .checkpoints[0].state.references[0].value = { kind: "unknown" };
+    },
+    (fixture) => {
+      fixture.expected.observations.find(({ operation }) => operation === "modular-forest")
+        .checkpoints[1].state.detached[0].latestRelevantRevision = "not-a-revision";
+    },
   ]) {
     const corpus = cases();
     mutate(corpus.find(({ id }) => id === "modular-nested-algebra"));
     assert.throws(() => validateCases(corpus), /modular-nested-algebra/);
   }
+});
+
+test("modular evidence covers optional roots and repeated detached-child rebasing", () => {
+  const fixture = cases().find(({ id }) => id === "modular-nested-algebra");
+  const operations = new Map(fixture.input.expanded.operations.map((entry) => [entry.id, entry]));
+  assert.equal(operations.get("optional-root-set")?.root, null);
+  assert.equal(operations.get("optional-root-clear")?.value, null);
+  assert.deepEqual(operations.get("optional-root-null")?.value, { kind: "null" });
+  assert.equal(operations.get("delayed-after-two-parents")?.change, "x-over-parent");
+  assert.equal(operations.get("delayed-after-two-parents")?.over, "parent-again");
+  assert.deepEqual(operations.get("nested-reversed")?.changes, ["child-y", "child-x"]);
+  const final = fixture.expected.observations.find(({ id }) => id === "replace-twice-then-delayed");
+  assert(final, "missing repeated-replacement forest evidence");
+  const retained = final.checkpoints.at(-1).state.references.find(({ name }) => name === "old-point");
+  assert.equal(retained.status, "detached");
+  assert.deepEqual(retained.value.fields.find(([key]) => key === "x")[1], { kind: "number", value: 42 });
 });
 
 test("field corpus refuses incomplete operations, callbacks, identities and observations", () => {
