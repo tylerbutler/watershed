@@ -59,6 +59,11 @@ pub opaque type ViewSchema {
   ViewSchema(repository: Repository)
 }
 
+/// Read the stored root field definition.
+pub fn root_field_schema(schema: StoredSchema) -> FieldSchema {
+  schema.repository.root
+}
+
 /// Decode a schema that is already JSON. Earlier parsers can erase duplicate
 /// keys. Use `stored_from_string` for a schema blob from storage or the wire.
 pub fn stored_from_json(data: Json) -> Result(StoredSchema, TreeError) {

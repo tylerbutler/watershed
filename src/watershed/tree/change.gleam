@@ -7,8 +7,13 @@ import gleam/string
 import watershed/fluid_ids.{type StableId}
 import watershed/tree/forest
 import watershed/tree/optional_field
+import watershed/tree/schema.{
+  type Cardinality, type FieldSchema, type StoredSchema, FieldSchema, Optional,
+  Required,
+}
 import watershed/tree/types.{
-  type AtomId, type TreeError, CorruptData, InvalidHistory,
+  type AtomId, type Edit, type FieldPath, type TreeError, type TreeValue, AtomId,
+  ClearField, CorruptData, InvalidEdit, InvalidHistory, ObjectValue, SetField,
 }
 
 const max_safe_integer = 9_007_199_254_740_991
@@ -65,6 +70,14 @@ type Ownership {
   Ownership(id: AtomId, parent: ParentField)
 }
 
+type DeltaParts {
+  DeltaParts(
+    fields: List(#(String, forest.FieldDelta)),
+    global: List(forest.DetachedChange),
+    rename: List(forest.Rename),
+  )
+}
+
 pub fn empty() -> Changeset {
   Changeset(
     ChangeData(
@@ -95,6 +108,327 @@ pub fn rebase_context(
 ) -> Result(RebaseContext, TreeError) {
   use _ <- result.try(validate_revisions(revisions))
   Ok(RebaseContext(revisions))
+}
+
+pub fn edit(
+  schema: StoredSchema,
+  forest: forest.Forest,
+  revision: StableId,
+  operation: Edit,
+) -> Result(Changeset, TreeError) {
+  let #(path, value) = case operation {
+    SetField(path, value) -> #(path, Some(value))
+    ClearField(path) -> #(path, None)
+  }
+  use #(field_schema, parent_path, field, was_empty) <- result.try(
+    edit_destination(schema, forest, path, value),
+  )
+  let FieldSchema(cardinality, _) = field_schema
+  use #(field_change, builds, next_id) <- result.try(authored_field(
+    cardinality,
+    was_empty,
+    value,
+    revision,
+  ))
+  use #(fields, nodes, parents, max_local_id) <- result.try(wrap_ancestors(
+    parent_path,
+    field,
+    field_change,
+    revision,
+    next_id,
+  ))
+  from_data(
+    ChangeData(
+      max_local_id: max_local_id,
+      revisions: [RevisionInfo(revision, None)],
+      fields: fields,
+      nodes: nodes,
+      parents: parents,
+      aliases: [],
+      builds: builds,
+      destroys: [],
+      refreshers: [],
+    ),
+  )
+}
+
+pub fn into_delta(change: TaggedChange) -> Result(forest.Delta, TreeError) {
+  let data = change.change.data
+  use parts <- result.try(delta_fields(data.fields, data))
+  forest.delta(forest.DeltaData(
+    latest_revision: change.revision,
+    fields: parts.fields,
+    build: data.builds,
+    refreshers: data.refreshers,
+    global: parts.global,
+    rename: parts.rename,
+    destroy: data.destroys,
+  ))
+}
+
+fn edit_destination(
+  schema: StoredSchema,
+  forest: forest.Forest,
+  path: FieldPath,
+  value: Option(TreeValue),
+) -> Result(#(FieldSchema, FieldPath, String, Bool), TreeError) {
+  case path {
+    [] -> {
+      use _ <- result.try(schema.validate_root_field(schema, value))
+      use current <- result.try(forest.read(forest, []))
+      Ok(#(
+        schema.root_field_schema(schema),
+        [],
+        "rootFieldKey",
+        current == None,
+      ))
+    }
+    [first, ..rest] -> {
+      let #(parent_path, field) = split_last_loop(rest, [], first)
+      use parent <- result.try(forest.read(forest, parent_path))
+      use parent_type <- result.try(case parent {
+        None -> Error(InvalidEdit(path, "parent field is absent"))
+        Some(ObjectValue(identifier, _)) -> Ok(identifier)
+        Some(_) -> Error(InvalidEdit(path, "parent schema is a leaf"))
+      })
+      use definition <- result.try(schema.field_schema(
+        schema,
+        parent_type,
+        field,
+      ))
+      use _ <- result.try(schema.validate_field(
+        schema,
+        parent_type,
+        field,
+        value,
+      ))
+      use current <- result.try(forest.read(forest, path))
+      Ok(#(definition, parent_path, field, current == None))
+    }
+  }
+}
+
+fn split_last_loop(
+  remaining: FieldPath,
+  prefix: FieldPath,
+  current: String,
+) -> #(FieldPath, String) {
+  case remaining {
+    [] -> #(list.reverse(prefix), current)
+    [next, ..rest] -> split_last_loop(rest, [current, ..prefix], next)
+  }
+}
+
+fn authored_field(
+  cardinality: Cardinality,
+  was_empty: Bool,
+  value: Option(TreeValue),
+  revision: StableId,
+) -> Result(#(FieldChange, List(forest.Build), Int), TreeError) {
+  case cardinality, value {
+    Required, Some(value) -> {
+      let fill = AtomId(Some(revision), 0)
+      let detach = AtomId(Some(revision), 1)
+      Ok(#(
+        ValueField(optional_field.set(False, fill, detach)),
+        [forest.Build(fill, [value])],
+        2,
+      ))
+    }
+    Optional, Some(value) -> {
+      let detach = AtomId(Some(revision), 0)
+      let fill = AtomId(Some(revision), 1)
+      Ok(#(
+        OptionalField(optional_field.set(was_empty, fill, detach)),
+        [forest.Build(fill, [value])],
+        2,
+      ))
+    }
+    Optional, None -> {
+      let detach = AtomId(Some(revision), 0)
+      Ok(#(OptionalField(optional_field.clear(was_empty, detach)), [], 1))
+    }
+    Required, None -> Error(InvalidEdit([], "required field is absent"))
+  }
+}
+
+fn wrap_ancestors(
+  parent_path: FieldPath,
+  field: String,
+  field_change: FieldChange,
+  revision: StableId,
+  next_id: Int,
+) -> Result(
+  #(
+    List(#(String, FieldChange)),
+    List(#(AtomId, NodeChange)),
+    List(#(AtomId, ParentField)),
+    Int,
+  ),
+  TreeError,
+) {
+  case field == "rootFieldKey" && list.is_empty(parent_path) {
+    True -> Ok(#([#(field, field_change)], [], [], next_id - 1))
+    False -> {
+      use #(child, next_id) <- result.try(allocate(revision, next_id))
+      let nodes = [#(child, NodeChange([#(field, field_change)]))]
+      use #(top, nodes, parents, next_id) <- result.try(
+        wrap_parent_fields(
+          list.reverse(parent_path),
+          child,
+          revision,
+          next_id,
+          nodes,
+          [],
+        ),
+      )
+      Ok(#(
+        [#("rootFieldKey", GenericField([#(0, top)]))],
+        nodes,
+        list.append(parents, [
+          #(top, ParentField(None, "rootFieldKey")),
+        ]),
+        next_id - 1,
+      ))
+    }
+  }
+}
+
+fn wrap_parent_fields(
+  fields: FieldPath,
+  child: AtomId,
+  revision: StableId,
+  next_id: Int,
+  nodes: List(#(AtomId, NodeChange)),
+  parents: List(#(AtomId, ParentField)),
+) -> Result(
+  #(AtomId, List(#(AtomId, NodeChange)), List(#(AtomId, ParentField)), Int),
+  TreeError,
+) {
+  case fields {
+    [] -> Ok(#(child, nodes, parents, next_id))
+    [field, ..rest] -> {
+      use #(parent, next_id) <- result.try(allocate(revision, next_id))
+      wrap_parent_fields(
+        rest,
+        parent,
+        revision,
+        next_id,
+        list.append(nodes, [
+          #(parent, NodeChange([#(field, GenericField([#(0, child)]))])),
+        ]),
+        list.append(parents, [
+          #(child, ParentField(Some(parent), field)),
+        ]),
+      )
+    }
+  }
+}
+
+fn allocate(
+  revision: StableId,
+  next_id: Int,
+) -> Result(#(AtomId, Int), TreeError) {
+  case next_id >= 0 && next_id <= max_safe_integer {
+    True -> Ok(#(AtomId(Some(revision), next_id), next_id + 1))
+    False -> Error(CorruptData("change allocator", "identifiers are exhausted"))
+  }
+}
+
+fn delta_fields(
+  fields: List(#(String, FieldChange)),
+  data: ChangeData,
+) -> Result(DeltaParts, TreeError) {
+  list.try_fold(fields, DeltaParts([], [], []), fn(parts, entry) {
+    use field <- result.try(delta_field(entry.1, data))
+    let fields = case field.0 {
+      None -> parts.fields
+      Some(delta) -> list.append(parts.fields, [#(entry.0, delta)])
+    }
+    Ok(DeltaParts(
+      fields,
+      list.append(parts.global, field.1),
+      list.append(parts.rename, field.2),
+    ))
+  })
+}
+
+fn delta_field(
+  field: FieldChange,
+  data: ChangeData,
+) -> Result(
+  #(Option(forest.FieldDelta), List(forest.DetachedChange), List(forest.Rename)),
+  TreeError,
+) {
+  case field {
+    GenericField(children) -> {
+      use child_parts <- result.try(
+        list.try_map(children, fn(child) {
+          delta_child(child.1, data)
+          |> result.map(fn(parts) { #(child.1, parts) })
+        }),
+      )
+      let marks =
+        list.map(child_parts, fn(child) {
+          forest.Mark(1, None, None, child.1.fields)
+        })
+      Ok(#(
+        Some(forest.FieldDelta(marks)),
+        list.flat_map(child_parts, fn(child) { child.1.global }),
+        list.flat_map(child_parts, fn(child) { child.1.rename }),
+      ))
+    }
+    ValueField(change) | OptionalField(change) -> {
+      let optional_field.FieldChange(_, children, _) = change
+      use child_parts <- result.try(
+        list.try_map(children, fn(child) {
+          delta_child(child.1, data)
+          |> result.map(fn(parts) { #(child.1, parts) })
+        }),
+      )
+      use delta <- result.try(
+        optional_field.into_delta(change, fn(id) {
+          case parts_for(child_parts, id) {
+            None -> Error(CorruptData("delta", "child change is missing"))
+            Some(parts) -> Ok(parts.fields)
+          }
+        }),
+      )
+      let optional_field.FieldChangeDelta(local, global, rename) = delta
+      Ok(#(
+        local,
+        list.append(
+          global,
+          list.flat_map(child_parts, fn(child) { child.1.global }),
+        ),
+        list.append(
+          rename,
+          list.flat_map(child_parts, fn(child) { child.1.rename }),
+        ),
+      ))
+    }
+  }
+}
+
+fn delta_child(id: AtomId, data: ChangeData) -> Result(DeltaParts, TreeError) {
+  use canonical <- result.try(resolve_alias(id, data.aliases))
+  use node <- result.try(node_for(canonical, data.nodes, data.aliases))
+  let NodeChange(fields) = node
+  delta_fields(fields, data)
+}
+
+fn parts_for(
+  parts: List(#(AtomId, DeltaParts)),
+  id: AtomId,
+) -> Option(DeltaParts) {
+  case parts {
+    [] -> None
+    [entry, ..rest] ->
+      case entry.0 == id {
+        True -> Some(entry.1)
+        False -> parts_for(rest, id)
+      }
+  }
 }
 
 fn validate_data(data: ChangeData) -> Result(Nil, TreeError) {

@@ -98,6 +98,11 @@ pub opaque type Delta {
   Delta(data: DeltaData)
 }
 
+/// Read checked internal delta data.
+pub fn delta_data(delta: Delta) -> DeltaData {
+  delta.data
+}
+
 pub type DetachedTreeData {
   DetachedTreeData(
     id: AtomId,

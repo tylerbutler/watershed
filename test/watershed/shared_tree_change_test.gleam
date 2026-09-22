@@ -1,13 +1,18 @@
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/string
 import startest/expect
 import watershed/fluid_ids
 import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/optional_field
+import watershed/tree/schema
 import watershed/tree/types.{
-  type AtomId, AtomId, CorruptData, InvalidHistory, NumberValue,
+  type AtomId, type TreeValue, AtomId, ClearField, CorruptData, InvalidEdit,
+  InvalidHistory, NullValue, NumberValue, ObjectValue, SetField, StringValue,
 }
+
+const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
 fn revision(value: String) -> fluid_ids.StableId {
   let assert Ok(id) = fluid_ids.stable_id(value)
@@ -42,6 +47,28 @@ fn empty_data() -> change.ChangeData {
     destroys: [],
     refreshers: [],
   )
+}
+
+fn stored_schema() -> schema.StoredSchema {
+  let assert Ok(stored) = schema.stored_from_string(tree_schema)
+  stored
+}
+
+fn point(x: Float, y: Float) -> TreeValue {
+  ObjectValue("Point", [
+    #("x", NumberValue(x)),
+    #("y", NumberValue(y)),
+  ])
+}
+
+fn root() -> TreeValue {
+  ObjectValue("Root", [#("point", point(1.0, 2.0))])
+}
+
+fn initial_forest() -> forest.Forest {
+  let view = revision("00000000-0000-4000-8000-000000000001")
+  let assert Ok(state) = forest.new(view, stored_schema(), Some(root()))
+  state
 }
 
 pub fn shared_tree_change_empty_data_round_trips_test() {
@@ -182,4 +209,253 @@ pub fn shared_tree_change_allows_missing_rollback_target_metadata_test() {
   let revisions = [change.RevisionInfo(revision_b(), Some(revision_a()))]
   change.rebase_context(revisions) |> expect.to_be_ok
   Nil
+}
+
+pub fn shared_tree_change_nested_leaf_edit_builds_complete_delta_test() {
+  let initial = initial_forest()
+  let assert Ok(authored) =
+    change.edit(
+      stored_schema(),
+      initial,
+      revision_a(),
+      SetField(["point", "x"], NumberValue(7.0)),
+    )
+  let expected =
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 3,
+      revisions: [change.RevisionInfo(revision_a(), None)],
+      fields: [
+        #("rootFieldKey", change.GenericField([#(0, atom(3))])),
+      ],
+      nodes: [
+        #(
+          atom(2),
+          change.NodeChange([
+            #(
+              "x",
+              change.ValueField(optional_field.set(False, atom(0), atom(1))),
+            ),
+          ]),
+        ),
+        #(
+          atom(3),
+          change.NodeChange([
+            #("point", change.GenericField([#(0, atom(2))])),
+          ]),
+        ),
+      ],
+      parents: [
+        #(atom(2), change.ParentField(Some(atom(3)), "point")),
+        #(atom(3), change.ParentField(None, "rootFieldKey")),
+      ],
+      builds: [forest.Build(atom(0), [NumberValue(7.0)])],
+    )
+  change.to_data(authored) |> expect.to_equal(expected)
+
+  let tagged = change.TaggedChange(Some(revision_a()), None, authored)
+  let assert Ok(delta) = change.into_delta(tagged)
+  forest.delta_data(delta)
+  |> expect.to_equal(
+    forest.DeltaData(
+      latest_revision: Some(revision_a()),
+      fields: [
+        #(
+          "rootFieldKey",
+          forest.FieldDelta([
+            forest.Mark(1, None, None, [
+              #(
+                "point",
+                forest.FieldDelta([
+                  forest.Mark(1, None, None, [
+                    #(
+                      "x",
+                      forest.FieldDelta([
+                        forest.Mark(1, Some(atom(0)), Some(atom(1)), []),
+                      ]),
+                    ),
+                  ]),
+                ]),
+              ),
+            ]),
+          ]),
+        ),
+      ],
+      build: [forest.Build(atom(0), [NumberValue(7.0)])],
+      refreshers: [],
+      global: [],
+      rename: [],
+      destroy: [],
+    ),
+  )
+
+  let assert Ok(updated) = forest.apply_delta(initial, delta)
+  forest.read(updated, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  forest.read(initial, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+}
+
+pub fn shared_tree_change_optional_edit_uses_detach_then_fill_ids_test() {
+  let initial = initial_forest()
+  let assert Ok(set) =
+    change.edit(
+      stored_schema(),
+      initial,
+      revision_a(),
+      SetField(["note"], StringValue("present")),
+    )
+  let set_data = change.to_data(set)
+  set_data.max_local_id |> expect.to_equal(2)
+  set_data.builds
+  |> expect.to_equal([forest.Build(atom(1), [StringValue("present")])])
+  set_data.nodes
+  |> expect.to_equal([
+    #(
+      atom(2),
+      change.NodeChange([
+        #(
+          "note",
+          change.OptionalField(optional_field.set(True, atom(1), atom(0))),
+        ),
+      ]),
+    ),
+  ])
+
+  let assert Ok(clear) =
+    change.edit(stored_schema(), initial, revision_a(), ClearField(["note"]))
+  let clear_data = change.to_data(clear)
+  clear_data.max_local_id |> expect.to_equal(1)
+  clear_data.builds |> expect.to_equal([])
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, clear))
+  forest.delta_data(delta).fields
+  |> expect.to_equal([
+    #("rootFieldKey", forest.FieldDelta([forest.Mark(1, None, None, [])])),
+  ])
+}
+
+pub fn shared_tree_change_optional_root_set_and_clear_test() {
+  let optional_schema =
+    string.replace(
+      tree_schema,
+      "\"root\":{\"kind\":\"Value\"",
+      "\"root\":{\"kind\":\"Optional\"",
+    )
+  let assert Ok(stored) = schema.stored_from_string(optional_schema)
+  let view = revision("00000000-0000-4000-8000-000000000002")
+  let assert Ok(empty_root) = forest.new(view, stored, None)
+  let assert Ok(set) =
+    change.edit(stored, empty_root, revision_a(), SetField([], root()))
+  change.to_data(set).fields
+  |> expect.to_equal([
+    #(
+      "rootFieldKey",
+      change.OptionalField(optional_field.set(True, atom(1), atom(0))),
+    ),
+  ])
+  let assert Ok(set_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, set))
+  let assert Ok(with_root) = forest.apply_delta(empty_root, set_delta)
+  forest.visible_root(with_root) |> expect.to_equal(Ok(Some(root())))
+
+  let assert Ok(clear) =
+    change.edit(stored, with_root, revision_b(), ClearField([]))
+  let assert Ok(clear_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_b()), None, clear))
+  let assert Ok(cleared) = forest.apply_delta(with_root, clear_delta)
+  forest.visible_root(cleared) |> expect.to_equal(Ok(None))
+}
+
+pub fn shared_tree_change_rejects_invalid_edit_paths_and_values_test() {
+  let initial = initial_forest()
+  [
+    ClearField([]),
+    ClearField(["point"]),
+    SetField(["note", "child"], StringValue("x")),
+    SetField(["point", "x", "child"], NumberValue(3.0)),
+    SetField(["unknown"], NumberValue(3.0)),
+    SetField(["point"], ObjectValue("Point", [])),
+    SetField(["note"], NullValue),
+  ]
+  |> list.each(fn(operation) {
+    let assert Error(InvalidEdit(_, _)) =
+      change.edit(stored_schema(), initial, revision_a(), operation)
+    Nil
+  })
+}
+
+pub fn shared_tree_change_parent_replacement_retains_old_node_test() {
+  let initial = initial_forest()
+  let assert Ok(old_point) = forest.locate(initial, ["point"])
+  let assert Ok(authored) =
+    change.edit(
+      stored_schema(),
+      initial,
+      revision_a(),
+      SetField(["point"], point(10.0, 20.0)),
+    )
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, authored))
+  let assert Ok(updated) = forest.apply_delta(initial, delta)
+  let assert Ok(new_point) = forest.locate(updated, ["point"])
+  expect.to_equal(new_point == old_point, False)
+  forest.is_attached(updated, old_point) |> expect.to_equal(Ok(False))
+  forest.read_node(updated, old_point) |> expect.to_equal(Ok(point(1.0, 2.0)))
+  forest.locate_detached(updated, atom(1)) |> expect.to_equal(Ok(old_point))
+}
+
+pub fn shared_tree_change_missing_build_fails_without_mutating_forest_test() {
+  let initial = initial_forest()
+  let assert Ok(authored) =
+    change.edit(
+      stored_schema(),
+      initial,
+      revision_a(),
+      SetField(["point"], point(10.0, 20.0)),
+    )
+  let data = change.to_data(authored)
+  let assert Ok(incomplete) =
+    change.from_data(change.ChangeData(..data, builds: []))
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, incomplete))
+  let assert Error(CorruptData(_, _)) = forest.apply_delta(initial, delta)
+  forest.visible_root(initial) |> expect.to_equal(Ok(Some(root())))
+}
+
+pub fn shared_tree_change_delta_collects_global_rename_and_detached_data_test() {
+  let detached = atom(20)
+  let node = atom(30)
+  let field =
+    change.ValueField(optional_field.FieldChange(
+      [#(atom(10), atom(11))],
+      [#(optional_field.Detached(detached), node)],
+      None,
+    ))
+  let data =
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 30,
+      fields: [#("root", field)],
+      nodes: [#(node, change.NodeChange([]))],
+      parents: [#(node, change.ParentField(None, "root"))],
+      builds: [forest.Build(atom(40), [NumberValue(4.0)])],
+      destroys: [forest.Destroy(atom(50), 1)],
+      refreshers: [forest.Build(atom(60), [NumberValue(6.0)])],
+    )
+  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, authored))
+  forest.delta_data(delta)
+  |> expect.to_equal(
+    forest.DeltaData(
+      latest_revision: Some(revision_a()),
+      fields: [],
+      build: [forest.Build(atom(40), [NumberValue(4.0)])],
+      refreshers: [forest.Build(atom(60), [NumberValue(6.0)])],
+      global: [forest.DetachedChange(detached, [])],
+      rename: [forest.Rename(atom(10), atom(11), 1)],
+      destroy: [forest.Destroy(atom(50), 1)],
+    ),
+  )
 }
