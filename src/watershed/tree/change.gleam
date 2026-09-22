@@ -51,8 +51,12 @@ pub type ChangeData {
   )
 }
 
+pub opaque type IdentityOrder {
+  IdentityOrder(entries: List(#(StableId, Int)))
+}
+
 pub opaque type Changeset {
-  Changeset(data: ChangeData)
+  Changeset(data: ChangeData, identity_order: IdentityOrder)
 }
 
 pub type TaggedChange {
@@ -132,12 +136,45 @@ pub fn empty() -> Changeset {
       destroys: [],
       refreshers: [],
     ),
+    IdentityOrder([]),
   )
 }
 
-pub fn from_data(data: ChangeData) -> Result(Changeset, TreeError) {
+pub fn identity_order(
+  entries: List(#(StableId, Int)),
+) -> Result(IdentityOrder, TreeError) {
+  use _ <- result.try(
+    list.try_each(entries, fn(entry) {
+      case entry.1 >= -max_safe_integer && entry.1 <= max_safe_integer {
+        True -> Ok(Nil)
+        False ->
+          Error(InvalidHistory(
+            "identity order key is outside the safe integer range",
+          ))
+      }
+    }),
+  )
+  use _ <- result.try(unique_by(
+    entries,
+    fn(entry) { entry.0 },
+    InvalidHistory("identity order contains a duplicate revision"),
+  ))
+  use _ <- result.try(unique_by(
+    entries,
+    fn(entry) { entry.1 },
+    InvalidHistory("identity order contains a duplicate key"),
+  ))
+  Ok(IdentityOrder(entries))
+}
+
+pub fn from_data(
+  data: ChangeData,
+  identity_order: IdentityOrder,
+) -> Result(Changeset, TreeError) {
   use _ <- result.try(validate_data(data))
-  Ok(Changeset(data))
+  use _ <- result.try(validate_data_identity_order(data, identity_order))
+  use data <- result.try(sort_atom_tables(data, identity_order))
+  Ok(Changeset(data, identity_order))
 }
 
 pub fn to_data(change: Changeset) -> ChangeData {
@@ -156,7 +193,9 @@ pub fn edit(
   forest: forest.Forest,
   revision: StableId,
   operation: Edit,
+  identity_order: IdentityOrder,
 ) -> Result(Changeset, TreeError) {
+  use _ <- result.try(require_identity_revision(identity_order, revision))
   let #(path, value) = case operation {
     SetField(path, value) -> #(path, Some(value))
     ClearField(path) -> #(path, None)
@@ -192,6 +231,7 @@ pub fn edit(
       destroys: [],
       refreshers: [],
     ),
+    identity_order,
   )
 }
 
@@ -216,9 +256,13 @@ pub fn compose(changes: List(TaggedChange)) -> Result(Changeset, TreeError) {
     revisions,
     max_local_id,
   ))
-  let data = sort_atom_tables(composed.data)
   from_data(
-    ChangeData(..data, max_local_id: max_local_id, revisions: revisions),
+    ChangeData(
+      ..composed.data,
+      max_local_id: max_local_id,
+      revisions: revisions,
+    ),
+    composed.identity_order,
   )
 }
 
@@ -277,8 +321,7 @@ pub fn replace_revisions(
       destroys: destroys,
       refreshers: refreshers,
     )
-    |> sort_atom_tables
-  from_data(data)
+  from_data(data, change.identity_order)
 }
 
 pub fn prune(change: Changeset) -> Result(Changeset, TreeError) {
@@ -295,6 +338,7 @@ pub fn prune(change: Changeset) -> Result(Changeset, TreeError) {
       nodes: state.nodes,
       parents: state.parents,
     ),
+    change.identity_order,
   )
 }
 
@@ -327,10 +371,8 @@ pub fn update_refreshers(
       }
     }),
   )
-  let data =
-    ChangeData(..change.data, refreshers: refreshers)
-    |> sort_atom_tables
-  from_data(data)
+  let data = ChangeData(..change.data, refreshers: refreshers)
+  from_data(data, change.identity_order)
 }
 
 pub fn invert(
@@ -338,6 +380,10 @@ pub fn invert(
   is_rollback: Bool,
   inverse_revision: StableId,
 ) -> Result(Changeset, TreeError) {
+  use _ <- result.try(require_identity_revision(
+    change.change.identity_order,
+    inverse_revision,
+  ))
   use _ <- result.try(check(
     list.is_empty(change.change.data.destroys),
     "invert",
@@ -392,8 +438,7 @@ pub fn invert(
       destroys: destroys,
       refreshers: [],
     )
-    |> sort_atom_tables
-  from_data(inverted)
+  from_data(inverted, change.change.identity_order)
 }
 
 pub fn rebase(
@@ -402,6 +447,10 @@ pub fn rebase(
   context: RebaseContext,
 ) -> Result(Changeset, TreeError) {
   use _ <- result.try(validate_rebase_inputs(change, over, context))
+  use identity_order <- result.try(merge_identity_orders(
+    change.change.identity_order,
+    over.change.identity_order,
+  ))
   let authored = change.change.data
   let base = over.change.data
   let state = RebaseState([], [], authored.aliases, authored, base, [], [])
@@ -424,8 +473,7 @@ pub fn rebase(
       destroys: authored.destroys,
       refreshers: authored.refreshers,
     )
-    |> sort_atom_tables
-  use rebased <- result.try(from_data(data))
+  use rebased <- result.try(from_data(data, identity_order))
   prune(rebased)
 }
 
@@ -1389,6 +1437,10 @@ fn compose_pair(
   revisions: List(RevisionInfo),
   max_local_id: Int,
 ) -> Result(Changeset, TreeError) {
+  use identity_order <- result.try(merge_identity_orders(
+    first.identity_order,
+    second.identity_order,
+  ))
   let first_data = first.data
   let second_data = second.data
   use aliases <- result.try(merge_aliases(
@@ -1413,17 +1465,20 @@ fn compose_pair(
     first_data,
     second_data,
   ))
-  from_data(ChangeData(
-    max_local_id: max_local_id,
-    revisions: revisions,
-    fields: fields,
-    nodes: state.nodes,
-    parents: state.parents,
-    aliases: state.aliases,
-    builds: builds,
-    destroys: destroys,
-    refreshers: refreshers,
-  ))
+  from_data(
+    ChangeData(
+      max_local_id: max_local_id,
+      revisions: revisions,
+      fields: fields,
+      nodes: state.nodes,
+      parents: state.parents,
+      aliases: state.aliases,
+      builds: builds,
+      destroys: destroys,
+      refreshers: refreshers,
+    ),
+    identity_order,
+  )
 }
 
 fn compose_field_maps(
@@ -1761,49 +1816,187 @@ fn remove_destroy(
   list.filter(destroys, fn(destroy) { destroy.id != id })
 }
 
-fn sort_atom_tables(data: ChangeData) -> ChangeData {
-  ChangeData(
-    ..data,
-    nodes: sort_pairs(data.nodes),
-    parents: sort_pairs(data.parents),
-    aliases: sort_pairs(data.aliases),
-    builds: list.sort(data.builds, fn(left, right) {
-      compare_atom(left.id, right.id)
-    }),
-    destroys: list.sort(data.destroys, fn(left, right) {
-      compare_atom(left.id, right.id)
-    }),
-    refreshers: list.sort(data.refreshers, fn(left, right) {
-      compare_atom(left.id, right.id)
-    }),
+fn sort_atom_tables(
+  data: ChangeData,
+  identity_order: IdentityOrder,
+) -> Result(ChangeData, TreeError) {
+  use nodes <- result.try(sort_by_atom(
+    data.nodes,
+    fn(entry) { entry.0 },
+    identity_order,
+  ))
+  use parents <- result.try(sort_by_atom(
+    data.parents,
+    fn(entry) { entry.0 },
+    identity_order,
+  ))
+  use aliases <- result.try(sort_by_atom(
+    data.aliases,
+    fn(entry) { entry.0 },
+    identity_order,
+  ))
+  use builds <- result.try(sort_by_atom(
+    data.builds,
+    fn(build) { build.id },
+    identity_order,
+  ))
+  use destroys <- result.try(sort_by_atom(
+    data.destroys,
+    fn(destroy) { destroy.id },
+    identity_order,
+  ))
+  use refreshers <- result.try(sort_by_atom(
+    data.refreshers,
+    fn(build) { build.id },
+    identity_order,
+  ))
+  Ok(
+    ChangeData(
+      ..data,
+      nodes: nodes,
+      parents: parents,
+      aliases: aliases,
+      builds: builds,
+      destroys: destroys,
+      refreshers: refreshers,
+    ),
   )
 }
 
-fn sort_pairs(entries: List(#(AtomId, a))) -> List(#(AtomId, a)) {
-  list.sort(entries, fn(left, right) { compare_atom(left.0, right.0) })
+fn sort_by_atom(
+  entries: List(a),
+  atom: fn(a) -> AtomId,
+  identity_order: IdentityOrder,
+) -> Result(List(a), TreeError) {
+  list.try_fold(entries, [], fn(sorted, entry) {
+    insert_by_atom(entry, sorted, atom, identity_order)
+  })
 }
 
-fn compare_atom(left: AtomId, right: AtomId) -> order.Order {
-  let revision_order = compare_revision(left.revision, right.revision)
+fn insert_by_atom(
+  entry: a,
+  entries: List(a),
+  atom: fn(a) -> AtomId,
+  identity_order: IdentityOrder,
+) -> Result(List(a), TreeError) {
+  case entries {
+    [] -> Ok([entry])
+    [first, ..rest] -> {
+      use ordering <- result.try(compare_atom(
+        atom(entry),
+        atom(first),
+        identity_order,
+      ))
+      case ordering {
+        order.Lt | order.Eq -> Ok([entry, ..entries])
+        order.Gt -> {
+          use rest <- result.try(insert_by_atom(
+            entry,
+            rest,
+            atom,
+            identity_order,
+          ))
+          Ok([first, ..rest])
+        }
+      }
+    }
+  }
+}
+
+fn compare_atom(
+  left: AtomId,
+  right: AtomId,
+  identity_order: IdentityOrder,
+) -> Result(order.Order, TreeError) {
+  use revision_order <- result.try(compare_revision(
+    left.revision,
+    right.revision,
+    identity_order,
+  ))
   case revision_order {
-    order.Eq -> int_compare(left.local_id, right.local_id)
-    _ -> revision_order
+    order.Eq -> Ok(int_compare(left.local_id, right.local_id))
+    _ -> Ok(revision_order)
   }
 }
 
 fn compare_revision(
   left: Option(StableId),
   right: Option(StableId),
-) -> order.Order {
+  identity_order: IdentityOrder,
+) -> Result(order.Order, TreeError) {
   case left, right {
-    None, None -> order.Eq
-    None, Some(_) -> order.Lt
-    Some(_), None -> order.Gt
-    Some(left), Some(right) ->
-      string.compare(
-        fluid_ids.stable_id_to_string(left),
-        fluid_ids.stable_id_to_string(right),
-      )
+    None, None -> Ok(order.Eq)
+    None, Some(_) -> Ok(order.Lt)
+    Some(_), None -> Ok(order.Gt)
+    Some(left), Some(right) -> {
+      use left <- result.try(identity_key(identity_order, left))
+      use right <- result.try(identity_key(identity_order, right))
+      Ok(int_compare(left, right))
+    }
+  }
+}
+
+fn merge_identity_orders(
+  first: IdentityOrder,
+  second: IdentityOrder,
+) -> Result(IdentityOrder, TreeError) {
+  let IdentityOrder(first) = first
+  let IdentityOrder(second) = second
+  use entries <- result.try(
+    list.try_fold(second, first, fn(entries, entry) {
+      case pair_value(entries, entry.0) {
+        Some(key) ->
+          case key == entry.1 {
+            True -> Ok(entries)
+            False ->
+              Error(InvalidHistory(
+                "identity orders assign different keys to a revision",
+              ))
+          }
+        None ->
+          case revision_for_identity_key(entries, entry.1) {
+            Some(_) ->
+              Error(InvalidHistory(
+                "identity orders assign one key to different revisions",
+              ))
+            None -> Ok(list.append(entries, [entry]))
+          }
+      }
+    }),
+  )
+  Ok(IdentityOrder(entries))
+}
+
+fn identity_key(
+  identity_order: IdentityOrder,
+  revision: StableId,
+) -> Result(Int, TreeError) {
+  let IdentityOrder(entries) = identity_order
+  case pair_value(entries, revision) {
+    Some(key) -> Ok(key)
+    None -> Error(InvalidHistory("identity order is missing a revision"))
+  }
+}
+
+fn require_identity_revision(
+  identity_order: IdentityOrder,
+  revision: StableId,
+) -> Result(Nil, TreeError) {
+  identity_key(identity_order, revision)
+  |> result.map(fn(_) { Nil })
+}
+
+fn revision_for_identity_key(
+  entries: List(#(StableId, Int)),
+  key: Int,
+) -> Option(StableId) {
+  case entries {
+    [] -> None
+    [entry, ..rest] ->
+      case entry.1 == key {
+        True -> Some(entry.0)
+        False -> revision_for_identity_key(rest, key)
+      }
   }
 }
 
@@ -2182,6 +2375,129 @@ fn validate_data(data: ChangeData) -> Result(Nil, TreeError) {
   use _ <- result.try(validate_builds(data.refreshers, "refreshers"))
   use _ <- result.try(validate_destroys(data.destroys))
   validate_ownership(data)
+}
+
+fn validate_data_identity_order(
+  data: ChangeData,
+  identity_order: IdentityOrder,
+) -> Result(Nil, TreeError) {
+  use _ <- result.try(
+    list.try_each(data.revisions, fn(info) {
+      use _ <- result.try(require_identity_revision(
+        identity_order,
+        info.revision,
+      ))
+      case info.rollback_of {
+        None -> Ok(Nil)
+        Some(revision) -> require_identity_revision(identity_order, revision)
+      }
+    }),
+  )
+  use _ <- result.try(validate_field_map_identity_order(
+    data.fields,
+    identity_order,
+  ))
+  use _ <- result.try(
+    list.try_each(data.nodes, fn(entry) {
+      use _ <- result.try(validate_atom_identity_order(entry.0, identity_order))
+      let NodeChange(fields) = entry.1
+      validate_field_map_identity_order(fields, identity_order)
+    }),
+  )
+  use _ <- result.try(
+    list.try_each(data.parents, fn(entry) {
+      use _ <- result.try(validate_atom_identity_order(entry.0, identity_order))
+      let ParentField(parent, _) = entry.1
+      case parent {
+        None -> Ok(Nil)
+        Some(parent) -> validate_atom_identity_order(parent, identity_order)
+      }
+    }),
+  )
+  use _ <- result.try(
+    list.try_each(data.aliases, fn(alias) {
+      use _ <- result.try(validate_atom_identity_order(alias.0, identity_order))
+      validate_atom_identity_order(alias.1, identity_order)
+    }),
+  )
+  use _ <- result.try(
+    list.try_each(data.builds, fn(build) {
+      validate_atom_identity_order(build.id, identity_order)
+    }),
+  )
+  use _ <- result.try(
+    list.try_each(data.destroys, fn(destroy) {
+      validate_atom_identity_order(destroy.id, identity_order)
+    }),
+  )
+  list.try_each(data.refreshers, fn(build) {
+    validate_atom_identity_order(build.id, identity_order)
+  })
+}
+
+fn validate_field_map_identity_order(
+  fields: List(#(String, FieldChange)),
+  identity_order: IdentityOrder,
+) -> Result(Nil, TreeError) {
+  list.try_each(fields, fn(entry) {
+    validate_field_identity_order(entry.1, identity_order)
+  })
+}
+
+fn validate_field_identity_order(
+  field: FieldChange,
+  identity_order: IdentityOrder,
+) -> Result(Nil, TreeError) {
+  case field {
+    GenericField(children) ->
+      list.try_each(children, fn(child) {
+        validate_atom_identity_order(child.1, identity_order)
+      })
+    ValueField(change) | OptionalField(change) -> {
+      let optional_field.FieldChange(moves, children, replacement) = change
+      use _ <- result.try(
+        list.try_each(moves, fn(move) {
+          use _ <- result.try(validate_atom_identity_order(
+            move.0,
+            identity_order,
+          ))
+          validate_atom_identity_order(move.1, identity_order)
+        }),
+      )
+      use _ <- result.try(
+        list.try_each(children, fn(child) {
+          use _ <- result.try(case child.0 {
+            optional_field.Active -> Ok(Nil)
+            optional_field.Detached(id) ->
+              validate_atom_identity_order(id, identity_order)
+          })
+          validate_atom_identity_order(child.1, identity_order)
+        }),
+      )
+      case replacement {
+        None -> Ok(Nil)
+        Some(optional_field.Replacement(_, source, detach)) -> {
+          use _ <- result.try(case source {
+            None -> Ok(Nil)
+            Some(optional_field.Detached(id)) ->
+              validate_atom_identity_order(id, identity_order)
+            Some(optional_field.Active) -> Ok(Nil)
+          })
+          validate_atom_identity_order(detach, identity_order)
+        }
+      }
+    }
+  }
+}
+
+fn validate_atom_identity_order(
+  atom: AtomId,
+  identity_order: IdentityOrder,
+) -> Result(Nil, TreeError) {
+  case atom.revision {
+    None -> Ok(Nil)
+    Some(revision) -> require_identity_revision(identity_order, revision)
+  }
 }
 
 fn validate_revisions(revisions: List(RevisionInfo)) -> Result(Nil, TreeError) {
