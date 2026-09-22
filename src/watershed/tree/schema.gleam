@@ -1,0 +1,359 @@
+//// Fixed object schemas for the Fluid 3.1.0 schema-v2 profile.
+////
+//// Stored and view schemas use the persisted schema format. These functions
+//// do not accept JavaScript view configuration objects or apply schema upgrades.
+
+import gleam/bit_array
+import gleam/dict.{type Dict}
+import gleam/dynamic/decode
+import gleam/int
+import gleam/json.{type Json}
+import gleam/list
+import gleam/result
+import gleam/set.{type Set}
+import watershed/canonical_json
+import watershed/json_ot.{
+  type JsonValue, NFloat, NInt, VArray, VNumber, VObject, VString,
+}
+import watershed/tree/types.{
+  type TreeError, CorruptData, InvalidSchema, UnsupportedFormat,
+}
+
+pub type Cardinality {
+  Required
+  Optional
+}
+
+pub type FieldSchema {
+  FieldSchema(cardinality: Cardinality, allowed_types: List(String))
+}
+
+pub type LeafKind {
+  StringLeaf
+  NumberLeaf
+  BooleanLeaf
+  NullLeaf
+}
+
+pub type NodeSchema {
+  Leaf(kind: LeafKind)
+  Object(fields: List(#(String, FieldSchema)))
+}
+
+type Repository {
+  Repository(
+    root: FieldSchema,
+    nodes: Dict(String, NodeSchema),
+    persisted: JsonValue,
+  )
+}
+
+pub opaque type StoredSchema {
+  StoredSchema(repository: Repository)
+}
+
+pub opaque type ViewSchema {
+  ViewSchema(repository: Repository)
+}
+
+/// Decode a schema that is already JSON. Earlier parsers can erase duplicate
+/// keys. Use `stored_from_string` for a schema blob from storage or the wire.
+pub fn stored_from_json(data: Json) -> Result(StoredSchema, TreeError) {
+  stored_from_string(json.to_string(data))
+}
+
+/// Decode the persisted form of a fixed view schema. Earlier JSON parsers can
+/// erase duplicate keys. Use `view_from_string` to check original bytes.
+pub fn view_from_json(data: Json) -> Result(ViewSchema, TreeError) {
+  view_from_string(json.to_string(data))
+}
+
+/// Decode schema-v2 bytes and reject duplicate declarations.
+pub fn stored_from_string(raw: String) -> Result(StoredSchema, TreeError) {
+  decode_repository(raw) |> result.map(StoredSchema)
+}
+
+/// Decode a fixed view in schema-v2 form, without view options or upgrades.
+pub fn view_from_string(raw: String) -> Result(ViewSchema, TreeError) {
+  decode_repository(raw) |> result.map(ViewSchema)
+}
+
+fn decode_repository(raw: String) -> Result(Repository, TreeError) {
+  use data <- result.try(
+    json.parse(raw, json_ot.decoder())
+    |> result.map_error(fn(_) { CorruptData("$", "invalid schema JSON") }),
+  )
+  use _ <- result.try(scan_value(<<raw:utf8>>, "$"))
+  use members <- result.try(object(data, "$"))
+  use version <- result.try(member(members, "version", "$"))
+  use _ <- result.try(case version {
+    VNumber(NInt(2)) | VNumber(NFloat(2.0)) -> Ok(Nil)
+    VNumber(number) ->
+      Error(UnsupportedFormat(
+        "Schema",
+        canonical_json.to_string(VNumber(number)),
+      ))
+    _ -> Error(CorruptData("$.version", "expected a schema version number"))
+  })
+  use nodes <- result.try(member(members, "nodes", "$"))
+  use nodes <- result.try(object(nodes, "$.nodes"))
+  use nodes <- result.try(
+    list.try_map(nodes, fn(entry) {
+      let #(identifier, definition) = entry
+      use node <- result.try(decode_node(identifier, definition))
+      Ok(#(identifier, node))
+    }),
+  )
+  use root <- result.try(member(members, "root", "$"))
+  use root <- result.try(decode_field(root, "$.root"))
+  let repository = Repository(root, dict.from_list(nodes), data)
+  use _ <- result.try(check_references(repository, root, "$.root"))
+  use _ <- result.try(
+    list.try_each(nodes, fn(entry) {
+      case entry.1 {
+        Leaf(_) -> Ok(Nil)
+        Object(fields) ->
+          list.try_each(fields, fn(field) {
+            check_references(repository, field.1, key_path(entry.0, field.0))
+          })
+      }
+    }),
+  )
+  Ok(repository)
+}
+
+fn decode_node(
+  identifier: String,
+  data: JsonValue,
+) -> Result(NodeSchema, TreeError) {
+  let path = key_path("$.nodes", identifier)
+  use members <- result.try(object(data, path))
+  use _ <- result.try(check_metadata(members, path))
+  use kind <- result.try(member(members, "kind", path))
+  use kind <- result.try(object(kind, path <> ".kind"))
+  case kind {
+    [#("leaf", value)] -> {
+      use leaf <- result.try(case value {
+        VNumber(NInt(0)) | VNumber(NFloat(0.0)) -> Ok(NumberLeaf)
+        VNumber(NInt(1)) | VNumber(NFloat(1.0)) -> Ok(StringLeaf)
+        VNumber(NInt(2)) | VNumber(NFloat(2.0)) -> Ok(BooleanLeaf)
+        VNumber(NInt(4)) | VNumber(NFloat(4.0)) -> Ok(NullLeaf)
+        VNumber(_) -> Error(InvalidSchema(path <> ": unsupported leaf kind"))
+        _ -> Error(CorruptData(path <> ".kind.leaf", "expected a leaf code"))
+      })
+      case identifier == leaf_identifier(leaf) {
+        True -> Ok(Leaf(leaf))
+        False ->
+          Error(InvalidSchema(
+            path <> ": leaf identifier does not match its kind",
+          ))
+      }
+    }
+    [#("object", fields)] -> {
+      use fields <- result.try(object(fields, path <> ".kind.object"))
+      use fields <- result.try(
+        list.try_map(fields, fn(field) {
+          use definition <- result.try(decode_field(
+            field.1,
+            key_path(path, field.0),
+          ))
+          Ok(#(field.0, definition))
+        }),
+      )
+      Ok(Object(fields))
+    }
+    [#(kind, _)] ->
+      Error(InvalidSchema(path <> ": unsupported node kind " <> kind))
+    _ -> Error(CorruptData(path <> ".kind", "expected exactly one node kind"))
+  }
+}
+
+fn decode_field(
+  data: JsonValue,
+  path: String,
+) -> Result(FieldSchema, TreeError) {
+  use members <- result.try(object(data, path))
+  use _ <- result.try(check_metadata(members, path))
+  use kind <- result.try(member(members, "kind", path))
+  use cardinality <- result.try(case kind {
+    VString("Value") -> Ok(Required)
+    VString("Optional") -> Ok(Optional)
+    VString(kind) ->
+      Error(InvalidSchema(path <> ": unsupported field kind " <> kind))
+    _ -> Error(CorruptData(path <> ".kind", "expected a field kind string"))
+  })
+  use types <- result.try(member(members, "types", path))
+  use types <- result.try(case types {
+    VArray(types) ->
+      list.try_map(types, fn(value) {
+        case value {
+          VString(identifier) -> Ok(identifier)
+          _ ->
+            Error(CorruptData(path <> ".types", "expected schema identifiers"))
+        }
+      })
+    _ -> Error(CorruptData(path <> ".types", "expected allowed types"))
+  })
+  Ok(FieldSchema(
+    cardinality,
+    types |> list.unique |> list.sort(canonical_json.compare),
+  ))
+}
+
+fn check_metadata(
+  members: List(#(String, JsonValue)),
+  path: String,
+) -> Result(Nil, TreeError) {
+  case list.key_find(members, "metadata") {
+    Error(Nil) -> Ok(Nil)
+    Ok(VObject(_)) -> Ok(Nil)
+    Ok(_) -> Error(CorruptData(path <> ".metadata", "expected metadata object"))
+  }
+}
+
+fn check_references(
+  repository: Repository,
+  field: FieldSchema,
+  path: String,
+) -> Result(Nil, TreeError) {
+  list.try_each(field.allowed_types, fn(identifier) {
+    case dict.has_key(repository.nodes, identifier) {
+      True -> Ok(Nil)
+      False -> Error(InvalidSchema(path <> ": missing schema " <> identifier))
+    }
+  })
+}
+
+fn leaf_identifier(kind: LeafKind) -> String {
+  case kind {
+    StringLeaf -> "com.fluidframework.leaf.string"
+    NumberLeaf -> "com.fluidframework.leaf.number"
+    BooleanLeaf -> "com.fluidframework.leaf.boolean"
+    NullLeaf -> "com.fluidframework.leaf.null"
+  }
+}
+
+fn object(
+  data: JsonValue,
+  path: String,
+) -> Result(List(#(String, JsonValue)), TreeError) {
+  case data {
+    VObject(members) ->
+      Ok(list.sort(members, fn(a, b) { canonical_json.compare(a.0, b.0) }))
+    _ -> Error(CorruptData(path, "expected an object"))
+  }
+}
+
+fn member(
+  members: List(#(String, JsonValue)),
+  key: String,
+  path: String,
+) -> Result(JsonValue, TreeError) {
+  list.key_find(members, key)
+  |> result.map_error(fn(_) {
+    CorruptData(key_path(path, key), "missing property")
+  })
+}
+
+fn key_path(path: String, key: String) -> String {
+  path <> "[" <> json.to_string(json.string(key)) <> "]"
+}
+
+// JSON syntax is checked before this scan. Only member identity needs a
+// separate pass, because platform JSON parsers discard duplicate keys.
+fn scan_value(raw: BitArray, path: String) -> Result(BitArray, TreeError) {
+  case whitespace(raw) {
+    <<123, rest:bytes>> -> scan_object(rest, path, set.new())
+    <<91, rest:bytes>> -> scan_array(rest, path, 0)
+    <<34, rest:bytes>> ->
+      quoted(rest, [<<34>>], path) |> result.map(fn(pair) { pair.1 })
+    <<>> -> Error(CorruptData(path, "missing JSON value"))
+    other -> Ok(skip_scalar(other))
+  }
+}
+
+fn scan_object(
+  raw: BitArray,
+  path: String,
+  keys: Set(String),
+) -> Result(BitArray, TreeError) {
+  case whitespace(raw) {
+    <<125, rest:bytes>> -> Ok(rest)
+    <<34, rest:bytes>> -> {
+      use #(token, rest) <- result.try(quoted(rest, [<<34>>], path))
+      use key <- result.try(
+        json.parse_bits(token, decode.string)
+        |> result.map_error(fn(_) { CorruptData(path, "invalid object key") }),
+      )
+      use _ <- result.try(case set.contains(keys, key) {
+        True -> Error(CorruptData(key_path(path, key), "duplicate object key"))
+        False -> Ok(Nil)
+      })
+      case whitespace(rest) {
+        <<58, rest:bytes>> -> {
+          use rest <- result.try(scan_value(rest, key_path(path, key)))
+          case whitespace(rest) {
+            <<44, rest:bytes>> -> scan_object(rest, path, set.insert(keys, key))
+            <<125, rest:bytes>> -> Ok(rest)
+            _ -> Error(CorruptData(path, "invalid object delimiter"))
+          }
+        }
+        _ -> Error(CorruptData(path, "missing object colon"))
+      }
+    }
+    _ -> Error(CorruptData(path, "invalid object key"))
+  }
+}
+
+fn scan_array(
+  raw: BitArray,
+  path: String,
+  index: Int,
+) -> Result(BitArray, TreeError) {
+  case whitespace(raw) {
+    <<93, rest:bytes>> -> Ok(rest)
+    other -> {
+      use rest <- result.try(scan_value(
+        other,
+        path <> "[" <> int.to_string(index) <> "]",
+      ))
+      case whitespace(rest) {
+        <<44, rest:bytes>> -> scan_array(rest, path, index + 1)
+        <<93, rest:bytes>> -> Ok(rest)
+        _ -> Error(CorruptData(path, "invalid array delimiter"))
+      }
+    }
+  }
+}
+
+fn quoted(
+  raw: BitArray,
+  bytes: List(BitArray),
+  path: String,
+) -> Result(#(BitArray, BitArray), TreeError) {
+  case raw {
+    <<34, rest:bytes>> ->
+      Ok(#(bit_array.concat(list.reverse([<<34>>, ..bytes])), rest))
+    <<92, escaped, rest:bytes>> -> quoted(rest, [<<92, escaped>>, ..bytes], path)
+    <<byte, rest:bytes>> -> quoted(rest, [<<byte>>, ..bytes], path)
+    _ -> Error(CorruptData(path, "unterminated JSON string"))
+  }
+}
+
+fn whitespace(raw: BitArray) -> BitArray {
+  case raw {
+    <<32, rest:bytes>>
+    | <<9, rest:bytes>>
+    | <<10, rest:bytes>>
+    | <<13, rest:bytes>> -> whitespace(rest)
+    _ -> raw
+  }
+}
+
+fn skip_scalar(raw: BitArray) -> BitArray {
+  case raw {
+    <<44, _:bytes>> | <<125, _:bytes>> | <<93, _:bytes>> -> raw
+    <<_, rest:bytes>> -> skip_scalar(rest)
+    _ -> raw
+  }
+}
