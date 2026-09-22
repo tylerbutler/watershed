@@ -210,13 +210,17 @@
       "id-ranges",
       "schema-validation",
       "forest-delta",
-      "field-compose-invert-rebase"
+      "field-compose-invert-rebase",
+      "container-foundations",
+      "summary-foundations"
     ],
     "erlang": [
       "id-ranges",
       "schema-validation",
       "forest-delta",
-      "field-compose-invert-rebase"
+      "field-compose-invert-rebase",
+      "container-foundations",
+      "summary-foundations"
     ]
   },
   "cases": [
@@ -329,6 +333,16 @@
       "id": "forest-delta",
       "domain": "forest",
       "file": "cases/forest-delta.json"
+    },
+    {
+      "id": "container-foundations",
+      "domain": "container",
+      "file": "cases/container-foundations.json"
+    },
+    {
+      "id": "summary-foundations",
+      "domain": "summary",
+      "file": "cases/summary-foundations.json"
     }
   ]
 }

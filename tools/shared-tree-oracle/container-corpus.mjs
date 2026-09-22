@@ -24,6 +24,8 @@ import {
   summarizerRuntimeOptions,
 } from "./service.mjs";
 import { reference } from "./source.mjs";
+import { captureContainerFoundations } from "./container-foundations.mjs";
+import { captureSummaryFoundations } from "./summary-foundations.mjs";
 
 const identity = {
   package: "@fluidframework/tree",
@@ -996,6 +998,11 @@ export async function captureContainers(outputDirectory) {
       await captureSummaryTail(environment),
       await captureWriterMatrix(environment),
     ];
+    const foundations = [
+      await captureContainerFoundations(cases),
+      await captureSummaryFoundations(cases),
+    ];
+    cases.push(...foundations);
     await mkdir(outputDirectory, { recursive: true });
     await writeFile(join(outputDirectory, "container-cases.json"), json(cases));
     return cases;

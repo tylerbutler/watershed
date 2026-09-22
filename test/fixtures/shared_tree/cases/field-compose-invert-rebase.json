@@ -79,6 +79,793 @@
         "updated": 3
       }
     },
+    "expanded": {
+      "changes": {
+        "clearPresent": {
+          "revision": 0,
+          "data": {
+            "r": {
+              "e": false,
+              "d": 6
+            }
+          }
+        },
+        "clearAbsent": {
+          "revision": 0,
+          "data": {
+            "r": {
+              "e": true,
+              "d": 7
+            }
+          }
+        },
+        "activeSourceNoop": {
+          "revision": 0,
+          "data": {
+            "r": {
+              "e": false,
+              "d": 8,
+              "s": null
+            }
+          }
+        },
+        "childThenClear": {
+          "revision": 0,
+          "data": {
+            "r": {
+              "e": false,
+              "d": 9
+            },
+            "c": [
+              [
+                null,
+                {
+                  "fieldChanges": [
+                    {
+                      "fieldKey": "watershed-node-id",
+                      "fieldKind": "watershed-node-id",
+                      "change": {
+                        "revision": 0,
+                        "localId": 40
+                      }
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        },
+        "childOnClearedRegister": {
+          "revision": 1,
+          "data": {
+            "c": [
+              [
+                [
+                  9,
+                  0
+                ],
+                {
+                  "fieldChanges": [
+                    {
+                      "fieldKey": "watershed-node-id",
+                      "fieldKind": "watershed-node-id",
+                      "change": {
+                        "revision": 1,
+                        "localId": 41
+                      }
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        },
+        "baseChildThenClear": {
+          "revision": 0,
+          "data": {
+            "r": {
+              "e": false,
+              "d": 10
+            },
+            "c": [
+              [
+                null,
+                {
+                  "fieldChanges": [
+                    {
+                      "fieldKey": "watershed-node-id",
+                      "fieldKind": "watershed-node-id",
+                      "change": {
+                        "revision": 0,
+                        "localId": 42
+                      }
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        },
+        "authoredChild": {
+          "revision": 1,
+          "data": {
+            "c": [
+              [
+                null,
+                {
+                  "fieldChanges": [
+                    {
+                      "fieldKey": "watershed-node-id",
+                      "fieldKind": "watershed-node-id",
+                      "change": {
+                        "revision": 1,
+                        "localId": 43
+                      }
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        },
+        "richRevisionChange": {
+          "revision": 1,
+          "data": {
+            "m": [
+              [
+                [
+                  11,
+                  0
+                ],
+                12
+              ]
+            ],
+            "r": {
+              "e": false,
+              "d": [
+                15,
+                0
+              ],
+              "s": 14
+            },
+            "c": [
+              [
+                [
+                  13,
+                  0
+                ],
+                {
+                  "fieldChanges": [
+                    {
+                      "fieldKey": "watershed-node-id",
+                      "fieldKind": "watershed-node-id",
+                      "change": {
+                        "revision": 1,
+                        "localId": 44
+                      }
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        }
+      },
+      "compose": [
+        {
+          "id": "set-set-forward",
+          "first": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": true,
+                "d": 1,
+                "s": 0
+              }
+            }
+          },
+          "second": {
+            "revision": 1,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 3,
+                "s": 2
+              }
+            }
+          },
+          "outputRevision": 1,
+          "childCallback": {
+            "selector": "prefer-first-then-second"
+          }
+        },
+        {
+          "id": "set-set-reverse",
+          "first": {
+            "revision": 1,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 3,
+                "s": 2
+              }
+            }
+          },
+          "second": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": true,
+                "d": 1,
+                "s": 0
+              }
+            }
+          },
+          "outputRevision": 0,
+          "childCallback": {
+            "selector": "prefer-first-then-second"
+          }
+        },
+        {
+          "id": "set-clear",
+          "first": {
+            "revision": 1,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 3,
+                "s": 2
+              }
+            }
+          },
+          "second": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 6
+              }
+            }
+          },
+          "outputRevision": 0,
+          "childCallback": {
+            "selector": "prefer-first-then-second"
+          }
+        },
+        {
+          "id": "clear-set",
+          "first": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 6
+              }
+            }
+          },
+          "second": {
+            "revision": 1,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 3,
+                "s": 2
+              }
+            }
+          },
+          "outputRevision": 1,
+          "childCallback": {
+            "selector": "prefer-first-then-second"
+          }
+        },
+        {
+          "id": "absent-clear-set",
+          "first": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": true,
+                "d": 7
+              }
+            }
+          },
+          "second": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": true,
+                "d": 1,
+                "s": 0
+              }
+            }
+          },
+          "outputRevision": 0,
+          "childCallback": {
+            "selector": "prefer-first-then-second"
+          }
+        },
+        {
+          "id": "overlapping-children",
+          "first": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 9
+              },
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "watershed-node-id",
+                        "fieldKind": "watershed-node-id",
+                        "change": {
+                          "revision": 0,
+                          "localId": 40
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          },
+          "second": {
+            "revision": 1,
+            "data": {
+              "c": [
+                [
+                  [
+                    9,
+                    0
+                  ],
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "watershed-node-id",
+                        "fieldKind": "watershed-node-id",
+                        "change": {
+                          "revision": 1,
+                          "localId": 41
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          },
+          "outputRevision": 2,
+          "childCallback": {
+            "selector": "constant",
+            "result": {
+              "revision": 2,
+              "localId": 45
+            }
+          }
+        }
+      ],
+      "invert": [
+        {
+          "id": "set-rollback",
+          "change": {
+            "revision": 1,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 3,
+                "s": 2
+              }
+            }
+          },
+          "isRollback": true,
+          "inverseRevision": 2,
+          "maxLocalId": 20
+        },
+        {
+          "id": "set-undo",
+          "change": {
+            "revision": 1,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 3,
+                "s": 2
+              }
+            }
+          },
+          "isRollback": false,
+          "inverseRevision": 2,
+          "maxLocalId": 20
+        },
+        {
+          "id": "clear-rollback",
+          "change": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 6
+              }
+            }
+          },
+          "isRollback": true,
+          "inverseRevision": 2,
+          "maxLocalId": 20
+        },
+        {
+          "id": "clear-undo",
+          "change": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 6
+              }
+            }
+          },
+          "isRollback": false,
+          "inverseRevision": 2,
+          "maxLocalId": 20
+        },
+        {
+          "id": "active-source-noop-rollback",
+          "change": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 8,
+                "s": null
+              }
+            }
+          },
+          "isRollback": true,
+          "inverseRevision": 2,
+          "maxLocalId": 20
+        },
+        {
+          "id": "active-source-noop-undo",
+          "change": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 8,
+                "s": null
+              }
+            }
+          },
+          "isRollback": false,
+          "inverseRevision": 2,
+          "maxLocalId": 20
+        }
+      ],
+      "rebase": [
+        {
+          "id": "authored-child-over-clear",
+          "change": {
+            "revision": 1,
+            "data": {
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "watershed-node-id",
+                        "fieldKind": "watershed-node-id",
+                        "change": {
+                          "revision": 1,
+                          "localId": 43
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          },
+          "over": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 6
+              }
+            }
+          },
+          "outputRevision": 1,
+          "childCallback": {
+            "selector": "prefer-change-then-base"
+          }
+        },
+        {
+          "id": "base-only-child-over-clear",
+          "change": {
+            "revision": 1,
+            "data": {}
+          },
+          "over": {
+            "revision": 0,
+            "data": {
+              "r": {
+                "e": false,
+                "d": 10
+              },
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "watershed-node-id",
+                        "fieldKind": "watershed-node-id",
+                        "change": {
+                          "revision": 0,
+                          "localId": 42
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          },
+          "outputRevision": 1,
+          "childCallback": {
+            "selector": "prefer-change-then-base"
+          }
+        },
+        {
+          "id": "both-children",
+          "change": {
+            "revision": 1,
+            "data": {
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "watershed-node-id",
+                        "fieldKind": "watershed-node-id",
+                        "change": {
+                          "revision": 1,
+                          "localId": 43
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          },
+          "over": {
+            "revision": 0,
+            "data": {
+              "c": [
+                [
+                  null,
+                  {
+                    "fieldChanges": [
+                      {
+                        "fieldKey": "watershed-node-id",
+                        "fieldKind": "watershed-node-id",
+                        "change": {
+                          "revision": 0,
+                          "localId": 46
+                        }
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          },
+          "outputRevision": 1,
+          "childCallback": {
+            "selector": "prefer-change-then-base"
+          }
+        }
+      ],
+      "intoDelta": {
+        "change": {
+          "revision": 1,
+          "data": {
+            "m": [
+              [
+                [
+                  16,
+                  0
+                ],
+                17
+              ]
+            ],
+            "r": {
+              "e": false,
+              "d": [
+                20,
+                0
+              ],
+              "s": 19
+            },
+            "c": [
+              [
+                null,
+                {
+                  "fieldChanges": [
+                    {
+                      "fieldKey": "watershed-node-id",
+                      "fieldKind": "watershed-node-id",
+                      "change": {
+                        "revision": 0,
+                        "localId": 47
+                      }
+                    }
+                  ]
+                }
+              ],
+              [
+                [
+                  18,
+                  0
+                ],
+                {
+                  "fieldChanges": [
+                    {
+                      "fieldKey": "watershed-node-id",
+                      "fieldKind": "watershed-node-id",
+                      "change": {
+                        "revision": 1,
+                        "localId": 48
+                      }
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        },
+        "childDelta": {
+          "selector": "local-id-count",
+          "field": "child"
+        }
+      },
+      "replaceRevisions": {
+        "id": "all-atom-positions",
+        "change": {
+          "revision": 1,
+          "data": {
+            "m": [
+              [
+                [
+                  11,
+                  0
+                ],
+                12
+              ]
+            ],
+            "r": {
+              "e": false,
+              "d": [
+                15,
+                0
+              ],
+              "s": 14
+            },
+            "c": [
+              [
+                [
+                  13,
+                  0
+                ],
+                {
+                  "fieldChanges": [
+                    {
+                      "fieldKey": "watershed-node-id",
+                      "fieldKind": "watershed-node-id",
+                      "change": {
+                        "revision": 1,
+                        "localId": 44
+                      }
+                    }
+                  ]
+                }
+              ]
+            ]
+          }
+        },
+        "obsolete": [
+          0,
+          1
+        ],
+        "updated": 3,
+        "outputRevision": 3
+      },
+      "invalidMappings": [
+        {
+          "id": "duplicate-move-source",
+          "change": {
+            "moves": [
+              [
+                {
+                  "revision": 0,
+                  "localId": 30
+                },
+                {
+                  "revision": 0,
+                  "localId": 31
+                }
+              ],
+              [
+                {
+                  "revision": 0,
+                  "localId": 30
+                },
+                {
+                  "revision": 0,
+                  "localId": 32
+                }
+              ]
+            ],
+            "childChanges": []
+          }
+        },
+        {
+          "id": "duplicate-move-destination",
+          "change": {
+            "moves": [
+              [
+                {
+                  "revision": 0,
+                  "localId": 33
+                },
+                {
+                  "revision": 0,
+                  "localId": 35
+                }
+              ],
+              [
+                {
+                  "revision": 0,
+                  "localId": 34
+                },
+                {
+                  "revision": 0,
+                  "localId": 35
+                }
+              ]
+            ],
+            "childChanges": []
+          }
+        },
+        {
+          "id": "duplicate-child-register",
+          "change": {
+            "moves": [],
+            "childChanges": [
+              [
+                "self",
+                {
+                  "revision": 0,
+                  "localId": 49
+                }
+              ],
+              [
+                "self",
+                {
+                  "revision": 1,
+                  "localId": 50
+                }
+              ]
+            ]
+          }
+        }
+      ]
+    },
     "swapApplication": {
       "operation": "apply-original-simultaneous-swap",
       "revision": 0,
@@ -2522,6 +3309,456 @@
             ]
           ]
         }
+      },
+      {
+        "operation": "compose-expanded",
+        "id": "set-set-forward",
+        "encoded": {
+          "m": [
+            [
+              [
+                0,
+                0
+              ],
+              3
+            ]
+          ],
+          "r": {
+            "e": true,
+            "d": [
+              1,
+              0
+            ],
+            "s": 2
+          }
+        },
+        "callbacks": []
+      },
+      {
+        "operation": "compose-expanded",
+        "id": "set-set-reverse",
+        "encoded": {
+          "m": [
+            [
+              [
+                2,
+                1
+              ],
+              1
+            ]
+          ],
+          "r": {
+            "e": false,
+            "d": [
+              3,
+              1
+            ],
+            "s": 0
+          }
+        },
+        "callbacks": []
+      },
+      {
+        "operation": "compose-expanded",
+        "id": "set-clear",
+        "encoded": {
+          "m": [
+            [
+              [
+                2,
+                1
+              ],
+              6
+            ]
+          ],
+          "r": {
+            "e": false,
+            "d": [
+              3,
+              1
+            ]
+          }
+        },
+        "callbacks": []
+      },
+      {
+        "operation": "compose-expanded",
+        "id": "clear-set",
+        "encoded": {
+          "r": {
+            "e": false,
+            "d": [
+              6,
+              0
+            ],
+            "s": 2
+          }
+        },
+        "callbacks": []
+      },
+      {
+        "operation": "compose-expanded",
+        "id": "absent-clear-set",
+        "encoded": {
+          "r": {
+            "e": true,
+            "d": 7,
+            "s": 0
+          }
+        },
+        "callbacks": []
+      },
+      {
+        "operation": "compose-expanded",
+        "id": "overlapping-children",
+        "encoded": {
+          "r": {
+            "e": false,
+            "d": [
+              9,
+              0
+            ]
+          },
+          "c": [
+            [
+              null,
+              {
+                "fieldChanges": [
+                  {
+                    "fieldKey": "watershed-node-id",
+                    "fieldKind": "watershed-node-id",
+                    "change": {
+                      "revision": 2,
+                      "localId": 45
+                    }
+                  }
+                ]
+              }
+            ]
+          ]
+        },
+        "callbacks": [
+          {
+            "first": {
+              "revision": 0,
+              "localId": 40
+            },
+            "second": {
+              "revision": 1,
+              "localId": 41
+            }
+          }
+        ]
+      },
+      {
+        "operation": "invert-expanded",
+        "id": "set-rollback",
+        "encoded": {
+          "r": {
+            "e": false,
+            "d": [
+              2,
+              1
+            ],
+            "s": [
+              3,
+              1
+            ]
+          }
+        },
+        "allocator": {
+          "before": 20,
+          "after": 20
+        }
+      },
+      {
+        "operation": "invert-expanded",
+        "id": "set-undo",
+        "encoded": {
+          "r": {
+            "e": false,
+            "d": 21,
+            "s": [
+              3,
+              1
+            ]
+          }
+        },
+        "allocator": {
+          "before": 20,
+          "after": 21
+        }
+      },
+      {
+        "operation": "invert-expanded",
+        "id": "clear-rollback",
+        "encoded": {
+          "r": {
+            "e": true,
+            "d": 21,
+            "s": [
+              6,
+              0
+            ]
+          }
+        },
+        "allocator": {
+          "before": 20,
+          "after": 21
+        }
+      },
+      {
+        "operation": "invert-expanded",
+        "id": "clear-undo",
+        "encoded": {
+          "r": {
+            "e": true,
+            "d": 21,
+            "s": [
+              6,
+              0
+            ]
+          }
+        },
+        "allocator": {
+          "before": 20,
+          "after": 21
+        }
+      },
+      {
+        "operation": "invert-expanded",
+        "id": "active-source-noop-rollback",
+        "encoded": {},
+        "allocator": {
+          "before": 20,
+          "after": 20
+        }
+      },
+      {
+        "operation": "invert-expanded",
+        "id": "active-source-noop-undo",
+        "encoded": {
+          "r": {
+            "e": false,
+            "d": 21,
+            "s": null
+          }
+        },
+        "allocator": {
+          "before": 20,
+          "after": 21
+        }
+      },
+      {
+        "operation": "rebase-expanded",
+        "id": "authored-child-over-clear",
+        "encoded": {
+          "c": [
+            [
+              [
+                6,
+                0
+              ],
+              {
+                "fieldChanges": [
+                  {
+                    "fieldKey": "watershed-node-id",
+                    "fieldKind": "watershed-node-id",
+                    "change": {
+                      "revision": 1,
+                      "localId": 43
+                    }
+                  }
+                ]
+              }
+            ]
+          ]
+        },
+        "callbacks": [
+          {
+            "change": {
+              "revision": 1,
+              "localId": 43
+            },
+            "over": null,
+            "attachState": "detached"
+          }
+        ]
+      },
+      {
+        "operation": "rebase-expanded",
+        "id": "base-only-child-over-clear",
+        "encoded": {
+          "c": [
+            [
+              [
+                10,
+                0
+              ],
+              {
+                "fieldChanges": [
+                  {
+                    "fieldKey": "watershed-node-id",
+                    "fieldKind": "watershed-node-id",
+                    "change": {
+                      "revision": 0,
+                      "localId": 42
+                    }
+                  }
+                ]
+              }
+            ]
+          ]
+        },
+        "callbacks": [
+          {
+            "change": null,
+            "over": {
+              "revision": 0,
+              "localId": 42
+            },
+            "attachState": "detached"
+          }
+        ]
+      },
+      {
+        "operation": "rebase-expanded",
+        "id": "both-children",
+        "encoded": {
+          "c": [
+            [
+              null,
+              {
+                "fieldChanges": [
+                  {
+                    "fieldKey": "watershed-node-id",
+                    "fieldKind": "watershed-node-id",
+                    "change": {
+                      "revision": 1,
+                      "localId": 43
+                    }
+                  }
+                ]
+              }
+            ]
+          ]
+        },
+        "callbacks": [
+          {
+            "change": {
+              "revision": 1,
+              "localId": 43
+            },
+            "over": {
+              "revision": 0,
+              "localId": 46
+            },
+            "attachState": "attached"
+          }
+        ]
+      },
+      {
+        "operation": "into-delta-expanded",
+        "delta": {
+          "local": {
+            "marks": [
+              {
+                "count": 1,
+                "attach": {
+                  "minor": 19,
+                  "major": 1
+                },
+                "detach": {
+                  "minor": 20,
+                  "major": 0
+                },
+                "fields": [
+                  [
+                    "child",
+                    {
+                      "marks": [
+                        {
+                          "count": 47,
+                          "attach": null,
+                          "detach": null
+                        }
+                      ]
+                    }
+                  ]
+                ]
+              }
+            ]
+          },
+          "global": [
+            {
+              "id": {
+                "major": 0,
+                "minor": 18
+              },
+              "fields": [
+                [
+                  "child",
+                  {
+                    "marks": [
+                      {
+                        "count": 48,
+                        "attach": null,
+                        "detach": null
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ],
+          "rename": [
+            {
+              "count": 1,
+              "oldId": {
+                "minor": 16,
+                "major": 0
+              },
+              "newId": {
+                "minor": 17,
+                "major": 1
+              }
+            }
+          ]
+        }
+      },
+      {
+        "operation": "replace-revisions-expanded",
+        "id": "all-atom-positions",
+        "encoded": {
+          "m": [
+            [
+              11,
+              12
+            ]
+          ],
+          "r": {
+            "e": false,
+            "d": 15,
+            "s": 14
+          },
+          "c": [
+            [
+              13,
+              {
+                "fieldChanges": [
+                  {
+                    "fieldKey": "watershed-node-id",
+                    "fieldKind": "watershed-node-id",
+                    "change": {
+                      "revision": 3,
+                      "localId": 44
+                    }
+                  }
+                ]
+              }
+            ]
+          ]
+        }
       }
     ],
     "scenarios": [
@@ -4646,6 +5883,179 @@
             }
           ]
         ]
+      },
+      "replacedRich": {
+        "childChanges": [
+          [
+            {
+              "revision": 3,
+              "localId": 13
+            },
+            {
+              "revision": 3,
+              "localId": 44
+            }
+          ]
+        ],
+        "moves": [
+          [
+            {
+              "revision": 3,
+              "localId": 11
+            },
+            {
+              "revision": 3,
+              "localId": 12
+            }
+          ]
+        ],
+        "valueReplace": {
+          "isEmpty": false,
+          "src": {
+            "revision": 3,
+            "localId": 14
+          },
+          "dst": {
+            "revision": 3,
+            "localId": 15
+          }
+        }
+      },
+      "clearPresent": {
+        "moves": [],
+        "childChanges": [],
+        "valueReplace": {
+          "isEmpty": false,
+          "dst": {
+            "revision": 0,
+            "localId": 6
+          }
+        }
+      },
+      "clearAbsent": {
+        "moves": [],
+        "childChanges": [],
+        "valueReplace": {
+          "isEmpty": true,
+          "dst": {
+            "revision": 0,
+            "localId": 7
+          }
+        }
+      },
+      "activeSourceNoop": {
+        "moves": [],
+        "childChanges": [],
+        "valueReplace": {
+          "isEmpty": false,
+          "src": "self",
+          "dst": {
+            "revision": 0,
+            "localId": 8
+          }
+        }
+      },
+      "childThenClear": {
+        "moves": [],
+        "childChanges": [
+          [
+            "self",
+            {
+              "revision": 0,
+              "localId": 40
+            }
+          ]
+        ],
+        "valueReplace": {
+          "isEmpty": false,
+          "dst": {
+            "revision": 0,
+            "localId": 9
+          }
+        }
+      },
+      "childOnClearedRegister": {
+        "moves": [],
+        "childChanges": [
+          [
+            {
+              "revision": 0,
+              "localId": 9
+            },
+            {
+              "revision": 1,
+              "localId": 41
+            }
+          ]
+        ]
+      },
+      "baseChildThenClear": {
+        "moves": [],
+        "childChanges": [
+          [
+            "self",
+            {
+              "revision": 0,
+              "localId": 42
+            }
+          ]
+        ],
+        "valueReplace": {
+          "isEmpty": false,
+          "dst": {
+            "revision": 0,
+            "localId": 10
+          }
+        }
+      },
+      "authoredChild": {
+        "moves": [],
+        "childChanges": [
+          [
+            "self",
+            {
+              "revision": 1,
+              "localId": 43
+            }
+          ]
+        ]
+      },
+      "richRevisionChange": {
+        "moves": [
+          [
+            {
+              "revision": 0,
+              "localId": 11
+            },
+            {
+              "revision": 1,
+              "localId": 12
+            }
+          ]
+        ],
+        "childChanges": [
+          [
+            {
+              "revision": 0,
+              "localId": 13
+            },
+            {
+              "revision": 1,
+              "localId": 44
+            }
+          ]
+        ],
+        "valueReplace": {
+          "isEmpty": false,
+          "src": {
+            "revision": 1,
+            "localId": 14
+          },
+          "dst": {
+            "revision": 0,
+            "localId": 15
+          }
+        }
       }
     },
     "encoded": {
@@ -4728,6 +6138,181 @@
           [
             5,
             4
+          ]
+        ]
+      },
+      "replacedRich": {
+        "m": [
+          [
+            11,
+            12
+          ]
+        ],
+        "r": {
+          "e": false,
+          "d": 15,
+          "s": 14
+        },
+        "c": [
+          [
+            13,
+            {
+              "fieldChanges": [
+                {
+                  "fieldKey": "watershed-node-id",
+                  "fieldKind": "watershed-node-id",
+                  "change": {
+                    "revision": 3,
+                    "localId": 44
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "clearPresent": {
+        "r": {
+          "e": false,
+          "d": 6
+        }
+      },
+      "clearAbsent": {
+        "r": {
+          "e": true,
+          "d": 7
+        }
+      },
+      "activeSourceNoop": {
+        "r": {
+          "e": false,
+          "d": 8,
+          "s": null
+        }
+      },
+      "childThenClear": {
+        "r": {
+          "e": false,
+          "d": 9
+        },
+        "c": [
+          [
+            null,
+            {
+              "fieldChanges": [
+                {
+                  "fieldKey": "watershed-node-id",
+                  "fieldKind": "watershed-node-id",
+                  "change": {
+                    "revision": 0,
+                    "localId": 40
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "childOnClearedRegister": {
+        "c": [
+          [
+            [
+              9,
+              0
+            ],
+            {
+              "fieldChanges": [
+                {
+                  "fieldKey": "watershed-node-id",
+                  "fieldKind": "watershed-node-id",
+                  "change": {
+                    "revision": 1,
+                    "localId": 41
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "baseChildThenClear": {
+        "r": {
+          "e": false,
+          "d": 10
+        },
+        "c": [
+          [
+            null,
+            {
+              "fieldChanges": [
+                {
+                  "fieldKey": "watershed-node-id",
+                  "fieldKind": "watershed-node-id",
+                  "change": {
+                    "revision": 0,
+                    "localId": 42
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "authoredChild": {
+        "c": [
+          [
+            null,
+            {
+              "fieldChanges": [
+                {
+                  "fieldKey": "watershed-node-id",
+                  "fieldKind": "watershed-node-id",
+                  "change": {
+                    "revision": 1,
+                    "localId": 43
+                  }
+                }
+              ]
+            }
+          ]
+        ]
+      },
+      "richRevisionChange": {
+        "m": [
+          [
+            [
+              11,
+              0
+            ],
+            12
+          ]
+        ],
+        "r": {
+          "e": false,
+          "d": [
+            15,
+            0
+          ],
+          "s": 14
+        },
+        "c": [
+          [
+            [
+              13,
+              0
+            ],
+            {
+              "fieldChanges": [
+                {
+                  "fieldKey": "watershed-node-id",
+                  "fieldKind": "watershed-node-id",
+                  "change": {
+                    "revision": 1,
+                    "localId": 44
+                  }
+                }
+              ]
+            }
           ]
         ]
       }
