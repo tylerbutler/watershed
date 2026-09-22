@@ -66,7 +66,10 @@ import {
 	type ModularChangeset,
 	type NodeId,
 } from "../feature-libraries/index.js";
-import { rebaseRevisionMetadataFromInfo } from "../feature-libraries/modular-schema/index.js";
+import {
+	NodeAttachState,
+	rebaseRevisionMetadataFromInfo,
+} from "../feature-libraries/modular-schema/index.js";
 import { makeModularChangeset } from "../feature-libraries/modular-schema/modularChangeUtils.js";
 import { pruneChangeset } from "../feature-libraries/modular-schema/prune.js";
 import { optional } from "../feature-libraries/optional-field/index.js";
@@ -810,7 +813,10 @@ function makeIdCase(commit: string): OracleCase {
 	};
 }
 
-function fieldEncodingContext(revision: RevisionTag): FieldChangeEncodingContext {
+function fieldEncodingContext(
+	revision: RevisionTag,
+	encodeNodeIds = false,
+): FieldChangeEncodingContext {
 	const baseContext: ChangeEncodingContext = {
 		originatorId: testIdCompressor.localSessionId,
 		idCompressor: testIdCompressor,
@@ -819,7 +825,12 @@ function fieldEncodingContext(revision: RevisionTag): FieldChangeEncodingContext
 	};
 	return {
 		baseContext,
-		encodeNode: () => ({}),
+		encodeNode: (node) =>
+			encodeNodeIds
+				? node.revision === undefined
+					? { localId: node.localId }
+					: { revision: node.revision, localId: node.localId }
+				: {},
 	};
 }
 
@@ -842,6 +853,50 @@ function makeFieldCase(commit: string): OracleCase {
 		fill: atom(revisionB, 2),
 		detach: atom(revisionB, 3),
 	});
+	const clearPresent = optionalFieldEditor.clear(false, atom(revisionA, 6));
+	const clearAbsent = optionalFieldEditor.clear(true, atom(revisionA, 7));
+	const activeSourceNoop: OptionalChangeset = {
+		moves: [],
+		childChanges: [],
+		valueReplace: {
+			isEmpty: false,
+			src: "self",
+			dst: atom(revisionA, 8),
+		},
+	};
+	const childThenClear: OptionalChangeset = {
+		moves: [],
+		childChanges: [["self", atom(revisionA, 40)]],
+		valueReplace: {
+			isEmpty: false,
+			dst: atom(revisionA, 9),
+		},
+	};
+	const childOnClearedRegister: OptionalChangeset = {
+		moves: [],
+		childChanges: [[atom(revisionA, 9), atom(revisionB, 41)]],
+	};
+	const baseChildThenClear: OptionalChangeset = {
+		moves: [],
+		childChanges: [["self", atom(revisionA, 42)]],
+		valueReplace: {
+			isEmpty: false,
+			dst: atom(revisionA, 10),
+		},
+	};
+	const authoredChild: OptionalChangeset = {
+		moves: [],
+		childChanges: [["self", atom(revisionB, 43)]],
+	};
+	const richRevisionChange: OptionalChangeset = {
+		moves: [[atom(revisionA, 11), atom(revisionB, 12)]],
+		childChanges: [[atom(revisionA, 13), atom(revisionB, 44)]],
+		valueReplace: {
+			isEmpty: false,
+			src: atom(revisionB, 14),
+			dst: atom(revisionA, 15),
+		},
+	};
 	const swap: OptionalChangeset = {
 		moves: [
 			[atom(revisionA, 4), atom(revisionA, 5)],
@@ -880,10 +935,275 @@ function makeFieldCase(commit: string): OracleCase {
 		swap,
 		new DefaultRevisionReplacer(revisionReplacement, new Set([revisionA, revisionB])),
 	);
+	const replacedRich = optionalChangeRebaser.replaceRevisions(
+		richRevisionChange,
+		new DefaultRevisionReplacer(revisionReplacement, new Set([revisionA, revisionB])),
+	);
 
 	const revisionTagCodec = new RevisionTagCodec(testIdCompressor);
 	const optionalCodec = optionalChangeHandler.codecsFactory(revisionTagCodec).resolve(2);
 	const requiredCodec = requiredFieldChangeHandler.codecsFactory(revisionTagCodec).resolve(2);
+	const encodeOptional = (change: OptionalChangeset, revision: RevisionTag) =>
+		optionalCodec.encode(change, fieldEncodingContext(revision, true));
+	const composeCases = [
+		{
+			id: "set-set-forward",
+			first: setOptional,
+			firstRevision: revisionA,
+			second: setRequired,
+			secondRevision: revisionB,
+			outputRevision: revisionB,
+		},
+		{
+			id: "set-set-reverse",
+			first: setRequired,
+			firstRevision: revisionB,
+			second: setOptional,
+			secondRevision: revisionA,
+			outputRevision: revisionA,
+		},
+		{
+			id: "set-clear",
+			first: setRequired,
+			firstRevision: revisionB,
+			second: clearPresent,
+			secondRevision: revisionA,
+			outputRevision: revisionA,
+		},
+		{
+			id: "clear-set",
+			first: clearPresent,
+			firstRevision: revisionA,
+			second: setRequired,
+			secondRevision: revisionB,
+			outputRevision: revisionB,
+		},
+		{
+			id: "absent-clear-set",
+			first: clearAbsent,
+			firstRevision: revisionA,
+			second: setOptional,
+			secondRevision: revisionA,
+			outputRevision: revisionA,
+		},
+	];
+	const composeObservations = composeCases.map((scenario) => {
+		const callbacks: object[] = [];
+		const result = optionalChangeRebaser.compose(
+			scenario.first,
+			scenario.second,
+			(first, second) => {
+				callbacks.push({ first: first ?? null, second: second ?? null });
+				return first ?? second ?? assert.fail("A child change is required.");
+			},
+			idAllocatorFromMaxId(),
+			failCrossFieldManager,
+			metadata,
+		);
+		return {
+			operation: "compose-expanded",
+			id: scenario.id,
+			encoded: encodeOptional(result, scenario.outputRevision),
+			callbacks,
+		};
+	});
+
+	const overlapComposeCallbacks: object[] = [];
+	const overlapComposeResult = optionalChangeRebaser.compose(
+		childThenClear,
+		childOnClearedRegister,
+		(first, second) => {
+			overlapComposeCallbacks.push({
+				first: first ?? null,
+				second: second ?? null,
+			});
+			return atom(revisionInverse, 45);
+		},
+		idAllocatorFromMaxId(),
+		failCrossFieldManager,
+		metadata,
+	);
+
+	const invertCases = [
+		{
+			id: "set-rollback",
+			change: setRequired,
+			changeRevision: revisionB,
+			isRollback: true,
+			maxLocalId: 20,
+		},
+		{
+			id: "set-undo",
+			change: setRequired,
+			changeRevision: revisionB,
+			isRollback: false,
+			maxLocalId: 20,
+		},
+		{
+			id: "clear-rollback",
+			change: clearPresent,
+			changeRevision: revisionA,
+			isRollback: true,
+			maxLocalId: 20,
+		},
+		{
+			id: "clear-undo",
+			change: clearPresent,
+			changeRevision: revisionA,
+			isRollback: false,
+			maxLocalId: 20,
+		},
+		{
+			id: "active-source-noop-rollback",
+			change: activeSourceNoop,
+			changeRevision: revisionA,
+			isRollback: true,
+			maxLocalId: 20,
+		},
+		{
+			id: "active-source-noop-undo",
+			change: activeSourceNoop,
+			changeRevision: revisionA,
+			isRollback: false,
+			maxLocalId: 20,
+		},
+	];
+	const invertObservations = invertCases.map((scenario) => {
+		const allocator = idAllocatorFromMaxId(scenario.maxLocalId);
+		const result = optionalChangeRebaser.invert(
+			scenario.change,
+			scenario.isRollback,
+			allocator,
+			revisionInverse,
+			failCrossFieldManager,
+			metadata,
+		);
+		return {
+			operation: "invert-expanded",
+			id: scenario.id,
+			encoded: encodeOptional(result, revisionInverse),
+			allocator: {
+				before: scenario.maxLocalId,
+				after: allocator.getMaxId(),
+			},
+		};
+	});
+
+	const rebaseCases = [
+		{
+			id: "authored-child-over-clear",
+			change: authoredChild,
+			changeRevision: revisionB,
+			over: clearPresent,
+			overRevision: revisionA,
+		},
+		{
+			id: "base-only-child-over-clear",
+			change: { moves: [], childChanges: [] } satisfies OptionalChangeset,
+			changeRevision: revisionB,
+			over: baseChildThenClear,
+			overRevision: revisionA,
+		},
+		{
+			id: "both-children",
+			change: authoredChild,
+			changeRevision: revisionB,
+			over: {
+				moves: [],
+				childChanges: [["self", atom(revisionA, 46)]],
+			} satisfies OptionalChangeset,
+			overRevision: revisionA,
+		},
+	];
+	const rebaseObservations = rebaseCases.map((scenario) => {
+		const callbacks: object[] = [];
+		const result = optionalChangeRebaser.rebase(
+			scenario.change,
+			scenario.over,
+			(change, over, state) => {
+				callbacks.push({
+					change: change ?? null,
+					over: over ?? null,
+					attachState:
+						state === NodeAttachState.Attached ? "attached" : "detached",
+				});
+				return change ?? over;
+			},
+			idAllocatorFromMaxId(),
+			failCrossFieldManager,
+			metadata,
+		);
+		return {
+			operation: "rebase-expanded",
+			id: scenario.id,
+			encoded: encodeOptional(result, scenario.changeRevision),
+			callbacks,
+		};
+	});
+
+	const childDelta = optionalFieldIntoDelta(
+		{
+			moves: [[atom(revisionA, 16), atom(revisionB, 17)]],
+			childChanges: [
+				["self", atom(revisionA, 47)],
+				[atom(revisionA, 18), atom(revisionB, 48)],
+			],
+			valueReplace: {
+				isEmpty: false,
+				src: atom(revisionB, 19),
+				dst: atom(revisionA, 20),
+			},
+		},
+		(child) =>
+			new Map([
+				[
+					fieldKey("child"),
+					{
+						marks: [{ count: child.localId }],
+					},
+				],
+			]),
+	);
+	const childDeltaObservation = {
+		local:
+			childDelta.local === undefined
+				? null
+				: {
+						marks: childDelta.local.marks.map((mark) => ({
+							count: mark.count,
+							attach: mark.attach ?? null,
+							detach: mark.detach ?? null,
+							fields:
+								mark.fields === undefined
+									? []
+									: [...mark.fields].map(([key, change]) => [
+											key,
+											{
+												marks: change.marks.map((nested) => ({
+													count: nested.count,
+													attach: nested.attach ?? null,
+													detach: nested.detach ?? null,
+												})),
+											},
+										]),
+						})),
+					},
+		global:
+			childDelta.global?.map((change) => ({
+				id: change.id,
+				fields: [...change.fields].map(([key, fieldChange]) => [
+					key,
+					{
+						marks: fieldChange.marks.map((mark) => ({
+							count: mark.count,
+							attach: mark.attach ?? null,
+							detach: mark.detach ?? null,
+						})),
+					},
+				]),
+			})) ?? [],
+		rename: childDelta.rename ?? [],
+	};
 	const encoded = {
 		optional: optionalCodec.encode(setOptional, fieldEncodingContext(revisionA)),
 		required: requiredCodec.encode(setRequired, fieldEncodingContext(revisionB)),
@@ -891,7 +1211,16 @@ function makeFieldCase(commit: string): OracleCase {
 		invert: optionalCodec.encode(inverted, fieldEncodingContext(revisionInverse)),
 		rebase: optionalCodec.encode(rebased, fieldEncodingContext(revisionB)),
 		swap: optionalCodec.encode(swap, fieldEncodingContext(revisionA)),
-		replacedSwap: optionalCodec.encode(replaced, fieldEncodingContext(revisionReplacement)),
+		replacedSwap: encodeOptional(replaced, revisionReplacement),
+		replacedRich: encodeOptional(replacedRich, revisionReplacement),
+		clearPresent: encodeOptional(clearPresent, revisionA),
+		clearAbsent: encodeOptional(clearAbsent, revisionA),
+		activeSourceNoop: encodeOptional(activeSourceNoop, revisionA),
+		childThenClear: encodeOptional(childThenClear, revisionA),
+		childOnClearedRegister: encodeOptional(childOnClearedRegister, revisionB),
+		baseChildThenClear: encodeOptional(baseChildThenClear, revisionA),
+		authoredChild: encodeOptional(authoredChild, revisionB),
+		richRevisionChange: encodeOptional(richRevisionChange, revisionB),
 	};
 
 	const observations: (JsonCompatibleReadOnly | object)[] = [
@@ -902,6 +1231,24 @@ function makeFieldCase(commit: string): OracleCase {
 		directSwap.observation,
 		algebraSwap.observation,
 		{ operation: "replace-revisions", encoded: encoded.replacedSwap },
+		...composeObservations,
+		{
+			operation: "compose-expanded",
+			id: "overlapping-children",
+			encoded: encodeOptional(overlapComposeResult, revisionInverse),
+			callbacks: overlapComposeCallbacks,
+		},
+		...invertObservations,
+		...rebaseObservations,
+		{
+			operation: "into-delta-expanded",
+			delta: childDeltaObservation,
+		},
+		{
+			operation: "replace-revisions-expanded",
+			id: "all-atom-positions",
+			encoded: encoded.replacedRich,
+		},
 	];
 
 	return {
@@ -947,6 +1294,162 @@ function makeFieldCase(commit: string): OracleCase {
 					updated: revisionReplacement,
 				},
 			},
+			expanded: {
+				changes: {
+					clearPresent: {
+						revision: revisionA,
+						data: encoded.clearPresent,
+					},
+					clearAbsent: {
+						revision: revisionA,
+						data: encoded.clearAbsent,
+					},
+					activeSourceNoop: {
+						revision: revisionA,
+						data: encoded.activeSourceNoop,
+					},
+					childThenClear: {
+						revision: revisionA,
+						data: encoded.childThenClear,
+					},
+					childOnClearedRegister: {
+						revision: revisionB,
+						data: encoded.childOnClearedRegister,
+					},
+					baseChildThenClear: {
+						revision: revisionA,
+						data: encoded.baseChildThenClear,
+					},
+					authoredChild: {
+						revision: revisionB,
+						data: encoded.authoredChild,
+					},
+					richRevisionChange: {
+						revision: revisionB,
+						data: encoded.richRevisionChange,
+					},
+				},
+				compose: [
+					...composeCases.map((scenario) => ({
+						id: scenario.id,
+						first: {
+							revision: scenario.firstRevision,
+							data: encodeOptional(scenario.first, scenario.firstRevision),
+						},
+						second: {
+							revision: scenario.secondRevision,
+							data: encodeOptional(scenario.second, scenario.secondRevision),
+						},
+						outputRevision: scenario.outputRevision,
+						childCallback: { selector: "prefer-first-then-second" },
+					})),
+					{
+						id: "overlapping-children",
+						first: {
+							revision: revisionA,
+							data: encoded.childThenClear,
+						},
+						second: {
+							revision: revisionB,
+							data: encoded.childOnClearedRegister,
+						},
+						outputRevision: revisionInverse,
+						childCallback: {
+							selector: "constant",
+							result: atom(revisionInverse, 45),
+						},
+					},
+				],
+				invert: invertCases.map((scenario) => ({
+					id: scenario.id,
+					change: {
+						revision: scenario.changeRevision,
+						data: encodeOptional(scenario.change, scenario.changeRevision),
+					},
+					isRollback: scenario.isRollback,
+					inverseRevision: revisionInverse,
+					maxLocalId: scenario.maxLocalId,
+				})),
+				rebase: rebaseCases.map((scenario) => ({
+					id: scenario.id,
+					change: {
+						revision: scenario.changeRevision,
+						data: encodeOptional(scenario.change, scenario.changeRevision),
+					},
+					over: {
+						revision: scenario.overRevision,
+						data: encodeOptional(scenario.over, scenario.overRevision),
+					},
+					outputRevision: scenario.changeRevision,
+					childCallback: { selector: "prefer-change-then-base" },
+				})),
+				intoDelta: {
+					change: {
+						revision: revisionB,
+						data: encodeOptional(
+							{
+								moves: [[atom(revisionA, 16), atom(revisionB, 17)]],
+								childChanges: [
+									["self", atom(revisionA, 47)],
+									[atom(revisionA, 18), atom(revisionB, 48)],
+								],
+								valueReplace: {
+									isEmpty: false,
+									src: atom(revisionB, 19),
+									dst: atom(revisionA, 20),
+								},
+							},
+							replaceRevisions: {
+								id: "all-atom-positions",
+								change: {
+									revision: revisionB,
+									data: encoded.richRevisionChange,
+								},
+								obsolete: [revisionA, revisionB],
+								updated: revisionReplacement,
+								outputRevision: revisionReplacement,
+							},
+							revisionB,
+						),
+					},
+					childDelta: {
+						selector: "local-id-count",
+						field: "child",
+					},
+				},
+				invalidMappings: [
+					{
+						id: "duplicate-move-source",
+						change: {
+							moves: [
+								[atom(revisionA, 30), atom(revisionA, 31)],
+								[atom(revisionA, 30), atom(revisionA, 32)],
+							],
+							childChanges: [],
+						},
+					},
+					{
+						id: "duplicate-move-destination",
+						change: {
+							moves: [
+								[atom(revisionA, 33), atom(revisionA, 35)],
+								[atom(revisionA, 34), atom(revisionA, 35)],
+							],
+							childChanges: [],
+						},
+					},
+					{
+						id: "duplicate-child-register",
+						change: {
+							moves: [],
+							childChanges: [
+								["self", atom(revisionA, 49)],
+								["self", atom(revisionB, 50)],
+							],
+						},
+					},
+				],
+			},
 			swapApplication: directSwap.input,
 			swapAlgebra: algebraSwap.input,
 		},
@@ -960,6 +1463,15 @@ function makeFieldCase(commit: string): OracleCase {
 				inverted,
 				rebased,
 				replaced,
+				replacedRich,
+				clearPresent,
+				clearAbsent,
+				activeSourceNoop,
+				childThenClear,
+				childOnClearedRegister,
+				baseChildThenClear,
+				authoredChild,
+				richRevisionChange,
 			},
 			encoded,
 			swapApplication: directSwap.raw,
