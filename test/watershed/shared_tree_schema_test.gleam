@@ -1,8 +1,14 @@
+import gleam/dynamic/decode.{type Decoder}
+import gleam/float
+import gleam/int
 import gleam/json
 import gleam/list
-import gleam/option.{None, Some}
+import gleam/option.{type Option, None, Some}
+import gleam/result
+import gleam/set
 import gleam/string
 import startest/expect
+import watershed/tree/fixtures
 import watershed/tree/schema
 import watershed/tree/types
 
@@ -429,4 +435,299 @@ pub fn shared_tree_schema_empty_type_sets_test() -> Nil {
   let optional = string.replace(raw, "\"Value\"", "\"Optional\"")
   let assert Ok(stored) = schema.stored_from_string(optional)
   schema.validate_root_field(stored, None) |> expect.to_equal(Ok(Nil))
+}
+
+fn runner_input(checks: List(json.Json)) -> json.Json {
+  json.object([#("checks", json.array(checks, fn(value) { value }))])
+}
+
+pub fn shared_tree_schema_oracle_test() -> Nil {
+  fixtures.assert_case("schema-validation", run_schema_case)
+}
+
+fn root_check(id: String, stored: String, value: json.Json) -> json.Json {
+  json.object([
+    #("id", json.string(id)),
+    #("operation", json.string("root")),
+    #("stored", json.string(stored)),
+    #("value", value),
+  ])
+}
+
+pub fn shared_tree_schema_runner_reports_actual_acceptance_test() -> Nil {
+  let input =
+    runner_input([
+      root_check(
+        "accept",
+        string_schema,
+        json.object([
+          #("kind", json.string("string")),
+          #("value", json.string("value")),
+        ]),
+      ),
+      root_check("refuse", string_schema, json.null()),
+    ])
+  let assert Ok(actual) = run_schema_case(input)
+  let expected =
+    json.object([
+      #(
+        "observations",
+        json.array(
+          [
+            json.object([
+              #("id", json.string("accept")),
+              #("accepted", json.bool(True)),
+            ]),
+            json.object([
+              #("id", json.string("refuse")),
+              #("accepted", json.bool(False)),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ])
+  fixtures.first_difference(actual, expected) |> expect.to_equal(Ok(Nil))
+  fixtures.first_difference(
+    actual,
+    json.object([
+      #(
+        "observations",
+        json.array(
+          [
+            json.object([
+              #("id", json.string("accept")),
+              #("accepted", json.bool(False)),
+            ]),
+            json.object([
+              #("id", json.string("refuse")),
+              #("accepted", json.bool(False)),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ]),
+  )
+  |> expect.to_equal(Error("$.observations[0].accepted"))
+}
+
+pub fn shared_tree_schema_runner_refuses_bad_fixture_inputs_test() -> Nil {
+  let valid = root_check("a", string_schema, json.null())
+  [
+    json.null(),
+    json.object([]),
+    runner_input([]),
+    runner_input([valid, valid]),
+    runner_input([root_check("", string_schema, json.null())]),
+    runner_input([root_check("a", "{}", json.null())]),
+    runner_input([
+      root_check(
+        "a",
+        string_schema,
+        json.object([#("kind", json.string("unknown"))]),
+      ),
+    ]),
+    runner_input([
+      json.object([
+        #("id", json.string("a")),
+        #("operation", json.string("future")),
+      ]),
+    ]),
+    runner_input([
+      json.object([
+        #("id", json.string("a")),
+        #("operation", json.string("root")),
+        #("stored", json.string(string_schema)),
+      ]),
+    ]),
+    runner_input([
+      json.object([
+        #("id", json.string("a")),
+        #("operation", json.string("canView")),
+        #("stored", json.string(string_schema)),
+      ]),
+    ]),
+    runner_input([
+      json.object([
+        #("id", json.string("a")),
+        #("operation", json.string("field")),
+        #("stored", json.string(string_schema)),
+        #("value", json.null()),
+      ]),
+    ]),
+  ]
+  |> list.each(fn(input) { run_schema_case(input) |> expect.to_be_error })
+}
+
+type SchemaCheck {
+  ViewCheck(id: String, stored: String, view: String)
+  RootCheck(id: String, stored: String, value: Option(types.TreeValue))
+  FieldCheck(
+    id: String,
+    stored: String,
+    parent_type: String,
+    field: String,
+    value: Option(types.TreeValue),
+  )
+}
+
+fn run_schema_case(input: json.Json) -> Result(json.Json, String) {
+  use checks <- result.try(
+    json.parse(json.to_string(input), {
+      use checks <- decode.field("checks", decode.list(schema_check_decoder()))
+      decode.success(checks)
+    })
+    |> result.map_error(fn(error) {
+      "invalid schema fixture: " <> string.inspect(error)
+    }),
+  )
+  use _ <- result.try(case checks {
+    [] -> Error("schema checks must not be empty")
+    [_, ..] -> Ok(Nil)
+  })
+  use _ <- result.try(
+    list.try_fold(checks, set.new(), fn(ids, check) {
+      case string.is_empty(check.id) || set.contains(ids, check.id) {
+        True -> Error("empty or duplicate schema check id: " <> check.id)
+        False -> Ok(set.insert(ids, check.id))
+      }
+    }),
+  )
+  use observations <- result.try(list.try_map(checks, run_schema_check))
+  Ok(
+    json.object([
+      #("observations", json.array(observations, fn(value) { value })),
+    ]),
+  )
+}
+
+fn schema_check_decoder() -> Decoder(SchemaCheck) {
+  use id <- decode.field("id", decode.string)
+  use stored <- decode.field("stored", decode.string)
+  use operation <- decode.field("operation", decode.string)
+  case operation {
+    "canView" -> {
+      use view <- decode.field("view", decode.string)
+      decode.success(ViewCheck(id, stored, view))
+    }
+    "root" -> {
+      use value <- decode.field("value", decode.optional(tree_value_decoder()))
+      decode.success(RootCheck(id, stored, value))
+    }
+    "field" -> {
+      use parent <- decode.field("parentType", decode.string)
+      use field <- decode.field("field", decode.string)
+      use value <- decode.field("value", decode.optional(tree_value_decoder()))
+      decode.success(FieldCheck(id, stored, parent, field, value))
+    }
+    _ -> decode.failure(RootCheck(id, stored, None), "known schema check")
+  }
+}
+
+fn tree_value_decoder() -> Decoder(types.TreeValue) {
+  use kind <- decode.field("kind", decode.string)
+  case kind {
+    "string" -> {
+      use value <- decode.field("value", decode.string)
+      decode.success(types.StringValue(value))
+    }
+    "boolean" -> {
+      use value <- decode.field("value", decode.bool)
+      decode.success(types.BooleanValue(value))
+    }
+    "number" -> {
+      use value <- decode.field(
+        "value",
+        decode.one_of(decode.float, [
+          {
+            use value <- decode.then(decode.int)
+            case float.parse(int.to_string(value) <> ".0") {
+              Ok(value) -> decode.success(value)
+              Error(Nil) -> decode.failure(0.0, "finite number")
+            }
+          },
+        ]),
+      )
+      case
+        value >=. -1.7976931348623157e308 && value <=. 1.7976931348623157e308
+      {
+        True -> decode.success(types.NumberValue(value))
+        False -> decode.failure(types.NullValue, "finite number")
+      }
+    }
+    "null" -> decode.success(types.NullValue)
+    "object" -> {
+      use identifier <- decode.field("type", decode.string)
+      use fields <- decode.field(
+        "fields",
+        decode.list({
+          use pair <- decode.then(decode.list(decode.dynamic))
+          case pair {
+            [_, _] -> {
+              use key <- decode.field(0, decode.string)
+              use value <- decode.field(1, decode.recursive(tree_value_decoder))
+              decode.success(#(key, value))
+            }
+            _ ->
+              decode.failure(#("", types.NullValue), "two-element field entry")
+          }
+        }),
+      )
+      decode.success(types.ObjectValue(identifier, fields))
+    }
+    _ -> decode.failure(types.NullValue, "known tree value kind")
+  }
+}
+
+fn run_schema_check(check: SchemaCheck) -> Result(json.Json, String) {
+  use stored <- result.try(
+    schema.stored_from_string(check.stored)
+    |> result.map_error(fn(error) {
+      check.id <> ": invalid stored schema: " <> string.inspect(error)
+    }),
+  )
+  use accepted <- result.try(case check {
+    ViewCheck(_, _, view) -> {
+      use view <- result.try(
+        schema.view_from_string(view)
+        |> result.map_error(fn(error) {
+          check.id <> ": invalid view schema: " <> string.inspect(error)
+        }),
+      )
+      case schema.can_view(stored, view) {
+        Ok(Nil) -> Ok(True)
+        Error(types.InvalidSchema(_)) -> Ok(False)
+        Error(error) ->
+          Error(
+            check.id
+            <> ": unexpected compatibility error: "
+            <> string.inspect(error),
+          )
+      }
+    }
+    RootCheck(_, _, value) ->
+      schema.validate_root_field(stored, value) |> value_acceptance(check.id)
+    FieldCheck(_, _, parent, field, value) ->
+      schema.validate_field(stored, parent, field, value)
+      |> value_acceptance(check.id)
+  })
+  Ok(
+    json.object([
+      #("id", json.string(check.id)),
+      #("accepted", json.bool(accepted)),
+    ]),
+  )
+}
+
+fn value_acceptance(
+  result: Result(Nil, types.TreeError),
+  id: String,
+) -> Result(Bool, String) {
+  case result {
+    Ok(Nil) -> Ok(True)
+    Error(types.InvalidEdit(_, _)) -> Ok(False)
+    Error(error) ->
+      Error(id <> ": unexpected validation error: " <> string.inspect(error))
+  }
 }

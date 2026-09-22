@@ -207,10 +207,12 @@
   },
   "nativeSemanticRunners": {
     "javascript": [
-      "id-ranges"
+      "id-ranges",
+      "schema-validation"
     ],
     "erlang": [
-      "id-ranges"
+      "id-ranges",
+      "schema-validation"
     ]
   },
   "cases": [

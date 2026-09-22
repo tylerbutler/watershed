@@ -454,7 +454,10 @@ export async function writeCorpus(output, cases, smoke) {
       documentSchema: profile.container.documentSchema,
       gcMetadataVersion: profile.container.gcFeature,
     },
-    nativeSemanticRunners: { javascript: ["id-ranges"], erlang: ["id-ranges"] },
+    nativeSemanticRunners: {
+      javascript: ["id-ranges", "schema-validation"],
+      erlang: ["id-ranges", "schema-validation"],
+    },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),
   };
   for (const { id, file } of manifest.cases) {
