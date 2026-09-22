@@ -1,4 +1,7 @@
+import gleam/dict.{type Dict}
+import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
+import gleam/float
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
@@ -10,6 +13,7 @@ import watershed/canonical_json
 import watershed/json_ot.{
   type JsonValue, VArray, VBool, VNull, VNumber, VObject, VString,
 }
+import watershed/tree/types
 
 const fixture_directory = "test/fixtures/shared_tree"
 
@@ -153,6 +157,117 @@ pub fn first_difference(actual: Json, expected: Json) -> Result(Nil, String) {
     |> result.map_error(fn(_) { "$" }),
   )
   difference(actual, expected, "$")
+}
+
+pub fn tree_value_decoder() -> Decoder(types.TreeValue) {
+  use fields <- decode.then(decode.dict(decode.string, decode.dynamic))
+  use kind <- decode.field("kind", decode.string)
+  case kind {
+    "string" ->
+      exact_decoder(fields, ["kind", "value"], types.NullValue, {
+        use value <- decode.field("value", decode.string)
+        decode.success(types.StringValue(value))
+      })
+    "boolean" ->
+      exact_decoder(fields, ["kind", "value"], types.NullValue, {
+        use value <- decode.field("value", decode.bool)
+        decode.success(types.BooleanValue(value))
+      })
+    "number" ->
+      exact_decoder(fields, ["kind", "value"], types.NullValue, {
+        use value <- decode.field(
+          "value",
+          decode.one_of(decode.float, [
+            {
+              use value <- decode.then(decode.int)
+              case float.parse(int.to_string(value) <> ".0") {
+                Ok(value) -> decode.success(value)
+                Error(Nil) -> decode.failure(0.0, "finite number")
+              }
+            },
+          ]),
+        )
+        case
+          value >=. -1.7976931348623157e308 && value <=. 1.7976931348623157e308
+        {
+          True -> decode.success(types.NumberValue(value))
+          False -> decode.failure(types.NullValue, "finite number")
+        }
+      })
+    "null" ->
+      exact_decoder(
+        fields,
+        ["kind"],
+        types.NullValue,
+        decode.success(types.NullValue),
+      )
+    "object" ->
+      exact_decoder(fields, ["kind", "type", "fields"], types.NullValue, {
+        use identifier <- decode.field("type", decode.string)
+        use fields <- decode.field(
+          "fields",
+          decode.list({
+            use pair <- decode.then(decode.list(decode.dynamic))
+            case pair {
+              [_, _] -> {
+                use key <- decode.field(0, decode.string)
+                use value <- decode.field(
+                  1,
+                  decode.recursive(tree_value_decoder),
+                )
+                decode.success(#(key, value))
+              }
+              _ ->
+                decode.failure(
+                  #("", types.NullValue),
+                  "two-element field entry",
+                )
+            }
+          }),
+        )
+        decode.success(types.ObjectValue(identifier, fields))
+      })
+    _ -> decode.failure(types.NullValue, "known tree value kind")
+  }
+}
+
+pub fn tree_value_to_json(value: types.TreeValue) -> Json {
+  case value {
+    types.StringValue(value) ->
+      json.object([
+        #("kind", json.string("string")),
+        #("value", json.string(value)),
+      ])
+    types.NumberValue(value) ->
+      json.object([
+        #("kind", json.string("number")),
+        #("value", json.float(value)),
+      ])
+    types.BooleanValue(value) ->
+      json.object([
+        #("kind", json.string("boolean")),
+        #("value", json.bool(value)),
+      ])
+    types.NullValue -> json.object([#("kind", json.string("null"))])
+    types.ObjectValue(identifier, fields) ->
+      json.object([
+        #("kind", json.string("object")),
+        #("type", json.string(identifier)),
+        #(
+          "fields",
+          fields
+            |> list.sort(fn(left, right) {
+              canonical_json.compare(left.0, right.0)
+            })
+            |> json.array(fn(field) {
+              json.array(
+                [json.string(field.0), tree_value_to_json(field.1)],
+                fn(value) { value },
+              )
+            }),
+        ),
+      ])
+  }
 }
 
 fn decode_manifest(raw: String) -> Result(Manifest, String) {
@@ -425,4 +540,21 @@ fn path_name(value: String) -> Bool {
 fn path_name_start(point: UtfCodepoint) -> Bool {
   let code = string.utf_codepoint_to_int(point)
   code == 95 || code >= 65 && code <= 90 || code >= 97 && code <= 122
+}
+
+fn exact_fields(fields: Dict(String, Dynamic), expected: List(String)) -> Bool {
+  dict.size(fields) == list.length(expected)
+  && list.all(expected, fn(field) { dict.has_key(fields, field) })
+}
+
+fn exact_decoder(
+  fields: Dict(String, Dynamic),
+  expected: List(String),
+  placeholder: a,
+  decoder: Decoder(a),
+) -> Decoder(a) {
+  case exact_fields(fields, expected) {
+    True -> decoder
+    False -> decode.failure(placeholder, "object with exact fields")
+  }
 }

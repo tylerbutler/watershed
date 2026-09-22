@@ -60,9 +60,10 @@ Preparation checks the exact source commit and package versions. It refuses
 changed tracked files, unrelated untracked files, a symbolic-link checkout, and
 an injected test whose contents differ from its committed oracle source.
 
-Only `packages/dds/tree/src/test/watershedOracle.spec.ts` and
-`watershedAlgebra.spec.ts` in that same directory are injected. They must match
-`upstream-oracle.spec.ts` and `upstream-algebra.spec.ts`, respectively. If you
+Only `packages/dds/tree/src/test/watershedOracle.spec.ts`,
+`watershedAlgebra.spec.ts`, and `watershedForest.spec.ts` in that same directory
+are injected. They must match `upstream-oracle.spec.ts`,
+`upstream-algebra.spec.ts`, and `upstream-forest.spec.ts`, respectively. If you
 intentionally edit an oracle after preparing a checkout, review the old injected
 copy and remove that one file before preparing again. Do not discard other
 reference changes to make verification pass. Avoid code-map queries inside the
@@ -199,7 +200,7 @@ gleam test --target erlang -- --test-name-filter=shared_tree
 gleam test --target javascript -- --test-name-filter=shared_tree
 ```
 
-`generate` produces all 21 named cases under `test/fixtures/shared_tree/cases/`
+`generate` produces all 22 named cases under `test/fixtures/shared_tree/cases/`
 and their manifest. `check` regenerates them in an owned temporary directory and
 compares the complete file set and every byte without changing the fixtures.
 Missing files, extra files, incomplete observations, and changed outputs fail.
@@ -234,8 +235,60 @@ identities, and nonempty observations on both targets. `assert_case` gives only
 the first differing JSON path on failure. Necessary initial state and replay
 bytes therefore live in `input`; `raw` preserves supporting evidence. Tasks 4
 and 5 add the native `id-ranges` and `schema-validation` runners on both targets.
-Tree, container, and summary semantic runners and native writer-matrix results
-remain future work.
+Task 6 adds the input-only `forest-delta` runner. Full tree reconciliation,
+container and summary semantic runners, and native writer-matrix results remain
+future work.
+
+### Forest delta source contract
+
+The `forest-delta` case runs the pinned `ObjectForest`, anchor visitor,
+`DetachedFieldIndex`, and `applyDelta` implementation directly. Its 16
+input-only scenarios cover optional primitive roots, fixed Root/Point and
+KeyProbe objects, replacement and retained anchors, detached ranges, ordered
+renames, refreshers, destruction metadata, copy behavior, and refused missing or
+occupied sources.
+
+Each action produces one checkpoint. Accepted checkpoints contain the visible
+root, named reference status and value, detached atom/root/revision/value data,
+and the next detached-root ID. Rejected final actions contain
+`accepted: false` and `state: null`; raw evidence keeps the upstream error and
+readable post-failure forest/index state. Revision identities are normalized
+through the real ID compressor to stable UUIDs. Object fields use UTF-8 byte
+ordering.
+
+The copy action rebuilds a forest from its actual roots and clones the detached
+index. The native runner performs typed export/import under a fresh view ID and
+compares all checkpoints on Erlang and JavaScript. This is an in-memory copy
+check, not a summary codec test. The case does not claim atomic upstream failure,
+public detached editing, simultaneous cyclic rename support, or SharedTree
+document interoperability.
+
+### Native persistent forest
+
+`src/watershed/tree/forest.gleam` stores attached and detached nodes in persistent
+Gleam data structures. Give `new` and `import_data` a fresh `StableId` for each
+independent view or fork. The forest performs no random generation or compressor
+allocation. A `NodeRef` belongs to the accepted state sequence of that view;
+replacement changes identity, detachment preserves it, and destruction or a
+different view makes the reference invalid.
+
+The root uses `Option(TreeValue)`, including absent optional roots and explicit
+null leaves. `read` distinguishes absent optional fields from invalid paths.
+`validate_subtree` checks retained content without imposing document root types.
+
+Native tree modules construct checked `Delta` values. The forest applies
+builds, detach passes, ordered root transfers, attach passes, and destruction to
+candidate state, then checks schema and ownership. Errors return no candidate.
+Global changes can update an old detached child without changing its replacement.
+Refreshers reconstruct missing content only when needed. Self-renames are no-ops;
+occupied cyclic transfers and duplicate attachments are errors. These internal
+operations do not provide an application API for editing removed objects.
+
+`export_data` and `import_data` preserve detached atom identities, root IDs,
+latest-relevant revisions, and the allocation watermark. They do not persist
+local `NodeRef` values or read/write Fluid summary bytes. History-driven
+collection and wire codecs remain later tasks. The original
+`detached-child-edit` case still requires those later runtime components.
 
 ### Native ID compression
 
@@ -291,7 +344,7 @@ without relying on JSON member order. Unused extra definitions and persisted
 metadata do not prevent viewing; differences in shared definitions still can.
 The opaque schema retains the persisted data for later codec work.
 
-`validate_root`, `validate_root_field`, and `validate_field` check nested values
+`validate_root`, `validate_root_field`, `validate_field`, and `validate_subtree` check nested values
 without allocating IDs or changing state. Pass `None` to validate absence and
 `Some(NullValue)` for a present null leaf. Required clears, duplicate or unknown
 object fields, wrong node types, and non-finite numbers fail. Finite doubles
@@ -318,7 +371,7 @@ index metadata is version 3 while its content codec is version 2.
 | --- | --- | --- |
 | Session/op IDs, eager IDs, interleaved allocation, restoration, precision boundaries | `id-ranges`; allocation messages and compressor blobs throughout | 4, 11 |
 | Fixed schema, required null, optional absence, Unicode keys and finite numbers | `schema-validation` (native), `schema-profile`, `null-and-absence`, `unicode-and-numbers`, `invalid-profile` | 5, 10 |
-| Forest, detached roots, repair content, parent/child replacement | `parent-child-both-orders`, `detached-child-edit`, forest and detached-index summaries | 6, 13 |
+| Forest, detached roots, repair content, parent/child replacement | `forest-delta` (native), `parent-child-both-orders`, `detached-child-edit`, forest and detached-index summaries | 6, 13 |
 | Value/Optional v2, register moves, simultaneous register swaps | `field-compose-invert-rebase`, `optional-set-clear`, conflicting writes | 7, 10 |
 | Modular v5, generic nested fields, aliases, replacement revisions, builds/refreshers/pruning | `modular-nested-algebra`, `nested-independent` | 8, 10 |
 | SharedTreeChange v5, Message/EditManager v7; pending revisions, stale peers and min-sequence | `multiple-pending`, `history-window`, both-order cases | 9, 10 |

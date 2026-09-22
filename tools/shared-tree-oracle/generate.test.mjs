@@ -48,7 +48,7 @@ function cases() {
 }
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 21);
+  assert.equal(requiredCases.length, 22);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);
@@ -117,6 +117,55 @@ test("schema validation refuses malformed tagged values", () => {
     assert(root, "schema-validation requires a present root value");
     mutate(root.value);
     assert.throws(() => validateCases(corpus), /schema-validation/);
+  }
+});
+
+test("forest corpus requires replayable inputs and paired observations", () => {
+  const corpus = cases();
+  const fixture = corpus.find((item) => item.id === "forest-delta");
+  assert(fixture, "forest-delta case is required");
+  assert.equal(fixture.domain, "forest");
+  assert(fixture.input.scenarios.length > 0);
+  assert.equal(fixture.expected.observations.length, fixture.input.scenarios.length);
+  assert.doesNotThrow(() => validateCases(corpus));
+
+  for (const mutate of [
+    (value) => { delete value.input.scenarios[0].schema; },
+    (value) => { value.input.scenarios.pop(); },
+    (value) => { value.input.scenarios[1].id = value.input.scenarios[0].id; },
+    (value) => { delete value.input.scenarios[0].root; },
+    (value) => { value.input.scenarios[0].root = { kind: "unknown" }; },
+    (value) => { value.input.scenarios[0].actions[0].op = "unknown"; },
+    (value) => {
+      value.input.scenarios
+        .flatMap((scenario) => scenario.actions)
+        .find((item) => item.op === "apply").delta.build[0].id.revision = "not-a-stable-id";
+    },
+    (value) => {
+      const action = value.input.scenarios
+        .flatMap((scenario) => scenario.actions)
+        .find((item) => item.op === "apply" && item.delta.fields.length > 0);
+      action.delta.fields.push(action.delta.fields[0]);
+    },
+    (value) => { value.raw.scenarios.pop(); },
+    (value) => { value.raw.scenarios[0].actions.pop(); },
+    (value) => { value.raw.scenarios[0].actions[0].forest = {}; },
+    (value) => {
+      value.raw.scenarios
+        .flatMap((scenario) => scenario.actions)
+        .find((item) => item.delta).delta = {};
+    },
+    (value) => {
+      value.raw.scenarios
+        .flatMap((scenario) => scenario.actions)
+        .find((item) => item.postFailureState).postFailureState = {};
+    },
+    (value) => { value.expected.observations.reverse(); },
+    (value) => { value.expected.observations[0].checkpoints.pop(); },
+  ]) {
+    const changed = structuredClone(corpus);
+    mutate(changed.find((item) => item.id === "forest-delta"));
+    assert.throws(() => validateCases(changed), /forest-delta/);
   }
 });
 

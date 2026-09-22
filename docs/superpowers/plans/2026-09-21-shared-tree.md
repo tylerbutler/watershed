@@ -733,7 +733,7 @@ entry points detect duplicate declarations before JSON parsing loses them;
 the `Json` entry points remain convenience APIs. `validate_root_field` adds
 explicit root-absence validation. The schema-only `schema-validation` case
 contains 31 upstream checks and leaves the original summary-backed
-`schema-profile` case unchanged. Task 6 has not started.
+`schema-profile` case unchanged. Task 6 adds the forest described below.
 
 **Files:** Create `tree/types.gleam`, `tree/schema.gleam`, and
 `test/watershed/shared_tree_schema_test.gleam`. Extend the oracle source,
@@ -830,9 +830,20 @@ Commit subject: `feat(tree): validate native object-tree schemas`.
 
 ### Task 6: implement the persistent forest and detached content
 
+Implementation: the native forest retains local node identity across replacement,
+detachment, and reattachment. Checked deltas use the upstream detach/transfer/
+attach/destroy phases and preserve detached revision metadata. Typed export/import
+retains content and index watermarks without serializing local references. A new
+input-only `forest-delta` oracle supplies 16 source-level scenarios on both native
+targets; the original summary-backed tree cases remain gates for later tasks.
+Task 7 has not started.
+
 **Files:** Create `tree/forest.gleam` and
 `test/watershed/shared_tree_forest_test.gleam`. Extend shared types with revision
 and atom identities, using `fluid_ids.StableId` for resolved revision identity.
+Add the focused upstream forest oracle, strict generator/source guards,
+`tree/forest_fixture.gleam`, and runner robustness tests. Share tagged-value
+fixture helpers with the schema tests.
 
 **Interfaces:**
 
@@ -848,47 +859,82 @@ JSON path or a substitute for all local forest references.
 
 In `forest.gleam`, define opaque `Forest`, `NodeRef`, `DetachedIndex`, and `Delta`.
 A `NodeRef` belongs to one forest/view instance; a reference from another view
-must be rejected. Export:
+must be rejected. The caller supplies a fresh view ID for an independent view,
+fork, or import. One ID identifies a linear accepted state sequence, not every
+immutable copy of a value; the pure constructor cannot detect deliberate token
+reuse. Export:
 
 ```gleam
-pub fn new(schema: StoredSchema, root: TreeValue) -> Result(Forest, TreeError)
+pub fn new(
+  view_id: StableId,
+  schema: StoredSchema,
+  root: Option(TreeValue),
+) -> Result(Forest, TreeError)
 pub fn read(state: Forest, path: FieldPath) -> Result(Option(TreeValue), TreeError)
 pub fn locate(state: Forest, path: FieldPath) -> Result(NodeRef, TreeError)
 pub fn read_node(state: Forest, node: NodeRef) -> Result(TreeValue, TreeError)
+pub fn is_attached(state: Forest, node: NodeRef) -> Result(Bool, TreeError)
+pub fn locate_detached(state: Forest, id: AtomId) -> Result(NodeRef, TreeError)
+pub fn delta(data: DeltaData) -> Result(Delta, TreeError)
 pub fn apply_delta(state: Forest, delta: Delta) -> Result(Forest, TreeError)
-pub fn visible_root(state: Forest) -> Result(TreeValue, TreeError)
+pub fn visible_root(state: Forest) -> Result(Option(TreeValue), TreeError)
+pub fn export_data(state: Forest) -> Result(ForestData, TreeError)
+pub fn import_data(
+  view_id: StableId,
+  schema: StoredSchema,
+  data: ForestData,
+) -> Result(Forest, TreeError)
 ```
 
-Define `Delta` with typed build, attach, detach, nested-field-change, rename/
-alias, and destroy instructions required by the corpus. Keep delta construction
+`DeltaData` contains `latest_revision`, root `fields`, `build`, `refreshers`,
+`global`, `rename`, and `destroy`. `FieldDelta` contains ordered marks with
+`count`, optional attach/detach `AtomId`s, and nested fields. `Build` supplies an
+ID and consecutive singleton trees; `Rename` and `Destroy` specify ID ranges.
+`DetachedChange` addresses retained content by atom identity. Task 8 resolves
+modular aliases before this concrete delta boundary. Keep delta construction
 inside native tree modules; the application facade must not accept arbitrary
-deltas. Add typed forest export/import data for Task 10, including detached roots.
+deltas.
 
-- [ ] **1. Add the detached-content regression.**
+`ForestData` contains an optional root, detached records, and
+`next_detached_root_id`. Each `DetachedTreeData` contains its `id`,
+`forest_root_id`, `latest_relevant_revision`, and `value`. Import checks identity
+uniqueness, schemas, and watermark bounds. This typed boundary supports Task 10;
+it does not claim compatibility with Fluid summary bytes.
 
-Use the generated `detached-child-edit` case to create a forest, retain a local
-reference to the original `point`, replace that field, and apply the old child's
-edit. The new visible point stays unchanged; reading the retained original
-reference reflects the edit. Export/import must preserve the relevant retained
-content, while old process-local `NodeRef` values need not survive reload.
+- [x] **1. Add the detached-content regression.**
 
-- [ ] **2. Implement atomic delta application.**
+Use the forest-only `forest-delta` case to retain a reference to the original
+`point`, replace that field, and apply an internal delta to the old child.
+The replacement stays unchanged; the retained reference reflects the edit.
+Export/import preserves retained content and invalidates the old view's
+references. The original `detached-child-edit` case distinguishes public
+detached-edit refusal from a delayed peer edit and still awaits full native
+history/codec replay.
+
+- [x] **2. Implement atomic delta application.**
 
 Construct candidate persistent state, validate references and cardinality, then
 return it. An error returns no partial state. Keep per-field order where the
 protocol requires it. Support building detached content before attachment.
-Apply logically simultaneous register moves against the same input state.
+Apply root transfers in dependency order. Ignore self-renames and reject occupied
+cycles, matching the pinned upstream forest. Task 7's simultaneous algebra
+mapping is a separate requirement.
 
-- [ ] **3. Add primitive, nested, and malformed-delta checks.**
+- [x] **3. Add primitive, nested, and malformed-delta checks.**
 
 Check every primitive, absent optional fields, repeated reads, replacement
 identity, duplicate attach, missing source/destination, cyclic ownership, and
 invalid references. No optimization may discard a removed node still referenced
 by history.
 
-- [ ] **4. Run the focused pair and commit.**
+- [x] **4. Run the focused pair and review.**
 
-Commit subject: `feat(tree): retain attached and detached forest state`.
+Both targets replay the full forest-only oracle. The focused suite passes
+79 tests on Erlang and 80 on JavaScript; all 22 upstream cases reproduce,
+and the 34-test oracle suite passes. Correctness review found no significant
+issues. The original 21 case files and service profile remain unchanged.
+
+Suggested commit subject: `feat(tree): retain attached and detached forest state`.
 
 ### Task 7: port required/optional field edit algebra
 

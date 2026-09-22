@@ -1,5 +1,12 @@
 //// Values and errors for the fixed SharedTree profile.
 
+import gleam/option.{type Option}
+import watershed/fluid_ids.{type StableId}
+
+pub type AtomId {
+  AtomId(revision: Option(StableId), local_id: Int)
+}
+
 pub type FieldPath =
   List(String)
 

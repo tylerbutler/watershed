@@ -1,6 +1,4 @@
 import gleam/dynamic/decode.{type Decoder}
-import gleam/float
-import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{type Option, None, Some}
@@ -612,71 +610,22 @@ fn schema_check_decoder() -> Decoder(SchemaCheck) {
       decode.success(ViewCheck(id, stored, view))
     }
     "root" -> {
-      use value <- decode.field("value", decode.optional(tree_value_decoder()))
+      use value <- decode.field(
+        "value",
+        decode.optional(fixtures.tree_value_decoder()),
+      )
       decode.success(RootCheck(id, stored, value))
     }
     "field" -> {
       use parent <- decode.field("parentType", decode.string)
       use field <- decode.field("field", decode.string)
-      use value <- decode.field("value", decode.optional(tree_value_decoder()))
+      use value <- decode.field(
+        "value",
+        decode.optional(fixtures.tree_value_decoder()),
+      )
       decode.success(FieldCheck(id, stored, parent, field, value))
     }
     _ -> decode.failure(RootCheck(id, stored, None), "known schema check")
-  }
-}
-
-fn tree_value_decoder() -> Decoder(types.TreeValue) {
-  use kind <- decode.field("kind", decode.string)
-  case kind {
-    "string" -> {
-      use value <- decode.field("value", decode.string)
-      decode.success(types.StringValue(value))
-    }
-    "boolean" -> {
-      use value <- decode.field("value", decode.bool)
-      decode.success(types.BooleanValue(value))
-    }
-    "number" -> {
-      use value <- decode.field(
-        "value",
-        decode.one_of(decode.float, [
-          {
-            use value <- decode.then(decode.int)
-            case float.parse(int.to_string(value) <> ".0") {
-              Ok(value) -> decode.success(value)
-              Error(Nil) -> decode.failure(0.0, "finite number")
-            }
-          },
-        ]),
-      )
-      case
-        value >=. -1.7976931348623157e308 && value <=. 1.7976931348623157e308
-      {
-        True -> decode.success(types.NumberValue(value))
-        False -> decode.failure(types.NullValue, "finite number")
-      }
-    }
-    "null" -> decode.success(types.NullValue)
-    "object" -> {
-      use identifier <- decode.field("type", decode.string)
-      use fields <- decode.field(
-        "fields",
-        decode.list({
-          use pair <- decode.then(decode.list(decode.dynamic))
-          case pair {
-            [_, _] -> {
-              use key <- decode.field(0, decode.string)
-              use value <- decode.field(1, decode.recursive(tree_value_decoder))
-              decode.success(#(key, value))
-            }
-            _ ->
-              decode.failure(#("", types.NullValue), "two-element field entry")
-          }
-        }),
-      )
-      decode.success(types.ObjectValue(identifier, fields))
-    }
-    _ -> decode.failure(types.NullValue, "known tree value kind")
   }
 }
 

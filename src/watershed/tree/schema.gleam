@@ -97,6 +97,28 @@ pub fn validate_root_field(
   validate_content(schema.repository, schema.repository.root, value, [])
 }
 
+/// Validate a subtree without applying the document root's allowed types.
+pub fn validate_subtree(
+  schema: StoredSchema,
+  value: TreeValue,
+) -> Result(Nil, TreeError) {
+  let identifier = value_identifier(value)
+  case dict.get(schema.repository.nodes, identifier) {
+    Ok(node) -> validate_node(schema.repository, node, value, [])
+    Error(Nil) -> Error(InvalidEdit([], "unknown schema: " <> identifier))
+  }
+}
+
+fn value_identifier(value: TreeValue) -> String {
+  case value {
+    StringValue(_) -> leaf_identifier(StringLeaf)
+    NumberValue(_) -> leaf_identifier(NumberLeaf)
+    BooleanValue(_) -> leaf_identifier(BooleanLeaf)
+    NullValue -> leaf_identifier(NullLeaf)
+    ObjectValue(identifier, _) -> identifier
+  }
+}
+
 /// Validate an assignment or clear against an object's declared field.
 /// Error paths start at the field name, not at an attached forest location.
 pub fn validate_field(
@@ -105,12 +127,21 @@ pub fn validate_field(
   field: String,
   value: Option(TreeValue),
 ) -> Result(Nil, TreeError) {
+  use definition <- result.try(field_schema(schema, parent_type, field))
+  validate_content(schema.repository, definition, value, [field])
+}
+
+/// Read one declared object field, including a field that has no content.
+pub fn field_schema(
+  schema: StoredSchema,
+  parent_type: String,
+  field: String,
+) -> Result(FieldSchema, TreeError) {
   let path = [field]
   case dict.get(schema.repository.nodes, parent_type) {
     Ok(Object(fields)) ->
       case list.key_find(fields, field) {
-        Ok(definition) ->
-          validate_content(schema.repository, definition, value, path)
+        Ok(definition) -> Ok(definition)
         Error(Nil) ->
           Error(InvalidEdit(path, "unknown field in " <> parent_type))
       }
@@ -131,13 +162,7 @@ fn validate_content(
     None, Optional -> Ok(Nil)
     None, Required -> Error(InvalidEdit(path, "required field is absent"))
     Some(value), _ -> {
-      let identifier = case value {
-        StringValue(_) -> leaf_identifier(StringLeaf)
-        NumberValue(_) -> leaf_identifier(NumberLeaf)
-        BooleanValue(_) -> leaf_identifier(BooleanLeaf)
-        NullValue -> leaf_identifier(NullLeaf)
-        ObjectValue(identifier, _) -> identifier
-      }
+      let identifier = value_identifier(value)
       case list.contains(field.allowed_types, identifier) {
         False ->
           Error(InvalidEdit(path, "node type is not allowed: " <> identifier))

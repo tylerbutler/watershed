@@ -208,11 +208,13 @@
   "nativeSemanticRunners": {
     "javascript": [
       "id-ranges",
-      "schema-validation"
+      "schema-validation",
+      "forest-delta"
     ],
     "erlang": [
       "id-ranges",
-      "schema-validation"
+      "schema-validation",
+      "forest-delta"
     ]
   },
   "cases": [
@@ -320,6 +322,11 @@
       "id": "invalid-profile",
       "domain": "invalid",
       "file": "cases/invalid-profile.json"
+    },
+    {
+      "id": "forest-delta",
+      "domain": "forest",
+      "file": "cases/forest-delta.json"
     }
   ]
 }

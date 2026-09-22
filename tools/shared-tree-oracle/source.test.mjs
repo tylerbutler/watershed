@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
 import {
+  forestInjectedTestPath,
   injectedTestPath,
   publishCapture,
   reference,
@@ -100,6 +101,17 @@ test("source verification accepts only the matching owned injection", async (t) 
   const { directory, commit } = await checkoutFixture(t);
   const target = join(directory, injectedTestPath);
   const contents = await readFile(new URL("./upstream-oracle.spec.ts", import.meta.url));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// changed by someone else\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
+});
+
+test("source verification byte-checks the owned forest injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, forestInjectedTestPath);
+  const contents = await readFile(new URL("./upstream-forest.spec.ts", import.meta.url));
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, contents);
   await verifyCheckout(directory, commit);

@@ -30,6 +30,26 @@ export const requiredCases = [
   ["history-window", "history"],
   ["unicode-and-numbers", "values"],
   ["invalid-profile", "invalid"],
+  ["forest-delta", "forest"],
+];
+
+const forestScenarioIds = [
+  "primitives-and-optional-root",
+  "optional-field-set-clear",
+  "unicode-field-keys",
+  "replacement-retained-child",
+  "nested-replacement-old-child",
+  "reattach-keeps-identity",
+  "detached-range-build",
+  "rename-chain-and-self",
+  "rename-cycle-refused",
+  "duplicate-build-refused",
+  "refreshers",
+  "destroy-and-revision-metadata",
+  "copy-retains-detached",
+  "missing-attach-source-refused",
+  "missing-global-source-refused",
+  "missing-rename-source-refused",
 ];
 
 const schemaValidationCheckIds = [
@@ -109,25 +129,291 @@ function validateSchemaString(value, label) {
   return schema;
 }
 
-function validateTaggedValue(value) {
-  assert(object(value) && typeof value.kind === "string", "schema-validation: malformed value");
+function validateTaggedValue(value, label = "schema-validation") {
+  assert(object(value) && typeof value.kind === "string", `${label}: malformed value`);
   if (value.kind === "null") {
-    assert.deepEqual(Object.keys(value), ["kind"], "schema-validation: malformed null value");
+    assert.deepEqual(Object.keys(value), ["kind"], `${label}: malformed null value`);
   } else if (value.kind === "string") {
-    assert(typeof value.value === "string", "schema-validation: malformed string value");
+    assert(typeof value.value === "string", `${label}: malformed string value`);
   } else if (value.kind === "number") {
     assert(typeof value.value === "number" && Number.isFinite(value.value),
-      "schema-validation: malformed number value");
+      `${label}: malformed number value`);
   } else if (value.kind === "boolean") {
-    assert(typeof value.value === "boolean", "schema-validation: malformed boolean value");
+    assert(typeof value.value === "boolean", `${label}: malformed boolean value`);
   } else {
-    assert.equal(value.kind, "object", "schema-validation: unknown value kind");
+    assert.equal(value.kind, "object", `${label}: unknown value kind`);
     assert(typeof value.type === "string" && value.type.length > 0 && Array.isArray(value.fields),
-      "schema-validation: malformed object value");
+      `${label}: malformed object value`);
+    const fields = new Set();
     for (const entry of value.fields) {
       assert(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string",
-        "schema-validation: malformed object field");
-      validateTaggedValue(entry[1]);
+        `${label}: malformed object field`);
+      assert(!fields.has(entry[0]), `${label}: duplicate object field ${entry[0]}`);
+      fields.add(entry[0]);
+      validateTaggedValue(entry[1], label);
+    }
+  }
+}
+
+function validateForestCase(value) {
+  const scenarios = value.input.scenarios;
+  const observed = value.expected.observations;
+  const raw = value.raw.scenarios;
+  assert(nonemptyArray(scenarios) && Array.isArray(observed) && Array.isArray(raw),
+    "forest-delta: missing paired evidence");
+  assert.deepEqual(scenarios.map(({ id }) => id), forestScenarioIds,
+    "forest-delta: required scenario IDs");
+  assert.deepEqual(observed.map(({ id }) => id), forestScenarioIds,
+    "forest-delta: observation order");
+  assert.deepEqual(raw.map(({ id }) => id), forestScenarioIds,
+    "forest-delta: raw scenario order");
+
+  function stableId(value, label) {
+    assert(typeof value === "string"
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value),
+    `forest-delta: malformed stable ID ${label}`);
+  }
+
+  function atom(value, label) {
+    assert(object(value) && Object.keys(value).length === 2
+      && Object.hasOwn(value, "revision") && Object.hasOwn(value, "localId"),
+    `forest-delta: malformed atom ${label}`);
+    if (value.revision !== null) stableId(value.revision, `${label}.revision`);
+    assert(Number.isSafeInteger(value.localId) && value.localId >= 0,
+      `forest-delta: malformed localId ${label}`);
+  }
+
+  function fieldMap(value, label) {
+    assert(Array.isArray(value), `forest-delta: malformed field map ${label}`);
+    const fields = new Set();
+    for (const entry of value) {
+      assert(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string"
+        && object(entry[1]) && Array.isArray(entry[1].marks),
+      `forest-delta: malformed field entry ${label}`);
+      assert(!fields.has(entry[0]), `forest-delta: duplicate field ${entry[0]} in ${label}`);
+      fields.add(entry[0]);
+      for (const [index, mark] of entry[1].marks.entries()) {
+        assert(object(mark) && Number.isSafeInteger(mark.count) && mark.count > 0,
+          `forest-delta: malformed mark ${label}[${index}]`);
+        assert(mark.attach === null || object(mark.attach),
+          `forest-delta: malformed attach ${label}[${index}]`);
+        assert(mark.detach === null || object(mark.detach),
+          `forest-delta: malformed detach ${label}[${index}]`);
+        if (mark.attach !== null) atom(mark.attach, `${label}[${index}].attach`);
+        if (mark.detach !== null) atom(mark.detach, `${label}[${index}].detach`);
+        fieldMap(mark.fields, `${label}[${index}].fields`);
+      }
+    }
+  }
+
+  function delta(value, label) {
+    assert(object(value), `forest-delta: malformed delta ${label}`);
+    if (value.latestRevision !== null) stableId(value.latestRevision, `${label}.latestRevision`);
+    fieldMap(value.fields, `${label}.fields`);
+    for (const collection of ["build", "refreshers"]) {
+      assert(Array.isArray(value[collection]), `forest-delta: malformed ${collection} ${label}`);
+      for (const [index, item] of value[collection].entries()) {
+        assert(object(item) && nonemptyArray(item.trees),
+          `forest-delta: malformed ${collection} ${label}[${index}]`);
+        atom(item.id, `${label}.${collection}[${index}].id`);
+        for (const tree of item.trees) validateTaggedValue(tree, "forest-delta");
+      }
+    }
+    assert(Array.isArray(value.global) && Array.isArray(value.rename)
+      && Array.isArray(value.destroy), `forest-delta: incomplete delta ${label}`);
+    for (const [index, item] of value.global.entries()) {
+      assert(object(item), `forest-delta: malformed global ${label}[${index}]`);
+      atom(item.id, `${label}.global[${index}].id`);
+      fieldMap(item.fields, `${label}.global[${index}].fields`);
+    }
+    for (const [index, item] of value.rename.entries()) {
+      assert(object(item) && Number.isSafeInteger(item.count) && item.count > 0,
+        `forest-delta: malformed rename ${label}[${index}]`);
+      atom(item.oldId, `${label}.rename[${index}].oldId`);
+      atom(item.newId, `${label}.rename[${index}].newId`);
+    }
+    for (const [index, item] of value.destroy.entries()) {
+      assert(object(item) && Number.isSafeInteger(item.count) && item.count > 0,
+        `forest-delta: malformed destroy ${label}[${index}]`);
+      atom(item.id, `${label}.destroy[${index}].id`);
+    }
+  }
+
+  function state(value, label) {
+    assert(object(value) && Object.hasOwn(value, "root") && Array.isArray(value.references)
+      && Array.isArray(value.detached) && Number.isSafeInteger(value.nextDetachedRootId)
+      && value.nextDetachedRootId >= 0, `forest-delta: malformed state ${label}`);
+    if (value.root !== null) validateTaggedValue(value.root, "forest-delta");
+    const names = new Set();
+    for (const reference of value.references) {
+      assert(object(reference) && typeof reference.name === "string" && reference.name.length > 0
+        && ["attached", "detached", "destroyed", "invalidated-by-copy"].includes(reference.status)
+        && Object.hasOwn(reference, "value"), `forest-delta: malformed reference ${label}`);
+      assert(!names.has(reference.name), `forest-delta: duplicate reference ${reference.name}`);
+      names.add(reference.name);
+      if (reference.value !== null) validateTaggedValue(reference.value, "forest-delta");
+    }
+    const detached = new Set();
+    for (const item of value.detached) {
+      assert(object(item) && Number.isSafeInteger(item.forestRootId) && item.forestRootId >= 0,
+      `forest-delta: malformed detached state ${label}`);
+      if (item.latestRelevantRevision !== null) {
+        stableId(item.latestRelevantRevision, `${label}.detached.latestRelevantRevision`);
+      }
+      atom(item.id, `${label}.detached.id`);
+      validateTaggedValue(item.value, "forest-delta");
+      const key = `${item.id.revision ?? ""}:${item.id.localId}`;
+      assert(!detached.has(key), `forest-delta: duplicate detached state ${label}`);
+      detached.add(key);
+    }
+  }
+
+  function rawAtom(value, label) {
+    assert(object(value) && (value.major === null || Number.isSafeInteger(value.major))
+      && Number.isSafeInteger(value.minor) && value.minor >= 0,
+    `forest-delta: malformed raw atom ${label}`);
+  }
+
+  function rawFieldMap(value, label) {
+    assert(Array.isArray(value), `forest-delta: malformed raw field map ${label}`);
+    const fields = new Set();
+    for (const entry of value) {
+      assert(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string"
+        && object(entry[1]) && Array.isArray(entry[1].marks),
+      `forest-delta: malformed raw field entry ${label}`);
+      assert(!fields.has(entry[0]), `forest-delta: duplicate raw field ${entry[0]} in ${label}`);
+      fields.add(entry[0]);
+      for (const mark of entry[1].marks) {
+        assert(object(mark) && Number.isSafeInteger(mark.count) && mark.count > 0
+          && Array.isArray(mark.fields), `forest-delta: malformed raw mark ${label}`);
+        if (mark.attach !== null) rawAtom(mark.attach, `${label}.attach`);
+        if (mark.detach !== null) rawAtom(mark.detach, `${label}.detach`);
+        rawFieldMap(mark.fields, `${label}.fields`);
+      }
+    }
+  }
+
+  function rawForest(value, label) {
+    assert(object(value) && Array.isArray(value.fields),
+      `forest-delta: malformed raw forest ${label}`);
+    for (const entry of value.fields) {
+      assert(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string"
+        && Array.isArray(entry[1]), `forest-delta: malformed raw forest field ${label}`);
+      for (const tree of entry[1]) validateTaggedValue(tree, "forest-delta");
+    }
+  }
+
+  function rawIndex(value, label) {
+    assert(Array.isArray(value), `forest-delta: malformed raw index ${label}`);
+    for (const entry of value) {
+      assert(object(entry) && Number.isSafeInteger(entry.root) && entry.root >= 0
+        && (entry.latestRelevantRevision === null
+          || Number.isSafeInteger(entry.latestRelevantRevision)),
+      `forest-delta: malformed raw index entry ${label}`);
+      rawAtom(entry.id, `${label}.id`);
+    }
+  }
+
+  function rawDelta(value, label) {
+    assert(object(value) && (value.latestRevision === null
+      || Number.isSafeInteger(value.latestRevision)),
+    `forest-delta: malformed raw delta ${label}`);
+    rawFieldMap(value.fields, `${label}.fields`);
+    for (const collection of ["build", "refreshers"]) {
+      assert(Array.isArray(value[collection]), `forest-delta: malformed raw ${collection} ${label}`);
+      for (const item of value[collection]) {
+        assert(object(item) && nonemptyArray(item.trees),
+          `forest-delta: malformed raw ${collection} entry ${label}`);
+        rawAtom(item.id, `${label}.${collection}.id`);
+        for (const tree of item.trees) validateTaggedValue(tree, "forest-delta");
+      }
+    }
+    assert(Array.isArray(value.global) && Array.isArray(value.rename)
+      && Array.isArray(value.destroy), `forest-delta: incomplete raw delta ${label}`);
+    for (const item of value.global) {
+      assert(object(item), `forest-delta: malformed raw global ${label}`);
+      rawAtom(item.id, `${label}.global.id`);
+      rawFieldMap(item.fields, `${label}.global.fields`);
+    }
+    for (const item of value.rename) {
+      assert(object(item) && Number.isSafeInteger(item.count) && item.count > 0,
+        `forest-delta: malformed raw rename ${label}`);
+      rawAtom(item.oldId, `${label}.rename.oldId`);
+      rawAtom(item.newId, `${label}.rename.newId`);
+    }
+    for (const item of value.destroy) {
+      assert(object(item) && Number.isSafeInteger(item.count) && item.count > 0,
+        `forest-delta: malformed raw destroy ${label}`);
+      rawAtom(item.id, `${label}.destroy.id`);
+    }
+  }
+
+  for (let index = 0; index < scenarios.length; index += 1) {
+    const scenario = scenarios[index];
+    const observation = observed[index];
+    const evidence = raw[index];
+    assert(object(scenario) && typeof scenario.id === "string",
+      "forest-delta: malformed scenario");
+    validateSchemaString(scenario.schema, `forest-delta.${scenario.id}.schema`);
+    assert(Object.hasOwn(scenario, "root"), `forest-delta: missing initial content ${scenario.id}`);
+    if (scenario.root !== null) validateTaggedValue(scenario.root, "forest-delta");
+    assert(nonemptyArray(scenario.actions), `forest-delta: missing actions ${scenario.id}`);
+    const actionIds = new Set();
+    for (const action of scenario.actions) {
+      assert(object(action) && typeof action.id === "string" && action.id.length > 0
+        && !actionIds.has(action.id), `forest-delta: duplicate or missing action ID ${scenario.id}`);
+      actionIds.add(action.id);
+      if (action.op === "retain") {
+        assert(typeof action.name === "string" && action.name.length > 0
+          && Array.isArray(action.path) && action.path.every((part) => typeof part === "string"),
+        `forest-delta: malformed retain ${scenario.id}`);
+      } else if (action.op === "retainDetached") {
+        assert(typeof action.name === "string" && action.name.length > 0,
+          `forest-delta: malformed retainDetached ${scenario.id}`);
+        atom(action.atom, `${scenario.id}.${action.id}.atom`);
+      } else if (action.op === "apply") {
+        delta(action.delta, `${scenario.id}.${action.id}`);
+      } else {
+        assert(action.op === "observe" || action.op === "copy",
+          `forest-delta: unknown action ${scenario.id}.${action.id}`);
+      }
+    }
+    assert(object(observation) && observation.id === scenario.id
+      && Array.isArray(observation.checkpoints)
+      && observation.checkpoints.length === scenario.actions.length,
+    `forest-delta: incomplete checkpoints ${scenario.id}`);
+    assert(object(evidence) && evidence.id === scenario.id && Array.isArray(evidence.actions)
+      && evidence.actions.length === scenario.actions.length,
+    `forest-delta: missing raw evidence ${scenario.id}`);
+    for (let actionIndex = 0; actionIndex < scenario.actions.length; actionIndex += 1) {
+      const action = scenario.actions[actionIndex];
+      const checkpoint = observation.checkpoints[actionIndex];
+      const rawAction = evidence.actions[actionIndex];
+      assert(object(checkpoint) && checkpoint.id === action.id
+        && typeof checkpoint.accepted === "boolean",
+      `forest-delta: malformed checkpoint ${scenario.id}.${action.id}`);
+      assert(object(rawAction) && rawAction.id === action.id && object(rawAction.forest)
+        && Array.isArray(rawAction.detachedIndex),
+      `forest-delta: incomplete raw action ${scenario.id}.${action.id}`);
+      rawForest(rawAction.forest, `${scenario.id}.${action.id}`);
+      rawIndex(rawAction.detachedIndex, `${scenario.id}.${action.id}`);
+      if (action.op === "apply") {
+        rawDelta(rawAction.delta, `${scenario.id}.${action.id}`);
+      }
+      if (checkpoint.accepted) {
+        state(checkpoint.state, `${scenario.id}.${action.id}`);
+      } else {
+        assert.equal(checkpoint.state, null,
+          `forest-delta: rejected checkpoint state ${scenario.id}.${action.id}`);
+        assert.equal(actionIndex, scenario.actions.length - 1,
+          `forest-delta: refusal must end scenario ${scenario.id}`);
+        assert(typeof rawAction.error === "string" && rawAction.error.length > 0
+          && object(rawAction.postFailureState),
+        `forest-delta: incomplete refusal evidence ${scenario.id}.${action.id}`);
+        rawForest(rawAction.postFailureState.forest, `${scenario.id}.${action.id}.postFailure`);
+        rawIndex(rawAction.postFailureState.detachedIndex,
+          `${scenario.id}.${action.id}.postFailure`);
+      }
     }
   }
 }
@@ -254,6 +540,7 @@ export function validateCases(cases) {
         && object(value.expected.observations[0].compatibility), `${value.id}: missing schema evidence`);
     }
     if (value.id === "schema-validation") validateSchemaCase(value);
+    if (value.id === "forest-delta") validateForestCase(value);
     if (value.domain === "field" || value.domain === "modular") {
       assert(object(value.input.changes) && Object.keys(value.input.changes).length > 0
         && object(value.raw.encoded) && Object.keys(value.raw.encoded).length > 0,
@@ -455,8 +742,8 @@ export async function writeCorpus(output, cases, smoke) {
       gcMetadataVersion: profile.container.gcFeature,
     },
     nativeSemanticRunners: {
-      javascript: ["id-ranges", "schema-validation"],
-      erlang: ["id-ranges", "schema-validation"],
+      javascript: ["id-ranges", "schema-validation", "forest-delta"],
+      erlang: ["id-ranges", "schema-validation", "forest-delta"],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),
   };
@@ -493,6 +780,7 @@ export async function generate({ check = false } = {}) {
     const cases = [
       ...await read(join(source, "tree-cases.json")),
       ...await read(join(source, "algebra-cases.json")),
+      ...await read(join(source, "forest-cases.json")),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

@@ -9,6 +9,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 const directory = dirname(fileURLToPath(import.meta.url));
 const checkout = join(directory, ".reference/FluidFramework");
 const oracleSource = join(directory, "upstream-oracle.spec.ts");
+const forestSource = join(directory, "upstream-forest.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -30,9 +31,11 @@ export const reference = {
 };
 
 export const injectedTestPath = "packages/dds/tree/src/test/watershedOracle.spec.ts";
+export const forestInjectedTestPath = "packages/dds/tree/src/test/watershedForest.spec.ts";
 const injections = new Map([
   [injectedTestPath, oracleSource],
   ["packages/dds/tree/src/test/watershedAlgebra.spec.ts", join(directory, "upstream-algebra.spec.ts")],
+  [forestInjectedTestPath, forestSource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -203,7 +206,9 @@ export async function runSource(output, { corpus = false } = {}) {
     "--node-option", "conditions=allow-ff-test-exports",
     "--node-option", `import=${pathToFileURL(join(directory, "determinism.mjs")).href}`,
     "lib/test/watershedOracle.spec.js",
-    ...(corpus ? ["lib/test/watershedAlgebra.spec.js"] : []),
+    ...(corpus
+      ? ["lib/test/watershedAlgebra.spec.js", "lib/test/watershedForest.spec.js"]
+      : []),
   ], tree, {
     ...process.env,
     WATERSHED_ORACLE_OUTPUT: resolve(output),

@@ -251,6 +251,7 @@ pub fn shared_tree_fixture_loads_all_required_corpus_ids_test() -> Nil {
     #("history-window", "history"),
     #("unicode-and-numbers", "values"),
     #("invalid-profile", "invalid"),
+    #("forest-delta", "forest"),
   ]
   |> list.each(fn(required) {
     let #(id, domain) = required
