@@ -1,5 +1,6 @@
 import gleam/dict
 import gleam/json
+import gleam/list
 import gleam/option.{None, Some}
 import startest/expect
 import watershed/tree/fixtures
@@ -52,6 +53,51 @@ fn summary_fixture_input(bytes: String) -> json.Json {
               ]),
             ]),
           ),
+        ]),
+      ]),
+    ),
+  ])
+}
+
+fn summary_fixture_scenarios(scenarios: List(json.Json)) -> json.Json {
+  json.object([
+    #(
+      "previousSnapshot",
+      json.object([
+        #(
+          "version",
+          json.object([
+            #("id", json.string("root")),
+            #("treeId", json.string("root")),
+          ]),
+        ),
+        #(
+          "tree",
+          json.object([
+            #("id", json.string("root")),
+            #("blobs", json.object([#("blob", json.string("blob-id"))])),
+            #("trees", json.object([])),
+          ]),
+        ),
+        #("blobs", json.object([#("blob-id", json.string("AQ=="))])),
+        #("blobEncoding", json.string("base64")),
+      ]),
+    ),
+    #("scenarios", array(scenarios)),
+  ])
+}
+
+fn refusal_scenario(label: String, path: String, kind: String) -> json.Json {
+  json.object([
+    #("label", json.string(label)),
+    #(
+      "summary",
+      array([
+        json.object([
+          #("name", json.string("copy")),
+          #("kind", json.string("handle")),
+          #("handleKind", json.string(kind)),
+          #("path", json.string(path)),
         ]),
       ]),
     ),
@@ -266,6 +312,37 @@ pub fn shared_tree_summary_materializes_snapshot_bytes_and_paths_test() -> Nil {
   )
 }
 
+pub fn shared_tree_summary_snapshot_order_is_utf8_deterministic_test() -> Nil {
+  let bmp = "\u{E000}"
+  let astral = "\u{10000}"
+  let tree =
+    json.object([
+      #("id", json.string("root-tree")),
+      #(
+        "blobs",
+        json.object([
+          #(astral, json.string("astral-id")),
+          #(bmp, json.string("bmp-id")),
+        ]),
+      ),
+      #("trees", json.object([])),
+      #("commits", json.object([])),
+    ])
+
+  fluid_summary.from_snapshot(
+    tree,
+    dict.from_list([#("astral-id", <<1>>), #("bmp-id", <<2>>)]),
+  )
+  |> expect.to_equal(
+    Ok(
+      fluid_summary.SummaryTree([
+        #(bmp, fluid_summary.SummaryBlob(<<2>>)),
+        #(astral, fluid_summary.SummaryBlob(<<1>>)),
+      ]),
+    ),
+  )
+}
+
 pub fn shared_tree_summary_refuses_incomplete_or_legacy_snapshots_test() -> Nil {
   let missing_blob =
     json.object([
@@ -316,6 +393,146 @@ pub fn shared_tree_summary_fixture_uses_only_replay_input_test() -> Nil {
     summary_fixture.run(summary_fixture_input("%%%"))
     |> expect.to_be_error
   Nil
+}
+
+pub fn shared_tree_summary_fixture_requires_typed_refusals_test() -> Nil {
+  [
+    #("missing-parent", "/blob", "blob"),
+    #("missing-path", "/missing", "blob"),
+    #("wrong-kind", "/blob", "tree"),
+    #("malformed-percent-encoding", "/bad%ZZ", "blob"),
+  ]
+  |> list.each(fn(selector) {
+    let #(label, path, kind) = selector
+    let assert Ok(actual) =
+      summary_fixture.run(
+        summary_fixture_scenarios([refusal_scenario(label, path, kind)]),
+      )
+    actual
+    |> expect.to_equal(
+      json.object([
+        #(
+          "observations",
+          array([
+            json.object([
+              #("label", json.string(label)),
+              #("refused", json.bool(True)),
+            ]),
+          ]),
+        ),
+      ]),
+    )
+  })
+
+  let _ =
+    summary_fixture.run(
+      summary_fixture_scenarios([
+        refusal_scenario("missing-path", "/bad%ZZ", "blob"),
+      ]),
+    )
+    |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_summary_fixture_rejects_unknown_or_incomplete_scenarios_test() -> Nil {
+  [
+    refusal_scenario("unknown", "/missing", "blob"),
+    json.object([#("label", json.string("missing-path"))]),
+    json.object([
+      #("label", json.string("missing-path")),
+      #("summary", json.null()),
+    ]),
+  ]
+  |> list.each(fn(scenario) {
+    let _ =
+      summary_fixture.run(summary_fixture_scenarios([scenario]))
+      |> expect.to_be_error
+    Nil
+  })
+}
+
+pub fn shared_tree_summary_fixture_uses_utf16_snapshot_order_test() -> Nil {
+  let bmp = "\u{E000}"
+  let astral = "\u{10000}"
+  let input =
+    json.object([
+      #(
+        "previousSnapshot",
+        json.object([
+          #(
+            "version",
+            json.object([
+              #("id", json.string("root")),
+              #("treeId", json.string("root")),
+            ]),
+          ),
+          #(
+            "tree",
+            json.object([
+              #("id", json.string("root")),
+              #(
+                "blobs",
+                json.object([
+                  #(bmp, json.string("bmp-id")),
+                  #(astral, json.string("astral-id")),
+                ]),
+              ),
+              #("trees", json.object([])),
+            ]),
+          ),
+          #(
+            "blobs",
+            json.object([
+              #("bmp-id", json.string("Ag==")),
+              #("astral-id", json.string("AQ==")),
+            ]),
+          ),
+          #("blobEncoding", json.string("base64")),
+        ]),
+      ),
+      #(
+        "scenarios",
+        array([
+          json.object([#("label", json.string("snapshot-entries"))]),
+        ]),
+      ),
+    ])
+  let assert Ok(actual) = summary_fixture.run(input)
+  actual
+  |> expect.to_equal(
+    json.object([
+      #(
+        "observations",
+        array([
+          json.object([
+            #("label", json.string("snapshot-entries")),
+            #(
+              "entries",
+              array([
+                json.object([
+                  #("components", array([])),
+                  #("kind", json.string("tree")),
+                  #("storageId", json.string("root")),
+                ]),
+                json.object([
+                  #("components", array([json.string(astral)])),
+                  #("kind", json.string("blob")),
+                  #("storageId", json.string("astral-id")),
+                  #("bytes", json.string("AQ==")),
+                ]),
+                json.object([
+                  #("components", array([json.string(bmp)])),
+                  #("kind", json.string("blob")),
+                  #("storageId", json.string("bmp-id")),
+                  #("bytes", json.string("Ag==")),
+                ]),
+              ]),
+            ),
+          ]),
+        ]),
+      ),
+    ]),
+  )
 }
 
 pub fn shared_tree_summary_upstream_fixture_test() -> Nil {

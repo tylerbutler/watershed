@@ -13,6 +13,8 @@ import gleam/result
 import gleam/string
 import gleam/uri
 
+import watershed/canonical_json
+
 pub type HandleKind {
   TreeHandle
   BlobHandle
@@ -225,7 +227,7 @@ fn materialize_snapshot(
         |> list.map(fn(entry) { #(entry.0, Error(entry.1)) })
       use entries <- result.try(
         list.append(blob_entries, tree_entries)
-        |> list.sort(fn(left, right) { string.compare(left.0, right.0) })
+        |> list.sort(fn(left, right) { canonical_json.compare(left.0, right.0) })
         |> list.try_map(fn(entry) {
           let entry_path = child_path(path, entry.0)
           case entry.1 {
@@ -270,7 +272,7 @@ fn validate_snapshot_names(
 fn sorted_entries(values: Dict(String, value)) -> List(#(String, value)) {
   values
   |> dict.to_list
-  |> list.sort(fn(left, right) { string.compare(left.0, right.0) })
+  |> list.sort(fn(left, right) { canonical_json.compare(left.0, right.0) })
 }
 
 fn snapshot_decoder() -> decode.Decoder(SnapshotNode) {
