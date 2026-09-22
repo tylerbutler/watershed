@@ -1,5 +1,6 @@
 import gleam/json
 import gleam/list
+import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 import watershed/tree/schema
@@ -254,4 +255,178 @@ pub fn shared_tree_schema_recursive_compatibility_test() -> Nil {
       "\"types\":[\"Root\"]",
     )
   compatible(recursive, recursive) |> expect.to_equal(Ok(Nil))
+}
+
+pub fn shared_tree_schema_null_is_not_absence_test() -> Nil {
+  let assert Ok(stored) = schema.stored_from_string(string_schema)
+  schema.validate_root(stored, types.StringValue(""))
+  |> expect.to_equal(Ok(Nil))
+  let assert Error(types.InvalidEdit([], _)) =
+    schema.validate_root(stored, types.NullValue)
+  let assert Error(types.InvalidEdit([], _)) =
+    schema.validate_root_field(stored, None)
+  let optional = string.replace(string_schema, "\"Value\"", "\"Optional\"")
+  let assert Ok(stored) = schema.stored_from_string(optional)
+  schema.validate_root_field(stored, None) |> expect.to_equal(Ok(Nil))
+  let assert Error(types.InvalidEdit([], _)) =
+    schema.validate_root_field(stored, Some(types.NullValue))
+  Nil
+}
+
+fn point(fields: List(#(String, types.TreeValue))) -> types.TreeValue {
+  types.ObjectValue("Point", fields)
+}
+
+fn root(point: types.TreeValue) -> types.TreeValue {
+  types.ObjectValue("Root", [#("point", point)])
+}
+
+pub fn shared_tree_schema_nested_values_and_paths_test() -> Nil {
+  let assert Ok(stored) = schema.stored_from_string(object_schema)
+  let good = root(point([#("x", types.StringValue("value"))]))
+  schema.validate_root(stored, good) |> expect.to_equal(Ok(Nil))
+  [
+    #(root(point([])), ["point", "x"]),
+    #(root(point([#("x", types.NullValue)])), ["point", "x"]),
+    #(root(types.ObjectValue("Wrong", [])), ["point"]),
+    #(
+      root(
+        point([
+          #("x", types.StringValue("")),
+          #("x", types.StringValue("second")),
+        ]),
+      ),
+      ["point", "x"],
+    ),
+    #(
+      root(point([#("x", types.StringValue("")), #("extra", types.NullValue)])),
+      ["point", "extra"],
+    ),
+    #(types.ObjectValue("Root", []), ["point"]),
+    #(types.StringValue("not a root"), []),
+  ]
+  |> list.each(fn(test_case) {
+    let assert Error(types.InvalidEdit(path, detail)) =
+      schema.validate_root(stored, test_case.0)
+    path |> expect.to_equal(test_case.1)
+    string.is_empty(detail) |> expect.to_be_false
+    schema.validate_root(stored, good) |> expect.to_equal(Ok(Nil))
+  })
+}
+
+pub fn shared_tree_schema_direct_field_validation_test() -> Nil {
+  let assert Ok(stored) = schema.stored_from_string(object_schema)
+  schema.validate_field(stored, "Root", "note", None)
+  |> expect.to_equal(Ok(Nil))
+  schema.validate_field(stored, "Root", "note", Some(types.StringValue("")))
+  |> expect.to_equal(Ok(Nil))
+  [
+    #("Root", "point", None),
+    #("Root", "note", Some(types.NullValue)),
+    #("Root", "missing", None),
+    #("Missing", "x", Some(types.StringValue(""))),
+    #("com.fluidframework.leaf.string", "x", None),
+  ]
+  |> list.each(fn(test_case) {
+    let assert Error(types.InvalidEdit(path, detail)) =
+      schema.validate_field(stored, test_case.0, test_case.1, test_case.2)
+    path |> expect.to_equal([test_case.1])
+    string.is_empty(detail) |> expect.to_be_false
+  })
+}
+
+fn leaf_schema(identifier: String, code: Int) -> String {
+  json.object([
+    #("version", json.int(2)),
+    #(
+      "nodes",
+      json.object([
+        #(
+          identifier,
+          json.object([#("kind", json.object([#("leaf", json.int(code))]))]),
+        ),
+      ]),
+    ),
+    #(
+      "root",
+      json.object([
+        #("kind", json.string("Value")),
+        #("types", json.array([identifier], json.string)),
+      ]),
+    ),
+  ])
+  |> json.to_string
+}
+
+pub fn shared_tree_schema_leaf_kinds_test() -> Nil {
+  [
+    #("com.fluidframework.leaf.string", 1, types.StringValue("")),
+    #("com.fluidframework.leaf.boolean", 2, types.BooleanValue(False)),
+    #("com.fluidframework.leaf.null", 4, types.NullValue),
+    #("com.fluidframework.leaf.number", 0, types.NumberValue(1.5)),
+  ]
+  |> list.each(fn(test_case) {
+    let assert Ok(stored) =
+      schema.stored_from_string(leaf_schema(test_case.0, test_case.1))
+    schema.validate_root(stored, test_case.2) |> expect.to_equal(Ok(Nil))
+    let assert Error(types.InvalidEdit([], _)) =
+      schema.validate_root(stored, types.ObjectValue(test_case.0, []))
+  })
+}
+
+pub fn shared_tree_schema_finite_double_boundaries_test() -> Nil {
+  let assert Ok(stored) =
+    schema.stored_from_string(leaf_schema("com.fluidframework.leaf.number", 0))
+  [
+    0.0,
+    -0.0,
+    5.0e-324,
+    1.7976931348623157e308,
+    -1.7976931348623157e308,
+    9_007_199_254_740_992.0,
+    -1.25,
+  ]
+  |> list.each(fn(value) {
+    schema.validate_root(stored, types.NumberValue(value))
+    |> expect.to_equal(Ok(Nil))
+  })
+}
+
+@target(javascript)
+pub fn shared_tree_schema_non_finite_numbers_test() -> Nil {
+  let assert Ok(stored) =
+    schema.stored_from_string(leaf_schema("com.fluidframework.leaf.number", 0))
+  let infinity = 1.7976931348623157e308 *. 2.0
+  let nan = infinity -. infinity
+  [infinity, 0.0 -. infinity, nan]
+  |> list.each(fn(value) {
+    let assert Error(types.InvalidEdit([], _)) =
+      schema.validate_root(stored, types.NumberValue(value))
+  })
+}
+
+pub fn shared_tree_schema_unicode_field_keys_test() -> Nil {
+  ["", "水", "🌊", "e\u{0301}", "\u{0}", "\"\\", "\u{fffd}"]
+  |> list.each(fn(key) {
+    let raw =
+      string.replace(object_schema, "\"x\"", json.to_string(json.string(key)))
+    let assert Ok(stored) = schema.stored_from_string(raw)
+    schema.validate_root(stored, root(point([#(key, types.StringValue("🌊"))])))
+    |> expect.to_equal(Ok(Nil))
+  })
+}
+
+pub fn shared_tree_schema_empty_type_sets_test() -> Nil {
+  let raw =
+    string.replace(
+      string_schema,
+      "\"types\":[\"com.fluidframework.leaf.string\"]",
+      "\"types\":[]",
+    )
+  let assert Ok(stored) = schema.stored_from_string(raw)
+  let assert Error(types.InvalidEdit([], _)) =
+    schema.validate_root(stored, types.StringValue(""))
+  let optional = string.replace(raw, "\"Value\"", "\"Optional\"")
+  let assert Ok(stored) = schema.stored_from_string(optional)
+  schema.validate_root_field(stored, None) |> expect.to_equal(Ok(Nil))
 }

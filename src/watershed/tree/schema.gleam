@@ -9,6 +9,7 @@ import gleam/dynamic/decode
 import gleam/int
 import gleam/json.{type Json}
 import gleam/list
+import gleam/option.{type Option, None, Some}
 import gleam/result
 import gleam/set.{type Set}
 import watershed/canonical_json
@@ -16,7 +17,9 @@ import watershed/json_ot.{
   type JsonValue, NFloat, NInt, VArray, VNumber, VObject, VString,
 }
 import watershed/tree/types.{
-  type TreeError, CorruptData, InvalidSchema, UnsupportedFormat,
+  type FieldPath, type TreeError, type TreeValue, BooleanValue, CorruptData,
+  InvalidEdit, InvalidSchema, NullValue, NumberValue, ObjectValue, StringValue,
+  UnsupportedFormat,
 }
 
 pub type Cardinality {
@@ -76,6 +79,134 @@ pub fn stored_from_string(raw: String) -> Result(StoredSchema, TreeError) {
 /// Decode a fixed view in schema-v2 form, without view options or upgrades.
 pub fn view_from_string(raw: String) -> Result(ViewSchema, TreeError) {
   decode_repository(raw) |> result.map(ViewSchema)
+}
+
+/// Validate one root value without changing or normalizing it.
+pub fn validate_root(
+  schema: StoredSchema,
+  value: TreeValue,
+) -> Result(Nil, TreeError) {
+  validate_root_field(schema, Some(value))
+}
+
+/// Validate root presence and content. Absence is distinct from a null leaf.
+pub fn validate_root_field(
+  schema: StoredSchema,
+  value: Option(TreeValue),
+) -> Result(Nil, TreeError) {
+  validate_content(schema.repository, schema.repository.root, value, [])
+}
+
+/// Validate an assignment or clear against an object's declared field.
+/// Error paths start at the field name, not at an attached forest location.
+pub fn validate_field(
+  schema: StoredSchema,
+  parent_type: String,
+  field: String,
+  value: Option(TreeValue),
+) -> Result(Nil, TreeError) {
+  let path = [field]
+  case dict.get(schema.repository.nodes, parent_type) {
+    Ok(Object(fields)) ->
+      case list.key_find(fields, field) {
+        Ok(definition) ->
+          validate_content(schema.repository, definition, value, path)
+        Error(Nil) ->
+          Error(InvalidEdit(path, "unknown field in " <> parent_type))
+      }
+    Ok(Leaf(_)) ->
+      Error(InvalidEdit(path, "parent schema is a leaf: " <> parent_type))
+    Error(Nil) ->
+      Error(InvalidEdit(path, "unknown parent schema: " <> parent_type))
+  }
+}
+
+fn validate_content(
+  repository: Repository,
+  field: FieldSchema,
+  value: Option(TreeValue),
+  path: FieldPath,
+) -> Result(Nil, TreeError) {
+  case value, field.cardinality {
+    None, Optional -> Ok(Nil)
+    None, Required -> Error(InvalidEdit(path, "required field is absent"))
+    Some(value), _ -> {
+      let identifier = case value {
+        StringValue(_) -> leaf_identifier(StringLeaf)
+        NumberValue(_) -> leaf_identifier(NumberLeaf)
+        BooleanValue(_) -> leaf_identifier(BooleanLeaf)
+        NullValue -> leaf_identifier(NullLeaf)
+        ObjectValue(identifier, _) -> identifier
+      }
+      case list.contains(field.allowed_types, identifier) {
+        False ->
+          Error(InvalidEdit(path, "node type is not allowed: " <> identifier))
+        True ->
+          case dict.get(repository.nodes, identifier) {
+            Error(Nil) ->
+              Error(InvalidEdit(path, "unknown schema: " <> identifier))
+            Ok(node) -> validate_node(repository, node, value, path)
+          }
+      }
+    }
+  }
+}
+
+fn validate_node(
+  repository: Repository,
+  node: NodeSchema,
+  value: TreeValue,
+  path: FieldPath,
+) -> Result(Nil, TreeError) {
+  case node, value {
+    Leaf(StringLeaf), StringValue(_)
+    | Leaf(BooleanLeaf), BooleanValue(_)
+    | Leaf(NullLeaf), NullValue
+    -> Ok(Nil)
+    Leaf(NumberLeaf), NumberValue(number) ->
+      case
+        number >=. -1.7976931348623157e308 && number <=. 1.7976931348623157e308
+      {
+        True -> Ok(Nil)
+        False -> Error(InvalidEdit(path, "number must be finite"))
+      }
+    Object(definitions), ObjectValue(_, fields) -> {
+      use _ <- result.try(
+        list.try_fold(fields, set.new(), fn(keys, entry) {
+          case set.contains(keys, entry.0) {
+            True ->
+              Error(InvalidEdit(
+                list.append(path, [entry.0]),
+                "duplicate object field",
+              ))
+            False -> Ok(set.insert(keys, entry.0))
+          }
+        }),
+      )
+      use _ <- result.try(
+        list.try_each(fields, fn(entry) {
+          case list.key_find(definitions, entry.0) {
+            Ok(_) -> Ok(Nil)
+            Error(Nil) ->
+              Error(InvalidEdit(
+                list.append(path, [entry.0]),
+                "unknown object field",
+              ))
+          }
+        }),
+      )
+      list.try_each(definitions, fn(entry) {
+        let child = list.key_find(fields, entry.0) |> option.from_result
+        validate_content(
+          repository,
+          entry.1,
+          child,
+          list.append(path, [entry.0]),
+        )
+      })
+    }
+    _, _ -> Error(InvalidEdit(path, "value does not match its node schema"))
+  }
 }
 
 /// Check whether an ordinary fixed view can read and write the stored schema.
