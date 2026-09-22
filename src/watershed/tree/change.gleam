@@ -342,8 +342,7 @@ pub fn invert(
     "a destroying change cannot be inverted",
   ))
   let data = change.change.data
-  let revisions = tagged_revision_infos(change)
-  let allocation_revisions = inversion_revisions(data, revisions)
+  let #(allocation_revisions, _) = composition_metadata([change])
   use watermark <- result.try(reserved_watermark(
     data.max_local_id,
     list.length(allocation_revisions),
@@ -719,20 +718,6 @@ fn tagged_revision_infos(change: TaggedChange) -> List(RevisionInfo) {
   }
 }
 
-fn inversion_revisions(
-  data: ChangeData,
-  revisions: List(RevisionInfo),
-) -> List(Option(StableId)) {
-  let initial = list.map(revisions, fn(info) { Some(info.revision) })
-  let ids = all_atoms(data)
-  list.fold(ids, initial, fn(revisions, id) {
-    case list.contains(revisions, id.revision) {
-      True -> revisions
-      False -> list.append(revisions, [id.revision])
-    }
-  })
-}
-
 fn reserved_watermark(
   max_local_id: Int,
   revision_count: Int,
@@ -762,68 +747,6 @@ fn reserve_ranges(
       reserve_ranges(original_max, count - 1, watermark + original_max + 1)
     }
   }
-}
-
-fn all_atoms(data: ChangeData) -> List(AtomId) {
-  list.append(
-    field_atoms(data.fields),
-    list.append(
-      list.flat_map(data.nodes, fn(entry) {
-        [entry.0, ..field_atoms(entry.1.fields)]
-      }),
-      list.append(
-        list.flat_map(data.parents, fn(entry) {
-          case entry.1.parent {
-            None -> [entry.0]
-            Some(parent) -> [entry.0, parent]
-          }
-        }),
-        list.append(
-          list.flat_map(data.aliases, fn(entry) { [entry.0, entry.1] }),
-          list.append(
-            list.map(data.builds, fn(build) { build.id }),
-            list.append(
-              list.map(data.destroys, fn(destroy) { destroy.id }),
-              list.map(data.refreshers, fn(build) { build.id }),
-            ),
-          ),
-        ),
-      ),
-    ),
-  )
-}
-
-fn field_atoms(fields: List(#(String, FieldChange))) -> List(AtomId) {
-  list.flat_map(fields, fn(entry) {
-    case entry.1 {
-      GenericField(children) -> list.map(children, fn(child) { child.1 })
-      ValueField(change) | OptionalField(change) -> {
-        let optional_field.FieldChange(moves, children, replacement) = change
-        list.append(
-          list.flat_map(moves, fn(move) { [move.0, move.1] }),
-          list.append(
-            list.flat_map(children, fn(child) {
-              case child.0 {
-                optional_field.Active -> [child.1]
-                optional_field.Detached(id) -> [id, child.1]
-              }
-            }),
-            case replacement {
-              None -> []
-              Some(replacement) ->
-                case replacement.source {
-                  None | Some(optional_field.Active) -> [replacement.detach_id]
-                  Some(optional_field.Detached(id)) -> [
-                    replacement.detach_id,
-                    id,
-                  ]
-                }
-            },
-          ),
-        )
-      }
-    }
-  })
 }
 
 fn rebuild_parents(
