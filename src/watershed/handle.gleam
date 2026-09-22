@@ -132,31 +132,36 @@ fn validate_path(path: String, absolute: Bool) -> Result(String, HandleError) {
     True -> Ok(Nil)
     False -> Error(InvalidHandle("wrong handle path context"))
   })
-  let components = case absolute {
-    True -> string.drop_start(path, 1) |> string.split("/")
-    False -> string.split(path, "/")
-  }
-  use _ <- result.try(case components {
-    [] -> Error(InvalidHandle("empty handle path"))
-    _ ->
-      list.try_each(components, fn(component) {
-        use decoded <- result.try(
-          uri.percent_decode(component)
-          |> result.map_error(fn(_) { InvalidHandle("invalid path escape") }),
-        )
-        case
-          component == ""
-          || decoded == "."
-          || decoded == ".."
-          || decoded == "/"
-          || string.contains(component, ":")
-        {
-          True -> Error(InvalidHandle("invalid path component"))
-          False -> Ok(Nil)
-        }
+  case path == "/" {
+    True -> Ok(path)
+    False -> {
+      let components = case absolute {
+        True -> string.drop_start(path, 1) |> string.split("/")
+        False -> string.split(path, "/")
+      }
+      use _ <- result.try(case components {
+        [] -> Error(InvalidHandle("empty handle path"))
+        _ ->
+          list.try_each(components, fn(component) {
+            use decoded <- result.try(
+              uri.percent_decode(component)
+              |> result.map_error(fn(_) { InvalidHandle("invalid path escape") }),
+            )
+            case
+              component == ""
+              || decoded == "."
+              || decoded == ".."
+              || decoded == "/"
+              || string.contains(component, ":")
+            {
+              True -> Error(InvalidHandle("invalid path component"))
+              False -> Ok(Nil)
+            }
+          })
       })
-  })
-  Ok(path)
+      Ok(path)
+    }
+  }
 }
 
 fn collect_decoder() -> decode.Decoder(List(String)) {

@@ -312,7 +312,7 @@ function validateContainerFoundations(value) {
   );
   assert(
     Array.isArray(value.input.groupedWireMessages)
-      && value.input.groupedWireMessages.length > 0,
+      && value.input.groupedWireMessages.length === 1,
     "container-foundations: groupedWireMessages",
   );
   requiredIds(value.input.decodeCases, decodeCaseIds, "decodeCases");
@@ -479,8 +479,8 @@ export async function captureContainerFoundations(existingCases) {
   if (!Array.isArray(bootstrapMessages) || bootstrapMessages.length === 0) {
     throw new Error("bootstrap-map-handles has no bootstrap messages");
   }
-  if (!Array.isArray(groupedWireMessages) || groupedWireMessages.length === 0) {
-    throw new Error("batched-commits has no grouped wire messages");
+  if (!Array.isArray(groupedWireMessages) || groupedWireMessages.length !== 1) {
+    throw new Error("batched-commits must have one grouped wire message");
   }
 
   const projection = snapshotProjection(initialSnapshot);

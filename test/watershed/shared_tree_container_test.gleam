@@ -1,4 +1,6 @@
+import gleam/bit_array
 import gleam/json.{type Json}
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
@@ -104,6 +106,61 @@ pub fn shared_tree_container_decodes_attach_and_alias_forms_test() -> Nil {
   json.to_string(snapshot) |> expect.to_equal("{\"entries\":[]}")
 }
 
+pub fn shared_tree_container_rejects_malformed_attach_snapshots_test() -> Nil {
+  let snapshots = ["42", "{}", "{\"entries\":\"bad\"}"]
+  snapshots
+  |> list.each(fn(snapshot) {
+    let attach =
+      parse(
+        "{\"id\":\"B\",\"type\":\"example-store\",\"snapshot\":"
+        <> snapshot
+        <> "}",
+      )
+    let datastore =
+      parse(
+        "{\"type\":\"attach\",\"contents\":" <> json.to_string(attach) <> "}",
+      )
+    let channel =
+      parse(
+        "{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"type\":\"attach\",\"content\":{\"id\":\"root\",\"type\":\"example-channel\",\"snapshot\":"
+        <> snapshot
+        <> "}}}}",
+      )
+    let _ = fluid_container.decode(datastore, None) |> expect.to_be_error()
+    let _ = fluid_container.decode(channel, None) |> expect.to_be_error()
+    let _ =
+      fluid_container.encode(DatastoreAttach("B", attach))
+      |> expect.to_be_error()
+    let _ =
+      fluid_container.encode(ChannelAttach(
+        Route("A", "root"),
+        "example-channel",
+        parse(snapshot),
+      ))
+      |> expect.to_be_error()
+    Nil
+  })
+}
+
+pub fn shared_tree_container_accepts_structural_snapshot_extras_test() -> Nil {
+  let snapshot =
+    parse(
+      "{\"entries\":[{\"path\":\"blob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"opaque\":true},\"extra\":true}],\"extra\":true}",
+    )
+  let datastore =
+    parse(
+      "{\"type\":\"attach\",\"contents\":{\"id\":\"B\",\"type\":\"example-store\",\"snapshot\":{\"entries\":[{\"path\":\"blob\",\"mode\":\"100644\",\"type\":\"Blob\",\"value\":{\"opaque\":true},\"extra\":true}],\"extra\":true}}}",
+    )
+  let assert Ok(_) = fluid_container.decode(datastore, None)
+  let assert Ok(_) =
+    fluid_container.encode(ChannelAttach(
+      Route("A", "root"),
+      "example-channel",
+      snapshot,
+    ))
+  Nil
+}
+
 pub fn shared_tree_container_decodes_allocation_with_existing_codec_test() -> Nil {
   let contents =
     parse(
@@ -153,6 +210,15 @@ pub fn shared_tree_container_rejects_malformed_group_without_prefix_test() -> Ni
   let contents =
     parse(
       "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"root\",\"contents\":{\"ok\":true}}}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"type\":\"op\",\"content\":{\"contents\":{\"bad\":true}}}}}}]}",
+    )
+  let _ = fluid_container.decode(contents, None) |> expect.to_be_error()
+  Nil
+}
+
+pub fn shared_tree_container_rejects_malformed_attach_at_group_end_test() -> Nil {
+  let contents =
+    parse(
+      "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"alias\",\"contents\":{\"internalId\":\"B\",\"alias\":\"secondary\"}}},{\"contents\":{\"type\":\"attach\",\"contents\":{\"id\":\"B\",\"type\":\"example-store\",\"snapshot\":42}}}]}",
     )
   let _ = fluid_container.decode(contents, None) |> expect.to_be_error()
   Nil
@@ -244,4 +310,150 @@ pub fn shared_tree_container_requires_complete_ungrouped_batch_test() -> Nil {
 
 pub fn shared_tree_container_oracle_test() -> Nil {
   fixtures.assert_case("container-foundations", container_fixture.run)
+}
+
+pub fn shared_tree_container_fixture_rejects_wrong_bootstrap_types_test() -> Nil {
+  let assert Ok(_) =
+    container_fixture.run(
+      container_fixture_input(
+        "https://graph.microsoft.com/types/map",
+        "https://graph.microsoft.com/types/tree",
+        "Plain",
+        [empty_group_outer()],
+      ),
+    )
+  let mutations = [
+    container_fixture_input(
+      "wrong-map-type",
+      "https://graph.microsoft.com/types/tree",
+      "Plain",
+      [empty_group_outer()],
+    ),
+    container_fixture_input(
+      "https://graph.microsoft.com/types/map",
+      "wrong-tree-type",
+      "Plain",
+      [empty_group_outer()],
+    ),
+    container_fixture_input(
+      "https://graph.microsoft.com/types/map",
+      "https://graph.microsoft.com/types/tree",
+      "not-Plain",
+      [empty_group_outer()],
+    ),
+  ]
+  mutations
+  |> list.each(fn(input) {
+    let _ = container_fixture.run(input) |> expect.to_be_error()
+    Nil
+  })
+}
+
+pub fn shared_tree_container_fixture_rejects_extra_grouped_messages_test() -> Nil {
+  let extra =
+    json.object([
+      #("type", json.string("GC")),
+      #("contents", json.object([])),
+    ])
+  let _ =
+    container_fixture.run(
+      container_fixture_input(
+        "https://graph.microsoft.com/types/map",
+        "https://graph.microsoft.com/types/tree",
+        "Plain",
+        [empty_group_outer(), outer_message(extra)],
+      ),
+    )
+    |> expect.to_be_error()
+  Nil
+}
+
+fn container_fixture_input(
+  map_type: String,
+  tree_type: String,
+  value_type: String,
+  grouped_messages: List(Json),
+) -> Json {
+  let map_header =
+    json.object([
+      #(
+        "content",
+        json.object([
+          #(
+            "tree",
+            json.object([
+              #("type", json.string(value_type)),
+              #(
+                "value",
+                json.object([
+                  #("type", json.string("__fluid_handle__")),
+                  #("url", json.string("/A/_C")),
+                ]),
+              ),
+            ]),
+          ),
+        ]),
+      ),
+    ])
+  let map_attributes = attributes(map_type, "0.2")
+  let tree_attributes = attributes(tree_type, "0.0.0")
+  json.object([
+    #(
+      "initialSnapshot",
+      fixture_snapshot(map_header, map_attributes, tree_attributes),
+    ),
+    #("bootstrapMessages", json.array([], fn(value) { value })),
+    #("groupedWireMessages", json.array(grouped_messages, fn(value) { value })),
+    #("decodeCases", json.array([], fn(value) { value })),
+    #("handleCases", json.array([], fn(value) { value })),
+    #("encodeCases", json.array([], fn(value) { value })),
+  ])
+}
+
+fn fixture_snapshot(
+  map_header: Json,
+  map_attributes: Json,
+  tree_attributes: Json,
+) -> Json {
+  parse(
+    "{\"tree\":{\"trees\":{\".channels\":{\"trees\":{\"A\":{\"trees\":{\".channels\":{\"trees\":{\"root\":{\"blobs\":{\"header\":\"header\",\".attributes\":\"map\"}},\"_C\":{\"blobs\":{\".attributes\":\"tree\"}}}}}}}}}},\"blobs\":{\"header\":\""
+    <> encoded_blob(map_header)
+    <> "\",\"map\":\""
+    <> encoded_blob(map_attributes)
+    <> "\",\"tree\":\""
+    <> encoded_blob(tree_attributes)
+    <> "\"}}",
+  )
+}
+
+fn attributes(channel_type: String, format: String) -> Json {
+  json.object([
+    #("type", json.string(channel_type)),
+    #("snapshotFormatVersion", json.string(format)),
+    #("packageVersion", json.string("3.1.0")),
+  ])
+}
+
+fn encoded_blob(value: Json) -> String {
+  bit_array.base64_encode(<<json.to_string(value):utf8>>, True)
+}
+
+fn empty_group_outer() -> Json {
+  outer_message(
+    json.object([
+      #("type", json.string("groupedBatch")),
+      #("contents", json.array([], fn(value) { value })),
+    ]),
+  )
+}
+
+fn outer_message(contents: Json) -> Json {
+  json.object([
+    #("clientId", json.string("client")),
+    #("clientSequenceNumber", json.int(1)),
+    #("minimumSequenceNumber", json.int(0)),
+    #("referenceSequenceNumber", json.int(0)),
+    #("sequenceNumber", json.int(1)),
+    #("contents", json.string(json.to_string(contents))),
+  ])
 }
