@@ -156,6 +156,74 @@ pub fn shared_tree_field_compose_callback_refusal_returns_no_state_test() {
   |> expect.to_equal(Error(CorruptData("child", "callback refused")))
 }
 
+pub fn shared_tree_field_callbacks_follow_register_map_order_test() {
+  let interleaved = [
+    #(optional_field.Detached(atom(4)), atom(40)),
+    #(optional_field.Detached(atom(5)), atom(41)),
+    #(optional_field.Detached(atom_b(4)), atom_b(42)),
+  ]
+  let change = optional_field.FieldChange([], interleaved, None)
+  let empty = optional_field.FieldChange([], [], None)
+  let assert Ok(#(composed, compose_calls)) =
+    optional_field.compose(empty, change, [], fn(_, second, calls) {
+      let assert Some(child) = second
+      let output = atom_b(100 + list.length(calls))
+      Ok(#(output, [child, ..calls]))
+    })
+  list.reverse(compose_calls)
+  |> expect.to_equal([atom(40), atom_b(42), atom(41)])
+  composed
+  |> expect.to_equal(optional_field.FieldChange(
+    [],
+    [
+      #(optional_field.Detached(atom(4)), atom_b(100)),
+      #(optional_field.Detached(atom_b(4)), atom_b(101)),
+      #(optional_field.Detached(atom(5)), atom_b(102)),
+    ],
+    None,
+  ))
+
+  let assert Ok(#(rebased, rebase_calls)) =
+    optional_field.rebase(empty, change, [], fn(_, over, _, calls) {
+      let assert Some(child) = over
+      let output = atom_b(100 + list.length(calls))
+      Ok(#(Some(output), [child, ..calls]))
+    })
+  list.reverse(rebase_calls)
+  |> expect.to_equal([atom(40), atom_b(42), atom(41)])
+  rebased
+  |> expect.to_equal(composed)
+
+  let authored =
+    optional_field.FieldChange(
+      [],
+      [#(optional_field.Detached(atom(4)), atom(50))],
+      None,
+    )
+  let assert Ok(#(_, compose_overlap_calls)) =
+    optional_field.compose(authored, change, [], fn(first, second, calls) {
+      let assert Some(child) = first |> option.or(second)
+      Ok(#(child, [#(first, second), ..calls]))
+    })
+  list.reverse(compose_overlap_calls)
+  |> expect.to_equal([
+    #(Some(atom(50)), Some(atom(40))),
+    #(None, Some(atom_b(42))),
+    #(None, Some(atom(41))),
+  ])
+
+  let assert Ok(#(_, rebase_overlap_calls)) =
+    optional_field.rebase(authored, change, [], fn(first, second, _, calls) {
+      Ok(#(first |> option.or(second), [#(first, second), ..calls]))
+    })
+  list.reverse(rebase_overlap_calls)
+  |> expect.to_equal([
+    #(Some(atom(50)), Some(atom(40))),
+    #(None, Some(atom_b(42))),
+    #(None, Some(atom(41))),
+  ])
+}
+
 pub fn shared_tree_field_invert_distinguishes_rollback_and_undo_test() {
   let inverse = Some(revision("00000000-0000-4000-8000-0000000000c0"))
   let change =
@@ -467,6 +535,19 @@ pub fn shared_tree_field_into_delta_keeps_local_global_and_rename_test() {
     fn(_) { Ok([]) },
   )
   |> expect.to_equal(Ok(optional_field.FieldChangeDelta(None, [], [])))
+  optional_field.into_delta(
+    optional_field.FieldChange([], [#(optional_field.Active, atom(40))], None),
+    fn(_) { Ok([]) },
+  )
+  |> expect.to_equal(
+    Ok(
+      optional_field.FieldChangeDelta(
+        Some(forest.FieldDelta([forest.Mark(1, None, None, [])])),
+        [],
+        [],
+      ),
+    ),
+  )
 }
 
 pub fn shared_tree_field_required_schema_refuses_clear_delta_test() {
