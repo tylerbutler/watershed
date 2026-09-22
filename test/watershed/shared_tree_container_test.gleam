@@ -2,6 +2,8 @@ import gleam/json.{type Json}
 import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
+import watershed/tree/container_fixture
+import watershed/tree/fixtures
 import watershed/wire
 import watershed/wire/fluid_container.{
   ChannelAttach, ChannelOperation, ContainerMessage, DatastoreAlias,
@@ -238,4 +240,8 @@ pub fn shared_tree_container_requires_complete_ungrouped_batch_test() -> Nil {
     )
     |> expect.to_be_error()
   Nil
+}
+
+pub fn shared_tree_container_oracle_test() -> Nil {
+  fixtures.assert_case("container-foundations", container_fixture.run)
 }
