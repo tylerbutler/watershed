@@ -705,8 +705,42 @@ function validateModularCase(value) {
     for (const build of value) {
       exact(build, ["id", "trees"], "build");
       atom(build.id);
-      check(Array.isArray(build.trees), "build trees");
+      check(nonemptyArray(build.trees) && safe(build.id.localId + build.trees.length - 1), "build trees");
       for (const tree of build.trees) validateTaggedValue(tree, label);
+    }
+  }
+  function deltaFields(value) {
+    entries(value, text, (field) => {
+      exact(field, ["marks"], "delta field");
+      check(Array.isArray(field.marks), "delta marks");
+      for (const mark of field.marks) {
+        exact(mark, ["count", "attach", "detach", "fields"], "delta mark");
+        check(safe(mark.count) && mark.count > 0, "delta mark count");
+        if (mark.attach !== null) atom(mark.attach);
+        if (mark.detach !== null) atom(mark.detach);
+        deltaFields(mark.fields);
+      }
+    }, "delta fields");
+  }
+  function delta(value) {
+    exact(value, ["latestRevision", "fields", "build", "refreshers", "global", "rename", "destroy"], "delta");
+    check(value.latestRevision === null || stable(value.latestRevision), "delta revision");
+    deltaFields(value.fields);
+    builds(value.build); builds(value.refreshers);
+    check(Array.isArray(value.global) && Array.isArray(value.rename) && Array.isArray(value.destroy), "delta sections");
+    for (const entry of value.global) {
+      exact(entry, ["id", "fields"], "global change");
+      atom(entry.id); deltaFields(entry.fields);
+    }
+    for (const entry of value.rename) {
+      exact(entry, ["oldId", "newId", "count"], "delta rename");
+      atom(entry.oldId); atom(entry.newId);
+      check(safe(entry.count) && entry.count > 0, "delta rename count");
+    }
+    for (const entry of value.destroy) {
+      exact(entry, ["id", "count"], "delta destroy");
+      atom(entry.id);
+      check(safe(entry.count) && entry.count > 0, "delta destroy count");
     }
   }
   function structure(value) {
@@ -810,16 +844,20 @@ function validateModularCase(value) {
     "child-rollback", "child-undo", "multi-rollback", "multi-undo",
     "x-over-y", "x-over-parent", "parent-over-x", "parent-then-detached",
     "collision-replaced", "alias-replaced", "pruned", "refreshed", "build-destroy-cancelled",
+    "optional-root-set", "optional-root-clear", "optional-root-null", "optional-clear-present",
+    "parent-again", "delayed-after-two-parents", "nested-reversed",
   ];
   assert.deepEqual(expanded.operations.map(({ id }) => id), operationIds, `${label}: operation coverage`);
   const scenarioIds = ["nested-independent", "nested-composed", "parent-then-child", "child-then-parent",
-    "composed-detached-child", "rollback-restores", "undo-restores-value", "three-fields", "four-fields"];
+    "composed-detached-child", "rollback-restores", "undo-restores-value", "three-fields", "four-fields",
+    "optional-root-set", "optional-root-clear", "optional-root-null", "optional-clear-present",
+    "replace-twice-then-delayed", "nested-reversed"];
   check(nonemptyArray(expanded.scenarios), "forest scenarios");
   assert.deepEqual(expanded.scenarios.map(({ id }) => id), scenarioIds, `${label}: scenario coverage`);
   for (const scenario of expanded.scenarios) {
     exact(scenario, ["id", "schema", "root", "actions"], "scenario");
     check(typeof scenario.schema === "string" && JSON.parse(scenario.schema).version === 2, "scenario schema");
-    validateTaggedValue(scenario.root, label);
+    if (scenario.root !== null) validateTaggedValue(scenario.root, label);
     check(nonemptyArray(scenario.actions), "scenario actions");
     for (const action of scenario.actions) {
       if (action.op === "retain") {
@@ -843,17 +881,34 @@ function validateModularCase(value) {
       check(observation.id === "alias-replaced", "unexpected source refusal");
     } else {
       structure(observation.change);
-      exact(observation.delta, ["latestRevision", "fields", "build", "refreshers", "global", "rename", "destroy"], "delta");
+      delta(observation.delta);
       if (observation.id === "refreshed") check(nonemptyArray(observation.removedRoots), "removed-root observations");
     }
   }
   for (const [index, observation] of observed.slice(operationIds.length).entries()) {
     check(observation.operation === "modular-forest"
       && observation.checkpoints.length === expanded.scenarios[index].actions.length, "forest checkpoints");
-    for (const checkpoint of observation.checkpoints) {
+    for (const [checkpointIndex, checkpoint] of observation.checkpoints.entries()) {
       check(checkpoint.accepted === true && object(checkpoint.state), "forest application failure");
       exact(checkpoint.state, ["root", "references", "detached", "nextDetachedRootId"], "forest state");
-      check(nonemptyArray(checkpoint.state.references) && Array.isArray(checkpoint.state.detached), "retained state");
+      check(Array.isArray(checkpoint.state.references) && Array.isArray(checkpoint.state.detached), "retained state");
+      if (checkpoint.state.root !== null) validateTaggedValue(checkpoint.state.root, label);
+      check(safe(checkpoint.state.nextDetachedRootId), "forest allocation watermark");
+      for (const reference of checkpoint.state.references) {
+        exact(reference, ["name", "status", "value"], "retained reference");
+        check(typeof reference.name === "string"
+          && ["attached", "detached", "destroyed", "invalidated-by-copy"].includes(reference.status), "reference status");
+        if (reference.value !== null) validateTaggedValue(reference.value, label);
+        check((reference.value !== null) === ["attached", "detached"].includes(reference.status), "reference content");
+      }
+      for (const entry of checkpoint.state.detached) {
+        exact(entry, ["id", "forestRootId", "latestRelevantRevision", "value"], "detached tree");
+        atom(entry.id); validateTaggedValue(entry.value, label);
+        check(safe(entry.forestRootId) && (entry.latestRelevantRevision === null || stable(entry.latestRelevantRevision)), "detached identity");
+      }
+      const retained = expanded.scenarios[index].actions.slice(0, checkpointIndex + 1)
+        .filter(({ op }) => op === "retain").map(({ name }) => name).sort();
+      assert.deepEqual(checkpoint.state.references.map(({ name }) => name).sort(), retained, `${label}: retained names`);
     }
   }
 }
