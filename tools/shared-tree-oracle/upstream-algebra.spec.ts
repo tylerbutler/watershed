@@ -43,6 +43,7 @@ import {
 	type DeltaDetachedNodeId,
 	type DetachedField,
 	type FieldKey,
+	type FieldKindIdentifier,
 	type IEditableForest,
 	type RevisionTag,
 } from "../core/index.js";
@@ -216,6 +217,9 @@ function atom(revision: RevisionTag, localId: number): ChangeAtomId {
 function fieldKey(name: string): FieldKey {
 	return brand(name);
 }
+
+const encodedNodeIdFieldKey = fieldKey("watershed-node-id");
+const encodedNodeIdFieldKind: FieldKindIdentifier = brand("watershed-node-id");
 
 function nodeKey(id: NodeId): readonly [RevisionTag | undefined, ChangesetLocalId] {
 	return [id.revision, id.localId];
@@ -827,11 +831,28 @@ function fieldEncodingContext(
 		baseContext,
 		encodeNode: (node) =>
 			encodeNodeIds
-				? node.revision === undefined
-					? { localId: node.localId }
-					: { revision: node.revision, localId: node.localId }
+				? {
+						fieldChanges: [
+							{
+								fieldKey: encodedNodeIdFieldKey,
+								fieldKind: encodedNodeIdFieldKind,
+								change:
+									node.revision === undefined
+										? { localId: node.localId }
+										: { revision: node.revision, localId: node.localId },
+							},
+						],
+					}
 				: {},
 	};
+}
+
+function atomIdAliasAllocatorFromMaxId(maxId: number): DefaultAtomIdAliasAllocator {
+	const allocator = new DefaultAtomIdAliasAllocator();
+	if (maxId >= 0) {
+		allocator.allocate(maxId + 1);
+	}
+	return allocator;
 }
 
 function makeFieldCase(commit: string): OracleCase {
@@ -1069,7 +1090,7 @@ function makeFieldCase(commit: string): OracleCase {
 		},
 	];
 	const invertObservations = invertCases.map((scenario) => {
-		const allocator = idAllocatorFromMaxId(scenario.maxLocalId);
+		const allocator = atomIdAliasAllocatorFromMaxId(scenario.maxLocalId);
 		const result = optionalChangeRebaser.invert(
 			scenario.change,
 			scenario.isRollback,
