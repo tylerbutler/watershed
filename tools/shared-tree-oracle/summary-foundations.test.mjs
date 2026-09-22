@@ -58,14 +58,14 @@ test("summary foundations use the pinned upload manager for bytes and references
     ],
   );
   assert.deepEqual(
-    value.input.scenarios.map(({ operation, previous }) => [operation, previous]),
+    value.input.scenarios.map((scenario) => Object.keys(scenario)),
     [
-      ["snapshot", undefined],
-      ["emit", "snapshot"],
-      ["refuse", "missing"],
-      ["refuse", "snapshot"],
-      ["refuse", "snapshot"],
-      ["refuse", "snapshot"],
+      ["label"],
+      ["label", "summary"],
+      ["label", "summary"],
+      ["label", "summary"],
+      ["label", "summary"],
+      ["label", "summary"],
     ],
   );
 

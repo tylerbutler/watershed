@@ -39,12 +39,9 @@ fn summary_fixture_input(bytes: String) -> json.Json {
       array([
         json.object([
           #("label", json.string("snapshot-entries")),
-          #("operation", json.string("snapshot")),
         ]),
         json.object([
           #("label", json.string("emitted-entries")),
-          #("operation", json.string("emit")),
-          #("previous", json.string("snapshot")),
           #(
             "summary",
             array([

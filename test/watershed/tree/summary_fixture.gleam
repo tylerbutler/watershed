@@ -29,18 +29,7 @@ type SnapshotNode {
 }
 
 type Scenario {
-  SnapshotScenario(label: String)
-  EmitScenario(label: String, entries: List(InputEntry))
-  RefusalScenario(
-    label: String,
-    previous: PreviousSummary,
-    entries: List(InputEntry),
-  )
-}
-
-type PreviousSummary {
-  PreviousSnapshot
-  MissingPrevious
+  Scenario(label: String, entries: List(InputEntry))
 }
 
 type InputEntry {
@@ -80,46 +69,52 @@ fn run_scenario(
   snapshot: SnapshotNode,
   previous: fluid_summary.SummaryEntry,
 ) -> Result(Json, String) {
-  case scenario {
-    SnapshotScenario(label) -> {
+  let summary = fluid_summary.SummaryTree(to_summary_entries(scenario.entries))
+  case scenario.label {
+    "snapshot-entries" -> {
       use entries <- result.try(observe_snapshot(snapshot, previous, []))
       Ok(
         json.object([
-          #("label", json.string(label)),
+          #("label", json.string(scenario.label)),
           #("entries", array(entries)),
         ]),
       )
     }
-    EmitScenario(label, inputs) -> {
-      let summary = fluid_summary.SummaryTree(to_summary_entries(inputs))
+    "emitted-entries" -> {
       use resolved <- result.try(
         fluid_summary.resolve(summary, Some(previous))
         |> result.map_error(summary_error),
       )
-      let allocation = allocate_trees(inputs, [], Allocation(1, dict.new()))
+      let allocation =
+        allocate_trees(scenario.entries, [], Allocation(1, dict.new()))
       let assert fluid_summary.SummaryTree(entries) = resolved
       use observed <- result.try(
-        observe_entries(inputs, entries, snapshot, allocation.trees, []),
+        observe_entries(
+          scenario.entries,
+          entries,
+          snapshot,
+          allocation.trees,
+          [],
+        ),
       )
       Ok(
         json.object([
-          #("label", json.string(label)),
+          #("label", json.string(scenario.label)),
           #("entries", array(observed)),
         ]),
       )
     }
-    RefusalScenario(label, previous_summary, inputs) -> {
-      let summary = fluid_summary.SummaryTree(to_summary_entries(inputs))
-      let previous_summary = case previous_summary {
-        PreviousSnapshot -> Some(previous)
-        MissingPrevious -> None
+    _ -> {
+      let previous = case scenario.label {
+        "missing-parent" -> None
+        _ -> Some(previous)
       }
-      case fluid_summary.resolve(summary, previous_summary) {
-        Ok(_) -> Error("summary scenario did not fail: " <> label)
+      case fluid_summary.resolve(summary, previous) {
+        Ok(_) -> Error("summary scenario did not fail: " <> scenario.label)
         Error(_) ->
           Ok(
             json.object([
-              #("label", json.string(label)),
+              #("label", json.string(scenario.label)),
               #("refused", json.bool(True)),
             ]),
           )
@@ -499,30 +494,12 @@ fn snapshot_node_decoder() -> decode.Decoder(SnapshotNode) {
 
 fn scenario_decoder() -> decode.Decoder(Scenario) {
   use label <- decode.field("label", decode.string)
-  use operation <- decode.field("operation", decode.string)
-  case operation {
-    "snapshot" -> decode.success(SnapshotScenario(label))
-    "emit" -> {
-      use previous <- decode.field("previous", decode.string)
-      use entries <- decode.field("summary", decode.list(input_entry_decoder()))
-      case previous {
-        "snapshot" -> decode.success(EmitScenario(label, entries))
-        _ -> decode.failure(SnapshotScenario(""), "emitted summary previous")
-      }
-    }
-    "refuse" -> {
-      use previous <- decode.field("previous", decode.string)
-      use entries <- decode.field("summary", decode.list(input_entry_decoder()))
-      case previous {
-        "snapshot" ->
-          decode.success(RefusalScenario(label, PreviousSnapshot, entries))
-        "missing" ->
-          decode.success(RefusalScenario(label, MissingPrevious, entries))
-        _ -> decode.failure(SnapshotScenario(""), "refusal summary previous")
-      }
-    }
-    _ -> decode.failure(SnapshotScenario(""), "summary scenario operation")
-  }
+  use entries <- decode.optional_field(
+    "summary",
+    [],
+    decode.list(input_entry_decoder()),
+  )
+  decode.success(Scenario(label:, entries:))
 }
 
 fn input_entry_decoder() -> decode.Decoder(InputEntry) {

@@ -187,11 +187,9 @@ function uploadedCounts(entries) {
 
 function scenarioInput() {
   return [
-    { label: "snapshot-entries", operation: "snapshot" },
+    { label: "snapshot-entries" },
     {
       label: "emitted-entries",
-      operation: "emit",
-      previous: "snapshot",
       summary: [
         { name: "binary", kind: "blob", bytes: "AP+A" },
         { name: "empty", kind: "blob", bytes: "" },
@@ -230,8 +228,6 @@ function scenarioInput() {
     },
     {
       label: "missing-parent",
-      operation: "refuse",
-      previous: "missing",
       summary: [{
         name: "copy",
         kind: "handle",
@@ -241,8 +237,6 @@ function scenarioInput() {
     },
     {
       label: "missing-path",
-      operation: "refuse",
-      previous: "snapshot",
       summary: [{
         name: "copy",
         kind: "handle",
@@ -252,8 +246,6 @@ function scenarioInput() {
     },
     {
       label: "wrong-kind",
-      operation: "refuse",
-      previous: "snapshot",
       summary: [{
         name: "copy",
         kind: "handle",
@@ -263,8 +255,6 @@ function scenarioInput() {
     },
     {
       label: "malformed-percent-encoding",
-      operation: "refuse",
-      previous: "snapshot",
       summary: [{
         name: "copy",
         kind: "handle",
@@ -400,7 +390,7 @@ async function refusedObservation(
   const manager = new SummaryTreeUploadManager(
     raw.manager,
     new Map(),
-    async () => scenario.previous === "missing" ? undefined : previousSnapshot,
+    async () => scenario.label === "missing-parent" ? undefined : previousSnapshot,
   );
   const logged = [];
   const originalLog = console.log;
@@ -444,7 +434,7 @@ export async function captureSummaryFoundations(existingCases) {
 
   const { SummaryTreeUploadManager, SummaryType } = await oracleModules();
   const scenarios = scenarioInput();
-  const emittedScenario = scenarios.find(({ operation }) => operation === "emit");
+  const emittedScenario = scenarios.find(({ label }) => label === "emitted-entries");
   const emittedRaw = recordingManager();
   const manager = new SummaryTreeUploadManager(
     emittedRaw.manager,
@@ -458,8 +448,8 @@ export async function captureSummaryFoundations(existingCases) {
   );
 
   const refused = [];
-  for (const scenario of scenarios.filter(({ operation }) =>
-    operation === "refuse")) {
+  for (const scenario of scenarios.filter(({ label }) =>
+    label !== "snapshot-entries" && label !== "emitted-entries")) {
     refused.push(await refusedObservation(
       scenario,
       SummaryTreeUploadManager,
