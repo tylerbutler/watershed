@@ -1412,3 +1412,117 @@ pub fn shared_tree_change_compose_reversed_nested_edits_matches_upstream_test() 
   forest.read(updated, ["point"])
   |> expect.to_equal(Ok(Some(point(42.0, 9.0))))
 }
+
+pub fn shared_tree_change_delta_represents_additive_nested_fields_test() {
+  let root =
+    change.OptionalField(optional_field.FieldChange(
+      [#(atom(30), atom_b(51))],
+      [#(optional_field.Active, atom_b(4))],
+      Some(optional_field.Replacement(
+        True,
+        Some(optional_field.Detached(atom_b(50))),
+        atom(31),
+      )),
+    ))
+  let nested = change.ValueField(optional_field.set(False, atom(40), atom(41)))
+  let pruned_optional =
+    change.OptionalField(optional_field.FieldChange(
+      [],
+      [#(optional_field.Active, atom(5))],
+      None,
+    ))
+  let data =
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 51,
+      revisions: [
+        change.RevisionInfo(revision_a(), None),
+        change.RevisionInfo(revision_b(), None),
+      ],
+      fields: [#("root", root)],
+      nodes: [
+        #(
+          atom(4),
+          change.NodeChange([
+            #("nested-required", nested),
+            #("pruned-optional", pruned_optional),
+          ]),
+        ),
+        #(atom(5), change.NodeChange([])),
+      ],
+      parents: [
+        #(atom(4), change.ParentField(None, "root")),
+        #(atom(5), change.ParentField(Some(atom(4)), "pruned-optional")),
+      ],
+      aliases: [#(atom_b(4), atom(4))],
+      builds: [forest.Build(atom(20), [StringValue("built")])],
+      refreshers: [forest.Build(atom_b(21), [StringValue("stale")])],
+    )
+  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(None, None, authored))
+  forest.delta_data(delta)
+  |> expect.to_equal(
+    forest.DeltaData(
+      latest_revision: None,
+      fields: [
+        #(
+          "root",
+          forest.FieldDelta([
+            forest.Mark(1, Some(atom_b(50)), None, [
+              #(
+                "nested-required",
+                forest.FieldDelta([
+                  forest.Mark(1, Some(atom(40)), Some(atom(41)), []),
+                ]),
+              ),
+              #(
+                "pruned-optional",
+                forest.FieldDelta([forest.Mark(1, None, None, [])]),
+              ),
+            ]),
+          ]),
+        ),
+      ],
+      build: [forest.Build(atom(20), [StringValue("built")])],
+      refreshers: [forest.Build(atom_b(21), [StringValue("stale")])],
+      global: [],
+      rename: [forest.Rename(atom(30), atom_b(51), 1)],
+      destroy: [],
+    ),
+  )
+}
+
+pub fn shared_tree_change_additive_nested_delta_application_is_atomic_test() {
+  let initial = initial_forest()
+  let assert Ok(before) = forest.export_data(initial)
+  let assert Ok(delta) =
+    forest.delta(
+      forest.DeltaData(
+        latest_revision: Some(revision_a()),
+        fields: [
+          #(
+            "rootFieldKey",
+            forest.FieldDelta([
+              forest.Mark(1, Some(atom(30)), None, [
+                #("point", forest.FieldDelta([])),
+              ]),
+            ]),
+          ),
+        ],
+        build: [],
+        refreshers: [],
+        global: [],
+        rename: [],
+        destroy: [],
+      ),
+    )
+  forest.apply_delta(initial, delta)
+  |> expect.to_equal(
+    Error(CorruptData(
+      "rootFieldKey",
+      "attach-only mark cannot change an old child",
+    )),
+  )
+  forest.export_data(initial) |> expect.to_equal(Ok(before))
+}

@@ -239,6 +239,12 @@ fn field_ids(
 /// Apply all phases to candidate state. An error leaves the input unchanged.
 pub fn apply_delta(state: Forest, delta: Delta) -> Result(Forest, TreeError) {
   let data = delta.data
+  use _ <- result.try(validate_applicable_fields(data.fields))
+  use _ <- result.try(
+    list.try_each(data.global, fn(change) {
+      validate_applicable_fields(change.fields)
+    }),
+  )
   let refreshers =
     list.fold(data.refreshers, dict.new(), fn(acc, build) {
       list.index_fold(build.trees, acc, fn(acc, tree, index) {
@@ -539,11 +545,6 @@ fn validate_fields(
         pair.0,
         "object field marks must have count one",
       ))
-      use _ <- result.try(check(
-        list.is_empty(mark.fields) || mark.attach == None || mark.detach != None,
-        pair.0,
-        "attach-only mark cannot change an old child",
-      ))
       use _ <- result.try(
         list.try_each([mark.attach, mark.detach], fn(id) {
           case id {
@@ -553,6 +554,21 @@ fn validate_fields(
         }),
       )
       validate_fields(mark.fields)
+    })
+  })
+}
+
+fn validate_applicable_fields(
+  fields: List(#(String, FieldDelta)),
+) -> Result(Nil, TreeError) {
+  list.try_each(fields, fn(pair) {
+    list.try_each(pair.1.marks, fn(mark) {
+      use _ <- result.try(check(
+        list.is_empty(mark.fields) || mark.attach == None || mark.detach != None,
+        pair.0,
+        "attach-only mark cannot change an old child",
+      ))
+      validate_applicable_fields(mark.fields)
     })
   })
 }

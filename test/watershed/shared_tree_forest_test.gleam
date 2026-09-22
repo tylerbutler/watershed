@@ -213,7 +213,8 @@ pub fn shared_tree_forest_delta_shape_refusals_test() -> Nil {
       #(
         "rootFieldKey",
         forest.FieldDelta([
-          forest.Mark(1, Some(atom(0)), None, [
+          forest.Mark(1, None, None, [
+            #("point", forest.FieldDelta([])),
             #("point", forest.FieldDelta([])),
           ]),
         ]),
