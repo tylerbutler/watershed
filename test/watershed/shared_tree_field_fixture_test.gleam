@@ -2,7 +2,7 @@ import gleam/json
 import gleam/list
 import gleam/string
 import startest/expect
-import watershed/json_ot.{VObject, VString}
+import watershed/json_ot.{NInt, VArray, VNumber, VObject, VString}
 import watershed/tree/field_fixture
 import watershed/tree/fixtures
 
@@ -63,6 +63,64 @@ pub fn shared_tree_field_fixture_rejects_unknown_selectors_and_metadata_test() {
     ]),
   ]
   |> list.each(fn(input) { field_fixture.run(input) |> expect.to_be_error })
+}
+
+pub fn shared_tree_field_fixture_does_not_mask_missing_child_source_test() {
+  let assert Ok(fixture) = fixtures.load("field-compose-invert-rebase")
+  let assert Ok(VObject(fields)) =
+    json.parse(json.to_string(fixture.input), json_ot.decoder())
+  let child_change =
+    VObject([
+      #(
+        "fieldChanges",
+        VArray([
+          VObject([
+            #("fieldKey", VString("watershed-node-id")),
+            #("fieldKind", VString("watershed-node-id")),
+            #(
+              "change",
+              VObject([
+                #("revision", VNumber(NInt(0))),
+                #("localId", VNumber(NInt(40))),
+              ]),
+            ),
+          ]),
+        ]),
+      ),
+    ])
+  let changed =
+    VObject(
+      list.map(fields, fn(field) {
+        case field {
+          #("changes", VObject(changes)) -> #(
+            "changes",
+            VObject(
+              list.map(changes, fn(change) {
+                case change {
+                  #("swap", VObject(swap)) -> #(
+                    "swap",
+                    VObject([
+                      #(
+                        "c",
+                        VArray([
+                          VArray([VNumber(NInt(99)), child_change]),
+                        ]),
+                      ),
+                      ..swap
+                    ]),
+                  )
+                  _ -> change
+                }
+              }),
+            ),
+          )
+          _ -> field
+        }
+      }),
+    )
+    |> json_ot.to_json
+  let assert Error(_) = field_fixture.run(changed)
+  Nil
 }
 
 pub fn shared_tree_field_fixture_executes_expanded_operations_test() {

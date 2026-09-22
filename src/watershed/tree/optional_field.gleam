@@ -31,6 +31,11 @@ pub type AttachState {
   DetachedNode
 }
 
+type RegisterGroup {
+  ActiveGroup
+  DetachedGroup(Int)
+}
+
 pub type FieldChangeDelta {
   FieldChangeDelta(
     local: Option(forest.FieldDelta),
@@ -131,6 +136,8 @@ pub fn compose(
       [],
     ),
   )
+  let remaining_children =
+    register_map_entries(remapped_second_children, remaining_children)
   use #(children, state) <- result.try(compose_remaining_children(
     remaining_children,
     state,
@@ -246,6 +253,7 @@ pub fn rebase(
       [],
     ),
   )
+  let remaining_over = register_map_entries(over_children, remaining_over)
   use #(children, state) <- result.try(rebase_base_children(
     remaining_over,
     forward,
@@ -335,20 +343,21 @@ pub fn into_delta(
       }
     None -> #(None, None, False)
   }
-  use #(local_fields, global) <- result.try(
-    list.try_fold(children, #([], []), fn(output, child) {
+  use #(local_fields, global, has_local_child) <- result.try(
+    list.try_fold(children, #([], [], False), fn(output, child) {
       use fields <- result.try(delta_from_child(child.1))
       case child.0 {
-        Active -> Ok(#(fields, output.1))
+        Active -> Ok(#(fields, output.1, True))
         Detached(id) ->
           Ok(#(
             output.0,
             list.append(output.1, [forest.DetachedChange(id, fields)]),
+            output.2,
           ))
       }
     }),
   )
-  let local = case has_local || !list.is_empty(local_fields) {
+  let local = case has_local || has_local_child {
     True ->
       Some(
         forest.FieldDelta([
@@ -661,6 +670,30 @@ fn option_or(first: Option(a), second: Option(a)) -> Option(a) {
   case second {
     Some(_) -> second
     None -> first
+  }
+}
+
+fn register_map_entries(
+  original: List(#(RegisterId, AtomId)),
+  remaining: List(#(RegisterId, AtomId)),
+) -> List(#(RegisterId, AtomId)) {
+  let groups =
+    list.fold(original, [], fn(groups, child) {
+      let group = register_group(child.0)
+      case list.contains(groups, group) {
+        True -> groups
+        False -> list.append(groups, [group])
+      }
+    })
+  list.flat_map(groups, fn(group) {
+    list.filter(remaining, fn(child) { register_group(child.0) == group })
+  })
+}
+
+fn register_group(register: RegisterId) -> RegisterGroup {
+  case register {
+    Active -> ActiveGroup
+    Detached(id) -> DetachedGroup(id.local_id)
   }
 }
 

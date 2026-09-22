@@ -1622,15 +1622,24 @@ fn run_swap_application(
       ),
     ),
   )
-  use _ <- result.try(case forest.apply_delta(state, rename) {
-    Ok(_) -> Error("occupied rename cycle was accepted")
-    Error(_) -> Ok(Nil)
-  })
+  let application = forest.apply_delta(state, rename)
   use after <- result.try(tree_result(forest.export_data(state)))
   use _ <- result.try(require(
     before == after,
     "rename refusal changed the forest",
   ))
+  use _ <- result.try(case application {
+    Error(CorruptData(
+      "rename",
+      "sources are missing or destinations form an occupied cycle",
+    )) -> Ok(Nil)
+    Error(error) ->
+      Error(
+        "swap application failed before occupied cycle: "
+        <> string.inspect(error),
+      )
+    Ok(_) -> Error("occupied rename cycle was accepted")
+  })
   let assert [first, second] = input.registers
   use first_content <- result.try(read_detached_string(state, first.id))
   use second_content <- result.try(read_detached_string(state, second.id))
