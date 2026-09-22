@@ -369,6 +369,105 @@ pub fn compose(
   Ok(#(change, context))
 }
 
+fn forward_map(change: FieldChange) -> List(#(RegisterId, RegisterId)) {
+  let mapping =
+    list.map(change.moves, fn(move) { #(Detached(move.0), Detached(move.1)) })
+  let mapping = case effectful_destination(change) {
+    None -> mapping
+    Some(id) -> put(mapping, Active, Detached(id))
+  }
+  case source(change) {
+    None -> mapping
+    Some(source) -> put(mapping, source, Active)
+  }
+}
+
+fn allocate_id(
+  revision: Option(StableId),
+  last_local_id: Int,
+) -> Result(#(AtomId, Int), TreeError) {
+  case last_local_id < max_safe_integer {
+    True -> {
+      let id = last_local_id + 1
+      Ok(#(types.AtomId(revision, id), id))
+    }
+    False ->
+      Error(CorruptData(
+        "field.invert.allocation",
+        "Local identifier space is exhausted",
+      ))
+  }
+}
+
+/// Return the inverse and its candidate allocation counter.
+/// The caller must accept both results together.
+pub fn invert(
+  change: FieldChange,
+  is_rollback: Bool,
+  inverse_revision: Option(StableId),
+  last_local_id: Int,
+) -> Result(#(FieldChange, Int), TreeError) {
+  use change <- result.try(validate(change))
+  use _ <- result.try(
+    case last_local_id >= -1 && last_local_id <= max_safe_integer {
+      True -> Ok(Nil)
+      False ->
+        Error(CorruptData(
+          "field.invert.allocation",
+          "Invalid allocation counter",
+        ))
+    },
+  )
+  let mapping = forward_map(change)
+  let children =
+    list.map(change.child_changes, fn(child) {
+      #(option.unwrap(lookup(mapping, child.0), child.0), child.1)
+    })
+  use #(replacement, last_local_id) <- result.try(case change.replacement {
+    None -> Ok(#(None, last_local_id))
+    Some(replacement) -> {
+      case effectful(replacement) {
+        True -> {
+          use #(detach_id, last_local_id) <- result.try(
+            case replacement.source, is_rollback {
+              Some(Detached(id)), True -> Ok(#(id, last_local_id))
+              _, _ -> allocate_id(inverse_revision, last_local_id)
+            },
+          )
+          let source = case replacement.was_empty {
+            True -> None
+            False -> Some(Detached(replacement.detach_id))
+          }
+          Ok(#(
+            Some(Replacement(replacement.source == None, source, detach_id)),
+            last_local_id,
+          ))
+        }
+        False -> {
+          case !is_rollback && replacement.source == Some(Active) {
+            False -> Ok(#(None, last_local_id))
+            True -> {
+              use #(id, last_local_id) <- result.try(allocate_id(
+                inverse_revision,
+                last_local_id,
+              ))
+              Ok(#(Some(Replacement(False, Some(Active), id)), last_local_id))
+            }
+          }
+        }
+      }
+    }
+  })
+  use inverse <- result.try(
+    validate(FieldChange(
+      list.map(change.moves, fn(move) { #(move.1, move.0) }),
+      children,
+      replacement,
+    )),
+  )
+  Ok(#(inverse, last_local_id))
+}
+
 pub fn into_delta(
   change: FieldChange,
   delta_from_child: fn(AtomId) ->

@@ -477,3 +477,158 @@ pub fn shared_tree_field_composition_matches_sequential_forest_test() -> Nil {
     |> expect.to_equal(Ok(types.StringValue("first")))
   })
 }
+
+pub fn shared_tree_field_inverse_rollback_reuses_source_test() -> Nil {
+  let change = field.set(True, atom(4), atom(5))
+  let assert Ok(#(rollback, rollback_last)) =
+    field.invert(change, True, Some(revision("02")), 10)
+  rollback.replacement
+  |> expect.to_equal(Some(field.Replacement(False, None, atom(4))))
+  rollback_last |> expect.to_equal(10)
+  let assert Ok(#(undo, undo_last)) =
+    field.invert(change, False, Some(revision("02")), 10)
+  undo.replacement
+  |> expect.to_equal(
+    Some(field.Replacement(False, None, types.AtomId(Some(revision("02")), 11))),
+  )
+  undo_last |> expect.to_equal(11)
+}
+
+pub fn shared_tree_field_inverse_clear_and_pin_allocation_test() -> Nil {
+  let pin =
+    field.FieldChange(
+      [],
+      [],
+      Some(field.Replacement(False, Some(field.Active), atom(9))),
+    )
+  [
+    #(
+      field.clear(False, atom(1)),
+      True,
+      field.FieldChange(
+        [],
+        [],
+        Some(field.Replacement(
+          True,
+          Some(field.Detached(atom(1))),
+          types.AtomId(None, 0),
+        )),
+      ),
+      0,
+    ),
+    #(
+      field.clear(False, atom(1)),
+      False,
+      field.FieldChange(
+        [],
+        [],
+        Some(field.Replacement(
+          True,
+          Some(field.Detached(atom(1))),
+          types.AtomId(None, 0),
+        )),
+      ),
+      0,
+    ),
+    #(field.clear(True, atom(1)), True, field.empty(), -1),
+    #(field.clear(True, atom(1)), False, field.empty(), -1),
+    #(pin, True, field.empty(), -1),
+    #(
+      pin,
+      False,
+      field.FieldChange(
+        [],
+        [],
+        Some(field.Replacement(False, Some(field.Active), types.AtomId(None, 0))),
+      ),
+      0,
+    ),
+  ]
+  |> list.each(fn(item) {
+    field.invert(item.0, item.1, None, -1)
+    |> expect.to_equal(Ok(#(item.2, item.3)))
+  })
+}
+
+pub fn shared_tree_field_inverse_routes_but_does_not_invert_children_test() -> Nil {
+  let change =
+    field.FieldChange(
+      [#(atom(7), atom(8))],
+      [
+        #(field.Active, atom(40)),
+        #(field.Detached(atom(0)), atom(41)),
+        #(field.Detached(atom(7)), atom(42)),
+      ],
+      Some(field.Replacement(False, Some(field.Detached(atom(0))), atom(1))),
+    )
+  let assert Ok(#(inverse, last)) = field.invert(change, True, None, -1)
+  inverse.moves |> expect.to_equal([#(atom(8), atom(7))])
+  inverse.child_changes
+  |> expect.to_equal([
+    #(field.Detached(atom(1)), atom(40)),
+    #(field.Active, atom(41)),
+    #(field.Detached(atom(8)), atom(42)),
+  ])
+  inverse.replacement
+  |> expect.to_equal(
+    Some(field.Replacement(False, Some(field.Detached(atom(1))), atom(0))),
+  )
+  last |> expect.to_equal(-1)
+}
+
+pub fn shared_tree_field_inverse_allocations_are_safe_and_transactional_test() -> Nil {
+  let change = field.set(True, atom(0), atom(1))
+  let assert Ok(#(_, last)) = field.invert(change, False, None, max_id - 1)
+  last |> expect.to_equal(max_id)
+  let assert Error(types.CorruptData("field.invert.allocation", _)) =
+    field.invert(change, False, None, last)
+  let assert Ok(#(_, same)) = field.invert(change, True, None, max_id)
+  same |> expect.to_equal(max_id)
+  [-2, max_id + 1]
+  |> list.each(fn(counter) {
+    let assert Error(types.CorruptData(_, _)) =
+      field.invert(field.empty(), False, None, counter)
+    Nil
+  })
+  let invalid = field.set(True, atom(-1), atom(2))
+  let assert Error(types.CorruptData(_, _)) =
+    field.invert(invalid, False, None, -1)
+  field.invert(change, False, None, -1)
+  |> expect.to_equal(
+    Ok(#(
+      field.FieldChange(
+        [],
+        [],
+        Some(field.Replacement(False, None, types.AtomId(None, 0))),
+      ),
+      0,
+    )),
+  )
+  let assert Ok(#(_, first)) = field.invert(change, False, None, -1)
+  let assert Ok(#(_, second)) = field.invert(change, False, None, first)
+  second |> expect.to_equal(1)
+}
+
+pub fn shared_tree_field_inverse_restores_original_identity_test() -> Nil {
+  list.each([True, False], fn(rollback) {
+    let initial = new_forest(False, Some(types.StringValue("old")))
+    let assert Ok(original) = forest.locate(initial, [])
+    let change = field.set(False, atom(0), atom(1))
+    let assert Ok(changed) =
+      apply(initial, change, [
+        forest.Build(atom(0), [types.StringValue("new")]),
+      ])
+    let assert Ok(replacement) = forest.locate(changed, [])
+    let assert Ok(#(inverse, _)) =
+      field.invert(change, rollback, Some(revision("02")), -1)
+    let assert Ok(restored) = apply(changed, inverse, [])
+    forest.locate(restored, []) |> expect.to_equal(Ok(original))
+    forest.read_node(restored, original)
+    |> expect.to_equal(Ok(types.StringValue("old")))
+    forest.is_attached(restored, replacement) |> expect.to_equal(Ok(False))
+    forest.read_node(restored, replacement)
+    |> expect.to_equal(Ok(types.StringValue("new")))
+    let assert Ok(data) = forest.export_data(restored)
+    list.length(data.detached) |> expect.to_equal(1)
+  })
+}
