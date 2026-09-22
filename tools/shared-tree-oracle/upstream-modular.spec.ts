@@ -7,6 +7,7 @@ import { strict as assert } from "node:assert";
 import { readFileSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import type { SessionSpaceCompressedId } from "@fluidframework/id-compressor";
+import { createIdCompressor, toIdCompressorWithCore } from "@fluidframework/id-compressor/internal";
 
 import {
 	revisionMetadataSourceFromInfo,
@@ -27,6 +28,7 @@ import {
 	DefaultRevisionReplacer,
 	intoDelta,
 	mapTreeFromCursor,
+	newChangeAtomIdBTree,
 	relevantRemovedRoots,
 	schemaCodecBuilder,
 	updateRefreshers,
@@ -36,12 +38,13 @@ import {
 import { FormatValidatorNoOp } from "../codec/index.js";
 import type { NodeChangeset } from "../feature-libraries/modular-schema/modularChangeTypes.js";
 import { pruneChangeset } from "../feature-libraries/modular-schema/prune.js";
+import { makeModularChangeset, validateChangeset } from "../feature-libraries/modular-schema/modularChangeUtils.js";
 import { fieldKinds } from "../feature-libraries/default-schema/defaultFieldKinds.js";
 import type { GenericChangeset } from "../feature-libraries/modular-schema/genericFieldKindTypes.js";
 import type { OptionalChangeset, RegisterId } from "../feature-libraries/optional-field/optionalFieldChangeTypes.js";
 import { SchemaFactory } from "../simple-tree/index.js";
 import { brand, unbrand } from "../util/index.js";
-import { mintRevisionTag, testIdCompressor } from "./utils.js";
+import { assertIsSessionId, mintRevisionTag, testIdCompressor } from "./utils.js";
 import { makeModularFamily, withRootAndNestedChanges } from "./watershedAlgebra.spec.js";
 import {
 	root,
@@ -56,14 +59,15 @@ import {
 } from "./watershedForest.spec.js";
 
 const referenceCommit = "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960";
+let revisionCompressor = testIdCompressor;
 
 function revision(value: RevisionTag | undefined): string | null {
 	if (value === undefined) return null;
 	assert(typeof value === "number", "The modular profile requires compressed revision IDs");
-	return testIdCompressor.decompress(value);
+	return revisionCompressor.decompress(value);
 }
 
-function revisionTag(value: unknown): RevisionTag {
+function revisionTag(value: unknown): SessionSpaceCompressedId {
 	assert(typeof value === "number" && Number.isSafeInteger(value));
 	const tag = value as SessionSpaceCompressedId;
 	testIdCompressor.decompress(tag);
@@ -198,6 +202,7 @@ function expand(
 	revisionB: RevisionTag,
 	revisionC: RevisionTag,
 ) {
+	revisionCompressor = testIdCompressor;
 	const { family, codecOptions } = makeModularFamily();
 	const sf = new SchemaFactory("org.watershed.shared-tree.m1");
 	class Point extends sf.object("Point", { x: sf.number, y: sf.number }) {}
@@ -242,7 +247,7 @@ function expand(
 			assert.equal(authored, undefined, "An edit must emit exactly one change");
 			authored = change;
 		}, codecOptions);
-		const chunk = value === null ? undefined : treeChunk([value], testIdCompressor);
+		const chunk = value === null ? undefined : treeChunk([value], revisionCompressor);
 		if (optional) editor.optionalField(fieldPath(path)).set(chunk, wasEmpty);
 		else {
 			assert(chunk !== undefined, "A required field needs a value");
@@ -349,6 +354,98 @@ function expand(
 	}, false, false, afterParent);
 	rebase("delayed-after-two-parents", "x-over-parent", "parent-again");
 	compose("nested-reversed", ["child-y", "child-x"]);
+	class RootNamedChild extends sf.object("RootNamedChild", { rootFieldKey: sf.number }) {}
+	const namedRoot: { schema: string; root: TaggedValue } = {
+		schema: schemaString(RootNamedChild),
+		root: { kind: "object", type: RootNamedChild.identifier,
+			fields: [["rootFieldKey", { kind: "number", value: 1 }]] },
+	};
+	edit("root-named-child", revisionA, ["rootFieldKey"], { kind: "number", value: 2 }, false, false, namedRoot);
+
+	const normalCompressor = toIdCompressorWithCore(createIdCompressor(
+		assertIsSessionId("90000000-0000-4000-8000-000000000000"),
+	));
+	const originalProducer = toIdCompressorWithCore(createIdCompressor(
+		assertIsSessionId("00000000-0000-4000-b000-000000000000"),
+	));
+	for (let index = 0; index <= Math.max(...revisions.map(Number)); index++) {
+		originalProducer.generateCompressedId();
+	}
+	normalCompressor.finalizeCreationRange(originalProducer.takeNextCreationRange());
+	for (const tag of revisions) {
+		assert.equal(normalCompressor.decompress(revisionTag(tag)), testIdCompressor.decompress(revisionTag(tag)));
+	}
+	revisionCompressor = normalCompressor;
+	function foreignRevision(session: string): RevisionTag {
+		const producer = toIdCompressorWithCore(createIdCompressor(assertIsSessionId(session)));
+		const local = producer.generateCompressedId();
+		normalCompressor.finalizeCreationRange(producer.takeNextCreationRange());
+		return normalCompressor.recompress(producer.decompress(local));
+	}
+	const nonlexicalRight = foreignRevision("b0000000-0000-4000-8000-000000000000");
+	const nonlexicalLeft = foreignRevision("a0000000-0000-4000-8000-000000000000");
+	revisions.push(nonlexicalRight, nonlexicalLeft);
+	class Sides extends sf.object("Sides", { left: Point, right: Point }) {}
+	const sides = {
+		schema: schemaString(Sides),
+		root: { kind: "object" as const, type: Sides.identifier,
+			fields: ["left", "right"].map((key): [string, TaggedValue] => [key, {
+				kind: "object", type: Point.identifier,
+				fields: [["x", { kind: "number", value: 1 }], ["y", { kind: "number", value: 2 }]],
+			}]) },
+	};
+	edit("nonlexical-left", nonlexicalLeft, ["left", "x"], { kind: "number", value: 7 }, false, false, sides);
+	edit("nonlexical-right", nonlexicalRight, ["right", "x"], { kind: "number", value: 8 }, false, false, sides);
+	compose("nonlexical-composed", ["nonlexical-left", "nonlexical-right"]);
+	invert("nonlexical-undo", "nonlexical-composed", false);
+
+	class NestedDetached extends sf.object("NestedDetached", { middle: sf.optional(Point) }) {}
+	const detachedInitial = {
+		schema: schemaString(NestedDetached),
+		root: { kind: "object" as const, type: NestedDetached.identifier, fields: [] },
+	};
+	const detachedId = (localId: number): ChangeAtomId => ({ revision: revisionA, localId: brand(localId) });
+	const registerField = (key: string, kind: "Value" | "Optional", change: OptionalChangeset): FieldChangeMap =>
+		new Map([[brand(key), { fieldKind: brand(kind), change: brand(change) }]]);
+	const nestedDetached = makeModularChangeset({
+		maxId: 31,
+		revisions: [{ revision: revisionA }],
+		fieldChanges: registerField(rootFieldKey, "Value", { moves: [], childChanges: [[detachedId(10), detachedId(1)]] }),
+		builds: newChangeAtomIdBTree([
+			[[revisionA, brand(30)], treeChunk([{ kind: "number", value: 2 }], revisionCompressor)],
+		]),
+		refreshers: newChangeAtomIdBTree([
+			[[revisionA, brand(10)], treeChunk([{
+				kind: "object", type: NestedDetached.identifier, fields: [["middle", {
+					kind: "object", type: Point.identifier,
+					fields: [["x", { kind: "number", value: 5 }], ["y", { kind: "number", value: 6 }]],
+				}]],
+			}], revisionCompressor)],
+			[[revisionA, brand(20)], treeChunk([{
+				kind: "object", type: Point.identifier,
+				fields: [["x", { kind: "number", value: 1 }], ["y", { kind: "number", value: 2 }]],
+			}], revisionCompressor)],
+		]),
+	});
+	nestedDetached.nodeChanges.set([revisionA, brand(1)], {
+		fieldChanges: registerField("middle", "Optional", {
+			moves: [],
+			childChanges: [[detachedId(20), detachedId(2)]],
+			valueReplace: { isEmpty: false, dst: detachedId(21) },
+		}),
+	});
+	nestedDetached.nodeChanges.set([revisionA, brand(2)], {
+		fieldChanges: registerField("x", "Value", {
+			moves: [], childChanges: [],
+			valueReplace: { isEmpty: false, src: detachedId(30), dst: detachedId(31) },
+		}),
+	});
+	nestedDetached.nodeToParent.set([revisionA, brand(1)], { nodeId: undefined, field: rootFieldKey });
+	nestedDetached.nodeToParent.set([revisionA, brand(2)], { nodeId: detachedId(1), field: brand("middle") });
+	validateChangeset(nestedDetached, fieldKinds);
+	changes.set("nested-detached", tagChange(nestedDetached, revisionA));
+	inputs.push({ op: "prune", id: "nested-global-order", change: "nested-detached" });
+	record("nested-global-order", tagChange(pruneChangeset(nestedDetached, fieldKinds), revisionA));
 
 	const scenarioInputs: object[] = [];
 	const scenarioObservations: object[] = [];
@@ -371,7 +468,7 @@ function expand(
 			}),
 		];
 		const definition: Scenario = { id, ...initial, actions };
-		const result = runScenario(definition, testIdCompressor, decoder);
+		const result = runScenario(definition, revisionCompressor, decoder);
 		assert(result.observation.checkpoints.every((checkpoint) => checkpoint.accepted),
 			`${id}: all supported modular deltas must apply`);
 		scenarioInputs.push({ id, ...initial, actions: [
@@ -394,11 +491,14 @@ function expand(
 	scenario("optional-clear-present", ["optional-clear-present"], presentNote);
 	scenario("replace-twice-then-delayed", ["parent", "parent-again", "delayed-after-two-parents"]);
 	scenario("nested-reversed", ["nested-reversed"]);
+	scenario("root-named-child", ["root-named-child"], namedRoot, []);
+	scenario("nonlexical-undo", ["nonlexical-composed", "nonlexical-undo"], sides, []);
+	scenario("nested-global-order", ["nested-global-order"], detachedInitial, []);
 
 	return {
 		input: {
-			changes: { first: structure(first), second: structure(second) },
-			tags: { first: revision(revisionA), second: revision(revisionB) },
+			changes: { first: structure(first), second: structure(second), "nested-detached": structure(nestedDetached) },
+			tags: { first: revision(revisionA), second: revision(revisionB), "nested-detached": revision(revisionA) },
 			revisions: revisions.map((tag) => ({ encoded: tag, stable: revision(tag) })),
 			operations: inputs,
 			scenarios: scenarioInputs,
