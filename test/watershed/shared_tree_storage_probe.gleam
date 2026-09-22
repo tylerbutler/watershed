@@ -17,6 +17,7 @@ fn expected_tree() -> fluid_summary.SummaryEntry {
   fluid_summary.SummaryTree([
     #("binary", fluid_summary.SummaryBlob(<<0, 255, 128>>)),
     #("empty", fluid_summary.SummaryBlob(<<>>)),
+    #("empty-tree", fluid_summary.SummaryTree([])),
     #("plus+cash$", fluid_summary.SummaryBlob(<<43>>)),
     #("repeat", fluid_summary.SummaryBlob(<<0, 255, 128>>)),
     #(
@@ -50,6 +51,29 @@ fn observation(root: String, tree: fluid_summary.SummaryEntry) -> String {
   json.object([
     #("root", json.string(root)),
     #("entries", json.array(flatten(tree, []), fn(value) { value })),
+  ])
+  |> json.to_string
+}
+
+fn captured_observation(
+  root: String,
+  tree: fluid_summary.SummaryEntry,
+) -> String {
+  json.object([
+    #("root", json.string(root)),
+    #(
+      "entries",
+      json.array(
+        [
+          json.object([
+            #("components", json.array([], json.string)),
+            #("kind", json.string("tree")),
+          ]),
+          ..flatten(tree, [])
+        ],
+        fn(value) { value },
+      ),
+    ),
   ])
   |> json.to_string
 }
@@ -201,7 +225,23 @@ pub fn main() -> Nil {
     git_storage.stage_hierarchy(base_url, tenant, token, invalid_tree()),
     git_storage.stage_hierarchy(base_url, tenant, token, failing_tree()),
   )
+  let assert Ok(captured) =
+    git_storage.fetch_hierarchy(base_url, tenant, token, "captured-commit")
+  let assert Ok(captured_root) =
+    git_storage.stage_hierarchy(base_url, tenant, token, captured)
+  let assert Ok(captured_staged) =
+    git_storage.fetch_hierarchy(
+      base_url,
+      tenant,
+      token,
+      "captured-staged-commit",
+    )
+  let assert True = captured_staged == captured
   io.println("WATERSHED_TREE_STORAGE=" <> observation(root, staged))
+  io.println(
+    "WATERSHED_TREE_STORAGE_CAPTURED="
+    <> captured_observation(captured_root, captured_staged),
+  )
 }
 
 @target(javascript)
@@ -318,6 +358,32 @@ pub fn main() -> Promise(Nil) {
     failing_tree(),
   ))
   check_stage_failures(invalid, failed)
+  use captured_result <- promise.await(git_storage.fetch_hierarchy(
+    base_url,
+    tenant,
+    token,
+    "captured-commit",
+  ))
+  let assert Ok(captured) = captured_result
+  use captured_stage_result <- promise.await(git_storage.stage_hierarchy(
+    base_url,
+    tenant,
+    token,
+    captured,
+  ))
+  let assert Ok(captured_root) = captured_stage_result
+  use captured_refetch_result <- promise.await(git_storage.fetch_hierarchy(
+    base_url,
+    tenant,
+    token,
+    "captured-staged-commit",
+  ))
+  let assert Ok(captured_staged) = captured_refetch_result
+  let assert True = captured_staged == captured
   io.println("WATERSHED_TREE_STORAGE=" <> observation(root, staged))
+  io.println(
+    "WATERSHED_TREE_STORAGE_CAPTURED="
+    <> captured_observation(captured_root, captured_staged),
+  )
   promise.resolve(Nil)
 }
