@@ -8,9 +8,9 @@ import watershed/tree/forest
 import watershed/tree/optional_field
 import watershed/tree/schema
 import watershed/tree/types.{
-  type AtomId, type Edit, type TreeValue, AtomId, ClearField, CorruptData,
-  InvalidEdit, InvalidHistory, NullValue, NumberValue, ObjectValue, SetField,
-  StringValue,
+  type AtomId, type Edit, type TreeError, type TreeValue, AtomId, ClearField,
+  CorruptData, InvalidEdit, InvalidHistory, NullValue, NumberValue, ObjectValue,
+  SetField, StringValue,
 }
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
@@ -26,6 +26,42 @@ fn revision_a() -> fluid_ids.StableId {
 
 fn revision_b() -> fluid_ids.StableId {
   revision("00000000-0000-4000-8000-0000000000b0")
+}
+
+fn revision_c() -> fluid_ids.StableId {
+  revision("00000000-0000-4000-8000-0000000000c0")
+}
+
+fn nonlexical_a() -> fluid_ids.StableId {
+  revision("a0000000-0000-4000-8000-000000000000")
+}
+
+fn nonlexical_b() -> fluid_ids.StableId {
+  revision("b0000000-0000-4000-8000-000000000000")
+}
+
+fn test_identity_order() -> change.IdentityOrder {
+  let assert Ok(identity_order) =
+    change.identity_order([
+      #(revision_a(), 4),
+      #(revision_b(), 5),
+      #(revision_c(), 6),
+      #(revision("00000000-0000-4000-8000-0000000000d0"), 7),
+    ])
+  identity_order
+}
+
+fn checked(data: change.ChangeData) -> Result(change.Changeset, TreeError) {
+  change.from_data(data, test_identity_order())
+}
+
+fn edit(
+  schema: schema.StoredSchema,
+  forest: forest.Forest,
+  revision: fluid_ids.StableId,
+  operation: Edit,
+) -> Result(change.Changeset, TreeError) {
+  change.edit(schema, forest, revision, operation, test_identity_order())
 }
 
 fn atom(local_id: Int) -> AtomId {
@@ -117,15 +153,247 @@ fn initial_forest() -> forest.Forest {
 
 fn authored(revision: fluid_ids.StableId, operation: Edit) -> change.Changeset {
   let assert Ok(authored) =
-    change.edit(stored_schema(), initial_forest(), revision, operation)
+    edit(stored_schema(), initial_forest(), revision, operation)
   authored
 }
 
 pub fn shared_tree_change_empty_data_round_trips_test() {
   let empty = change.empty()
   change.to_data(empty) |> expect.to_equal(empty_data())
-  change.from_data(change.to_data(empty))
+  let assert Ok(identity_order) = change.identity_order([])
+  change.from_data(change.to_data(empty), identity_order)
   |> expect.to_equal(Ok(empty))
+}
+
+pub fn shared_tree_change_identity_order_rejects_invalid_entries_test() {
+  let too_large = 9_007_199_254_740_991 + 1
+  let assert Error(InvalidHistory(_)) =
+    change.identity_order([#(revision_a(), too_large)])
+  let assert Error(InvalidHistory(_)) =
+    change.identity_order([
+      #(revision_a(), 4),
+      #(revision_a(), 5),
+    ])
+  let assert Error(InvalidHistory(_)) =
+    change.identity_order([
+      #(revision_a(), 4),
+      #(revision_b(), 4),
+    ])
+  change.identity_order([
+    #(revision_a(), -9_007_199_254_740_991),
+    #(revision_b(), 9_007_199_254_740_991),
+  ])
+  |> expect.to_be_ok
+  Nil
+}
+
+pub fn shared_tree_change_from_data_requires_identity_order_test() {
+  let data =
+    change.ChangeData(
+      ..empty_data(),
+      fields: [#("root", change.GenericField([#(0, atom(1))]))],
+      nodes: [#(atom(1), change.NodeChange([]))],
+      parents: [#(atom(1), change.ParentField(None, "root"))],
+    )
+  let assert Ok(identity_order) = change.identity_order([])
+  let assert Error(InvalidHistory(_)) = change.from_data(data, identity_order)
+  Nil
+}
+
+pub fn shared_tree_change_identity_order_sorts_anonymous_first_test() {
+  let anonymous = AtomId(None, 1)
+  let stable = atom(1)
+  let assert Ok(identity_order) = change.identity_order([#(revision_a(), 4)])
+  let assert Ok(parsed) =
+    change.from_data(
+      change.ChangeData(..empty_data(), builds: [
+        forest.Build(stable, [NumberValue(2.0)]),
+        forest.Build(anonymous, [NumberValue(1.0)]),
+      ]),
+      identity_order,
+    )
+  change.to_data(parsed).builds
+  |> expect.to_equal([
+    forest.Build(anonymous, [NumberValue(1.0)]),
+    forest.Build(stable, [NumberValue(2.0)]),
+  ])
+}
+
+pub fn shared_tree_change_edit_requires_identity_order_test() {
+  let assert Ok(identity_order) = change.identity_order([])
+  let assert Error(InvalidHistory(_)) =
+    change.edit(
+      stored_schema(),
+      initial_forest(),
+      revision_a(),
+      SetField(["point", "x"], NumberValue(7.0)),
+      identity_order,
+    )
+  Nil
+}
+
+pub fn shared_tree_change_compose_rejects_conflicting_identity_orders_test() {
+  let assert Ok(first_order) = change.identity_order([#(revision_a(), 4)])
+  let assert Ok(conflicting_revision_order) =
+    change.identity_order([#(revision_a(), 5)])
+  let assert Ok(conflicting_key_order) =
+    change.identity_order([#(revision_b(), 4)])
+  let assert Ok(first) = change.from_data(empty_data(), first_order)
+  let assert Ok(conflicting_revision) =
+    change.from_data(empty_data(), conflicting_revision_order)
+  let assert Ok(conflicting_key) =
+    change.from_data(empty_data(), conflicting_key_order)
+
+  let assert Error(InvalidHistory(_)) =
+    change.compose([
+      change.TaggedChange(None, None, first),
+      change.TaggedChange(None, None, conflicting_revision),
+    ])
+  let assert Error(InvalidHistory(_)) =
+    change.compose([
+      change.TaggedChange(None, None, first),
+      change.TaggedChange(None, None, conflicting_key),
+    ])
+  Nil
+}
+
+pub fn shared_tree_change_invert_uses_explicit_nonlexical_identity_order_test() {
+  let a = nonlexical_a()
+  let b = nonlexical_b()
+  let inverse_revision = revision_c()
+  let a_atom = fn(local_id) { AtomId(Some(a), local_id) }
+  let b_atom = fn(local_id) { AtomId(Some(b), local_id) }
+  let left_data =
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 3,
+      revisions: [change.RevisionInfo(a, None)],
+      fields: [
+        #("rootFieldKey", change.GenericField([#(0, a_atom(3))])),
+      ],
+      nodes: [
+        #(
+          a_atom(2),
+          change.NodeChange([
+            #(
+              "x",
+              change.ValueField(optional_field.set(False, a_atom(0), a_atom(1))),
+            ),
+          ]),
+        ),
+        #(
+          a_atom(3),
+          change.NodeChange([
+            #("left", change.GenericField([#(0, a_atom(2))])),
+          ]),
+        ),
+      ],
+      parents: [
+        #(a_atom(2), change.ParentField(Some(a_atom(3)), "left")),
+        #(a_atom(3), change.ParentField(None, "rootFieldKey")),
+      ],
+      builds: [forest.Build(a_atom(0), [NumberValue(7.0)])],
+    )
+  let right_data =
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 3,
+      revisions: [change.RevisionInfo(b, None)],
+      fields: [
+        #("rootFieldKey", change.GenericField([#(0, b_atom(3))])),
+      ],
+      nodes: [
+        #(
+          b_atom(2),
+          change.NodeChange([
+            #(
+              "x",
+              change.ValueField(optional_field.set(False, b_atom(0), b_atom(1))),
+            ),
+          ]),
+        ),
+        #(
+          b_atom(3),
+          change.NodeChange([
+            #("right", change.GenericField([#(0, b_atom(2))])),
+          ]),
+        ),
+      ],
+      parents: [
+        #(b_atom(2), change.ParentField(Some(b_atom(3)), "right")),
+        #(b_atom(3), change.ParentField(None, "rootFieldKey")),
+      ],
+      builds: [forest.Build(b_atom(0), [NumberValue(8.0)])],
+    )
+  let assert Ok(left_order) =
+    change.identity_order([
+      #(inverse_revision, 6),
+      #(a, 1033),
+    ])
+  let assert Ok(right_order) =
+    change.identity_order([
+      #(inverse_revision, 6),
+      #(b, 520),
+    ])
+  let assert Ok(left) = change.from_data(left_data, left_order)
+  let assert Ok(right) = change.from_data(right_data, right_order)
+  let assert Ok(composed) =
+    change.compose([
+      change.TaggedChange(Some(a), None, left),
+      change.TaggedChange(Some(b), None, right),
+    ])
+  let assert Ok(inverse) =
+    change.invert(
+      change.TaggedChange(None, None, composed),
+      False,
+      inverse_revision,
+    )
+  let inverse = change.to_data(inverse)
+  inverse.max_local_id |> expect.to_equal(9)
+  let assert [
+    #(
+      b_node,
+      change.NodeChange([
+        #(
+          "x",
+          change.ValueField(optional_field.FieldChange(
+            [],
+            [],
+            Some(optional_field.Replacement(
+              False,
+              Some(optional_field.Detached(b_source)),
+              b_detach,
+            )),
+          )),
+        ),
+      ]),
+    ),
+    #(
+      a_node,
+      change.NodeChange([
+        #(
+          "x",
+          change.ValueField(optional_field.FieldChange(
+            [],
+            [],
+            Some(optional_field.Replacement(
+              False,
+              Some(optional_field.Detached(a_source)),
+              a_detach,
+            )),
+          )),
+        ),
+      ]),
+    ),
+    _,
+  ] = inverse.nodes
+  b_node |> expect.to_equal(b_atom(2))
+  b_source |> expect.to_equal(b_atom(1))
+  b_detach |> expect.to_equal(AtomId(Some(inverse_revision), 8))
+  a_node |> expect.to_equal(a_atom(2))
+  a_source |> expect.to_equal(a_atom(1))
+  a_detach |> expect.to_equal(AtomId(Some(inverse_revision), 9))
+  Nil
 }
 
 pub fn shared_tree_change_rejects_duplicate_tables_and_generic_indices_test() {
@@ -145,7 +413,7 @@ pub fn shared_tree_change_rejects_duplicate_tables_and_generic_indices_test() {
     ]),
   ]
   |> list.each(fn(data) {
-    let assert Error(CorruptData(_, _)) = change.from_data(data)
+    let assert Error(CorruptData(_, _)) = checked(data)
     Nil
   })
 }
@@ -156,14 +424,14 @@ pub fn shared_tree_change_rejects_alias_and_rollback_cycles_test() {
       #(atom(1), atom(2)),
       #(atom(2), atom(1)),
     ])
-  let assert Error(CorruptData(_, _)) = change.from_data(alias_cycle)
+  let assert Error(CorruptData(_, _)) = checked(alias_cycle)
 
   let rollback_cycle =
     change.ChangeData(..empty_data(), revisions: [
       change.RevisionInfo(revision_a(), Some(revision_b())),
       change.RevisionInfo(revision_b(), Some(revision_a())),
     ])
-  let assert Error(InvalidHistory(_)) = change.from_data(rollback_cycle)
+  let assert Error(InvalidHistory(_)) = checked(rollback_cycle)
   Nil
 }
 
@@ -174,7 +442,7 @@ pub fn shared_tree_change_accepts_unused_alias_chain_and_safe_boundary_test() {
       max_local_id: 9_007_199_254_740_991,
       aliases: [#(atom(1), atom(2)), #(atom(2), atom(3))],
     )
-  let assert Ok(parsed) = change.from_data(data)
+  let assert Ok(parsed) = checked(data)
   change.to_data(parsed) |> expect.to_equal(data)
 
   change.rebase_context([
@@ -192,14 +460,14 @@ pub fn shared_tree_change_validates_concrete_field_changes_test() {
     change.ChangeData(..empty_data(), fields: [
       #("root", change.ValueField(invalid)),
     ])
-  let assert Error(CorruptData(_, _)) = change.from_data(data)
+  let assert Error(CorruptData(_, _)) = checked(data)
   Nil
 }
 
 pub fn shared_tree_change_rejects_duplicate_detached_ranges_test() {
   let build = forest.Build(atom(10), [NumberValue(1.0)])
   let data = change.ChangeData(..empty_data(), builds: [build, build])
-  let assert Error(CorruptData(_, _)) = change.from_data(data)
+  let assert Error(CorruptData(_, _)) = checked(data)
   Nil
 }
 
@@ -208,7 +476,7 @@ pub fn shared_tree_change_rejects_missing_and_multiply_owned_nodes_test() {
     change.ChangeData(..empty_data(), fields: [
       #("root", change.GenericField([#(0, atom(1))])),
     ])
-  let assert Error(CorruptData(_, _)) = change.from_data(missing)
+  let assert Error(CorruptData(_, _)) = checked(missing)
 
   let child = change.GenericField([#(0, atom(1))])
   let multiply_owned =
@@ -218,7 +486,7 @@ pub fn shared_tree_change_rejects_missing_and_multiply_owned_nodes_test() {
       nodes: [#(atom(1), change.NodeChange([]))],
       parents: [#(atom(1), change.ParentField(None, "left"))],
     )
-  let assert Error(CorruptData(_, _)) = change.from_data(multiply_owned)
+  let assert Error(CorruptData(_, _)) = checked(multiply_owned)
   Nil
 }
 
@@ -233,7 +501,7 @@ pub fn shared_tree_change_rejects_alias_keyed_node_tables_test() {
       aliases: [alias],
     )
   let assert Error(CorruptData("node changes", _)) =
-    change.from_data(node_keyed_by_alias)
+    checked(node_keyed_by_alias)
 
   let parent_keyed_by_alias =
     change.ChangeData(
@@ -244,7 +512,7 @@ pub fn shared_tree_change_rejects_alias_keyed_node_tables_test() {
       aliases: [alias],
     )
   let assert Error(CorruptData("node parents", _)) =
-    change.from_data(parent_keyed_by_alias)
+    checked(parent_keyed_by_alias)
   Nil
 }
 
@@ -277,7 +545,7 @@ pub fn shared_tree_change_accepts_alias_bearing_nested_graph_test() {
       ],
       aliases: [#(atom_b(4), atom(4))],
     )
-  let assert Ok(parsed) = change.from_data(data)
+  let assert Ok(parsed) = checked(data)
   change.to_data(parsed) |> expect.to_equal(data)
 }
 
@@ -290,7 +558,7 @@ pub fn shared_tree_change_allows_missing_rollback_target_metadata_test() {
 pub fn shared_tree_change_nested_leaf_edit_builds_complete_delta_test() {
   let initial = initial_forest()
   let assert Ok(authored) =
-    change.edit(
+    edit(
       stored_schema(),
       initial,
       revision_a(),
@@ -375,7 +643,7 @@ pub fn shared_tree_change_nested_leaf_edit_builds_complete_delta_test() {
 pub fn shared_tree_change_optional_edit_uses_detach_then_fill_ids_test() {
   let initial = initial_forest()
   let assert Ok(set) =
-    change.edit(
+    edit(
       stored_schema(),
       initial,
       revision_a(),
@@ -399,7 +667,7 @@ pub fn shared_tree_change_optional_edit_uses_detach_then_fill_ids_test() {
   ])
 
   let assert Ok(clear) =
-    change.edit(stored_schema(), initial, revision_a(), ClearField(["note"]))
+    edit(stored_schema(), initial, revision_a(), ClearField(["note"]))
   let clear_data = change.to_data(clear)
   clear_data.max_local_id |> expect.to_equal(1)
   clear_data.builds |> expect.to_equal([])
@@ -422,7 +690,7 @@ pub fn shared_tree_change_optional_root_set_and_clear_test() {
   let view = revision("00000000-0000-4000-8000-000000000002")
   let assert Ok(empty_root) = forest.new(view, stored, None)
   let assert Ok(set) =
-    change.edit(stored, empty_root, revision_a(), SetField([], root()))
+    edit(stored, empty_root, revision_a(), SetField([], root()))
   change.to_data(set).fields
   |> expect.to_equal([
     #(
@@ -435,8 +703,7 @@ pub fn shared_tree_change_optional_root_set_and_clear_test() {
   let assert Ok(with_root) = forest.apply_delta(empty_root, set_delta)
   forest.visible_root(with_root) |> expect.to_equal(Ok(Some(root())))
 
-  let assert Ok(clear) =
-    change.edit(stored, with_root, revision_b(), ClearField([]))
+  let assert Ok(clear) = edit(stored, with_root, revision_b(), ClearField([]))
   let assert Ok(clear_delta) =
     change.into_delta(change.TaggedChange(Some(revision_b()), None, clear))
   let assert Ok(cleared) = forest.apply_delta(with_root, clear_delta)
@@ -456,7 +723,7 @@ pub fn shared_tree_change_rejects_invalid_edit_paths_and_values_test() {
   ]
   |> list.each(fn(operation) {
     let assert Error(InvalidEdit(_, _)) =
-      change.edit(stored_schema(), initial, revision_a(), operation)
+      edit(stored_schema(), initial, revision_a(), operation)
     Nil
   })
 }
@@ -469,7 +736,7 @@ pub fn shared_tree_change_root_field_key_child_is_not_root_path_test() {
   let initial_value = ObjectValue("Root", [#("rootFieldKey", NumberValue(1.0))])
   let assert Ok(initial) = forest.new(view, stored, Some(initial_value))
   let assert Ok(authored) =
-    change.edit(
+    edit(
       stored,
       initial,
       revision_a(),
@@ -512,7 +779,7 @@ pub fn shared_tree_change_parent_replacement_retains_old_node_test() {
   let initial = initial_forest()
   let assert Ok(old_point) = forest.locate(initial, ["point"])
   let assert Ok(authored) =
-    change.edit(
+    edit(
       stored_schema(),
       initial,
       revision_a(),
@@ -531,15 +798,14 @@ pub fn shared_tree_change_parent_replacement_retains_old_node_test() {
 pub fn shared_tree_change_missing_build_fails_without_mutating_forest_test() {
   let initial = initial_forest()
   let assert Ok(authored) =
-    change.edit(
+    edit(
       stored_schema(),
       initial,
       revision_a(),
       SetField(["point"], point(10.0, 20.0)),
     )
   let data = change.to_data(authored)
-  let assert Ok(incomplete) =
-    change.from_data(change.ChangeData(..data, builds: []))
+  let assert Ok(incomplete) = checked(change.ChangeData(..data, builds: []))
   let assert Ok(delta) =
     change.into_delta(change.TaggedChange(Some(revision_a()), None, incomplete))
   let assert Error(CorruptData(_, _)) = forest.apply_delta(initial, delta)
@@ -566,7 +832,7 @@ pub fn shared_tree_change_delta_collects_global_rename_and_detached_data_test() 
       destroys: [forest.Destroy(atom(50), 1)],
       refreshers: [forest.Build(atom(60), [NumberValue(6.0)])],
     )
-  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(authored) = checked(data)
   let assert Ok(delta) =
     change.into_delta(change.TaggedChange(Some(revision_a()), None, authored))
   forest.delta_data(delta)
@@ -626,7 +892,7 @@ pub fn shared_tree_change_delta_orders_nested_globals_child_first_test() {
         forest.Build(inner, [NumberValue(3.0)]),
       ],
     )
-  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(authored) = checked(data)
   let assert Ok(delta) =
     change.into_delta(change.TaggedChange(Some(revision_a()), None, authored))
   forest.delta_data(delta).global
@@ -813,7 +1079,7 @@ pub fn shared_tree_change_replace_revisions_refuses_dangling_alias_test() {
       parents: [#(root_id, change.ParentField(None, "root"))],
       aliases: [#(alias, root_id)],
     )
-  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(authored) = checked(data)
   let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
   let assert Error(CorruptData(_, _)) =
     change.replace_revisions(
@@ -848,7 +1114,7 @@ pub fn shared_tree_change_prune_keeps_unused_aliases_test() {
       ],
       aliases: [#(alias, root_id)],
     )
-  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(authored) = checked(data)
   let assert Ok(pruned) = change.prune(authored)
   let pruned = change.to_data(pruned)
   pruned.fields |> expect.to_equal([])
@@ -893,7 +1159,7 @@ pub fn shared_tree_change_removed_roots_and_refreshers_follow_ranges_test() {
       ],
       refreshers: [forest.Build(atom(99), [NumberValue(99.0)])],
     )
-  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(authored) = checked(data)
   let assert Ok(roots) = change.relevant_removed_roots(authored)
   roots |> expect.to_equal([atom(10), atom(20), atom(30)])
 
@@ -919,9 +1185,9 @@ pub fn shared_tree_change_removed_roots_and_refreshers_follow_ranges_test() {
 pub fn shared_tree_change_compose_cancels_matching_build_destroy_test() {
   let build = forest.Build(atom(10), [NumberValue(1.0)])
   let assert Ok(first) =
-    change.from_data(change.ChangeData(..empty_data(), builds: [build]))
+    checked(change.ChangeData(..empty_data(), builds: [build]))
   let assert Ok(second) =
-    change.from_data(
+    checked(
       change.ChangeData(..empty_data(), destroys: [forest.Destroy(atom(10), 1)]),
     )
   let assert Ok(composed) =
@@ -933,7 +1199,7 @@ pub fn shared_tree_change_compose_cancels_matching_build_destroy_test() {
   change.to_data(composed).destroys |> expect.to_equal([])
 
   let assert Ok(mismatch) =
-    change.from_data(
+    checked(
       change.ChangeData(..empty_data(), destroys: [forest.Destroy(atom(10), 2)]),
     )
   let assert Error(CorruptData(_, _)) =
@@ -948,7 +1214,7 @@ pub fn shared_tree_change_compose_normalizes_generic_concrete_fields_test() {
   let first_id = atom(1)
   let second_id = atom_b(1)
   let assert Ok(first) =
-    change.from_data(
+    checked(
       change.ChangeData(
         ..empty_data(),
         fields: [#("root", change.GenericField([#(0, first_id)]))],
@@ -957,7 +1223,7 @@ pub fn shared_tree_change_compose_normalizes_generic_concrete_fields_test() {
       ),
     )
   let assert Ok(second) =
-    change.from_data(
+    checked(
       change.ChangeData(
         ..empty_data(),
         fields: [
@@ -998,11 +1264,11 @@ pub fn shared_tree_change_compose_keeps_earlier_duplicate_content_test() {
   let earlier = forest.Build(atom(10), [NumberValue(1.0)])
   let later = forest.Build(atom(10), [NumberValue(2.0)])
   let assert Ok(first) =
-    change.from_data(
+    checked(
       change.ChangeData(..empty_data(), builds: [earlier], refreshers: [earlier]),
     )
   let assert Ok(second) =
-    change.from_data(
+    checked(
       change.ChangeData(..empty_data(), builds: [later], refreshers: [later]),
     )
   let assert Ok(composed) =
@@ -1015,8 +1281,8 @@ pub fn shared_tree_change_compose_keeps_earlier_duplicate_content_test() {
 }
 
 pub fn shared_tree_change_compose_collects_tagged_rollback_metadata_test() {
-  let assert Ok(first) = change.from_data(empty_data())
-  let assert Ok(second) = change.from_data(empty_data())
+  let assert Ok(first) = checked(empty_data())
+  let assert Ok(second) = checked(empty_data())
   let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
   let assert Ok(composed) =
     change.compose([
@@ -1033,7 +1299,7 @@ pub fn shared_tree_change_compose_collects_tagged_rollback_metadata_test() {
 
 pub fn shared_tree_change_delta_omits_empty_generic_fields_test() {
   let assert Ok(authored) =
-    change.from_data(
+    checked(
       change.ChangeData(..empty_data(), fields: [
         #("root", change.GenericField([])),
       ]),
@@ -1124,7 +1390,7 @@ pub fn shared_tree_change_invert_reserves_each_original_revision_test() {
 pub fn shared_tree_change_invert_rejects_destroying_change_test() {
   let data =
     change.ChangeData(..empty_data(), destroys: [forest.Destroy(atom(10), 1)])
-  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(authored) = checked(data)
   let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
   let assert Error(CorruptData(_, _)) =
     change.invert(
@@ -1153,7 +1419,7 @@ pub fn shared_tree_change_invert_allocator_exhaustion_is_atomic_test() {
       revisions: [change.RevisionInfo(revision_a(), None)],
       fields: [#("root", field)],
     )
-  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(authored) = checked(data)
   let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
   let assert Error(CorruptData(_, _)) =
     change.invert(
@@ -1165,7 +1431,7 @@ pub fn shared_tree_change_invert_allocator_exhaustion_is_atomic_test() {
 }
 
 pub fn shared_tree_change_invert_synthetic_reserves_metadata_revisions_test() {
-  let assert Ok(first) = change.from_data(synthetic_first_data())
+  let assert Ok(first) = checked(synthetic_first_data())
   let assert Ok(inverse) =
     change.invert(
       change.TaggedChange(Some(revision_a()), None, first),
@@ -1221,7 +1487,7 @@ pub fn shared_tree_change_invert_restores_clear_and_parent_replacement_test() {
   let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
   let initial = initial_forest()
   let assert Ok(set) =
-    change.edit(
+    edit(
       stored_schema(),
       initial,
       revision_a(),
@@ -1232,7 +1498,7 @@ pub fn shared_tree_change_invert_restores_clear_and_parent_replacement_test() {
   let assert Ok(with_note) = forest.apply_delta(initial, set_delta)
   let assert Ok(old_note) = forest.locate(with_note, ["note"])
   let assert Ok(clear) =
-    change.edit(stored_schema(), with_note, revision_b(), ClearField(["note"]))
+    edit(stored_schema(), with_note, revision_b(), ClearField(["note"]))
   let assert Ok(clear_delta) =
     change.into_delta(change.TaggedChange(Some(revision_b()), None, clear))
   let assert Ok(without_note) = forest.apply_delta(with_note, clear_delta)
@@ -1420,7 +1686,7 @@ pub fn shared_tree_change_rebase_repeated_replacement_keeps_detached_target_test
   let assert Ok(intermediate_point) =
     forest.locate(after_first_parent, ["point"])
   let assert Ok(second_parent) =
-    change.edit(
+    edit(
       stored_schema(),
       after_first_parent,
       revision_c,
@@ -1481,7 +1747,7 @@ pub fn shared_tree_change_optional_root_leaf_values_match_upstream_test() {
     let assert Ok(stored) = schema.stored_from_string(example.0)
     let assert Ok(initial) = forest.new(view, stored, None)
     let assert Ok(authored) =
-      change.edit(stored, initial, revision_a(), SetField([], example.1))
+      edit(stored, initial, revision_a(), SetField([], example.1))
     change.to_data(authored)
     |> expect.to_equal(
       change.ChangeData(
@@ -1511,8 +1777,7 @@ pub fn shared_tree_change_optional_root_clear_retains_old_leaf_test() {
   let view = revision("00000000-0000-4000-8000-000000000002")
   let assert Ok(initial) = forest.new(view, stored, Some(StringValue("before")))
   let assert Ok(old_root) = forest.locate(initial, [])
-  let assert Ok(authored) =
-    change.edit(stored, initial, revision_b(), ClearField([]))
+  let assert Ok(authored) = edit(stored, initial, revision_b(), ClearField([]))
   change.to_data(authored)
   |> expect.to_equal(
     change.ChangeData(
@@ -1549,7 +1814,7 @@ pub fn shared_tree_change_optional_clear_present_keeps_parent_attached_test() {
   let assert Ok(old_point) = forest.locate(initial, ["point"])
   let assert Ok(old_note) = forest.locate(initial, ["note"])
   let assert Ok(authored) =
-    change.edit(stored_schema(), initial, revision_a(), ClearField(["note"]))
+    edit(stored_schema(), initial, revision_a(), ClearField(["note"]))
   change.to_data(authored)
   |> expect.to_equal(
     change.ChangeData(
@@ -1665,7 +1930,7 @@ pub fn shared_tree_change_delta_represents_additive_nested_fields_test() {
       ],
       fields: [#("root", root)],
     )
-  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(authored) = checked(data)
   let assert Ok(delta) =
     change.into_delta(change.TaggedChange(None, None, authored))
   forest.delta_data(delta)
