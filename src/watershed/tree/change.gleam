@@ -2,6 +2,7 @@
 
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/order
 import gleam/result
 import gleam/string
 import watershed/fluid_ids.{type StableId}
@@ -75,6 +76,34 @@ type DeltaParts {
     fields: List(#(String, forest.FieldDelta)),
     global: List(forest.DetachedChange),
     rename: List(forest.Rename),
+  )
+}
+
+type ComposeState {
+  ComposeState(
+    nodes: List(#(AtomId, NodeChange)),
+    parents: List(#(AtomId, ParentField)),
+    aliases: List(#(AtomId, AtomId)),
+    first: ChangeData,
+    second: ChangeData,
+    pairs: List(#(AtomId, AtomId)),
+  )
+}
+
+type ReplaceState {
+  ReplaceState(
+    obsolete: List(Option(StableId)),
+    updated: StableId,
+    mappings: List(#(AtomId, AtomId)),
+    used: List(AtomId),
+    max_seen: Int,
+  )
+}
+
+type PruneState {
+  PruneState(
+    nodes: List(#(AtomId, NodeChange)),
+    parents: List(#(AtomId, ParentField)),
   )
 }
 
@@ -164,6 +193,1264 @@ pub fn into_delta(change: TaggedChange) -> Result(forest.Delta, TreeError) {
     rename: parts.rename,
     destroy: data.destroys,
   ))
+}
+
+pub fn compose(changes: List(TaggedChange)) -> Result(Changeset, TreeError) {
+  let #(revisions, max_local_id) = composition_metadata(changes)
+  use composed <- result.try(balanced_compose(
+    list.map(changes, fn(change) { change.change }),
+    revisions,
+    max_local_id,
+  ))
+  let data = sort_atom_tables(composed.data, revisions)
+  from_data(
+    ChangeData(..data, max_local_id: max_local_id, revisions: revisions),
+  )
+}
+
+pub fn replace_revisions(
+  change: Changeset,
+  obsolete: List(Option(StableId)),
+  updated: StableId,
+) -> Result(Changeset, TreeError) {
+  use _ <- result.try(unique_by(
+    obsolete,
+    fn(revision) { revision },
+    InvalidHistory("duplicate obsolete revision"),
+  ))
+  use state <- result.try(collect_replacements(
+    change.data,
+    ReplaceState(obsolete, updated, [], [], -1),
+  ))
+  use fields <- result.try(replace_field_map(change.data.fields, state))
+  use nodes <- result.try(
+    list.try_map(change.data.nodes, fn(entry) {
+      use id <- result.try(replaced_atom(entry.0, state))
+      let NodeChange(fields) = entry.1
+      use fields <- result.try(replace_field_map(fields, state))
+      Ok(#(id, NodeChange(fields)))
+    }),
+  )
+  use parents <- result.try(
+    list.try_map(change.data.parents, fn(entry) {
+      use id <- result.try(replaced_atom(entry.0, state))
+      use parent <- result.try(normalize_parent(entry.1, change.data.aliases))
+      let ParentField(parent_id, field) = parent
+      use parent_id <- result.try(case parent_id {
+        None -> Ok(None)
+        Some(parent_id) -> replaced_atom(parent_id, state) |> result.map(Some)
+      })
+      Ok(#(id, ParentField(parent_id, field)))
+    }),
+  )
+  use builds <- result.try(replace_builds(change.data.builds, state))
+  use destroys <- result.try(
+    list.try_map(change.data.destroys, fn(destroy) {
+      use id <- result.try(replaced_atom(destroy.id, state))
+      Ok(forest.Destroy(id, destroy.count))
+    }),
+  )
+  use refreshers <- result.try(replace_builds(change.data.refreshers, state))
+  let data =
+    ChangeData(
+      ..change.data,
+      revisions: [RevisionInfo(updated, None)],
+      fields: fields,
+      nodes: nodes,
+      parents: parents,
+      aliases: [],
+      builds: builds,
+      destroys: destroys,
+      refreshers: refreshers,
+    )
+    |> sort_atom_tables([RevisionInfo(updated, None)])
+  from_data(data)
+}
+
+pub fn prune(change: Changeset) -> Result(Changeset, TreeError) {
+  let data = change.data
+  use #(fields, state) <- result.try(prune_field_map(
+    data.fields,
+    PruneState(data.nodes, data.parents),
+    data.aliases,
+  ))
+  from_data(
+    ChangeData(
+      ..data,
+      fields: fields,
+      nodes: state.nodes,
+      parents: state.parents,
+    ),
+  )
+}
+
+pub fn relevant_removed_roots(
+  change: Changeset,
+) -> Result(List(AtomId), TreeError) {
+  removed_roots_from_fields(change.data.fields, change.data, [])
+}
+
+pub fn update_refreshers(
+  change: Changeset,
+  roots: List(AtomId),
+  repair: List(forest.Build),
+) -> Result(Changeset, TreeError) {
+  use _ <- result.try(validate_builds(repair, "repair"))
+  use refreshers <- result.try(
+    list.try_fold(roots, [], fn(refreshers, root) {
+      use _ <- result.try(validate_atom(root, "refreshers"))
+      case build_contains(change.data.builds, root) {
+        True -> Ok(refreshers)
+        False ->
+          case tree_from_builds(repair, root) {
+            None ->
+              Error(CorruptData(
+                "refreshers",
+                "required repair content is missing",
+              ))
+            Some(tree) -> Ok(put_build(refreshers, forest.Build(root, [tree])))
+          }
+      }
+    }),
+  )
+  let data =
+    ChangeData(..change.data, refreshers: refreshers)
+    |> sort_atom_tables(change.data.revisions)
+  from_data(data)
+}
+
+fn collect_replacements(
+  data: ChangeData,
+  state: ReplaceState,
+) -> Result(ReplaceState, TreeError) {
+  use state <- result.try(visit_field_map(data.fields, state))
+  use state <- result.try(
+    list.try_fold(data.nodes, state, fn(state, entry) {
+      use state <- result.try(visit_atom(entry.0, 1, state))
+      let NodeChange(fields) = entry.1
+      visit_field_map(fields, state)
+    }),
+  )
+  use state <- result.try(
+    list.try_fold(data.parents, state, fn(state, entry) {
+      use state <- result.try(visit_atom(entry.0, 1, state))
+      use parent <- result.try(normalize_parent(entry.1, data.aliases))
+      let ParentField(parent, _) = parent
+      case parent {
+        None -> Ok(state)
+        Some(parent) -> visit_atom(parent, 1, state)
+      }
+    }),
+  )
+  use state <- result.try(visit_builds(data.builds, state))
+  use state <- result.try(
+    list.try_fold(data.destroys, state, fn(state, destroy) {
+      visit_atom(destroy.id, destroy.count, state)
+    }),
+  )
+  visit_builds(data.refreshers, state)
+}
+
+fn visit_field_map(
+  fields: List(#(String, FieldChange)),
+  state: ReplaceState,
+) -> Result(ReplaceState, TreeError) {
+  list.try_fold(fields, state, fn(state, entry) { visit_field(entry.1, state) })
+}
+
+fn visit_field(
+  field: FieldChange,
+  state: ReplaceState,
+) -> Result(ReplaceState, TreeError) {
+  case field {
+    GenericField(children) ->
+      list.try_fold(children, state, fn(state, child) {
+        visit_atom(child.1, 1, state)
+      })
+    ValueField(change) | OptionalField(change) -> {
+      let optional_field.FieldChange(moves, children, replacement) = change
+      use state <- result.try(case replacement {
+        None -> Ok(state)
+        Some(replacement) -> {
+          use state <- result.try(visit_atom(replacement.detach_id, 1, state))
+          case replacement.source {
+            Some(optional_field.Detached(id)) -> visit_atom(id, 1, state)
+            _ -> Ok(state)
+          }
+        }
+      })
+      use state <- result.try(
+        list.try_fold(children, state, fn(state, child) {
+          use state <- result.try(case child.0 {
+            optional_field.Active -> Ok(state)
+            optional_field.Detached(id) -> visit_atom(id, 1, state)
+          })
+          visit_atom(child.1, 1, state)
+        }),
+      )
+      list.try_fold(moves, state, fn(state, move) {
+        use state <- result.try(visit_atom(move.0, 1, state))
+        visit_atom(move.1, 1, state)
+      })
+    }
+  }
+}
+
+fn visit_builds(
+  builds: List(forest.Build),
+  state: ReplaceState,
+) -> Result(ReplaceState, TreeError) {
+  list.try_fold(builds, state, fn(state, build) {
+    visit_atom(build.id, list.length(build.trees), state)
+  })
+}
+
+fn visit_atom(
+  id: AtomId,
+  count: Int,
+  state: ReplaceState,
+) -> Result(ReplaceState, TreeError) {
+  case list.contains(state.obsolete, id.revision) {
+    False -> Ok(state)
+    True -> {
+      use _ <- result.try(validate_range(id, count, "revision replacement"))
+      let positions = atom_range(id, count, [])
+      let existing = indexed_mappings(positions, state.mappings, 0, [])
+      let mapped = list.filter(existing, fn(entry) { entry.1 != None })
+      use output_start <- result.try(mapped_range_start(mapped, id.local_id))
+      let desired =
+        atom_range(AtomId(Some(state.updated), output_start), count, [])
+      let collision =
+        list.fold(zip_atoms(positions, desired, []), False, fn(collision, pair) {
+          let existing_input = pair.0
+          let output = pair.1
+          collision
+          || {
+            let mapped = mapping_for(state.mappings, existing_input)
+            list.contains(state.used, output) && mapped != Some(output)
+          }
+        })
+      use output_start <- result.try(case collision, mapped {
+        False, _ -> Ok(output_start)
+        True, [] -> {
+          use _ <- result.try(check(
+            state.max_seen < max_safe_integer,
+            "revision replacement",
+            "identifiers are exhausted",
+          ))
+          Ok(state.max_seen + 1)
+        }
+        True, _ ->
+          Error(CorruptData(
+            "revision replacement",
+            "mapped range cannot remain contiguous",
+          ))
+      })
+      use _ <- result.try(check(
+        count - 1 <= max_safe_integer - output_start,
+        "revision replacement",
+        "identifier range overflows",
+      ))
+      let outputs =
+        atom_range(AtomId(Some(state.updated), output_start), count, [])
+      let mappings =
+        list.fold(
+          zip_atoms(positions, outputs, []),
+          state.mappings,
+          fn(mappings, pair) {
+            let input = pair.0
+            case mapping_for(mappings, input) {
+              Some(_) -> mappings
+              None -> list.append(mappings, [pair])
+            }
+          },
+        )
+      let used =
+        list.fold(outputs, state.used, fn(used, output) {
+          case list.contains(used, output) {
+            True -> used
+            False -> list.append(used, [output])
+          }
+        })
+      Ok(
+        ReplaceState(
+          ..state,
+          mappings: mappings,
+          used: used,
+          max_seen: int_max(state.max_seen, output_start + count - 1),
+        ),
+      )
+    }
+  }
+}
+
+fn atom_range(id: AtomId, count: Int, output: List(AtomId)) -> List(AtomId) {
+  case count {
+    0 -> list.reverse(output)
+    1 -> list.reverse([id, ..output])
+    _ ->
+      atom_range(AtomId(..id, local_id: id.local_id + 1), count - 1, [
+        id,
+        ..output
+      ])
+  }
+}
+
+fn mapped_range_start(
+  mapped: List(#(Int, Option(AtomId))),
+  default: Int,
+) -> Result(Int, TreeError) {
+  case mapped {
+    [] -> Ok(default)
+    [#(index, Some(output)), ..rest] -> {
+      let start = output.local_id - index
+      use _ <- result.try(check(
+        start >= 0,
+        "revision replacement",
+        "mapped range starts below zero",
+      ))
+      use _ <- result.try(
+        list.try_each(rest, fn(entry) {
+          case entry {
+            #(index, Some(output)) ->
+              check(
+                output.local_id == start + index,
+                "revision replacement",
+                "mapped range is not contiguous",
+              )
+            #(_, None) ->
+              Error(CorruptData(
+                "revision replacement",
+                "mapped identity is missing",
+              ))
+          }
+        }),
+      )
+      Ok(start)
+    }
+    [#(_, None), ..] ->
+      Error(CorruptData("revision replacement", "mapped identity is missing"))
+  }
+}
+
+fn indexed_mappings(
+  ids: List(AtomId),
+  mappings: List(#(AtomId, AtomId)),
+  index: Int,
+  output: List(#(Int, Option(AtomId))),
+) -> List(#(Int, Option(AtomId))) {
+  case ids {
+    [] -> list.reverse(output)
+    [id, ..rest] ->
+      indexed_mappings(rest, mappings, index + 1, [
+        #(index, mapping_for(mappings, id)),
+        ..output
+      ])
+  }
+}
+
+fn zip_atoms(
+  first: List(AtomId),
+  second: List(AtomId),
+  output: List(#(AtomId, AtomId)),
+) -> List(#(AtomId, AtomId)) {
+  case first, second {
+    [], [] -> list.reverse(output)
+    [first, ..first_rest], [second, ..second_rest] ->
+      zip_atoms(first_rest, second_rest, [#(first, second), ..output])
+    _, _ -> list.reverse(output)
+  }
+}
+
+fn mapping_for(
+  mappings: List(#(AtomId, AtomId)),
+  id: AtomId,
+) -> Option(AtomId) {
+  pair_value(mappings, id)
+}
+
+fn replaced_atom(id: AtomId, state: ReplaceState) -> Result(AtomId, TreeError) {
+  case list.contains(state.obsolete, id.revision) {
+    False -> Ok(id)
+    True ->
+      case mapping_for(state.mappings, id) {
+        Some(updated) -> Ok(updated)
+        None ->
+          Error(CorruptData("revision replacement", "identity was not visited"))
+      }
+  }
+}
+
+fn replace_field_map(
+  fields: List(#(String, FieldChange)),
+  state: ReplaceState,
+) -> Result(List(#(String, FieldChange)), TreeError) {
+  list.try_map(fields, fn(entry) {
+    use field <- result.try(replace_field(entry.1, state))
+    Ok(#(entry.0, field))
+  })
+}
+
+fn replace_field(
+  field: FieldChange,
+  state: ReplaceState,
+) -> Result(FieldChange, TreeError) {
+  case field {
+    GenericField(children) ->
+      list.try_map(children, fn(child) {
+        use id <- result.try(replaced_atom(child.1, state))
+        Ok(#(child.0, id))
+      })
+      |> result.map(GenericField)
+    ValueField(change) ->
+      optional_field.replace_revisions(change, fn(id) {
+        replaced_atom(id, state)
+      })
+      |> result.map(ValueField)
+    OptionalField(change) ->
+      optional_field.replace_revisions(change, fn(id) {
+        replaced_atom(id, state)
+      })
+      |> result.map(OptionalField)
+  }
+}
+
+fn replace_builds(
+  builds: List(forest.Build),
+  state: ReplaceState,
+) -> Result(List(forest.Build), TreeError) {
+  list.try_map(builds, fn(build) {
+    use id <- result.try(replaced_atom(build.id, state))
+    Ok(forest.Build(id, build.trees))
+  })
+}
+
+fn prune_field_map(
+  fields: List(#(String, FieldChange)),
+  state: PruneState,
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(#(List(#(String, FieldChange)), PruneState), TreeError) {
+  list.try_fold(fields, #([], state), fn(output, entry) {
+    use #(field, state) <- result.try(prune_field(entry.1, output.1, aliases))
+    let fields = case field {
+      None -> output.0
+      Some(field) -> list.append(output.0, [#(entry.0, field)])
+    }
+    Ok(#(fields, state))
+  })
+}
+
+fn prune_field(
+  field: FieldChange,
+  state: PruneState,
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(#(Option(FieldChange), PruneState), TreeError) {
+  case field {
+    GenericField(children) -> {
+      use #(children, state) <- result.try(prune_children(
+        children,
+        state,
+        aliases,
+      ))
+      case children {
+        [] -> Ok(#(None, state))
+        _ -> Ok(#(Some(GenericField(children)), state))
+      }
+    }
+    ValueField(change) -> prune_concrete(change, state, aliases, True)
+    OptionalField(change) -> prune_concrete(change, state, aliases, False)
+  }
+}
+
+fn prune_concrete(
+  change: optional_field.FieldChange,
+  state: PruneState,
+  aliases: List(#(AtomId, AtomId)),
+  required: Bool,
+) -> Result(#(Option(FieldChange), PruneState), TreeError) {
+  let optional_field.FieldChange(moves, children, replacement) = change
+  use #(children, state) <- result.try(
+    list.try_fold(children, #([], state), fn(output, child) {
+      use #(node, state) <- result.try(prune_node(child.1, output.1, aliases))
+      let children = case node {
+        None -> output.0
+        Some(node) -> list.append(output.0, [#(child.0, node)])
+      }
+      Ok(#(children, state))
+    }),
+  )
+  let pruned = optional_field.FieldChange(moves, children, replacement)
+  case moves, children, replacement {
+    [], [], None -> Ok(#(None, state))
+    _, _, _ ->
+      case required {
+        True -> Ok(#(Some(ValueField(pruned)), state))
+        False -> Ok(#(Some(OptionalField(pruned)), state))
+      }
+  }
+}
+
+fn prune_children(
+  children: List(#(Int, AtomId)),
+  state: PruneState,
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(#(List(#(Int, AtomId)), PruneState), TreeError) {
+  list.try_fold(children, #([], state), fn(output, child) {
+    use #(node, state) <- result.try(prune_node(child.1, output.1, aliases))
+    let children = case node {
+      None -> output.0
+      Some(node) -> list.append(output.0, [#(child.0, node)])
+    }
+    Ok(#(children, state))
+  })
+}
+
+fn prune_node(
+  id: AtomId,
+  state: PruneState,
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(#(Option(AtomId), PruneState), TreeError) {
+  use canonical <- result.try(resolve_alias(id, aliases))
+  use node <- result.try(node_for(canonical, state.nodes, aliases))
+  let NodeChange(fields) = node
+  use #(fields, state) <- result.try(prune_field_map(fields, state, aliases))
+  case fields {
+    [] ->
+      Ok(#(
+        None,
+        PruneState(
+          remove_pair(state.nodes, canonical),
+          remove_pair(state.parents, canonical),
+        ),
+      ))
+    _ ->
+      Ok(#(
+        Some(id),
+        PruneState(
+          put_pair(state.nodes, canonical, NodeChange(fields)),
+          state.parents,
+        ),
+      ))
+  }
+}
+
+fn removed_roots_from_fields(
+  fields: List(#(String, FieldChange)),
+  data: ChangeData,
+  roots: List(AtomId),
+) -> Result(List(AtomId), TreeError) {
+  list.try_fold(fields, roots, fn(roots, entry) {
+    removed_roots_from_field(entry.1, data, roots)
+  })
+}
+
+fn removed_roots_from_field(
+  field: FieldChange,
+  data: ChangeData,
+  roots: List(AtomId),
+) -> Result(List(AtomId), TreeError) {
+  case field {
+    GenericField(children) ->
+      list.try_fold(children, roots, fn(roots, child) {
+        removed_roots_from_child(child.1, data, roots)
+      })
+    ValueField(change) | OptionalField(change) -> {
+      let optional_field.FieldChange(moves, children, replacement) = change
+      let roots =
+        list.fold(moves, roots, fn(roots, move) { append_unique(roots, move.0) })
+      use roots <- result.try(
+        list.try_fold(children, roots, fn(roots, child) {
+          let roots = case child.0 {
+            optional_field.Active -> roots
+            optional_field.Detached(id) -> append_unique(roots, id)
+          }
+          removed_roots_from_child(child.1, data, roots)
+        }),
+      )
+      Ok(case replacement {
+        Some(optional_field.Replacement(_, Some(optional_field.Detached(id)), _)) ->
+          append_unique(roots, id)
+        _ -> roots
+      })
+    }
+  }
+}
+
+fn removed_roots_from_child(
+  id: AtomId,
+  data: ChangeData,
+  roots: List(AtomId),
+) -> Result(List(AtomId), TreeError) {
+  use canonical <- result.try(resolve_alias(id, data.aliases))
+  use node <- result.try(node_for(canonical, data.nodes, data.aliases))
+  let NodeChange(fields) = node
+  removed_roots_from_fields(fields, data, roots)
+}
+
+fn append_unique(values: List(a), value: a) -> List(a) {
+  case list.contains(values, value) {
+    True -> values
+    False -> list.append(values, [value])
+  }
+}
+
+fn build_contains(builds: List(forest.Build), id: AtomId) -> Bool {
+  case builds {
+    [] -> False
+    [build, ..rest] ->
+      case
+        build.id.revision == id.revision
+        && id.local_id >= build.id.local_id
+        && id.local_id < build.id.local_id + list.length(build.trees)
+      {
+        True -> True
+        False -> build_contains(rest, id)
+      }
+  }
+}
+
+fn tree_from_builds(
+  builds: List(forest.Build),
+  id: AtomId,
+) -> Option(TreeValue) {
+  case builds {
+    [] -> None
+    [build, ..rest] ->
+      case
+        build.id.revision == id.revision
+        && id.local_id >= build.id.local_id
+        && id.local_id < build.id.local_id + list.length(build.trees)
+      {
+        True -> nth(build.trees, id.local_id - build.id.local_id)
+        False -> tree_from_builds(rest, id)
+      }
+  }
+}
+
+fn nth(values: List(a), index: Int) -> Option(a) {
+  case values, index {
+    [], _ -> None
+    [value, ..], 0 -> Some(value)
+    [_, ..rest], _ -> nth(rest, index - 1)
+  }
+}
+
+fn put_build(
+  builds: List(forest.Build),
+  build: forest.Build,
+) -> List(forest.Build) {
+  case builds {
+    [] -> [build]
+    [existing, ..rest] ->
+      case existing.id == build.id {
+        True -> [build, ..rest]
+        False -> [existing, ..put_build(rest, build)]
+      }
+  }
+}
+
+fn composition_metadata(
+  changes: List(TaggedChange),
+) -> #(List(RevisionInfo), Int) {
+  let #(revisions, max_local_id) =
+    list.fold(changes, #([], -1), fn(state, tagged) {
+      let data = tagged.change.data
+      let candidates = case data.revisions {
+        [] ->
+          case tagged.revision {
+            None -> []
+            Some(revision) -> [
+              RevisionInfo(revision, tagged.rollback_of),
+            ]
+          }
+        revisions -> revisions
+      }
+      let revisions =
+        list.fold(candidates, state.0, fn(revisions, info) {
+          case revision_info(revisions, info.revision) {
+            Some(_) -> revisions
+            None -> list.append(revisions, [info])
+          }
+        })
+      #(revisions, int_max(state.1, data.max_local_id))
+    })
+  let rollback_revisions =
+    revisions
+    |> list.fold([], fn(rollbacks, info) {
+      case info.rollback_of {
+        None -> rollbacks
+        Some(revision) -> [revision, ..rollbacks]
+      }
+    })
+  let revisions =
+    list.fold(rollback_revisions, revisions, fn(revisions, revision) {
+      case revision_info(revisions, revision) {
+        Some(_) -> revisions
+        None -> list.append(revisions, [RevisionInfo(revision, None)])
+      }
+    })
+  #(revisions, max_local_id)
+}
+
+fn balanced_compose(
+  changes: List(Changeset),
+  revisions: List(RevisionInfo),
+  max_local_id: Int,
+) -> Result(Changeset, TreeError) {
+  case changes {
+    [] -> Ok(empty())
+    [change] -> Ok(change)
+    _ -> {
+      let split = list.length(changes) / 2
+      let #(left, right) = split_at(changes, split, [])
+      use left <- result.try(balanced_compose(left, revisions, max_local_id))
+      use right <- result.try(balanced_compose(right, revisions, max_local_id))
+      compose_pair(left, right, revisions, max_local_id)
+    }
+  }
+}
+
+fn split_at(values: List(a), count: Int, left: List(a)) -> #(List(a), List(a)) {
+  case count, values {
+    0, _ -> #(list.reverse(left), values)
+    _, [] -> #(list.reverse(left), [])
+    _, [value, ..rest] -> split_at(rest, count - 1, [value, ..left])
+  }
+}
+
+fn compose_pair(
+  first: Changeset,
+  second: Changeset,
+  revisions: List(RevisionInfo),
+  max_local_id: Int,
+) -> Result(Changeset, TreeError) {
+  let first_data = first.data
+  let second_data = second.data
+  use aliases <- result.try(merge_aliases(
+    first_data.aliases,
+    second_data.aliases,
+  ))
+  let state =
+    ComposeState(
+      merge_pairs(first_data.nodes, second_data.nodes),
+      merge_pairs(first_data.parents, second_data.parents),
+      aliases,
+      first_data,
+      second_data,
+      [],
+    )
+  use #(fields, state) <- result.try(compose_field_maps(
+    first_data.fields,
+    second_data.fields,
+    state,
+  ))
+  use #(builds, destroys, refreshers) <- result.try(compose_detached(
+    first_data,
+    second_data,
+  ))
+  from_data(ChangeData(
+    max_local_id: max_local_id,
+    revisions: revisions,
+    fields: fields,
+    nodes: state.nodes,
+    parents: state.parents,
+    aliases: state.aliases,
+    builds: builds,
+    destroys: destroys,
+    refreshers: refreshers,
+  ))
+}
+
+fn compose_field_maps(
+  first: List(#(String, FieldChange)),
+  second: List(#(String, FieldChange)),
+  state: ComposeState,
+) -> Result(#(List(#(String, FieldChange)), ComposeState), TreeError) {
+  use #(fields, remaining, state) <- result.try(
+    list.try_fold(first, #([], second, state), fn(output, entry) {
+      let #(other, remaining) = take_pair(output.1, entry.0)
+      case other {
+        None -> Ok(#(list.append(output.0, [entry]), remaining, output.2))
+        Some(other) -> {
+          use #(field, state) <- result.try(compose_field(
+            entry.1,
+            other,
+            output.2,
+          ))
+          Ok(#(list.append(output.0, [#(entry.0, field)]), remaining, state))
+        }
+      }
+    }),
+  )
+  Ok(#(list.append(fields, remaining), state))
+}
+
+fn compose_field(
+  first: FieldChange,
+  second: FieldChange,
+  state: ComposeState,
+) -> Result(#(FieldChange, ComposeState), TreeError) {
+  case first, second {
+    GenericField(first), GenericField(second) -> {
+      use #(children, state) <- result.try(compose_generic(first, second, state))
+      Ok(#(GenericField(children), state))
+    }
+    ValueField(first), ValueField(second) ->
+      optional_field.compose(first, second, state, compose_child)
+      |> result.map(fn(output) { #(ValueField(output.0), output.1) })
+    OptionalField(first), OptionalField(second) ->
+      optional_field.compose(first, second, state, compose_child)
+      |> result.map(fn(output) { #(OptionalField(output.0), output.1) })
+    GenericField(first), ValueField(second) ->
+      optional_field.compose(
+        generic_as_optional(first),
+        second,
+        state,
+        compose_child,
+      )
+      |> result.map(fn(output) { #(ValueField(output.0), output.1) })
+    ValueField(first), GenericField(second) ->
+      optional_field.compose(
+        first,
+        generic_as_optional(second),
+        state,
+        compose_child,
+      )
+      |> result.map(fn(output) { #(ValueField(output.0), output.1) })
+    GenericField(first), OptionalField(second) ->
+      optional_field.compose(
+        generic_as_optional(first),
+        second,
+        state,
+        compose_child,
+      )
+      |> result.map(fn(output) { #(OptionalField(output.0), output.1) })
+    OptionalField(first), GenericField(second) ->
+      optional_field.compose(
+        first,
+        generic_as_optional(second),
+        state,
+        compose_child,
+      )
+      |> result.map(fn(output) { #(OptionalField(output.0), output.1) })
+    _, _ -> Error(CorruptData("compose", "field kinds do not match"))
+  }
+}
+
+fn generic_as_optional(
+  children: List(#(Int, AtomId)),
+) -> optional_field.FieldChange {
+  optional_field.FieldChange(
+    [],
+    list.map(children, fn(child) { #(optional_field.Active, child.1) }),
+    None,
+  )
+}
+
+fn compose_generic(
+  first: List(#(Int, AtomId)),
+  second: List(#(Int, AtomId)),
+  state: ComposeState,
+) -> Result(#(List(#(Int, AtomId)), ComposeState), TreeError) {
+  use #(children, remaining, state) <- result.try(
+    list.try_fold(first, #([], second, state), fn(output, child) {
+      let #(other, remaining) = take_pair(output.1, child.0)
+      use #(id, state) <- result.try(compose_child(
+        Some(child.1),
+        other,
+        output.2,
+      ))
+      Ok(#(list.append(output.0, [#(child.0, id)]), remaining, state))
+    }),
+  )
+  use #(children, state) <- result.try(
+    list.try_fold(remaining, #(children, state), fn(output, child) {
+      use #(id, state) <- result.try(compose_child(
+        None,
+        Some(child.1),
+        output.1,
+      ))
+      Ok(#(list.append(output.0, [#(child.0, id)]), state))
+    }),
+  )
+  Ok(#(children, state))
+}
+
+fn compose_child(
+  first: Option(AtomId),
+  second: Option(AtomId),
+  state: ComposeState,
+) -> Result(#(AtomId, ComposeState), TreeError) {
+  case first, second {
+    Some(first), Some(second) -> compose_nodes(first, second, state)
+    Some(first), None -> Ok(#(first, state))
+    None, Some(second) -> Ok(#(second, state))
+    None, None -> Error(CorruptData("compose", "child changes are missing"))
+  }
+}
+
+fn compose_nodes(
+  first: AtomId,
+  second: AtomId,
+  state: ComposeState,
+) -> Result(#(AtomId, ComposeState), TreeError) {
+  use first_id <- result.try(resolve_alias(first, state.first.aliases))
+  use second_id <- result.try(resolve_alias(second, state.second.aliases))
+  case list.contains(state.pairs, #(first_id, second_id)) {
+    True -> {
+      use canonical <- result.try(resolve_alias(first_id, state.aliases))
+      Ok(#(canonical, state))
+    }
+    False -> {
+      use first_node <- result.try(node_for(
+        first_id,
+        state.first.nodes,
+        state.first.aliases,
+      ))
+      use second_node <- result.try(node_for(
+        second_id,
+        state.second.nodes,
+        state.second.aliases,
+      ))
+      let NodeChange(first_fields) = first_node
+      let NodeChange(second_fields) = second_node
+      let state =
+        ComposeState(..state, pairs: [#(first_id, second_id), ..state.pairs])
+      use #(fields, state) <- result.try(compose_field_maps(
+        first_fields,
+        second_fields,
+        state,
+      ))
+      use first_canonical <- result.try(resolve_alias(first_id, state.aliases))
+      use second_canonical <- result.try(resolve_alias(second_id, state.aliases))
+      use #(canonical, aliases) <- result.try(unify_aliases(
+        state.aliases,
+        second_canonical,
+        first_canonical,
+      ))
+      use parent <- result.try(parent_for(
+        first_id,
+        state.first.parents,
+        state.first.aliases,
+      ))
+      use parent <- result.try(normalize_parent(parent, aliases))
+      let nodes =
+        state.nodes
+        |> remove_pair(first_canonical)
+        |> remove_pair(second_canonical)
+        |> put_pair(canonical, NodeChange(fields))
+      let parents =
+        state.parents
+        |> remove_pair(first_canonical)
+        |> remove_pair(second_canonical)
+        |> put_pair(canonical, parent)
+      Ok(#(
+        canonical,
+        ComposeState(..state, nodes: nodes, parents: parents, aliases: aliases),
+      ))
+    }
+  }
+}
+
+fn merge_aliases(
+  first: List(#(AtomId, AtomId)),
+  second: List(#(AtomId, AtomId)),
+) -> Result(List(#(AtomId, AtomId)), TreeError) {
+  list.try_fold(second, first, fn(aliases, entry) {
+    unify_aliases(aliases, entry.0, entry.1)
+    |> result.map(fn(output) { output.1 })
+  })
+}
+
+fn unify_aliases(
+  aliases: List(#(AtomId, AtomId)),
+  first: AtomId,
+  second: AtomId,
+) -> Result(#(AtomId, List(#(AtomId, AtomId))), TreeError) {
+  use first <- result.try(resolve_alias(first, aliases))
+  use second <- result.try(resolve_alias(second, aliases))
+  case first == second {
+    True -> Ok(#(second, aliases))
+    False -> Ok(#(second, put_pair(aliases, first, second)))
+  }
+}
+
+fn compose_detached(
+  first: ChangeData,
+  second: ChangeData,
+) -> Result(
+  #(List(forest.Build), List(forest.Destroy), List(forest.Build)),
+  TreeError,
+) {
+  let builds = merge_builds(first.builds, second.builds)
+  let destroys = merge_destroys(first.destroys, second.destroys)
+  let refreshers = merge_builds(first.refreshers, second.refreshers)
+  use #(builds, destroys) <- result.try(cancel_destroy_builds(
+    first.destroys,
+    second.builds,
+    builds,
+    destroys,
+  ))
+  use #(builds, destroys) <- result.try(cancel_build_destroys(
+    first.builds,
+    second.destroys,
+    builds,
+    destroys,
+  ))
+  Ok(#(builds, destroys, refreshers))
+}
+
+fn cancel_destroy_builds(
+  destroys_before: List(forest.Destroy),
+  builds_after: List(forest.Build),
+  builds: List(forest.Build),
+  destroys: List(forest.Destroy),
+) -> Result(#(List(forest.Build), List(forest.Destroy)), TreeError) {
+  list.try_fold(builds_after, #(builds, destroys), fn(output, build) {
+    case destroy_for(destroys_before, build.id) {
+      None -> Ok(output)
+      Some(destroy) -> {
+        use _ <- result.try(check(
+          destroy.count == list.length(build.trees),
+          "compose",
+          "build and destroy lengths do not match",
+        ))
+        Ok(#(
+          remove_build(output.0, build.id),
+          remove_destroy(output.1, build.id),
+        ))
+      }
+    }
+  })
+}
+
+fn cancel_build_destroys(
+  builds_before: List(forest.Build),
+  destroys_after: List(forest.Destroy),
+  builds: List(forest.Build),
+  destroys: List(forest.Destroy),
+) -> Result(#(List(forest.Build), List(forest.Destroy)), TreeError) {
+  list.try_fold(destroys_after, #(builds, destroys), fn(output, destroy) {
+    case build_for(builds_before, destroy.id) {
+      None -> Ok(output)
+      Some(build) -> {
+        use _ <- result.try(check(
+          destroy.count == list.length(build.trees),
+          "compose",
+          "build and destroy lengths do not match",
+        ))
+        Ok(#(
+          remove_build(output.0, destroy.id),
+          remove_destroy(output.1, destroy.id),
+        ))
+      }
+    }
+  })
+}
+
+fn merge_builds(
+  first: List(forest.Build),
+  second: List(forest.Build),
+) -> List(forest.Build) {
+  list.fold(second, first, fn(builds, build) {
+    case build_for(builds, build.id) {
+      Some(_) -> builds
+      None -> list.append(builds, [build])
+    }
+  })
+}
+
+fn merge_destroys(
+  first: List(forest.Destroy),
+  second: List(forest.Destroy),
+) -> List(forest.Destroy) {
+  list.fold(second, first, fn(destroys, destroy) {
+    case destroy_for(destroys, destroy.id) {
+      Some(_) -> destroys
+      None -> list.append(destroys, [destroy])
+    }
+  })
+}
+
+fn build_for(builds: List(forest.Build), id: AtomId) -> Option(forest.Build) {
+  case builds {
+    [] -> None
+    [build, ..rest] ->
+      case build.id == id {
+        True -> Some(build)
+        False -> build_for(rest, id)
+      }
+  }
+}
+
+fn destroy_for(
+  destroys: List(forest.Destroy),
+  id: AtomId,
+) -> Option(forest.Destroy) {
+  case destroys {
+    [] -> None
+    [destroy, ..rest] ->
+      case destroy.id == id {
+        True -> Some(destroy)
+        False -> destroy_for(rest, id)
+      }
+  }
+}
+
+fn remove_build(builds: List(forest.Build), id: AtomId) -> List(forest.Build) {
+  list.filter(builds, fn(build) { build.id != id })
+}
+
+fn remove_destroy(
+  destroys: List(forest.Destroy),
+  id: AtomId,
+) -> List(forest.Destroy) {
+  list.filter(destroys, fn(destroy) { destroy.id != id })
+}
+
+fn sort_atom_tables(
+  data: ChangeData,
+  revisions: List(RevisionInfo),
+) -> ChangeData {
+  let order = atom_revision_order(data, revisions)
+  ChangeData(
+    ..data,
+    nodes: sort_pairs(data.nodes, order),
+    parents: sort_pairs(data.parents, order),
+    aliases: sort_pairs(data.aliases, order),
+    builds: list.sort(data.builds, fn(left, right) {
+      compare_atom(left.id, right.id, order)
+    }),
+    destroys: list.sort(data.destroys, fn(left, right) {
+      compare_atom(left.id, right.id, order)
+    }),
+    refreshers: list.sort(data.refreshers, fn(left, right) {
+      compare_atom(left.id, right.id, order)
+    }),
+  )
+}
+
+fn atom_revision_order(
+  data: ChangeData,
+  revisions: List(RevisionInfo),
+) -> List(Option(StableId)) {
+  let initial = list.map(revisions, fn(info) { Some(info.revision) })
+  let ids =
+    list.append(
+      list.map(data.nodes, fn(entry) { entry.0 }),
+      list.append(
+        list.map(data.parents, fn(entry) { entry.0 }),
+        list.append(
+          list.flat_map(data.aliases, fn(entry) { [entry.0, entry.1] }),
+          list.append(
+            list.map(data.builds, fn(build) { build.id }),
+            list.append(
+              list.map(data.destroys, fn(destroy) { destroy.id }),
+              list.map(data.refreshers, fn(build) { build.id }),
+            ),
+          ),
+        ),
+      ),
+    )
+  list.fold(ids, initial, fn(revisions, id) {
+    case list.contains(revisions, id.revision) {
+      True -> revisions
+      False -> list.append(revisions, [id.revision])
+    }
+  })
+}
+
+fn sort_pairs(
+  entries: List(#(AtomId, a)),
+  revisions: List(Option(StableId)),
+) -> List(#(AtomId, a)) {
+  list.sort(entries, fn(left, right) {
+    compare_atom(left.0, right.0, revisions)
+  })
+}
+
+fn compare_atom(
+  left: AtomId,
+  right: AtomId,
+  revisions: List(Option(StableId)),
+) -> order.Order {
+  let revision_order =
+    int_compare(
+      revision_index(left.revision, revisions, 0),
+      revision_index(right.revision, revisions, 0),
+    )
+  case revision_order {
+    order.Eq -> int_compare(left.local_id, right.local_id)
+    _ -> revision_order
+  }
+}
+
+fn revision_index(
+  revision: Option(StableId),
+  revisions: List(Option(StableId)),
+  index: Int,
+) -> Int {
+  case revisions {
+    [] -> index
+    [candidate, ..rest] ->
+      case candidate == revision {
+        True -> index
+        False -> revision_index(revision, rest, index + 1)
+      }
+  }
+}
+
+fn int_compare(left: Int, right: Int) -> order.Order {
+  case left < right, left > right {
+    True, _ -> order.Lt
+    _, True -> order.Gt
+    _, _ -> order.Eq
+  }
+}
+
+fn int_max(left: Int, right: Int) -> Int {
+  case left > right {
+    True -> left
+    False -> right
+  }
+}
+
+fn merge_pairs(first: List(#(a, b)), second: List(#(a, b))) -> List(#(a, b)) {
+  list.fold(second, first, fn(entries, entry) {
+    case pair_value(entries, entry.0) {
+      Some(_) -> entries
+      None -> list.append(entries, [entry])
+    }
+  })
+}
+
+fn take_pair(entries: List(#(a, b)), key: a) -> #(Option(b), List(#(a, b))) {
+  case entries {
+    [] -> #(None, [])
+    [entry, ..rest] ->
+      case entry.0 == key {
+        True -> #(Some(entry.1), rest)
+        False -> {
+          let #(value, rest) = take_pair(rest, key)
+          #(value, [entry, ..rest])
+        }
+      }
+  }
+}
+
+fn put_pair(entries: List(#(a, b)), key: a, value: b) -> List(#(a, b)) {
+  case entries {
+    [] -> [#(key, value)]
+    [entry, ..rest] ->
+      case entry.0 == key {
+        True -> [#(key, value), ..rest]
+        False -> [entry, ..put_pair(rest, key, value)]
+      }
+  }
+}
+
+fn remove_pair(entries: List(#(a, b)), key: a) -> List(#(a, b)) {
+  list.filter(entries, fn(entry) { entry.0 != key })
 }
 
 fn edit_destination(
@@ -343,6 +1630,7 @@ fn delta_fields(
     use field <- result.try(delta_field(entry.1, data))
     let fields = case field.0 {
       None -> parts.fields
+      Some(forest.FieldDelta([])) -> parts.fields
       Some(delta) -> list.append(parts.fields, [#(entry.0, delta)])
     }
     Ok(DeltaParts(
