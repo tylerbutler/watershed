@@ -201,6 +201,7 @@ a separate schedule with its own intermediate observations.
 | File under `cases/` | Domain and required observation |
 | --- | --- |
 | `schema-profile.json` | Exact stored schema, schema identifiers, root cardinality, primitive encodings, and incompatible views. |
+| `schema-validation.json` | Task 5's schema-only compatibility and value checks, with raw schema strings and input-only native replay. |
 | `bootstrap-map-handles.json` | Real root-map discovery, the `"tree"` handle, hierarchical paths, SharedMap op/summary encoding, and missing/wrong-kind bootstrap rejection. |
 | `independent-fields.json` | A edits `title`, B edits `enabled`; preserve both edits. |
 | `same-field-both-orders.json` | A/B write `title`; compare local pending views and both server orders. |
@@ -636,7 +637,7 @@ format-2 persistence. The test-only adapter in `test/watershed/tree/id_fixture.g
 receives only fixture input and compares the complete output. The extended
 upstream case adds creation-range and serialization comparisons, both cluster
 growth paths, pending-state restoration, UUID carry across reserved bits, and
-large numeric offsets. Task 5 has not started.
+large numeric offsets.
 
 **Files:** Create `src/watershed/fluid_ids.gleam` and
 `test/watershed/shared_tree_ids_test.gleam`; add the test-only fixture adapter.
@@ -726,8 +727,18 @@ Commit subject: `feat(tree): implement Fluid ID compression`.
 
 ### Task 5: implement tree values and fixed-schema validation
 
+Implementation: pure Gleam schema-v2 decoding, default fixed-view compatibility,
+and recursive root/field validation run on JavaScript and BEAM. Raw-string
+entry points detect duplicate declarations before JSON parsing loses them;
+the `Json` entry points remain convenience APIs. `validate_root_field` adds
+explicit root-absence validation. The schema-only `schema-validation` case
+contains 31 upstream checks and leaves the original summary-backed
+`schema-profile` case unchanged. Task 6 has not started.
+
 **Files:** Create `tree/types.gleam`, `tree/schema.gleam`, and
-`test/watershed/shared_tree_schema_test.gleam`.
+`test/watershed/shared_tree_schema_test.gleam`. Extend the oracle source,
+generator guards, required-case loader, and README; generate the additional
+case and updated manifest.
 
 **Interfaces:**
 
@@ -764,8 +775,14 @@ object/leaf node definitions. Export:
 ```gleam
 pub fn stored_from_json(data: Json) -> Result(StoredSchema, TreeError)
 pub fn view_from_json(data: Json) -> Result(ViewSchema, TreeError)
+pub fn stored_from_string(raw: String) -> Result(StoredSchema, TreeError)
+pub fn view_from_string(raw: String) -> Result(ViewSchema, TreeError)
 pub fn can_view(stored: StoredSchema, view: ViewSchema) -> Result(Nil, TreeError)
 pub fn validate_root(schema: StoredSchema, value: TreeValue) -> Result(Nil, TreeError)
+pub fn validate_root_field(
+  schema: StoredSchema,
+  value: Option(TreeValue),
+) -> Result(Nil, TreeError)
 pub fn validate_field(
   schema: StoredSchema,
   parent_type: String,
@@ -774,20 +791,21 @@ pub fn validate_field(
 ) -> Result(Nil, TreeError)
 ```
 
-- [ ] **1. Add fixture-driven schema refusal and acceptance tests.**
+- [x] **1. Add fixture-driven schema refusal and acceptance tests.**
 
 ```gleam
-pub fn shared_tree_schema_profile_test() {
-  fixtures.assert_case("schema-profile", run_schema_case)
+pub fn shared_tree_schema_oracle_test() -> Nil {
+  fixtures.assert_case("schema-validation", run_schema_case)
 }
 ```
 
 Implement `run_schema_case: fn(Json) -> Result(Json, String)` in this test module:
 decode the fixture's stored/view schemas and candidate values, call the
-validators, and encode the complete success/error observations. Translate typed
-errors only at this test reporting boundary.
+validators, and encode the complete ordered acceptance observations. Decode
+failures and unexpected errors fail the runner instead of becoming expected
+refusals. Native negative tests assert typed errors and paths.
 
-- [ ] **2. Implement the subset without conflating absent and null.**
+- [x] **2. Implement the subset without conflating absent and null.**
 
 Validate duplicate schema identifiers and object field names, required fields,
 unknown fields, allowed node types, root cardinality, and finite numbers.
@@ -795,13 +813,18 @@ Refuse array/map/handle/identifier-field schema capabilities not in the profile.
 Recognize exact upstream leaf identifiers rather than inventing serialized names.
 Distinguish an unsupported valid schema from corrupt schema bytes.
 
-- [ ] **3. Add negative tests before local mutation exists.**
+- [x] **3. Add negative tests before local mutation exists.**
 
 Required clear, null into a string field, missing required child fields,
 wrong nested object type, non-finite numbers, and unsupported view versions must
 return errors. A supported fixed view over matching stored schema must succeed.
 
-- [ ] **4. Run the focused pair and commit.**
+- [x] **4. Run the focused pair and commit.**
+
+The focused suite passes 57 tests on Erlang and 58 on JavaScript, including
+the schema-only oracle replay. Eight generator guard tests pass, and
+`rtk just shared-tree-oracle-check` reproduces all 21 cases. The original
+20 case files remain unchanged. Correctness review found no blocking issues.
 
 Commit subject: `feat(tree): validate native object-tree schemas`.
 

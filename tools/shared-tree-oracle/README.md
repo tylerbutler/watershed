@@ -199,7 +199,7 @@ gleam test --target erlang -- --test-name-filter=shared_tree
 gleam test --target javascript -- --test-name-filter=shared_tree
 ```
 
-`generate` produces all 20 named cases under `test/fixtures/shared_tree/cases/`
+`generate` produces all 21 named cases under `test/fixtures/shared_tree/cases/`
 and their manifest. `check` regenerates them in an owned temporary directory and
 compares the complete file set and every byte without changing the fixtures.
 Missing files, extra files, incomplete observations, and changed outputs fail.
@@ -232,9 +232,10 @@ The Gleam reader validates manifest membership, canonical paths, pinned
 identities, and nonempty observations on both targets. `assert_case` gives only
 `input` to a runner and compares its complete result with `expected`, including
 the first differing JSON path on failure. Necessary initial state and replay
-bytes therefore live in `input`; `raw` preserves supporting evidence. Task 4 adds
-the native `id-ranges` runner on both targets. Tree, container, and summary
-semantic runners and native writer-matrix results remain future work.
+bytes therefore live in `input`; `raw` preserves supporting evidence. Tasks 4
+and 5 add the native `id-ranges` and `schema-validation` runners on both targets.
+Tree, container, and summary semantic runners and native writer-matrix results
+remain future work.
 
 ### Native ID compression
 
@@ -266,6 +267,46 @@ reservation size is transient and resets to 512 after restoration, matching
 upstream. The document runtime will adopt this module in Task 11; Task 4 does
 not yet enable native SharedTree editing.
 
+### Native fixed-schema validation
+
+`src/watershed/tree/schema.gleam` validates schema-v2 definitions and tree values
+in pure Gleam. Stored schemas and desired view schemas have separate opaque
+types. Both use the persisted schema format; the view API does not accept
+JavaScript `TreeViewConfiguration` objects.
+
+The supported definitions are objects, required (`Value`) and optional fields,
+and the canonical string, finite-number, boolean, and null leaves. Array,
+map, handle, identifier-field, and unknown semantic kinds return typed errors.
+Malformed JSON or schema shapes, unsupported versions, incompatible schemas,
+and invalid values have distinct error variants and location details.
+
+Use `stored_from_string` and `view_from_string` for schema blobs. These entry
+points check the original JSON for duplicate declarations, including names
+written with different escape sequences. The `*_from_json` convenience APIs
+cannot recover duplicate names a caller's JSON parser has discarded.
+
+`can_view` checks the ordinary fixed view without upgrades or permissive
+unknown-field options. It compares field cardinality and allowed-type sets
+without relying on JSON member order. Unused extra definitions and persisted
+metadata do not prevent viewing; differences in shared definitions still can.
+The opaque schema retains the persisted data for later codec work.
+
+`validate_root`, `validate_root_field`, and `validate_field` check nested values
+without allocating IDs or changing state. Pass `None` to validate absence and
+`Some(NullValue)` for a present null leaf. Required clears, duplicate or unknown
+object fields, wrong node types, and non-finite numbers fail. Finite doubles
+are not limited to the compressor's safe-integer range. Validation accepts
+negative zero; the later insertion layer must normalize it to positive zero
+as upstream does.
+
+The `schema-validation` fixture contains 31 checks from upstream schema
+extraction, compatibility comparison, and field validation. Its native runner
+receives only `input` and compares the complete ordered acceptance results.
+Native tests check error variants and paths, corrupt data, duplicate names,
+and JavaScript NaN/infinities outside the JSON fixture. The original
+`schema-profile` summary remains unchanged and awaits the later forest/codec
+tasks. Task 5 does not enable tree edits or summary loading.
+
 ### Compatibility inventory and implementation owners
 
 The generated manifest records observed field kinds, codec versions, tree-index
@@ -276,7 +317,7 @@ index metadata is version 3 while its content codec is version 2.
 | Surface | Evidence | Native plan tasks |
 | --- | --- | --- |
 | Session/op IDs, eager IDs, interleaved allocation, restoration, precision boundaries | `id-ranges`; allocation messages and compressor blobs throughout | 4, 11 |
-| Fixed schema, required null, optional absence, Unicode keys and finite numbers | `schema-profile`, `null-and-absence`, `unicode-and-numbers`, `invalid-profile` | 5, 10 |
+| Fixed schema, required null, optional absence, Unicode keys and finite numbers | `schema-validation` (native), `schema-profile`, `null-and-absence`, `unicode-and-numbers`, `invalid-profile` | 5, 10 |
 | Forest, detached roots, repair content, parent/child replacement | `parent-child-both-orders`, `detached-child-edit`, forest and detached-index summaries | 6, 13 |
 | Value/Optional v2, register moves, simultaneous register swaps | `field-compose-invert-rebase`, `optional-set-clear`, conflicting writes | 7, 10 |
 | Modular v5, generic nested fields, aliases, replacement revisions, builds/refreshers/pruning | `modular-nested-algebra`, `nested-independent` | 8, 10 |
