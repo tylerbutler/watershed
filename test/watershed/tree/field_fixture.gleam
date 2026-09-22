@@ -1463,7 +1463,7 @@ fn encode_field_delta(
 ) -> Result(Json, String) {
   use local <- result.try(case delta.local {
     None -> Ok(json.null())
-    Some(local) -> encode_forest_field_delta(local)
+    Some(local) -> encode_forest_field_delta(local, True)
   })
   use global <- result.try(
     list.try_map(delta.global, fn(change) {
@@ -1499,20 +1499,26 @@ fn encode_field_delta(
   )
 }
 
-fn encode_forest_field_delta(delta: forest.FieldDelta) -> Result(Json, String) {
+fn encode_forest_field_delta(
+  delta: forest.FieldDelta,
+  include_fields: Bool,
+) -> Result(Json, String) {
   use marks <- result.try(
     list.try_map(delta.marks, fn(mark) {
       use attach <- result.try(encode_optional_delta_id(mark.attach))
       use detach <- result.try(encode_optional_delta_id(mark.detach))
-      use fields <- result.try(encode_field_map(mark.fields))
-      Ok(
-        json.object([
-          #("count", json.int(mark.count)),
-          #("attach", attach),
-          #("detach", detach),
-          #("fields", fields),
-        ]),
-      )
+      let encoded = [
+        #("count", json.int(mark.count)),
+        #("attach", attach),
+        #("detach", detach),
+      ]
+      case include_fields {
+        False -> Ok(json.object(encoded))
+        True -> {
+          use fields <- result.try(encode_field_map(mark.fields))
+          Ok(json.object(list.append(encoded, [#("fields", fields)])))
+        }
+      }
     }),
   )
   Ok(
@@ -1527,7 +1533,7 @@ fn encode_field_map(
 ) -> Result(Json, String) {
   use fields <- result.try(
     list.try_map(fields, fn(field) {
-      use delta <- result.try(encode_forest_field_delta(field.1))
+      use delta <- result.try(encode_forest_field_delta(field.1, False))
       Ok(json.array([json.string(field.0), delta], fn(value) { value }))
     }),
   )
