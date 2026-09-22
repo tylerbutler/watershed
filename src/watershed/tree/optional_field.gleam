@@ -1,16 +1,11 @@
-//// Required and optional field changes for the Fluid 3.1.0 object profile.
-////
-//// Child changes refer to registers in the input context. Detached moves
-//// apply simultaneously. The forest checks whether their content exists.
+//// Required and optional field change algebra.
 
-import gleam/int
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
-import gleam/set as unique_set
 import watershed/fluid_ids.{type StableId}
 import watershed/tree/forest
-import watershed/tree/types.{type AtomId, type TreeError, CorruptData}
+import watershed/tree/types.{type AtomId, type TreeError, AtomId, CorruptData}
 
 const max_safe_integer = 9_007_199_254_740_991
 
@@ -36,16 +31,50 @@ pub type AttachState {
   DetachedNode
 }
 
-pub type FieldDelta {
-  FieldDelta(
+pub type FieldChangeDelta {
+  FieldChangeDelta(
     local: Option(forest.FieldDelta),
     global: List(forest.DetachedChange),
     rename: List(forest.Rename),
   )
 }
 
-pub fn empty() -> FieldChange {
-  FieldChange([], [], None)
+pub fn validate(change: FieldChange) -> Result(Nil, TreeError) {
+  let FieldChange(moves, children, replacement) = change
+  use _ <- result.try(
+    list.try_each(moves, fn(move) {
+      use _ <- result.try(validate_atom(move.0))
+      validate_atom(move.1)
+    }),
+  )
+  use _ <- result.try(unique(
+    list.map(moves, fn(move) { move.0 }),
+    "move sources",
+  ))
+  use _ <- result.try(unique(
+    list.map(moves, fn(move) { move.1 }),
+    "move destinations",
+  ))
+  use _ <- result.try(
+    list.try_each(children, fn(child) {
+      use _ <- result.try(validate_register(child.0))
+      validate_atom(child.1)
+    }),
+  )
+  use _ <- result.try(unique(
+    list.map(children, fn(child) { child.0 }),
+    "child registers",
+  ))
+  case replacement {
+    None -> Ok(Nil)
+    Some(Replacement(_, source, detach_id)) -> {
+      use _ <- result.try(validate_atom(detach_id))
+      case source {
+        None -> Ok(Nil)
+        Some(register) -> validate_register(register)
+      }
+    }
+  }
 }
 
 pub fn set(was_empty: Bool, fill: AtomId, detach: AtomId) -> FieldChange {
@@ -60,378 +89,630 @@ pub fn clear(was_empty: Bool, detach: AtomId) -> FieldChange {
   FieldChange([], [], Some(Replacement(was_empty, None, detach)))
 }
 
-pub fn validate(change: FieldChange) -> Result(FieldChange, TreeError) {
-  use _ <- result.try(unique(
-    list.map(change.moves, fn(move) { move.0 }),
-    "field.moves.source",
-  ))
-  use _ <- result.try(unique(
-    list.map(change.moves, fn(move) { move.1 }),
-    "field.moves.destination",
-  ))
-  use _ <- result.try(unique(
-    list.map(change.child_changes, fn(child) { child.0 }),
-    "field.child_changes.register",
-  ))
-  use _ <- result.try(
-    change.moves
-    |> list.index_map(fn(move, index) { #(move, int.to_string(index)) })
-    |> list.try_each(fn(entry) {
-      use _ <- result.try(validate_atom(
-        entry.0.0,
-        "field.moves[" <> entry.1 <> "].source",
-      ))
-      validate_atom(entry.0.1, "field.moves[" <> entry.1 <> "].destination")
-    }),
+pub fn compose(
+  first: FieldChange,
+  second: FieldChange,
+  state: s,
+  compose_child: fn(Option(AtomId), Option(AtomId), s) ->
+    Result(#(AtomId, s), TreeError),
+) -> Result(#(FieldChange, s), TreeError) {
+  use _ <- result.try(validate(first))
+  use _ <- result.try(validate(second))
+  let FieldChange(first_moves, first_children, first_replacement) = first
+  let FieldChange(second_moves, second_children, second_replacement) = second
+  let first_source = replacement_source(first_replacement)
+  let first_destination = effectful_destination(first_replacement)
+  let second_source = replacement_source(second_replacement)
+  let composed_source =
+    compose_source(
+      first_source,
+      first_destination,
+      second_source,
+      second_replacement,
+      first_moves,
+    )
+  let remapped_second_children =
+    list.fold(second_children, [], fn(children, child) {
+      let register =
+        trace_register_back(
+          child.0,
+          first_source,
+          first_destination,
+          first_moves,
+        )
+      put_child(children, register, child.1)
+    })
+  use #(children, remaining_children, state) <- result.try(
+    compose_first_children(
+      first_children,
+      remapped_second_children,
+      state,
+      compose_child,
+      [],
+    ),
   )
-  use _ <- result.try(
-    change.child_changes
-    |> list.index_map(fn(child, index) { #(child, int.to_string(index)) })
-    |> list.try_each(fn(entry) {
-      let location = "field.child_changes[" <> entry.1 <> "]"
-      use _ <- result.try(validate_register(entry.0.0, location <> ".register"))
-      validate_atom(entry.0.1, location <> ".node")
-    }),
-  )
-  use _ <- result.try(case change.replacement {
-    None -> Ok(Nil)
-    Some(replacement) -> {
-      use _ <- result.try(validate_atom(
-        replacement.detach_id,
-        "field.replacement.detach_id",
-      ))
-      case replacement.source {
-        None -> Ok(Nil)
-        Some(source) -> validate_register(source, "field.replacement.source")
+  use #(children, state) <- result.try(compose_remaining_children(
+    remaining_children,
+    state,
+    compose_child,
+    children,
+  ))
+  let #(moves, remaining_first_moves) =
+    compose_second_moves(second_moves, first_moves, first_destination, [])
+  let moves =
+    list.fold(remaining_first_moves, moves, fn(moves, move) {
+      case composed_source == Some(Detached(move.0)) {
+        True -> moves
+        False -> list.append(moves, [move])
       }
-    }
-  })
-  Ok(change)
+    })
+  let moves = case first_source, second_replacement {
+    Some(Detached(source)), Some(replacement) ->
+      case
+        replacement_effectful(replacement) && source != replacement.detach_id
+      {
+        True -> list.append(moves, [#(source, replacement.detach_id)])
+        False -> moves
+      }
+    _, _ -> moves
+  }
+  use replacement <- result.try(compose_replacement(
+    first_replacement,
+    second_replacement,
+    second_moves,
+    composed_source,
+  ))
+  let composed = FieldChange(moves, children, replacement)
+  use _ <- result.try(validate(composed))
+  Ok(#(composed, state))
 }
 
-fn validate_atom(id: AtomId, location: String) -> Result(Nil, TreeError) {
-  case id.local_id >= 0 && id.local_id <= max_safe_integer {
-    True -> Ok(Nil)
-    False -> Error(CorruptData(location, "Invalid local identifier"))
+pub fn invert(
+  change: FieldChange,
+  is_rollback: Bool,
+  inverse_revision: Option(StableId),
+  max_local_id: Int,
+) -> Result(#(FieldChange, Int), TreeError) {
+  use _ <- result.try(validate(change))
+  use _ <- result.try(check_allocator(max_local_id))
+  let FieldChange(moves, children, replacement) = change
+  let register_map =
+    list.fold(moves, [], fn(mapping, move) {
+      put_register(mapping, Detached(move.0), Detached(move.1))
+    })
+  let register_map = case effectful_destination(replacement) {
+    None -> register_map
+    Some(destination) ->
+      put_register(register_map, Active, Detached(destination))
+  }
+  let register_map = case replacement_source(replacement) {
+    None -> register_map
+    Some(source) -> put_register(register_map, source, Active)
+  }
+  let moves = list.map(moves, fn(move) { #(move.1, move.0) })
+  let children =
+    list.map(children, fn(child) {
+      #(
+        lookup_register(register_map, child.0)
+          |> option_value(child.0),
+        child.1,
+      )
+    })
+  use #(replacement, max_local_id) <- result.try(invert_replacement(
+    replacement,
+    is_rollback,
+    inverse_revision,
+    max_local_id,
+  ))
+  let inverted = FieldChange(moves, children, replacement)
+  use _ <- result.try(validate(inverted))
+  Ok(#(inverted, max_local_id))
+}
+
+pub fn rebase(
+  change: FieldChange,
+  over: FieldChange,
+  state: s,
+  rebase_child: fn(Option(AtomId), Option(AtomId), AttachState, s) ->
+    Result(#(Option(AtomId), s), TreeError),
+) -> Result(#(FieldChange, s), TreeError) {
+  use _ <- result.try(validate(change))
+  use _ <- result.try(validate(over))
+  let FieldChange(moves, children, replacement) = change
+  let FieldChange(over_moves, over_children, over_replacement) = over
+  let forward =
+    list.fold(over_moves, [], fn(mapping, move) {
+      put_register(mapping, Detached(move.0), Detached(move.1))
+    })
+  let forward = case effectful_destination(over_replacement) {
+    None -> forward
+    Some(destination) -> put_register(forward, Active, Detached(destination))
+  }
+  let forward = case replacement_source(over_replacement) {
+    None -> forward
+    Some(source) -> put_register(forward, source, Active)
+  }
+  let moves =
+    list.map(moves, fn(move) {
+      #(move.0, lookup_source(over_moves, move.0) |> option_value(move.1))
+    })
+  use #(children, remaining_over, state) <- result.try(
+    rebase_authored_children(
+      children,
+      over_children,
+      forward,
+      state,
+      rebase_child,
+      [],
+    ),
+  )
+  use #(children, state) <- result.try(rebase_base_children(
+    remaining_over,
+    forward,
+    state,
+    rebase_child,
+    children,
+  ))
+  let replacement = case replacement {
+    None -> None
+    Some(replacement) -> {
+      let was_empty = case over_replacement {
+        None -> replacement.was_empty
+        Some(over_replacement) -> over_replacement.source == None
+      }
+      let source = case replacement.source {
+        None -> None
+        Some(source) ->
+          Some(lookup_register(forward, source) |> option_value(source))
+      }
+      Some(Replacement(was_empty, source, replacement.detach_id))
+    }
+  }
+  let rebased = FieldChange(moves, children, replacement)
+  use _ <- result.try(validate(rebased))
+  Ok(#(rebased, state))
+}
+
+pub fn replace_revisions(
+  change: FieldChange,
+  replace: fn(AtomId) -> Result(AtomId, TreeError),
+) -> Result(FieldChange, TreeError) {
+  use _ <- result.try(validate(change))
+  let FieldChange(moves, children, replacement) = change
+  use moves <- result.try(
+    list.try_map(moves, fn(move) {
+      use source <- result.try(replace(move.0))
+      use destination <- result.try(replace(move.1))
+      Ok(#(source, destination))
+    }),
+  )
+  use children <- result.try(
+    list.try_map(children, fn(child) {
+      use register <- result.try(replace_register(child.0, replace))
+      use child_change <- result.try(replace(child.1))
+      Ok(#(register, child_change))
+    }),
+  )
+  use replacement <- result.try(case replacement {
+    None -> Ok(None)
+    Some(replacement) -> {
+      use source <- result.try(case replacement.source {
+        None -> Ok(None)
+        Some(register) ->
+          replace_register(register, replace) |> result.map(Some)
+      })
+      use destination <- result.try(replace(replacement.detach_id))
+      Ok(Some(Replacement(replacement.was_empty, source, destination)))
+    }
+  })
+  let changed = FieldChange(moves, children, replacement)
+  use _ <- result.try(validate(changed))
+  Ok(changed)
+}
+
+pub fn into_delta(
+  change: FieldChange,
+  delta_from_child: fn(AtomId) ->
+    Result(List(#(String, forest.FieldDelta)), TreeError),
+) -> Result(FieldChangeDelta, TreeError) {
+  use _ <- result.try(validate(change))
+  let FieldChange(moves, children, replacement) = change
+  let #(attach, detach, has_local) = case replacement {
+    Some(replacement) ->
+      case replacement_effectful(replacement) {
+        False -> #(None, None, False)
+        True -> {
+          let attach = case replacement.source {
+            Some(Detached(id)) -> Some(id)
+            _ -> None
+          }
+          let detach = case replacement.was_empty {
+            True -> None
+            False -> Some(replacement.detach_id)
+          }
+          #(attach, detach, True)
+        }
+      }
+    None -> #(None, None, False)
+  }
+  use #(local_fields, global) <- result.try(
+    list.try_fold(children, #([], []), fn(output, child) {
+      use fields <- result.try(delta_from_child(child.1))
+      case child.0 {
+        Active -> Ok(#(fields, output.1))
+        Detached(id) ->
+          Ok(#(
+            output.0,
+            list.append(output.1, [forest.DetachedChange(id, fields)]),
+          ))
+      }
+    }),
+  )
+  let local = case has_local || !list.is_empty(local_fields) {
+    True ->
+      Some(
+        forest.FieldDelta([
+          forest.Mark(1, attach, detach, local_fields),
+        ]),
+      )
+    False -> None
+  }
+  let rename = list.map(moves, fn(move) { forest.Rename(move.0, move.1, 1) })
+  Ok(FieldChangeDelta(local, global, rename))
+}
+
+fn validate_register(register: RegisterId) -> Result(Nil, TreeError) {
+  case register {
+    Active -> Ok(Nil)
+    Detached(id) -> validate_atom(id)
   }
 }
 
-fn validate_register(
-  id: RegisterId,
-  location: String,
-) -> Result(Nil, TreeError) {
-  case id {
-    Active -> Ok(Nil)
-    Detached(id) -> validate_atom(id, location)
+fn validate_atom(id: AtomId) -> Result(Nil, TreeError) {
+  case id.local_id >= 0 && id.local_id <= max_safe_integer {
+    True -> Ok(Nil)
+    False -> Error(CorruptData("field change", "invalid atom identifier"))
   }
 }
 
 fn unique(values: List(a), location: String) -> Result(Nil, TreeError) {
   use _ <- result.try(
-    values
-    |> list.index_map(fn(value, index) { #(value, index) })
-    |> list.try_fold(unique_set.new(), fn(seen, entry) {
-      case unique_set.contains(seen, entry.0) {
-        True ->
-          Error(CorruptData(
-            location <> "[" <> int.to_string(entry.1) <> "]",
-            "Duplicate identifier",
-          ))
-        False -> Ok(unique_set.insert(seen, entry.0))
+    list.try_fold(values, [], fn(seen, value) {
+      case list.contains(seen, value) {
+        True -> Error(CorruptData(location, "duplicate entry"))
+        False -> Ok([value, ..seen])
       }
     }),
   )
   Ok(Nil)
 }
 
-pub fn replace_revisions(
-  change: FieldChange,
-  obsolete: List(Option(StableId)),
-  updated: Option(StableId),
-) -> Result(FieldChange, TreeError) {
-  use change <- result.try(validate(change))
-  let replace_atom = fn(id: AtomId) {
-    case list.contains(obsolete, id.revision) {
-      True -> types.AtomId(..id, revision: updated)
-      False -> id
-    }
+fn replacement_source(replacement: Option(Replacement)) -> Option(RegisterId) {
+  case replacement {
+    None -> None
+    Some(replacement) -> replacement.source
   }
-  let replace_register = fn(register) {
-    case register {
-      Active -> Active
-      Detached(id) -> Detached(replace_atom(id))
-    }
-  }
-  validate(FieldChange(
-    moves: list.map(change.moves, fn(move) {
-      #(replace_atom(move.0), replace_atom(move.1))
-    }),
-    child_changes: list.map(change.child_changes, fn(child) {
-      #(replace_register(child.0), replace_atom(child.1))
-    }),
-    replacement: option.map(change.replacement, fn(replacement) {
-      Replacement(
-        ..replacement,
-        source: option.map(replacement.source, replace_register),
-        detach_id: replace_atom(replacement.detach_id),
-      )
-    }),
-  ))
 }
 
-fn effectful(replacement: Replacement) -> Bool {
-  replacement.source != Some(Active)
-  && { !replacement.was_empty || replacement.source != None }
-}
-
-fn source(change: FieldChange) -> Option(RegisterId) {
-  option.then(change.replacement, fn(replacement) { replacement.source })
-}
-
-fn effectful_destination(change: FieldChange) -> Option(AtomId) {
-  case change.replacement {
-    Some(replacement)
-      if !replacement.was_empty && replacement.source != Some(Active)
-    -> Some(replacement.detach_id)
+fn effectful_destination(replacement: Option(Replacement)) -> Option(AtomId) {
+  case replacement {
+    Some(Replacement(False, source, destination)) if source != Some(Active) ->
+      Some(destination)
     _ -> None
   }
 }
 
-fn lookup(entries: List(#(a, b)), key: a) -> Option(b) {
-  entries |> list.key_find(key) |> option.from_result
-}
-
-fn put(entries: List(#(a, b)), key: a, value: b) -> List(#(a, b)) {
-  case list.key_find(entries, key) {
-    Error(Nil) -> list.append(entries, [#(key, value)])
-    Ok(_) ->
-      list.map(entries, fn(entry) {
-        case entry.0 == key {
-          True -> #(key, value)
-          False -> entry
-        }
-      })
+fn replacement_effectful(replacement: Replacement) -> Bool {
+  case replacement.source {
+    Some(Active) -> False
+    source -> !replacement.was_empty || source != None
   }
 }
 
-// Nested maps preserve the first occurrence of each outer key.
-fn grouped(entries: List(a), key: fn(a) -> b) -> List(a) {
-  let keys = entries |> list.map(key) |> list.unique
-  list.flat_map(keys, fn(group) {
-    list.filter(entries, fn(entry) { key(entry) == group })
-  })
-}
-
-fn register_group(entry: #(RegisterId, a)) -> Option(Int) {
-  case entry.0 {
-    Active -> None
-    Detached(id) -> Some(id.local_id)
-  }
-}
-
-fn moved(id: AtomId, moves: List(#(AtomId, AtomId))) -> AtomId {
-  option.unwrap(lookup(moves, id), id)
-}
-
-fn before_move(id: AtomId, moves: List(#(AtomId, AtomId))) -> AtomId {
-  case list.find(moves, fn(move) { move.1 == id }) {
-    Ok(move) -> move.0
-    Error(Nil) -> id
-  }
-}
-
-pub fn compose(
-  first: FieldChange,
-  second: FieldChange,
-  context: context,
-  compose_child: fn(Option(AtomId), Option(AtomId), context) ->
-    Result(#(AtomId, context), TreeError),
-) -> Result(#(FieldChange, context), TreeError) {
-  use first <- result.try(validate(first))
-  use second <- result.try(validate(second))
-  let first_source = source(first)
-  let first_destination = effectful_destination(first)
-  let composed_source = case source(second) {
-    Some(Active) -> Some(option.unwrap(first_source, Active))
-    Some(Detached(id)) -> {
+fn compose_source(
+  first_source: Option(RegisterId),
+  first_destination: Option(AtomId),
+  second_source: Option(RegisterId),
+  second_replacement: Option(Replacement),
+  first_moves: List(#(AtomId, AtomId)),
+) -> Option(RegisterId) {
+  case second_source {
+    Some(Active) -> option_or(second_source, first_source)
+    Some(Detached(id)) ->
       case first_destination == Some(id) {
         True -> Some(Active)
-        False -> Some(Detached(before_move(id, first.moves)))
+        False ->
+          Some(Detached(
+            lookup_by_destination(first_moves, id)
+            |> option_value(id),
+          ))
       }
-    }
-    None -> {
-      case second.replacement {
-        None -> first_source
-        Some(_) -> None
+    None ->
+      case first_source, second_replacement {
+        Some(source), None -> Some(source)
+        _, _ -> None
       }
+  }
+}
+
+fn trace_register_back(
+  register: RegisterId,
+  first_source: Option(RegisterId),
+  first_destination: Option(AtomId),
+  first_moves: List(#(AtomId, AtomId)),
+) -> RegisterId {
+  case register {
+    Active -> option_value(first_source, Active)
+    Detached(id) ->
+      case first_destination == Some(id) {
+        True -> Active
+        False ->
+          Detached(lookup_by_destination(first_moves, id) |> option_value(id))
+      }
+  }
+}
+
+fn compose_first_children(
+  children: List(#(RegisterId, AtomId)),
+  second: List(#(RegisterId, AtomId)),
+  state: s,
+  compose_child: fn(Option(AtomId), Option(AtomId), s) ->
+    Result(#(AtomId, s), TreeError),
+  output: List(#(RegisterId, AtomId)),
+) -> Result(
+  #(List(#(RegisterId, AtomId)), List(#(RegisterId, AtomId)), s),
+  TreeError,
+) {
+  case children {
+    [] -> Ok(#(list.reverse(output), second, state))
+    [child, ..rest] -> {
+      let #(other, second) = take_child(second, child.0)
+      use #(combined, state) <- result.try(compose_child(
+        Some(child.1),
+        other,
+        state,
+      ))
+      compose_first_children(rest, second, state, compose_child, [
+        #(child.0, combined),
+        ..output
+      ])
     }
   }
-  let second_children =
-    list.fold(second.child_changes, [], fn(children, child) {
-      let original = case child.0 {
-        Active -> option.unwrap(first_source, Active)
-        Detached(id) -> {
-          case first_destination == Some(id) {
-            True -> Active
-            False -> Detached(before_move(id, first.moves))
-          }
-        }
-      }
-      put(children, original, child.1)
-    })
-    |> grouped(register_group)
-  use #(children, remaining, context) <- result.try(
-    list.try_fold(
-      first.child_changes,
-      #([], second_children, context),
-      fn(acc, child) {
-        use #(node, context) <- result.try(compose_child(
-          Some(child.1),
-          lookup(acc.1, child.0),
-          acc.2,
-        ))
-        Ok(#(
-          [#(child.0, node), ..acc.0],
-          list.filter(acc.1, fn(entry) { entry.0 != child.0 }),
-          context,
-        ))
-      },
-    ),
-  )
-  use #(children, context) <- result.try(
-    list.try_fold(remaining, #(children, context), fn(acc, child) {
-      use #(node, context) <- result.try(compose_child(
+}
+
+fn compose_remaining_children(
+  children: List(#(RegisterId, AtomId)),
+  state: s,
+  compose_child: fn(Option(AtomId), Option(AtomId), s) ->
+    Result(#(AtomId, s), TreeError),
+  output: List(#(RegisterId, AtomId)),
+) -> Result(#(List(#(RegisterId, AtomId)), s), TreeError) {
+  case children {
+    [] -> Ok(#(output, state))
+    [child, ..rest] -> {
+      use #(combined, state) <- result.try(compose_child(
         None,
         Some(child.1),
-        acc.1,
+        state,
       ))
-      Ok(#([#(child.0, node), ..acc.0], context))
-    }),
-  )
-  let first_moves = grouped(first.moves, fn(move) { move.0.revision })
-  let #(moves, remaining_moves) =
-    list.fold(second.moves, #([], first_moves), fn(acc, move) {
-      case list.find(acc.1, fn(prior) { prior.1 == move.0 }) {
-        Ok(prior) -> #(
-          [#(prior.0, move.1), ..acc.0],
-          list.filter(acc.1, fn(entry) { entry.0 != prior.0 }),
-        )
-        Error(Nil) -> {
+      compose_remaining_children(
+        rest,
+        state,
+        compose_child,
+        list.append(output, [#(child.0, combined)]),
+      )
+    }
+  }
+}
+
+fn compose_second_moves(
+  moves: List(#(AtomId, AtomId)),
+  first_moves: List(#(AtomId, AtomId)),
+  first_destination: Option(AtomId),
+  output: List(#(AtomId, AtomId)),
+) -> #(List(#(AtomId, AtomId)), List(#(AtomId, AtomId))) {
+  case moves {
+    [] -> #(list.reverse(output), first_moves)
+    [move, ..rest] ->
+      case lookup_by_destination(first_moves, move.0) {
+        Some(original) ->
+          compose_second_moves(
+            rest,
+            remove_source(first_moves, original),
+            first_destination,
+            [#(original, move.1), ..output],
+          )
+        None ->
           case first_destination == Some(move.0) {
-            True -> acc
-            False -> #([move, ..acc.0], acc.1)
+            True ->
+              compose_second_moves(rest, first_moves, first_destination, output)
+            False ->
+              compose_second_moves(rest, first_moves, first_destination, [
+                move,
+                ..output
+              ])
           }
+      }
+  }
+}
+
+fn compose_replacement(
+  first: Option(Replacement),
+  second: Option(Replacement),
+  second_moves: List(#(AtomId, AtomId)),
+  source: Option(RegisterId),
+) -> Result(Option(Replacement), TreeError) {
+  case first, second {
+    None, None -> Ok(None)
+    _, _ -> {
+      let first_change = case first {
+        Some(replacement) -> replacement
+        None -> {
+          let assert Some(replacement) = second
+          replacement
         }
       }
-    })
-  let moves =
-    list.append(
-      list.reverse(moves),
-      list.filter(remaining_moves, fn(move) {
-        composed_source != Some(Detached(move.0))
-      }),
-    )
-  let moves = case first_source, second.replacement {
-    Some(Detached(fill)), Some(replacement) -> {
-      case effectful(replacement) && fill != replacement.detach_id {
-        True -> list.append(moves, [#(fill, replacement.detach_id)])
-        False -> moves
-      }
-    }
-    _, _ -> moves
-  }
-  let replacement = case first.replacement, second.replacement {
-    None, None -> None
-    None, Some(replacement) ->
-      Some(Replacement(..replacement, source: composed_source))
-    Some(replacement), None ->
-      Some(
-        Replacement(
-          ..replacement,
-          source: composed_source,
-          detach_id: moved(replacement.detach_id, second.moves),
-        ),
-      )
-    Some(prior), Some(next) -> {
-      let detach_id = case
-        prior.source == Some(Active)
-        || next.source == Some(Detached(prior.detach_id))
-      {
-        True -> next.detach_id
-        False -> moved(prior.detach_id, second.moves)
-      }
-      Some(Replacement(prior.was_empty, composed_source, detach_id))
-    }
-  }
-  use change <- result.try(
-    validate(FieldChange(moves, list.reverse(children), replacement)),
-  )
-  Ok(#(change, context))
-}
-
-fn forward_map(change: FieldChange) -> List(#(RegisterId, RegisterId)) {
-  let mapping =
-    list.map(change.moves, fn(move) { #(Detached(move.0), Detached(move.1)) })
-  let mapping = case effectful_destination(change) {
-    None -> mapping
-    Some(id) -> put(mapping, Active, Detached(id))
-  }
-  case source(change) {
-    None -> mapping
-    Some(source) -> put(mapping, source, Active)
-  }
-}
-
-fn allocate_id(
-  revision: Option(StableId),
-  last_local_id: Int,
-) -> Result(#(AtomId, Int), TreeError) {
-  case last_local_id < max_safe_integer {
-    True -> {
-      let id = last_local_id + 1
-      Ok(#(types.AtomId(revision, id), id))
-    }
-    False ->
-      Error(CorruptData(
-        "field.invert.allocation",
-        "Local identifier space is exhausted",
+      use destination <- result.try(composed_destination(
+        first,
+        second,
+        second_moves,
       ))
+      Ok(Some(Replacement(first_change.was_empty, source, destination)))
+    }
   }
 }
 
-/// Return the inverse and its candidate allocation counter.
-/// The caller must accept both results together.
-pub fn invert(
-  change: FieldChange,
+fn composed_destination(
+  first: Option(Replacement),
+  second: Option(Replacement),
+  second_moves: List(#(AtomId, AtomId)),
+) -> Result(AtomId, TreeError) {
+  case first, second {
+    Some(first), None ->
+      Ok(
+        lookup_source(second_moves, first.detach_id)
+        |> option_value(first.detach_id),
+      )
+    None, Some(second) -> Ok(second.detach_id)
+    Some(first), Some(second) ->
+      case
+        first.source == Some(Active)
+        || second.source == Some(Detached(first.detach_id))
+      {
+        True -> Ok(second.detach_id)
+        False ->
+          Ok(
+            lookup_source(second_moves, first.detach_id)
+            |> option_value(first.detach_id),
+          )
+      }
+    None, None -> Error(CorruptData("field change", "replacement is missing"))
+  }
+}
+
+fn lookup_source(
+  moves: List(#(AtomId, AtomId)),
+  source: AtomId,
+) -> Option(AtomId) {
+  case moves {
+    [] -> None
+    [move, ..rest] ->
+      case move.0 == source {
+        True -> Some(move.1)
+        False -> lookup_source(rest, source)
+      }
+  }
+}
+
+fn lookup_by_destination(
+  moves: List(#(AtomId, AtomId)),
+  destination: AtomId,
+) -> Option(AtomId) {
+  case moves {
+    [] -> None
+    [move, ..rest] ->
+      case move.1 == destination {
+        True -> Some(move.0)
+        False -> lookup_by_destination(rest, destination)
+      }
+  }
+}
+
+fn remove_source(
+  moves: List(#(AtomId, AtomId)),
+  source: AtomId,
+) -> List(#(AtomId, AtomId)) {
+  list.filter(moves, fn(move) { move.0 != source })
+}
+
+fn put_child(
+  children: List(#(RegisterId, AtomId)),
+  register: RegisterId,
+  change: AtomId,
+) -> List(#(RegisterId, AtomId)) {
+  case children {
+    [] -> [#(register, change)]
+    [child, ..rest] ->
+      case child.0 == register {
+        True -> [#(register, change), ..rest]
+        False -> [child, ..put_child(rest, register, change)]
+      }
+  }
+}
+
+fn take_child(
+  children: List(#(RegisterId, AtomId)),
+  register: RegisterId,
+) -> #(Option(AtomId), List(#(RegisterId, AtomId))) {
+  case children {
+    [] -> #(None, [])
+    [child, ..rest] ->
+      case child.0 == register {
+        True -> #(Some(child.1), rest)
+        False -> {
+          let #(found, rest) = take_child(rest, register)
+          #(found, [child, ..rest])
+        }
+      }
+  }
+}
+
+fn option_or(first: Option(a), second: Option(a)) -> Option(a) {
+  case second {
+    Some(_) -> second
+    None -> first
+  }
+}
+
+fn option_value(value: Option(a), default: a) -> a {
+  case value {
+    Some(value) -> value
+    None -> default
+  }
+}
+
+fn check_allocator(value: Int) -> Result(Nil, TreeError) {
+  case value >= -1 && value <= max_safe_integer {
+    True -> Ok(Nil)
+    False ->
+      Error(CorruptData("field allocator", "invalid allocation watermark"))
+  }
+}
+
+fn allocate(
+  revision: Option(StableId),
+  max_local_id: Int,
+) -> Result(#(AtomId, Int), TreeError) {
+  case max_local_id < max_safe_integer {
+    True -> {
+      let next = max_local_id + 1
+      Ok(#(AtomId(revision, next), next))
+    }
+    False -> Error(CorruptData("field allocator", "identifiers are exhausted"))
+  }
+}
+
+fn invert_replacement(
+  replacement: Option(Replacement),
   is_rollback: Bool,
-  inverse_revision: Option(StableId),
-  last_local_id: Int,
-) -> Result(#(FieldChange, Int), TreeError) {
-  use change <- result.try(validate(change))
-  use _ <- result.try(
-    case last_local_id >= -1 && last_local_id <= max_safe_integer {
-      True -> Ok(Nil)
-      False ->
-        Error(CorruptData(
-          "field.invert.allocation",
-          "Invalid allocation counter",
-        ))
-    },
-  )
-  let mapping = forward_map(change)
-  let children =
-    list.map(change.child_changes, fn(child) {
-      #(option.unwrap(lookup(mapping, child.0), child.0), child.1)
-    })
-  use #(replacement, last_local_id) <- result.try(case change.replacement {
-    None -> Ok(#(None, last_local_id))
-    Some(replacement) -> {
-      case effectful(replacement) {
+  revision: Option(StableId),
+  max_local_id: Int,
+) -> Result(#(Option(Replacement), Int), TreeError) {
+  case replacement {
+    None -> Ok(#(None, max_local_id))
+    Some(replacement) ->
+      case replacement_effectful(replacement) {
         True -> {
-          use #(detach_id, last_local_id) <- result.try(
-            case replacement.source, is_rollback {
-              Some(Detached(id)), True -> Ok(#(id, last_local_id))
-              _, _ -> allocate_id(inverse_revision, last_local_id)
+          use #(destination, max_local_id) <- result.try(
+            case replacement.source {
+              None -> allocate(revision, max_local_id)
+              Some(Detached(source)) ->
+                case is_rollback {
+                  True -> Ok(#(source, max_local_id))
+                  False -> allocate(revision, max_local_id)
+                }
+              Some(Active) ->
+                Error(CorruptData("field change", "active source is effectful"))
             },
           )
           let source = case replacement.was_empty {
@@ -439,178 +720,136 @@ pub fn invert(
             False -> Some(Detached(replacement.detach_id))
           }
           Ok(#(
-            Some(Replacement(replacement.source == None, source, detach_id)),
-            last_local_id,
+            Some(Replacement(replacement.source == None, source, destination)),
+            max_local_id,
           ))
         }
-        False -> {
+        False ->
           case !is_rollback && replacement.source == Some(Active) {
-            False -> Ok(#(None, last_local_id))
+            False -> Ok(#(None, max_local_id))
             True -> {
-              use #(id, last_local_id) <- result.try(allocate_id(
-                inverse_revision,
-                last_local_id,
+              use #(destination, max_local_id) <- result.try(allocate(
+                revision,
+                max_local_id,
               ))
-              Ok(#(Some(Replacement(False, Some(Active), id)), last_local_id))
+              Ok(#(
+                Some(Replacement(False, Some(Active), destination)),
+                max_local_id,
+              ))
             }
           }
-        }
       }
-    }
-  })
-  use inverse <- result.try(
-    validate(FieldChange(
-      list.map(change.moves, fn(move) { #(move.1, move.0) }),
-      children,
-      replacement,
-    )),
-  )
-  Ok(#(inverse, last_local_id))
+  }
 }
 
-pub fn rebase(
-  change: FieldChange,
-  over: FieldChange,
-  context: context,
-  rebase_child: fn(Option(AtomId), Option(AtomId), AttachState, context) ->
-    Result(#(Option(AtomId), context), TreeError),
-) -> Result(#(FieldChange, context), TreeError) {
-  use change <- result.try(validate(change))
-  use over <- result.try(validate(over))
-  let mapping = forward_map(over)
-  let over_children = grouped(over.child_changes, register_group)
-  use #(children, remaining, context) <- result.try(
-    list.try_fold(
-      change.child_changes,
-      #([], over_children, context),
-      fn(acc, child) {
-        let register = option.unwrap(lookup(mapping, child.0), child.0)
-        use #(node, context) <- result.try(rebase_child(
-          Some(child.1),
-          lookup(acc.1, child.0),
-          attachment(register),
-          acc.2,
-        ))
-        let children = case node {
-          None -> acc.0
-          Some(node) -> [#(register, node), ..acc.0]
-        }
-        Ok(#(
-          children,
-          list.filter(acc.1, fn(entry) { entry.0 != child.0 }),
-          context,
-        ))
-      },
-    ),
-  )
-  use #(children, context) <- result.try(
-    list.try_fold(remaining, #(children, context), fn(acc, child) {
-      let register = option.unwrap(lookup(mapping, child.0), child.0)
-      use #(node, context) <- result.try(rebase_child(
+fn put_register(
+  mapping: List(#(RegisterId, RegisterId)),
+  source: RegisterId,
+  destination: RegisterId,
+) -> List(#(RegisterId, RegisterId)) {
+  case mapping {
+    [] -> [#(source, destination)]
+    [entry, ..rest] ->
+      case entry.0 == source {
+        True -> [#(source, destination), ..rest]
+        False -> [entry, ..put_register(rest, source, destination)]
+      }
+  }
+}
+
+fn lookup_register(
+  mapping: List(#(RegisterId, RegisterId)),
+  source: RegisterId,
+) -> Option(RegisterId) {
+  case mapping {
+    [] -> None
+    [entry, ..rest] ->
+      case entry.0 == source {
+        True -> Some(entry.1)
+        False -> lookup_register(rest, source)
+      }
+  }
+}
+
+fn rebase_authored_children(
+  children: List(#(RegisterId, AtomId)),
+  over_children: List(#(RegisterId, AtomId)),
+  forward: List(#(RegisterId, RegisterId)),
+  state: s,
+  rebase_child: fn(Option(AtomId), Option(AtomId), AttachState, s) ->
+    Result(#(Option(AtomId), s), TreeError),
+  output: List(#(RegisterId, AtomId)),
+) -> Result(
+  #(List(#(RegisterId, AtomId)), List(#(RegisterId, AtomId)), s),
+  TreeError,
+) {
+  case children {
+    [] -> Ok(#(list.reverse(output), over_children, state))
+    [child, ..rest] -> {
+      let #(over_child, over_children) = take_child(over_children, child.0)
+      let register = lookup_register(forward, child.0) |> option_value(child.0)
+      use #(rebased, state) <- result.try(rebase_child(
+        Some(child.1),
+        over_child,
+        attach_state(register),
+        state,
+      ))
+      let output = case rebased {
+        None -> output
+        Some(rebased) -> [#(register, rebased), ..output]
+      }
+      rebase_authored_children(
+        rest,
+        over_children,
+        forward,
+        state,
+        rebase_child,
+        output,
+      )
+    }
+  }
+}
+
+fn rebase_base_children(
+  children: List(#(RegisterId, AtomId)),
+  forward: List(#(RegisterId, RegisterId)),
+  state: s,
+  rebase_child: fn(Option(AtomId), Option(AtomId), AttachState, s) ->
+    Result(#(Option(AtomId), s), TreeError),
+  output: List(#(RegisterId, AtomId)),
+) -> Result(#(List(#(RegisterId, AtomId)), s), TreeError) {
+  case children {
+    [] -> Ok(#(output, state))
+    [child, ..rest] -> {
+      let register = lookup_register(forward, child.0) |> option_value(child.0)
+      use #(rebased, state) <- result.try(rebase_child(
         None,
         Some(child.1),
-        attachment(register),
-        acc.1,
+        attach_state(register),
+        state,
       ))
-      let children = case node {
-        None -> acc.0
-        Some(node) -> [#(register, node), ..acc.0]
+      let output = case rebased {
+        None -> output
+        Some(rebased) -> list.append(output, [#(register, rebased)])
       }
-      Ok(#(children, context))
-    }),
-  )
-  let moves =
-    list.map(change.moves, fn(move) {
-      #(move.0, option.unwrap(lookup(over.moves, move.0), move.1))
-    })
-  let replacement =
-    option.map(change.replacement, fn(replacement) {
-      let was_empty = case over.replacement {
-        None -> replacement.was_empty
-        Some(base) -> base.source == None
-      }
-      Replacement(
-        ..replacement,
-        was_empty:,
-        source: option.map(replacement.source, fn(register) {
-          option.unwrap(lookup(mapping, register), register)
-        }),
-      )
-    })
-  use change <- result.try(
-    validate(FieldChange(moves, list.reverse(children), replacement)),
-  )
-  Ok(#(change, context))
+      rebase_base_children(rest, forward, state, rebase_child, output)
+    }
+  }
 }
 
-fn attachment(register: RegisterId) -> AttachState {
+fn attach_state(register: RegisterId) -> AttachState {
   case register {
     Active -> Attached
     Detached(_) -> DetachedNode
   }
 }
 
-pub fn into_delta(
-  change: FieldChange,
-  delta_from_child: fn(AtomId) ->
-    Result(List(#(String, forest.FieldDelta)), TreeError),
-) -> Result(FieldDelta, TreeError) {
-  use change <- result.try(validate(change))
-  let mark = case change.replacement {
-    Some(replacement) if replacement.source != Some(Active) -> {
-      case effectful(replacement) {
-        False -> None
-        True -> {
-          let detach = case replacement.was_empty {
-            True -> None
-            False -> Some(replacement.detach_id)
-          }
-          let attach = case replacement.source {
-            Some(Detached(id)) -> Some(id)
-            _ -> None
-          }
-          Some(forest.Mark(1, attach, detach, []))
-        }
-      }
-    }
-    _ -> None
+fn replace_register(
+  register: RegisterId,
+  replace: fn(AtomId) -> Result(AtomId, TreeError),
+) -> Result(RegisterId, TreeError) {
+  case register {
+    Active -> Ok(Active)
+    Detached(id) -> replace(id) |> result.map(Detached)
   }
-  use #(mark, globals) <- result.try(
-    list.try_fold(change.child_changes, #(mark, []), fn(acc, child) {
-      use fields <- result.try(delta_from_child(child.1))
-      case child.0 {
-        Active -> {
-          let mark = option.unwrap(acc.0, forest.Mark(1, None, None, []))
-          Ok(#(Some(forest.Mark(..mark, fields:)), acc.1))
-        }
-        Detached(id) ->
-          Ok(#(acc.0, [forest.DetachedChange(id, fields), ..acc.1]))
-      }
-    }),
-  )
-  let delta =
-    FieldDelta(
-      local: option.map(mark, fn(mark) { forest.FieldDelta([mark]) }),
-      global: list.reverse(globals),
-      rename: list.map(change.moves, fn(move) {
-        forest.Rename(move.0, move.1, 1)
-      }),
-    )
-  use _ <- result.try(
-    forest.delta(
-      forest.DeltaData(
-        latest_revision: None,
-        fields: case delta.local {
-          None -> []
-          Some(local) -> [#("rootFieldKey", local)]
-        },
-        build: [],
-        refreshers: [],
-        global: delta.global,
-        rename: delta.rename,
-        destroy: [],
-      ),
-    ),
-  )
-  Ok(delta)
 }
