@@ -468,6 +468,88 @@ pub fn invert(
   Ok(#(inverse, last_local_id))
 }
 
+pub fn rebase(
+  change: FieldChange,
+  over: FieldChange,
+  context: context,
+  rebase_child: fn(Option(AtomId), Option(AtomId), AttachState, context) ->
+    Result(#(Option(AtomId), context), TreeError),
+) -> Result(#(FieldChange, context), TreeError) {
+  use change <- result.try(validate(change))
+  use over <- result.try(validate(over))
+  let mapping = forward_map(over)
+  let over_children = grouped(over.child_changes, register_group)
+  use #(children, remaining, context) <- result.try(
+    list.try_fold(
+      change.child_changes,
+      #([], over_children, context),
+      fn(acc, child) {
+        let register = option.unwrap(lookup(mapping, child.0), child.0)
+        use #(node, context) <- result.try(rebase_child(
+          Some(child.1),
+          lookup(acc.1, child.0),
+          attachment(register),
+          acc.2,
+        ))
+        let children = case node {
+          None -> acc.0
+          Some(node) -> [#(register, node), ..acc.0]
+        }
+        Ok(#(
+          children,
+          list.filter(acc.1, fn(entry) { entry.0 != child.0 }),
+          context,
+        ))
+      },
+    ),
+  )
+  use #(children, context) <- result.try(
+    list.try_fold(remaining, #(children, context), fn(acc, child) {
+      let register = option.unwrap(lookup(mapping, child.0), child.0)
+      use #(node, context) <- result.try(rebase_child(
+        None,
+        Some(child.1),
+        attachment(register),
+        acc.1,
+      ))
+      let children = case node {
+        None -> acc.0
+        Some(node) -> [#(register, node), ..acc.0]
+      }
+      Ok(#(children, context))
+    }),
+  )
+  let moves =
+    list.map(change.moves, fn(move) {
+      #(move.0, option.unwrap(lookup(over.moves, move.0), move.1))
+    })
+  let replacement =
+    option.map(change.replacement, fn(replacement) {
+      let was_empty = case over.replacement {
+        None -> replacement.was_empty
+        Some(base) -> base.source == None
+      }
+      Replacement(
+        ..replacement,
+        was_empty:,
+        source: option.map(replacement.source, fn(register) {
+          option.unwrap(lookup(mapping, register), register)
+        }),
+      )
+    })
+  use change <- result.try(
+    validate(FieldChange(moves, list.reverse(children), replacement)),
+  )
+  Ok(#(change, context))
+}
+
+fn attachment(register: RegisterId) -> AttachState {
+  case register {
+    Active -> Attached
+    Detached(_) -> DetachedNode
+  }
+}
+
 pub fn into_delta(
   change: FieldChange,
   delta_from_child: fn(AtomId) ->

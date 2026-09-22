@@ -632,3 +632,196 @@ pub fn shared_tree_field_inverse_restores_original_identity_test() -> Nil {
     list.length(data.detached) |> expect.to_equal(1)
   })
 }
+
+fn no_rebase(
+  _: Option(types.AtomId),
+  _: Option(types.AtomId),
+  _: field.AttachState,
+  _: Nil,
+) -> Result(#(Option(types.AtomId), Nil), types.TreeError) {
+  Error(types.CorruptData("test.child", "Unexpected child callback"))
+}
+
+pub fn shared_tree_field_rebase_visits_base_only_child_test() -> Nil {
+  let node = atom(40)
+  let base = field.FieldChange([], [#(field.Active, node)], None)
+  let callback = fn(child, over, attachment, calls) {
+    Ok(#(over, [#(child, over, attachment), ..calls]))
+  }
+  let assert Ok(#(rebased, calls)) =
+    field.rebase(field.empty(), base, [], callback)
+  calls |> expect.to_equal([#(None, Some(node), field.Attached)])
+  rebased.child_changes |> expect.to_equal([#(field.Active, node)])
+}
+
+pub fn shared_tree_field_rebase_updates_occupancy_not_authored_detach_test() -> Nil {
+  [
+    #(
+      field.set(True, atom(0), atom(1)),
+      field.set(True, atom(2), atom(3)),
+      field.set(False, atom(0), atom(1)),
+    ),
+    #(
+      field.set(True, atom(2), atom(3)),
+      field.set(True, atom(0), atom(1)),
+      field.set(False, atom(2), atom(3)),
+    ),
+    #(
+      field.set(False, atom(0), atom(1)),
+      field.clear(False, atom(3)),
+      field.set(True, atom(0), atom(1)),
+    ),
+    #(
+      field.clear(False, atom(1)),
+      field.set(False, atom(2), atom(3)),
+      field.clear(False, atom(1)),
+    ),
+    #(
+      field.clear(False, atom(1)),
+      field.clear(False, atom(3)),
+      field.clear(True, atom(1)),
+    ),
+  ]
+  |> list.each(fn(item) {
+    field.rebase(item.0, item.1, Nil, no_rebase)
+    |> expect.to_equal(Ok(#(item.2, Nil)))
+  })
+}
+
+pub fn shared_tree_field_rebase_swaps_simultaneously_test() -> Nil {
+  let change =
+    field.FieldChange(
+      [],
+      [
+        #(field.Detached(atom(4)), atom(40)),
+        #(field.Detached(atom(5)), atom(41)),
+      ],
+      None,
+    )
+  let base =
+    field.FieldChange([#(atom(4), atom(5)), #(atom(5), atom(4))], [], None)
+  let callback = fn(node, over, state, calls) {
+    Ok(#(node, list.append(calls, [#(node, over, state)])))
+  }
+  let assert Ok(#(rebased, calls)) = field.rebase(change, base, [], callback)
+  rebased.child_changes
+  |> expect.to_equal([
+    #(field.Detached(atom(5)), atom(40)),
+    #(field.Detached(atom(4)), atom(41)),
+  ])
+  calls
+  |> expect.to_equal([
+    #(Some(atom(40)), None, field.DetachedNode),
+    #(Some(atom(41)), None, field.DetachedNode),
+  ])
+}
+
+pub fn shared_tree_field_rebase_detach_and_revive_route_identity_test() -> Nil {
+  let change = field.FieldChange([], [#(field.Active, atom(40))], None)
+  let callback = fn(node, over, state, calls) {
+    Ok(#(node, list.append(calls, [#(node, over, state)])))
+  }
+  let assert Ok(#(detached, calls)) =
+    field.rebase(change, field.clear(False, atom(1)), [], callback)
+  detached.child_changes
+  |> expect.to_equal([#(field.Detached(atom(1)), atom(40))])
+  calls |> expect.to_equal([#(Some(atom(40)), None, field.DetachedNode)])
+  let assert Ok(#(revived, calls)) =
+    field.rebase(detached, field.set(True, atom(1), atom(2)), [], callback)
+  revived |> expect.to_equal(change)
+  calls |> expect.to_equal([#(Some(atom(40)), None, field.Attached)])
+}
+
+pub fn shared_tree_field_rebase_reservations_do_not_detach_children_test() -> Nil {
+  let child = field.FieldChange([], [#(field.Active, atom(40))], None)
+  let pin =
+    field.FieldChange(
+      [],
+      [],
+      Some(field.Replacement(False, Some(field.Active), atom(1))),
+    )
+  [field.clear(True, atom(1)), pin]
+  |> list.each(fn(base) {
+    let assert Ok(#(rebased, attachment)) =
+      field.rebase(child, base, None, fn(node, _, attached, _) {
+        Ok(#(node, Some(attached)))
+      })
+    rebased |> expect.to_equal(child)
+    attachment |> expect.to_equal(Some(field.Attached))
+  })
+}
+
+pub fn shared_tree_field_rebase_callback_updates_and_drops_children_test() -> Nil {
+  let child =
+    field.FieldChange(
+      [],
+      [#(field.Active, atom(40)), #(field.Detached(atom(4)), atom(41))],
+      None,
+    )
+  let base =
+    field.FieldChange(
+      [],
+      [#(field.Active, atom(42)), #(field.Detached(atom(5)), atom(43))],
+      None,
+    )
+  let callback = fn(node, over, attachment, calls) {
+    let result = case node, over {
+      Some(types.AtomId(_, 40)), Some(types.AtomId(_, 42)) -> Some(atom(50))
+      Some(types.AtomId(_, 41)), None -> None
+      None, Some(types.AtomId(_, 43)) -> Some(atom(51))
+      _, _ -> Some(atom(-1))
+    }
+    Ok(#(result, list.append(calls, [#(node, over, attachment)])))
+  }
+  let assert Ok(#(rebased, calls)) = field.rebase(child, base, [], callback)
+  rebased.child_changes
+  |> expect.to_equal([
+    #(field.Active, atom(50)),
+    #(field.Detached(atom(5)), atom(51)),
+  ])
+  calls
+  |> expect.to_equal([
+    #(Some(atom(40)), Some(atom(42)), field.Attached),
+    #(Some(atom(41)), None, field.DetachedNode),
+    #(None, Some(atom(43)), field.DetachedNode),
+  ])
+}
+
+pub fn shared_tree_field_rebase_moves_update_destination_only_test() -> Nil {
+  let change = field.FieldChange([#(atom(0), atom(1))], [], None)
+  let base = field.FieldChange([#(atom(0), atom(2))], [], None)
+  field.rebase(change, base, Nil, no_rebase)
+  |> expect.to_equal(
+    Ok(#(field.FieldChange([#(atom(0), atom(2))], [], None), Nil)),
+  )
+}
+
+pub fn shared_tree_field_rebase_error_does_not_return_partial_context_test() -> Nil {
+  let change =
+    field.FieldChange(
+      [],
+      [#(field.Active, atom(40)), #(field.Detached(atom(1)), atom(41))],
+      None,
+    )
+  let error = types.InvalidHistory("Child rebase failed")
+  let original = [atom(99)]
+  let callback = fn(node, _, _, state) {
+    case node {
+      Some(types.AtomId(_, 40)) -> Ok(#(node, [atom(40), ..state]))
+      _ -> Error(error)
+    }
+  }
+  field.rebase(change, field.empty(), original, callback)
+  |> expect.to_equal(Error(error))
+  original |> expect.to_equal([atom(99)])
+  let invalid = field.set(True, atom(-1), atom(0))
+  let assert Error(types.CorruptData(_, _)) =
+    field.rebase(change, invalid, original, fn(_, _, _, _) {
+      Error(types.InvalidHistory("Input validation did not run"))
+    })
+  let assert Error(types.CorruptData(_, _)) =
+    field.rebase(change, field.empty(), Nil, fn(_, _, _, _) {
+      Ok(#(Some(atom(-1)), Nil))
+    })
+  Nil
+}
