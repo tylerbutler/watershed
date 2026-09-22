@@ -33,12 +33,32 @@ test("summary foundations use the pinned upload manager for bytes and references
   assert.deepEqual(
     value.input.scenarios.map(({ label }) => label),
     [
+      "snapshot-entries",
       "emitted-entries",
       "missing-parent",
       "missing-path",
       "wrong-kind",
       "malformed-percent-encoding",
     ],
+  );
+
+  const snapshotEntries = value.expected.observations.find(
+    ({ label }) => label === "snapshot-entries",
+  );
+  assert(snapshotEntries);
+  assert(
+    snapshotEntries.entries.some(
+      ({ components, kind }) =>
+        components.join("/") === ".protocol" && kind === "tree",
+    ),
+  );
+  assert(
+    snapshotEntries.entries.some(
+      ({ components, kind, bytes }) =>
+        components.at(-1) === ".metadata"
+        && kind === "blob"
+        && typeof bytes === "string",
+    ),
   );
 
   const emitted = value.expected.observations.find(
@@ -51,6 +71,7 @@ test("summary foundations use the pinned upload manager for bytes and references
       [["binary"], "blob"],
       [["empty"], "blob"],
       [["text"], "blob"],
+      [["plus+cash$"], "blob"],
       [["slash/name"], "tree"],
       [["slash/name", "nested"], "blob"],
       [["schema-copy"], "tree"],
@@ -70,6 +91,11 @@ test("summary foundations use the pinned upload manager for bytes and references
   assert.equal(
     emitted.entries.find(({ components }) => components[0] === "text").bytes,
     Buffer.from("héllo", "utf8").toString("base64"),
+  );
+  assert.equal(
+    emitted.entries.find(({ components }) => components[0] === "plus+cash$")
+      .encodedName,
+    "plus%2Bcash%24",
   );
   assert.equal(
     emitted.entries.find(({ components }) => components[0] === "slash/name")

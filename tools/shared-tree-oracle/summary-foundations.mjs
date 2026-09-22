@@ -81,6 +81,7 @@ function previousPath() {
 
 function scenarioInput() {
   return [
+    { label: "snapshot-entries" },
     {
       label: "emitted-entries",
       summary: [
@@ -92,6 +93,7 @@ function scenarioInput() {
           bytes: Buffer.from("héllo", "utf8").toString("base64"),
           text: "héllo",
         },
+        { name: "plus+cash$", kind: "blob", bytes: "Kw==" },
         {
           name: "slash/name",
           kind: "tree",
@@ -155,6 +157,44 @@ function scenarioInput() {
       }],
     },
   ];
+}
+
+function snapshotObservation(snapshot) {
+  const entries = [];
+  function visit(tree, components) {
+    entries.push({
+      components,
+      kind: "tree",
+      storageId: tree.id,
+    });
+    const children = [
+      ...Object.entries(tree.blobs).map(([name, id]) => ({
+        name,
+        id,
+        kind: "blob",
+      })),
+      ...Object.entries(tree.trees).map(([name, value]) => ({
+        name,
+        value,
+        kind: "tree",
+      })),
+    ].sort((left, right) => left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    for (const child of children) {
+      const path = [...components, child.name];
+      if (child.kind === "blob") {
+        entries.push({
+          components: path,
+          kind: "blob",
+          storageId: child.id,
+          bytes: snapshot.blobs[child.id],
+        });
+      } else {
+        visit(child.value, path);
+      }
+    }
+  }
+  visit(snapshot.tree, []);
+  return { label: "snapshot-entries", entries };
 }
 
 function toSummaryTree(entries, SummaryType) {
@@ -287,6 +327,7 @@ export async function captureSummaryFoundations(existingCases) {
 
   const { SummaryTreeUploadManager, SummaryType } = await oracleModules();
   const scenarios = scenarioInput();
+  const emittedScenario = scenarios.find(({ label }) => label === "emitted-entries");
   const emittedRaw = recordingManager();
   const manager = new SummaryTreeUploadManager(
     emittedRaw.manager,
@@ -294,13 +335,14 @@ export async function captureSummaryFoundations(existingCases) {
     async () => previousSnapshot.tree,
   );
   const rootId = await manager.writeSummaryTree(
-    toSummaryTree(scenarios[0].summary, SummaryType),
+    toSummaryTree(emittedScenario.summary, SummaryType),
     "previous",
     "channel",
   );
 
   const refused = [];
-  for (const scenario of scenarios.slice(1)) {
+  for (const scenario of scenarios.filter(({ label }) =>
+    label !== "snapshot-entries" && label !== "emitted-entries")) {
     refused.push(await refusedObservation(
       scenario,
       SummaryTreeUploadManager,
@@ -320,6 +362,7 @@ export async function captureSummaryFoundations(existingCases) {
     },
     expected: {
       observations: [
+        snapshotObservation(previousSnapshot),
         emittedObservation(rootId, emittedRaw, previousSnapshot),
         ...refused.map(({ observation }) => observation),
       ],
