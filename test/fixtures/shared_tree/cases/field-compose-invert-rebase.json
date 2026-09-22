@@ -151,7 +151,2247 @@
         ],
         "childChanges": []
       }
-    }
+    },
+    "revisionTable": [
+      {
+        "revision": 0,
+        "stableId": "00000000-0000-4000-b000-000000000000"
+      },
+      {
+        "revision": 1,
+        "stableId": "00000000-0000-4000-b000-000000000001"
+      },
+      {
+        "revision": 2,
+        "stableId": "00000000-0000-4000-b000-000000000002"
+      },
+      {
+        "revision": 3,
+        "stableId": "00000000-0000-4000-b000-000000000003"
+      }
+    ],
+    "scenarios": [
+      {
+        "id": "edit-empty",
+        "changes": {},
+        "actions": [
+          {
+            "id": "set-empty",
+            "op": "set",
+            "result": "set",
+            "wasEmpty": true,
+            "fill": {
+              "revision": 0,
+              "localId": 10
+            },
+            "detach": {
+              "revision": 0,
+              "localId": 11
+            }
+          }
+        ]
+      },
+      {
+        "id": "edit-occupied",
+        "changes": {},
+        "actions": [
+          {
+            "id": "set-occupied",
+            "op": "set",
+            "result": "set",
+            "wasEmpty": false,
+            "fill": {
+              "revision": 0,
+              "localId": 12
+            },
+            "detach": {
+              "revision": 0,
+              "localId": 13
+            }
+          }
+        ]
+      },
+      {
+        "id": "clear-empty",
+        "changes": {},
+        "actions": [
+          {
+            "id": "clear-empty",
+            "op": "clear",
+            "result": "clear",
+            "wasEmpty": true,
+            "detach": {
+              "revision": 0,
+              "localId": 30
+            }
+          }
+        ]
+      },
+      {
+        "id": "clear-occupied",
+        "changes": {},
+        "actions": [
+          {
+            "id": "clear-occupied",
+            "op": "clear",
+            "result": "clear",
+            "wasEmpty": false,
+            "detach": {
+              "revision": 0,
+              "localId": 31
+            }
+          }
+        ]
+      },
+      {
+        "id": "compose-set-set",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 10
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 11
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 1,
+                  "localId": 22
+                }
+              },
+              "detachId": {
+                "revision": 1,
+                "localId": 23
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-set-clear",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 10
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 11
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 1,
+                "localId": 33
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-clear-set",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 0,
+                "localId": 31
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 1,
+                  "localId": 20
+                }
+              },
+              "detachId": {
+                "revision": 1,
+                "localId": 21
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-clear-clear",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 0,
+                "localId": 31
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": null,
+              "detachId": {
+                "revision": 1,
+                "localId": 32
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-child-both",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 40
+                  }
+                },
+                {
+                  "revision": 0,
+                  "localId": 140
+                }
+              ]
+            ],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 40
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 41
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 1,
+                  "localId": 141
+                }
+              ]
+            ],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 140
+                },
+                "over": {
+                  "revision": 1,
+                  "localId": 141
+                },
+                "result": {
+                  "revision": 1,
+                  "localId": 142
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "compose-child-first",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 0,
+                  "localId": 143
+                }
+              ]
+            ],
+            "replacement": null
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 143
+                },
+                "over": null,
+                "result": {
+                  "revision": 0,
+                  "localId": 144
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "compose-child-second",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": null
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 1,
+                  "localId": 145
+                }
+              ]
+            ],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": [
+              {
+                "input": null,
+                "over": {
+                  "revision": 1,
+                  "localId": 145
+                },
+                "result": {
+                  "revision": 1,
+                  "localId": 146
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "compose-move-chain",
+        "changes": {
+          "first": {
+            "moves": [
+              [
+                {
+                  "revision": 0,
+                  "localId": 50
+                },
+                {
+                  "revision": 0,
+                  "localId": 51
+                }
+              ]
+            ],
+            "childChanges": [],
+            "replacement": null
+          },
+          "second": {
+            "moves": [
+              [
+                {
+                  "revision": 0,
+                  "localId": 51
+                },
+                {
+                  "revision": 1,
+                  "localId": 52
+                }
+              ]
+            ],
+            "childChanges": [],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-revive",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 53
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 54
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 54
+                }
+              },
+              "detachId": {
+                "revision": 1,
+                "localId": 55
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-pin",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 12
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 13
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "active"
+              },
+              "detachId": {
+                "revision": 1,
+                "localId": 56
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-ordering",
+        "changes": {
+          "first": {
+            "moves": [
+              [
+                {
+                  "revision": 0,
+                  "localId": 60
+                },
+                {
+                  "revision": 0,
+                  "localId": 61
+                }
+              ],
+              [
+                {
+                  "revision": 1,
+                  "localId": 60
+                },
+                {
+                  "revision": 1,
+                  "localId": 61
+                }
+              ],
+              [
+                {
+                  "revision": 0,
+                  "localId": 62
+                },
+                {
+                  "revision": 0,
+                  "localId": 63
+                }
+              ]
+            ],
+            "childChanges": [],
+            "replacement": null
+          },
+          "second": {
+            "moves": [
+              [
+                {
+                  "revision": 0,
+                  "localId": 61
+                },
+                {
+                  "revision": 1,
+                  "localId": 64
+                }
+              ]
+            ],
+            "childChanges": [],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "invert-set-rollback",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 12
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 13
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "result": "inverse",
+            "change": "change",
+            "isRollback": true,
+            "inverseRevision": 2,
+            "lastLocalId": 200
+          }
+        ]
+      },
+      {
+        "id": "invert-set-undo",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 12
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 13
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "result": "inverse",
+            "change": "change",
+            "isRollback": false,
+            "inverseRevision": 2,
+            "lastLocalId": 200
+          }
+        ]
+      },
+      {
+        "id": "invert-clear",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 0,
+                "localId": 31
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "result": "inverse",
+            "change": "change",
+            "isRollback": false,
+            "inverseRevision": 2,
+            "lastLocalId": 201
+          }
+        ]
+      },
+      {
+        "id": "invert-pin",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "active"
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 70
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "result": "inverse",
+            "change": "change",
+            "isRollback": false,
+            "inverseRevision": 2,
+            "lastLocalId": 202
+          }
+        ]
+      },
+      {
+        "id": "invert-empty-clear",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": null,
+              "detachId": {
+                "revision": 0,
+                "localId": 30
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "result": "inverse",
+            "change": "change",
+            "isRollback": false,
+            "inverseRevision": 2,
+            "lastLocalId": 203
+          }
+        ]
+      },
+      {
+        "id": "rebase-set-set-orders",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 10
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 11
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 1,
+                  "localId": 20
+                }
+              },
+              "detachId": {
+                "revision": 1,
+                "localId": 21
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "first-over-second",
+            "op": "rebase",
+            "result": "firstOverSecond",
+            "change": "first",
+            "over": "second",
+            "callbacks": []
+          },
+          {
+            "id": "second-over-first",
+            "op": "rebase",
+            "result": "secondOverFirst",
+            "change": "second",
+            "over": "first",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-set-clear-orders",
+        "changes": {
+          "set": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 10
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 11
+              }
+            }
+          },
+          "clear": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": null,
+              "detachId": {
+                "revision": 1,
+                "localId": 32
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "set-over-clear",
+            "op": "rebase",
+            "result": "setOverClear",
+            "change": "set",
+            "over": "clear",
+            "callbacks": []
+          },
+          {
+            "id": "clear-over-set",
+            "op": "rebase",
+            "result": "clearOverSet",
+            "change": "clear",
+            "over": "set",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-clear-clear",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 0,
+                "localId": 31
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 1,
+                "localId": 33
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "result": "rebased",
+            "change": "first",
+            "over": "second",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-both",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 0,
+                  "localId": 150
+                }
+              ]
+            ],
+            "replacement": null
+          },
+          "over": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 1,
+                  "localId": 151
+                }
+              ]
+            ],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "result": "rebased",
+            "change": "change",
+            "over": "over",
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 150
+                },
+                "over": {
+                  "revision": 1,
+                  "localId": 151
+                },
+                "state": "attached",
+                "result": {
+                  "revision": 1,
+                  "localId": 152
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-first",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 0,
+                  "localId": 153
+                }
+              ]
+            ],
+            "replacement": null
+          },
+          "over": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "result": "rebased",
+            "change": "change",
+            "over": "over",
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 153
+                },
+                "over": null,
+                "state": "attached",
+                "result": {
+                  "revision": 0,
+                  "localId": 154
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-base-only",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": null
+          },
+          "over": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 1,
+                  "localId": 155
+                }
+              ]
+            ],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "result": "rebased",
+            "change": "change",
+            "over": "over",
+            "callbacks": [
+              {
+                "input": null,
+                "over": {
+                  "revision": 1,
+                  "localId": 155
+                },
+                "state": "attached",
+                "result": {
+                  "revision": 1,
+                  "localId": 156
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-drop",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 80
+                  }
+                },
+                {
+                  "revision": 0,
+                  "localId": 157
+                }
+              ]
+            ],
+            "replacement": null
+          },
+          "over": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 80
+                  }
+                },
+                {
+                  "revision": 1,
+                  "localId": 158
+                }
+              ]
+            ],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "result": "rebased",
+            "change": "change",
+            "over": "over",
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 157
+                },
+                "over": {
+                  "revision": 1,
+                  "localId": 158
+                },
+                "state": "detached",
+                "result": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-remove-revive",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 0,
+                  "localId": 160
+                }
+              ]
+            ],
+            "replacement": null
+          },
+          "over": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 1,
+                "localId": 33
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "remove",
+            "op": "rebase",
+            "result": "removed",
+            "change": "change",
+            "over": "over",
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 160
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 161
+                }
+              }
+            ]
+          },
+          {
+            "id": "revive",
+            "op": "rebase",
+            "result": "revived",
+            "change": "removed",
+            "over": "over",
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 161
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 162
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-empty-reservation",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 10
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 11
+              }
+            }
+          },
+          "over": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": null,
+              "detachId": {
+                "revision": 1,
+                "localId": 32
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "result": "rebased",
+            "change": "change",
+            "over": "over",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-pinned-reservation",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "active"
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 81
+              }
+            }
+          },
+          "over": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": null,
+              "detachId": {
+                "revision": 1,
+                "localId": 32
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "result": "rebased",
+            "change": "change",
+            "over": "over",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-swap",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [
+              [
+                {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 4
+                  }
+                },
+                {
+                  "revision": 0,
+                  "localId": 40
+                }
+              ],
+              [
+                {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 5
+                  }
+                },
+                {
+                  "revision": 0,
+                  "localId": 41
+                }
+              ]
+            ],
+            "replacement": null
+          },
+          "over": {
+            "moves": [
+              [
+                {
+                  "revision": 0,
+                  "localId": 4
+                },
+                {
+                  "revision": 0,
+                  "localId": 5
+                }
+              ],
+              [
+                {
+                  "revision": 0,
+                  "localId": 5
+                },
+                {
+                  "revision": 0,
+                  "localId": 4
+                }
+              ]
+            ],
+            "childChanges": [],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "result": "rebased",
+            "change": "change",
+            "over": "over",
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 40
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 40
+                }
+              },
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 41
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 41
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "replace-all-identities",
+        "changes": {
+          "change": {
+            "moves": [
+              [
+                {
+                  "revision": 0,
+                  "localId": 90
+                },
+                {
+                  "revision": 1,
+                  "localId": 91
+                }
+              ]
+            ],
+            "childChanges": [
+              [
+                {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 92
+                  }
+                },
+                {
+                  "revision": 1,
+                  "localId": 192
+                }
+              ],
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 0,
+                  "localId": 193
+                }
+              ]
+            ],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 1,
+                  "localId": 93
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 94
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "replace",
+            "op": "replaceRevisions",
+            "result": "replaced",
+            "change": "change",
+            "obsolete": [
+              0,
+              1
+            ],
+            "updated": 3
+          }
+        ]
+      },
+      {
+        "id": "replace-anonymous",
+        "changes": {
+          "change": {
+            "moves": [
+              [
+                {
+                  "revision": null,
+                  "localId": 95
+                },
+                {
+                  "revision": 0,
+                  "localId": 96
+                }
+              ]
+            ],
+            "childChanges": [
+              [
+                {
+                  "kind": "detached",
+                  "id": {
+                    "revision": null,
+                    "localId": 97
+                  }
+                },
+                {
+                  "revision": null,
+                  "localId": 197
+                }
+              ]
+            ],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": null,
+                  "localId": 98
+                }
+              },
+              "detachId": {
+                "revision": null,
+                "localId": 99
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "replace",
+            "op": "replaceRevisions",
+            "result": "replaced",
+            "change": "change",
+            "obsolete": [
+              null
+            ],
+            "updated": 3
+          }
+        ]
+      },
+      {
+        "id": "replace-unmatched",
+        "changes": {
+          "change": {
+            "moves": [
+              [
+                {
+                  "revision": 0,
+                  "localId": 100
+                },
+                {
+                  "revision": 1,
+                  "localId": 101
+                }
+              ]
+            ],
+            "childChanges": [
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 1,
+                  "localId": 200
+                }
+              ]
+            ],
+            "replacement": null
+          }
+        },
+        "actions": [
+          {
+            "id": "replace",
+            "op": "replaceRevisions",
+            "result": "replaced",
+            "change": "change",
+            "obsolete": [
+              2
+            ],
+            "updated": 3
+          }
+        ]
+      },
+      {
+        "id": "delta-local-global",
+        "changes": {
+          "change": {
+            "moves": [
+              [
+                {
+                  "revision": 0,
+                  "localId": 110
+                },
+                {
+                  "revision": 1,
+                  "localId": 111
+                }
+              ]
+            ],
+            "childChanges": [
+              [
+                {
+                  "kind": "active"
+                },
+                {
+                  "revision": 0,
+                  "localId": 210
+                }
+              ],
+              [
+                {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 112
+                  }
+                },
+                {
+                  "revision": 1,
+                  "localId": 211
+                }
+              ]
+            ],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 113
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 114
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "delta",
+            "op": "intoDelta",
+            "change": "change",
+            "childDeltas": [
+              {
+                "node": {
+                  "revision": 0,
+                  "localId": 210
+                },
+                "fields": [
+                  [
+                    "active-child",
+                    {
+                      "marks": [
+                        {
+                          "count": 1
+                        }
+                      ]
+                    }
+                  ]
+                ]
+              },
+              {
+                "node": {
+                  "revision": 1,
+                  "localId": 211
+                },
+                "fields": [
+                  [
+                    "detached-child",
+                    {
+                      "marks": [
+                        {
+                          "count": 1
+                        }
+                      ]
+                    }
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "forest-compose",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 10
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 11
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 1,
+                "localId": 33
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "composed",
+            "left": "first",
+            "right": "second",
+            "callbacks": []
+          },
+          {
+            "id": "apply",
+            "op": "intoDelta",
+            "change": "composed",
+            "childDeltas": [],
+            "applyToForest": true,
+            "revision": 1
+          }
+        ],
+        "forest": {
+          "schema": {
+            "rootField": "root",
+            "cardinality": "optional",
+            "values": "json-compatible"
+          },
+          "initialRoot": {
+            "present": false,
+            "value": null
+          },
+          "builds": [
+            {
+              "id": {
+                "revision": 0,
+                "localId": 10
+              },
+              "value": "first"
+            }
+          ],
+          "detachedRegisters": [
+            {
+              "id": {
+                "revision": 0,
+                "localId": 10
+              },
+              "value": "first"
+            }
+          ]
+        }
+      },
+      {
+        "id": "forest-inverse",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 12
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 13
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "result": "inverse",
+            "change": "change",
+            "isRollback": true,
+            "inverseRevision": 2,
+            "lastLocalId": 220
+          },
+          {
+            "id": "apply-change",
+            "op": "intoDelta",
+            "change": "change",
+            "childDeltas": [],
+            "applyToForest": true,
+            "revision": 0
+          },
+          {
+            "id": "apply-inverse",
+            "op": "intoDelta",
+            "change": "inverse",
+            "childDeltas": [],
+            "applyToForest": true,
+            "revision": 2
+          }
+        ],
+        "forest": {
+          "schema": {
+            "rootField": "root",
+            "cardinality": "optional",
+            "values": "json-compatible"
+          },
+          "initialRoot": {
+            "present": true,
+            "value": "old"
+          },
+          "builds": [
+            {
+              "id": {
+                "revision": 0,
+                "localId": 12
+              },
+              "value": "new"
+            }
+          ],
+          "detachedRegisters": [
+            {
+              "id": {
+                "revision": 0,
+                "localId": 12
+              },
+              "value": "new"
+            }
+          ]
+        }
+      },
+      {
+        "id": "forest-null-clear",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 0,
+                "localId": 31
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "apply",
+            "op": "intoDelta",
+            "change": "change",
+            "childDeltas": [],
+            "applyToForest": true,
+            "revision": 0
+          }
+        ],
+        "forest": {
+          "schema": {
+            "rootField": "root",
+            "cardinality": "optional",
+            "values": "json-compatible"
+          },
+          "initialRoot": {
+            "present": true,
+            "value": null
+          },
+          "builds": [],
+          "detachedRegisters": []
+        }
+      },
+      {
+        "id": "law-do-rollback",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 10
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 11
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "inverse",
+            "op": "invert",
+            "result": "inverse",
+            "change": "change",
+            "isRollback": true,
+            "inverseRevision": 2,
+            "lastLocalId": 230
+          },
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "lawResult",
+            "left": "change",
+            "right": "inverse",
+            "callbacks": []
+          },
+          {
+            "id": "delta",
+            "op": "intoDelta",
+            "change": "lawResult",
+            "childDeltas": []
+          }
+        ]
+      },
+      {
+        "id": "law-do-undo",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 12
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 13
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "inverse",
+            "op": "invert",
+            "result": "inverse",
+            "change": "change",
+            "isRollback": false,
+            "inverseRevision": 2,
+            "lastLocalId": 231
+          },
+          {
+            "id": "compose",
+            "op": "compose",
+            "result": "lawResult",
+            "left": "change",
+            "right": "inverse",
+            "callbacks": []
+          },
+          {
+            "id": "delta",
+            "op": "intoDelta",
+            "change": "lawResult",
+            "childDeltas": []
+          }
+        ]
+      },
+      {
+        "id": "law-sandwich",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 10
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 11
+              }
+            }
+          },
+          "base": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": null,
+              "detachId": {
+                "revision": 1,
+                "localId": 32
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "base-inverse",
+            "op": "invert",
+            "result": "baseInverse",
+            "change": "base",
+            "isRollback": true,
+            "inverseRevision": 2,
+            "lastLocalId": 232
+          },
+          {
+            "id": "first",
+            "op": "rebase",
+            "result": "first",
+            "change": "change",
+            "over": "base",
+            "callbacks": []
+          },
+          {
+            "id": "second",
+            "op": "rebase",
+            "result": "second",
+            "change": "first",
+            "over": "baseInverse",
+            "callbacks": []
+          },
+          {
+            "id": "third",
+            "op": "rebase",
+            "result": "lawResult",
+            "change": "second",
+            "over": "base",
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "law-compose-inverse",
+        "changes": {
+          "change": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 0,
+                "localId": 31
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "inverse",
+            "op": "invert",
+            "result": "inverse",
+            "change": "change",
+            "isRollback": true,
+            "inverseRevision": 2,
+            "lastLocalId": 233
+          },
+          {
+            "id": "forward",
+            "op": "compose",
+            "result": "forward",
+            "left": "change",
+            "right": "inverse",
+            "callbacks": []
+          },
+          {
+            "id": "reverse",
+            "op": "compose",
+            "result": "reverse",
+            "left": "inverse",
+            "right": "change",
+            "callbacks": []
+          },
+          {
+            "id": "forward-delta",
+            "op": "intoDelta",
+            "change": "forward",
+            "childDeltas": []
+          },
+          {
+            "id": "reverse-delta",
+            "op": "intoDelta",
+            "change": "reverse",
+            "childDeltas": []
+          }
+        ]
+      },
+      {
+        "id": "law-associativity",
+        "changes": {
+          "first": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 0,
+                  "localId": 10
+                }
+              },
+              "detachId": {
+                "revision": 0,
+                "localId": 11
+              }
+            }
+          },
+          "second": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": false,
+              "source": null,
+              "detachId": {
+                "revision": 1,
+                "localId": 33
+              }
+            }
+          },
+          "third": {
+            "moves": [],
+            "childChanges": [],
+            "replacement": {
+              "wasEmpty": true,
+              "source": {
+                "kind": "detached",
+                "id": {
+                  "revision": 2,
+                  "localId": 120
+                }
+              },
+              "detachId": {
+                "revision": 2,
+                "localId": 121
+              }
+            }
+          }
+        },
+        "actions": [
+          {
+            "id": "first-second",
+            "op": "compose",
+            "result": "firstSecond",
+            "left": "first",
+            "right": "second",
+            "callbacks": []
+          },
+          {
+            "id": "left-associated",
+            "op": "compose",
+            "result": "left",
+            "left": "firstSecond",
+            "right": "third",
+            "callbacks": []
+          },
+          {
+            "id": "second-third",
+            "op": "compose",
+            "result": "secondThird",
+            "left": "second",
+            "right": "third",
+            "callbacks": []
+          },
+          {
+            "id": "right-associated",
+            "op": "compose",
+            "result": "right",
+            "left": "first",
+            "right": "secondThird",
+            "callbacks": []
+          },
+          {
+            "id": "left-delta",
+            "op": "intoDelta",
+            "change": "left",
+            "childDeltas": []
+          },
+          {
+            "id": "right-delta",
+            "op": "intoDelta",
+            "change": "right",
+            "childDeltas": []
+          }
+        ]
+      }
+    ]
   },
   "expected": {
     "observations": [
@@ -226,7 +2466,7 @@
       {
         "operation": "simultaneous-swap-direct-application-refusal",
         "status": "rejected",
-        "error": "Error: 0x7cf",
+        "reason": "occupied-rename-cycle",
         "postFailureForestRead": {
           "status": "accepted",
           "value": {
@@ -282,6 +2522,1983 @@
             ]
           ]
         }
+      }
+    ],
+    "scenarios": [
+      {
+        "id": "edit-empty",
+        "checkpoints": [
+          {
+            "id": "set-empty",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 10
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "edit-occupied",
+        "checkpoints": [
+          {
+            "id": "set-occupied",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 12
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 13
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "clear-empty",
+        "checkpoints": [
+          {
+            "id": "clear-empty",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": null,
+                "detachId": {
+                  "revision": 0,
+                  "localId": 30
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "clear-occupied",
+        "checkpoints": [
+          {
+            "id": "clear-occupied",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": null,
+                "detachId": {
+                  "revision": 0,
+                  "localId": 31
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "compose-set-set",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 10
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 23
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 1,
+                    "localId": 22
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-set-clear",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 10
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 33
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": null,
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-clear-set",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 1,
+                    "localId": 20
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 31
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-clear-clear",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": null,
+                "detachId": {
+                  "revision": 0,
+                  "localId": 31
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-child-both",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "kind": "detached",
+                    "id": {
+                      "revision": 0,
+                      "localId": 40
+                    }
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 142
+                  }
+                ]
+              ],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 40
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 41
+                }
+              }
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 140
+                },
+                "over": {
+                  "revision": 1,
+                  "localId": 141
+                },
+                "result": {
+                  "revision": 1,
+                  "localId": 142
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "compose-child-first",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "kind": "active"
+                  },
+                  {
+                    "revision": 0,
+                    "localId": 144
+                  }
+                ]
+              ],
+              "replacement": null
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 143
+                },
+                "over": null,
+                "result": {
+                  "revision": 0,
+                  "localId": 144
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "compose-child-second",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "kind": "active"
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 146
+                  }
+                ]
+              ],
+              "replacement": null
+            },
+            "callbacks": [
+              {
+                "input": null,
+                "over": {
+                  "revision": 1,
+                  "localId": 145
+                },
+                "result": {
+                  "revision": 1,
+                  "localId": 146
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "compose-move-chain",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 50
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 52
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "replacement": null
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-revive",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 53
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 55
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 54
+                  }
+                },
+                "detachId": {
+                  "revision": 1,
+                  "localId": 55
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-pin",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 12
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 13
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-ordering",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 60
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 64
+                  }
+                ],
+                [
+                  {
+                    "revision": 0,
+                    "localId": 62
+                  },
+                  {
+                    "revision": 0,
+                    "localId": 63
+                  }
+                ],
+                [
+                  {
+                    "revision": 1,
+                    "localId": 60
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 61
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "replacement": null
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "invert-set-rollback",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 13
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 12
+                }
+              }
+            },
+            "allocations": {
+              "start": 200,
+              "allocated": [],
+              "end": 200
+            }
+          }
+        ]
+      },
+      {
+        "id": "invert-set-undo",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 13
+                  }
+                },
+                "detachId": {
+                  "revision": 2,
+                  "localId": 201
+                }
+              }
+            },
+            "allocations": {
+              "start": 200,
+              "allocated": [
+                201
+              ],
+              "end": 201
+            }
+          }
+        ]
+      },
+      {
+        "id": "invert-clear",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 31
+                  }
+                },
+                "detachId": {
+                  "revision": 2,
+                  "localId": 202
+                }
+              }
+            },
+            "allocations": {
+              "start": 201,
+              "allocated": [
+                202
+              ],
+              "end": 202
+            }
+          }
+        ]
+      },
+      {
+        "id": "invert-pin",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "active"
+                },
+                "detachId": {
+                  "revision": 2,
+                  "localId": 203
+                }
+              }
+            },
+            "allocations": {
+              "start": 202,
+              "allocated": [
+                203
+              ],
+              "end": 203
+            }
+          }
+        ]
+      },
+      {
+        "id": "invert-empty-clear",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": null
+            },
+            "allocations": {
+              "start": 203,
+              "allocated": [],
+              "end": 203
+            }
+          }
+        ]
+      },
+      {
+        "id": "rebase-set-set-orders",
+        "checkpoints": [
+          {
+            "id": "first-over-second",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 10
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "second-over-first",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 1,
+                    "localId": 20
+                  }
+                },
+                "detachId": {
+                  "revision": 1,
+                  "localId": 21
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-set-clear-orders",
+        "checkpoints": [
+          {
+            "id": "set-over-clear",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 10
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "clear-over-set",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": null,
+                "detachId": {
+                  "revision": 1,
+                  "localId": 32
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-clear-clear",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": null,
+                "detachId": {
+                  "revision": 0,
+                  "localId": 31
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-both",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "result": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "kind": "active"
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 152
+                  }
+                ]
+              ],
+              "replacement": null
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 150
+                },
+                "over": {
+                  "revision": 1,
+                  "localId": 151
+                },
+                "state": "attached",
+                "result": {
+                  "revision": 1,
+                  "localId": 152
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-first",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "result": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "kind": "active"
+                  },
+                  {
+                    "revision": 0,
+                    "localId": 154
+                  }
+                ]
+              ],
+              "replacement": null
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 153
+                },
+                "over": null,
+                "state": "attached",
+                "result": {
+                  "revision": 0,
+                  "localId": 154
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-base-only",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "result": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "kind": "active"
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 156
+                  }
+                ]
+              ],
+              "replacement": null
+            },
+            "callbacks": [
+              {
+                "input": null,
+                "over": {
+                  "revision": 1,
+                  "localId": 155
+                },
+                "state": "attached",
+                "result": {
+                  "revision": 1,
+                  "localId": 156
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-drop",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": null
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 157
+                },
+                "over": {
+                  "revision": 1,
+                  "localId": 158
+                },
+                "state": "detached",
+                "result": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-remove-revive",
+        "checkpoints": [
+          {
+            "id": "remove",
+            "result": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "kind": "detached",
+                    "id": {
+                      "revision": 1,
+                      "localId": 33
+                    }
+                  },
+                  {
+                    "revision": 0,
+                    "localId": 161
+                  }
+                ]
+              ],
+              "replacement": null
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 160
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 161
+                }
+              }
+            ]
+          },
+          {
+            "id": "revive",
+            "result": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "kind": "detached",
+                    "id": {
+                      "revision": 1,
+                      "localId": 33
+                    }
+                  },
+                  {
+                    "revision": 0,
+                    "localId": 162
+                  }
+                ]
+              ],
+              "replacement": null
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 161
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 162
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-empty-reservation",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 10
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-pinned-reservation",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "active"
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 81
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-swap",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "result": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "kind": "detached",
+                    "id": {
+                      "revision": 0,
+                      "localId": 5
+                    }
+                  },
+                  {
+                    "revision": 0,
+                    "localId": 40
+                  }
+                ],
+                [
+                  {
+                    "kind": "detached",
+                    "id": {
+                      "revision": 0,
+                      "localId": 4
+                    }
+                  },
+                  {
+                    "revision": 0,
+                    "localId": 41
+                  }
+                ]
+              ],
+              "replacement": null
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 40
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 40
+                }
+              },
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 41
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 41
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "replace-all-identities",
+        "checkpoints": [
+          {
+            "id": "replace",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 3,
+                    "localId": 90
+                  },
+                  {
+                    "revision": 3,
+                    "localId": 91
+                  }
+                ]
+              ],
+              "childChanges": [
+                [
+                  {
+                    "kind": "detached",
+                    "id": {
+                      "revision": 3,
+                      "localId": 92
+                    }
+                  },
+                  {
+                    "revision": 3,
+                    "localId": 192
+                  }
+                ],
+                [
+                  {
+                    "kind": "active"
+                  },
+                  {
+                    "revision": 3,
+                    "localId": 193
+                  }
+                ]
+              ],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 3,
+                    "localId": 93
+                  }
+                },
+                "detachId": {
+                  "revision": 3,
+                  "localId": 94
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "replace-anonymous",
+        "checkpoints": [
+          {
+            "id": "replace",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 3,
+                    "localId": 95
+                  },
+                  {
+                    "revision": 0,
+                    "localId": 96
+                  }
+                ]
+              ],
+              "childChanges": [
+                [
+                  {
+                    "kind": "detached",
+                    "id": {
+                      "revision": 3,
+                      "localId": 97
+                    }
+                  },
+                  {
+                    "revision": 3,
+                    "localId": 197
+                  }
+                ]
+              ],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 3,
+                    "localId": 98
+                  }
+                },
+                "detachId": {
+                  "revision": 3,
+                  "localId": 99
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "replace-unmatched",
+        "checkpoints": [
+          {
+            "id": "replace",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 100
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 101
+                  }
+                ]
+              ],
+              "childChanges": [
+                [
+                  {
+                    "kind": "active"
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 200
+                  }
+                ]
+              ],
+              "replacement": null
+            }
+          }
+        ]
+      },
+      {
+        "id": "delta-local-global",
+        "checkpoints": [
+          {
+            "id": "delta",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": {
+                      "revision": 0,
+                      "localId": 113
+                    },
+                    "detach": {
+                      "revision": 0,
+                      "localId": 114
+                    },
+                    "fields": [
+                      [
+                        "active-child",
+                        {
+                          "marks": [
+                            {
+                              "count": 1
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              "global": [
+                {
+                  "id": {
+                    "revision": 0,
+                    "localId": 112
+                  },
+                  "fields": [
+                    [
+                      "detached-child",
+                      {
+                        "marks": [
+                          {
+                            "count": 1
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "rename": [
+                {
+                  "oldId": {
+                    "revision": 0,
+                    "localId": 110
+                  },
+                  "newId": {
+                    "revision": 1,
+                    "localId": 111
+                  },
+                  "count": 1
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "forest-compose",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 10
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 33
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": null,
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "apply",
+            "delta": {
+              "local": null,
+              "global": [],
+              "rename": [
+                {
+                  "oldId": {
+                    "revision": 0,
+                    "localId": 10
+                  },
+                  "newId": {
+                    "revision": 1,
+                    "localId": 33
+                  },
+                  "count": 1
+                }
+              ]
+            },
+            "forest": {
+              "root": {
+                "present": false,
+                "value": null
+              },
+              "detachedRegisters": [
+                {
+                  "id": {
+                    "revision": 1,
+                    "localId": 33
+                  },
+                  "value": "first"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "forest-inverse",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 13
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 12
+                }
+              }
+            },
+            "allocations": {
+              "start": 220,
+              "allocated": [],
+              "end": 220
+            }
+          },
+          {
+            "id": "apply-change",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": {
+                      "revision": 0,
+                      "localId": 12
+                    },
+                    "detach": {
+                      "revision": 0,
+                      "localId": 13
+                    },
+                    "fields": []
+                  }
+                ]
+              },
+              "global": [],
+              "rename": []
+            },
+            "forest": {
+              "root": {
+                "present": true,
+                "value": "new"
+              },
+              "detachedRegisters": [
+                {
+                  "id": {
+                    "revision": 0,
+                    "localId": 13
+                  },
+                  "value": "old"
+                }
+              ]
+            }
+          },
+          {
+            "id": "apply-inverse",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": {
+                      "revision": 0,
+                      "localId": 13
+                    },
+                    "detach": {
+                      "revision": 0,
+                      "localId": 12
+                    },
+                    "fields": []
+                  }
+                ]
+              },
+              "global": [],
+              "rename": []
+            },
+            "forest": {
+              "root": {
+                "present": true,
+                "value": "old"
+              },
+              "detachedRegisters": [
+                {
+                  "id": {
+                    "revision": 0,
+                    "localId": 12
+                  },
+                  "value": "new"
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "forest-null-clear",
+        "checkpoints": [
+          {
+            "id": "apply",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": null,
+                    "detach": {
+                      "revision": 0,
+                      "localId": 31
+                    },
+                    "fields": []
+                  }
+                ]
+              },
+              "global": [],
+              "rename": []
+            },
+            "forest": {
+              "root": {
+                "present": false,
+                "value": null
+              },
+              "detachedRegisters": [
+                {
+                  "id": {
+                    "revision": 0,
+                    "localId": 31
+                  },
+                  "value": null
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "law-do-rollback",
+        "checkpoints": [
+          {
+            "id": "inverse",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": null,
+                "detachId": {
+                  "revision": 0,
+                  "localId": 10
+                }
+              }
+            },
+            "allocations": {
+              "start": 230,
+              "allocated": [],
+              "end": 230
+            }
+          },
+          {
+            "id": "compose",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": null,
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "delta",
+            "delta": {
+              "local": null,
+              "global": [],
+              "rename": []
+            }
+          }
+        ]
+      },
+      {
+        "id": "law-do-undo",
+        "checkpoints": [
+          {
+            "id": "inverse",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 13
+                  }
+                },
+                "detachId": {
+                  "revision": 2,
+                  "localId": 232
+                }
+              }
+            },
+            "allocations": {
+              "start": 231,
+              "allocated": [
+                232
+              ],
+              "end": 232
+            }
+          },
+          {
+            "id": "compose",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 12
+                  },
+                  {
+                    "revision": 2,
+                    "localId": 232
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "active"
+                },
+                "detachId": {
+                  "revision": 2,
+                  "localId": 232
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "delta",
+            "delta": {
+              "local": null,
+              "global": [],
+              "rename": [
+                {
+                  "oldId": {
+                    "revision": 0,
+                    "localId": 12
+                  },
+                  "newId": {
+                    "revision": 2,
+                    "localId": 232
+                  },
+                  "count": 1
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "law-sandwich",
+        "checkpoints": [
+          {
+            "id": "base-inverse",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": null
+            },
+            "allocations": {
+              "start": 232,
+              "allocated": [],
+              "end": 232
+            }
+          },
+          {
+            "id": "first",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 10
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "second",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 10
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "third",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 10
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "law-compose-inverse",
+        "checkpoints": [
+          {
+            "id": "inverse",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 0,
+                    "localId": 31
+                  }
+                },
+                "detachId": {
+                  "revision": 2,
+                  "localId": 234
+                }
+              }
+            },
+            "allocations": {
+              "start": 233,
+              "allocated": [
+                234
+              ],
+              "end": 234
+            }
+          },
+          {
+            "id": "forward",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "active"
+                },
+                "detachId": {
+                  "revision": 2,
+                  "localId": 234
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "reverse",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": null,
+                "detachId": {
+                  "revision": 2,
+                  "localId": 234
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "forward-delta",
+            "delta": {
+              "local": null,
+              "global": [],
+              "rename": []
+            }
+          },
+          {
+            "id": "reverse-delta",
+            "delta": {
+              "local": null,
+              "global": [],
+              "rename": []
+            }
+          }
+        ]
+      },
+      {
+        "id": "law-associativity",
+        "checkpoints": [
+          {
+            "id": "first-second",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 10
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 33
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": null,
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "left-associated",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 10
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 33
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 2,
+                    "localId": 120
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "second-third",
+            "result": {
+              "moves": [],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": false,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 2,
+                    "localId": 120
+                  }
+                },
+                "detachId": {
+                  "revision": 1,
+                  "localId": 33
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "right-associated",
+            "result": {
+              "moves": [
+                [
+                  {
+                    "revision": 0,
+                    "localId": 10
+                  },
+                  {
+                    "revision": 1,
+                    "localId": 33
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "replacement": {
+                "wasEmpty": true,
+                "source": {
+                  "kind": "detached",
+                  "id": {
+                    "revision": 2,
+                    "localId": 120
+                  }
+                },
+                "detachId": {
+                  "revision": 0,
+                  "localId": 11
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "left-delta",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": {
+                      "revision": 2,
+                      "localId": 120
+                    },
+                    "detach": null,
+                    "fields": []
+                  }
+                ]
+              },
+              "global": [],
+              "rename": [
+                {
+                  "oldId": {
+                    "revision": 0,
+                    "localId": 10
+                  },
+                  "newId": {
+                    "revision": 1,
+                    "localId": 33
+                  },
+                  "count": 1
+                }
+              ]
+            }
+          },
+          {
+            "id": "right-delta",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": {
+                      "revision": 2,
+                      "localId": 120
+                    },
+                    "detach": null,
+                    "fields": []
+                  }
+                ]
+              },
+              "global": [],
+              "rename": [
+                {
+                  "oldId": {
+                    "revision": 0,
+                    "localId": 10
+                  },
+                  "newId": {
+                    "revision": 1,
+                    "localId": 33
+                  },
+                  "count": 1
+                }
+              ]
+            }
+          }
+        ]
       }
     ]
   },
@@ -647,6 +4864,1909 @@
         1
       ],
       "updated": 3
-    }
+    },
+    "scenarios": [
+      {
+        "id": "edit-empty",
+        "checkpoints": [
+          {
+            "id": "set-empty",
+            "op": "set",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "src": {
+                  "localId": 10,
+                  "revision": 0
+                },
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "edit-occupied",
+        "checkpoints": [
+          {
+            "id": "set-occupied",
+            "op": "set",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "src": {
+                  "localId": 12,
+                  "revision": 0
+                },
+                "dst": {
+                  "localId": 13,
+                  "revision": 0
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "clear-empty",
+        "checkpoints": [
+          {
+            "id": "clear-empty",
+            "op": "clear",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 30,
+                  "revision": 0
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "clear-occupied",
+        "checkpoints": [
+          {
+            "id": "clear-occupied",
+            "op": "clear",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 31,
+                  "revision": 0
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "compose-set-set",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [
+                [
+                  {
+                    "localId": 10,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 23,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 22,
+                  "revision": 1
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-set-clear",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [
+                [
+                  {
+                    "localId": 10,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 33,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-clear-set",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 31,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 20,
+                  "revision": 1
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-clear-clear",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 31,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-child-both",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "localId": 40,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 142,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 41,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 40,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 140
+                },
+                "over": {
+                  "revision": 1,
+                  "localId": 141
+                },
+                "result": {
+                  "revision": 1,
+                  "localId": 142
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "compose-child-first",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [],
+              "childChanges": [
+                [
+                  "self",
+                  {
+                    "localId": 144,
+                    "revision": 0
+                  }
+                ]
+              ]
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 143
+                },
+                "over": null,
+                "result": {
+                  "revision": 0,
+                  "localId": 144
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "compose-child-second",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [],
+              "childChanges": [
+                [
+                  "self",
+                  {
+                    "localId": 146,
+                    "revision": 1
+                  }
+                ]
+              ]
+            },
+            "callbacks": [
+              {
+                "input": null,
+                "over": {
+                  "revision": 1,
+                  "localId": 145
+                },
+                "result": {
+                  "revision": 1,
+                  "localId": 146
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "compose-move-chain",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [
+                [
+                  {
+                    "localId": 50,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 52,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "childChanges": []
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-revive",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [
+                [
+                  {
+                    "localId": 53,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 55,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 55,
+                  "revision": 1
+                },
+                "src": {
+                  "localId": 54,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-pin",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 13,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 12,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "compose-ordering",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [
+                [
+                  {
+                    "localId": 60,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 64,
+                    "revision": 1
+                  }
+                ],
+                [
+                  {
+                    "localId": 62,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 63,
+                    "revision": 0
+                  }
+                ],
+                [
+                  {
+                    "localId": 60,
+                    "revision": 1
+                  },
+                  {
+                    "localId": 61,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "childChanges": []
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "invert-set-rollback",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 12,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 13,
+                  "revision": 0
+                }
+              }
+            },
+            "allocations": {
+              "start": 200,
+              "allocated": [],
+              "end": 200
+            }
+          }
+        ]
+      },
+      {
+        "id": "invert-set-undo",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 201,
+                  "revision": 2
+                },
+                "src": {
+                  "localId": 13,
+                  "revision": 0
+                }
+              }
+            },
+            "allocations": {
+              "start": 200,
+              "allocated": [
+                201
+              ],
+              "end": 201
+            }
+          }
+        ]
+      },
+      {
+        "id": "invert-clear",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 202,
+                  "revision": 2
+                },
+                "src": {
+                  "localId": 31,
+                  "revision": 0
+                }
+              }
+            },
+            "allocations": {
+              "start": 201,
+              "allocated": [
+                202
+              ],
+              "end": 202
+            }
+          }
+        ]
+      },
+      {
+        "id": "invert-pin",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "src": "self",
+                "dst": {
+                  "localId": 203,
+                  "revision": 2
+                }
+              }
+            },
+            "allocations": {
+              "start": 202,
+              "allocated": [
+                203
+              ],
+              "end": 203
+            }
+          }
+        ]
+      },
+      {
+        "id": "invert-empty-clear",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "change": {
+              "moves": [],
+              "childChanges": []
+            },
+            "allocations": {
+              "start": 203,
+              "allocated": [],
+              "end": 203
+            }
+          }
+        ]
+      },
+      {
+        "id": "rebase-set-set-orders",
+        "checkpoints": [
+          {
+            "id": "first-over-second",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 10,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "second-over-first",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 21,
+                  "revision": 1
+                },
+                "src": {
+                  "localId": 20,
+                  "revision": 1
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-set-clear-orders",
+        "checkpoints": [
+          {
+            "id": "set-over-clear",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 10,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "clear-over-set",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 32,
+                  "revision": 1
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-clear-clear",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 31,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-both",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [
+                [
+                  "self",
+                  {
+                    "localId": 152,
+                    "revision": 1
+                  }
+                ]
+              ]
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 150
+                },
+                "over": {
+                  "revision": 1,
+                  "localId": 151
+                },
+                "state": "attached",
+                "result": {
+                  "revision": 1,
+                  "localId": 152
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-first",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [
+                [
+                  "self",
+                  {
+                    "localId": 154,
+                    "revision": 0
+                  }
+                ]
+              ]
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 153
+                },
+                "over": null,
+                "state": "attached",
+                "result": {
+                  "revision": 0,
+                  "localId": 154
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-base-only",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [
+                [
+                  "self",
+                  {
+                    "localId": 156,
+                    "revision": 1
+                  }
+                ]
+              ]
+            },
+            "callbacks": [
+              {
+                "input": null,
+                "over": {
+                  "revision": 1,
+                  "localId": 155
+                },
+                "state": "attached",
+                "result": {
+                  "revision": 1,
+                  "localId": 156
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-child-drop",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": []
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 157
+                },
+                "over": {
+                  "revision": 1,
+                  "localId": 158
+                },
+                "state": "detached",
+                "result": null
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-remove-revive",
+        "checkpoints": [
+          {
+            "id": "remove",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "localId": 33,
+                    "revision": 1
+                  },
+                  {
+                    "localId": 161,
+                    "revision": 0
+                  }
+                ]
+              ]
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 160
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 161
+                }
+              }
+            ]
+          },
+          {
+            "id": "revive",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "localId": 33,
+                    "revision": 1
+                  },
+                  {
+                    "localId": 162,
+                    "revision": 0
+                  }
+                ]
+              ]
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 161
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 162
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "rebase-empty-reservation",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 10,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-pinned-reservation",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 81,
+                  "revision": 0
+                },
+                "src": "self"
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "rebase-swap",
+        "checkpoints": [
+          {
+            "id": "rebase",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [
+                [
+                  {
+                    "localId": 5,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 40,
+                    "revision": 0
+                  }
+                ],
+                [
+                  {
+                    "localId": 4,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 41,
+                    "revision": 0
+                  }
+                ]
+              ]
+            },
+            "callbacks": [
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 40
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 40
+                }
+              },
+              {
+                "input": {
+                  "revision": 0,
+                  "localId": 41
+                },
+                "over": null,
+                "state": "detached",
+                "result": {
+                  "revision": 0,
+                  "localId": 41
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "replace-all-identities",
+        "checkpoints": [
+          {
+            "id": "replace",
+            "op": "replaceRevisions",
+            "change": {
+              "childChanges": [
+                [
+                  {
+                    "localId": 92,
+                    "revision": 3
+                  },
+                  {
+                    "localId": 192,
+                    "revision": 3
+                  }
+                ],
+                [
+                  "self",
+                  {
+                    "localId": 193,
+                    "revision": 3
+                  }
+                ]
+              ],
+              "moves": [
+                [
+                  {
+                    "localId": 90,
+                    "revision": 3
+                  },
+                  {
+                    "localId": 91,
+                    "revision": 3
+                  }
+                ]
+              ],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 94,
+                  "revision": 3
+                },
+                "src": {
+                  "localId": 93,
+                  "revision": 3
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "replace-anonymous",
+        "checkpoints": [
+          {
+            "id": "replace",
+            "op": "replaceRevisions",
+            "change": {
+              "childChanges": [
+                [
+                  {
+                    "localId": 97,
+                    "revision": 3
+                  },
+                  {
+                    "localId": 197,
+                    "revision": 3
+                  }
+                ]
+              ],
+              "moves": [
+                [
+                  {
+                    "localId": 95,
+                    "revision": 3
+                  },
+                  {
+                    "localId": 96,
+                    "revision": 0
+                  }
+                ]
+              ],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 99,
+                  "revision": 3
+                },
+                "src": {
+                  "localId": 98,
+                  "revision": 3
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "replace-unmatched",
+        "checkpoints": [
+          {
+            "id": "replace",
+            "op": "replaceRevisions",
+            "change": {
+              "childChanges": [
+                [
+                  "self",
+                  {
+                    "localId": 200,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "moves": [
+                [
+                  {
+                    "localId": 100,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 101,
+                    "revision": 1
+                  }
+                ]
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "delta-local-global",
+        "checkpoints": [
+          {
+            "id": "delta",
+            "op": "intoDelta",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "detach": {
+                      "minor": 114,
+                      "major": 0
+                    },
+                    "attach": {
+                      "minor": 113,
+                      "major": 0
+                    },
+                    "fields": [
+                      [
+                        "active-child",
+                        {
+                          "marks": [
+                            {
+                              "count": 1
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              },
+              "global": [
+                {
+                  "id": {
+                    "major": 0,
+                    "minor": 112
+                  },
+                  "fields": [
+                    [
+                      "detached-child",
+                      {
+                        "marks": [
+                          {
+                            "count": 1
+                          }
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ],
+              "rename": [
+                {
+                  "count": 1,
+                  "oldId": {
+                    "minor": 110,
+                    "major": 0
+                  },
+                  "newId": {
+                    "minor": 111,
+                    "major": 1
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "forest-compose",
+        "checkpoints": [
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [
+                [
+                  {
+                    "localId": 10,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 33,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "apply",
+            "op": "intoDelta",
+            "delta": {
+              "local": null,
+              "global": [],
+              "rename": [
+                {
+                  "count": 1,
+                  "oldId": {
+                    "minor": 10,
+                    "major": 0
+                  },
+                  "newId": {
+                    "minor": 33,
+                    "major": 1
+                  }
+                }
+              ]
+            },
+            "forest": {
+              "root": {
+                "present": false,
+                "value": null
+              },
+              "detachedIndex": [
+                {
+                  "id": {
+                    "major": 1,
+                    "minor": 33
+                  },
+                  "root": 1,
+                  "latestRelevantRevision": 1
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "forest-inverse",
+        "checkpoints": [
+          {
+            "id": "invert",
+            "op": "invert",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 12,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 13,
+                  "revision": 0
+                }
+              }
+            },
+            "allocations": {
+              "start": 220,
+              "allocated": [],
+              "end": 220
+            }
+          },
+          {
+            "id": "apply-change",
+            "op": "intoDelta",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "detach": {
+                      "minor": 13,
+                      "major": 0
+                    },
+                    "attach": {
+                      "minor": 12,
+                      "major": 0
+                    },
+                    "fields": []
+                  }
+                ]
+              },
+              "global": [],
+              "rename": []
+            },
+            "forest": {
+              "root": {
+                "present": true,
+                "value": "new"
+              },
+              "detachedIndex": [
+                {
+                  "id": {
+                    "major": 0,
+                    "minor": 13
+                  },
+                  "root": 1,
+                  "latestRelevantRevision": 0
+                }
+              ]
+            }
+          },
+          {
+            "id": "apply-inverse",
+            "op": "intoDelta",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "detach": {
+                      "minor": 12,
+                      "major": 0
+                    },
+                    "attach": {
+                      "minor": 13,
+                      "major": 0
+                    },
+                    "fields": []
+                  }
+                ]
+              },
+              "global": [],
+              "rename": []
+            },
+            "forest": {
+              "root": {
+                "present": true,
+                "value": "old"
+              },
+              "detachedIndex": [
+                {
+                  "id": {
+                    "major": 0,
+                    "minor": 12
+                  },
+                  "root": 2,
+                  "latestRelevantRevision": 2
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "forest-null-clear",
+        "checkpoints": [
+          {
+            "id": "apply",
+            "op": "intoDelta",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "detach": {
+                      "minor": 31,
+                      "major": 0
+                    },
+                    "attach": null,
+                    "fields": []
+                  }
+                ]
+              },
+              "global": [],
+              "rename": []
+            },
+            "forest": {
+              "root": {
+                "present": false,
+                "value": null
+              },
+              "detachedIndex": [
+                {
+                  "id": {
+                    "major": 0,
+                    "minor": 31
+                  },
+                  "root": 0,
+                  "latestRelevantRevision": 0
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "law-do-rollback",
+        "checkpoints": [
+          {
+            "id": "inverse",
+            "op": "invert",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 10,
+                  "revision": 0
+                }
+              }
+            },
+            "allocations": {
+              "start": 230,
+              "allocated": [],
+              "end": 230
+            }
+          },
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "delta",
+            "op": "intoDelta",
+            "delta": {
+              "local": null,
+              "global": [],
+              "rename": []
+            }
+          }
+        ]
+      },
+      {
+        "id": "law-do-undo",
+        "checkpoints": [
+          {
+            "id": "inverse",
+            "op": "invert",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 232,
+                  "revision": 2
+                },
+                "src": {
+                  "localId": 13,
+                  "revision": 0
+                }
+              }
+            },
+            "allocations": {
+              "start": 231,
+              "allocated": [
+                232
+              ],
+              "end": 232
+            }
+          },
+          {
+            "id": "compose",
+            "op": "compose",
+            "change": {
+              "moves": [
+                [
+                  {
+                    "localId": 12,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 232,
+                    "revision": 2
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 232,
+                  "revision": 2
+                },
+                "src": "self"
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "delta",
+            "op": "intoDelta",
+            "delta": {
+              "local": null,
+              "global": [],
+              "rename": [
+                {
+                  "count": 1,
+                  "oldId": {
+                    "minor": 12,
+                    "major": 0
+                  },
+                  "newId": {
+                    "minor": 232,
+                    "major": 2
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      },
+      {
+        "id": "law-sandwich",
+        "checkpoints": [
+          {
+            "id": "base-inverse",
+            "op": "invert",
+            "change": {
+              "moves": [],
+              "childChanges": []
+            },
+            "allocations": {
+              "start": 232,
+              "allocated": [],
+              "end": 232
+            }
+          },
+          {
+            "id": "first",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 10,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "second",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 10,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "third",
+            "op": "rebase",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 10,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          }
+        ]
+      },
+      {
+        "id": "law-compose-inverse",
+        "checkpoints": [
+          {
+            "id": "inverse",
+            "op": "invert",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 234,
+                  "revision": 2
+                },
+                "src": {
+                  "localId": 31,
+                  "revision": 0
+                }
+              }
+            },
+            "allocations": {
+              "start": 233,
+              "allocated": [
+                234
+              ],
+              "end": 234
+            }
+          },
+          {
+            "id": "forward",
+            "op": "compose",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 234,
+                  "revision": 2
+                },
+                "src": "self"
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "reverse",
+            "op": "compose",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 234,
+                  "revision": 2
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "forward-delta",
+            "op": "intoDelta",
+            "delta": {
+              "local": null,
+              "global": [],
+              "rename": []
+            }
+          },
+          {
+            "id": "reverse-delta",
+            "op": "intoDelta",
+            "delta": {
+              "local": null,
+              "global": [],
+              "rename": []
+            }
+          }
+        ]
+      },
+      {
+        "id": "law-associativity",
+        "checkpoints": [
+          {
+            "id": "first-second",
+            "op": "compose",
+            "change": {
+              "moves": [
+                [
+                  {
+                    "localId": 10,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 33,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "left-associated",
+            "op": "compose",
+            "change": {
+              "moves": [
+                [
+                  {
+                    "localId": 10,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 33,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 120,
+                  "revision": 2
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "second-third",
+            "op": "compose",
+            "change": {
+              "moves": [],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": false,
+                "dst": {
+                  "localId": 33,
+                  "revision": 1
+                },
+                "src": {
+                  "localId": 120,
+                  "revision": 2
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "right-associated",
+            "op": "compose",
+            "change": {
+              "moves": [
+                [
+                  {
+                    "localId": 10,
+                    "revision": 0
+                  },
+                  {
+                    "localId": 33,
+                    "revision": 1
+                  }
+                ]
+              ],
+              "childChanges": [],
+              "valueReplace": {
+                "isEmpty": true,
+                "dst": {
+                  "localId": 11,
+                  "revision": 0
+                },
+                "src": {
+                  "localId": 120,
+                  "revision": 2
+                }
+              }
+            },
+            "callbacks": []
+          },
+          {
+            "id": "left-delta",
+            "op": "intoDelta",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": {
+                      "minor": 120,
+                      "major": 2
+                    },
+                    "detach": null,
+                    "fields": []
+                  }
+                ]
+              },
+              "global": [],
+              "rename": [
+                {
+                  "count": 1,
+                  "oldId": {
+                    "minor": 10,
+                    "major": 0
+                  },
+                  "newId": {
+                    "minor": 33,
+                    "major": 1
+                  }
+                }
+              ]
+            }
+          },
+          {
+            "id": "right-delta",
+            "op": "intoDelta",
+            "delta": {
+              "local": {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": {
+                      "minor": 120,
+                      "major": 2
+                    },
+                    "detach": null,
+                    "fields": []
+                  }
+                ]
+              },
+              "global": [],
+              "rename": [
+                {
+                  "count": 1,
+                  "oldId": {
+                    "minor": 10,
+                    "major": 0
+                  },
+                  "newId": {
+                    "minor": 33,
+                    "major": 1
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    ]
   }
 }

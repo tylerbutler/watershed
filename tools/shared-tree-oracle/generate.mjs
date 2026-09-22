@@ -52,6 +52,52 @@ const forestScenarioIds = [
   "missing-rename-source-refused",
 ];
 
+const fieldScenarioIds = [
+  "edit-empty",
+  "edit-occupied",
+  "clear-empty",
+  "clear-occupied",
+  "compose-set-set",
+  "compose-set-clear",
+  "compose-clear-set",
+  "compose-clear-clear",
+  "compose-child-both",
+  "compose-child-first",
+  "compose-child-second",
+  "compose-move-chain",
+  "compose-revive",
+  "compose-pin",
+  "compose-ordering",
+  "invert-set-rollback",
+  "invert-set-undo",
+  "invert-clear",
+  "invert-pin",
+  "invert-empty-clear",
+  "rebase-set-set-orders",
+  "rebase-set-clear-orders",
+  "rebase-clear-clear",
+  "rebase-child-both",
+  "rebase-child-first",
+  "rebase-child-base-only",
+  "rebase-child-drop",
+  "rebase-remove-revive",
+  "rebase-empty-reservation",
+  "rebase-pinned-reservation",
+  "rebase-swap",
+  "replace-all-identities",
+  "replace-anonymous",
+  "replace-unmatched",
+  "delta-local-global",
+  "forest-compose",
+  "forest-inverse",
+  "forest-null-clear",
+  "law-do-rollback",
+  "law-do-undo",
+  "law-sandwich",
+  "law-compose-inverse",
+  "law-associativity",
+];
+
 const schemaValidationCheckIds = [
   "matching-view",
   "string-root-mismatch",
@@ -471,6 +517,301 @@ function validateSchemaCase(value) {
   }
 }
 
+function validateFieldCase(value) {
+  const scenarios = value.input.scenarios;
+  const observed = value.expected.scenarios;
+  const raw = value.raw.scenarios;
+  const revisionTable = value.input.revisionTable;
+  assert(Array.isArray(scenarios) && Array.isArray(observed) && Array.isArray(raw),
+    "field-compose-invert-rebase: missing paired scenario evidence");
+  assert.deepEqual(scenarios.map(({ id }) => id), fieldScenarioIds,
+    "field-compose-invert-rebase: required scenario IDs");
+  assert.deepEqual(observed.map(({ id }) => id), fieldScenarioIds,
+    "field-compose-invert-rebase: expected scenario order");
+  assert.deepEqual(raw.map(({ id }) => id), fieldScenarioIds,
+    "field-compose-invert-rebase: raw scenario order");
+  assert(Array.isArray(revisionTable) && revisionTable.length > 0,
+    "field-compose-invert-rebase: missing revision table");
+  const numericRevisions = new Set();
+  const stableRevisions = new Set();
+  for (const entry of revisionTable) {
+    assert(object(entry) && Number.isSafeInteger(entry.revision) && entry.revision >= 0
+      && typeof entry.stableId === "string"
+      && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(entry.stableId),
+    "field-compose-invert-rebase: malformed revision mapping");
+    assert(!numericRevisions.has(entry.revision) && !stableRevisions.has(entry.stableId),
+      "field-compose-invert-rebase: duplicate revision mapping");
+    numericRevisions.add(entry.revision);
+    stableRevisions.add(entry.stableId);
+  }
+
+  function atom(value, label) {
+    assert(object(value) && Object.keys(value).length === 2
+      && Object.hasOwn(value, "revision") && Object.hasOwn(value, "localId")
+      && (value.revision === null
+        || (Number.isSafeInteger(value.revision) && numericRevisions.has(value.revision)))
+      && Number.isSafeInteger(value.localId) && value.localId >= 0,
+    `field-compose-invert-rebase: malformed atom ${label}`);
+  }
+
+  function register(value, label) {
+    assert(object(value) && (value.kind === "active" || value.kind === "detached"),
+      `field-compose-invert-rebase: malformed register ${label}`);
+    if (value.kind === "active") {
+      assert.deepEqual(Object.keys(value), ["kind"],
+        `field-compose-invert-rebase: malformed active register ${label}`);
+    } else {
+      atom(value.id, `${label}.id`);
+    }
+  }
+
+  function change(value, label) {
+    assert(object(value) && Array.isArray(value.moves) && Array.isArray(value.childChanges)
+      && Object.hasOwn(value, "replacement"),
+    `field-compose-invert-rebase: malformed change ${label}`);
+    for (const [index, move] of value.moves.entries()) {
+      assert(Array.isArray(move) && move.length === 2,
+        `field-compose-invert-rebase: malformed move ${label}[${index}]`);
+      atom(move[0], `${label}.moves[${index}].source`);
+      atom(move[1], `${label}.moves[${index}].destination`);
+    }
+    for (const [index, child] of value.childChanges.entries()) {
+      assert(Array.isArray(child) && child.length === 2,
+        `field-compose-invert-rebase: malformed child change ${label}[${index}]`);
+      register(child[0], `${label}.childChanges[${index}].register`);
+      atom(child[1], `${label}.childChanges[${index}].node`);
+    }
+    if (value.replacement !== null) {
+      assert(object(value.replacement) && typeof value.replacement.wasEmpty === "boolean"
+        && Object.hasOwn(value.replacement, "source"),
+      `field-compose-invert-rebase: malformed replacement ${label}`);
+      if (value.replacement.source !== null) {
+        register(value.replacement.source, `${label}.replacement.source`);
+      }
+      atom(value.replacement.detachId, `${label}.replacement.detachId`);
+    }
+  }
+
+  function fieldMap(value, label) {
+    assert(Array.isArray(value), `field-compose-invert-rebase: malformed field map ${label}`);
+    const keys = new Set();
+    for (const [index, entry] of value.entries()) {
+      assert(Array.isArray(entry) && entry.length === 2 && typeof entry[0] === "string"
+        && object(entry[1]) && Array.isArray(entry[1].marks) && !keys.has(entry[0]),
+      `field-compose-invert-rebase: malformed field entry ${label}[${index}]`);
+      keys.add(entry[0]);
+      for (const [markIndex, mark] of entry[1].marks.entries()) {
+        assert(object(mark) && Number.isSafeInteger(mark.count) && mark.count > 0,
+          `field-compose-invert-rebase: malformed mark ${label}[${index}].${markIndex}`);
+        if (mark.attach !== undefined && mark.attach !== null) {
+          atom(mark.attach, `${label}[${index}].${markIndex}.attach`);
+        }
+        if (mark.detach !== undefined && mark.detach !== null) {
+          atom(mark.detach, `${label}[${index}].${markIndex}.detach`);
+        }
+        if (mark.fields !== undefined) {
+          fieldMap(mark.fields, `${label}[${index}].${markIndex}.fields`);
+        }
+      }
+    }
+  }
+
+  function delta(value, label) {
+    assert(object(value) && Object.hasOwn(value, "local")
+      && Array.isArray(value.global) && Array.isArray(value.rename),
+    `field-compose-invert-rebase: malformed delta ${label}`);
+    if (value.local !== null) {
+      assert(object(value.local) && Array.isArray(value.local.marks),
+        `field-compose-invert-rebase: malformed local delta ${label}`);
+      fieldMap([["root", value.local]], `${label}.local`);
+    }
+    for (const [index, global] of value.global.entries()) {
+      assert(object(global), `field-compose-invert-rebase: malformed global delta ${label}`);
+      atom(global.id, `${label}.global[${index}].id`);
+      fieldMap(global.fields, `${label}.global[${index}].fields`);
+    }
+    for (const [index, rename] of value.rename.entries()) {
+      assert(object(rename) && rename.count === 1,
+        `field-compose-invert-rebase: malformed rename ${label}[${index}]`);
+      atom(rename.oldId, `${label}.rename[${index}].oldId`);
+      atom(rename.newId, `${label}.rename[${index}].newId`);
+    }
+  }
+
+  function forestState(value, label) {
+    assert(object(value) && object(value.root) && typeof value.root.present === "boolean"
+      && Object.hasOwn(value.root, "value") && Array.isArray(value.detachedRegisters),
+    `field-compose-invert-rebase: malformed forest state ${label}`);
+    for (const [index, detached] of value.detachedRegisters.entries()) {
+      assert(object(detached) && Object.hasOwn(detached, "value"),
+        `field-compose-invert-rebase: malformed detached register ${label}[${index}]`);
+      atom(detached.id, `${label}.detachedRegisters[${index}].id`);
+    }
+  }
+
+  for (let scenarioIndex = 0; scenarioIndex < scenarios.length; scenarioIndex += 1) {
+    const scenario = scenarios[scenarioIndex];
+    const observation = observed[scenarioIndex];
+    const evidence = raw[scenarioIndex];
+    assert(object(scenario) && typeof scenario.id === "string" && object(scenario.changes)
+      && nonemptyArray(scenario.actions),
+    "field-compose-invert-rebase: malformed scenario");
+    assert(object(observation) && observation.id === scenario.id
+      && Array.isArray(observation.checkpoints)
+      && observation.checkpoints.length === scenario.actions.length,
+    `field-compose-invert-rebase: incomplete checkpoints ${scenario.id}`);
+    assert(object(evidence) && evidence.id === scenario.id
+      && Array.isArray(evidence.checkpoints)
+      && evidence.checkpoints.length === scenario.actions.length,
+    `field-compose-invert-rebase: missing raw checkpoints ${scenario.id}`);
+    const references = new Set(Object.keys(scenario.changes));
+    for (const [name, initial] of Object.entries(scenario.changes)) {
+      change(initial, `${scenario.id}.changes.${name}`);
+    }
+    const actionIds = new Set();
+    for (let actionIndex = 0; actionIndex < scenario.actions.length; actionIndex += 1) {
+      const action = scenario.actions[actionIndex];
+      const checkpoint = observation.checkpoints[actionIndex];
+      const rawCheckpoint = evidence.checkpoints[actionIndex];
+      assert(object(action) && typeof action.id === "string" && action.id.length > 0
+        && !actionIds.has(action.id),
+      `field-compose-invert-rebase: duplicate or missing action ID ${scenario.id}`);
+      actionIds.add(action.id);
+      assert(object(checkpoint) && checkpoint.id === action.id
+        && object(rawCheckpoint) && rawCheckpoint.id === action.id
+        && rawCheckpoint.op === action.op,
+      `field-compose-invert-rebase: reordered checkpoint ${scenario.id}.${action.id}`);
+      assert(["set", "clear", "replaceRevisions", "compose", "invert", "rebase", "intoDelta"]
+        .includes(action.op),
+      `field-compose-invert-rebase: unknown operation ${scenario.id}.${action.id}`);
+      const actionKeys = {
+        set: ["id", "op", "result", "wasEmpty", "fill", "detach"],
+        clear: ["id", "op", "result", "wasEmpty", "detach"],
+        replaceRevisions: ["id", "op", "result", "change", "obsolete", "updated"],
+        compose: ["id", "op", "result", "left", "right", "callbacks"],
+        invert: ["id", "op", "result", "change", "isRollback", "inverseRevision", "lastLocalId"],
+        rebase: ["id", "op", "result", "change", "over", "callbacks"],
+        intoDelta: ["id", "op", "change", "childDeltas", "applyToForest", "revision"],
+      }[action.op];
+      assert(Object.keys(action).every((key) => actionKeys.includes(key)),
+        `field-compose-invert-rebase: unexpected script field ${scenario.id}.${action.id}`);
+
+      const requireReference = (name, field) => {
+        assert(typeof name === "string" && references.has(name),
+          `field-compose-invert-rebase: unresolved or forward ${field} ${scenario.id}.${action.id}`);
+      };
+      if (action.op === "compose") {
+        requireReference(action.left, "left");
+        requireReference(action.right, "right");
+        assert(Array.isArray(action.callbacks) && Array.isArray(checkpoint.callbacks)
+          && Array.isArray(rawCheckpoint.callbacks)
+          && checkpoint.callbacks.length === action.callbacks.length
+          && rawCheckpoint.callbacks.length === action.callbacks.length
+          && JSON.stringify(checkpoint.callbacks) === JSON.stringify(action.callbacks)
+          && JSON.stringify(rawCheckpoint.callbacks) === JSON.stringify(action.callbacks),
+        `field-compose-invert-rebase: missing callback evidence ${scenario.id}.${action.id}`);
+      } else if (action.op === "rebase") {
+        requireReference(action.change, "change");
+        requireReference(action.over, "over");
+        assert(Array.isArray(action.callbacks) && Array.isArray(checkpoint.callbacks)
+          && Array.isArray(rawCheckpoint.callbacks)
+          && checkpoint.callbacks.length === action.callbacks.length
+          && rawCheckpoint.callbacks.length === action.callbacks.length
+          && JSON.stringify(checkpoint.callbacks) === JSON.stringify(action.callbacks)
+          && JSON.stringify(rawCheckpoint.callbacks) === JSON.stringify(action.callbacks),
+        `field-compose-invert-rebase: missing callback evidence ${scenario.id}.${action.id}`);
+      } else if (action.op === "invert") {
+        requireReference(action.change, "change");
+        assert(typeof action.isRollback === "boolean"
+          && Number.isSafeInteger(action.inverseRevision)
+          && numericRevisions.has(action.inverseRevision)
+          && Number.isSafeInteger(action.lastLocalId)
+          && object(checkpoint.allocations) && object(rawCheckpoint.allocations)
+          && Array.isArray(checkpoint.allocations.allocated)
+          && checkpoint.allocations.end >= checkpoint.allocations.start
+          && JSON.stringify(checkpoint.allocations) === JSON.stringify(rawCheckpoint.allocations),
+        `field-compose-invert-rebase: missing allocator evidence ${scenario.id}.${action.id}`);
+      } else if (action.op === "replaceRevisions") {
+        requireReference(action.change, "change");
+        assert(nonemptyArray(action.obsolete)
+          && action.obsolete.every((revision) =>
+            revision === null || numericRevisions.has(revision))
+          && numericRevisions.has(action.updated),
+        `field-compose-invert-rebase: missing revision mapping ${scenario.id}.${action.id}`);
+      } else if (action.op === "intoDelta") {
+        requireReference(action.change, "change");
+        assert(Array.isArray(action.childDeltas) && object(checkpoint.delta)
+          && object(rawCheckpoint.delta),
+        `field-compose-invert-rebase: missing delta evidence ${scenario.id}.${action.id}`);
+        for (const [index, childDelta] of action.childDeltas.entries()) {
+          assert(object(childDelta), `field-compose-invert-rebase: malformed child delta ${scenario.id}`);
+          atom(childDelta.node, `${scenario.id}.${action.id}.childDeltas[${index}].node`);
+          fieldMap(childDelta.fields, `${scenario.id}.${action.id}.childDeltas[${index}].fields`);
+        }
+        delta(checkpoint.delta, `${scenario.id}.${action.id}`);
+        if (action.applyToForest === true) {
+          assert(object(scenario.forest) && object(checkpoint.forest)
+            && object(rawCheckpoint.forest),
+          `field-compose-invert-rebase: missing forest evidence ${scenario.id}.${action.id}`);
+          forestState(checkpoint.forest, `${scenario.id}.${action.id}`);
+          assert(object(rawCheckpoint.forest.root)
+            && Array.isArray(rawCheckpoint.forest.detachedIndex),
+          `field-compose-invert-rebase: malformed raw forest ${scenario.id}.${action.id}`);
+        }
+      } else if (action.op === "set") {
+        assert(typeof action.wasEmpty === "boolean",
+          `field-compose-invert-rebase: malformed set ${scenario.id}.${action.id}`);
+        atom(action.fill, `${scenario.id}.${action.id}.fill`);
+        atom(action.detach, `${scenario.id}.${action.id}.detach`);
+      } else if (action.op === "clear") {
+        assert(typeof action.wasEmpty === "boolean",
+          `field-compose-invert-rebase: malformed clear ${scenario.id}.${action.id}`);
+        atom(action.detach, `${scenario.id}.${action.id}.detach`);
+      }
+
+      if (action.op !== "intoDelta") {
+        assert(typeof action.result === "string" && action.result.length > 0
+          && !references.has(action.result),
+        `field-compose-invert-rebase: missing or duplicate result ${scenario.id}.${action.id}`);
+        change(checkpoint.result, `${scenario.id}.${action.id}.result`);
+        assert(object(rawCheckpoint.change),
+          `field-compose-invert-rebase: missing raw change ${scenario.id}.${action.id}`);
+        references.add(action.result);
+      }
+    }
+    if (scenario.forest !== undefined) {
+      assert(object(scenario.forest.schema)
+        && object(scenario.forest.initialRoot)
+        && typeof scenario.forest.initialRoot.present === "boolean"
+        && Array.isArray(scenario.forest.builds)
+        && Array.isArray(scenario.forest.detachedRegisters),
+      `field-compose-invert-rebase: malformed forest input ${scenario.id}`);
+      assert.deepEqual(scenario.forest.schema, {
+        rootField: "root",
+        cardinality: "optional",
+        values: "json-compatible",
+      }, `field-compose-invert-rebase: unsupported forest schema ${scenario.id}`);
+      for (const [index, build] of scenario.forest.builds.entries()) {
+        assert(object(build) && Object.hasOwn(build, "value"),
+          `field-compose-invert-rebase: malformed forest build ${scenario.id}[${index}]`);
+        atom(build.id, `${scenario.id}.forest.builds[${index}].id`);
+      }
+      for (const [index, detached] of scenario.forest.detachedRegisters.entries()) {
+        assert(object(detached) && Object.hasOwn(detached, "value"),
+          `field-compose-invert-rebase: malformed initial detached register ${scenario.id}[${index}]`);
+        atom(detached.id, `${scenario.id}.forest.detachedRegisters[${index}].id`);
+      }
+    }
+  }
+
+  const refusal = value.expected.observations.find(({ operation }) =>
+    operation === "simultaneous-swap-direct-application-refusal");
+  assert(refusal?.status === "rejected" && refusal.reason === "occupied-rename-cycle"
+    && !Object.hasOwn(refusal, "error")
+    && value.raw.swapApplication?.refusal?.error === "Error: 0x7cf",
+  "field-compose-invert-rebase: direct swap refusal evidence disagreement");
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -541,6 +882,7 @@ export function validateCases(cases) {
     }
     if (value.id === "schema-validation") validateSchemaCase(value);
     if (value.id === "forest-delta") validateForestCase(value);
+    if (value.id === "field-compose-invert-rebase") validateFieldCase(value);
     if (value.domain === "field" || value.domain === "modular") {
       assert(object(value.input.changes) && Object.keys(value.input.changes).length > 0
         && object(value.raw.encoded) && Object.keys(value.raw.encoded).length > 0,
