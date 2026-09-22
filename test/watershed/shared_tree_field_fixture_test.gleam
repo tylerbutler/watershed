@@ -129,8 +129,19 @@ pub fn shared_tree_field_fixture_executes_expanded_operations_test() {
     json.parse(json.to_string(fixture.input), json_ot.decoder())
   let expanded =
     "{\"changes\":{\"clearPresent\":{\"revision\":0,\"data\":{}},\"clearAbsent\":{\"revision\":0,\"data\":{}},\"activeSourceNoop\":{\"revision\":0,\"data\":{}},\"childThenClear\":{\"revision\":0,\"data\":{\"c\":[[null,{\"fieldChanges\":[{\"fieldKey\":\"watershed-node-id\",\"fieldKind\":\"watershed-node-id\",\"change\":{\"revision\":0,\"localId\":40}}]}]],\"r\":{\"e\":false,\"d\":9}}},\"childOnClearedRegister\":{\"revision\":1,\"data\":{\"c\":[[[9,0],{\"fieldChanges\":[{\"fieldKey\":\"watershed-node-id\",\"fieldKind\":\"watershed-node-id\",\"change\":{\"revision\":1,\"localId\":41}}]}]]}},\"baseChildThenClear\":{\"revision\":0,\"data\":{}},\"authoredChild\":{\"revision\":1,\"data\":{}},\"richRevisionChange\":{\"revision\":1,\"data\":{}}},\"compose\":[{\"id\":\"overlapping-children\",\"first\":{\"revision\":0,\"data\":{\"c\":[[null,{\"fieldChanges\":[{\"fieldKey\":\"watershed-node-id\",\"fieldKind\":\"watershed-node-id\",\"change\":{\"revision\":0,\"localId\":40}}]}]],\"r\":{\"e\":false,\"d\":9}}},\"second\":{\"revision\":1,\"data\":{\"c\":[[[9,0],{\"fieldChanges\":[{\"fieldKey\":\"watershed-node-id\",\"fieldKind\":\"watershed-node-id\",\"change\":{\"revision\":1,\"localId\":41}}]}]]}},\"outputRevision\":2,\"childCallback\":{\"selector\":\"constant\",\"result\":{\"revision\":2,\"localId\":45}}}],\"invert\":[{\"id\":\"invert-empty\",\"change\":{\"revision\":0,\"data\":{}},\"isRollback\":false,\"inverseRevision\":2,\"maxLocalId\":-1}],\"rebase\":[{\"id\":\"rebase-empty\",\"change\":{\"revision\":1,\"data\":{}},\"over\":{\"revision\":0,\"data\":{}},\"outputRevision\":1,\"childCallback\":{\"selector\":\"prefer-change-then-base\"}}],\"intoDelta\":{\"change\":{\"revision\":1,\"data\":{}},\"childDelta\":{\"selector\":\"local-id-count\",\"field\":\"child\"}},\"replaceRevisions\":{\"id\":\"replace-empty\",\"change\":{\"revision\":1,\"data\":{}},\"obsolete\":[0,1],\"updated\":3,\"outputRevision\":3},\"invalidMappings\":[{\"id\":\"duplicate-move-source\",\"change\":{\"moves\":[[{\"revision\":0,\"localId\":1},{\"revision\":0,\"localId\":2}],[{\"revision\":0,\"localId\":1},{\"revision\":0,\"localId\":3}]],\"childChanges\":[]}},{\"id\":\"duplicate-move-destination\",\"change\":{\"moves\":[[{\"revision\":0,\"localId\":4},{\"revision\":0,\"localId\":6}],[{\"revision\":0,\"localId\":5},{\"revision\":0,\"localId\":6}]],\"childChanges\":[]}},{\"id\":\"duplicate-child-register\",\"change\":{\"moves\":[],\"childChanges\":[[\"self\",{\"revision\":0,\"localId\":7}],[\"self\",{\"revision\":1,\"localId\":8}]]}}]}"
+  let expanded =
+    string.replace(
+      expanded,
+      "\"intoDelta\":{\"change\":{\"revision\":1,\"data\":{}}",
+      "\"intoDelta\":{\"change\":{\"revision\":1,\"data\":{\"c\":[[null,{\"fieldChanges\":[{\"fieldKey\":\"watershed-node-id\",\"fieldKind\":\"watershed-node-id\",\"change\":{\"revision\":1,\"localId\":48}}]}]]}}",
+    )
   let assert Ok(expanded) = json.parse(expanded, json_ot.decoder())
-  let input = VObject([#("expanded", expanded), ..fields]) |> json_ot.to_json
+  let input =
+    VObject([
+      #("expanded", expanded),
+      ..list.filter(fields, fn(field) { field.0 != "expanded" })
+    ])
+    |> json_ot.to_json
   let assert Ok(actual) = field_fixture.run(input)
   let output = json.to_string(actual)
   string.contains(output, "\"operation\":\"compose-expanded\"")
@@ -140,4 +151,6 @@ pub fn shared_tree_field_fixture_executes_expanded_operations_test() {
   |> expect.to_be_true
   string.contains(output, "\"fieldChanges\"") |> expect.to_be_true
   string.contains(output, "\"localId\":45") |> expect.to_be_true
+  string.contains(output, "\"count\":48") |> expect.to_be_true
+  string.contains(output, "\"fields\":[]") |> expect.to_be_false
 }
