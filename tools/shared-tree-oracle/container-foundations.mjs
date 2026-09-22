@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { dirname, join } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { ContainerMessageType } from "@fluidframework/container-runtime/internal";
@@ -16,6 +17,52 @@ const reference = {
   version: "3.1.0",
   commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
 };
+
+const decodeCaseIds = [
+  "singleton-channel-op",
+  "datastore-attach",
+  "datastore-alias",
+  "channel-attach",
+];
+const handleCaseIds = ["absolute", "relative", "escaped"];
+const encodeCaseIds = [
+  "channel-operation",
+  "datastore-attach",
+  "datastore-alias",
+  "channel-attach",
+  "grouped-batch",
+];
+const sourceEvidence = {
+  containerMessages: "packages/runtime/container-runtime/src/messageTypes.ts",
+  datastoreMessages: "packages/runtime/datastore/src/dataStoreRuntime.ts",
+  handles: "packages/runtime/runtime-utils/src/handles.ts",
+  handlePaths: "packages/runtime/runtime-utils/src/dataStoreHandleContextUtils.ts",
+  requestPaths: "packages/runtime/runtime-utils/src/requestParser.ts",
+  grouping:
+    "packages/runtime/container-runtime/src/opLifecycle/opGroupingManager.ts",
+};
+
+function object(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function exactKeys(value, expected, label) {
+  assert(object(value), `container-foundations: ${label} must be an object`);
+  assert.deepEqual(
+    Object.keys(value).sort(),
+    [...expected].sort(),
+    `container-foundations: ${label} keys`,
+  );
+}
+
+function requiredIds(values, expected, label) {
+  assert(Array.isArray(values), `container-foundations: ${label} must be an array`);
+  assert.deepEqual(
+    values.map(({ id }) => id),
+    expected,
+    `container-foundations: ${label} IDs`,
+  );
+}
 
 function requireCase(existingCases, id) {
   const value = existingCases.find((item) => item?.id === id);
@@ -131,10 +178,10 @@ function groupedObservation(message) {
       referenceSequenceNumber: message.referenceSequenceNumber,
       sequenceNumber: message.sequenceNumber,
     },
-    metadata: message.metadata,
+    ...(message.metadata === undefined ? {} : { metadata: message.metadata }),
     messages: contents.contents.map((item, index) => ({
       index,
-      metadata: item.metadata,
+      ...(item.metadata === undefined ? {} : { metadata: item.metadata }),
       message: messageObservation(item.contents),
     })),
   };
@@ -145,10 +192,10 @@ function singletonObservation(id, contents, metadata) {
     kind: "decodedCase",
     id,
     grouped: false,
-    metadata,
+    ...(metadata === undefined ? {} : { metadata }),
     messages: [{
       index: 0,
-      metadata,
+      ...(metadata === undefined ? {} : { metadata }),
       message: messageObservation(contents),
     }],
   };
@@ -180,7 +227,7 @@ function bootstrapMessagesObservation(messages, projection) {
           referenceSequenceNumber: outer.referenceSequenceNumber,
           sequenceNumber: outer.sequenceNumber,
         },
-        metadata: outer.metadata,
+        ...(outer.metadata === undefined ? {} : { metadata: outer.metadata }),
         message,
         ...(handle === undefined
           ? {}
@@ -210,6 +257,217 @@ function snapshotProjection(snapshot) {
     mapAttributes: read(mapTree.blobs[".attributes"]),
     treeAttributes: read(treeTree.blobs[".attributes"]),
   };
+}
+
+function bootstrapObservation(projection) {
+  return {
+    kind: "bootstrap",
+    mapType: projection.mapAttributes.type,
+    mapSnapshotFormatVersion: projection.mapAttributes.snapshotFormatVersion,
+    mapPackageVersion: projection.mapAttributes.packageVersion,
+    valueType: projection.mapHeader.content.tree.type,
+    handleType: projection.mapHeader.content.tree.value.type,
+    handlePath: projection.mapHeader.content.tree.value.url,
+    route: { dataStoreId: "A", channelId: "_C" },
+    treeType: projection.treeAttributes.type,
+    treeSnapshotFormatVersion: projection.treeAttributes.snapshotFormatVersion,
+    treePackageVersion: projection.treeAttributes.packageVersion,
+  };
+}
+
+function validateContainerFoundations(value) {
+  exactKeys(
+    value,
+    ["formatVersion", "reference", "id", "domain", "input", "expected", "raw"],
+    "case",
+  );
+  assert.equal(value.formatVersion, 1, "container-foundations: formatVersion");
+  assert.deepEqual(value.reference, reference, "container-foundations: reference");
+  assert.equal(value.id, "container-foundations", "container-foundations: id");
+  assert.equal(value.domain, "container", "container-foundations: domain");
+
+  exactKeys(
+    value.input,
+    [
+      "service",
+      "initialSnapshot",
+      "bootstrapMessages",
+      "groupedWireMessages",
+      "decodeCases",
+      "encodeCases",
+      "handleCases",
+    ],
+    "input",
+  );
+  assert.equal(
+    value.input.service,
+    "FluidContainerRuntime",
+    "container-foundations: input.service",
+  );
+  assert(object(value.input.initialSnapshot), "container-foundations: initialSnapshot");
+  assert(
+    Array.isArray(value.input.bootstrapMessages)
+      && value.input.bootstrapMessages.length > 0,
+    "container-foundations: bootstrapMessages",
+  );
+  assert(
+    Array.isArray(value.input.groupedWireMessages)
+      && value.input.groupedWireMessages.length > 0,
+    "container-foundations: groupedWireMessages",
+  );
+  requiredIds(value.input.decodeCases, decodeCaseIds, "decodeCases");
+  requiredIds(value.input.handleCases, handleCaseIds, "handleCases");
+  requiredIds(value.input.encodeCases, encodeCaseIds, "encodeCases");
+
+  for (const item of value.input.decodeCases) {
+    const keys = ["id", "contents"];
+    if (Object.hasOwn(item, "metadata")) keys.push("metadata");
+    exactKeys(item, keys, `decodeCases.${item.id}`);
+    assert(object(item.contents), `container-foundations: decodeCases.${item.id}.contents`);
+  }
+  for (const item of value.input.handleCases) {
+    exactKeys(
+      item,
+      ["id", "value", "contextPath", "expectedPath"],
+      `handleCases.${item.id}`,
+    );
+    assert(
+      object(item.value)
+        && typeof item.contextPath === "string"
+        && typeof item.expectedPath === "string",
+      `container-foundations: handleCases.${item.id}`,
+    );
+  }
+  for (const item of value.input.encodeCases) {
+    const grouped = item.id === "grouped-batch";
+    exactKeys(
+      item,
+      grouped ? ["id", "batch", "expected"] : ["id", "message", "expected"],
+      `encodeCases.${item.id}`,
+    );
+    assert(
+      object(grouped ? item.batch : item.message) && object(item.expected),
+      `container-foundations: encodeCases.${item.id}`,
+    );
+  }
+
+  exactKeys(value.raw, ["source", "consumers", "bootstrap"], "raw");
+  assert.deepEqual(value.raw.source, sourceEvidence, "container-foundations: raw.source");
+  const projection = snapshotProjection(value.input.initialSnapshot);
+  assert.deepEqual(
+    value.raw.bootstrap,
+    projection,
+    "container-foundations: raw.bootstrap",
+  );
+
+  exactKeys(
+    value.raw.consumers,
+    ["alias", "datastoreAttach", "channelAttach", "groupedBatch", "handle"],
+    "raw.consumers",
+  );
+  const decodeById = Object.fromEntries(
+    value.input.decodeCases.map((item) => [item.id, item]),
+  );
+  for (const [consumer, caseId] of [
+    ["alias", "datastore-alias"],
+    ["datastoreAttach", "datastore-attach"],
+    ["channelAttach", "channel-attach"],
+  ]) {
+    exactKeys(
+      value.raw.consumers[consumer],
+      ["accepted", "message"],
+      `raw.consumers.${consumer}`,
+    );
+    assert.equal(
+      value.raw.consumers[consumer].accepted,
+      true,
+      `container-foundations: raw.consumers.${consumer}.accepted`,
+    );
+    assert.deepEqual(
+      value.raw.consumers[consumer].message,
+      decodeById[caseId].contents,
+      `container-foundations: raw.consumers.${consumer}.message`,
+    );
+  }
+
+  const groupedEncode = value.input.encodeCases.at(-1);
+  exactKeys(
+    value.raw.consumers.groupedBatch,
+    ["accepted", "contents"],
+    "raw.consumers.groupedBatch",
+  );
+  assert.equal(
+    value.raw.consumers.groupedBatch.accepted,
+    true,
+    "container-foundations: raw.consumers.groupedBatch.accepted",
+  );
+  assert.deepEqual(
+    value.raw.consumers.groupedBatch.contents,
+    groupedEncode.expected,
+    "container-foundations: raw.consumers.groupedBatch.contents",
+  );
+
+  const handleById = Object.fromEntries(
+    value.input.handleCases.map((item) => [item.id, item]),
+  );
+  exactKeys(
+    value.raw.consumers.handle,
+    ["absolute", "relative", "serialized", "escapedPath", "escapedParts"],
+    "raw.consumers.handle",
+  );
+  assert.deepEqual(
+    value.raw.consumers.handle,
+    {
+      absolute: handleById.absolute.expectedPath,
+      relative: handleById.relative.expectedPath,
+      serialized: handleById.absolute.value,
+      escapedPath: handleById.escaped.expectedPath,
+      escapedParts: RequestParser.getPathParts(handleById.escaped.expectedPath),
+    },
+    "container-foundations: raw.consumers.handle",
+  );
+
+  exactKeys(value.expected, ["observations"], "expected");
+  assert(Array.isArray(value.expected.observations), "container-foundations: observations");
+  const acceptedById = {
+    "channel-operation": true,
+    "datastore-attach": value.raw.consumers.datastoreAttach.accepted,
+    "datastore-alias": value.raw.consumers.alias.accepted,
+    "channel-attach": value.raw.consumers.channelAttach.accepted,
+    "grouped-batch": value.raw.consumers.groupedBatch.accepted,
+  };
+  const observations = [
+    ...value.input.decodeCases.map((item) =>
+      singletonObservation(item.id, item.contents, item.metadata)),
+    groupedObservation(value.input.groupedWireMessages[0]),
+    bootstrapMessagesObservation(value.input.bootstrapMessages, projection),
+    ...value.input.handleCases.map((item) => ({
+      kind: "handle",
+      id: item.id,
+      path: item.expectedPath,
+      parts: RequestParser.getPathParts(item.expectedPath),
+      encoded: encodeHandleForSerialization({ absolutePath: item.expectedPath }),
+    })),
+    ...value.input.encodeCases.map((item) =>
+      encodedObservation(item.id, item.expected, acceptedById[item.id])),
+    bootstrapObservation(projection),
+  ];
+  assert.deepEqual(
+    value.expected.observations,
+    observations,
+    "container-foundations: expected observations",
+  );
+}
+
+export function validateContainerFoundationsCase(value) {
+  try {
+    validateContainerFoundations(value);
+  } catch (error) {
+    if (error?.message?.includes("container-foundations:")) throw error;
+    throw new Error(`container-foundations: ${error?.message ?? String(error)}`, {
+      cause: error,
+    });
+  }
 }
 
 export async function captureContainerFoundations(existingCases) {
@@ -394,26 +652,13 @@ export async function captureContainerFoundations(existingCases) {
     },
   ];
 
-  const bootstrapObservation = {
-    kind: "bootstrap",
-    mapType: projection.mapAttributes.type,
-    mapSnapshotFormatVersion: projection.mapAttributes.snapshotFormatVersion,
-    mapPackageVersion: projection.mapAttributes.packageVersion,
-    valueType: projection.mapHeader.content.tree.type,
-    handleType: projection.mapHeader.content.tree.value.type,
-    handlePath: projection.mapHeader.content.tree.value.url,
-    route: { dataStoreId: "A", channelId: "_C" },
-    treeType: projection.treeAttributes.type,
-    treeSnapshotFormatVersion: projection.treeAttributes.snapshotFormatVersion,
-    treePackageVersion: projection.treeAttributes.packageVersion,
-  };
-
-  return {
+  const value = {
     formatVersion: 1,
     reference,
     id: "container-foundations",
     domain: "container",
     input: {
+      service: "FluidContainerRuntime",
       initialSnapshot,
       bootstrapMessages,
       groupedWireMessages,
@@ -458,19 +703,11 @@ export async function captureContainerFoundations(existingCases) {
             item.expected,
             item.id === "grouped-batch" ? groupedAccepted : true,
           )),
-        bootstrapObservation,
+        bootstrapObservation(projection),
       ],
     },
     raw: {
-      source: {
-        containerMessages: "packages/runtime/container-runtime/src/messageTypes.ts",
-        datastoreMessages: "packages/runtime/datastore/src/dataStoreRuntime.ts",
-        handles: "packages/runtime/runtime-utils/src/handles.ts",
-        handlePaths: "packages/runtime/runtime-utils/src/dataStoreHandleContextUtils.ts",
-        requestPaths: "packages/runtime/runtime-utils/src/requestParser.ts",
-        grouping:
-          "packages/runtime/container-runtime/src/opLifecycle/opGroupingManager.ts",
-      },
+      source: sourceEvidence,
       consumers: {
         alias: { accepted: aliasAccepted, message: alias },
         datastoreAttach: { accepted: true, message: datastoreAttach },
@@ -487,4 +724,6 @@ export async function captureContainerFoundations(existingCases) {
       bootstrap: projection,
     },
   };
+  validateContainerFoundationsCase(value);
+  return value;
 }
