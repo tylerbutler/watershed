@@ -39,9 +39,12 @@ fn summary_fixture_input(bytes: String) -> json.Json {
       array([
         json.object([
           #("label", json.string("snapshot-entries")),
+          #("operation", json.string("snapshot")),
         ]),
         json.object([
           #("label", json.string("emitted-entries")),
+          #("operation", json.string("emit")),
+          #("previous", json.string("snapshot")),
           #(
             "summary",
             array([
@@ -316,4 +319,8 @@ pub fn shared_tree_summary_fixture_uses_only_replay_input_test() -> Nil {
     summary_fixture.run(summary_fixture_input("%%%"))
     |> expect.to_be_error
   Nil
+}
+
+pub fn shared_tree_summary_upstream_fixture_test() -> Nil {
+  fixtures.assert_case("summary-foundations", summary_fixture.run)
 }

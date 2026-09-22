@@ -57,6 +57,17 @@ test("summary foundations use the pinned upload manager for bytes and references
       "malformed-percent-encoding",
     ],
   );
+  assert.deepEqual(
+    value.input.scenarios.map(({ operation, previous }) => [operation, previous]),
+    [
+      ["snapshot", undefined],
+      ["emit", "snapshot"],
+      ["refuse", "missing"],
+      ["refuse", "snapshot"],
+      ["refuse", "snapshot"],
+      ["refuse", "snapshot"],
+    ],
+  );
 
   const snapshotEntries = value.expected.observations.find(
     ({ label }) => label === "snapshot-entries",
@@ -143,7 +154,7 @@ test("summary foundations use the pinned upload manager for bytes and references
 
   assert.deepEqual(
     value.expected.observations
-      .filter(({ refused }) => refused)
+      .filter(({ refused }) => refused === true)
       .map(({ label }) => label),
     [
       "missing-parent",
@@ -151,6 +162,15 @@ test("summary foundations use the pinned upload manager for bytes and references
       "wrong-kind",
       "malformed-percent-encoding",
     ],
+  );
+  assert(
+    value.raw.refusals.every(
+      ({ error, blobs, trees }) =>
+        typeof error === "string"
+        && error.length > 0
+        && blobs.length === 0
+        && trees.length === 0,
+    ),
   );
   assert(
     value.raw.blobs.some(
@@ -200,8 +220,8 @@ test("summary foundations validation requires complete paired evidence", async (
       copy.expected.observations[1].entries[0].storageId = "unknown-object";
       copy.expected.observations[1].entries[0].bytes = undefined;
     }],
-    ["refusal message", (copy) => {
-      copy.expected.observations[2].refused = "different";
+    ["refusal observations", (copy) => {
+      copy.expected.observations[2].refused = false;
     }],
   ]) {
     const copy = structuredClone(value);
