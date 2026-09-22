@@ -6,6 +6,7 @@ import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{None, Some}
+import gleam/order.{type Order, Eq, Gt, Lt}
 import gleam/result
 import gleam/string
 import gleam/uri
@@ -29,7 +30,25 @@ type SnapshotNode {
 }
 
 type Scenario {
-  Scenario(label: String, entries: List(InputEntry))
+  SnapshotScenario(label: String)
+  EmitScenario(label: String, entries: List(InputEntry))
+  RefusalScenario(
+    label: String,
+    previous: PreviousSummary,
+    expected: RefusalCategory,
+    entries: List(InputEntry),
+  )
+}
+
+type PreviousSummary {
+  PreviousSnapshot
+  MissingPrevious
+}
+
+type RefusalCategory {
+  MissingRefusal
+  WrongKindRefusal
+  MalformedRefusal
 }
 
 type InputEntry {
@@ -69,55 +88,62 @@ fn run_scenario(
   snapshot: SnapshotNode,
   previous: fluid_summary.SummaryEntry,
 ) -> Result(Json, String) {
-  let summary = fluid_summary.SummaryTree(to_summary_entries(scenario.entries))
-  case scenario.label {
-    "snapshot-entries" -> {
+  case scenario {
+    SnapshotScenario(label) -> {
       use entries <- result.try(observe_snapshot(snapshot, previous, []))
       Ok(
         json.object([
-          #("label", json.string(scenario.label)),
+          #("label", json.string(label)),
           #("entries", array(entries)),
         ]),
       )
     }
-    "emitted-entries" -> {
+    EmitScenario(label, inputs) -> {
+      let summary = fluid_summary.SummaryTree(to_summary_entries(inputs))
       use resolved <- result.try(
         fluid_summary.resolve(summary, Some(previous))
         |> result.map_error(summary_error),
       )
-      let allocation =
-        allocate_trees(scenario.entries, [], Allocation(1, dict.new()))
+      let allocation = allocate_trees(inputs, [], Allocation(1, dict.new()))
       let assert fluid_summary.SummaryTree(entries) = resolved
       use observed <- result.try(
-        observe_entries(
-          scenario.entries,
-          entries,
-          snapshot,
-          allocation.trees,
-          [],
-        ),
+        observe_entries(inputs, entries, snapshot, allocation.trees, []),
       )
       Ok(
         json.object([
-          #("label", json.string(scenario.label)),
+          #("label", json.string(label)),
           #("entries", array(observed)),
         ]),
       )
     }
-    _ -> {
-      let previous = case scenario.label {
-        "missing-parent" -> None
-        _ -> Some(previous)
+    RefusalScenario(label, previous_summary, expected, inputs) -> {
+      let summary = fluid_summary.SummaryTree(to_summary_entries(inputs))
+      let previous_summary = case previous_summary {
+        PreviousSnapshot -> Some(previous)
+        MissingPrevious -> None
       }
-      case fluid_summary.resolve(summary, previous) {
-        Ok(_) -> Error("summary scenario did not fail: " <> scenario.label)
-        Error(_) ->
-          Ok(
-            json.object([
-              #("label", json.string(scenario.label)),
-              #("refused", json.bool(True)),
-            ]),
-          )
+      case fluid_summary.resolve(summary, previous_summary) {
+        Ok(_) -> Error("summary scenario did not fail: " <> label)
+        Error(error) ->
+          case expected, error {
+            MissingRefusal, fluid_summary.MissingEntry(_)
+            | WrongKindRefusal, fluid_summary.WrongKind(_, _)
+            | MalformedRefusal, fluid_summary.MalformedEntry(_, _)
+            ->
+              Ok(
+                json.object([
+                  #("label", json.string(label)),
+                  #("refused", json.bool(True)),
+                ]),
+              )
+            _, _ ->
+              Error(
+                "summary scenario "
+                <> label
+                <> " refused with the wrong category: "
+                <> summary_error(error),
+              )
+          }
       }
     }
   }
@@ -144,7 +170,7 @@ fn observe_snapshot(
         |> dict.to_list
         |> list.map(fn(entry) { entry.0 }),
     )
-    |> list.sort(string.compare)
+    |> list.sort(compare_utf16)
   use children <- result.try(
     list.try_fold(names, [], fn(observed, name) {
       use value <- result.try(
@@ -494,12 +520,28 @@ fn snapshot_node_decoder() -> decode.Decoder(SnapshotNode) {
 
 fn scenario_decoder() -> decode.Decoder(Scenario) {
   use label <- decode.field("label", decode.string)
-  use entries <- decode.optional_field(
-    "summary",
-    [],
-    decode.list(input_entry_decoder()),
-  )
-  decode.success(Scenario(label:, entries:))
+  case label {
+    "snapshot-entries" -> decode.success(SnapshotScenario(label))
+    "emitted-entries" -> {
+      use entries <- decode.field("summary", decode.list(input_entry_decoder()))
+      decode.success(EmitScenario(label, entries))
+    }
+    "missing-parent" -> decode_refusal(label, MissingPrevious, MissingRefusal)
+    "missing-path" -> decode_refusal(label, PreviousSnapshot, MissingRefusal)
+    "wrong-kind" -> decode_refusal(label, PreviousSnapshot, WrongKindRefusal)
+    "malformed-percent-encoding" ->
+      decode_refusal(label, PreviousSnapshot, MalformedRefusal)
+    _ -> decode.failure(SnapshotScenario(""), "summary scenario selector")
+  }
+}
+
+fn decode_refusal(
+  label: String,
+  previous: PreviousSummary,
+  expected: RefusalCategory,
+) -> decode.Decoder(Scenario) {
+  use entries <- decode.field("summary", decode.list(input_entry_decoder()))
+  decode.success(RefusalScenario(label, previous, expected, entries))
 }
 
 fn input_entry_decoder() -> decode.Decoder(InputEntry) {
@@ -551,6 +593,39 @@ fn decode_snapshot_blobs(
 
 fn empty_snapshot() -> SnapshotNode {
   SnapshotNode("", dict.new(), dict.new())
+}
+
+fn compare_utf16(left: String, right: String) -> Order {
+  compare_units(utf16_units(left), utf16_units(right))
+}
+
+fn utf16_units(value: String) -> List(Int) {
+  value
+  |> string.to_utf_codepoints
+  |> list.flat_map(fn(point) {
+    let code = string.utf_codepoint_to_int(point)
+    case code <= 65_535 {
+      True -> [code]
+      False -> {
+        let value = code - 65_536
+        [55_296 + value / 1024, 56_320 + value % 1024]
+      }
+    }
+  })
+}
+
+fn compare_units(left: List(Int), right: List(Int)) -> Order {
+  case left, right {
+    [], [] -> Eq
+    [], _ -> Lt
+    _, [] -> Gt
+    [left, ..left_rest], [right, ..right_rest] ->
+      case left < right, left > right {
+        True, _ -> Lt
+        _, True -> Gt
+        False, False -> compare_units(left_rest, right_rest)
+      }
+  }
 }
 
 fn array(values: List(Json)) -> Json {
