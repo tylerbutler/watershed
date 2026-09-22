@@ -1084,8 +1084,8 @@ export async function writeCorpus(output, cases, smoke) {
       gcMetadataVersion: profile.container.gcFeature,
     },
     nativeSemanticRunners: {
-      javascript: ["id-ranges", "schema-validation", "forest-delta"],
-      erlang: ["id-ranges", "schema-validation", "forest-delta"],
+      javascript: ["id-ranges", "schema-validation", "forest-delta", "field-compose-invert-rebase"],
+      erlang: ["id-ranges", "schema-validation", "forest-delta", "field-compose-invert-rebase"],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),
   };

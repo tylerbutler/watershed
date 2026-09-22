@@ -62,21 +62,23 @@ this plan; do those actions in Task 1 after adding its manifests.
 
 ### Dependency order
 
-Tasks 1-6 are complete at `c04a70a`: the pinned oracle, real-service profile,
-corpus, ID compression, fixed schemas, and persistent forest. Tasks 7-16 remain.
+Tasks 1-7 are complete: the pinned oracle, real-service profile, corpus, ID
+compression, fixed schemas, persistent forest, and required/optional field
+algebra. Tasks 8-16 remain.
 The manifest records native semantic runners for `id-ranges`,
-`schema-validation`, and `forest-delta` on both targets; the other generated
-cases are not evidence of implemented native semantics.
+`schema-validation`, `forest-delta`, and `field-compose-invert-rebase` on both
+targets; the other generated cases are not evidence of implemented native
+semantics.
 
 The remaining work has three parallel lanes:
 
 ```text
-Completed Tasks 1-6 -> contract and ownership check
+Completed Tasks 1-7 -> contract and ownership check
                                   |
      +----------------------------+----------------------------+
      |                            |                            |
- A: 7 field algebra        B: 11a container/             C: 13a summary-tree/
-    -> 8 modular changes     routing/handle                storage foundations
+ A: 8 modular changes     B: 11a container/             C: 13a summary-tree/
+                             routing/handle                storage foundations
     -> 9 edit history        foundations                       |
     -> 10 codecs/kernel           |                            |
      |                            |                            |
@@ -95,12 +97,12 @@ Completed Tasks 1-6 -> contract and ownership check
 
 `11a` and `13a` name foundation slices of Tasks 11 and 13, not new numbered
 tasks. Completing either slice does not close its parent task. Keep the
-`7 -> 8 -> 9 -> 10` chain ordered, then give one owner the shared integration
+`8 -> 9 -> 10` chain ordered, then give one owner the shared integration
 work. This plan does not require subagents.
 
 ### Parallel workstreams and integration
 
-All three lanes can start from the completed Tasks 1-6 after agreeing their
+All three lanes can proceed from the completed foundations after agreeing their
 contracts and file ownership. Task 11's container formats depend on the M0
 evidence and ID contract, not on the future tree kernel. Task 13's tree/blob I/O
 can likewise proceed before its document restoration and publication work.
@@ -110,7 +112,7 @@ focused `test/watershed/shared_tree_*_test.gleam` tests and task-local adapters.
 
 | Lane | Owned files and deliverable | Stop before |
 | --- | --- | --- |
-| A: tree semantics | `tree/optional_field.gleam`, `tree/change.gleam`, `tree/history.gleam`, `tree/codec.gleam`, `tree_kernel.gleam`; field algebra, nested changes, reconciliation, codecs, and pure kernel | Live runtime changes |
+| A: tree semantics | `tree/optional_field.gleam`, `tree/change.gleam`, `tree/history.gleam`, `tree/codec.gleam`, `tree_kernel.gleam`; extend the completed field algebra with modular hooks, nested changes, reconciliation, codecs, and pure kernel | Live runtime changes |
 | B: container protocol | `wire/fluid_container.gleam`, bounded additions to `handle.gleam` and its tests; typed envelopes, ordered batches, routes, context-aware handles, and bootstrap-map wire checks | Runtime dispatch, broad existing-DDS envelope replacement, and facade root changes |
 | C: storage foundations | `wire/fluid_summary.gleam`, `git_storage.gleam`, and storage tests; summary trees/blobs/handles, lossless bytes, reference resolution, and hierarchical fetch/staging | Complete `DocumentSummary`, runtime bootstrap/publication, and native cross-writer claims |
 
@@ -119,7 +121,7 @@ focused `test/watershed/shared_tree_*_test.gleam` tests and task-local adapters.
 boundary, and the sequencing metadata that history and reconnect consume.
 Preserve outer sequence, reference and minimum sequence numbers, inner batch
 position, transport submission identity, tree revision, and compressor session
-as distinct concepts. Lane A derives unfinished algebra and history signatures
+as distinct concepts. Lane A derives unfinished modular and history signatures
 from the pinned corpus before downstream work consumes them. Do not dispatch
 history against guessed contexts or scaffold implementations. Keep Task 10 on
 Lane A rather than adding a codec worker before the real changeset/history
@@ -1006,8 +1008,17 @@ Suggested commit subject: `feat(tree): retain attached and detached forest state
 
 ### Task 7: port required/optional field edit algebra
 
-**Files:** Create `tree/optional_field.gleam` and
-`test/watershed/shared_tree_field_test.gleam`.
+**Status:** Complete. The input-only native runner reproduces the original seven
+observations and 43 expanded field scenarios on both targets. The entire
+22-case upstream corpus regenerates byte-for-byte. Field algebra and field
+delta conversion do not establish production codec or runtime interoperability.
+
+**Files:** `src/watershed/tree/optional_field.gleam`,
+`test/watershed/shared_tree_field_test.gleam`,
+`test/watershed/tree/field_fixture.gleam`, and
+`test/watershed/shared_tree_field_fixture_test.gleam`. The existing upstream
+algebra producer, generator validation/tests, field fixture, manifest, and
+oracle README carry the corresponding evidence and runner declaration.
 
 **Interfaces:** Match the upstream register model:
 
@@ -1032,35 +1043,75 @@ pub type FieldChange {
 }
 ```
 
-Export `set`, `clear`, `compose`, `invert`, `rebase`, and `replace_revisions`.
-Use typed context parameters for revision metadata, child-change callbacks, and
-ID allocation wherever the corresponding upstream handler requires them. M0
-must record those dependencies; do not drop them to make an interface shorter.
-The initial editor contracts are:
+The pinned field handler uses pairwise composition, child callbacks, and an
+inversion allocation cursor. It does not consume revision-history metadata or
+repair state at this layer. Export `empty`, `set`, `clear`, `validate`,
+`compose`, `invert`, `rebase`, `replace_revisions`, and field-only `into_delta`.
+The concrete editor contracts are:
 
 ```gleam
 pub fn set(was_empty: Bool, fill: AtomId, detach: AtomId) -> FieldChange
 pub fn clear(was_empty: Bool, detach: AtomId) -> FieldChange
 ```
 
-The algebra contracts consume and return `Result(FieldChange, TreeError)`;
-composition consumes an ordered list of revision-tagged changes, inversion
-consumes the original tagged change and repair context, and rebasing consumes
-the authored change, the tagged base change, and revision context.
+Composition and rebasing thread caller-owned child callback state explicitly:
 
-- [ ] **1. Add the upstream algebra corpus as a failing test.**
+```gleam
+pub fn compose(
+  first: FieldChange,
+  second: FieldChange,
+  context: context,
+  compose_child: fn(Option(AtomId), Option(AtomId), context) ->
+    Result(#(AtomId, context), TreeError),
+) -> Result(#(FieldChange, context), TreeError)
+
+pub fn invert(
+  change: FieldChange,
+  is_rollback: Bool,
+  inverse_revision: Option(StableId),
+  last_local_id: Int,
+) -> Result(#(FieldChange, Int), TreeError)
+
+pub fn rebase(
+  change: FieldChange,
+  over: FieldChange,
+  context: context,
+  rebase_child: fn(Option(AtomId), Option(AtomId), AttachState, context) ->
+    Result(#(Option(AtomId), context), TreeError),
+) -> Result(#(FieldChange, context), TreeError)
+```
+
+`AttachState` is `Attached` or `DetachedNode`. The callback state carries actual
+child work, not a placeholder history context. Both inputs and output identities
+are checked; failure returns no candidate context or allocation state.
+`last_local_id = -1` means the inverse revision has no allocated local ID.
+The caller must accept the returned counter together with the inverse.
+
+`replace_revisions(change, obsolete: List(Option(StableId)), updated:
+Option(StableId))` returns `Result(FieldChange, TreeError)` and checks rewritten
+identity collisions. Field-only `into_delta` receives a fallible child-to-fields
+callback and returns optional local marks, detached child changes, and renames.
+It does not construct builds, refreshers, document revisions, or a full modular
+changeset.
+
+Task 8 owns ordered tagged-change folding, child payload inversion, aliases,
+repair content, and revision metadata. It also supplies the remaining field
+hooks, such as pruning and removed-root traversal, when the modular algorithm
+actually consumes them.
+
+- [x] **1. Add the upstream algebra corpus as a failing test.**
 
 ```gleam
 pub fn shared_tree_field_algebra_matches_upstream_test() {
-  fixtures.assert_case("field-compose-invert-rebase", run_field_case)
+  fixtures.assert_case("field-compose-invert-rebase", field_fixture.run)
 }
 ```
 
-`run_field_case` decodes typed register changes and invokes the named algebra
+`field_fixture.run` decodes typed register changes and invokes the named algebra
 function from each fixture action. It compares canonical register maps and
 revision-aware results, not only the current field value.
 
-- [ ] **2. Port the field handlers in dependency order.**
+- [x] **2. Port the field handlers in dependency order.**
 
 Start with editor output and revision replacement; add composition, inversion,
 then rebasing from the pinned `optionalField.ts` implementation. Required fields
@@ -1071,21 +1122,21 @@ Preserve the distinction between `Active`, no source, and a detached source.
 For the selected V2 encoding, active register encodes as null while an omitted
 replacement source means clear; these cannot share one decoder branch.
 
-- [ ] **3. Cover the full supported register behavior.**
+- [x] **3. Cover the full supported register behavior.**
 
 Include set/set both orders; set/clear; clear/set; clear of empty; nested child
 edits through replacement; detach/reattach during rebase; simultaneous register
 swaps; duplicate source/destination rejection; and revision remapping.
 Detached-register moves are required even though public array moves are deferred.
 
-- [ ] **4. Exercise the algebra laws with upstream expectations.**
+- [x] **4. Exercise the algebra laws with upstream expectations.**
 
 Compare composing A then B with applying A then B in the same context. Compare
 applying A then its valid inverse with restored observable/retained state.
 Run the upstream rebase axioms that apply to the supported changes, including
 their documented preconditions. Do not impose a generic commutative CRDT law.
 
-- [ ] **5. Run the focused pair and commit.**
+- [x] **5. Run the focused pair and commit.**
 
 Commit subject: `feat(tree): port optional-field change algebra`.
 

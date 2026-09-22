@@ -209,12 +209,14 @@
     "javascript": [
       "id-ranges",
       "schema-validation",
-      "forest-delta"
+      "forest-delta",
+      "field-compose-invert-rebase"
     ],
     "erlang": [
       "id-ranges",
       "schema-validation",
-      "forest-delta"
+      "forest-delta",
+      "field-compose-invert-rebase"
     ]
   },
   "cases": [

@@ -825,3 +825,101 @@ pub fn shared_tree_field_rebase_error_does_not_return_partial_context_test() -> 
     })
   Nil
 }
+
+fn valid_edits(was_empty: Bool, offset: Int) -> List(field.FieldChange) {
+  [
+    field.set(was_empty, atom(offset), atom(offset + 1)),
+    field.clear(was_empty, atom(offset + 2)),
+  ]
+}
+
+pub fn shared_tree_field_rebase_do_inverse_and_sandwich_laws_test() -> Nil {
+  list.each([True, False], fn(was_empty) {
+    list.each(valid_edits(was_empty, 10), fn(a) {
+      list.each(valid_edits(was_empty, 20), fn(b) {
+        list.each([True, False], fn(rollback) {
+          let assert Ok(#(inverse, _)) =
+            field.invert(b, rollback, Some(revision("02")), -1)
+          let assert Ok(#(rebased, Nil)) = field.rebase(a, b, Nil, no_rebase)
+          let assert Ok(#(restored, Nil)) =
+            field.rebase(rebased, inverse, Nil, no_rebase)
+          restored |> expect.to_equal(a)
+          let assert Ok(#(sandwich, Nil)) =
+            field.rebase(restored, b, Nil, no_rebase)
+          sandwich |> expect.to_equal(rebased)
+        })
+      })
+    })
+  })
+}
+
+pub fn shared_tree_field_inverse_composition_has_no_visible_delta_test() -> Nil {
+  list.each([True, False], fn(was_empty) {
+    list.each(valid_edits(was_empty, 10), fn(change) {
+      let assert Ok(#(inverse, _)) =
+        field.invert(change, True, Some(revision("02")), -1)
+      list.each([#(change, inverse), #(inverse, change)], fn(pair) {
+        let assert Ok(#(composed, Nil)) =
+          field.compose(pair.0, pair.1, Nil, no_compose)
+        let assert Ok(delta) = field.into_delta(composed, no_child_delta)
+        delta.local |> expect.to_equal(None)
+      })
+    })
+  })
+}
+
+pub fn shared_tree_field_composition_is_associative_in_valid_contexts_test() -> Nil {
+  list.each([True, False], fn(was_empty) {
+    list.each(valid_edits(was_empty, 10), fn(a) {
+      let assert Some(a_replacement) = a.replacement
+      list.each(valid_edits(a_replacement.source == None, 20), fn(b) {
+        let assert Some(b_replacement) = b.replacement
+        list.each(valid_edits(b_replacement.source == None, 30), fn(c) {
+          let assert Ok(#(ab, Nil)) = field.compose(a, b, Nil, no_compose)
+          let assert Ok(#(bc, Nil)) = field.compose(b, c, Nil, no_compose)
+          let assert Ok(#(left, Nil)) = field.compose(ab, c, Nil, no_compose)
+          let assert Ok(#(right, Nil)) = field.compose(a, bc, Nil, no_compose)
+          left.replacement |> expect.to_equal(right.replacement)
+          let root = case was_empty {
+            True -> None
+            False -> Some(types.StringValue("original"))
+          }
+          let builds = [
+            forest.Build(atom(10), [types.StringValue("a")]),
+            forest.Build(atom(20), [types.StringValue("b")]),
+            forest.Build(atom(30), [types.StringValue("c")]),
+          ]
+          let assert Ok(built) =
+            apply(new_forest(False, root), field.empty(), builds)
+          let references =
+            list.map(builds, fn(build) {
+              let assert Ok(reference) = forest.locate_detached(built, build.id)
+              let assert [value] = build.trees
+              #(reference, value)
+            })
+          let assert Ok(left_state) = apply(built, left, [])
+          let assert Ok(right_state) = apply(built, right, [])
+          let retained = fn(state) {
+            let assert Ok(data) = forest.export_data(state)
+            #(
+              data.root,
+              list.map(data.detached, fn(entry) {
+                #(entry.id, entry.latest_relevant_revision, entry.value)
+              }),
+            )
+          }
+          // Equivalent rename orders can allocate different forest root IDs.
+          retained(left_state) |> expect.to_equal(retained(right_state))
+          list.each(references, fn(entry) {
+            forest.read_node(left_state, entry.0)
+            |> expect.to_equal(Ok(entry.1))
+            forest.read_node(right_state, entry.0)
+            |> expect.to_equal(Ok(entry.1))
+            forest.is_attached(left_state, entry.0)
+            |> expect.to_equal(forest.is_attached(right_state, entry.0))
+          })
+        })
+      })
+    })
+  })
+}
