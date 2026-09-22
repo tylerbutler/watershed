@@ -1,0 +1,328 @@
+import gleam/json
+import gleam/list
+import startest/expect
+import watershed/json_ot.{
+  type JsonValue, type PathKey, Index, Key, NInt, VArray, VBool, VNumber,
+  VObject, VString,
+}
+import watershed/tree/change_fixture
+import watershed/tree/change_fixture_codec as codec
+import watershed/tree/fixtures
+
+pub fn shared_tree_nested_change_algebra_matches_upstream_test() -> Nil {
+  fixtures.assert_case("modular-nested-algebra", change_fixture.run)
+}
+
+pub fn shared_tree_nested_change_runner_rejects_missing_inputs_test() -> Nil {
+  change_fixture.run(json.object([])) |> expect.to_be_error
+  Nil
+}
+
+fn input() -> JsonValue {
+  let assert Ok(fixture) = fixtures.load("modular-nested-algebra")
+  let assert Ok(input) = codec.parse(fixture.input)
+  input
+}
+
+fn replace_at(
+  value: JsonValue,
+  path: List(PathKey),
+  replacement: JsonValue,
+) -> JsonValue {
+  case path, value {
+    [], _ -> replacement
+    [Key(key), ..rest], VObject(fields) -> {
+      let assert Ok(current) = list.key_find(fields, key)
+      let updated = replace_at(current, rest, replacement)
+      VObject(
+        list.map(fields, fn(entry) {
+          case entry.0 == key {
+            True -> #(key, updated)
+            False -> entry
+          }
+        }),
+      )
+    }
+    [Index(index), ..rest], VArray(values) -> {
+      let assert Ok(current) = list.drop(values, index) |> list.first
+      let updated = replace_at(current, rest, replacement)
+      VArray(
+        list.index_map(values, fn(value, position) {
+          case position == index {
+            True -> updated
+            False -> value
+          }
+        }),
+      )
+    }
+    _, _ -> panic as "invalid mutation path"
+  }
+}
+
+fn operation_path(index: Int, field: String) -> List(PathKey) {
+  [Key("expanded"), Key("operations"), Index(index), Key(field)]
+}
+
+fn replay(value: JsonValue) -> json.Json {
+  let assert Ok(output) = change_fixture.run(json_ot.to_json(value))
+  output
+}
+
+pub fn shared_tree_nested_change_runner_executes_operation_arguments_test() -> Nil {
+  let original = input()
+  let baseline = replay(original)
+  let mutations = [
+    #(
+      list.append(operation_path(0, "value"), [Key("value")]),
+      VNumber(NInt(43)),
+    ),
+    #(
+      operation_path(6, "changes"),
+      VArray([VString("child-y"), VString("child-x")]),
+    ),
+    #(operation_path(10, "isRollback"), VBool(False)),
+    #(
+      operation_path(10, "inverseRevision"),
+      VString("00000000-0000-4000-b000-000000000007"),
+    ),
+    #(
+      list.append(operation_path(21, "repair"), [
+        Index(0),
+        Key("trees"),
+        Index(0),
+        Key("value"),
+      ]),
+      VString("different repair content"),
+    ),
+  ]
+  list.each(mutations, fn(mutation) {
+    let changed = replay(replace_at(original, mutation.0, mutation.1))
+    fixtures.first_difference(baseline, changed) |> expect.to_be_error
+    Nil
+  })
+}
+
+fn forest_state(output: json.Json, id: String) -> JsonValue {
+  let assert Ok(output) = codec.parse(output)
+  let assert Ok(observations) = codec.field(output, "observations", codec.items)
+  let assert Ok(observation) =
+    list.find(observations, fn(observation) {
+      codec.field(observation, "operation", codec.text) == Ok("modular-forest")
+      && codec.field(observation, "id", codec.text) == Ok(id)
+    })
+  let assert Ok(checkpoints) =
+    codec.field(observation, "checkpoints", codec.items)
+  let assert Ok(last) = list.last(checkpoints)
+  let assert Ok(state) = codec.get(last, "state")
+  state
+}
+
+pub fn shared_tree_nested_change_mutation_changes_detached_not_replacement_test() -> Nil {
+  let original = input()
+  let mutated =
+    replace_at(
+      original,
+      list.append(operation_path(0, "value"), [Key("value")]),
+      VNumber(NInt(43)),
+    )
+  let before = forest_state(replay(original), "parent-then-child")
+  let after = forest_state(replay(mutated), "parent-then-child")
+  let assert Ok(before_root) = codec.get(before, "root")
+  let assert Ok(after_root) = codec.get(after, "root")
+  fixtures.first_difference(
+    json_ot.to_json(before_root),
+    json_ot.to_json(after_root),
+  )
+  |> expect.to_equal(Ok(Nil))
+  let assert Ok(before_references) = codec.get(before, "references")
+  let assert Ok(after_references) = codec.get(after, "references")
+  fixtures.first_difference(
+    json_ot.to_json(before_references),
+    json_ot.to_json(after_references),
+  )
+  |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_nested_change_runner_observes_alias_chains_test() -> Nil {
+  let original = input()
+  let assert Ok(expanded) = codec.get(original, "expanded")
+  let assert Ok(changes) = codec.get(expanded, "changes")
+  let assert Ok(first) = codec.get(changes, "first")
+  let assert Ok([alias]) = codec.field(first, "aliases", codec.items)
+  let assert Ok(#(source, target)) = codec.pair(alias)
+  let assert Ok(revision) = codec.get(source, "revision")
+  let intermediate =
+    VObject([
+      #("revision", revision),
+      #("localId", VNumber(NInt(6))),
+    ])
+  let mutated =
+    replace_at(
+      original,
+      [Key("expanded"), Key("changes"), Key("first"), Key("aliases")],
+      VArray([
+        VArray([source, intermediate]),
+        VArray([intermediate, target]),
+      ]),
+    )
+  let baseline = replay(original)
+  let changed = replay(mutated)
+  fixtures.first_difference(baseline, changed) |> expect.to_be_error
+  forest_state(baseline, "parent-then-child")
+  |> expect.to_equal(forest_state(changed, "parent-then-child"))
+}
+
+pub fn shared_tree_nested_change_runner_rejects_malformed_arguments_test() -> Nil {
+  let original = input()
+  let mutations = [
+    #([Key("codecs"), Key("modular")], VNumber(NInt(6))),
+    #([Key("compression")], VNumber(NInt(1))),
+    #(
+      [Key("expanded"), Key("revisions"), Index(1), Key("encoded")],
+      VNumber(NInt(4)),
+    ),
+    #(
+      [
+        Key("expanded"),
+        Key("changes"),
+        Key("first"),
+        Key("fields"),
+        Index(0),
+        Index(1),
+        Key("kind"),
+      ],
+      VString("Sequence"),
+    ),
+    #([Key("expanded"), Key("changes"), Key("first"), Key("nodes")], VArray([])),
+    #(operation_path(0, "op"), VString("unknown")),
+    #(operation_path(0, "id"), VString("first")),
+    #(
+      operation_path(0, "path"),
+      VArray([VString("missing-parent"), VString("x")]),
+    ),
+    #(operation_path(10, "isRollback"), VString("false")),
+    #(operation_path(14, "over"), VString("missing")),
+    #(operation_path(14, "revisionMetadata"), VArray([])),
+    #(
+      list.append(operation_path(14, "revisionMetadata"), [
+        Index(0),
+        Key("rollbackOf"),
+      ]),
+      VString("00000000-0000-4000-b000-000000000004"),
+    ),
+    #(
+      [
+        Key("expanded"),
+        Key("scenarios"),
+        Index(0),
+        Key("actions"),
+        Index(1),
+        Key("change"),
+      ],
+      VString("missing"),
+    ),
+  ]
+  list.each(mutations, fn(mutation) {
+    let mutated = replace_at(original, mutation.0, mutation.1)
+    change_fixture.run(json_ot.to_json(mutated)) |> expect.to_be_error
+    Nil
+  })
+}
+
+pub fn shared_tree_nested_change_runner_rejects_unknown_structure_members_test() -> Nil {
+  let original = input()
+  let assert Ok(expanded) = codec.get(original, "expanded")
+  let assert Ok(changes) = codec.get(expanded, "changes")
+  let assert Ok(VObject(fields)) = codec.get(changes, "first")
+  list.each(
+    ["crossFieldKeys", "nodeExistsConstraint", "noChangeConstraint"],
+    fn(key) {
+      let mutated =
+        replace_at(
+          original,
+          [Key("expanded"), Key("changes"), Key("first")],
+          VObject([#(key, VArray([])), ..fields]),
+        )
+      change_fixture.run(json_ot.to_json(mutated)) |> expect.to_be_error
+      Nil
+    },
+  )
+}
+
+pub fn shared_tree_nested_change_runner_rejects_sequence_generic_index_test() -> Nil {
+  let original = input()
+  let assert Ok(expanded) = codec.get(original, "expanded")
+  let assert Ok(changes) = codec.get(expanded, "changes")
+  let assert Ok(first) = codec.get(changes, "first")
+  let assert Ok(nodes) = codec.field(first, "nodes", codec.items)
+  let assert Ok(node) = list.first(nodes)
+  let assert Ok(#(id, _)) = codec.pair(node)
+  let mutated =
+    replace_at(
+      original,
+      [
+        Key("expanded"),
+        Key("changes"),
+        Key("first"),
+        Key("fields"),
+        Index(0),
+        Index(1),
+      ],
+      VObject([
+        #("kind", VString("Generic")),
+        #("children", VArray([VArray([VNumber(NInt(1)), id])])),
+      ]),
+    )
+  change_fixture.run(json_ot.to_json(mutated)) |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_nested_change_runner_rejects_unmapped_revision_test() -> Nil {
+  let original = input()
+  let assert Ok(expanded) = codec.get(original, "expanded")
+  let assert Ok([edit, ..]) = codec.field(expanded, "operations", codec.items)
+  let assert Ok([scenario, ..]) =
+    codec.field(expanded, "scenarios", codec.items)
+  let assert Ok([retain, ..]) = codec.field(scenario, "actions", codec.items)
+  let scenario = replace_at(scenario, [Key("actions")], VArray([retain]))
+  let restricted =
+    replace_at(original, [Key("expanded"), Key("operations")], VArray([edit]))
+  let restricted =
+    replace_at(
+      restricted,
+      [Key("expanded"), Key("scenarios")],
+      VArray([scenario]),
+    )
+  let _ = replay(restricted)
+  let invalid =
+    replace_at(
+      restricted,
+      operation_path(0, "revision"),
+      VString("00000000-0000-4000-b000-000000000008"),
+    )
+  change_fixture.run(json_ot.to_json(invalid)) |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_nested_change_runner_uses_explicit_revision_order_test() -> Nil {
+  let original = input()
+  let mutated =
+    replace_at(
+      original,
+      [Key("expanded"), Key("revisions"), Index(4), Key("encoded")],
+      VNumber(NInt(1033)),
+    )
+  let mutated =
+    replace_at(
+      mutated,
+      [Key("expanded"), Key("revisions"), Index(5), Key("encoded")],
+      VNumber(NInt(520)),
+    )
+  let baseline = replay(original)
+  let changed = replay(mutated)
+  fixtures.first_difference(baseline, changed) |> expect.to_be_error
+  let before = forest_state(baseline, "nonlexical-undo")
+  let after = forest_state(changed, "nonlexical-undo")
+  codec.get(before, "root") |> expect.to_equal(codec.get(after, "root"))
+}

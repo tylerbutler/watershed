@@ -196,7 +196,8 @@ test("manifest records complete native runners and actual wire field kinds", asy
   for (const target of ["javascript", "erlang"]) {
     assert.deepEqual(manifest.nativeSemanticRunners[target], [
       "id-ranges", "schema-validation", "forest-delta",
-      "field-compose-invert-rebase", "container-foundations", "summary-foundations",
+      "field-compose-invert-rebase", "modular-nested-algebra",
+      "container-foundations", "summary-foundations",
     ]);
   }
 });

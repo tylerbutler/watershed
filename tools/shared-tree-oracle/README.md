@@ -262,8 +262,24 @@ The original synthetic alias fixture exposes one pinned-upstream refusal:
 revision replacement leaves a dangling child reference, and delta conversion
 throws `0x9ca`. The oracle checks that exact failure; it does not turn arbitrary
 exceptions into expected results. Real composed nested edits are separate
-positive cases. This expansion is source evidence, not yet a native semantic
-runner, and it makes no history, reload, or runtime interoperability claim.
+positive cases. Both native targets replay the complete expanded case from
+`input` alone. The pure schedules cover nested editing and algebra, not history,
+reloads, or runtime interoperability. The lifecycle cases remain unregistered.
+
+`tree/change` supplies checked modular state, local edits, balanced composition,
+rollback/undo inversion, tagged rebasing, revision replacement, pruning, repair
+content, and forest deltas. `from_data` and `edit` require an `IdentityOrder`
+built from explicit stable-ID/ordering-key pairs. Changesets retain that context;
+composition and rebasing reject incompatible mappings. Temporal revision
+metadata still has its separate role in rollback and inverse allocation.
+Before using a newly allocated inverse or replacement revision, reconstruct
+the checked change with `from_data(to_data(change), extended_order)`.
+
+The test adapter checks the original V5 inputs against the full structural
+inputs, which preserve identities lost by wire encoding. Its V5/V2 encoding is
+limited to the original fixture forms and is not a production codec. Mutations
+exercise operation operands, repair content, aliases, detached-only edits, and
+revision ordering without reading `raw` or expected observations.
 
 The expanded `field-compose-invert-rebase` case contains 24 ordered
 observations. It covers pairwise composition, rollback and undo inversion,
@@ -457,7 +473,7 @@ index metadata is version 3 while its content codec is version 2.
 | Fixed schema, required null, optional absence, Unicode keys and finite numbers | `schema-validation` (native), `schema-profile`, `null-and-absence`, `unicode-and-numbers`, `invalid-profile` | 5, 10 |
 | Forest, detached roots, repair content, parent/child replacement | `forest-delta` (native), `parent-child-both-orders`, `detached-child-edit`, forest and detached-index summaries | 6, 13 |
 | Value/Optional v2, register moves, simultaneous register swaps | `field-compose-invert-rebase`, `optional-set-clear`, conflicting writes | 7, 10 |
-| Modular v5, generic nested fields, aliases, replacement revisions, builds/refreshers/pruning | `modular-nested-algebra`, `nested-independent` | 8, 10 |
+| Modular v5, generic nested fields, aliases, replacement revisions, builds/refreshers/pruning | `modular-nested-algebra` (native), `nested-independent` | 8, 10 |
 | SharedTreeChange v5, Message/EditManager v7; pending revisions, stale peers and min-sequence | `multiple-pending`, `history-window`, both-order cases | 9, 10 |
 | Real root map, `"tree"` handle, SharedMap op/header, hierarchical addresses | `bootstrap-map-handles` | 11, 12, 14 |
 | Grouped runtime messages, inner positions, ID allocation, runtime document schema | `batched-commits`, full container history | 11, 12 |
