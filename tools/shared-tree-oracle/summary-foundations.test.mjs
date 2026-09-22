@@ -1,21 +1,34 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { captureSummaryFoundations } from "./summary-foundations.mjs";
+import {
+  captureSummaryFoundations,
+  validateSummaryFoundationsCase,
+} from "./summary-foundations.mjs";
 
 const fixtureRoot = new URL("../../test/fixtures/shared_tree/cases/", import.meta.url);
+const originalCaseNames = [
+  "bootstrap-map-handles",
+  "batched-commits",
+  "reconnect-before-ack",
+  "summary-tail",
+  "summary-writer-matrix",
+];
 
 async function fixture(name) {
   return JSON.parse(await readFile(new URL(`${name}.json`, fixtureRoot), "utf8"));
 }
 
+function originalCases() {
+  return Promise.all(originalCaseNames.map(fixture));
+}
+
 test("summary foundations use the pinned upload manager for bytes and references", async () => {
-  const existingCases = await Promise.all([
-    fixture("bootstrap-map-handles"),
-    fixture("summary-tail"),
-  ]);
+  const existingCases = await originalCases();
+  const unchanged = structuredClone(existingCases);
   const value = await captureSummaryFoundations(existingCases);
-  const snapshot = existingCases[1].input.replayInput.snapshotAtS;
+  const snapshot = existingCases.find(({ id }) => id === "summary-tail")
+    .input.replayInput.snapshotAtS;
   const schemaTree =
     snapshot.tree.trees[".channels"].trees.A.trees[".channels"].trees._C
       .trees.indexes.trees.Schema;
@@ -29,6 +42,9 @@ test("summary foundations use the pinned upload manager for bytes and references
   });
   assert.equal(value.id, "summary-foundations");
   assert.equal(value.domain, "summary");
+  assert.equal(value.input.service, "SummaryTreeUploadManager");
+  assert.deepEqual(existingCases, unchanged);
+  assert.doesNotThrow(() => validateSummaryFoundationsCase(value));
   assert.equal(value.input.previousSnapshot.tree.id, snapshot.tree.id);
   assert.deepEqual(
     value.input.scenarios.map(({ label }) => label),
@@ -155,4 +171,41 @@ test("summary foundations use the pinned upload manager for bytes and references
           path === "slash%2Fname" && mode === "040000" && type === "tree",
       )),
   );
+});
+
+test("summary foundations validation requires complete paired evidence", async () => {
+  const value = await captureSummaryFoundations(await originalCases());
+
+  for (const [message, mutate] of [
+    ["keys", (copy) => { copy.extra = true; }],
+    ["service", (copy) => { copy.input.service = "LocalDeltaConnectionServer"; }],
+    ["scenarios", (copy) => { copy.input.scenarios.pop(); }],
+    ["observations", (copy) => { copy.expected.observations.pop(); }],
+    ["raw trees", (copy) => { copy.raw.trees = []; }],
+    ["blob bytes", (copy) => { copy.raw.blobs[0].bytes = "AQID"; }],
+    ["raw blobs", (copy) => { copy.raw.blobs.push(structuredClone(copy.raw.blobs[0])); }],
+    ["refusals", (copy) => { copy.raw.refusals.pop(); }],
+    ["refusal writes", (copy) => {
+      copy.raw.refusals[0].blobs.push(structuredClone(copy.raw.blobs[0]));
+    }],
+    ["emitted entries", (copy) => {
+      copy.raw.trees.find(({ sha }) => sha === copy.raw.rootId).entries[0].path =
+        "renamed";
+      copy.expected.observations[1].entries[0].components = ["renamed"];
+      copy.expected.observations[1].entries[0].encodedName = "renamed";
+    }],
+    ["object reference", (copy) => {
+      copy.raw.trees.find(({ sha }) => sha === copy.raw.rootId).entries[0].sha =
+        "unknown-object";
+      copy.expected.observations[1].entries[0].storageId = "unknown-object";
+      copy.expected.observations[1].entries[0].bytes = undefined;
+    }],
+    ["refusal message", (copy) => {
+      copy.expected.observations[2].refused = "different";
+    }],
+  ]) {
+    const copy = structuredClone(value);
+    mutate(copy);
+    assert.throws(() => validateSummaryFoundationsCase(copy), new RegExp(message, "i"));
+  }
 });

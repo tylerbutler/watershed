@@ -1,3 +1,4 @@
+import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { access } from "node:fs/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -8,6 +9,87 @@ const identity = {
   version: reference.version,
   commit: reference.commit,
 };
+
+function object(value) {
+  return value !== null && typeof value === "object" && !Array.isArray(value);
+}
+
+function exactKeys(value, keys, label) {
+  assert(object(value), `${label}: object`);
+  assert.deepEqual(Object.keys(value).sort(), [...keys].sort(), `${label}: keys`);
+}
+
+function nonemptyString(value, label) {
+  assert(typeof value === "string" && value.length > 0, label);
+}
+
+function validateSnapshot(snapshot) {
+  exactKeys(
+    snapshot,
+    ["version", "tree", "blobs", "blobEncoding"],
+    "summary-foundations snapshot",
+  );
+  exactKeys(snapshot.version, ["id", "treeId"], "summary-foundations snapshot version");
+  nonemptyString(snapshot.version.id, "summary-foundations snapshot version id");
+  nonemptyString(snapshot.version.treeId, "summary-foundations snapshot tree id");
+  assert.equal(snapshot.blobEncoding, "base64", "summary-foundations snapshot encoding");
+  assert(object(snapshot.blobs), "summary-foundations snapshot blobs");
+
+  function visit(tree) {
+    assert(object(tree), "summary-foundations snapshot tree");
+    assert.deepEqual(
+      Object.keys(tree).sort(),
+      (Object.hasOwn(tree, "commits")
+        ? ["id", "blobs", "trees", "commits"]
+        : ["id", "blobs", "trees"]).sort(),
+      "summary-foundations snapshot tree keys",
+    );
+    nonemptyString(tree.id, "summary-foundations snapshot storage id");
+    assert(object(tree.blobs), "summary-foundations snapshot tree blobs");
+    assert(object(tree.trees), "summary-foundations snapshot child trees");
+    if (Object.hasOwn(tree, "commits")) {
+      assert(object(tree.commits), "summary-foundations snapshot commits");
+      assert.equal(Object.keys(tree.commits).length, 0, "summary-foundations snapshot commits");
+    }
+    for (const blobId of Object.values(tree.blobs)) {
+      nonemptyString(blobId, "summary-foundations snapshot blob id");
+      nonemptyString(snapshot.blobs[blobId], "summary-foundations snapshot blob bytes");
+    }
+    for (const child of Object.values(tree.trees)) visit(child);
+  }
+
+  visit(snapshot.tree);
+  assert.equal(snapshot.version.treeId, snapshot.tree.id, "summary-foundations snapshot root");
+}
+
+function validateRawBlob(blob, label) {
+  exactKeys(blob, ["content", "encoding", "bytes", "sha"], label);
+  assert(blob.encoding === "base64" || blob.encoding === "utf-8", `${label}: encoding`);
+  assert(typeof blob.content === "string", `${label}: content`);
+  assert(typeof blob.bytes === "string", `${label}: blob bytes`);
+  nonemptyString(blob.sha, `${label}: sha`);
+  const bytes = Buffer.from(blob.content, blob.encoding === "base64" ? "base64" : "utf8");
+  if (blob.encoding === "base64") {
+    assert.equal(bytes.toString("base64"), blob.content, `${label}: base64 content`);
+  }
+  assert.equal(bytes.toString("base64"), blob.bytes, `${label}: blob bytes`);
+  assert.equal(gitBlobHash(bytes), blob.sha, `${label}: sha`);
+}
+
+function validateRawTree(tree, label) {
+  exactKeys(tree, ["sha", "entries"], label);
+  nonemptyString(tree.sha, `${label}: sha`);
+  assert(Array.isArray(tree.entries), `${label}: entries`);
+  for (const [index, entry] of tree.entries.entries()) {
+    const entryLabel = `${label} entry ${index}`;
+    exactKeys(entry, ["mode", "path", "sha", "type"], entryLabel);
+    nonemptyString(entry.path, `${entryLabel}: path`);
+    nonemptyString(entry.sha, `${entryLabel}: sha`);
+    assert(entry.type === "blob" || entry.type === "tree", `${entryLabel}: type`);
+    assert.equal(entry.mode, entry.type === "blob" ? "100644" : "040000", `${entryLabel}: mode`);
+    assert.doesNotThrow(() => decodeURIComponent(entry.path), `${entryLabel}: path encoding`);
+  }
+}
 
 async function oracleModules() {
   const candidates = [
@@ -77,6 +159,30 @@ function findCase(existingCases, id) {
 
 function previousPath() {
   return "/.channels/A/.channels/_C/indexes/Schema";
+}
+
+function summaryShape(entries, parent = []) {
+  return entries.flatMap((entry) => {
+    const components = [...parent, entry.name];
+    const kind = entry.kind === "handle" ? entry.handleKind : entry.kind;
+    return [
+      { components, kind },
+      ...(entry.kind === "tree" ? summaryShape(entry.entries, components) : []),
+    ];
+  });
+}
+
+function uploadedCounts(entries) {
+  return entries.reduce((counts, entry) => {
+    if (entry.kind === "blob") counts.blobs += 1;
+    if (entry.kind === "tree") {
+      counts.trees += 1;
+      const children = uploadedCounts(entry.entries);
+      counts.blobs += children.blobs;
+      counts.trees += children.trees;
+    }
+    return counts;
+  }, { blobs: 0, trees: 0 });
 }
 
 function scenarioInput() {
@@ -357,6 +463,7 @@ export async function captureSummaryFoundations(existingCases) {
     id: "summary-foundations",
     domain: "summary",
     input: {
+      service: "SummaryTreeUploadManager",
       previousSnapshot,
       scenarios,
     },
@@ -374,4 +481,149 @@ export async function captureSummaryFoundations(existingCases) {
       refusals: refused.map((item) => item.raw),
     },
   };
+}
+
+export function validateSummaryFoundationsCase(value) {
+  exactKeys(
+    value,
+    ["formatVersion", "reference", "id", "domain", "input", "expected", "raw"],
+    "summary-foundations",
+  );
+  assert.equal(value.formatVersion, 1, "summary-foundations: formatVersion");
+  assert.deepEqual(value.reference, identity, "summary-foundations: reference");
+  assert.equal(value.id, "summary-foundations", "summary-foundations: id");
+  assert.equal(value.domain, "summary", "summary-foundations: domain");
+
+  exactKeys(
+    value.input,
+    ["service", "previousSnapshot", "scenarios"],
+    "summary-foundations input",
+  );
+  assert.equal(
+    value.input.service,
+    "SummaryTreeUploadManager",
+    "summary-foundations: service",
+  );
+  validateSnapshot(value.input.previousSnapshot);
+  assert.deepEqual(
+    value.input.scenarios,
+    scenarioInput(),
+    "summary-foundations: scenarios",
+  );
+
+  exactKeys(value.expected, ["observations"], "summary-foundations expected");
+  assert(Array.isArray(value.expected.observations), "summary-foundations: observations");
+  const labels = value.input.scenarios.map(({ label }) => label);
+  assert.deepEqual(
+    value.expected.observations.map(({ label }) => label),
+    labels,
+    "summary-foundations: observations",
+  );
+  assert.deepEqual(
+    value.expected.observations[0],
+    snapshotObservation(value.input.previousSnapshot),
+    "summary-foundations: snapshot observation",
+  );
+
+  exactKeys(
+    value.raw,
+    ["rootId", "blobs", "trees", "refusals"],
+    "summary-foundations raw",
+  );
+  nonemptyString(value.raw.rootId, "summary-foundations: raw rootId");
+  assert(Array.isArray(value.raw.blobs), "summary-foundations: raw blobs");
+  assert(Array.isArray(value.raw.trees) && value.raw.trees.length > 0,
+    "summary-foundations: raw trees");
+  assert(Array.isArray(value.raw.refusals), "summary-foundations: refusals");
+  const counts = uploadedCounts(value.input.scenarios[1].summary);
+  assert.equal(value.raw.blobs.length, counts.blobs, "summary-foundations: raw blobs");
+  assert.equal(value.raw.trees.length, counts.trees + 1, "summary-foundations: raw trees");
+  value.raw.blobs.forEach((blob, index) =>
+    validateRawBlob(blob, `summary-foundations raw blob ${index}`));
+  value.raw.trees.forEach((tree, index) =>
+    validateRawTree(tree, `summary-foundations raw tree ${index}`));
+  const previousIds = snapshotIds(value.input.previousSnapshot.tree);
+  const blobIds = new Set(value.raw.blobs.map(({ sha }) => sha));
+  const treeIds = new Set(value.raw.trees.map(({ sha }) => sha));
+  assert.equal(blobIds.size, value.raw.blobs.length, "summary-foundations: raw blob ids");
+  assert.equal(treeIds.size, value.raw.trees.length, "summary-foundations: raw tree ids");
+  const referenced = new Set();
+  for (const tree of value.raw.trees) {
+    for (const entry of tree.entries) {
+      referenced.add(entry.sha);
+      const previous = previousIds.get(entry.sha);
+      const known = entry.type === "blob"
+        ? blobIds.has(entry.sha) || previous?.kind === "blob"
+        : treeIds.has(entry.sha) || previous?.kind === "tree";
+      assert(known, `summary-foundations: object reference ${entry.sha}`);
+    }
+  }
+  for (const blobId of blobIds) {
+    assert(referenced.has(blobId), `summary-foundations: object reference ${blobId}`);
+  }
+  for (const treeId of treeIds) {
+    assert(treeId === value.raw.rootId || referenced.has(treeId),
+      `summary-foundations: object reference ${treeId}`);
+  }
+  assert(
+    value.raw.trees.some(({ sha }) => sha === value.raw.rootId),
+    "summary-foundations: raw trees root",
+  );
+  assert.deepEqual(
+    value.expected.observations[1],
+    emittedObservation(
+      value.raw.rootId,
+      value.raw,
+      value.input.previousSnapshot,
+    ),
+    "summary-foundations: emitted observation",
+  );
+  assert.deepEqual(
+    value.expected.observations[1].entries.map(({ components, kind }) => ({
+      components,
+      kind,
+    })),
+    summaryShape(value.input.scenarios[1].summary),
+    "summary-foundations: emitted entries",
+  );
+
+  const refusalLabels = labels.slice(2);
+  assert.deepEqual(
+    value.raw.refusals.map(({ label }) => label),
+    refusalLabels,
+    "summary-foundations: refusals",
+  );
+  assert.deepEqual(
+    value.expected.observations.slice(2).map(({ label }) => label),
+    refusalLabels,
+    "summary-foundations: refusal observations",
+  );
+  for (const [index, refusal] of value.raw.refusals.entries()) {
+    exactKeys(refusal, ["label", "blobs", "trees", "logged"],
+      `summary-foundations refusal ${index}`);
+    assert(Array.isArray(refusal.blobs), `summary-foundations refusal ${index}: blobs`);
+    assert(Array.isArray(refusal.trees), `summary-foundations refusal ${index}: trees`);
+    assert(Array.isArray(refusal.logged), `summary-foundations refusal ${index}: logged`);
+    assert.equal(refusal.blobs.length, 0, "summary-foundations: refusal writes");
+    assert.equal(refusal.trees.length, 0, "summary-foundations: refusal writes");
+    refusal.blobs.forEach((blob, blobIndex) =>
+      validateRawBlob(blob, `summary-foundations refusal ${index} blob ${blobIndex}`));
+    refusal.trees.forEach((tree, treeIndex) =>
+      validateRawTree(tree, `summary-foundations refusal ${index} tree ${treeIndex}`));
+    const observation = value.expected.observations[index + 2];
+    exactKeys(observation, ["label", "refused"],
+      `summary-foundations refusal observation ${index}`);
+    nonemptyString(observation.refused,
+      `summary-foundations refusal observation ${index}: refused`);
+  }
+  assert.deepEqual(
+    value.expected.observations.slice(2).map(({ refused }) => refused),
+    [
+      "Parent summary does not exist to reference by handle.",
+      "0x0b4",
+      "0x0b5",
+      "URI malformed",
+    ],
+    "summary-foundations: refusal messages",
+  );
 }
