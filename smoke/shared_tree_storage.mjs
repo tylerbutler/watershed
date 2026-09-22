@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { execFile } from "node:child_process";
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
@@ -10,6 +11,11 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repo = resolve(here, "..");
 const tenant = "tenant";
 const token = "storage-token";
+const summaryTail = JSON.parse(await readFile(
+  resolve(repo, "test/fixtures/shared_tree/cases/summary-tail.json"),
+  "utf8",
+));
+const capturedSnapshot = summaryTail.input.replayInput.snapshotAtS;
 
 function json(response, status, value) {
   response.writeHead(status, { "content-type": "application/json" });
@@ -22,6 +28,7 @@ function staticObjects() {
       ["root-tree", [
         { path: "binary", sha: "binary-blob", type: "blob", mode: "100644" },
         { path: "empty", sha: "empty-blob", type: "blob", mode: "100644" },
+        { path: "empty-tree", sha: "empty-tree", type: "tree", mode: "040000" },
         { path: "plus%2Bcash%24", sha: "plus-blob", type: "blob", mode: "100644" },
         { path: "repeat", sha: "binary-blob", type: "blob", mode: "100644" },
         { path: "slash%2Fname", sha: "child-tree", type: "tree", mode: "040000" },
@@ -29,6 +36,7 @@ function staticObjects() {
       ["child-tree", [
         { path: "%E6%B0%B4", sha: "text-blob", type: "blob", mode: "100644" },
       ]],
+      ["empty-tree", []],
       ["invalid-encoding-tree", [
         {
           path: "bad-encoding",
@@ -71,10 +79,77 @@ function staticObjects() {
   };
 }
 
-function createState() {
-  const objects = staticObjects();
+function capturedFixture(snapshot) {
+  assert.equal(snapshot.blobEncoding, "base64");
+  const trees = new Map();
+  const blobs = new Map(
+    Object.entries(snapshot.blobs).map(([id, content]) => [
+      id,
+      { content, encoding: "base64" },
+    ]),
+  );
+  const entries = [{ components: [], kind: "tree" }];
+  let blobPaths = 0;
+  let treeNodes = 0;
+
+  function visit(tree, components) {
+    treeNodes += 1;
+    const children = [
+      ...Object.entries(tree.blobs).map(([name, sha]) => ({
+        name,
+        sha,
+        type: "blob",
+        mode: "100644",
+      })),
+      ...Object.entries(tree.trees).map(([name, value]) => ({
+        name,
+        sha: value.id,
+        type: "tree",
+        mode: "040000",
+        value,
+      })),
+    ].sort((left, right) =>
+      left.name < right.name ? -1 : left.name > right.name ? 1 : 0);
+    trees.set(tree.id, children.map(({ name, sha, type, mode }) => ({
+      path: encodeURIComponent(name),
+      sha,
+      type,
+      mode,
+    })));
+    for (const child of children) {
+      const path = [...components, child.name];
+      if (child.type === "blob") {
+        blobPaths += 1;
+        entries.push({
+          components: path,
+          kind: "blob",
+          bytes: snapshot.blobs[child.sha],
+        });
+      } else {
+        entries.push({ components: path, kind: "tree" });
+        visit(child.value, path);
+      }
+    }
+  }
+
+  visit(snapshot.tree, []);
   return {
-    ...objects,
+    root: snapshot.tree.id,
+    trees,
+    blobs,
+    entries,
+    blobPaths,
+    treeNodes,
+  };
+}
+
+const captured = capturedFixture(capturedSnapshot);
+
+function createState() {
+  const controls = staticObjects();
+  return {
+    trees: new Map([...controls.trees, ...captured.trees]),
+    blobs: new Map([...controls.blobs, ...captured.blobs]),
     blobCount: 0,
     treeCount: 0,
     stagedRoot: undefined,
@@ -105,6 +180,11 @@ function commitTree(commit) {
       return "missing-descendant-tree";
     case "cycle-commit":
       return "cycle-tree";
+    case "captured-commit":
+      return captured.root;
+    case "captured-staged-commit":
+      assert(state.stagedRoot, "captured staged commit requested before staging");
+      return state.stagedRoot;
     default:
       return undefined;
   }
@@ -204,24 +284,34 @@ const environment = {
   WATERSHED_TREE_STORAGE_TOKEN: token,
 };
 
-function marker(stdout) {
+function marker(stdout, prefix) {
   const line = stdout.split(/\r?\n/).find((value) =>
-    value.startsWith("WATERSHED_TREE_STORAGE="));
+    value.startsWith(prefix));
   assert(line, `missing storage marker in:\n${stdout}`);
-  return JSON.parse(line.slice("WATERSHED_TREE_STORAGE=".length));
+  return JSON.parse(line.slice(prefix.length));
 }
 
 function assertRun() {
-  assert.equal(state.blobCount, 7);
-  assert.equal(state.treeCount, 3);
+  assert.equal(state.blobCount, 7 + captured.blobPaths);
+  assert.equal(state.treeCount, 4 + captured.treeNodes);
   assert.equal(state.failedTree, true);
-  assert(
-    state.requests.every(({ path }) =>
-      path.includes("/git/commits/")
-      || path.includes("/git/trees")
-      || path.includes("/git/blobs")),
-    "probe sent a publication request",
-  );
+  for (const request of state.requests) {
+    if (request.path.includes("/git/commits/")) {
+      assert.equal(request.method, "GET", "probe sent a commit publication request");
+    } else if (
+      request.path.endsWith("/git/trees")
+      || request.path.endsWith("/git/blobs")
+    ) {
+      assert.equal(request.method, "POST");
+    } else if (
+      request.path.includes("/git/trees/")
+      || request.path.includes("/git/blobs/")
+    ) {
+      assert.equal(request.method, "GET");
+    } else {
+      assert.fail(`probe sent an unexpected request: ${request.method} ${request.path}`);
+    }
+  }
 }
 
 try {
@@ -245,7 +335,14 @@ try {
     ],
     { cwd: repo, env: environment },
   );
-  const javascriptObservation = marker(javascript.stdout);
+  const javascriptObservation = marker(
+    javascript.stdout,
+    "WATERSHED_TREE_STORAGE=",
+  );
+  const javascriptCaptured = marker(
+    javascript.stdout,
+    "WATERSHED_TREE_STORAGE_CAPTURED=",
+  );
   assertRun();
 
   state = createState();
@@ -254,15 +351,21 @@ try {
     ["run", "--target", "erlang", "-m", "watershed/shared_tree_storage_probe"],
     { cwd: repo, env: environment },
   );
-  const erlangObservation = marker(erlang.stdout);
+  const erlangObservation = marker(erlang.stdout, "WATERSHED_TREE_STORAGE=");
+  const erlangCaptured = marker(
+    erlang.stdout,
+    "WATERSHED_TREE_STORAGE_CAPTURED=",
+  );
   assertRun();
 
   assert.deepEqual(erlangObservation, javascriptObservation);
+  assert.deepEqual(erlangCaptured, javascriptCaptured);
   assert.deepEqual(javascriptObservation, {
-    root: "uploaded-tree-2",
+    root: "uploaded-tree-3",
     entries: [
       { components: ["binary"], kind: "blob", bytes: "AP+A" },
       { components: ["empty"], kind: "blob", bytes: "" },
+      { components: ["empty-tree"], kind: "tree" },
       { components: ["plus+cash$"], kind: "blob", bytes: "Kw==" },
       { components: ["repeat"], kind: "blob", bytes: "AP+A" },
       { components: ["slash/name"], kind: "tree" },
@@ -272,6 +375,10 @@ try {
         bytes: Buffer.from("héllo").toString("base64"),
       },
     ],
+  });
+  assert.deepEqual(javascriptCaptured, {
+    root: `uploaded-tree-${4 + captured.treeNodes}`,
+    entries: captured.entries,
   });
   console.log("shared tree storage smoke: ok");
 } finally {
