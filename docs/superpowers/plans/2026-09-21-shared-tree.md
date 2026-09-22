@@ -62,35 +62,103 @@ this plan; do those actions in Task 1 after adding its manifests.
 
 ### Dependency order
 
+Tasks 1-6 are complete at `c04a70a`: the pinned oracle, real-service profile,
+corpus, ID compression, fixed schemas, and persistent forest. Tasks 7-16 remain.
+The manifest records native semantic runners for `id-ranges`,
+`schema-validation`, and `forest-delta` on both targets; the other generated
+cases are not evidence of implemented native semantics.
+
+The remaining work has three parallel lanes:
+
 ```text
-1 oracle + profile -> 2 real-service preflight -> 3 corpus and native replayer
-                                                 |
-                                      M0 review / go-no-go
-                                                 |
-                 4 IDs -----------+--------------+
+Completed Tasks 1-6 -> contract and ownership check
                                   |
-                 5 schema -> 6 forest -> 7 field algebra -> 8 modular changes
-                                  |                              |
-                                  +------------------------> 9 edit history
-                                                               |
-                                  4,5,6,8,9 -> 10 tree codecs + kernel
-                                                               |
-                                2,3,4 -> 11 Fluid document messages
-                                                               |
-                                  10,11 -> 12 channel/runtime integration
-                                                               |
-                                      12 -> 13 compatible summaries
-                                                               |
-                                      13 -> 14 facades + reconnect
-                                                               |
-                                      14 -> 15 mixed-client acceptance
-                                                               |
-                                      15 -> 16 regression gates + docs
+     +----------------------------+----------------------------+
+     |                            |                            |
+ A: 7 field algebra        B: 11a container/             C: 13a summary-tree/
+    -> 8 modular changes     routing/handle                storage foundations
+    -> 9 edit history        foundations                       |
+    -> 10 codecs/kernel           |                            |
+     |                            |                            |
+     +----------------------------+----------------------------+
+                                  |
+                   remaining 11 + 12 runtime cutover
+                                  |
+                   remaining 13 compatible summaries
+                                  |
+                       14 facades + reconnect
+                                  |
+                       15 mixed-client acceptance
+                                  |
+                       16 regression gates + docs
 ```
 
-Tasks 4 and 5 can proceed independently after M0. Avoid parallel edits to
-`channel.gleam`, `runtime_core.gleam`, or the two runtime/facade pairs. This plan
-does not require subagents.
+`11a` and `13a` name foundation slices of Tasks 11 and 13, not new numbered
+tasks. Completing either slice does not close its parent task. Keep the
+`7 -> 8 -> 9 -> 10` chain ordered, then give one owner the shared integration
+work. This plan does not require subagents.
+
+### Parallel workstreams and integration
+
+All three lanes can start from the completed Tasks 1-6 after agreeing their
+contracts and file ownership. Task 11's container formats depend on the M0
+evidence and ID contract, not on the future tree kernel. Task 13's tree/blob I/O
+can likewise proceed before its document restoration and publication work.
+
+Paths in the table are relative to `src/watershed/`; each lane also owns its
+focused `test/watershed/shared_tree_*_test.gleam` tests and task-local adapters.
+
+| Lane | Owned files and deliverable | Stop before |
+| --- | --- | --- |
+| A: tree semantics | `tree/optional_field.gleam`, `tree/change.gleam`, `tree/history.gleam`, `tree/codec.gleam`, `tree_kernel.gleam`; field algebra, nested changes, reconciliation, codecs, and pure kernel | Live runtime changes |
+| B: container protocol | `wire/fluid_container.gleam`, bounded additions to `handle.gleam` and its tests; typed envelopes, ordered batches, routes, context-aware handles, and bootstrap-map wire checks | Runtime dispatch, broad existing-DDS envelope replacement, and facade root changes |
+| C: storage foundations | `wire/fluid_summary.gleam`, `git_storage.gleam`, and storage tests; summary trees/blobs/handles, lossless bytes, reference resolution, and hierarchical fetch/staging | Complete `DocumentSummary`, runtime bootstrap/publication, and native cross-writer claims |
+
+**Contracts before dispatch.** Reuse `AtomId`, `SequencePoint`, `DeltaData`, and
+`ForestData`. Agree Task 11's route/message boundary, Task 13's summary-entry
+boundary, and the sequencing metadata that history and reconnect consume.
+Preserve outer sequence, reference and minimum sequence numbers, inner batch
+position, transport submission identity, tree revision, and compressor session
+as distinct concepts. Lane A derives unfinished algebra and history signatures
+from the pinned corpus before downstream work consumes them. Do not dispatch
+history against guessed contexts or scaffold implementations. Keep Task 10 on
+Lane A rather than adding a codec worker before the real changeset/history
+types exist.
+
+**Foundation proof is limited.** Lane B can test raw envelope structure and
+handle resolution while treating DDS contents as opaque. Full batch mutation
+atomicity and bootstrap readiness still require runtime integration. Lane C
+can fetch, resolve, and stage the captured hierarchy without interpreting tree
+history; it cannot yet publish a consistent native document. Do not treat
+`ForestData` as upstream summary bytes. A focused projection of a fixture does
+not satisfy its full semantic runner.
+
+**File ownership.** Lane A owns required changes to `tree/types.gleam`,
+`tree/schema.gleam`, and `tree/forest.gleam`. Other lanes request interface
+changes rather than editing these files. Keep existing live callers intact
+while testing foundation APIs; switch them together during integration and
+remove obsolete paths. This staging is not a permanent old-format reader.
+
+Use isolated worktrees for concurrent implementation, including separate build
+outputs and mutable oracle checkouts. Serialize edits to shared fixture helpers,
+the manifest, oracle source/generation drivers, corpus regeneration, recipes,
+and status documentation through the integration owner. Reuse existing fixture
+helpers and keep substantial task-specific adapters separate. Register a native
+semantic runner only after its complete expected observations pass on both
+targets.
+
+**Integration gate.** After A, B, and C deliver their tested boundaries, one
+owner completes the remaining Task 11 work with Task 12. That owner controls
+`channel.gleam`, `runtime_core.gleam`, both target runtimes, shared wire/socket
+codecs, facade root resolution, and the required CRDT/sluice dispatch changes.
+Preserve allocation-before-content ordering, one watermark advance per outer
+message, atomic batches, existing DDS behavior, and explicit tree P2P refusal.
+Resolve the actual bootstrap-map route rather than inserting a synthetic root.
+
+Then complete Task 13's document bootstrap and publication, including a
+consistent sequenced snapshot and the distinction between snapshot S and
+publication P. Continue through Tasks 14-16 in order. An earlier finish in B or
+C is not a reason to start uncoordinated runtime, reconnect, or facade edits.
 
 ### Task closure
 
@@ -1256,6 +1324,12 @@ Commit subject: `feat(tree): add native SharedTree kernel and codecs`.
 
 ### Task 11: implement Fluid container routing and runtime messages
 
+**Scheduling:** Lane B starts the standalone envelope, route, batch, handle, and
+bootstrap-map wire checks as slice `11a`. Defer live dispatch, existing-DDS
+envelope replacement, and shared runtime/socket changes to the Task 12 join.
+See [Parallel workstreams and integration](#parallel-workstreams-and-integration).
+This task remains open until both the foundation and integration work pass.
+
 **Files:** Create `wire/fluid_container.gleam` and
 `test/watershed/shared_tree_container_test.gleam`. Modify `wire/op.gleam`,
 `wire.gleam`, `handle.gleam`, relevant socket codecs, and their tests.
@@ -1329,6 +1403,11 @@ Commit subject: `feat(runtime): route Fluid container messages`.
 
 ### Task 12: integrate tree channels into both runtimes
 
+**Scheduling:** This is the join point for Lane A's Task 10, Lane B's `11a`,
+and Lane C's `13a`. One integration owner completes the remaining Task 11 work
+with this task, then proceeds through compatible persistence and reconnect.
+See [Parallel workstreams and integration](#parallel-workstreams-and-integration).
+
 **Files:** Modify `channel.gleam`, `runtime_core.gleam`, `runtime.gleam`,
 `runtime_beam.gleam`, `crdt_core.gleam`, and sluice codecs/core as needed.
 Create `test/watershed/shared_tree_runtime_test.gleam`.
@@ -1401,6 +1480,13 @@ failure still applies. Commit subject:
 `feat(runtime): host native SharedTree on both targets`.
 
 ### Task 13: read and publish compatible summaries
+
+**Scheduling:** Lane C can implement summary-entry handling, reference resolution,
+and hierarchical storage I/O as slice `13a` alongside Tasks 7-10 and `11a`.
+Complete `DocumentSummary`, runtime bootstrap, publication, and cross-writer
+proof only after Task 12, using the real tree codecs and history.
+See [Parallel workstreams and integration](#parallel-workstreams-and-integration).
+Fetching a hierarchy alone does not close this task.
 
 **Files:** Create `wire/fluid_summary.gleam` and
 `test/watershed/shared_tree_summary_test.gleam`. Modify `git_storage.gleam`,
@@ -1749,7 +1835,8 @@ Commit subject: `docs(tree): publish supported interoperability profile`.
 
 Use the specification's M2-M8 roadmap. Write each feature's own design and
 implementation plan when scheduled, using the working M1 oracle and real-service
-gate. In particular:
+gate. Each later milestone requires M1 and a separate approved design and plan;
+the interface prerequisites below do not replace that gate. In particular:
 
 | Next area | Earliest prerequisite | Additional proof |
 | --- | --- | --- |
@@ -1757,12 +1844,32 @@ gate. In particular:
 | Arrays and moves | M1 | Sequence-field algebra, cross-array movement, identity, concurrent move/delete/edit races. |
 | Schema evolution | M1 | Stored/view compatibility and schema/data races across supported client profiles. |
 | Transactions and undo/redo | M1 plus each supported edited field kind | Constraints, atomic abort, selective undo, redo after remote changes, retained repair data. |
-| Local branching | Working modular history | Fork/rebase/merge and branch lifetime without prematurely reclaiming history. |
-| Shared branches | Separate version/profile decision | Explicit support for the experimental shared-branch wire family; no accidental opt-in. |
+| Local branching | M1 plus working modular history | Fork/rebase/merge and branch lifetime without prematurely reclaiming history. |
+| Shared branches | M1 plus a separate version/profile decision | Explicit support for the experimental shared-branch wire family; no accidental opt-in. |
 | Native container creation | M1 container read/write contract | Bootstrap/attach/alias lifecycle and upstream loading of native-created documents. |
-| Lustre and typed schema UX | Stable native facade | Deferred effects, schema safety, subscriptions, and one real collaborative example. |
+| Lustre and typed schema UX | M1 plus a stable native facade | Deferred effects, schema safety, subscriptions, and one real collaborative example. |
 | Crash-recoverable pending state | M1 reconnect | Restored compressor session, unsent changes, resubmission, and accepted-before-crash deduplication. |
 | Scale and incremental summaries | Measured M1/M3 workloads | Bounded retained history, safe reclamation, operation costs, and cross-version persistence. |
+
+### Later parallel opportunities
+
+After M1, dynamic maps and array/sequence algorithms can proceed in parallel
+once their modular field-handler and codec interfaces agree. Give shared schema
+and codec dispatch one integration owner. A sequence-field rebaser is not a
+prerequisite for completing the object-only M1 profile.
+
+Native container creation can overlap with Lustre bindings and typed-facade
+consumers after the container and facade contracts stabilize. Creation owns
+attach/alias/bootstrap behavior; consumers use the existing facade rather than
+changing those runtime contracts.
+
+Schema evolution needs coordinated schema/data integration with the supported
+field kinds. Transactions/undo, branching, crash recovery, and reclamation
+share history or runtime state; do not assign concurrent owners to the same
+reconciliation and retention paths. Broader container layouts, handle-valued
+leaves, incremental summaries, and additional supported versions each need
+their own approved scope and interoperability proof. Independent design or
+oracle work does not remove those implementation dependencies.
 
 Do not publish calendar estimates based on the old DDS complexity table.
 Estimate after the M0 inventory and again after field algebra/history pass their

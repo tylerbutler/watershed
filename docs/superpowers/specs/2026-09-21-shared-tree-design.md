@@ -316,6 +316,37 @@ plan. Map/sequence/schema development can proceed independently only after
 agreeing changeset and codec interfaces; a sequence-field rebaser is not a
 prerequisite for the first object-only schema.
 
+### Parallel implementation
+
+With the M0 contract, IDs, fixed schemas, and forest complete, the remaining M1
+work can use three lanes: tree semantics, container-protocol foundations, and
+summary/storage foundations. Agree their interfaces and file ownership before
+starting concurrent work.
+
+Keep field algebra, modular changes, edit history, and the tree codecs/kernel
+in dependency order within the semantics lane. The container lane can develop
+envelope decoding, routing, batches, and handle resolution without interpreting
+tree changesets. The storage lane can develop lossless tree/blob I/O and summary
+reference resolution without constructing a complete document snapshot.
+Neither foundation lane alone proves native runtime or persistence
+interoperability.
+
+After the three lanes deliver their tested boundaries, one integration owner
+completes container dispatch and both runtimes, then compatible document
+summaries, facades/reconnect, mixed-client acceptance, and permanent gates.
+Keep shared channel/runtime/facade edits coordinated; the parallel split does
+not relax sequencing, atomicity, or cross-writer requirements. The
+[implementation plan](../plans/2026-09-21-shared-tree.md#parallel-workstreams-and-integration)
+defines the task slices, file ownership, and integration gates.
+
+After M1 and interface agreement, maps and array/sequence algorithms are
+candidates for parallel development, as are native container creation and
+stable-facade consumers such as Lustre bindings. Coordinate schema evolution
+with supported field kinds. Undo/redo, branching, crash recovery, and
+reclamation share history/runtime state and need coordinated ownership rather
+than independent edits to those paths. The separate-design and interoperability
+requirements still apply to these later milestones.
+
 ## 9. Risk controls and stop conditions
 
 **Protocol scope:** A successful raw tree corpus does not excuse a failing
