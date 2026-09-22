@@ -450,11 +450,219 @@
           "builds": [],
           "destroys": [],
           "refreshers": []
+        },
+        "nested-detached": {
+          "maxLocalId": 31,
+          "revisions": [
+            {
+              "revision": "00000000-0000-4000-b000-000000000004",
+              "rollbackOf": null
+            }
+          ],
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "kind": "Value",
+                "moves": [],
+                "children": [
+                  [
+                    {
+                      "revision": "00000000-0000-4000-b000-000000000004",
+                      "localId": 10
+                    },
+                    {
+                      "revision": "00000000-0000-4000-b000-000000000004",
+                      "localId": 1
+                    }
+                  ]
+                ],
+                "replacement": null
+              }
+            ]
+          ],
+          "nodes": [
+            [
+              {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 1
+              },
+              {
+                "fields": [
+                  [
+                    "middle",
+                    {
+                      "kind": "Optional",
+                      "moves": [],
+                      "children": [
+                        [
+                          {
+                            "revision": "00000000-0000-4000-b000-000000000004",
+                            "localId": 20
+                          },
+                          {
+                            "revision": "00000000-0000-4000-b000-000000000004",
+                            "localId": 2
+                          }
+                        ]
+                      ],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": null,
+                        "detach": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 21
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ],
+            [
+              {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 2
+              },
+              {
+                "fields": [
+                  [
+                    "x",
+                    {
+                      "kind": "Value",
+                      "moves": [],
+                      "children": [],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 30
+                        },
+                        "detach": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 31
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "parents": [
+            [
+              {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 1
+              },
+              {
+                "parent": null,
+                "field": "rootFieldKey"
+              }
+            ],
+            [
+              {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 2
+              },
+              {
+                "parent": {
+                  "revision": "00000000-0000-4000-b000-000000000004",
+                  "localId": 1
+                },
+                "field": "middle"
+              }
+            ]
+          ],
+          "aliases": [],
+          "builds": [
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 30
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 2
+                }
+              ]
+            }
+          ],
+          "destroys": [],
+          "refreshers": [
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 10
+              },
+              "trees": [
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.NestedDetached",
+                  "fields": [
+                    [
+                      "middle",
+                      {
+                        "kind": "object",
+                        "type": "org.watershed.shared-tree.m1.Point",
+                        "fields": [
+                          [
+                            "x",
+                            {
+                              "kind": "number",
+                              "value": 5
+                            }
+                          ],
+                          [
+                            "y",
+                            {
+                              "kind": "number",
+                              "value": 6
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 20
+              },
+              "trees": [
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.Point",
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "kind": "number",
+                        "value": 1
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "kind": "number",
+                        "value": 2
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
         }
       },
       "tags": {
         "first": "00000000-0000-4000-b000-000000000004",
-        "second": "00000000-0000-4000-b000-000000000005"
+        "second": "00000000-0000-4000-b000-000000000005",
+        "nested-detached": "00000000-0000-4000-b000-000000000004"
       },
       "revisions": [
         {
@@ -472,6 +680,14 @@
         {
           "encoded": 7,
           "stable": "00000000-0000-4000-b000-000000000007"
+        },
+        {
+          "encoded": 520,
+          "stable": "b0000000-0000-4000-8000-000000000000"
+        },
+        {
+          "encoded": 1033,
+          "stable": "a0000000-0000-4000-8000-000000000000"
         }
       ],
       "operations": [
@@ -1345,6 +1561,184 @@
             "child-y",
             "child-x"
           ]
+        },
+        {
+          "op": "edit",
+          "id": "root-named-child",
+          "revision": "00000000-0000-4000-b000-000000000004",
+          "schema": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"org.watershed.shared-tree.m1.RootNamedChild\":{\"kind\":{\"object\":{\"rootFieldKey\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.RootNamedChild\"]}}",
+          "root": {
+            "kind": "object",
+            "type": "org.watershed.shared-tree.m1.RootNamedChild",
+            "fields": [
+              [
+                "rootFieldKey",
+                {
+                  "kind": "number",
+                  "value": 1
+                }
+              ]
+            ]
+          },
+          "path": [
+            "rootFieldKey"
+          ],
+          "value": {
+            "kind": "number",
+            "value": 2
+          }
+        },
+        {
+          "op": "edit",
+          "id": "nonlexical-left",
+          "revision": "a0000000-0000-4000-8000-000000000000",
+          "schema": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"org.watershed.shared-tree.m1.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m1.Sides\":{\"kind\":{\"object\":{\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Point\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Sides\"]}}",
+          "root": {
+            "kind": "object",
+            "type": "org.watershed.shared-tree.m1.Sides",
+            "fields": [
+              [
+                "left",
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.Point",
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "kind": "number",
+                        "value": 1
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "kind": "number",
+                        "value": 2
+                      }
+                    ]
+                  ]
+                }
+              ],
+              [
+                "right",
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.Point",
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "kind": "number",
+                        "value": 1
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "kind": "number",
+                        "value": 2
+                      }
+                    ]
+                  ]
+                }
+              ]
+            ]
+          },
+          "path": [
+            "left",
+            "x"
+          ],
+          "value": {
+            "kind": "number",
+            "value": 7
+          }
+        },
+        {
+          "op": "edit",
+          "id": "nonlexical-right",
+          "revision": "b0000000-0000-4000-8000-000000000000",
+          "schema": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"org.watershed.shared-tree.m1.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m1.Sides\":{\"kind\":{\"object\":{\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Point\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Sides\"]}}",
+          "root": {
+            "kind": "object",
+            "type": "org.watershed.shared-tree.m1.Sides",
+            "fields": [
+              [
+                "left",
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.Point",
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "kind": "number",
+                        "value": 1
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "kind": "number",
+                        "value": 2
+                      }
+                    ]
+                  ]
+                }
+              ],
+              [
+                "right",
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.Point",
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "kind": "number",
+                        "value": 1
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "kind": "number",
+                        "value": 2
+                      }
+                    ]
+                  ]
+                }
+              ]
+            ]
+          },
+          "path": [
+            "right",
+            "x"
+          ],
+          "value": {
+            "kind": "number",
+            "value": 8
+          }
+        },
+        {
+          "op": "compose",
+          "id": "nonlexical-composed",
+          "changes": [
+            "nonlexical-left",
+            "nonlexical-right"
+          ]
+        },
+        {
+          "op": "invert",
+          "id": "nonlexical-undo",
+          "change": "nonlexical-composed",
+          "isRollback": false,
+          "inverseRevision": "00000000-0000-4000-b000-000000000006"
+        },
+        {
+          "op": "prune",
+          "id": "nested-global-order",
+          "change": "nested-detached"
         }
       ],
       "scenarios": [
@@ -2332,6 +2726,132 @@
               "id": "nested-reversed",
               "op": "apply",
               "change": "nested-reversed"
+            }
+          ]
+        },
+        {
+          "id": "root-named-child",
+          "schema": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"org.watershed.shared-tree.m1.RootNamedChild\":{\"kind\":{\"object\":{\"rootFieldKey\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.RootNamedChild\"]}}",
+          "root": {
+            "kind": "object",
+            "type": "org.watershed.shared-tree.m1.RootNamedChild",
+            "fields": [
+              [
+                "rootFieldKey",
+                {
+                  "kind": "number",
+                  "value": 1
+                }
+              ]
+            ]
+          },
+          "actions": [
+            {
+              "id": "retain-root",
+              "op": "retain",
+              "name": "old-root",
+              "path": []
+            },
+            {
+              "id": "root-named-child",
+              "op": "apply",
+              "change": "root-named-child"
+            }
+          ]
+        },
+        {
+          "id": "nonlexical-undo",
+          "schema": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"org.watershed.shared-tree.m1.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"org.watershed.shared-tree.m1.Sides\":{\"kind\":{\"object\":{\"left\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Point\"]},\"right\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.Sides\"]}}",
+          "root": {
+            "kind": "object",
+            "type": "org.watershed.shared-tree.m1.Sides",
+            "fields": [
+              [
+                "left",
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.Point",
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "kind": "number",
+                        "value": 1
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "kind": "number",
+                        "value": 2
+                      }
+                    ]
+                  ]
+                }
+              ],
+              [
+                "right",
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.Point",
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "kind": "number",
+                        "value": 1
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "kind": "number",
+                        "value": 2
+                      }
+                    ]
+                  ]
+                }
+              ]
+            ]
+          },
+          "actions": [
+            {
+              "id": "retain-root",
+              "op": "retain",
+              "name": "old-root",
+              "path": []
+            },
+            {
+              "id": "nonlexical-composed",
+              "op": "apply",
+              "change": "nonlexical-composed"
+            },
+            {
+              "id": "nonlexical-undo",
+              "op": "apply",
+              "change": "nonlexical-undo"
+            }
+          ]
+        },
+        {
+          "id": "nested-global-order",
+          "schema": "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"org.watershed.shared-tree.m1.NestedDetached\":{\"kind\":{\"object\":{\"middle\":{\"kind\":\"Optional\",\"types\":[\"org.watershed.shared-tree.m1.Point\"]}}}},\"org.watershed.shared-tree.m1.Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]},\"y\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"org.watershed.shared-tree.m1.NestedDetached\"]}}",
+          "root": {
+            "kind": "object",
+            "type": "org.watershed.shared-tree.m1.NestedDetached",
+            "fields": []
+          },
+          "actions": [
+            {
+              "id": "retain-root",
+              "op": "retain",
+              "name": "old-root",
+              "path": []
+            },
+            {
+              "id": "nested-global-order",
+              "op": "apply",
+              "change": "nested-global-order"
             }
           ]
         }
@@ -8900,6 +9420,1505 @@
         }
       },
       {
+        "operation": "modular",
+        "id": "root-named-child",
+        "accepted": true,
+        "change": {
+          "maxLocalId": 2,
+          "revisions": [
+            {
+              "revision": "00000000-0000-4000-b000-000000000004",
+              "rollbackOf": null
+            }
+          ],
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "kind": "Generic",
+                "children": [
+                  [
+                    0,
+                    {
+                      "revision": "00000000-0000-4000-b000-000000000004",
+                      "localId": 2
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "nodes": [
+            [
+              {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 2
+              },
+              {
+                "fields": [
+                  [
+                    "rootFieldKey",
+                    {
+                      "kind": "Value",
+                      "moves": [],
+                      "children": [],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 0
+                        },
+                        "detach": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 1
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "parents": [
+            [
+              {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 2
+              },
+              {
+                "parent": null,
+                "field": "rootFieldKey"
+              }
+            ]
+          ],
+          "aliases": [],
+          "builds": [
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 0
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 2
+                }
+              ]
+            }
+          ],
+          "destroys": [],
+          "refreshers": []
+        },
+        "delta": {
+          "latestRevision": "00000000-0000-4000-b000-000000000004",
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": null,
+                    "detach": null,
+                    "fields": [
+                      [
+                        "rootFieldKey",
+                        {
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": {
+                                "revision": "00000000-0000-4000-b000-000000000004",
+                                "localId": 0
+                              },
+                              "detach": {
+                                "revision": "00000000-0000-4000-b000-000000000004",
+                                "localId": 1
+                              },
+                              "fields": []
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          ],
+          "build": [
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 0
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 2
+                }
+              ]
+            }
+          ],
+          "refreshers": [],
+          "global": [],
+          "rename": [],
+          "destroy": []
+        }
+      },
+      {
+        "operation": "modular",
+        "id": "nonlexical-left",
+        "accepted": true,
+        "change": {
+          "maxLocalId": 3,
+          "revisions": [
+            {
+              "revision": "a0000000-0000-4000-8000-000000000000",
+              "rollbackOf": null
+            }
+          ],
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "kind": "Generic",
+                "children": [
+                  [
+                    0,
+                    {
+                      "revision": "a0000000-0000-4000-8000-000000000000",
+                      "localId": 3
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "nodes": [
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "fields": [
+                  [
+                    "x",
+                    {
+                      "kind": "Value",
+                      "moves": [],
+                      "children": [],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": {
+                          "revision": "a0000000-0000-4000-8000-000000000000",
+                          "localId": 0
+                        },
+                        "detach": {
+                          "revision": "a0000000-0000-4000-8000-000000000000",
+                          "localId": 1
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ],
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              },
+              {
+                "fields": [
+                  [
+                    "left",
+                    {
+                      "kind": "Generic",
+                      "children": [
+                        [
+                          0,
+                          {
+                            "revision": "a0000000-0000-4000-8000-000000000000",
+                            "localId": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "parents": [
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "parent": {
+                  "revision": "a0000000-0000-4000-8000-000000000000",
+                  "localId": 3
+                },
+                "field": "left"
+              }
+            ],
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              },
+              {
+                "parent": null,
+                "field": "rootFieldKey"
+              }
+            ]
+          ],
+          "aliases": [],
+          "builds": [
+            {
+              "id": {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 0
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 7
+                }
+              ]
+            }
+          ],
+          "destroys": [],
+          "refreshers": []
+        },
+        "delta": {
+          "latestRevision": "a0000000-0000-4000-8000-000000000000",
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": null,
+                    "detach": null,
+                    "fields": [
+                      [
+                        "left",
+                        {
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": null,
+                              "detach": null,
+                              "fields": [
+                                [
+                                  "x",
+                                  {
+                                    "marks": [
+                                      {
+                                        "count": 1,
+                                        "attach": {
+                                          "revision": "a0000000-0000-4000-8000-000000000000",
+                                          "localId": 0
+                                        },
+                                        "detach": {
+                                          "revision": "a0000000-0000-4000-8000-000000000000",
+                                          "localId": 1
+                                        },
+                                        "fields": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          ],
+          "build": [
+            {
+              "id": {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 0
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 7
+                }
+              ]
+            }
+          ],
+          "refreshers": [],
+          "global": [],
+          "rename": [],
+          "destroy": []
+        }
+      },
+      {
+        "operation": "modular",
+        "id": "nonlexical-right",
+        "accepted": true,
+        "change": {
+          "maxLocalId": 3,
+          "revisions": [
+            {
+              "revision": "b0000000-0000-4000-8000-000000000000",
+              "rollbackOf": null
+            }
+          ],
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "kind": "Generic",
+                "children": [
+                  [
+                    0,
+                    {
+                      "revision": "b0000000-0000-4000-8000-000000000000",
+                      "localId": 3
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "nodes": [
+            [
+              {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "fields": [
+                  [
+                    "x",
+                    {
+                      "kind": "Value",
+                      "moves": [],
+                      "children": [],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": {
+                          "revision": "b0000000-0000-4000-8000-000000000000",
+                          "localId": 0
+                        },
+                        "detach": {
+                          "revision": "b0000000-0000-4000-8000-000000000000",
+                          "localId": 1
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ],
+            [
+              {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              },
+              {
+                "fields": [
+                  [
+                    "right",
+                    {
+                      "kind": "Generic",
+                      "children": [
+                        [
+                          0,
+                          {
+                            "revision": "b0000000-0000-4000-8000-000000000000",
+                            "localId": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "parents": [
+            [
+              {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "parent": {
+                  "revision": "b0000000-0000-4000-8000-000000000000",
+                  "localId": 3
+                },
+                "field": "right"
+              }
+            ],
+            [
+              {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              },
+              {
+                "parent": null,
+                "field": "rootFieldKey"
+              }
+            ]
+          ],
+          "aliases": [],
+          "builds": [
+            {
+              "id": {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 0
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 8
+                }
+              ]
+            }
+          ],
+          "destroys": [],
+          "refreshers": []
+        },
+        "delta": {
+          "latestRevision": "b0000000-0000-4000-8000-000000000000",
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": null,
+                    "detach": null,
+                    "fields": [
+                      [
+                        "right",
+                        {
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": null,
+                              "detach": null,
+                              "fields": [
+                                [
+                                  "x",
+                                  {
+                                    "marks": [
+                                      {
+                                        "count": 1,
+                                        "attach": {
+                                          "revision": "b0000000-0000-4000-8000-000000000000",
+                                          "localId": 0
+                                        },
+                                        "detach": {
+                                          "revision": "b0000000-0000-4000-8000-000000000000",
+                                          "localId": 1
+                                        },
+                                        "fields": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          ],
+          "build": [
+            {
+              "id": {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 0
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 8
+                }
+              ]
+            }
+          ],
+          "refreshers": [],
+          "global": [],
+          "rename": [],
+          "destroy": []
+        }
+      },
+      {
+        "operation": "modular",
+        "id": "nonlexical-composed",
+        "accepted": true,
+        "change": {
+          "maxLocalId": 3,
+          "revisions": [
+            {
+              "revision": "a0000000-0000-4000-8000-000000000000",
+              "rollbackOf": null
+            },
+            {
+              "revision": "b0000000-0000-4000-8000-000000000000",
+              "rollbackOf": null
+            }
+          ],
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "kind": "Generic",
+                "children": [
+                  [
+                    0,
+                    {
+                      "revision": "a0000000-0000-4000-8000-000000000000",
+                      "localId": 3
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "nodes": [
+            [
+              {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "fields": [
+                  [
+                    "x",
+                    {
+                      "kind": "Value",
+                      "moves": [],
+                      "children": [],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": {
+                          "revision": "b0000000-0000-4000-8000-000000000000",
+                          "localId": 0
+                        },
+                        "detach": {
+                          "revision": "b0000000-0000-4000-8000-000000000000",
+                          "localId": 1
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ],
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "fields": [
+                  [
+                    "x",
+                    {
+                      "kind": "Value",
+                      "moves": [],
+                      "children": [],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": {
+                          "revision": "a0000000-0000-4000-8000-000000000000",
+                          "localId": 0
+                        },
+                        "detach": {
+                          "revision": "a0000000-0000-4000-8000-000000000000",
+                          "localId": 1
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ],
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              },
+              {
+                "fields": [
+                  [
+                    "left",
+                    {
+                      "kind": "Generic",
+                      "children": [
+                        [
+                          0,
+                          {
+                            "revision": "a0000000-0000-4000-8000-000000000000",
+                            "localId": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "right",
+                    {
+                      "kind": "Generic",
+                      "children": [
+                        [
+                          0,
+                          {
+                            "revision": "b0000000-0000-4000-8000-000000000000",
+                            "localId": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "parents": [
+            [
+              {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "parent": {
+                  "revision": "b0000000-0000-4000-8000-000000000000",
+                  "localId": 3
+                },
+                "field": "right"
+              }
+            ],
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "parent": {
+                  "revision": "a0000000-0000-4000-8000-000000000000",
+                  "localId": 3
+                },
+                "field": "left"
+              }
+            ],
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              },
+              {
+                "parent": null,
+                "field": "rootFieldKey"
+              }
+            ]
+          ],
+          "aliases": [
+            [
+              {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              },
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              }
+            ]
+          ],
+          "builds": [
+            {
+              "id": {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 0
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 8
+                }
+              ]
+            },
+            {
+              "id": {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 0
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 7
+                }
+              ]
+            }
+          ],
+          "destroys": [],
+          "refreshers": []
+        },
+        "delta": {
+          "latestRevision": null,
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": null,
+                    "detach": null,
+                    "fields": [
+                      [
+                        "left",
+                        {
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": null,
+                              "detach": null,
+                              "fields": [
+                                [
+                                  "x",
+                                  {
+                                    "marks": [
+                                      {
+                                        "count": 1,
+                                        "attach": {
+                                          "revision": "a0000000-0000-4000-8000-000000000000",
+                                          "localId": 0
+                                        },
+                                        "detach": {
+                                          "revision": "a0000000-0000-4000-8000-000000000000",
+                                          "localId": 1
+                                        },
+                                        "fields": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      [
+                        "right",
+                        {
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": null,
+                              "detach": null,
+                              "fields": [
+                                [
+                                  "x",
+                                  {
+                                    "marks": [
+                                      {
+                                        "count": 1,
+                                        "attach": {
+                                          "revision": "b0000000-0000-4000-8000-000000000000",
+                                          "localId": 0
+                                        },
+                                        "detach": {
+                                          "revision": "b0000000-0000-4000-8000-000000000000",
+                                          "localId": 1
+                                        },
+                                        "fields": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          ],
+          "build": [
+            {
+              "id": {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 0
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 8
+                }
+              ]
+            },
+            {
+              "id": {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 0
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 7
+                }
+              ]
+            }
+          ],
+          "refreshers": [],
+          "global": [],
+          "rename": [],
+          "destroy": []
+        }
+      },
+      {
+        "operation": "modular",
+        "id": "nonlexical-undo",
+        "accepted": true,
+        "change": {
+          "maxLocalId": 9,
+          "revisions": [
+            {
+              "revision": "00000000-0000-4000-b000-000000000006",
+              "rollbackOf": null
+            }
+          ],
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "kind": "Generic",
+                "children": [
+                  [
+                    0,
+                    {
+                      "revision": "a0000000-0000-4000-8000-000000000000",
+                      "localId": 3
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "nodes": [
+            [
+              {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "fields": [
+                  [
+                    "x",
+                    {
+                      "kind": "Value",
+                      "moves": [],
+                      "children": [],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": {
+                          "revision": "b0000000-0000-4000-8000-000000000000",
+                          "localId": 1
+                        },
+                        "detach": {
+                          "revision": "00000000-0000-4000-b000-000000000006",
+                          "localId": 8
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ],
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "fields": [
+                  [
+                    "x",
+                    {
+                      "kind": "Value",
+                      "moves": [],
+                      "children": [],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": {
+                          "revision": "a0000000-0000-4000-8000-000000000000",
+                          "localId": 1
+                        },
+                        "detach": {
+                          "revision": "00000000-0000-4000-b000-000000000006",
+                          "localId": 9
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ],
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              },
+              {
+                "fields": [
+                  [
+                    "left",
+                    {
+                      "kind": "Generic",
+                      "children": [
+                        [
+                          0,
+                          {
+                            "revision": "a0000000-0000-4000-8000-000000000000",
+                            "localId": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "right",
+                    {
+                      "kind": "Generic",
+                      "children": [
+                        [
+                          0,
+                          {
+                            "revision": "b0000000-0000-4000-8000-000000000000",
+                            "localId": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "parents": [
+            [
+              {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "parent": {
+                  "revision": "a0000000-0000-4000-8000-000000000000",
+                  "localId": 3
+                },
+                "field": "right"
+              }
+            ],
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 2
+              },
+              {
+                "parent": {
+                  "revision": "a0000000-0000-4000-8000-000000000000",
+                  "localId": 3
+                },
+                "field": "left"
+              }
+            ],
+            [
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              },
+              {
+                "parent": null,
+                "field": "rootFieldKey"
+              }
+            ]
+          ],
+          "aliases": [
+            [
+              {
+                "revision": "b0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              },
+              {
+                "revision": "a0000000-0000-4000-8000-000000000000",
+                "localId": 3
+              }
+            ]
+          ],
+          "builds": [],
+          "destroys": [],
+          "refreshers": []
+        },
+        "delta": {
+          "latestRevision": "00000000-0000-4000-b000-000000000006",
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "marks": [
+                  {
+                    "count": 1,
+                    "attach": null,
+                    "detach": null,
+                    "fields": [
+                      [
+                        "left",
+                        {
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": null,
+                              "detach": null,
+                              "fields": [
+                                [
+                                  "x",
+                                  {
+                                    "marks": [
+                                      {
+                                        "count": 1,
+                                        "attach": {
+                                          "revision": "a0000000-0000-4000-8000-000000000000",
+                                          "localId": 1
+                                        },
+                                        "detach": {
+                                          "revision": "00000000-0000-4000-b000-000000000006",
+                                          "localId": 9
+                                        },
+                                        "fields": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ],
+                      [
+                        "right",
+                        {
+                          "marks": [
+                            {
+                              "count": 1,
+                              "attach": null,
+                              "detach": null,
+                              "fields": [
+                                [
+                                  "x",
+                                  {
+                                    "marks": [
+                                      {
+                                        "count": 1,
+                                        "attach": {
+                                          "revision": "b0000000-0000-4000-8000-000000000000",
+                                          "localId": 1
+                                        },
+                                        "detach": {
+                                          "revision": "00000000-0000-4000-b000-000000000006",
+                                          "localId": 8
+                                        },
+                                        "fields": []
+                                      }
+                                    ]
+                                  }
+                                ]
+                              ]
+                            }
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          ],
+          "build": [],
+          "refreshers": [],
+          "global": [],
+          "rename": [],
+          "destroy": []
+        }
+      },
+      {
+        "operation": "modular",
+        "id": "nested-global-order",
+        "accepted": true,
+        "change": {
+          "maxLocalId": 31,
+          "revisions": [
+            {
+              "revision": "00000000-0000-4000-b000-000000000004",
+              "rollbackOf": null
+            }
+          ],
+          "fields": [
+            [
+              "rootFieldKey",
+              {
+                "kind": "Value",
+                "moves": [],
+                "children": [
+                  [
+                    {
+                      "revision": "00000000-0000-4000-b000-000000000004",
+                      "localId": 10
+                    },
+                    {
+                      "revision": "00000000-0000-4000-b000-000000000004",
+                      "localId": 1
+                    }
+                  ]
+                ],
+                "replacement": null
+              }
+            ]
+          ],
+          "nodes": [
+            [
+              {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 1
+              },
+              {
+                "fields": [
+                  [
+                    "middle",
+                    {
+                      "kind": "Optional",
+                      "moves": [],
+                      "children": [
+                        [
+                          {
+                            "revision": "00000000-0000-4000-b000-000000000004",
+                            "localId": 20
+                          },
+                          {
+                            "revision": "00000000-0000-4000-b000-000000000004",
+                            "localId": 2
+                          }
+                        ]
+                      ],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": null,
+                        "detach": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 21
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ],
+            [
+              {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 2
+              },
+              {
+                "fields": [
+                  [
+                    "x",
+                    {
+                      "kind": "Value",
+                      "moves": [],
+                      "children": [],
+                      "replacement": {
+                        "wasEmpty": false,
+                        "source": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 30
+                        },
+                        "detach": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 31
+                        }
+                      }
+                    }
+                  ]
+                ]
+              }
+            ]
+          ],
+          "parents": [
+            [
+              {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 1
+              },
+              {
+                "parent": null,
+                "field": "rootFieldKey"
+              }
+            ],
+            [
+              {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 2
+              },
+              {
+                "parent": {
+                  "revision": "00000000-0000-4000-b000-000000000004",
+                  "localId": 1
+                },
+                "field": "middle"
+              }
+            ]
+          ],
+          "aliases": [],
+          "builds": [
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 30
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 2
+                }
+              ]
+            }
+          ],
+          "destroys": [],
+          "refreshers": [
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 10
+              },
+              "trees": [
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.NestedDetached",
+                  "fields": [
+                    [
+                      "middle",
+                      {
+                        "kind": "object",
+                        "type": "org.watershed.shared-tree.m1.Point",
+                        "fields": [
+                          [
+                            "x",
+                            {
+                              "kind": "number",
+                              "value": 5
+                            }
+                          ],
+                          [
+                            "y",
+                            {
+                              "kind": "number",
+                              "value": 6
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 20
+              },
+              "trees": [
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.Point",
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "kind": "number",
+                        "value": 1
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "kind": "number",
+                        "value": 2
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "delta": {
+          "latestRevision": "00000000-0000-4000-b000-000000000004",
+          "fields": [],
+          "build": [
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 30
+              },
+              "trees": [
+                {
+                  "kind": "number",
+                  "value": 2
+                }
+              ]
+            }
+          ],
+          "refreshers": [
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 10
+              },
+              "trees": [
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.NestedDetached",
+                  "fields": [
+                    [
+                      "middle",
+                      {
+                        "kind": "object",
+                        "type": "org.watershed.shared-tree.m1.Point",
+                        "fields": [
+                          [
+                            "x",
+                            {
+                              "kind": "number",
+                              "value": 5
+                            }
+                          ],
+                          [
+                            "y",
+                            {
+                              "kind": "number",
+                              "value": 6
+                            }
+                          ]
+                        ]
+                      }
+                    ]
+                  ]
+                }
+              ]
+            },
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 20
+              },
+              "trees": [
+                {
+                  "kind": "object",
+                  "type": "org.watershed.shared-tree.m1.Point",
+                  "fields": [
+                    [
+                      "x",
+                      {
+                        "kind": "number",
+                        "value": 1
+                      }
+                    ],
+                    [
+                      "y",
+                      {
+                        "kind": "number",
+                        "value": 2
+                      }
+                    ]
+                  ]
+                }
+              ]
+            }
+          ],
+          "global": [
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 20
+              },
+              "fields": [
+                [
+                  "x",
+                  {
+                    "marks": [
+                      {
+                        "count": 1,
+                        "attach": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 30
+                        },
+                        "detach": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 31
+                        },
+                        "fields": []
+                      }
+                    ]
+                  }
+                ]
+              ]
+            },
+            {
+              "id": {
+                "revision": "00000000-0000-4000-b000-000000000004",
+                "localId": 10
+              },
+              "fields": [
+                [
+                  "middle",
+                  {
+                    "marks": [
+                      {
+                        "count": 1,
+                        "attach": null,
+                        "detach": {
+                          "revision": "00000000-0000-4000-b000-000000000004",
+                          "localId": 21
+                        },
+                        "fields": []
+                      }
+                    ]
+                  }
+                ]
+              ]
+            }
+          ],
+          "rename": [],
+          "destroy": []
+        }
+      },
+      {
         "operation": "modular-forest",
         "id": "nested-independent",
         "checkpoints": [
@@ -12402,6 +14421,651 @@
                 }
               ],
               "nextDetachedRootId": 4
+            }
+          }
+        ]
+      },
+      {
+        "operation": "modular-forest",
+        "id": "root-named-child",
+        "checkpoints": [
+          {
+            "id": "retain-root",
+            "accepted": true,
+            "state": {
+              "root": {
+                "kind": "object",
+                "type": "org.watershed.shared-tree.m1.RootNamedChild",
+                "fields": [
+                  [
+                    "rootFieldKey",
+                    {
+                      "kind": "number",
+                      "value": 1
+                    }
+                  ]
+                ]
+              },
+              "references": [
+                {
+                  "name": "old-root",
+                  "status": "attached",
+                  "value": {
+                    "kind": "object",
+                    "type": "org.watershed.shared-tree.m1.RootNamedChild",
+                    "fields": [
+                      [
+                        "rootFieldKey",
+                        {
+                          "kind": "number",
+                          "value": 1
+                        }
+                      ]
+                    ]
+                  }
+                }
+              ],
+              "detached": [],
+              "nextDetachedRootId": 0
+            }
+          },
+          {
+            "id": "root-named-child",
+            "accepted": true,
+            "state": {
+              "root": {
+                "kind": "object",
+                "type": "org.watershed.shared-tree.m1.RootNamedChild",
+                "fields": [
+                  [
+                    "rootFieldKey",
+                    {
+                      "kind": "number",
+                      "value": 2
+                    }
+                  ]
+                ]
+              },
+              "references": [
+                {
+                  "name": "old-root",
+                  "status": "attached",
+                  "value": {
+                    "kind": "object",
+                    "type": "org.watershed.shared-tree.m1.RootNamedChild",
+                    "fields": [
+                      [
+                        "rootFieldKey",
+                        {
+                          "kind": "number",
+                          "value": 2
+                        }
+                      ]
+                    ]
+                  }
+                }
+              ],
+              "detached": [
+                {
+                  "id": {
+                    "revision": "00000000-0000-4000-b000-000000000004",
+                    "localId": 1
+                  },
+                  "forestRootId": 1,
+                  "latestRelevantRevision": "00000000-0000-4000-b000-000000000004",
+                  "value": {
+                    "kind": "number",
+                    "value": 1
+                  }
+                }
+              ],
+              "nextDetachedRootId": 2
+            }
+          }
+        ]
+      },
+      {
+        "operation": "modular-forest",
+        "id": "nonlexical-undo",
+        "checkpoints": [
+          {
+            "id": "retain-root",
+            "accepted": true,
+            "state": {
+              "root": {
+                "kind": "object",
+                "type": "org.watershed.shared-tree.m1.Sides",
+                "fields": [
+                  [
+                    "left",
+                    {
+                      "kind": "object",
+                      "type": "org.watershed.shared-tree.m1.Point",
+                      "fields": [
+                        [
+                          "x",
+                          {
+                            "kind": "number",
+                            "value": 1
+                          }
+                        ],
+                        [
+                          "y",
+                          {
+                            "kind": "number",
+                            "value": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "right",
+                    {
+                      "kind": "object",
+                      "type": "org.watershed.shared-tree.m1.Point",
+                      "fields": [
+                        [
+                          "x",
+                          {
+                            "kind": "number",
+                            "value": 1
+                          }
+                        ],
+                        [
+                          "y",
+                          {
+                            "kind": "number",
+                            "value": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ]
+              },
+              "references": [
+                {
+                  "name": "old-root",
+                  "status": "attached",
+                  "value": {
+                    "kind": "object",
+                    "type": "org.watershed.shared-tree.m1.Sides",
+                    "fields": [
+                      [
+                        "left",
+                        {
+                          "kind": "object",
+                          "type": "org.watershed.shared-tree.m1.Point",
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "kind": "number",
+                                "value": 1
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "kind": "number",
+                                "value": 2
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        "right",
+                        {
+                          "kind": "object",
+                          "type": "org.watershed.shared-tree.m1.Point",
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "kind": "number",
+                                "value": 1
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "kind": "number",
+                                "value": 2
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                }
+              ],
+              "detached": [],
+              "nextDetachedRootId": 0
+            }
+          },
+          {
+            "id": "nonlexical-composed",
+            "accepted": true,
+            "state": {
+              "root": {
+                "kind": "object",
+                "type": "org.watershed.shared-tree.m1.Sides",
+                "fields": [
+                  [
+                    "left",
+                    {
+                      "kind": "object",
+                      "type": "org.watershed.shared-tree.m1.Point",
+                      "fields": [
+                        [
+                          "x",
+                          {
+                            "kind": "number",
+                            "value": 7
+                          }
+                        ],
+                        [
+                          "y",
+                          {
+                            "kind": "number",
+                            "value": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "right",
+                    {
+                      "kind": "object",
+                      "type": "org.watershed.shared-tree.m1.Point",
+                      "fields": [
+                        [
+                          "x",
+                          {
+                            "kind": "number",
+                            "value": 8
+                          }
+                        ],
+                        [
+                          "y",
+                          {
+                            "kind": "number",
+                            "value": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ]
+              },
+              "references": [
+                {
+                  "name": "old-root",
+                  "status": "attached",
+                  "value": {
+                    "kind": "object",
+                    "type": "org.watershed.shared-tree.m1.Sides",
+                    "fields": [
+                      [
+                        "left",
+                        {
+                          "kind": "object",
+                          "type": "org.watershed.shared-tree.m1.Point",
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "kind": "number",
+                                "value": 7
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "kind": "number",
+                                "value": 2
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        "right",
+                        {
+                          "kind": "object",
+                          "type": "org.watershed.shared-tree.m1.Point",
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "kind": "number",
+                                "value": 8
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "kind": "number",
+                                "value": 2
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                }
+              ],
+              "detached": [
+                {
+                  "id": {
+                    "revision": "a0000000-0000-4000-8000-000000000000",
+                    "localId": 1
+                  },
+                  "forestRootId": 2,
+                  "latestRelevantRevision": null,
+                  "value": {
+                    "kind": "number",
+                    "value": 1
+                  }
+                },
+                {
+                  "id": {
+                    "revision": "b0000000-0000-4000-8000-000000000000",
+                    "localId": 1
+                  },
+                  "forestRootId": 3,
+                  "latestRelevantRevision": null,
+                  "value": {
+                    "kind": "number",
+                    "value": 1
+                  }
+                }
+              ],
+              "nextDetachedRootId": 4
+            }
+          },
+          {
+            "id": "nonlexical-undo",
+            "accepted": true,
+            "state": {
+              "root": {
+                "kind": "object",
+                "type": "org.watershed.shared-tree.m1.Sides",
+                "fields": [
+                  [
+                    "left",
+                    {
+                      "kind": "object",
+                      "type": "org.watershed.shared-tree.m1.Point",
+                      "fields": [
+                        [
+                          "x",
+                          {
+                            "kind": "number",
+                            "value": 1
+                          }
+                        ],
+                        [
+                          "y",
+                          {
+                            "kind": "number",
+                            "value": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ],
+                  [
+                    "right",
+                    {
+                      "kind": "object",
+                      "type": "org.watershed.shared-tree.m1.Point",
+                      "fields": [
+                        [
+                          "x",
+                          {
+                            "kind": "number",
+                            "value": 1
+                          }
+                        ],
+                        [
+                          "y",
+                          {
+                            "kind": "number",
+                            "value": 2
+                          }
+                        ]
+                      ]
+                    }
+                  ]
+                ]
+              },
+              "references": [
+                {
+                  "name": "old-root",
+                  "status": "attached",
+                  "value": {
+                    "kind": "object",
+                    "type": "org.watershed.shared-tree.m1.Sides",
+                    "fields": [
+                      [
+                        "left",
+                        {
+                          "kind": "object",
+                          "type": "org.watershed.shared-tree.m1.Point",
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "kind": "number",
+                                "value": 1
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "kind": "number",
+                                "value": 2
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      [
+                        "right",
+                        {
+                          "kind": "object",
+                          "type": "org.watershed.shared-tree.m1.Point",
+                          "fields": [
+                            [
+                              "x",
+                              {
+                                "kind": "number",
+                                "value": 1
+                              }
+                            ],
+                            [
+                              "y",
+                              {
+                                "kind": "number",
+                                "value": 2
+                              }
+                            ]
+                          ]
+                        }
+                      ]
+                    ]
+                  }
+                }
+              ],
+              "detached": [
+                {
+                  "id": {
+                    "revision": "00000000-0000-4000-b000-000000000006",
+                    "localId": 8
+                  },
+                  "forestRootId": 5,
+                  "latestRelevantRevision": "00000000-0000-4000-b000-000000000006",
+                  "value": {
+                    "kind": "number",
+                    "value": 8
+                  }
+                },
+                {
+                  "id": {
+                    "revision": "00000000-0000-4000-b000-000000000006",
+                    "localId": 9
+                  },
+                  "forestRootId": 4,
+                  "latestRelevantRevision": "00000000-0000-4000-b000-000000000006",
+                  "value": {
+                    "kind": "number",
+                    "value": 7
+                  }
+                }
+              ],
+              "nextDetachedRootId": 6
+            }
+          }
+        ]
+      },
+      {
+        "operation": "modular-forest",
+        "id": "nested-global-order",
+        "checkpoints": [
+          {
+            "id": "retain-root",
+            "accepted": true,
+            "state": {
+              "root": {
+                "kind": "object",
+                "type": "org.watershed.shared-tree.m1.NestedDetached",
+                "fields": []
+              },
+              "references": [
+                {
+                  "name": "old-root",
+                  "status": "attached",
+                  "value": {
+                    "kind": "object",
+                    "type": "org.watershed.shared-tree.m1.NestedDetached",
+                    "fields": []
+                  }
+                }
+              ],
+              "detached": [],
+              "nextDetachedRootId": 0
+            }
+          },
+          {
+            "id": "nested-global-order",
+            "accepted": true,
+            "state": {
+              "root": {
+                "kind": "object",
+                "type": "org.watershed.shared-tree.m1.NestedDetached",
+                "fields": []
+              },
+              "references": [
+                {
+                  "name": "old-root",
+                  "status": "attached",
+                  "value": {
+                    "kind": "object",
+                    "type": "org.watershed.shared-tree.m1.NestedDetached",
+                    "fields": []
+                  }
+                }
+              ],
+              "detached": [
+                {
+                  "id": {
+                    "revision": "00000000-0000-4000-b000-000000000004",
+                    "localId": 10
+                  },
+                  "forestRootId": 2,
+                  "latestRelevantRevision": "00000000-0000-4000-b000-000000000004",
+                  "value": {
+                    "kind": "object",
+                    "type": "org.watershed.shared-tree.m1.NestedDetached",
+                    "fields": []
+                  }
+                },
+                {
+                  "id": {
+                    "revision": "00000000-0000-4000-b000-000000000004",
+                    "localId": 20
+                  },
+                  "forestRootId": 1,
+                  "latestRelevantRevision": "00000000-0000-4000-b000-000000000004",
+                  "value": {
+                    "kind": "object",
+                    "type": "org.watershed.shared-tree.m1.Point",
+                    "fields": [
+                      [
+                        "x",
+                        {
+                          "kind": "number",
+                          "value": 2
+                        }
+                      ],
+                      [
+                        "y",
+                        {
+                          "kind": "number",
+                          "value": 2
+                        }
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "id": {
+                    "revision": "00000000-0000-4000-b000-000000000004",
+                    "localId": 21
+                  },
+                  "forestRootId": 4,
+                  "latestRelevantRevision": "00000000-0000-4000-b000-000000000004",
+                  "value": {
+                    "kind": "object",
+                    "type": "org.watershed.shared-tree.m1.Point",
+                    "fields": [
+                      [
+                        "x",
+                        {
+                          "kind": "number",
+                          "value": 5
+                        }
+                      ],
+                      [
+                        "y",
+                        {
+                          "kind": "number",
+                          "value": 6
+                        }
+                      ]
+                    ]
+                  }
+                },
+                {
+                  "id": {
+                    "revision": "00000000-0000-4000-b000-000000000004",
+                    "localId": 31
+                  },
+                  "forestRootId": 3,
+                  "latestRelevantRevision": "00000000-0000-4000-b000-000000000004",
+                  "value": {
+                    "kind": "number",
+                    "value": 1
+                  }
+                }
+              ],
+              "nextDetachedRootId": 5
             }
           }
         ]

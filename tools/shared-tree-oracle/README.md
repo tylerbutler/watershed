@@ -249,9 +249,14 @@ The expanded `modular-nested-algebra` case preserves its six original encoded
 observations and adds input-only structural operations and forest schedules.
 It records aliases, node parents, revision allocation, full deltas, and retained
 content for nested edits, both parent/child orders, composition, rollback/undo,
-revision replacement, pruning, and repair content. The late modular capture runs
-after the forest capture without registering another Mocha test, which would
-change the deterministic entropy consumed by earlier captures.
+revision replacement, pruning, and repair content. Its 60 observations also
+cover optional-root set/clear, null versus absence, both nested composition
+orders, a delayed child edit after two parent replacements, a child named
+`rootFieldKey`, and nested detached-delta traversal. Separate real compressor
+sessions supply revision IDs whose numeric order differs from their UUID order;
+the native boundary must use that explicit context. The late modular
+capture runs after the forest capture without registering another Mocha test,
+which would change the deterministic entropy consumed by earlier captures.
 
 The original synthetic alias fixture exposes one pinned-upstream refusal:
 revision replacement leaves a dangling child reference, and delta conversion

@@ -771,9 +771,9 @@ function validateModularCase(value) {
   }
   const expanded = value.input.expanded;
   exact(expanded, ["changes", "tags", "revisions", "operations", "scenarios"], "expanded");
-  exact(expanded.changes, ["first", "second"], "input changes");
-  exact(expanded.tags, ["first", "second"], "input tags");
-  structure(expanded.changes.first); structure(expanded.changes.second);
+  exact(expanded.changes, ["first", "second", "nested-detached"], "input changes");
+  exact(expanded.tags, Object.keys(expanded.changes), "input tags");
+  Object.values(expanded.changes).forEach(structure);
   check(expanded.changes.first.aliases.length > 0 && expanded.changes.first.parents.length > 0,
     "missing alias and parent evidence");
   check(nonemptyArray(expanded.revisions), "revision identity mapping");
@@ -786,7 +786,7 @@ function validateModularCase(value) {
     revisions.add(entry.stable); encoded.add(entry.encoded);
   }
   check(Object.values(expanded.tags).every((tag) => revisions.has(tag)), "unknown input tag");
-  const names = new Set(["first", "second"]);
+  const names = new Set(Object.keys(expanded.changes));
   const requireName = (name) => check(names.has(name), `unknown change ${name}`);
   check(nonemptyArray(expanded.operations), "operations");
   for (const action of expanded.operations) {
@@ -846,12 +846,15 @@ function validateModularCase(value) {
     "collision-replaced", "alias-replaced", "pruned", "refreshed", "build-destroy-cancelled",
     "optional-root-set", "optional-root-clear", "optional-root-null", "optional-clear-present",
     "parent-again", "delayed-after-two-parents", "nested-reversed",
+    "root-named-child", "nonlexical-left", "nonlexical-right",
+    "nonlexical-composed", "nonlexical-undo", "nested-global-order",
   ];
   assert.deepEqual(expanded.operations.map(({ id }) => id), operationIds, `${label}: operation coverage`);
   const scenarioIds = ["nested-independent", "nested-composed", "parent-then-child", "child-then-parent",
     "composed-detached-child", "rollback-restores", "undo-restores-value", "three-fields", "four-fields",
     "optional-root-set", "optional-root-clear", "optional-root-null", "optional-clear-present",
-    "replace-twice-then-delayed", "nested-reversed"];
+    "replace-twice-then-delayed", "nested-reversed",
+    "root-named-child", "nonlexical-undo", "nested-global-order"];
   check(nonemptyArray(expanded.scenarios), "forest scenarios");
   assert.deepEqual(expanded.scenarios.map(({ id }) => id), scenarioIds, `${label}: scenario coverage`);
   for (const scenario of expanded.scenarios) {

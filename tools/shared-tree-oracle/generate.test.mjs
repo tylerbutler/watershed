@@ -122,6 +122,26 @@ test("modular evidence covers optional roots and repeated detached-child rebasin
   assert.deepEqual(retained.value.fields.find(([key]) => key === "x")[1], { kind: "number", value: 42 });
 });
 
+test("modular evidence distinguishes root names and compressed revision order", () => {
+  const fixture = cases().find(({ id }) => id === "modular-nested-algebra");
+  const operations = new Map(fixture.input.expanded.operations.map((entry) => [entry.id, entry]));
+  assert.deepEqual(operations.get("root-named-child")?.path, ["rootFieldKey"]);
+  const left = operations.get("nonlexical-left");
+  const right = operations.get("nonlexical-right");
+  assert(left && right, "missing nonlexical revision evidence");
+  assert(left.revision < right.revision);
+  const revisions = new Map(fixture.input.expanded.revisions.map(({ stable, encoded }) => [stable, encoded]));
+  assert(revisions.get(left.revision) > revisions.get(right.revision));
+  const inverse = fixture.expected.observations.find(({ id }) => id === "nonlexical-undo");
+  const root = inverse.delta.fields.find(([key]) => key === "rootFieldKey")[1].marks[0];
+  const detach = (side) => root.fields.find(([key]) => key === side)[1].marks[0]
+    .fields.find(([key]) => key === "x")[1].marks[0].detach.localId;
+  assert.equal(detach("right"), 8);
+  assert.equal(detach("left"), 9);
+  const nested = fixture.expected.observations.find(({ id }) => id === "nested-global-order");
+  assert.deepEqual(nested.delta.global.map(({ id }) => id.localId), [20, 10]);
+});
+
 test("field corpus refuses incomplete operations, callbacks, identities and observations", () => {
   for (const mutate of [
     (value) => { value.input.operations.compose = null; },
