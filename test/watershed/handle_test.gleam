@@ -105,6 +105,15 @@ pub fn shared_tree_container_handle_resolves_relative_channel_test() -> Nil {
   handle.resolve_path(marker, "/A") |> expect.to_equal(Ok("/A/_C"))
 }
 
+pub fn shared_tree_container_handle_resolves_from_root_test() -> Nil {
+  let marker =
+    json.object([
+      #("type", json.string("__fluid_handle__")),
+      #("url", json.string("A/_C")),
+    ])
+  handle.resolve_path(marker, "/") |> expect.to_equal(Ok("/A/_C"))
+}
+
 pub fn shared_tree_container_handle_preserves_escaped_components_test() -> Nil {
   let marker =
     json.object([

@@ -148,6 +148,7 @@ pub fn encode(message: MessageKind) -> Result(Json, ContainerError) {
         "channel attach",
       ))
       use _ <- result.try(nonempty(channel_type, "channel type"))
+      use _ <- result.try(validate_snapshot(snapshot, "channel attach"))
       Ok(component_message(
         data_store_id,
         json.object([
@@ -405,6 +406,7 @@ fn decode_attach(
   )
   use _ <- result.try(nonempty(decoded.0, location))
   use _ <- result.try(nonempty(decoded.1, location))
+  use _ <- result.try(validate_snapshot(decoded.2, location))
   Ok(decoded)
 }
 
@@ -413,6 +415,54 @@ fn attach_decoder() -> Decoder(#(String, String, Json)) {
   use channel_type <- decode.field("type", decode.string)
   use snapshot <- decode.field("snapshot", wire.json_value_decoder())
   decode.success(#(id, channel_type, snapshot))
+}
+
+fn validate_snapshot(
+  snapshot: Json,
+  location: String,
+) -> Result(Nil, ContainerError) {
+  json.parse(json.to_string(snapshot), snapshot_decoder())
+  |> result.map_error(fn(_) {
+    MalformedMessage(location, "invalid attach snapshot")
+  })
+}
+
+fn snapshot_decoder() -> Decoder(Nil) {
+  use _ <- decode.field("entries", decode.list(snapshot_entry_decoder()))
+  decode.success(Nil)
+}
+
+fn snapshot_entry_decoder() -> Decoder(Nil) {
+  use path <- decode.field("path", decode.string)
+  use mode <- decode.field("mode", decode.string)
+  use entry_type <- decode.field("type", decode.string)
+  case path != "", valid_mode(mode), entry_type {
+    True, True, "Blob" -> {
+      use _ <- decode.field("value", wire.json_value_decoder())
+      decode.success(Nil)
+    }
+    True, True, "Tree" -> {
+      use _ <- decode.field("value", decode.recursive(snapshot_decoder))
+      decode.success(Nil)
+    }
+    True, True, "Attachment" -> {
+      use _ <- decode.field("value", attachment_value_decoder())
+      decode.success(Nil)
+    }
+    _, _, _ -> decode.failure(Nil, "valid snapshot entry")
+  }
+}
+
+fn attachment_value_decoder() -> Decoder(Nil) {
+  use id <- decode.field("id", decode.string)
+  case id == "" {
+    True -> decode.failure(Nil, "attachment identity")
+    False -> decode.success(Nil)
+  }
+}
+
+fn valid_mode(mode: String) -> Bool {
+  mode == "100644" || mode == "100755" || mode == "040000" || mode == "120000"
 }
 
 fn component_message(data_store_id: String, contents: Json) -> Json {

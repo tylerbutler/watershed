@@ -83,6 +83,11 @@ test("container foundations validator requires complete paired evidence", async 
     (value) => { delete value.expected.observations[0].messages; },
     (value) => { value.raw.consumers.alias.message.contents.internalId = "wrong"; },
     (value) => { value.input.handleCases.pop(); },
+    (value) => {
+      value.input.groupedWireMessages.push(
+        structuredClone(value.input.groupedWireMessages[0]),
+      );
+    },
     (value) => { value.extra = true; },
   ]) {
     const changed = structuredClone(capture);

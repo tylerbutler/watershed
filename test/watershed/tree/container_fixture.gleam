@@ -16,6 +16,12 @@ import watershed/wire/fluid_container.{
   DatastoreAttach, DecodedBatch, IdAllocation, Route,
 }
 
+const map_channel_type = "https://graph.microsoft.com/types/map"
+
+const tree_channel_type = "https://graph.microsoft.com/types/tree"
+
+const plain_value_type = "Plain"
+
 type DecodeCase {
   DecodeCase(id: String, contents: Json, metadata: Option(Json))
 }
@@ -70,8 +76,9 @@ pub fn run(input: Json) -> Result(Json, String) {
   use snapshot <- result.try(field(input, ["initialSnapshot"]))
   use decoded <- result.try(list.try_map(decode_cases, decode_case))
   use grouped <- result.try(case grouped {
-    [first, ..] -> grouped_observation(first)
+    [only] -> grouped_observation(only)
     [] -> Error("container input has no grouped wire message")
+    _ -> Error("container input has multiple grouped wire messages")
   })
   use bootstrap_messages <- result.try(bootstrap_messages_observation(
     bootstrap,
@@ -363,6 +370,14 @@ fn bootstrap_observation(snapshot: Json) -> Result(Json, String) {
     ["content", "tree", "type"],
     decode.string,
   ))
+  use _ <- result.try(case map_type == map_channel_type {
+    True -> Ok(Nil)
+    False -> Error("bootstrap map has an unsupported channel type")
+  })
+  use _ <- result.try(case value_type == plain_value_type {
+    True -> Ok(Nil)
+    False -> Error("bootstrap map value is not Plain")
+  })
   use marker <- result.try(field(map_header, ["content", "tree", "value"]))
   use handle_type <- result.try(read(marker, ["type"], decode.string))
   use handle_path <- result.try(
@@ -382,6 +397,10 @@ fn bootstrap_observation(snapshot: Json) -> Result(Json, String) {
     ["packageVersion"],
     decode.string,
   ))
+  use _ <- result.try(case tree_type == tree_channel_type {
+    True -> Ok(Nil)
+    False -> Error("bootstrap tree has an unsupported channel type")
+  })
   use _ <- result.try(case target_type == tree_type {
     True -> Ok(Nil)
     False -> Error("bootstrap handle target type does not match")
