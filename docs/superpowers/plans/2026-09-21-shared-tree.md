@@ -62,13 +62,17 @@ this plan; do those actions in Task 1 after adding its manifests.
 
 ### Dependency order
 
-Tasks 1-6 are complete at `c04a70a`: the pinned oracle, real-service profile,
-corpus, ID compression, fixed schemas, and persistent forest. Tasks 7-16 remain.
+Tasks 1-7 are complete: the pinned oracle, real-service profile, corpus, ID
+compression, fixed schemas, persistent forest, and field algebra. Tasks 8-16
+remain open; standalone foundation slices do not close their parent tasks.
 The manifest records native semantic runners for `id-ranges`,
-`schema-validation`, and `forest-delta` on both targets; the other generated
-cases are not evidence of implemented native semantics.
+`schema-validation`, `forest-delta`, `field-compose-invert-rebase`,
+`container-foundations`, and `summary-foundations` on both targets. The other
+generated cases are not evidence of implemented native semantics.
 
-The remaining work has three parallel lanes:
+The work follows three lanes. The foundation wave (7, 11a, and 13a) is complete;
+Task 8 is the next semantics task. The diagram retains the original dependency
+split:
 
 ```text
 Completed Tasks 1-6 -> contract and ownership check
@@ -904,7 +908,7 @@ attach/destroy phases and preserve detached revision metadata. Typed export/impo
 retains content and index watermarks without serializing local references. A new
 input-only `forest-delta` oracle supplies 16 source-level scenarios on both native
 targets; the original summary-backed tree cases remain gates for later tasks.
-Task 7 has not started.
+Task 7 now builds on this retained-state boundary.
 
 **Files:** Create `tree/forest.gleam` and
 `test/watershed/shared_tree_forest_test.gleam`. Extend shared types with revision
@@ -1006,8 +1010,16 @@ Suggested commit subject: `feat(tree): retain attached and detached forest state
 
 ### Task 7: port required/optional field edit algebra
 
+Implementation: complete. The input-only adapter replays all 24 observations in
+the expanded upstream field case on both targets, including callback order,
+rollback/undo allocation, revision replacement, and full delta shape. Native
+tests cover checked identities, callback refusal, allocator exhaustion,
+simultaneous mappings, and valid-context algebra laws.
+
 **Files:** Create `tree/optional_field.gleam` and
-`test/watershed/shared_tree_field_test.gleam`.
+`test/watershed/shared_tree_field_test.gleam`. The input-only runner is
+`test/watershed/tree/field_fixture.gleam`; fixture mutation tests live in
+`test/watershed/shared_tree_field_fixture_test.gleam`.
 
 **Interfaces:** Match the upstream register model:
 
@@ -1032,10 +1044,10 @@ pub type FieldChange {
 }
 ```
 
-Export `set`, `clear`, `compose`, `invert`, `rebase`, and `replace_revisions`.
-Use typed context parameters for revision metadata, child-change callbacks, and
-ID allocation wherever the corresponding upstream handler requires them. M0
-must record those dependencies; do not drop them to make an interface shorter.
+Export `validate`, `set`, `clear`, `compose`, `invert`, `rebase`,
+`replace_revisions`, and `into_delta`. The pinned handlers use pairwise changes,
+state-threaded child callbacks, and an explicit inversion allocator watermark.
+They do not consume a field-level revision-metadata context.
 The initial editor contracts are:
 
 ```gleam
@@ -1043,12 +1055,16 @@ pub fn set(was_empty: Bool, fill: AtomId, detach: AtomId) -> FieldChange
 pub fn clear(was_empty: Bool, detach: AtomId) -> FieldChange
 ```
 
-The algebra contracts consume and return `Result(FieldChange, TreeError)`;
-composition consumes an ordered list of revision-tagged changes, inversion
-consumes the original tagged change and repair context, and rebasing consumes
-the authored change, the tagged base change, and revision context.
+Composition and rebasing consume two `FieldChange` values, callback state, and a
+fallible child callback; they return `Result(#(FieldChange, state), TreeError)`.
+Inversion consumes a change, rollback mode, an optional inverse revision, and
+the last allocated local ID (`-1` means none); it returns the inverse and updated
+watermark. Revision replacement validates callback results and remapped
+identities. `into_delta` retains local marks, detached/global child changes, and
+renames; its caller supplies builds and the enclosing forest delta. Ordered
+revision-tagged composition and modular context belong to Task 8.
 
-- [ ] **1. Add the upstream algebra corpus as a failing test.**
+- [x] **1. Add the upstream algebra corpus as a failing test.**
 
 ```gleam
 pub fn shared_tree_field_algebra_matches_upstream_test() {
@@ -1060,7 +1076,7 @@ pub fn shared_tree_field_algebra_matches_upstream_test() {
 function from each fixture action. It compares canonical register maps and
 revision-aware results, not only the current field value.
 
-- [ ] **2. Port the field handlers in dependency order.**
+- [x] **2. Port the field handlers in dependency order.**
 
 Start with editor output and revision replacement; add composition, inversion,
 then rebasing from the pinned `optionalField.ts` implementation. Required fields
@@ -1071,21 +1087,21 @@ Preserve the distinction between `Active`, no source, and a detached source.
 For the selected V2 encoding, active register encodes as null while an omitted
 replacement source means clear; these cannot share one decoder branch.
 
-- [ ] **3. Cover the full supported register behavior.**
+- [x] **3. Cover the full supported register behavior.**
 
 Include set/set both orders; set/clear; clear/set; clear of empty; nested child
 edits through replacement; detach/reattach during rebase; simultaneous register
 swaps; duplicate source/destination rejection; and revision remapping.
 Detached-register moves are required even though public array moves are deferred.
 
-- [ ] **4. Exercise the algebra laws with upstream expectations.**
+- [x] **4. Exercise the algebra laws with upstream expectations.**
 
 Compare composing A then B with applying A then B in the same context. Compare
 applying A then its valid inverse with restored observable/retained state.
 Run the upstream rebase axioms that apply to the supported changes, including
 their documented preconditions. Do not impose a generic commutative CRDT law.
 
-- [ ] **5. Run the focused pair and commit.**
+- [x] **5. Run the focused pair and commit.**
 
 Commit subject: `feat(tree): port optional-field change algebra`.
 
@@ -1330,6 +1346,14 @@ envelope replacement, and shared runtime/socket changes to the Task 12 join.
 See [Parallel workstreams and integration](#parallel-workstreams-and-integration).
 This task remains open until both the foundation and integration work pass.
 
+Implementation (11a): complete. Typed container envelopes preserve ordered
+inner messages, outer and inner metadata, allocation data, and datastore/channel
+identity. Attach snapshots are checked before a whole batch is accepted.
+Contextual handle APIs are additive; the existing single-segment helpers and
+live callers are unchanged. The complete `container-foundations` case passes on
+both targets. Full `bootstrap-map-handles` and `batched-commits` runtime replay
+remain pending.
+
 **Files:** Create `wire/fluid_container.gleam` and
 `test/watershed/shared_tree_container_test.gleam`. Modify `wire/op.gleam`,
 `wire.gleam`, `handle.gleam`, relevant socket codecs, and their tests.
@@ -1339,24 +1363,35 @@ closed sum for supported container messages. Keep opaque DDS payload JSON only
 until the registry identifies the channel codec.
 
 ```gleam
-pub type RoutedOperation {
-  RoutedOperation(
-    route: Route,
-    contents: Json,
+pub type ContainerMessage {
+  ContainerMessage(
+    kind: MessageKind,
     index_in_batch: Int,
+    metadata: Option(Json),
+  )
+}
+pub type DecodedBatch {
+  DecodedBatch(
+    grouped: Bool,
+    metadata: Option(Json),
+    messages: List(ContainerMessage),
   )
 }
 pub fn decode(
   contents: Json,
   metadata: Option(Json),
-) -> Result(List(ContainerMessage), ContainerError)
-pub fn encode(message: ContainerMessage) -> Result(Json, ContainerError)
+) -> Result(DecodedBatch, ContainerError)
+pub fn encode(message: MessageKind) -> Result(Json, ContainerError)
+pub fn encode_batch(batch: DecodedBatch) -> Result(Json, ContainerError)
 ```
 
 `ContainerMessage` includes routed operations, ID allocation, datastore/channel
 attach and alias operations required by the profile, and any required runtime
 metadata messages found at M0. `ContainerError` names unsupported message kinds,
 invalid routing, malformed batches, and unsupported compression.
+`DecodedBatch` preserves an empty grouped message and its outer metadata.
+Transport sequence numbers and client sequence numbers stay with the original
+outer message; inner positions never replace them.
 
 - [ ] **1. Add raw envelope cases before replacing current encoding.**
 
@@ -1488,6 +1523,23 @@ proof only after Task 12, using the real tree codecs and history.
 See [Parallel workstreams and integration](#parallel-workstreams-and-integration).
 Fetching a hierarchy alone does not close this task.
 
+Implementation (13a): complete. `fluid_summary.from_snapshot` materializes all
+paths and blob bytes; `resolve` resolves references against an explicit prior
+summary and rejects missing, cyclic, malformed, and wrong-kind references.
+`git_storage.fetch_hierarchy` accepts a commit ID with no tree-ID fallback.
+`stage_hierarchy` validates the full resolved tree before writing and returns a
+staged root tree ID, not a published commit.
+
+Both targets replay the complete six-observation `summary-foundations` case.
+The HTTP probe fetches, stages, and refetches the captured upstream snapshot
+(15 trees and 25 blob paths), comparing every path, kind, and byte. Separate
+probes cover binary content, escaped names, empty trees, and failed requests.
+The probe is included in `just test`.
+
+Existing single-header storage callers remain unchanged. `DocumentSummary`,
+live bootstrap/publication, summary-tail semantic replay, and cross-writer
+acceptance remain unimplemented; the interfaces below describe that later work.
+
 **Files:** Create `wire/fluid_summary.gleam` and
 `test/watershed/shared_tree_summary_test.gleam`. Modify `git_storage.gleam`,
 `wire/summary_blob.gleam`, runtime bootstrap/summary paths, and existing storage
@@ -1559,6 +1611,20 @@ Missing blob, invalid base64, cyclic handle, wrong schema, bad compressor data,
 and unsupported codec must not expose a ready document. Run the existing
 summary/storage/runtime tests after updating their format fixtures.
 Commit subject: `feat(tree): persist interoperable Fluid summaries`.
+
+#### Foundation-wave closure
+
+The combined wave passes 1700 Erlang tests, 1978 JavaScript tests, the
+dual-target HTTP storage probe, and 44 oracle tests. All 24 upstream cases
+reproduce with the pinned source. The original service profile and the other
+21 existing case files are unchanged; only the field case was expanded and two
+narrow foundation cases were added.
+
+The existing `smoke/runtime_bootstrap.mjs` still fails with
+`Missing HTTP request /trees/`, exactly as on the unchanged `5a3ff3f` baseline.
+That pre-existing failure keeps the overall `just test` gate red; it is not a
+passing bootstrap or native-document interoperability claim. No live runtime
+cutover, production dependency, or production FFI was added in this wave.
 
 ### Task 14: expose both facades and complete reconnect
 
