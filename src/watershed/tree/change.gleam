@@ -214,7 +214,7 @@ pub fn compose(changes: List(TaggedChange)) -> Result(Changeset, TreeError) {
     revisions,
     max_local_id,
   ))
-  let data = sort_atom_tables(composed.data, revisions)
+  let data = sort_atom_tables(composed.data)
   from_data(
     ChangeData(..data, max_local_id: max_local_id, revisions: revisions),
   )
@@ -275,7 +275,7 @@ pub fn replace_revisions(
       destroys: destroys,
       refreshers: refreshers,
     )
-    |> sort_atom_tables([RevisionInfo(updated, None)])
+    |> sort_atom_tables
   from_data(data)
 }
 
@@ -327,7 +327,7 @@ pub fn update_refreshers(
   )
   let data =
     ChangeData(..change.data, refreshers: refreshers)
-    |> sort_atom_tables(change.data.revisions)
+    |> sort_atom_tables
   from_data(data)
 }
 
@@ -391,13 +391,7 @@ pub fn invert(
       destroys: destroys,
       refreshers: [],
     )
-    |> sort_atom_tables([
-      RevisionInfo(inverse_revision, case is_rollback {
-        True -> change.revision
-        False -> None
-      }),
-      ..revisions
-    ])
+    |> sort_atom_tables
   from_data(inverted)
 }
 
@@ -429,7 +423,7 @@ pub fn rebase(
       destroys: authored.destroys,
       refreshers: authored.refreshers,
     )
-    |> sort_atom_tables(context.revisions)
+    |> sort_atom_tables
   use rebased <- result.try(from_data(data))
   prune(rebased)
 }
@@ -1866,95 +1860,49 @@ fn remove_destroy(
   list.filter(destroys, fn(destroy) { destroy.id != id })
 }
 
-fn sort_atom_tables(
-  data: ChangeData,
-  revisions: List(RevisionInfo),
-) -> ChangeData {
-  let order = atom_revision_order(data, revisions)
+fn sort_atom_tables(data: ChangeData) -> ChangeData {
   ChangeData(
     ..data,
-    nodes: sort_pairs(data.nodes, order),
-    parents: sort_pairs(data.parents, order),
-    aliases: sort_pairs(data.aliases, order),
+    nodes: sort_pairs(data.nodes),
+    parents: sort_pairs(data.parents),
+    aliases: sort_pairs(data.aliases),
     builds: list.sort(data.builds, fn(left, right) {
-      compare_atom(left.id, right.id, order)
+      compare_atom(left.id, right.id)
     }),
     destroys: list.sort(data.destroys, fn(left, right) {
-      compare_atom(left.id, right.id, order)
+      compare_atom(left.id, right.id)
     }),
     refreshers: list.sort(data.refreshers, fn(left, right) {
-      compare_atom(left.id, right.id, order)
+      compare_atom(left.id, right.id)
     }),
   )
 }
 
-fn atom_revision_order(
-  data: ChangeData,
-  revisions: List(RevisionInfo),
-) -> List(Option(StableId)) {
-  let initial = list.map(revisions, fn(info) { Some(info.revision) })
-  let ids =
-    list.append(
-      list.map(data.nodes, fn(entry) { entry.0 }),
-      list.append(
-        list.map(data.parents, fn(entry) { entry.0 }),
-        list.append(
-          list.flat_map(data.aliases, fn(entry) { [entry.0, entry.1] }),
-          list.append(
-            list.map(data.builds, fn(build) { build.id }),
-            list.append(
-              list.map(data.destroys, fn(destroy) { destroy.id }),
-              list.map(data.refreshers, fn(build) { build.id }),
-            ),
-          ),
-        ),
-      ),
-    )
-  list.fold(ids, initial, fn(revisions, id) {
-    case list.contains(revisions, id.revision) {
-      True -> revisions
-      False -> list.append(revisions, [id.revision])
-    }
-  })
+fn sort_pairs(entries: List(#(AtomId, a))) -> List(#(AtomId, a)) {
+  list.sort(entries, fn(left, right) { compare_atom(left.0, right.0) })
 }
 
-fn sort_pairs(
-  entries: List(#(AtomId, a)),
-  revisions: List(Option(StableId)),
-) -> List(#(AtomId, a)) {
-  list.sort(entries, fn(left, right) {
-    compare_atom(left.0, right.0, revisions)
-  })
-}
-
-fn compare_atom(
-  left: AtomId,
-  right: AtomId,
-  revisions: List(Option(StableId)),
-) -> order.Order {
-  let revision_order =
-    int_compare(
-      revision_index(left.revision, revisions, 0),
-      revision_index(right.revision, revisions, 0),
-    )
+fn compare_atom(left: AtomId, right: AtomId) -> order.Order {
+  let revision_order = compare_revision(left.revision, right.revision)
   case revision_order {
     order.Eq -> int_compare(left.local_id, right.local_id)
     _ -> revision_order
   }
 }
 
-fn revision_index(
-  revision: Option(StableId),
-  revisions: List(Option(StableId)),
-  index: Int,
-) -> Int {
-  case revisions {
-    [] -> index
-    [candidate, ..rest] ->
-      case candidate == revision {
-        True -> index
-        False -> revision_index(revision, rest, index + 1)
-      }
+fn compare_revision(
+  left: Option(StableId),
+  right: Option(StableId),
+) -> order.Order {
+  case left, right {
+    None, None -> order.Eq
+    None, Some(_) -> order.Lt
+    Some(_), None -> order.Gt
+    Some(left), Some(right) ->
+      string.compare(
+        fluid_ids.stable_id_to_string(left),
+        fluid_ids.stable_id_to_string(right),
+      )
   }
 }
 

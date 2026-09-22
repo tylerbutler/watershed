@@ -1194,7 +1194,7 @@ pub fn shared_tree_change_rebase_repeated_replacement_keeps_detached_target_test
       stored_schema(),
       after_first_parent,
       revision_c,
-      SetField(["point"], point(30.0, 40.0)),
+      SetField(["point"], point(100.0, 200.0)),
     )
   let assert Ok(rebased_again) =
     change.rebase(
@@ -1202,6 +1202,8 @@ pub fn shared_tree_change_rebase_repeated_replacement_keeps_detached_target_test
       change.TaggedChange(Some(revision_c), None, second_parent),
       context,
     )
+  change.to_data(rebased_again)
+  |> expect.to_equal(change.to_data(detached_child))
   let assert Ok(second_parent_delta) =
     change.into_delta(change.TaggedChange(Some(revision_c), None, second_parent))
   let assert Ok(after_second_parent) =
@@ -1215,7 +1217,7 @@ pub fn shared_tree_change_rebase_repeated_replacement_keeps_detached_target_test
   let assert Ok(updated) =
     forest.apply_delta(after_second_parent, rebased_delta)
   forest.read(updated, ["point"])
-  |> expect.to_equal(Ok(Some(point(30.0, 40.0))))
+  |> expect.to_equal(Ok(Some(point(100.0, 200.0))))
   forest.read_node(updated, intermediate_point)
   |> expect.to_equal(Ok(point(10.0, 20.0)))
   forest.read_node(updated, original_point)
@@ -1235,4 +1237,178 @@ pub fn shared_tree_change_rebase_requires_complete_context_test() {
       context,
     )
   Nil
+}
+
+pub fn shared_tree_change_optional_root_leaf_values_match_upstream_test() {
+  let string_schema =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}"
+  let null_schema =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.null\"]}}"
+  let view = revision("00000000-0000-4000-8000-000000000002")
+
+  [#(string_schema, StringValue("after")), #(null_schema, NullValue)]
+  |> list.each(fn(example) {
+    let assert Ok(stored) = schema.stored_from_string(example.0)
+    let assert Ok(initial) = forest.new(view, stored, None)
+    let assert Ok(authored) =
+      change.edit(stored, initial, revision_a(), SetField([], example.1))
+    change.to_data(authored)
+    |> expect.to_equal(
+      change.ChangeData(
+        ..empty_data(),
+        max_local_id: 1,
+        revisions: [change.RevisionInfo(revision_a(), None)],
+        fields: [
+          #(
+            "rootFieldKey",
+            change.OptionalField(optional_field.set(True, atom(1), atom(0))),
+          ),
+        ],
+        builds: [forest.Build(atom(1), [example.1])],
+      ),
+    )
+    let assert Ok(delta) =
+      change.into_delta(change.TaggedChange(Some(revision_a()), None, authored))
+    let assert Ok(updated) = forest.apply_delta(initial, delta)
+    forest.visible_root(updated) |> expect.to_equal(Ok(Some(example.1)))
+  })
+}
+
+pub fn shared_tree_change_optional_root_clear_retains_old_leaf_test() {
+  let string_schema =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}"
+  let assert Ok(stored) = schema.stored_from_string(string_schema)
+  let view = revision("00000000-0000-4000-8000-000000000002")
+  let assert Ok(initial) = forest.new(view, stored, Some(StringValue("before")))
+  let assert Ok(old_root) = forest.locate(initial, [])
+  let assert Ok(authored) =
+    change.edit(stored, initial, revision_b(), ClearField([]))
+  change.to_data(authored)
+  |> expect.to_equal(
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 0,
+      revisions: [change.RevisionInfo(revision_b(), None)],
+      fields: [
+        #(
+          "rootFieldKey",
+          change.OptionalField(optional_field.clear(False, atom_b(0))),
+        ),
+      ],
+    ),
+  )
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision_b()), None, authored))
+  let assert Ok(updated) = forest.apply_delta(initial, delta)
+  forest.visible_root(updated) |> expect.to_equal(Ok(None))
+  forest.locate_detached(updated, atom_b(0))
+  |> expect.to_equal(Ok(old_root))
+  forest.read_node(updated, old_root)
+  |> expect.to_equal(Ok(StringValue("before")))
+}
+
+pub fn shared_tree_change_optional_clear_present_keeps_parent_attached_test() {
+  let initial_value =
+    ObjectValue("Root", [
+      #("point", point(1.0, 2.0)),
+      #("note", StringValue("present")),
+    ])
+  let view = revision("00000000-0000-4000-8000-000000000002")
+  let assert Ok(initial) =
+    forest.new(view, stored_schema(), Some(initial_value))
+  let assert Ok(old_point) = forest.locate(initial, ["point"])
+  let assert Ok(old_note) = forest.locate(initial, ["note"])
+  let assert Ok(authored) =
+    change.edit(stored_schema(), initial, revision_a(), ClearField(["note"]))
+  change.to_data(authored)
+  |> expect.to_equal(
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 1,
+      revisions: [change.RevisionInfo(revision_a(), None)],
+      fields: [
+        #("rootFieldKey", change.GenericField([#(0, atom(1))])),
+      ],
+      nodes: [
+        #(
+          atom(1),
+          change.NodeChange([
+            #(
+              "note",
+              change.OptionalField(optional_field.clear(False, atom(0))),
+            ),
+          ]),
+        ),
+      ],
+      parents: [
+        #(atom(1), change.ParentField(None, "rootFieldKey")),
+      ],
+    ),
+  )
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, authored))
+  let assert Ok(updated) = forest.apply_delta(initial, delta)
+  forest.read(updated, ["note"]) |> expect.to_equal(Ok(None))
+  forest.is_attached(updated, old_point) |> expect.to_equal(Ok(True))
+  forest.locate_detached(updated, atom(0))
+  |> expect.to_equal(Ok(old_note))
+}
+
+pub fn shared_tree_change_compose_reversed_nested_edits_matches_upstream_test() {
+  let x = authored(revision_a(), SetField(["point", "x"], NumberValue(42.0)))
+  let y = authored(revision_b(), SetField(["point", "y"], NumberValue(9.0)))
+  let assert Ok(composed) =
+    change.compose([
+      change.TaggedChange(Some(revision_b()), None, y),
+      change.TaggedChange(Some(revision_a()), None, x),
+    ])
+  change.to_data(composed)
+  |> expect.to_equal(
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 3,
+      revisions: [
+        change.RevisionInfo(revision_b(), None),
+        change.RevisionInfo(revision_a(), None),
+      ],
+      fields: [
+        #("rootFieldKey", change.GenericField([#(0, atom_b(3))])),
+      ],
+      nodes: [
+        #(
+          atom_b(2),
+          change.NodeChange([
+            #(
+              "y",
+              change.ValueField(optional_field.set(False, atom_b(0), atom_b(1))),
+            ),
+            #(
+              "x",
+              change.ValueField(optional_field.set(False, atom(0), atom(1))),
+            ),
+          ]),
+        ),
+        #(
+          atom_b(3),
+          change.NodeChange([
+            #("point", change.GenericField([#(0, atom_b(2))])),
+          ]),
+        ),
+      ],
+      parents: [
+        #(atom_b(2), change.ParentField(Some(atom_b(3)), "point")),
+        #(atom_b(3), change.ParentField(None, "rootFieldKey")),
+      ],
+      aliases: [#(atom(2), atom_b(2)), #(atom(3), atom_b(3))],
+      builds: [
+        forest.Build(atom(0), [NumberValue(42.0)]),
+        forest.Build(atom_b(0), [NumberValue(9.0)]),
+      ],
+    ),
+  )
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(None, None, composed))
+  let assert Ok(updated) = forest.apply_delta(initial_forest(), delta)
+  forest.read(updated, ["point"])
+  |> expect.to_equal(Ok(Some(point(42.0, 9.0))))
 }
