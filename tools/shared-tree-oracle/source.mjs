@@ -10,6 +10,7 @@ const directory = dirname(fileURLToPath(import.meta.url));
 const checkout = join(directory, ".reference/FluidFramework");
 const oracleSource = join(directory, "upstream-oracle.spec.ts");
 const forestSource = join(directory, "upstream-forest.spec.ts");
+const modularSource = join(directory, "upstream-modular.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -32,10 +33,12 @@ export const reference = {
 
 export const injectedTestPath = "packages/dds/tree/src/test/watershedOracle.spec.ts";
 export const forestInjectedTestPath = "packages/dds/tree/src/test/watershedForest.spec.ts";
+export const modularInjectedTestPath = "packages/dds/tree/src/test/watershedModular.spec.ts";
 const injections = new Map([
   [injectedTestPath, oracleSource],
   ["packages/dds/tree/src/test/watershedAlgebra.spec.ts", join(directory, "upstream-algebra.spec.ts")],
   [forestInjectedTestPath, forestSource],
+  [modularInjectedTestPath, modularSource],
 ]);
 
 export async function verifyPackages(root = directory) {

@@ -61,9 +61,11 @@ changed tracked files, unrelated untracked files, a symbolic-link checkout, and
 an injected test whose contents differ from its committed oracle source.
 
 Only `packages/dds/tree/src/test/watershedOracle.spec.ts`,
-`watershedAlgebra.spec.ts`, and `watershedForest.spec.ts` in that same directory
+`watershedAlgebra.spec.ts`, `watershedForest.spec.ts`, and
+`watershedModular.spec.ts` in that same directory
 are injected. They must match `upstream-oracle.spec.ts`,
-`upstream-algebra.spec.ts`, and `upstream-forest.spec.ts`, respectively. If you
+`upstream-algebra.spec.ts`, `upstream-forest.spec.ts`, and
+`upstream-modular.spec.ts`, respectively. If you
 intentionally edit an oracle after preparing a checkout, review the old injected
 copy and remove that one file before preparing again. Do not discard other
 reference changes to make verification pass. Avoid code-map queries inside the
@@ -242,6 +244,21 @@ semantic runners on both targets. Full tree reconciliation, document runtime
 replay, and native writer-matrix results remain future work.
 
 ### Field algebra and foundation scope
+
+The expanded `modular-nested-algebra` case preserves its six original encoded
+observations and adds input-only structural operations and forest schedules.
+It records aliases, node parents, revision allocation, full deltas, and retained
+content for nested edits, both parent/child orders, composition, rollback/undo,
+revision replacement, pruning, and repair content. The late modular capture runs
+after the forest capture without registering another Mocha test, which would
+change the deterministic entropy consumed by earlier captures.
+
+The original synthetic alias fixture exposes one pinned-upstream refusal:
+revision replacement leaves a dangling child reference, and delta conversion
+throws `0x9ca`. The oracle checks that exact failure; it does not turn arbitrary
+exceptions into expected results. Real composed nested edits are separate
+positive cases. This expansion is source evidence, not yet a native semantic
+runner, and it makes no history, reload, or runtime interoperability claim.
 
 The expanded `field-compose-invert-rebase` case contains 24 ordered
 observations. It covers pairwise composition, rollback and undo inversion,

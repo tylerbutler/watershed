@@ -58,6 +58,43 @@ test("field corpus requires independently replayable expanded operations", () =>
   assert.throws(() => validateCases(corpus), /field-compose-invert-rebase.*expanded/);
 });
 
+test("modular corpus includes replayable identity state and forest observations", () => {
+  const corpus = cases();
+  const fixture = corpus.find(({ id }) => id === "modular-nested-algebra");
+  assert(fixture.input.expanded, "modular input must include expanded evidence");
+  assert(fixture.input.expanded.changes.first.aliases.length > 0);
+  assert(fixture.input.expanded.changes.first.parents.length > 0);
+  assert(fixture.input.expanded.scenarios.length > 0);
+  assert.doesNotThrow(() => validateCases(corpus));
+  delete fixture.input.expanded.changes.first.aliases;
+  assert.throws(() => validateCases(corpus), /modular-nested-algebra/);
+});
+
+test("modular corpus rejects incomplete operations and retained identity observations", () => {
+  for (const mutate of [
+    (fixture) => { delete fixture.input.expanded; },
+    (fixture) => { delete fixture.input.expanded.changes.first.parents; },
+    (fixture) => { fixture.input.expanded.changes.first.crossFieldKeys = []; },
+    (fixture) => { fixture.input.expanded.revisions[0].stable = "not-a-revision"; },
+    (fixture) => { fixture.input.expanded.operations[0].op = "unknown"; },
+    (fixture) => { fixture.input.expanded.operations[0].revision = "unknown"; },
+    (fixture) => { fixture.input.expanded.operations.find(({ op }) => op === "compose").changes = ["missing"]; },
+    (fixture) => { delete fixture.input.expanded.operations.find(({ op }) => op === "invert").isRollback; },
+    (fixture) => { fixture.input.expanded.operations.find(({ op }) => op === "rebase").revisionMetadata = []; },
+    (fixture) => { fixture.input.expanded.operations.find(({ op }) => op === "refreshers").repair[0].trees = null; },
+    (fixture) => { fixture.input.expanded.scenarios.pop(); },
+    (fixture) => { fixture.input.expanded.scenarios[0].actions[1].change = "missing"; },
+    (fixture) => { fixture.expected.observations[6].change.fields[0][1].children[0][0] = 1; },
+    (fixture) => { delete fixture.expected.observations[6].delta.global; },
+    (fixture) => { fixture.expected.observations.find(({ operation }) => operation === "modular-forest").checkpoints.pop(); },
+    (fixture) => { delete fixture.expected.observations.at(-1).checkpoints[0].state.detached; },
+  ]) {
+    const corpus = cases();
+    mutate(corpus.find(({ id }) => id === "modular-nested-algebra"));
+    assert.throws(() => validateCases(corpus), /modular-nested-algebra/);
+  }
+});
+
 test("field corpus refuses incomplete operations, callbacks, identities and observations", () => {
   for (const mutate of [
     (value) => { value.input.operations.compose = null; },

@@ -63,8 +63,8 @@ const rootType = "org.watershed.shared-tree.m1.Root";
 const pointType = "org.watershed.shared-tree.m1.Point";
 const keyProbeType = "org.watershed.shared-tree.m1.KeyProbe";
 
-type Atom = { revision: string | null; localId: number };
-type TaggedValue =
+export type Atom = { revision: string | null; localId: number };
+export type TaggedValue =
 	| { kind: "string"; value: string }
 	| { kind: "number"; value: number }
 	| { kind: "boolean"; value: boolean }
@@ -78,7 +78,7 @@ type Mark = {
 	fields: FieldMap;
 };
 type Build = { id: Atom; trees: TaggedValue[] };
-type DeltaInput = {
+export type DeltaInput = {
 	latestRevision: string | null;
 	fields: FieldMap;
 	build: Build[];
@@ -93,7 +93,7 @@ type Action =
 	| { id: string; op: "apply"; delta: DeltaInput }
 	| { id: string; op: "observe" }
 	| { id: string; op: "copy" };
-type Scenario = {
+export type Scenario = {
 	id: string;
 	schema: string;
 	root: TaggedValue | null;
@@ -155,7 +155,7 @@ function point(x: number, y: number): TaggedValue {
 	return taggedObject(pointType, [["x", taggedNumber(x)], ["y", taggedNumber(y)]]);
 }
 
-function root(pointValue = point(1, 2), note?: string): TaggedValue {
+export function root(pointValue = point(1, 2), note?: string): TaggedValue {
 	const fields: [string, TaggedValue][] = [
 		["title", taggedString("root")],
 		["enabled", taggedBoolean(true)],
@@ -208,7 +208,7 @@ function delta(
 	};
 }
 
-function schemaString(schema: ImplicitFieldSchema): string {
+export function schemaString(schema: ImplicitFieldSchema): string {
 	return JSON.stringify(extractPersistedSchema(
 		schema,
 		FluidClientVersion.v2_117,
@@ -238,7 +238,7 @@ function compareText(left: string, right: string): number {
 	return Buffer.compare(Buffer.from(left), Buffer.from(right));
 }
 
-function taggedTree(tree: MapTree): TaggedValue {
+export function taggedTree(tree: MapTree): TaggedValue {
 	const type = String(tree.type);
 	switch (type) {
 		case stringLeaf: {
@@ -294,7 +294,7 @@ function stableAtom(value: DeltaDetachedNodeId, compressor: IIdCompressor): Atom
 	};
 }
 
-function treeChunk(trees: TaggedValue[], compressor: IIdCompressor): TreeChunk {
+export function treeChunk(trees: TaggedValue[], compressor: IIdCompressor): TreeChunk {
 	const cursor = cursorForMapTreeField(trees.map(mapTree));
 	return combineChunks(chunkField(cursor, { policy: defaultChunkPolicy, idCompressor: compressor }));
 }
@@ -446,7 +446,7 @@ function errorText(error: unknown): string {
 	return error instanceof Error ? `${error.name}: ${error.message}` : String(error);
 }
 
-function runScenario(
+export function runScenario(
 	scenario: Scenario,
 	compressor: IIdCompressor,
 	decoder: ReturnType<typeof schemaCodecBuilder.buildDecoder>,
@@ -627,7 +627,7 @@ function objectRoot(state: ForestState): Extract<TaggedValue, { kind: "object" }
 
 if (process.env.WATERSHED_ORACLE_CORPUS === "1") {
 	describe("Watershed forest oracle", () => {
-		it("records persistent forest and delta behavior", () => {
+		it("records persistent forest and delta behavior", async () => {
 			const output = process.env.WATERSHED_ORACLE_OUTPUT;
 			assert(output !== undefined && isAbsolute(output), "An absolute output directory is required");
 			assert.equal(process.env.WATERSHED_ORACLE_COMMIT, expectedCommit);
@@ -1077,6 +1077,8 @@ if (process.env.WATERSHED_ORACLE_CORPUS === "1") {
 				join(output, "forest-cases.json"),
 				`${JSON.stringify([oracleCase], null, 2)}\n`,
 			);
+			const { expandModularEvidence } = await import("./watershedModular.spec.js");
+			expandModularEvidence(output);
 		});
 	});
 }
