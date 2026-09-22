@@ -1,7 +1,9 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import { captureContainerFoundations } from "./container-foundations.mjs";
+import * as foundations from "./container-foundations.mjs";
+
+const { captureContainerFoundations } = foundations;
 
 const casesDirectory = new URL("../../test/fixtures/shared_tree/cases/", import.meta.url);
 
@@ -22,6 +24,7 @@ test("container foundations reuse captured inputs and upstream structural consum
   });
   assert.equal(capture.id, "container-foundations");
   assert.equal(capture.domain, "container");
+  assert.equal(capture.input.service, "FluidContainerRuntime");
   assert.strictEqual(
     capture.input.initialSnapshot,
     bootstrap.input.decoderInput.initialSnapshot,
@@ -61,6 +64,34 @@ test("container foundations reuse captured inputs and upstream structural consum
     treeSnapshotFormatVersion: "0.0.0",
     treePackageVersion: "3.1.0",
   });
+});
+
+test("container foundations validator requires complete paired evidence", async () => {
+  assert.equal(typeof foundations.validateContainerFoundationsCase, "function");
+  const bootstrap = await fixture("bootstrap-map-handles");
+  const batched = await fixture("batched-commits");
+  const capture = await captureContainerFoundations([bootstrap, batched]);
+  assert.doesNotThrow(() => foundations.validateContainerFoundationsCase(capture));
+  assert.doesNotThrow(() =>
+    foundations.validateContainerFoundationsCase(
+      JSON.parse(JSON.stringify(capture)),
+    ));
+
+  for (const mutate of [
+    (value) => { value.input.service = "LocalDeltaConnectionServer"; },
+    (value) => { value.expected.observations.reverse(); },
+    (value) => { delete value.expected.observations[0].messages; },
+    (value) => { value.raw.consumers.alias.message.contents.internalId = "wrong"; },
+    (value) => { value.input.handleCases.pop(); },
+    (value) => { value.extra = true; },
+  ]) {
+    const changed = structuredClone(capture);
+    mutate(changed);
+    assert.throws(
+      () => foundations.validateContainerFoundationsCase(changed),
+      /container-foundations/,
+    );
+  }
 });
 
 test("container foundations require the real bootstrap and batch captures", async () => {
