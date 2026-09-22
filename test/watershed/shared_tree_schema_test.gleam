@@ -16,13 +16,13 @@ fn corrupt(raw: String) {
   string.is_empty(detail) |> expect.to_be_false
 }
 
-pub fn shared_tree_schema_decodes_supported_schema_test() {
+pub fn shared_tree_schema_decodes_supported_schema_test() -> Nil {
   schema.stored_from_string(string_schema) |> expect.to_be_ok
   schema.view_from_string(object_schema) |> expect.to_be_ok
   Nil
 }
 
-pub fn shared_tree_schema_refuses_versions_on_both_boundaries_test() {
+pub fn shared_tree_schema_refuses_versions_on_both_boundaries_test() -> Nil {
   let raw = string.replace(string_schema, "\"version\":2", "\"version\":99")
   schema.stored_from_string(raw)
   |> expect.to_equal(Error(types.UnsupportedFormat("Schema", "99")))
@@ -30,7 +30,7 @@ pub fn shared_tree_schema_refuses_versions_on_both_boundaries_test() {
   |> expect.to_equal(Error(types.UnsupportedFormat("Schema", "99")))
 }
 
-pub fn shared_tree_schema_rejects_malformed_shapes_test() {
+pub fn shared_tree_schema_rejects_malformed_shapes_test() -> Nil {
   [
     "{",
     "null",
@@ -54,7 +54,7 @@ pub fn shared_tree_schema_rejects_malformed_shapes_test() {
   |> list.each(corrupt)
 }
 
-pub fn shared_tree_schema_rejects_duplicate_declarations_test() {
+pub fn shared_tree_schema_rejects_duplicate_declarations_test() -> Nil {
   [
     string.replace(
       string_schema,
@@ -80,7 +80,7 @@ pub fn shared_tree_schema_rejects_duplicate_declarations_test() {
   })
 }
 
-pub fn shared_tree_schema_duplicate_scan_respects_strings_and_scopes_test() {
+pub fn shared_tree_schema_duplicate_scan_respects_strings_and_scopes_test() -> Nil {
   let raw =
     string.replace(
       object_schema,
@@ -95,7 +95,7 @@ pub fn shared_tree_schema_duplicate_scan_respects_strings_and_scopes_test() {
   ))
 }
 
-pub fn shared_tree_schema_refuses_unsupported_semantics_test() {
+pub fn shared_tree_schema_refuses_unsupported_semantics_test() -> Nil {
   [
     string.replace(string_schema, "\"Value\"", "\"Sequence\""),
     string.replace(string_schema, "\"Value\"", "\"Identifier\""),
@@ -118,7 +118,7 @@ pub fn shared_tree_schema_refuses_unsupported_semantics_test() {
   })
 }
 
-pub fn shared_tree_schema_checks_leaf_identity_and_references_test() {
+pub fn shared_tree_schema_checks_leaf_identity_and_references_test() -> Nil {
   [
     string.replace(string_schema, "\"leaf\":1", "\"leaf\":0"),
     string.replace(
@@ -137,7 +137,7 @@ pub fn shared_tree_schema_checks_leaf_identity_and_references_test() {
   })
 }
 
-pub fn shared_tree_schema_recursive_and_empty_definitions_test() {
+pub fn shared_tree_schema_recursive_and_empty_definitions_test() -> Nil {
   let raw =
     "{\"version\":2,\"nodes\":{\"A\":{\"kind\":{\"object\":{\"next\":{\"kind\":\"Optional\",\"types\":[\"B\"]}}}},\"B\":{\"kind\":{\"object\":{\"next\":{\"kind\":\"Optional\",\"types\":[\"A\"]}}}},\"Empty\":{\"kind\":{\"object\":{}}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"A\"]}}"
   schema.stored_from_string(raw) |> expect.to_be_ok
@@ -151,7 +151,7 @@ pub fn shared_tree_schema_recursive_and_empty_definitions_test() {
   Nil
 }
 
-pub fn shared_tree_schema_json_entrypoints_test() {
+pub fn shared_tree_schema_json_entrypoints_test() -> Nil {
   let encoded =
     json.object([
       #("version", json.int(2)),
@@ -167,4 +167,91 @@ pub fn shared_tree_schema_json_entrypoints_test() {
   schema.stored_from_json(encoded) |> expect.to_be_ok
   schema.view_from_json(encoded) |> expect.to_be_ok
   Nil
+}
+
+fn compatible(stored: String, view: String) -> Result(Nil, types.TreeError) {
+  let assert Ok(stored) = schema.stored_from_string(stored)
+  let assert Ok(view) = schema.view_from_string(view)
+  schema.can_view(stored, view)
+}
+
+pub fn shared_tree_schema_matching_view_test() -> Nil {
+  compatible(object_schema, object_schema) |> expect.to_equal(Ok(Nil))
+  let optional = string.replace(string_schema, "\"Value\"", "\"Optional\"")
+  let assert Error(types.InvalidSchema(detail)) =
+    compatible(string_schema, optional)
+  string.contains(detail, "root") |> expect.to_be_true
+}
+
+pub fn shared_tree_schema_field_discrepancies_test() -> Nil {
+  [
+    string.replace(object_schema, "\"Optional\"", "\"Value\""),
+    string.replace(
+      object_schema,
+      "\"types\":[\"Point\"]",
+      "\"types\":[\"Root\"]",
+    ),
+    string.replace(object_schema, "\"note\":", "\"extra\":"),
+    string.replace(
+      object_schema,
+      "\"note\":{",
+      "\"extra\":{\"kind\":\"Optional\",\"types\":[]},\"note\":{",
+    ),
+  ]
+  |> list.each(fn(view) {
+    let assert Error(types.InvalidSchema(detail)) =
+      compatible(object_schema, view)
+    string.contains(detail, "Root") |> expect.to_be_true
+  })
+}
+
+pub fn shared_tree_schema_type_sets_are_order_independent_test() -> Nil {
+  let union =
+    string.replace(
+      object_schema,
+      "\"types\":[\"Root\"]",
+      "\"types\":[\"Root\",\"Point\"]",
+    )
+  let reordered =
+    string.replace(union, "\"Root\",\"Point\"", "\"Point\",\"Root\",\"Point\"")
+  compatible(union, reordered) |> expect.to_equal(Ok(Nil))
+  let assert Error(types.InvalidSchema(_)) = compatible(object_schema, union)
+  let assert Error(types.InvalidSchema(_)) = compatible(union, object_schema)
+  Nil
+}
+
+pub fn shared_tree_schema_unused_nodes_and_metadata_test() -> Nil {
+  let extra =
+    string.replace(
+      string_schema,
+      "\"nodes\":{",
+      "\"nodes\":{\"Unused\":{\"kind\":{\"object\":{}}},",
+    )
+  compatible(string_schema, extra) |> expect.to_equal(Ok(Nil))
+  compatible(extra, string_schema) |> expect.to_equal(Ok(Nil))
+  let metadata =
+    string.replace(
+      extra,
+      "\"kind\":{\"leaf\":1}",
+      "\"kind\":{\"leaf\":1},\"metadata\":{\"description\":\"text\"}",
+    )
+  compatible(extra, metadata) |> expect.to_equal(Ok(Nil))
+  let mismatch =
+    string.replace(
+      extra,
+      "\"object\":{}",
+      "\"object\":{\"child\":{\"kind\":\"Optional\",\"types\":[]}}",
+    )
+  let assert Error(types.InvalidSchema(detail)) = compatible(extra, mismatch)
+  string.contains(detail, "Unused") |> expect.to_be_true
+}
+
+pub fn shared_tree_schema_recursive_compatibility_test() -> Nil {
+  let recursive =
+    string.replace(
+      object_schema,
+      "\"types\":[\"Point\"]",
+      "\"types\":[\"Root\"]",
+    )
+  compatible(recursive, recursive) |> expect.to_equal(Ok(Nil))
 }

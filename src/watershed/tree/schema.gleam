@@ -78,6 +78,68 @@ pub fn view_from_string(raw: String) -> Result(ViewSchema, TreeError) {
   decode_repository(raw) |> result.map(ViewSchema)
 }
 
+/// Check whether an ordinary fixed view can read and write the stored schema.
+/// Extra unused definitions and persisted metadata do not require an upgrade.
+pub fn can_view(
+  stored: StoredSchema,
+  view: ViewSchema,
+) -> Result(Nil, TreeError) {
+  use _ <- result.try(compare_field(
+    stored.repository.root,
+    view.repository.root,
+    "root",
+  ))
+  stored.repository.nodes
+  |> dict.to_list
+  |> list.sort(fn(a, b) { canonical_json.compare(a.0, b.0) })
+  |> list.try_each(fn(entry) {
+    case dict.get(view.repository.nodes, entry.0) {
+      Error(Nil) -> Ok(Nil)
+      Ok(node) -> compare_node(entry.1, node, entry.0)
+    }
+  })
+}
+
+fn compare_field(
+  stored: FieldSchema,
+  view: FieldSchema,
+  path: String,
+) -> Result(Nil, TreeError) {
+  case stored == view {
+    True -> Ok(Nil)
+    False -> Error(InvalidSchema(path <> ": incompatible field schema"))
+  }
+}
+
+fn compare_node(
+  stored: NodeSchema,
+  view: NodeSchema,
+  identifier: String,
+) -> Result(Nil, TreeError) {
+  case stored, view {
+    Leaf(a), Leaf(b) if a == b -> Ok(Nil)
+    Object(a), Object(b) -> {
+      list.append(
+        list.map(a, fn(entry) { entry.0 }),
+        list.map(b, fn(entry) { entry.0 }),
+      )
+      |> list.unique
+      |> list.sort(canonical_json.compare)
+      |> list.try_each(fn(key) {
+        case list.key_find(a, key), list.key_find(b, key) {
+          Ok(left), Ok(right) ->
+            compare_field(left, right, key_path(identifier, key))
+          _, _ ->
+            Error(InvalidSchema(
+              key_path(identifier, key) <> ": incompatible object field",
+            ))
+        }
+      })
+    }
+    _, _ -> Error(InvalidSchema(identifier <> ": incompatible node kind"))
+  }
+}
+
 fn decode_repository(raw: String) -> Result(Repository, TreeError) {
   use data <- result.try(
     json.parse(raw, json_ot.decoder())
@@ -334,7 +396,8 @@ fn quoted(
   case raw {
     <<34, rest:bytes>> ->
       Ok(#(bit_array.concat(list.reverse([<<34>>, ..bytes])), rest))
-    <<92, escaped, rest:bytes>> -> quoted(rest, [<<92, escaped>>, ..bytes], path)
+    <<92, escaped, rest:bytes>> ->
+      quoted(rest, [<<92, escaped>>, ..bytes], path)
     <<byte, rest:bytes>> -> quoted(rest, [<<byte>>, ..bytes], path)
     _ -> Error(CorruptData(path, "unterminated JSON string"))
   }
