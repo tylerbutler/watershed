@@ -222,6 +222,32 @@ pub fn shared_tree_change_rejects_missing_and_multiply_owned_nodes_test() {
   Nil
 }
 
+pub fn shared_tree_change_rejects_alias_keyed_node_tables_test() {
+  let alias = #(atom(1), atom(2))
+  let node_keyed_by_alias =
+    change.ChangeData(
+      ..empty_data(),
+      fields: [#("root", change.GenericField([#(0, atom(2))]))],
+      nodes: [#(atom(1), change.NodeChange([]))],
+      parents: [#(atom(1), change.ParentField(None, "root"))],
+      aliases: [alias],
+    )
+  let assert Error(CorruptData("node changes", _)) =
+    change.from_data(node_keyed_by_alias)
+
+  let parent_keyed_by_alias =
+    change.ChangeData(
+      ..empty_data(),
+      fields: [#("root", change.GenericField([#(0, atom(2))]))],
+      nodes: [#(atom(2), change.NodeChange([]))],
+      parents: [#(atom(1), change.ParentField(None, "root"))],
+      aliases: [alias],
+    )
+  let assert Error(CorruptData("node parents", _)) =
+    change.from_data(parent_keyed_by_alias)
+  Nil
+}
+
 pub fn shared_tree_change_accepts_alias_bearing_nested_graph_test() {
   let root =
     change.OptionalField(optional_field.FieldChange(
@@ -435,6 +461,53 @@ pub fn shared_tree_change_rejects_invalid_edit_paths_and_values_test() {
   })
 }
 
+pub fn shared_tree_change_root_field_key_child_is_not_root_path_test() {
+  let source =
+    "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Root\":{\"kind\":{\"object\":{\"rootFieldKey\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+  let assert Ok(stored) = schema.stored_from_string(source)
+  let view = revision("00000000-0000-4000-8000-000000000002")
+  let initial_value = ObjectValue("Root", [#("rootFieldKey", NumberValue(1.0))])
+  let assert Ok(initial) = forest.new(view, stored, Some(initial_value))
+  let assert Ok(authored) =
+    change.edit(
+      stored,
+      initial,
+      revision_a(),
+      SetField(["rootFieldKey"], NumberValue(2.0)),
+    )
+  change.to_data(authored)
+  |> expect.to_equal(
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 2,
+      revisions: [change.RevisionInfo(revision_a(), None)],
+      fields: [
+        #("rootFieldKey", change.GenericField([#(0, atom(2))])),
+      ],
+      nodes: [
+        #(
+          atom(2),
+          change.NodeChange([
+            #(
+              "rootFieldKey",
+              change.ValueField(optional_field.set(False, atom(0), atom(1))),
+            ),
+          ]),
+        ),
+      ],
+      parents: [
+        #(atom(2), change.ParentField(None, "rootFieldKey")),
+      ],
+      builds: [forest.Build(atom(0), [NumberValue(2.0)])],
+    ),
+  )
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, authored))
+  let assert Ok(updated) = forest.apply_delta(initial, delta)
+  forest.read(updated, ["rootFieldKey"])
+  |> expect.to_equal(Ok(Some(NumberValue(2.0))))
+}
+
 pub fn shared_tree_change_parent_replacement_retains_old_node_test() {
   let initial = initial_forest()
   let assert Ok(old_point) = forest.locate(initial, ["point"])
@@ -508,6 +581,67 @@ pub fn shared_tree_change_delta_collects_global_rename_and_detached_data_test() 
       destroy: [forest.Destroy(atom(50), 1)],
     ),
   )
+}
+
+pub fn shared_tree_change_delta_orders_nested_globals_child_first_test() {
+  let outer = atom(10)
+  let inner = atom(20)
+  let outer_node = atom(30)
+  let inner_node = atom(40)
+  let data =
+    change.ChangeData(
+      ..empty_data(),
+      fields: [
+        #(
+          "root",
+          change.OptionalField(optional_field.FieldChange(
+            [],
+            [#(optional_field.Detached(outer), outer_node)],
+            None,
+          )),
+        ),
+      ],
+      nodes: [
+        #(
+          outer_node,
+          change.NodeChange([
+            #(
+              "inner",
+              change.OptionalField(optional_field.FieldChange(
+                [],
+                [#(optional_field.Detached(inner), inner_node)],
+                None,
+              )),
+            ),
+          ]),
+        ),
+        #(inner_node, change.NodeChange([])),
+      ],
+      parents: [
+        #(outer_node, change.ParentField(None, "root")),
+        #(inner_node, change.ParentField(Some(outer_node), "inner")),
+      ],
+      refreshers: [
+        forest.Build(outer, [point(1.0, 2.0)]),
+        forest.Build(inner, [NumberValue(3.0)]),
+      ],
+    )
+  let assert Ok(authored) = change.from_data(data)
+  let assert Ok(delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, authored))
+  forest.delta_data(delta).global
+  |> expect.to_equal([
+    forest.DetachedChange(inner, []),
+    forest.DetachedChange(outer, []),
+  ])
+
+  let assert Ok(updated) = forest.apply_delta(initial_forest(), delta)
+  let assert Ok(exported) = forest.export_data(updated)
+  let assert [outer_entry, inner_entry] = exported.detached
+  outer_entry.id |> expect.to_equal(outer)
+  outer_entry.forest_root_id |> expect.to_equal(1)
+  inner_entry.id |> expect.to_equal(inner)
+  inner_entry.forest_root_id |> expect.to_equal(0)
 }
 
 pub fn shared_tree_change_compose_nested_edits_matches_sequential_test() {
