@@ -878,7 +878,7 @@ fn child_decoder(
   case pair {
     [_, _] -> {
       use register <- decode.field(0, register_decoder(context_revision))
-      use child <- decode.field(1, raw_atom_decoder())
+      use child <- decode.field(1, encoded_node_id_decoder())
       decode.success(#(register, child))
     }
     _ ->
@@ -887,6 +887,35 @@ fn child_decoder(
         "field child change",
       )
   }
+}
+
+fn encoded_node_id_decoder() -> Decoder(AtomId) {
+  use fields <- decode.then(decode.dict(decode.string, decode.dynamic))
+  exact_decoder(fields, ["fieldChanges"], AtomId(None, 0), {
+    use changes <- decode.field(
+      "fieldChanges",
+      decode.list(encoded_node_id_field_decoder()),
+    )
+    case changes {
+      [id] -> decode.success(id)
+      _ -> decode.failure(AtomId(None, 0), "encoded field child change")
+    }
+  })
+}
+
+fn encoded_node_id_field_decoder() -> Decoder(AtomId) {
+  use fields <- decode.then(decode.dict(decode.string, decode.dynamic))
+  exact_decoder(fields, ["fieldKey", "fieldKind", "change"], AtomId(None, 0), {
+    use field_key <- decode.field("fieldKey", decode.string)
+    use field_kind <- decode.field("fieldKind", decode.string)
+    case field_key == "watershed-node-id" && field_kind == "watershed-node-id" {
+      True -> {
+        use change <- decode.field("change", raw_atom_decoder())
+        decode.success(change)
+      }
+      False -> decode.failure(AtomId(None, 0), "encoded field child identity")
+    }
+  })
 }
 
 fn replacement_decoder(
@@ -1736,7 +1765,7 @@ fn encode_change(
   use children <- result.try(
     list.try_map(children, fn(child) {
       use register <- result.try(encode_register(child.0, context_revision))
-      use child_change <- result.try(encode_raw_atom(child.1))
+      use child_change <- result.try(encode_node_id(child.1))
       Ok(json.array([register, child_change], fn(value) { value }))
     }),
   )
@@ -1808,6 +1837,27 @@ fn encode_raw_atom(id: AtomId) -> Result(Json, String) {
     json.object([
       #("revision", json.int(revision)),
       #("localId", json.int(id.local_id)),
+    ]),
+  )
+}
+
+fn encode_node_id(id: AtomId) -> Result(Json, String) {
+  use change <- result.try(encode_raw_atom(id))
+  Ok(
+    json.object([
+      #(
+        "fieldChanges",
+        json.array(
+          [
+            json.object([
+              #("fieldKey", json.string("watershed-node-id")),
+              #("fieldKind", json.string("watershed-node-id")),
+              #("change", change),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
     ]),
   )
 }
