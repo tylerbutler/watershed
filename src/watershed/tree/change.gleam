@@ -161,6 +161,7 @@ pub fn edit(
     SetField(path, value) -> #(path, Some(value))
     ClearField(path) -> #(path, None)
   }
+  let is_root = list.is_empty(path)
   use #(field_schema, parent_path, field, was_empty) <- result.try(
     edit_destination(schema, forest, path, value),
   )
@@ -172,6 +173,7 @@ pub fn edit(
     revision,
   ))
   use #(fields, nodes, parents, max_local_id) <- result.try(wrap_ancestors(
+    is_root,
     parent_path,
     field,
     field_change,
@@ -594,16 +596,8 @@ fn rebase_nodes(
   case pair_value(state.base_to_rebased, base) {
     Some(existing) -> Ok(#(existing, state))
     None -> {
-      use authored_node <- result.try(node_for(
-        authored,
-        state.authored.nodes,
-        state.authored.aliases,
-      ))
-      use base_node <- result.try(node_for(
-        base,
-        state.base.nodes,
-        state.base.aliases,
-      ))
+      use authored_node <- result.try(node_for(authored, state.authored.nodes))
+      use base_node <- result.try(node_for(base, state.base.nodes))
       let NodeChange(authored_fields) = authored_node
       let NodeChange(base_fields) = base_node
       let state =
@@ -642,11 +636,7 @@ fn copy_authored_node(
   case pair_value(state.nodes, canonical) {
     Some(_) -> Ok(#(canonical, state))
     None -> {
-      use node <- result.try(node_for(
-        canonical,
-        state.authored.nodes,
-        state.authored.aliases,
-      ))
+      use node <- result.try(node_for(canonical, state.authored.nodes))
       let NodeChange(fields) = node
       let state =
         RebaseState(
@@ -778,7 +768,7 @@ fn collect_parents(
         "node parents",
         "node has incompatible ownership",
       ))
-      use node <- result.try(node_for(canonical, nodes, aliases))
+      use node <- result.try(node_for(canonical, nodes))
       let NodeChange(child_fields) = node
       collect_parents(
         child_fields,
@@ -1186,7 +1176,7 @@ fn prune_node(
   aliases: List(#(AtomId, AtomId)),
 ) -> Result(#(Option(AtomId), PruneState), TreeError) {
   use canonical <- result.try(resolve_alias(id, aliases))
-  use node <- result.try(node_for(canonical, state.nodes, aliases))
+  use node <- result.try(node_for(canonical, state.nodes))
   let NodeChange(fields) = node
   use #(fields, state) <- result.try(prune_field_map(fields, state, aliases))
   case fields {
@@ -1257,7 +1247,7 @@ fn removed_roots_from_child(
   roots: List(AtomId),
 ) -> Result(List(AtomId), TreeError) {
   use canonical <- result.try(resolve_alias(id, data.aliases))
-  use node <- result.try(node_for(canonical, data.nodes, data.aliases))
+  use node <- result.try(node_for(canonical, data.nodes))
   let NodeChange(fields) = node
   removed_roots_from_fields(fields, data, roots)
 }
@@ -1577,16 +1567,8 @@ fn compose_nodes(
       Ok(#(canonical, state))
     }
     False -> {
-      use first_node <- result.try(node_for(
-        first_id,
-        state.first.nodes,
-        state.first.aliases,
-      ))
-      use second_node <- result.try(node_for(
-        second_id,
-        state.second.nodes,
-        state.second.aliases,
-      ))
+      use first_node <- result.try(node_for(first_id, state.first.nodes))
+      use second_node <- result.try(node_for(second_id, state.second.nodes))
       let NodeChange(first_fields) = first_node
       let NodeChange(second_fields) = second_node
       let state =
@@ -1603,11 +1585,7 @@ fn compose_nodes(
         second_canonical,
         first_canonical,
       ))
-      use parent <- result.try(parent_for(
-        first_id,
-        state.first.parents,
-        state.first.aliases,
-      ))
+      use parent <- result.try(parent_for(first_id, state.first.parents))
       use parent <- result.try(normalize_parent(parent, aliases))
       let nodes =
         state.nodes
@@ -1969,6 +1947,7 @@ fn authored_field(
 }
 
 fn wrap_ancestors(
+  is_root: Bool,
   parent_path: FieldPath,
   field: String,
   field_change: FieldChange,
@@ -1983,7 +1962,7 @@ fn wrap_ancestors(
   ),
   TreeError,
 ) {
-  case field == "rootFieldKey" && list.is_empty(parent_path) {
+  case is_root {
     True -> Ok(#([#(field, field_change)], [], [], next_id - 1))
     False -> {
       use #(child, next_id) <- result.try(allocate(revision, next_id))
@@ -2115,12 +2094,12 @@ fn delta_field(
       Ok(#(
         local,
         list.append(
-          global,
           list.flat_map(child_parts, fn(child) { child.1.global }),
+          global,
         ),
         list.append(
-          rename,
           list.flat_map(child_parts, fn(child) { child.1.rename }),
+          rename,
         ),
       ))
     }
@@ -2129,7 +2108,7 @@ fn delta_field(
 
 fn delta_child(id: AtomId, data: ChangeData) -> Result(DeltaParts, TreeError) {
   use canonical <- result.try(resolve_alias(id, data.aliases))
-  use node <- result.try(node_for(canonical, data.nodes, data.aliases))
+  use node <- result.try(node_for(canonical, data.nodes))
   let NodeChange(fields) = node
   delta_fields(fields, data)
 }
@@ -2174,6 +2153,11 @@ fn validate_data(data: ChangeData) -> Result(Nil, TreeError) {
   use _ <- result.try(
     list.try_each(data.nodes, fn(entry) {
       use _ <- result.try(validate_atom(entry.0, "node changes"))
+      use _ <- result.try(check(
+        pair_value(data.aliases, entry.0) == None,
+        "node changes",
+        "alias source cannot key a node change",
+      ))
       let NodeChange(fields) = entry.1
       use _ <- result.try(unique_pairs(fields, "node fields"))
       validate_field_map(fields, "node fields")
@@ -2182,6 +2166,11 @@ fn validate_data(data: ChangeData) -> Result(Nil, TreeError) {
   use _ <- result.try(
     list.try_each(data.parents, fn(entry) {
       use _ <- result.try(validate_atom(entry.0, "node parents"))
+      use _ <- result.try(check(
+        pair_value(data.aliases, entry.0) == None,
+        "node parents",
+        "alias source cannot key a node parent",
+      ))
       let ParentField(parent, _) = entry.1
       case parent {
         None -> Ok(Nil)
@@ -2374,7 +2363,7 @@ fn validate_ownership(data: ChangeData) -> Result(Nil, TreeError) {
     "parent table does not match live nodes",
   ))
   list.try_each(owners, fn(owner) {
-    use actual <- result.try(parent_for(owner.id, data.parents, data.aliases))
+    use actual <- result.try(parent_for(owner.id, data.parents))
     use expected <- result.try(normalize_parent(owner.parent, data.aliases))
     use actual <- result.try(normalize_parent(actual, data.aliases))
     check(
@@ -2417,7 +2406,7 @@ fn walk_child(
     "node changes",
     "node has incompatible ownership",
   ))
-  use node <- result.try(node_for(canonical, data.nodes, data.aliases))
+  use node <- result.try(node_for(canonical, data.nodes))
   let owner = Ownership(canonical, parent)
   let NodeChange(fields) = node
   walk_fields(fields, Some(canonical), data, list.append(owners, [owner]), [
@@ -2449,15 +2438,13 @@ fn ownership_for(owners: List(Ownership), id: AtomId) -> Option(Ownership) {
 fn node_for(
   id: AtomId,
   nodes: List(#(AtomId, NodeChange)),
-  aliases: List(#(AtomId, AtomId)),
 ) -> Result(NodeChange, TreeError) {
   case nodes {
     [] -> Error(CorruptData("node changes", "live node change is missing"))
     [entry, ..rest] -> {
-      use key <- result.try(resolve_alias(entry.0, aliases))
-      case key == id {
+      case entry.0 == id {
         True -> Ok(entry.1)
-        False -> node_for(id, rest, aliases)
+        False -> node_for(id, rest)
       }
     }
   }
@@ -2466,15 +2453,13 @@ fn node_for(
 fn parent_for(
   id: AtomId,
   parents: List(#(AtomId, ParentField)),
-  aliases: List(#(AtomId, AtomId)),
 ) -> Result(ParentField, TreeError) {
   case parents {
     [] -> Error(CorruptData("node parents", "live node parent is missing"))
     [entry, ..rest] -> {
-      use key <- result.try(resolve_alias(entry.0, aliases))
-      case key == id {
+      case entry.0 == id {
         True -> Ok(entry.1)
-        False -> parent_for(id, rest, aliases)
+        False -> parent_for(id, rest)
       }
     }
   }
