@@ -50,6 +50,49 @@ fn empty_data() -> change.ChangeData {
   )
 }
 
+fn synthetic_first_data() -> change.ChangeData {
+  let root =
+    change.OptionalField(optional_field.FieldChange(
+      [],
+      [#(optional_field.Active, atom_b(4))],
+      Some(optional_field.Replacement(
+        True,
+        Some(optional_field.Detached(atom(30))),
+        atom(31),
+      )),
+    ))
+  let nested = change.ValueField(optional_field.set(False, atom(40), atom(41)))
+  let pruned_optional =
+    change.OptionalField(optional_field.FieldChange(
+      [],
+      [#(optional_field.Active, atom(5))],
+      None,
+    ))
+  change.ChangeData(
+    ..empty_data(),
+    max_local_id: 41,
+    revisions: [change.RevisionInfo(revision_a(), None)],
+    fields: [#("root", root)],
+    nodes: [
+      #(
+        atom(4),
+        change.NodeChange([
+          #("nested-required", nested),
+          #("pruned-optional", pruned_optional),
+        ]),
+      ),
+      #(atom(5), change.NodeChange([])),
+    ],
+    parents: [
+      #(atom(4), change.ParentField(None, "root")),
+      #(atom(5), change.ParentField(Some(atom(4)), "pruned-optional")),
+    ],
+    aliases: [#(atom_b(4), atom(4))],
+    builds: [forest.Build(atom(20), [StringValue("built")])],
+    refreshers: [forest.Build(atom_b(21), [StringValue("stale")])],
+  )
+}
+
 fn stored_schema() -> schema.StoredSchema {
   let assert Ok(stored) = schema.stored_from_string(tree_schema)
   stored
@@ -987,6 +1030,59 @@ pub fn shared_tree_change_invert_allocator_exhaustion_is_atomic_test() {
   change.to_data(authored) |> expect.to_equal(data)
 }
 
+pub fn shared_tree_change_invert_synthetic_reserves_metadata_revisions_test() {
+  let assert Ok(first) = change.from_data(synthetic_first_data())
+  let assert Ok(inverse) =
+    change.invert(
+      change.TaggedChange(Some(revision_a()), None, first),
+      False,
+      revision_b(),
+    )
+  change.to_data(inverse)
+  |> expect.to_equal(
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 43,
+      revisions: [change.RevisionInfo(revision_b(), None)],
+      fields: [
+        #(
+          "root",
+          change.OptionalField(optional_field.FieldChange(
+            [],
+            [#(optional_field.Active, atom_b(4))],
+            Some(optional_field.Replacement(False, None, atom_b(42))),
+          )),
+        ),
+      ],
+      nodes: [
+        #(
+          atom(4),
+          change.NodeChange([
+            #(
+              "nested-required",
+              change.ValueField(optional_field.set(False, atom(41), atom_b(43))),
+            ),
+            #(
+              "pruned-optional",
+              change.OptionalField(optional_field.FieldChange(
+                [],
+                [#(optional_field.Active, atom(5))],
+                None,
+              )),
+            ),
+          ]),
+        ),
+        #(atom(5), change.NodeChange([])),
+      ],
+      parents: [
+        #(atom(4), change.ParentField(None, "root")),
+        #(atom(5), change.ParentField(Some(atom(4)), "pruned-optional")),
+      ],
+      aliases: [#(atom_b(4), atom(4))],
+    ),
+  )
+}
+
 pub fn shared_tree_change_invert_restores_clear_and_parent_replacement_test() {
   let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
   let initial = initial_forest()
@@ -1414,6 +1510,7 @@ pub fn shared_tree_change_compose_reversed_nested_edits_matches_upstream_test() 
 }
 
 pub fn shared_tree_change_delta_represents_additive_nested_fields_test() {
+  let first = synthetic_first_data()
   let root =
     change.OptionalField(optional_field.FieldChange(
       [#(atom(30), atom_b(51))],
@@ -1424,39 +1521,15 @@ pub fn shared_tree_change_delta_represents_additive_nested_fields_test() {
         atom(31),
       )),
     ))
-  let nested = change.ValueField(optional_field.set(False, atom(40), atom(41)))
-  let pruned_optional =
-    change.OptionalField(optional_field.FieldChange(
-      [],
-      [#(optional_field.Active, atom(5))],
-      None,
-    ))
   let data =
     change.ChangeData(
-      ..empty_data(),
+      ..first,
       max_local_id: 51,
       revisions: [
         change.RevisionInfo(revision_a(), None),
         change.RevisionInfo(revision_b(), None),
       ],
       fields: [#("root", root)],
-      nodes: [
-        #(
-          atom(4),
-          change.NodeChange([
-            #("nested-required", nested),
-            #("pruned-optional", pruned_optional),
-          ]),
-        ),
-        #(atom(5), change.NodeChange([])),
-      ],
-      parents: [
-        #(atom(4), change.ParentField(None, "root")),
-        #(atom(5), change.ParentField(Some(atom(4)), "pruned-optional")),
-      ],
-      aliases: [#(atom_b(4), atom(4))],
-      builds: [forest.Build(atom(20), [StringValue("built")])],
-      refreshers: [forest.Build(atom_b(21), [StringValue("stale")])],
     )
   let assert Ok(authored) = change.from_data(data)
   let assert Ok(delta) =
