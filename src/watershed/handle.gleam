@@ -5,8 +5,14 @@ import gleam/list
 import gleam/option
 import gleam/result
 import gleam/string
+import gleam/uri
 
 pub const fluid_handle_type = "__fluid_handle__"
+
+pub type HandleError {
+  InvalidHandle(detail: String)
+  UnsupportedHandle(detail: String)
+}
 
 pub fn handle_url(address: String) -> String {
   "/" <> address
@@ -56,6 +62,101 @@ fn marker_decoder() -> decode.Decoder(String) {
 pub fn parse_handle(value: Json) -> Result(String, Nil) {
   json.parse(json.to_string(value), marker_decoder())
   |> result.replace_error(Nil)
+}
+
+fn contextual_marker_decoder() -> decode.Decoder(#(String, Bool)) {
+  use object <- decode.then(decode.dict(decode.string, decode.dynamic))
+  use marker_type <- decode.field("type", decode.string)
+  use url <- decode.field("url", decode.string)
+  let pending = dict.has_key(object, "payloadPending")
+  case marker_type == fluid_handle_type {
+    True -> decode.success(#(url, pending))
+    False -> decode.failure(#("", False), "Fluid handle marker")
+  }
+}
+
+pub fn resolve_path(
+  value: Json,
+  context_path: String,
+) -> Result(String, HandleError) {
+  use #(url, pending) <- result.try(
+    json.parse(json.to_string(value), contextual_marker_decoder())
+    |> result.map_error(fn(_) { InvalidHandle("invalid handle marker") }),
+  )
+  use _ <- result.try(case pending {
+    True -> Error(UnsupportedHandle("pending handle payload"))
+    False -> Ok(Nil)
+  })
+  case string.starts_with(url, "/") {
+    True -> validate_path(url, True)
+    False -> {
+      use context <- result.try(validate_path(context_path, True))
+      use relative <- result.try(validate_path(url, False))
+      let absolute = case context {
+        "/" -> "/" <> relative
+        _ -> context <> "/" <> relative
+      }
+      validate_path(absolute, True)
+    }
+  }
+}
+
+pub fn encode_path(absolute_path: String) -> Result(Json, HandleError) {
+  use path <- result.try(validate_path(absolute_path, True))
+  Ok(
+    json.object([
+      #("type", json.string(fluid_handle_type)),
+      #("url", json.string(path)),
+    ]),
+  )
+}
+
+fn validate_path(path: String, absolute: Bool) -> Result(String, HandleError) {
+  use _ <- result.try(case path == "" {
+    True -> Error(InvalidHandle("empty handle path"))
+    False -> Ok(Nil)
+  })
+  use _ <- result.try(
+    case
+      string.contains(path, "?")
+      || string.contains(path, "#")
+      || string.contains(path, "\\")
+      || string.contains(path, "://")
+      || string.starts_with(path, "//")
+    {
+      True -> Error(InvalidHandle("external handle path"))
+      False -> Ok(Nil)
+    },
+  )
+  use _ <- result.try(case absolute == string.starts_with(path, "/") {
+    True -> Ok(Nil)
+    False -> Error(InvalidHandle("wrong handle path context"))
+  })
+  let components = case absolute {
+    True -> string.drop_start(path, 1) |> string.split("/")
+    False -> string.split(path, "/")
+  }
+  use _ <- result.try(case components {
+    [] -> Error(InvalidHandle("empty handle path"))
+    _ ->
+      list.try_each(components, fn(component) {
+        use decoded <- result.try(
+          uri.percent_decode(component)
+          |> result.map_error(fn(_) { InvalidHandle("invalid path escape") }),
+        )
+        case
+          component == ""
+          || decoded == "."
+          || decoded == ".."
+          || decoded == "/"
+          || string.contains(component, ":")
+        {
+          True -> Error(InvalidHandle("invalid path component"))
+          False -> Ok(Nil)
+        }
+      })
+  })
+  Ok(path)
 }
 
 fn collect_decoder() -> decode.Decoder(List(String)) {
