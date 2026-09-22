@@ -1,0 +1,1632 @@
+{
+  "formatVersion": 1,
+  "reference": {
+    "package": "@fluidframework/tree",
+    "version": "3.1.0",
+    "commit": "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960"
+  },
+  "id": "container-foundations",
+  "domain": "container",
+  "input": {
+    "service": "FluidContainerRuntime",
+    "initialSnapshot": {
+      "version": {
+        "id": "a1cefa39-50f3-453d-a842-a48fd18dbce2",
+        "treeId": "a1cefa39-50f3-453d-a842-a48fd18dbce2"
+      },
+      "tree": {
+        "id": "a1cefa39-50f3-453d-a842-a48fd18dbce2",
+        "blobs": {
+          ".metadata": "5ecd81712b39c2692a12deac69ec7f0f9e34ca80",
+          ".idCompressor": "fe03572865327b915fd06bdd6c5ddb396a5f730a",
+          ".aliases": "b7eaed263a0416d12ecdf6d32ab66449588d8740"
+        },
+        "trees": {
+          ".channels": {
+            "id": "fd4ed03f-04a4-4999-8ad7-c27649e8f002",
+            "blobs": {},
+            "commits": {},
+            "trees": {
+              "A": {
+                "id": "0ded8073-0b54-4f16-a652-8bee528382b1",
+                "blobs": {
+                  ".component": "5abb699d683d484ef9704d143f896c09b0415d1f"
+                },
+                "commits": {},
+                "trees": {
+                  ".channels": {
+                    "id": "98912e60-2c66-49e4-9e3a-e0ec8b05b670",
+                    "blobs": {},
+                    "commits": {},
+                    "trees": {
+                      "root": {
+                        "id": "090c5f45-787f-4cf5-9319-091e061d9b69",
+                        "blobs": {
+                          "header": "5d01ff212536d2276a2aefa0e4a4daa9f15df513",
+                          ".attributes": "70bdb34dc708303244e40538850ab26963c6a6ae"
+                        },
+                        "commits": {},
+                        "trees": {}
+                      },
+                      "_C": {
+                        "id": "8fd7febf-5001-45d7-afc0-4f2b40810f63",
+                        "blobs": {
+                          ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                          ".attributes": "8f145888a8de06e36d34a81b141bb9ce3a7dce4c"
+                        },
+                        "commits": {},
+                        "trees": {
+                          "indexes": {
+                            "id": "42e4ad58-3e85-4f79-828e-af111354b1a4",
+                            "blobs": {},
+                            "commits": {},
+                            "trees": {
+                              "EditManager": {
+                                "id": "76c2b89b-cb73-4ec0-8588-762b5d8c4d9e",
+                                "blobs": {
+                                  ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                  "String": "d1c9478cdcf5d0921ca7851cf38f9b557ae3ac5f"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              },
+                              "Schema": {
+                                "id": "4b77f06b-7567-408d-8475-896e9e086576",
+                                "blobs": {
+                                  ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                  "SchemaString": "f21b6b415257ad3295f356a2dff68f2a2e7c7767"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              },
+                              "Forest": {
+                                "id": "9d813f79-a576-442b-b024-758e6bc50bb2",
+                                "blobs": {
+                                  ".metadata": "f93d3984472d9905af008117584103f3768bd1f9",
+                                  "contents": "e7d6503cb3e6156e1bbc81e3993961722008f4a9"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              },
+                              "DetachedFieldIndex": {
+                                "id": "2c2aef2c-bb35-49df-87a8-70e476309c90",
+                                "blobs": {
+                                  ".metadata": "218abba1699bfa0eb8016a25bffa0508ee592ab2",
+                                  "DetachedFieldIndexBlob": "8e202fd7762bd1d60b8ecf33ba8b849815161ea8"
+                                },
+                                "commits": {},
+                                "trees": {}
+                              }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  }
+                }
+              }
+            }
+          },
+          ".protocol": {
+            "id": "20ffc702-41ec-48f7-b1d5-c2a600a3469c",
+            "blobs": {
+              "quorumMembers": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
+              "quorumProposals": "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc",
+              "quorumValues": "a94b9eab69689a0fdc0616c9465c8e39fbaeb179",
+              "attributes": "0050eb3b8e41f9ecdf14c2aa21706018474c3b78"
+            },
+            "commits": {},
+            "trees": {}
+          }
+        }
+      },
+      "blobs": {
+        "5ecd81712b39c2692a12deac69ec7f0f9e34ca80": "eyJjcmVhdGVDb250YWluZXJSdW50aW1lVmVyc2lvbiI6IjMuMS4wIiwiY3JlYXRlQ29udGFpbmVyVGltZXN0YW1wIjoxNzAwMDAwMDAwMDAwLCJzdW1tYXJ5TnVtYmVyIjoxLCJzdW1tYXJ5Rm9ybWF0VmVyc2lvbiI6MSwiZ2NGZWF0dXJlIjozLCJzZXNzaW9uRXhwaXJ5VGltZW91dE1zIjoyNTkyMDAwMDAwLCJzd2VlcEVuYWJsZWQiOmZhbHNlLCJ0b21ic3RvbmVUaW1lb3V0TXMiOjMxMTA0MDAwMDAsInRlbGVtZXRyeURvY3VtZW50SWQiOiI3YzBmYmE3Mi01YzJiLTRiNDAtOWQ5OC04NzQ1YWZhYWY2ZGYiLCJtZXNzYWdlIjp7InNlcXVlbmNlTnVtYmVyIjotMX0sImRvY3VtZW50U2NoZW1hIjp7InZlcnNpb24iOjEsInJlZlNlcSI6MCwiaW5mbyI6eyJtaW5WZXJzaW9uRm9yQ29sbGFiIjoiMi4xMTcuMCJ9LCJydW50aW1lIjp7ImV4cGxpY2l0U2NoZW1hQ29udHJvbCI6dHJ1ZSwiaWRDb21wcmVzc29yTW9kZSI6Im9uIiwib3BHcm91cGluZ0VuYWJsZWQiOnRydWV9fX0=",
+        "fe03572865327b915fd06bdd6c5ddb396a5f730a": "IkFBQUFBQUFBQUVBQUFBQUFBQUFBQUFBQUFBQUFBUEEvQUFBQUFBQUE4RC8rdGhPQUtqQUZaSjh2NytXNmFtSURBQUFBQUFBQUFBQUFBQUFBQUFpQVFBQUFBQUFBQVBBLyI=",
+        "b7eaed263a0416d12ecdf6d32ab66449588d8740": "W1sicm9vdCIsIkEiXV0=",
+        "5abb699d683d484ef9704d143f896c09b0415d1f": "eyJwa2ciOiJbXCJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLmJvb3RzdHJhcFwiXSIsInN1bW1hcnlGb3JtYXRWZXJzaW9uIjoyLCJpc1Jvb3REYXRhU3RvcmUiOnRydWV9",
+        "5d01ff212536d2276a2aefa0e4a4daa9f15df513": "eyJibG9icyI6W10sImNvbnRlbnQiOnsidHJlZSI6eyJ0eXBlIjoiUGxhaW4iLCJ2YWx1ZSI6eyJ0eXBlIjoiX19mbHVpZF9oYW5kbGVfXyIsInVybCI6Ii9BL19DIn19fX0=",
+        "70bdb34dc708303244e40538850ab26963c6a6ae": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL21hcCIsInNuYXBzaG90Rm9ybWF0VmVyc2lvbiI6IjAuMiIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+        "218abba1699bfa0eb8016a25bffa0508ee592ab2": "eyJ2ZXJzaW9uIjoyfQ==",
+        "8f145888a8de06e36d34a81b141bb9ce3a7dce4c": "eyJ0eXBlIjoiaHR0cHM6Ly9ncmFwaC5taWNyb3NvZnQuY29tL3R5cGVzL3RyZWUiLCJzbmFwc2hvdEZvcm1hdFZlcnNpb24iOiIwLjAuMCIsInBhY2thZ2VWZXJzaW9uIjoiMy4xLjAifQ==",
+        "d1c9478cdcf5d0921ca7851cf38f9b557ae3ac5f": "eyJ0cnVuayI6W10sImJyYW5jaGVzIjpbXSwidmVyc2lvbiI6N30=",
+        "f21b6b415257ad3295f356a2dff68f2a2e7c7767": "eyJ2ZXJzaW9uIjoyLCJub2RlcyI6eyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5ib29sZWFuIjp7ImtpbmQiOnsibGVhZiI6Mn19LCJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIjp7ImtpbmQiOnsibGVhZiI6NH19LCJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udW1iZXIiOnsia2luZCI6eyJsZWFmIjowfX0sImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyI6eyJraW5kIjp7ImxlYWYiOjF9fSwib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCI6eyJraW5kIjp7Im9iamVjdCI6eyJ4Ijp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciJdfSwieSI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udW1iZXIiXX19fX0sIm9yZy53YXRlcnNoZWQuc2hhcmVkLXRyZWUubTEuUm9vdCI6eyJraW5kIjp7Im9iamVjdCI6eyJlbmFibGVkIjp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLmJvb2xlYW4iXX0sIm1hcmtlciI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5udWxsIl19LCJub3RlIjp7ImtpbmQiOiJPcHRpb25hbCIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLnN0cmluZyJdfSwicG9pbnQiOnsia2luZCI6IlZhbHVlIiwidHlwZXMiOlsib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCJdfSwicmF0aW5nIjp7ImtpbmQiOiJWYWx1ZSIsInR5cGVzIjpbImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciJdfSwidGl0bGUiOnsia2luZCI6IlZhbHVlIiwidHlwZXMiOlsiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYuc3RyaW5nIl19fX19fSwicm9vdCI6eyJraW5kIjoiVmFsdWUiLCJ0eXBlcyI6WyJvcmcud2F0ZXJzaGVkLnNoYXJlZC10cmVlLm0xLlJvb3QiXX19",
+        "f93d3984472d9905af008117584103f3768bd1f9": "eyJ2ZXJzaW9uIjozfQ==",
+        "e7d6503cb3e6156e1bbc81e3993961722008f4a9": "eyJrZXlzIjpbInJvb3RGaWVsZEtleSJdLCJmaWVsZHMiOnsidmVyc2lvbiI6MiwiaWRlbnRpZmllcnMiOltdLCJzaGFwZXMiOlt7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLm51bWJlciIsInZhbHVlIjp0cnVlfX0seyJjIjp7InR5cGUiOiJjb20uZmx1aWRmcmFtZXdvcmsubGVhZi5zdHJpbmciLCJ2YWx1ZSI6dHJ1ZX19LHsiYyI6eyJ0eXBlIjoib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Sb290IiwidmFsdWUiOmZhbHNlLCJmaWVsZHMiOltbInRpdGxlIiwxXSxbImVuYWJsZWQiLDNdLFsicmF0aW5nIiwwXSxbIm1hcmtlciIsNF0sWyJub3RlIiw1XSxbInBvaW50Iiw2XV19fSx7ImMiOnsidHlwZSI6ImNvbS5mbHVpZGZyYW1ld29yay5sZWFmLmJvb2xlYW4iLCJ2YWx1ZSI6dHJ1ZX19LHsiYyI6eyJ0eXBlIjoiY29tLmZsdWlkZnJhbWV3b3JrLmxlYWYubnVsbCIsInZhbHVlIjpbbnVsbF19fSx7ImEiOjF9LHsiYyI6eyJ0eXBlIjoib3JnLndhdGVyc2hlZC5zaGFyZWQtdHJlZS5tMS5Qb2ludCIsInZhbHVlIjpmYWxzZSwiZmllbGRzIjpbWyJ4IiwwXSxbInkiLDBdXX19XSwiZGF0YSI6W1syLCIiLGZhbHNlLDAsMCwwLDBdXX0sInZlcnNpb24iOjJ9",
+        "8e202fd7762bd1d60b8ecf33ba8b849815161ea8": "eyJ2ZXJzaW9uIjoyLCJkYXRhIjpbXSwibWF4SWQiOjB9",
+        "0637a088a01e8ddab3bf3fa98dbe804cbde1a0dc": "W10=",
+        "a94b9eab69689a0fdc0616c9465c8e39fbaeb179": "W1siY29kZSIseyJrZXkiOiJjb2RlIiwidmFsdWUiOnsicGFja2FnZSI6IndhdGVyc2hlZC10cmVlLW9yYWNsZSJ9LCJhcHByb3ZhbFNlcXVlbmNlTnVtYmVyIjowLCJjb21taXRTZXF1ZW5jZU51bWJlciI6MCwic2VxdWVuY2VOdW1iZXIiOjB9XV0=",
+        "0050eb3b8e41f9ecdf14c2aa21706018474c3b78": "eyJtaW5pbXVtU2VxdWVuY2VOdW1iZXIiOjAsInNlcXVlbmNlTnVtYmVyIjowfQ=="
+      },
+      "blobEncoding": "base64"
+    },
+    "bootstrapMessages": [
+      {
+        "clientId": "2aeace6c-8225-4d61-aa70-0d88d867038c",
+        "clientSequenceNumber": 1,
+        "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"tree\",\"type\":\"delete\"}},\"type\":\"op\"}}}",
+        "metadata": {
+          "batchId": "82de2f14-3915-4d8a-8e66-670a6b0c896b_[1]"
+        },
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 2,
+        "sequenceNumber": 3,
+        "timestamp": 1700000000000,
+        "type": "op",
+        "expHash1": "-613f0d56",
+        "traces": []
+      },
+      {
+        "clientId": "2aeace6c-8225-4d61-aa70-0d88d867038c",
+        "clientSequenceNumber": 2,
+        "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"tree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/root\"}}}},\"type\":\"op\"}}}",
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 3,
+        "sequenceNumber": 4,
+        "timestamp": 1700000000000,
+        "type": "op",
+        "expHash1": "-33b0b82c",
+        "traces": []
+      },
+      {
+        "clientId": "2aeace6c-8225-4d61-aa70-0d88d867038c",
+        "clientSequenceNumber": 3,
+        "contents": "{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"root\",\"contents\":{\"key\":\"tree\",\"type\":\"set\",\"value\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}},\"type\":\"op\"}}}",
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 4,
+        "sequenceNumber": 5,
+        "timestamp": 1700000000000,
+        "type": "op",
+        "expHash1": "51f6ec5a",
+        "traces": []
+      }
+    ],
+    "groupedWireMessages": [
+      {
+        "clientId": "3966f62e-8d91-4c3a-9675-3b760f14be63",
+        "clientSequenceNumber": 1,
+        "contents": "{\"type\":\"groupedBatch\",\"contents\":[{\"contents\":{\"type\":\"idAllocation\",\"contents\":{\"sessionId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"ids\":{\"firstGenCount\":2,\"count\":3,\"requestedClusterSize\":512,\"localIdRanges\":[]}}},\"metadata\":{\"batch\":true,\"batchId\":\"fb880d34-1aa4-443b-9707-d168d8a5768f_[1]\"}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":1,\"originatorId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"changeset\":[{\"data\":{\"maxId\":2,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"title\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":1,\"s\":0}}}]}]]}],\"builds\":{\"builds\":[[[[0,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.string\",\"value\":true}}],\"data\":[[0,\"batched\"]]}}}}],\"version\":7}},\"type\":\"op\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":2,\"originatorId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"changeset\":[{\"data\":{\"maxId\":5,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"enabled\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":4,\"s\":3}}}]}]]}],\"builds\":{\"builds\":[[[[3,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.boolean\",\"value\":true}}],\"data\":[[0,true]]}}}}],\"version\":7}},\"type\":\"op\"}}}},{\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"A\",\"contents\":{\"content\":{\"address\":\"_C\",\"contents\":{\"revision\":3,\"originatorId\":\"0d2ed6cf-580d-4d44-b916-22dec35bfb73\",\"changeset\":[{\"data\":{\"maxId\":8,\"changes\":[{\"fieldKey\":\"rootFieldKey\",\"fieldKind\":\"ModularEditBuilder.Generic\",\"change\":[[0,{\"fieldChanges\":[{\"fieldKey\":\"rating\",\"fieldKind\":\"Value\",\"change\":{\"r\":{\"e\":false,\"d\":7,\"s\":6}}}]}]]}],\"builds\":{\"builds\":[[[[6,0]]]],\"trees\":{\"version\":2,\"identifiers\":[],\"shapes\":[{\"c\":{\"type\":\"com.fluidframework.leaf.number\",\"value\":true}}],\"data\":[[0,3]]}}}}],\"version\":7}},\"type\":\"op\"}}},\"metadata\":{\"batch\":false}}]}",
+        "metadata": {
+          "batchId": "fb880d34-1aa4-443b-9707-d168d8a5768f_[1]",
+          "groupedOpCount": 4
+        },
+        "minimumSequenceNumber": 0,
+        "referenceSequenceNumber": 2,
+        "sequenceNumber": 3,
+        "timestamp": 1700000000000,
+        "type": "op",
+        "expHash1": "235047bb",
+        "traces": []
+      }
+    ],
+    "decodeCases": [
+      {
+        "id": "singleton-channel-op",
+        "contents": {
+          "type": "component",
+          "contents": {
+            "address": "A",
+            "contents": {
+              "type": "op",
+              "content": {
+                "address": "root",
+                "contents": {
+                  "type": "delete",
+                  "key": "tree"
+                }
+              }
+            }
+          }
+        },
+        "metadata": {
+          "outer": "single"
+        }
+      },
+      {
+        "id": "datastore-attach",
+        "contents": {
+          "type": "attach",
+          "contents": {
+            "id": "B",
+            "type": "org.watershed.shared-tree.m1.bootstrap",
+            "snapshot": {
+              "entries": [
+                {
+                  "path": ".component",
+                  "mode": "100644",
+                  "type": "Blob",
+                  "value": {
+                    "contents": "{\"pkg\":[\"org.watershed.shared-tree.m1.bootstrap\"],\"summaryFormatVersion\":2,\"isRootDataStore\":false}",
+                    "encoding": "utf-8"
+                  }
+                },
+                {
+                  "path": ".channels",
+                  "value": {
+                    "entries": [
+                      {
+                        "path": "root",
+                        "value": {
+                          "entries": [
+                            {
+                              "path": ".attributes",
+                              "mode": "100644",
+                              "type": "Blob",
+                              "value": {
+                                "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                                "encoding": "utf-8"
+                              }
+                            },
+                            {
+                              "path": "header",
+                              "mode": "100644",
+                              "type": "Blob",
+                              "value": {
+                                "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                                "encoding": "utf-8"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "040000",
+                        "type": "Tree"
+                      }
+                    ]
+                  },
+                  "mode": "040000",
+                  "type": "Tree"
+                }
+              ]
+            }
+          }
+        },
+        "metadata": null
+      },
+      {
+        "id": "datastore-alias",
+        "contents": {
+          "type": "alias",
+          "contents": {
+            "internalId": "B",
+            "alias": "secondary"
+          }
+        }
+      },
+      {
+        "id": "channel-attach",
+        "contents": {
+          "type": "component",
+          "contents": {
+            "address": "A",
+            "contents": {
+              "type": "attach",
+              "content": {
+                "id": "root-copy",
+                "type": "https://graph.microsoft.com/types/map",
+                "snapshot": {
+                  "entries": [
+                    {
+                      "path": ".attributes",
+                      "mode": "100644",
+                      "type": "Blob",
+                      "value": {
+                        "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                        "encoding": "utf-8"
+                      }
+                    },
+                    {
+                      "path": "header",
+                      "mode": "100644",
+                      "type": "Blob",
+                      "value": {
+                        "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                        "encoding": "utf-8"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      }
+    ],
+    "encodeCases": [
+      {
+        "id": "channel-operation",
+        "message": {
+          "kind": "channelOperation",
+          "route": {
+            "dataStoreId": "A",
+            "channelId": "root"
+          },
+          "contents": {
+            "type": "delete",
+            "key": "tree"
+          }
+        },
+        "expected": {
+          "type": "component",
+          "contents": {
+            "address": "A",
+            "contents": {
+              "type": "op",
+              "content": {
+                "address": "root",
+                "contents": {
+                  "type": "delete",
+                  "key": "tree"
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "datastore-attach",
+        "message": {
+          "kind": "datastoreAttach",
+          "dataStoreId": "B",
+          "contents": {
+            "id": "B",
+            "type": "org.watershed.shared-tree.m1.bootstrap",
+            "snapshot": {
+              "entries": [
+                {
+                  "path": ".component",
+                  "mode": "100644",
+                  "type": "Blob",
+                  "value": {
+                    "contents": "{\"pkg\":[\"org.watershed.shared-tree.m1.bootstrap\"],\"summaryFormatVersion\":2,\"isRootDataStore\":false}",
+                    "encoding": "utf-8"
+                  }
+                },
+                {
+                  "path": ".channels",
+                  "value": {
+                    "entries": [
+                      {
+                        "path": "root",
+                        "value": {
+                          "entries": [
+                            {
+                              "path": ".attributes",
+                              "mode": "100644",
+                              "type": "Blob",
+                              "value": {
+                                "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                                "encoding": "utf-8"
+                              }
+                            },
+                            {
+                              "path": "header",
+                              "mode": "100644",
+                              "type": "Blob",
+                              "value": {
+                                "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                                "encoding": "utf-8"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "040000",
+                        "type": "Tree"
+                      }
+                    ]
+                  },
+                  "mode": "040000",
+                  "type": "Tree"
+                }
+              ]
+            }
+          }
+        },
+        "expected": {
+          "type": "attach",
+          "contents": {
+            "id": "B",
+            "type": "org.watershed.shared-tree.m1.bootstrap",
+            "snapshot": {
+              "entries": [
+                {
+                  "path": ".component",
+                  "mode": "100644",
+                  "type": "Blob",
+                  "value": {
+                    "contents": "{\"pkg\":[\"org.watershed.shared-tree.m1.bootstrap\"],\"summaryFormatVersion\":2,\"isRootDataStore\":false}",
+                    "encoding": "utf-8"
+                  }
+                },
+                {
+                  "path": ".channels",
+                  "value": {
+                    "entries": [
+                      {
+                        "path": "root",
+                        "value": {
+                          "entries": [
+                            {
+                              "path": ".attributes",
+                              "mode": "100644",
+                              "type": "Blob",
+                              "value": {
+                                "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                                "encoding": "utf-8"
+                              }
+                            },
+                            {
+                              "path": "header",
+                              "mode": "100644",
+                              "type": "Blob",
+                              "value": {
+                                "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                                "encoding": "utf-8"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "040000",
+                        "type": "Tree"
+                      }
+                    ]
+                  },
+                  "mode": "040000",
+                  "type": "Tree"
+                }
+              ]
+            }
+          }
+        }
+      },
+      {
+        "id": "datastore-alias",
+        "message": {
+          "kind": "datastoreAlias",
+          "dataStoreId": "B",
+          "alias": "secondary"
+        },
+        "expected": {
+          "type": "alias",
+          "contents": {
+            "internalId": "B",
+            "alias": "secondary"
+          }
+        }
+      },
+      {
+        "id": "channel-attach",
+        "message": {
+          "kind": "channelAttach",
+          "route": {
+            "dataStoreId": "A",
+            "channelId": "root-copy"
+          },
+          "channelType": "https://graph.microsoft.com/types/map",
+          "snapshot": {
+            "entries": [
+              {
+                "path": ".attributes",
+                "mode": "100644",
+                "type": "Blob",
+                "value": {
+                  "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                  "encoding": "utf-8"
+                }
+              },
+              {
+                "path": "header",
+                "mode": "100644",
+                "type": "Blob",
+                "value": {
+                  "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                  "encoding": "utf-8"
+                }
+              }
+            ]
+          }
+        },
+        "expected": {
+          "type": "component",
+          "contents": {
+            "address": "A",
+            "contents": {
+              "type": "attach",
+              "content": {
+                "id": "root-copy",
+                "type": "https://graph.microsoft.com/types/map",
+                "snapshot": {
+                  "entries": [
+                    {
+                      "path": ".attributes",
+                      "mode": "100644",
+                      "type": "Blob",
+                      "value": {
+                        "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                        "encoding": "utf-8"
+                      }
+                    },
+                    {
+                      "path": "header",
+                      "mode": "100644",
+                      "type": "Blob",
+                      "value": {
+                        "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                        "encoding": "utf-8"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      {
+        "id": "grouped-batch",
+        "batch": {
+          "grouped": true,
+          "metadata": {
+            "batchId": "container-foundations",
+            "groupedOpCount": 2
+          },
+          "messages": [
+            {
+              "index": 0,
+              "metadata": {
+                "batch": true,
+                "batchId": "container-foundations"
+              },
+              "message": {
+                "kind": "channelOperation",
+                "route": {
+                  "dataStoreId": "A",
+                  "channelId": "root"
+                },
+                "contents": {
+                  "type": "delete",
+                  "key": "tree"
+                }
+              }
+            },
+            {
+              "index": 1,
+              "metadata": {
+                "batch": false
+              },
+              "message": {
+                "kind": "datastoreAlias",
+                "dataStoreId": "B",
+                "alias": "secondary"
+              }
+            }
+          ]
+        },
+        "expected": {
+          "type": "groupedBatch",
+          "contents": [
+            {
+              "contents": {
+                "type": "component",
+                "contents": {
+                  "address": "A",
+                  "contents": {
+                    "type": "op",
+                    "content": {
+                      "address": "root",
+                      "contents": {
+                        "type": "delete",
+                        "key": "tree"
+                      }
+                    }
+                  }
+                }
+              },
+              "metadata": {
+                "batch": true,
+                "batchId": "container-foundations"
+              }
+            },
+            {
+              "contents": {
+                "type": "alias",
+                "contents": {
+                  "internalId": "B",
+                  "alias": "secondary"
+                }
+              },
+              "metadata": {
+                "batch": false
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "handleCases": [
+      {
+        "id": "absolute",
+        "value": {
+          "type": "__fluid_handle__",
+          "url": "/A/_C"
+        },
+        "contextPath": "/B",
+        "expectedPath": "/A/_C"
+      },
+      {
+        "id": "relative",
+        "value": {
+          "type": "__fluid_handle__",
+          "url": "_C"
+        },
+        "contextPath": "/A",
+        "expectedPath": "/A/_C"
+      },
+      {
+        "id": "escaped",
+        "value": {
+          "type": "__fluid_handle__",
+          "url": "/A%2FB/caf%C3%A9"
+        },
+        "contextPath": "/B",
+        "expectedPath": "/A%2FB/caf%C3%A9"
+      }
+    ]
+  },
+  "expected": {
+    "observations": [
+      {
+        "kind": "decodedCase",
+        "id": "singleton-channel-op",
+        "grouped": false,
+        "metadata": {
+          "outer": "single"
+        },
+        "messages": [
+          {
+            "index": 0,
+            "metadata": {
+              "outer": "single"
+            },
+            "message": {
+              "kind": "channelOperation",
+              "route": {
+                "dataStoreId": "A",
+                "channelId": "root"
+              },
+              "contents": {
+                "type": "delete",
+                "key": "tree"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "decodedCase",
+        "id": "datastore-attach",
+        "grouped": false,
+        "metadata": null,
+        "messages": [
+          {
+            "index": 0,
+            "metadata": null,
+            "message": {
+              "kind": "datastoreAttach",
+              "dataStoreId": "B",
+              "contents": {
+                "id": "B",
+                "type": "org.watershed.shared-tree.m1.bootstrap",
+                "snapshot": {
+                  "entries": [
+                    {
+                      "path": ".component",
+                      "mode": "100644",
+                      "type": "Blob",
+                      "value": {
+                        "contents": "{\"pkg\":[\"org.watershed.shared-tree.m1.bootstrap\"],\"summaryFormatVersion\":2,\"isRootDataStore\":false}",
+                        "encoding": "utf-8"
+                      }
+                    },
+                    {
+                      "path": ".channels",
+                      "value": {
+                        "entries": [
+                          {
+                            "path": "root",
+                            "value": {
+                              "entries": [
+                                {
+                                  "path": ".attributes",
+                                  "mode": "100644",
+                                  "type": "Blob",
+                                  "value": {
+                                    "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                                    "encoding": "utf-8"
+                                  }
+                                },
+                                {
+                                  "path": "header",
+                                  "mode": "100644",
+                                  "type": "Blob",
+                                  "value": {
+                                    "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                                    "encoding": "utf-8"
+                                  }
+                                }
+                              ]
+                            },
+                            "mode": "040000",
+                            "type": "Tree"
+                          }
+                        ]
+                      },
+                      "mode": "040000",
+                      "type": "Tree"
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "decodedCase",
+        "id": "datastore-alias",
+        "grouped": false,
+        "messages": [
+          {
+            "index": 0,
+            "message": {
+              "kind": "datastoreAlias",
+              "dataStoreId": "B",
+              "alias": "secondary"
+            }
+          }
+        ]
+      },
+      {
+        "kind": "decodedCase",
+        "id": "channel-attach",
+        "grouped": false,
+        "messages": [
+          {
+            "index": 0,
+            "message": {
+              "kind": "channelAttach",
+              "route": {
+                "dataStoreId": "A",
+                "channelId": "root-copy"
+              },
+              "channelType": "https://graph.microsoft.com/types/map",
+              "snapshot": {
+                "entries": [
+                  {
+                    "path": ".attributes",
+                    "mode": "100644",
+                    "type": "Blob",
+                    "value": {
+                      "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                      "encoding": "utf-8"
+                    }
+                  },
+                  {
+                    "path": "header",
+                    "mode": "100644",
+                    "type": "Blob",
+                    "value": {
+                      "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                      "encoding": "utf-8"
+                    }
+                  }
+                ]
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "decodedBatch",
+        "grouped": true,
+        "outer": {
+          "clientId": "3966f62e-8d91-4c3a-9675-3b760f14be63",
+          "clientSequenceNumber": 1,
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": 2,
+          "sequenceNumber": 3
+        },
+        "metadata": {
+          "batchId": "fb880d34-1aa4-443b-9707-d168d8a5768f_[1]",
+          "groupedOpCount": 4
+        },
+        "messages": [
+          {
+            "index": 0,
+            "metadata": {
+              "batch": true,
+              "batchId": "fb880d34-1aa4-443b-9707-d168d8a5768f_[1]"
+            },
+            "message": {
+              "kind": "idAllocation",
+              "range": {
+                "sessionId": "0d2ed6cf-580d-4d44-b916-22dec35bfb73",
+                "ids": {
+                  "firstGenCount": 2,
+                  "count": 3,
+                  "requestedClusterSize": 512,
+                  "localIdRanges": []
+                }
+              }
+            }
+          },
+          {
+            "index": 1,
+            "message": {
+              "kind": "channelOperation",
+              "route": {
+                "dataStoreId": "A",
+                "channelId": "_C"
+              },
+              "contents": {
+                "revision": 1,
+                "originatorId": "0d2ed6cf-580d-4d44-b916-22dec35bfb73",
+                "changeset": [
+                  {
+                    "data": {
+                      "maxId": 2,
+                      "changes": [
+                        {
+                          "fieldKey": "rootFieldKey",
+                          "fieldKind": "ModularEditBuilder.Generic",
+                          "change": [
+                            [
+                              0,
+                              {
+                                "fieldChanges": [
+                                  {
+                                    "fieldKey": "title",
+                                    "fieldKind": "Value",
+                                    "change": {
+                                      "r": {
+                                        "e": false,
+                                        "d": 1,
+                                        "s": 0
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      "builds": {
+                        "builds": [
+                          [
+                            [
+                              [
+                                0,
+                                0
+                              ]
+                            ]
+                          ]
+                        ],
+                        "trees": {
+                          "version": 2,
+                          "identifiers": [],
+                          "shapes": [
+                            {
+                              "c": {
+                                "type": "com.fluidframework.leaf.string",
+                                "value": true
+                              }
+                            }
+                          ],
+                          "data": [
+                            [
+                              0,
+                              "batched"
+                            ]
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ],
+                "version": 7
+              }
+            }
+          },
+          {
+            "index": 2,
+            "message": {
+              "kind": "channelOperation",
+              "route": {
+                "dataStoreId": "A",
+                "channelId": "_C"
+              },
+              "contents": {
+                "revision": 2,
+                "originatorId": "0d2ed6cf-580d-4d44-b916-22dec35bfb73",
+                "changeset": [
+                  {
+                    "data": {
+                      "maxId": 5,
+                      "changes": [
+                        {
+                          "fieldKey": "rootFieldKey",
+                          "fieldKind": "ModularEditBuilder.Generic",
+                          "change": [
+                            [
+                              0,
+                              {
+                                "fieldChanges": [
+                                  {
+                                    "fieldKey": "enabled",
+                                    "fieldKind": "Value",
+                                    "change": {
+                                      "r": {
+                                        "e": false,
+                                        "d": 4,
+                                        "s": 3
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      "builds": {
+                        "builds": [
+                          [
+                            [
+                              [
+                                3,
+                                0
+                              ]
+                            ]
+                          ]
+                        ],
+                        "trees": {
+                          "version": 2,
+                          "identifiers": [],
+                          "shapes": [
+                            {
+                              "c": {
+                                "type": "com.fluidframework.leaf.boolean",
+                                "value": true
+                              }
+                            }
+                          ],
+                          "data": [
+                            [
+                              0,
+                              true
+                            ]
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ],
+                "version": 7
+              }
+            }
+          },
+          {
+            "index": 3,
+            "metadata": {
+              "batch": false
+            },
+            "message": {
+              "kind": "channelOperation",
+              "route": {
+                "dataStoreId": "A",
+                "channelId": "_C"
+              },
+              "contents": {
+                "revision": 3,
+                "originatorId": "0d2ed6cf-580d-4d44-b916-22dec35bfb73",
+                "changeset": [
+                  {
+                    "data": {
+                      "maxId": 8,
+                      "changes": [
+                        {
+                          "fieldKey": "rootFieldKey",
+                          "fieldKind": "ModularEditBuilder.Generic",
+                          "change": [
+                            [
+                              0,
+                              {
+                                "fieldChanges": [
+                                  {
+                                    "fieldKey": "rating",
+                                    "fieldKind": "Value",
+                                    "change": {
+                                      "r": {
+                                        "e": false,
+                                        "d": 7,
+                                        "s": 6
+                                      }
+                                    }
+                                  }
+                                ]
+                              }
+                            ]
+                          ]
+                        }
+                      ],
+                      "builds": {
+                        "builds": [
+                          [
+                            [
+                              [
+                                6,
+                                0
+                              ]
+                            ]
+                          ]
+                        ],
+                        "trees": {
+                          "version": 2,
+                          "identifiers": [],
+                          "shapes": [
+                            {
+                              "c": {
+                                "type": "com.fluidframework.leaf.number",
+                                "value": true
+                              }
+                            }
+                          ],
+                          "data": [
+                            [
+                              0,
+                              3
+                            ]
+                          ]
+                        }
+                      }
+                    }
+                  }
+                ],
+                "version": 7
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "bootstrapMessages",
+        "messages": [
+          {
+            "outer": {
+              "clientId": "2aeace6c-8225-4d61-aa70-0d88d867038c",
+              "clientSequenceNumber": 1,
+              "minimumSequenceNumber": 0,
+              "referenceSequenceNumber": 2,
+              "sequenceNumber": 3
+            },
+            "metadata": {
+              "batchId": "82de2f14-3915-4d8a-8e66-670a6b0c896b_[1]"
+            },
+            "message": {
+              "kind": "channelOperation",
+              "route": {
+                "dataStoreId": "A",
+                "channelId": "root"
+              },
+              "contents": {
+                "key": "tree",
+                "type": "delete"
+              }
+            }
+          },
+          {
+            "outer": {
+              "clientId": "2aeace6c-8225-4d61-aa70-0d88d867038c",
+              "clientSequenceNumber": 2,
+              "minimumSequenceNumber": 0,
+              "referenceSequenceNumber": 3,
+              "sequenceNumber": 4
+            },
+            "message": {
+              "kind": "channelOperation",
+              "route": {
+                "dataStoreId": "A",
+                "channelId": "root"
+              },
+              "contents": {
+                "key": "tree",
+                "type": "set",
+                "value": {
+                  "type": "Plain",
+                  "value": {
+                    "type": "__fluid_handle__",
+                    "url": "/A/root"
+                  }
+                }
+              }
+            },
+            "resolvedHandle": {
+              "path": "/A/root",
+              "route": {
+                "dataStoreId": "A",
+                "channelId": "root"
+              },
+              "targetType": "https://graph.microsoft.com/types/map"
+            }
+          },
+          {
+            "outer": {
+              "clientId": "2aeace6c-8225-4d61-aa70-0d88d867038c",
+              "clientSequenceNumber": 3,
+              "minimumSequenceNumber": 0,
+              "referenceSequenceNumber": 4,
+              "sequenceNumber": 5
+            },
+            "message": {
+              "kind": "channelOperation",
+              "route": {
+                "dataStoreId": "A",
+                "channelId": "root"
+              },
+              "contents": {
+                "key": "tree",
+                "type": "set",
+                "value": {
+                  "type": "Plain",
+                  "value": {
+                    "type": "__fluid_handle__",
+                    "url": "/A/_C"
+                  }
+                }
+              }
+            },
+            "resolvedHandle": {
+              "path": "/A/_C",
+              "route": {
+                "dataStoreId": "A",
+                "channelId": "_C"
+              },
+              "targetType": "https://graph.microsoft.com/types/tree"
+            }
+          }
+        ]
+      },
+      {
+        "kind": "handle",
+        "id": "absolute",
+        "path": "/A/_C",
+        "parts": [
+          "A",
+          "_C"
+        ],
+        "encoded": {
+          "type": "__fluid_handle__",
+          "url": "/A/_C"
+        }
+      },
+      {
+        "kind": "handle",
+        "id": "relative",
+        "path": "/A/_C",
+        "parts": [
+          "A",
+          "_C"
+        ],
+        "encoded": {
+          "type": "__fluid_handle__",
+          "url": "/A/_C"
+        }
+      },
+      {
+        "kind": "handle",
+        "id": "escaped",
+        "path": "/A%2FB/caf%C3%A9",
+        "parts": [
+          "A/B",
+          "café"
+        ],
+        "encoded": {
+          "type": "__fluid_handle__",
+          "url": "/A%2FB/caf%C3%A9"
+        }
+      },
+      {
+        "kind": "encodedCase",
+        "id": "channel-operation",
+        "contents": {
+          "type": "component",
+          "contents": {
+            "address": "A",
+            "contents": {
+              "type": "op",
+              "content": {
+                "address": "root",
+                "contents": {
+                  "type": "delete",
+                  "key": "tree"
+                }
+              }
+            }
+          }
+        },
+        "upstreamAccepted": true
+      },
+      {
+        "kind": "encodedCase",
+        "id": "datastore-attach",
+        "contents": {
+          "type": "attach",
+          "contents": {
+            "id": "B",
+            "type": "org.watershed.shared-tree.m1.bootstrap",
+            "snapshot": {
+              "entries": [
+                {
+                  "path": ".component",
+                  "mode": "100644",
+                  "type": "Blob",
+                  "value": {
+                    "contents": "{\"pkg\":[\"org.watershed.shared-tree.m1.bootstrap\"],\"summaryFormatVersion\":2,\"isRootDataStore\":false}",
+                    "encoding": "utf-8"
+                  }
+                },
+                {
+                  "path": ".channels",
+                  "value": {
+                    "entries": [
+                      {
+                        "path": "root",
+                        "value": {
+                          "entries": [
+                            {
+                              "path": ".attributes",
+                              "mode": "100644",
+                              "type": "Blob",
+                              "value": {
+                                "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                                "encoding": "utf-8"
+                              }
+                            },
+                            {
+                              "path": "header",
+                              "mode": "100644",
+                              "type": "Blob",
+                              "value": {
+                                "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                                "encoding": "utf-8"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "040000",
+                        "type": "Tree"
+                      }
+                    ]
+                  },
+                  "mode": "040000",
+                  "type": "Tree"
+                }
+              ]
+            }
+          }
+        },
+        "upstreamAccepted": true
+      },
+      {
+        "kind": "encodedCase",
+        "id": "datastore-alias",
+        "contents": {
+          "type": "alias",
+          "contents": {
+            "internalId": "B",
+            "alias": "secondary"
+          }
+        },
+        "upstreamAccepted": true
+      },
+      {
+        "kind": "encodedCase",
+        "id": "channel-attach",
+        "contents": {
+          "type": "component",
+          "contents": {
+            "address": "A",
+            "contents": {
+              "type": "attach",
+              "content": {
+                "id": "root-copy",
+                "type": "https://graph.microsoft.com/types/map",
+                "snapshot": {
+                  "entries": [
+                    {
+                      "path": ".attributes",
+                      "mode": "100644",
+                      "type": "Blob",
+                      "value": {
+                        "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                        "encoding": "utf-8"
+                      }
+                    },
+                    {
+                      "path": "header",
+                      "mode": "100644",
+                      "type": "Blob",
+                      "value": {
+                        "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                        "encoding": "utf-8"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        },
+        "upstreamAccepted": true
+      },
+      {
+        "kind": "encodedCase",
+        "id": "grouped-batch",
+        "contents": {
+          "type": "groupedBatch",
+          "contents": [
+            {
+              "contents": {
+                "type": "component",
+                "contents": {
+                  "address": "A",
+                  "contents": {
+                    "type": "op",
+                    "content": {
+                      "address": "root",
+                      "contents": {
+                        "type": "delete",
+                        "key": "tree"
+                      }
+                    }
+                  }
+                }
+              },
+              "metadata": {
+                "batch": true,
+                "batchId": "container-foundations"
+              }
+            },
+            {
+              "contents": {
+                "type": "alias",
+                "contents": {
+                  "internalId": "B",
+                  "alias": "secondary"
+                }
+              },
+              "metadata": {
+                "batch": false
+              }
+            }
+          ]
+        },
+        "upstreamAccepted": true
+      },
+      {
+        "kind": "bootstrap",
+        "mapType": "https://graph.microsoft.com/types/map",
+        "mapSnapshotFormatVersion": "0.2",
+        "mapPackageVersion": "3.1.0",
+        "valueType": "Plain",
+        "handleType": "__fluid_handle__",
+        "handlePath": "/A/_C",
+        "route": {
+          "dataStoreId": "A",
+          "channelId": "_C"
+        },
+        "treeType": "https://graph.microsoft.com/types/tree",
+        "treeSnapshotFormatVersion": "0.0.0",
+        "treePackageVersion": "3.1.0"
+      }
+    ]
+  },
+  "raw": {
+    "source": {
+      "containerMessages": "packages/runtime/container-runtime/src/messageTypes.ts",
+      "datastoreMessages": "packages/runtime/datastore/src/dataStoreRuntime.ts",
+      "handles": "packages/runtime/runtime-utils/src/handles.ts",
+      "handlePaths": "packages/runtime/runtime-utils/src/dataStoreHandleContextUtils.ts",
+      "requestPaths": "packages/runtime/runtime-utils/src/requestParser.ts",
+      "grouping": "packages/runtime/container-runtime/src/opLifecycle/opGroupingManager.ts"
+    },
+    "consumers": {
+      "alias": {
+        "accepted": true,
+        "message": {
+          "type": "alias",
+          "contents": {
+            "internalId": "B",
+            "alias": "secondary"
+          }
+        }
+      },
+      "datastoreAttach": {
+        "accepted": true,
+        "message": {
+          "type": "attach",
+          "contents": {
+            "id": "B",
+            "type": "org.watershed.shared-tree.m1.bootstrap",
+            "snapshot": {
+              "entries": [
+                {
+                  "path": ".component",
+                  "mode": "100644",
+                  "type": "Blob",
+                  "value": {
+                    "contents": "{\"pkg\":[\"org.watershed.shared-tree.m1.bootstrap\"],\"summaryFormatVersion\":2,\"isRootDataStore\":false}",
+                    "encoding": "utf-8"
+                  }
+                },
+                {
+                  "path": ".channels",
+                  "value": {
+                    "entries": [
+                      {
+                        "path": "root",
+                        "value": {
+                          "entries": [
+                            {
+                              "path": ".attributes",
+                              "mode": "100644",
+                              "type": "Blob",
+                              "value": {
+                                "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                                "encoding": "utf-8"
+                              }
+                            },
+                            {
+                              "path": "header",
+                              "mode": "100644",
+                              "type": "Blob",
+                              "value": {
+                                "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                                "encoding": "utf-8"
+                              }
+                            }
+                          ]
+                        },
+                        "mode": "040000",
+                        "type": "Tree"
+                      }
+                    ]
+                  },
+                  "mode": "040000",
+                  "type": "Tree"
+                }
+              ]
+            }
+          }
+        }
+      },
+      "channelAttach": {
+        "accepted": true,
+        "message": {
+          "type": "component",
+          "contents": {
+            "address": "A",
+            "contents": {
+              "type": "attach",
+              "content": {
+                "id": "root-copy",
+                "type": "https://graph.microsoft.com/types/map",
+                "snapshot": {
+                  "entries": [
+                    {
+                      "path": ".attributes",
+                      "mode": "100644",
+                      "type": "Blob",
+                      "value": {
+                        "contents": "{\"type\":\"https://graph.microsoft.com/types/map\",\"snapshotFormatVersion\":\"0.2\",\"packageVersion\":\"3.1.0\"}",
+                        "encoding": "utf-8"
+                      }
+                    },
+                    {
+                      "path": "header",
+                      "mode": "100644",
+                      "type": "Blob",
+                      "value": {
+                        "contents": "{\"blobs\":[],\"content\":{\"tree\":{\"type\":\"Plain\",\"value\":{\"type\":\"__fluid_handle__\",\"url\":\"/A/_C\"}}}}",
+                        "encoding": "utf-8"
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          }
+        }
+      },
+      "groupedBatch": {
+        "accepted": true,
+        "contents": {
+          "type": "groupedBatch",
+          "contents": [
+            {
+              "contents": {
+                "type": "component",
+                "contents": {
+                  "address": "A",
+                  "contents": {
+                    "type": "op",
+                    "content": {
+                      "address": "root",
+                      "contents": {
+                        "type": "delete",
+                        "key": "tree"
+                      }
+                    }
+                  }
+                }
+              },
+              "metadata": {
+                "batch": true,
+                "batchId": "container-foundations"
+              }
+            },
+            {
+              "contents": {
+                "type": "alias",
+                "contents": {
+                  "internalId": "B",
+                  "alias": "secondary"
+                }
+              },
+              "metadata": {
+                "batch": false
+              }
+            }
+          ]
+        }
+      },
+      "handle": {
+        "absolute": "/A/_C",
+        "relative": "/A/_C",
+        "serialized": {
+          "type": "__fluid_handle__",
+          "url": "/A/_C"
+        },
+        "escapedPath": "/A%2FB/caf%C3%A9",
+        "escapedParts": [
+          "A/B",
+          "café"
+        ]
+      }
+    },
+    "bootstrap": {
+      "mapHeader": {
+        "blobs": [],
+        "content": {
+          "tree": {
+            "type": "Plain",
+            "value": {
+              "type": "__fluid_handle__",
+              "url": "/A/_C"
+            }
+          }
+        }
+      },
+      "mapAttributes": {
+        "type": "https://graph.microsoft.com/types/map",
+        "snapshotFormatVersion": "0.2",
+        "packageVersion": "3.1.0"
+      },
+      "treeAttributes": {
+        "type": "https://graph.microsoft.com/types/tree",
+        "snapshotFormatVersion": "0.0.0",
+        "packageVersion": "3.1.0"
+      }
+    }
+  }
+}

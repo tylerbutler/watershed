@@ -4,6 +4,8 @@ import { copyFile, mkdir, mkdtemp, readdir, readFile, rename, rm, writeFile } fr
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { reference, runSource, validateCapture } from "./source.mjs";
+import { validateContainerFoundationsCase } from "./container-foundations.mjs";
+import { validateSummaryFoundationsCase } from "./summary-foundations.mjs";
 
 const directory = dirname(fileURLToPath(import.meta.url));
 const fixtures = resolve(directory, "../../test/fixtures/shared_tree");
@@ -31,6 +33,8 @@ export const requiredCases = [
   ["unicode-and-numbers", "values"],
   ["invalid-profile", "invalid"],
   ["forest-delta", "forest"],
+  ["container-foundations", "container"],
+  ["summary-foundations", "summary"],
 ];
 
 const forestScenarioIds = [
@@ -471,6 +475,182 @@ function validateSchemaCase(value) {
   }
 }
 
+function validateFieldCase(value) {
+  const label = value.id;
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  const input = value.input;
+  const expanded = input.expanded;
+  check(object(expanded), "missing expanded operations");
+  check(object(input.revisions), "missing revisions");
+  const revisions = Object.values(input.revisions);
+  check(revisions.length === 4 && new Set(revisions).size === 4
+    && revisions.every(Number.isSafeInteger), "invalid revision identities");
+  const revision = (id) => check(revisions.includes(id), "unknown revision");
+  const localId = (id) => check(Number.isSafeInteger(id) && id >= 0, "invalid local ID");
+  function atom(id) {
+    if (Array.isArray(id)) {
+      check(id.length === 2, "invalid encoded atom");
+      localId(id[0]);
+      revision(id[1]);
+    } else localId(id);
+  }
+  function change(data) {
+    check(object(data), "missing field change");
+    if (data.m !== undefined) {
+      check(Array.isArray(data.m), "invalid moves");
+      for (const pair of data.m) {
+        check(Array.isArray(pair) && pair.length === 2, "invalid move pair");
+        pair.forEach(atom);
+      }
+    }
+    if (data.r !== undefined) {
+      check(object(data.r) && typeof data.r.e === "boolean", "invalid replacement");
+      atom(data.r.d);
+      if (data.r.s !== undefined && data.r.s !== null) atom(data.r.s);
+    }
+    if (data.c !== undefined) {
+      check(Array.isArray(data.c), "invalid child changes");
+      for (const pair of data.c) {
+        check(Array.isArray(pair) && pair.length === 2, "invalid child pair");
+        if (pair[0] !== null) atom(pair[0]);
+        const fields = pair[1]?.fieldChanges;
+        check(Array.isArray(fields) && fields.length === 1 && object(fields[0])
+          && fields[0].fieldKey === "watershed-node-id"
+          && fields[0].fieldKind === "watershed-node-id"
+          && object(fields[0].change), "invalid child identity callback encoding");
+        localId(fields[0].change.localId);
+        if (fields[0].change.revision !== undefined) revision(fields[0].change.revision);
+      }
+    }
+  }
+  function tagged(item) {
+    check(object(item), "missing tagged change");
+    revision(item.revision);
+    change(item.data);
+  }
+  check(object(input.operations) && object(input.changes), "missing original operations");
+  const names = new Set([...Object.keys(input.changes), "compose"]);
+  const select = (name) => check(names.has(name), "unknown named change");
+  for (const name of ["compose", "invert", "rebase", "replaceRevisions"]) {
+    check(object(input.operations[name]), `invalid original ${name}`);
+  }
+  const operations = input.operations;
+  select(operations.compose.left);
+  select(operations.compose.right);
+  const metadata = operations.compose.revisionMetadata;
+  check(object(metadata) && Array.isArray(metadata.revisions)
+    && Array.isArray(metadata.rollbackRevisions), "invalid revision metadata");
+  metadata.revisions.forEach(revision);
+  metadata.rollbackRevisions.forEach(revision);
+  revision(metadata.base);
+  select(operations.invert.change);
+  check(typeof operations.invert.isRollback === "boolean", "invalid rollback flag");
+  revision(operations.invert.inverseRevision);
+  select(operations.rebase.change);
+  select(operations.rebase.over);
+  select(operations.replaceRevisions.change);
+  check(Array.isArray(operations.replaceRevisions.obsolete), "missing obsolete revisions");
+  operations.replaceRevisions.obsolete.forEach(revision);
+  revision(operations.replaceRevisions.updated);
+
+  const expected = observations[label].map((operation) => ({ operation }));
+  const groups = {
+    compose: ["set-set-forward", "set-set-reverse", "set-clear", "clear-set",
+      "absent-clear-set", "overlapping-children"],
+    invert: ["set-rollback", "set-undo", "clear-rollback", "clear-undo",
+      "active-source-noop-rollback", "active-source-noop-undo"],
+    rebase: ["authored-child-over-clear", "base-only-child-over-clear", "both-children"],
+  };
+  for (const [operation, ids] of Object.entries(groups)) {
+    check(Array.isArray(expanded[operation]), `missing expanded ${operation}`);
+    assert.deepEqual(expanded[operation].map((item) => item.id), ids,
+      `${label}: expanded ${operation} coverage`);
+    for (const item of expanded[operation]) {
+      if (operation === "invert") {
+        tagged(item.change);
+        check(typeof item.isRollback === "boolean", "invalid expanded rollback flag");
+        check(Number.isSafeInteger(item.maxLocalId) && item.maxLocalId >= -1,
+          "invalid allocator watermark");
+        revision(item.inverseRevision);
+      } else {
+        tagged(operation === "compose" ? item.first : item.change);
+        tagged(operation === "compose" ? item.second : item.over);
+        revision(item.outputRevision);
+        const callback = item.childCallback;
+        check(object(callback), "missing child callback");
+        if (operation === "compose" && callback.selector === "constant") {
+          check(object(callback.result), "missing constant child result");
+          localId(callback.result.localId);
+          revision(callback.result.revision);
+        } else {
+          check(callback.selector === (operation === "compose"
+            ? "prefer-first-then-second" : "prefer-change-then-base"), "unknown child callback");
+        }
+      }
+      expected.push({ operation: `${operation}-expanded`, id: item.id });
+    }
+  }
+  check(object(expanded.intoDelta), "missing expanded delta");
+  tagged(expanded.intoDelta.change);
+  check(expanded.intoDelta.childDelta?.selector === "local-id-count"
+    && typeof expanded.intoDelta.childDelta.field === "string", "invalid child delta callback");
+  expected.push({ operation: "into-delta-expanded" });
+  const replacement = expanded.replaceRevisions;
+  check(object(replacement) && replacement.id === "all-atom-positions",
+    "missing expanded revision replacement");
+  tagged(replacement.change);
+  check(Array.isArray(replacement.obsolete), "invalid expanded obsolete revisions");
+  replacement.obsolete.forEach(revision);
+  revision(replacement.updated);
+  revision(replacement.outputRevision);
+  expected.push({ operation: "replace-revisions-expanded", id: replacement.id });
+  check(Array.isArray(expanded.invalidMappings), "missing invalid mapping inputs");
+  assert.deepEqual(expanded.invalidMappings.map((item) => item.id),
+    ["duplicate-move-source", "duplicate-move-destination", "duplicate-child-register"],
+    `${label}: invalid mapping coverage`);
+  for (const item of expanded.invalidMappings) {
+    const data = item.change;
+    check(object(data) && Array.isArray(data.moves) && Array.isArray(data.childChanges),
+      "invalid refusal change");
+    if (item.id === "duplicate-child-register") {
+      check(data.childChanges.length === 2, "missing duplicate child entries");
+      assert.deepEqual(data.childChanges[0][0], data.childChanges[1][0],
+        `${label}: refusal requires duplicate child registers`);
+    } else {
+      check(data.moves.length === 2 && data.moves.every((pair) =>
+        Array.isArray(pair) && pair.length === 2 && pair.every(object)),
+      "missing duplicate move entries");
+      const index = item.id === "duplicate-move-source" ? 0 : 1;
+      assert.deepEqual(data.moves[0][index], data.moves[1][index],
+        `${label}: refusal requires duplicate move identities`);
+    }
+  }
+  check(object(expanded.changes), "missing expanded source changes");
+  for (const [name, data] of Object.entries(expanded.changes)) {
+    tagged(data);
+    check(object(value.raw.changes[name]) && object(value.raw.encoded[name]),
+      `missing paired source change ${name}`);
+    assert.deepEqual(value.raw.encoded[name], data.data, `${label}: source encoding ${name}`);
+  }
+  assert.deepEqual(value.expected.observations.map(({ operation, id }) =>
+    id === undefined ? { operation } : { operation, id }), expected,
+  `${label}: complete ordered observations`);
+  for (const item of value.expected.observations.slice(7)) {
+    if (item.operation === "into-delta-expanded") {
+      check(object(item.delta) && Array.isArray(item.delta.global)
+        && Array.isArray(item.delta.rename), "missing full field delta");
+    } else {
+      change(item.encoded);
+      if (item.operation === "invert-expanded") {
+        check(Number.isSafeInteger(item.allocator?.before)
+          && Number.isSafeInteger(item.allocator?.after), "missing allocator observations");
+      } else if (item.operation !== "replace-revisions-expanded") {
+        check(Array.isArray(item.callbacks), "missing child callback observations");
+      }
+    }
+  }
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -541,11 +721,14 @@ export function validateCases(cases) {
     }
     if (value.id === "schema-validation") validateSchemaCase(value);
     if (value.id === "forest-delta") validateForestCase(value);
+    if (value.id === "container-foundations") validateContainerFoundationsCase(value);
+    if (value.id === "summary-foundations") validateSummaryFoundationsCase(value);
     if (value.domain === "field" || value.domain === "modular") {
       assert(object(value.input.changes) && Object.keys(value.input.changes).length > 0
         && object(value.raw.encoded) && Object.keys(value.raw.encoded).length > 0,
       `${value.id}: missing algebra inputs or encoded outputs`);
     }
+    if (value.id === "field-compose-invert-rebase") validateFieldCase(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
         && nonemptyArray(value.input.schedule)
@@ -601,7 +784,8 @@ export function validateCases(cases) {
     const value = cases.find((item) => item.id === id);
     assert(value !== undefined, `Missing case: ${id}`);
     assert.equal(value.domain, domain, `${id}: domain`);
-    if (["container", "runtime", "summary"].includes(domain) || id === "reconnect-before-ack") {
+    if ((["container", "runtime", "summary"].includes(domain) || id === "reconnect-before-ack")
+      && id !== "container-foundations" && id !== "summary-foundations") {
       assert.equal(value.input.service, "LocalDeltaConnectionServer", `${id}: missing full-container producer`);
     }
   }
@@ -630,19 +814,6 @@ export async function compareDirectories(generated, committed) {
     ]);
     assert(first.equals(second), `Corpus artifact differs: ${path}`);
   }
-}
-
-function observedFieldKinds(value, kinds = new Set()) {
-  if (Array.isArray(value)) {
-    for (const item of value) observedFieldKinds(item, kinds);
-  } else if (object(value)) {
-    if (typeof value.fieldKind === "string") kinds.add(value.fieldKind);
-    if (value.type === 2 && typeof value.content === "string") {
-      observedFieldKinds(JSON.parse(value.content), kinds);
-    }
-    for (const item of Object.values(value)) observedFieldKinds(item, kinds);
-  }
-  return [...kinds].sort();
 }
 
 function summaryMetadata(summary, path = "", result = {}) {
@@ -720,6 +891,7 @@ export async function writeCorpus(output, cases, smoke) {
       `${value.id}: source and container stored schemas differ`);
   }
   await mkdir(join(output, "cases"), { recursive: true });
+  const messages = messageInventory(cases);
   const manifest = {
     formatVersion: 1,
     reference: identity,
@@ -734,16 +906,22 @@ export async function writeCorpus(output, cases, smoke) {
     inventory: {
       codecTree: smoke.codecTree,
       compressorFormat: smoke.compressorFormat,
-      observedFieldKinds: observedFieldKinds(cases.filter((item) => item.id !== "invalid-profile")),
-      messages: messageInventory(cases),
+      observedFieldKinds: messages.fieldKinds,
+      messages,
       treeSummaryMetadata: summaryMetadata(smoke.summary),
       serviceSummaryPaths: profile.container.summaryPaths,
       documentSchema: profile.container.documentSchema,
       gcMetadataVersion: profile.container.gcFeature,
     },
     nativeSemanticRunners: {
-      javascript: ["id-ranges", "schema-validation", "forest-delta"],
-      erlang: ["id-ranges", "schema-validation", "forest-delta"],
+      javascript: [
+        "id-ranges", "schema-validation", "forest-delta",
+        "field-compose-invert-rebase", "container-foundations", "summary-foundations",
+      ],
+      erlang: [
+        "id-ranges", "schema-validation", "forest-delta",
+        "field-compose-invert-rebase", "container-foundations", "summary-foundations",
+      ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),
   };

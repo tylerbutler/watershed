@@ -5,7 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
-import { compareDirectories, requiredCases, validateCases } from "./generate.mjs";
+import { compareDirectories, requiredCases, validateCases, writeCorpus } from "./generate.mjs";
 
 const schemaValidationCheckIds = [
   "matching-view",
@@ -41,14 +41,84 @@ const schemaValidationCheckIds = [
   "maximum-finite-number",
 ];
 
-function cases() {
-  return requiredCases.map(([id]) => JSON.parse(readFileSync(
+function cases(exclude = []) {
+  return requiredCases.filter(([id]) => !exclude.includes(id)).map(([id]) => JSON.parse(readFileSync(
     new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url), "utf8",
   )));
 }
 
+test("corpus validation requires independent container and summary foundations", () => {
+  const originalCases = cases(["container-foundations", "summary-foundations"]);
+  assert.throws(() => validateCases(originalCases), /Missing case: container-foundations/);
+});
+
+test("field corpus requires independently replayable expanded operations", () => {
+  const corpus = cases(["container-foundations", "summary-foundations"]);
+  delete corpus.find(({ id }) => id === "field-compose-invert-rebase").input.expanded;
+  assert.throws(() => validateCases(corpus), /field-compose-invert-rebase.*expanded/);
+});
+
+test("field corpus refuses incomplete operations, callbacks, identities and observations", () => {
+  for (const mutate of [
+    (value) => { value.input.operations.compose = null; },
+    (value) => { value.input.operations.invert.change = "missing"; },
+    (value) => { value.input.operations.invert.isRollback = "false"; },
+    (value) => { value.input.expanded.compose.pop(); },
+    (value) => { delete value.input.expanded.compose[0].first; },
+    (value) => { value.input.expanded.compose[0].childCallback.selector = "unknown"; },
+    (value) => { value.input.expanded.invert[0].maxLocalId = -2; },
+    (value) => { value.input.expanded.rebase[0].outputRevision = 99; },
+    (value) => { value.input.expanded.rebase[0].over.data.c = [[null, null]]; },
+    (value) => { delete value.input.expanded.intoDelta.childDelta.field; },
+    (value) => { value.input.expanded.replaceRevisions.obsolete = [99]; },
+    (value) => { value.input.expanded.invalidMappings.pop(); },
+    (value) => { value.input.expanded.invalidMappings[0].change.moves[1][0].localId = 36; },
+    (value) => { value.input.expanded.invalidMappings[2].change.childChanges = []; },
+    (value) => { value.expected.observations.pop(); },
+    (value) => { value.expected.observations.reverse(); },
+    (value) => { delete value.expected.observations[7].callbacks; },
+    (value) => { delete value.expected.observations[13].allocator.after; },
+    (value) => { delete value.raw.encoded.richRevisionChange; },
+  ]) {
+    const corpus = cases(["container-foundations", "summary-foundations"]);
+    mutate(corpus.find(({ id }) => id === "field-compose-invert-rebase"));
+    assert.throws(() => validateCases(corpus), /field-compose-invert-rebase/);
+  }
+});
+
+test("manifest records complete native runners and actual wire field kinds", async (t) => {
+  const output = await mkdtemp(join(tmpdir(), "watershed-wire-inventory-"));
+  t.after(() => rm(output, { recursive: true, force: true }));
+  const corpus = cases();
+  const profile = JSON.parse(readFileSync(
+    new URL("../../test/fixtures/shared_tree/profile.json", import.meta.url), "utf8",
+  ));
+  const smoke = {
+    formatVersion: 1,
+    reference: profile.reference,
+    kind: "source-smoke",
+    minVersionForCollab: profile.container.oldestSupportedClient,
+    messages: corpus.find(({ id }) => id === "batched-commits").raw.messages,
+    codecTree: profile.codecTree,
+    compressor: "unused-by-manifest",
+    compressorFormat: profile.compressorFormat,
+    summary: corpus.find(({ id }) => id === "schema-profile").raw.summary,
+    observations: { pending: [1, 2], settled: [2, 2] },
+  };
+  await writeCorpus(output, corpus, smoke);
+  const manifest = JSON.parse(readFileSync(join(output, "manifest.json"), "utf8"));
+  assert.deepEqual(manifest.inventory.observedFieldKinds,
+    ["ModularEditBuilder.Generic", "Optional", "Value"]);
+  for (const target of ["javascript", "erlang"]) {
+    assert.deepEqual(manifest.nativeSemanticRunners[target], [
+      "id-ranges", "schema-validation", "forest-delta",
+      "field-compose-invert-rebase", "container-foundations", "summary-foundations",
+    ]);
+  }
+});
+
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 22);
+  assert.equal(requiredCases.length, 24);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);

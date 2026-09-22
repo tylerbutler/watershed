@@ -17,6 +17,8 @@ const expectedCases = [
   ["reconnect-before-ack", "history"],
   ["summary-tail", "summary"],
   ["summary-writer-matrix", "summary"],
+  ["container-foundations", "container"],
+  ["summary-foundations", "summary"],
 ];
 
 async function capture(directory) {
@@ -86,7 +88,7 @@ test("container snapshot validation refuses runtime profile drift", async (t) =>
   assert.throws(() => validateContainerSnapshotProfile(withoutCompressor), /.idCompressor/);
 });
 
-test("container corpus records five real upstream container cases", {
+test("container corpus preserves full runtime cases alongside scoped foundation evidence", {
   timeout: 120_000,
 }, async (t) => {
   const output = await mkdtemp(join(tmpdir(), "watershed-container-corpus-"));
@@ -94,7 +96,7 @@ test("container corpus records five real upstream container cases", {
 
   const cases = await capture(output);
   assert.deepEqual(cases.map(({ id, domain }) => [id, domain]), expectedCases);
-  for (const value of cases) {
+  for (const value of cases.filter(({ input }) => input.service === "LocalDeltaConnectionServer")) {
     assert.equal(value.formatVersion, 1);
     assert.deepEqual(value.reference, {
       package: "@fluidframework/tree",
@@ -211,4 +213,23 @@ test("container corpus is byte-reproducible in fresh deterministic processes", {
     readFile(join(second, "container-cases.json")),
   ]);
   assert(firstBytes.equals(secondBytes));
+});
+
+test("container producer supplies separate foundation cases without claiming runtime replay", async (t) => {
+  const output = await mkdtemp(join(tmpdir(), "watershed-foundation-corpus-"));
+  t.after(() => rm(output, { recursive: true, force: true }));
+  const corpus = await capture(output);
+  for (const [id, domain] of [
+    ["container-foundations", "container"],
+    ["summary-foundations", "summary"],
+  ]) {
+    const value = corpus.find((entry) => entry.id === id);
+    assert(value, `Missing independently replayable ${id}`);
+    assert.equal(value.domain, domain);
+    assert.notEqual(value.input.service, "LocalDeltaConnectionServer");
+    assert(Object.keys(value.input).length > 0);
+    assert(value.expected.observations.length > 0);
+    assert(Object.keys(value.raw).length > 0);
+    assert(!Object.hasOwn(value.expected, "writerMatrix"));
+  }
 });
