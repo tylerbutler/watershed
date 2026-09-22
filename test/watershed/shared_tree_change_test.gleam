@@ -865,3 +865,374 @@ pub fn shared_tree_change_delta_omits_empty_generic_fields_test() {
     change.into_delta(change.TaggedChange(None, None, authored))
   forest.delta_data(delta).fields |> expect.to_equal([])
 }
+
+pub fn shared_tree_change_invert_distinguishes_rollback_and_undo_test() {
+  let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
+  let authored =
+    authored(revision_a(), SetField(["point", "x"], NumberValue(7.0)))
+  let tagged = change.TaggedChange(Some(revision_a()), None, authored)
+
+  let assert Ok(rollback) = change.invert(tagged, True, revision_c)
+  let rollback_data = change.to_data(rollback)
+  rollback_data.max_local_id |> expect.to_equal(3)
+  rollback_data.revisions
+  |> expect.to_equal([
+    change.RevisionInfo(revision_c, Some(revision_a())),
+  ])
+  rollback_data.destroys
+  |> expect.to_equal([forest.Destroy(atom(0), 1)])
+
+  let initial = initial_forest()
+  let assert Ok(old_x) = forest.locate(initial, ["point", "x"])
+  let assert Ok(authored_delta) = change.into_delta(tagged)
+  let assert Ok(changed) = forest.apply_delta(initial, authored_delta)
+  let assert Ok(rollback_delta) =
+    change.into_delta(change.TaggedChange(
+      Some(revision_c),
+      Some(revision_a()),
+      rollback,
+    ))
+  let assert Ok(restored) = forest.apply_delta(changed, rollback_delta)
+  forest.visible_root(restored) |> expect.to_equal(Ok(Some(root())))
+  forest.locate(restored, ["point", "x"]) |> expect.to_equal(Ok(old_x))
+
+  let assert Ok(undo) = change.invert(tagged, False, revision_c)
+  let undo_data = change.to_data(undo)
+  undo_data.max_local_id |> expect.to_equal(4)
+  undo_data.revisions
+  |> expect.to_equal([change.RevisionInfo(revision_c, None)])
+  undo_data.destroys |> expect.to_equal([])
+}
+
+pub fn shared_tree_change_invert_reserves_each_original_revision_test() {
+  let first = authored(revision_a(), SetField(["point", "x"], NumberValue(7.0)))
+  let second =
+    authored(revision_b(), SetField(["point", "y"], NumberValue(9.0)))
+  let assert Ok(composed) =
+    change.compose([
+      change.TaggedChange(Some(revision_a()), None, first),
+      change.TaggedChange(Some(revision_b()), None, second),
+    ])
+  let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
+  let assert Ok(undo) =
+    change.invert(change.TaggedChange(None, None, composed), False, revision_c)
+  let data = change.to_data(undo)
+  data.max_local_id |> expect.to_equal(9)
+  let assert [
+    #(
+      _,
+      change.NodeChange([
+        #("x", change.ValueField(x)),
+        #("y", change.ValueField(y)),
+      ]),
+    ),
+    _,
+  ] = data.nodes
+  let assert optional_field.FieldChange(_, _, Some(x)) = x
+  let assert optional_field.FieldChange(_, _, Some(y)) = y
+  x.detach_id |> expect.to_equal(AtomId(Some(revision_c), 8))
+  y.detach_id |> expect.to_equal(AtomId(Some(revision_c), 9))
+
+  let assert Ok(rollback) =
+    change.invert(change.TaggedChange(None, None, composed), True, revision_c)
+  let rollback = change.to_data(rollback)
+  rollback.max_local_id |> expect.to_equal(7)
+  rollback.destroys
+  |> expect.to_equal([
+    forest.Destroy(atom(0), 1),
+    forest.Destroy(atom_b(0), 1),
+  ])
+}
+
+pub fn shared_tree_change_invert_rejects_destroying_change_test() {
+  let data =
+    change.ChangeData(..empty_data(), destroys: [forest.Destroy(atom(10), 1)])
+  let assert Ok(authored) = change.from_data(data)
+  let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
+  let assert Error(CorruptData(_, _)) =
+    change.invert(
+      change.TaggedChange(Some(revision_a()), None, authored),
+      True,
+      revision_c,
+    )
+  Nil
+}
+
+pub fn shared_tree_change_invert_allocator_exhaustion_is_atomic_test() {
+  let field =
+    change.OptionalField(optional_field.FieldChange(
+      [],
+      [],
+      Some(optional_field.Replacement(
+        False,
+        Some(optional_field.Active),
+        atom(0),
+      )),
+    ))
+  let data =
+    change.ChangeData(
+      ..empty_data(),
+      max_local_id: 9_007_199_254_740_991,
+      revisions: [change.RevisionInfo(revision_a(), None)],
+      fields: [#("root", field)],
+    )
+  let assert Ok(authored) = change.from_data(data)
+  let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
+  let assert Error(CorruptData(_, _)) =
+    change.invert(
+      change.TaggedChange(Some(revision_a()), None, authored),
+      False,
+      revision_c,
+    )
+  change.to_data(authored) |> expect.to_equal(data)
+}
+
+pub fn shared_tree_change_invert_restores_clear_and_parent_replacement_test() {
+  let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
+  let initial = initial_forest()
+  let assert Ok(set) =
+    change.edit(
+      stored_schema(),
+      initial,
+      revision_a(),
+      SetField(["note"], StringValue("present")),
+    )
+  let assert Ok(set_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, set))
+  let assert Ok(with_note) = forest.apply_delta(initial, set_delta)
+  let assert Ok(old_note) = forest.locate(with_note, ["note"])
+  let assert Ok(clear) =
+    change.edit(stored_schema(), with_note, revision_b(), ClearField(["note"]))
+  let assert Ok(clear_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_b()), None, clear))
+  let assert Ok(without_note) = forest.apply_delta(with_note, clear_delta)
+  let assert Ok(clear_rollback) =
+    change.invert(
+      change.TaggedChange(Some(revision_b()), None, clear),
+      True,
+      revision_c,
+    )
+  let assert Ok(clear_rollback_delta) =
+    change.into_delta(change.TaggedChange(
+      Some(revision_c),
+      Some(revision_b()),
+      clear_rollback,
+    ))
+  let assert Ok(restored_note) =
+    forest.apply_delta(without_note, clear_rollback_delta)
+  forest.locate(restored_note, ["note"])
+  |> expect.to_equal(Ok(old_note))
+  forest.read_node(restored_note, old_note)
+  |> expect.to_equal(Ok(StringValue("present")))
+
+  let assert Ok(old_point) = forest.locate(initial, ["point"])
+  let parent = authored(revision_a(), SetField(["point"], point(10.0, 20.0)))
+  let assert Ok(parent_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, parent))
+  let assert Ok(replaced) = forest.apply_delta(initial, parent_delta)
+  let assert Ok(parent_rollback) =
+    change.invert(
+      change.TaggedChange(Some(revision_a()), None, parent),
+      True,
+      revision_c,
+    )
+  let assert Ok(parent_rollback_delta) =
+    change.into_delta(change.TaggedChange(
+      Some(revision_c),
+      Some(revision_a()),
+      parent_rollback,
+    ))
+  let assert Ok(restored_parent) =
+    forest.apply_delta(replaced, parent_rollback_delta)
+  forest.locate(restored_parent, ["point"])
+  |> expect.to_equal(Ok(old_point))
+  forest.read_node(restored_parent, old_point)
+  |> expect.to_equal(Ok(point(1.0, 2.0)))
+}
+
+pub fn shared_tree_change_rebase_independent_nested_fields_test() {
+  let first = authored(revision_a(), SetField(["point", "x"], NumberValue(7.0)))
+  let second =
+    authored(revision_b(), SetField(["point", "y"], NumberValue(9.0)))
+  let assert Ok(context) =
+    change.rebase_context([
+      change.RevisionInfo(revision_a(), None),
+      change.RevisionInfo(revision_b(), None),
+    ])
+  let assert Ok(rebased) =
+    change.rebase(
+      change.TaggedChange(Some(revision_a()), None, first),
+      change.TaggedChange(Some(revision_b()), None, second),
+      context,
+    )
+  let initial = initial_forest()
+  let assert Ok(second_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_b()), None, second))
+  let assert Ok(after_second) = forest.apply_delta(initial, second_delta)
+  let assert Ok(rebased_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, rebased))
+  let assert Ok(updated) = forest.apply_delta(after_second, rebased_delta)
+  forest.visible_root(updated)
+  |> expect.to_equal(
+    Ok(
+      Some(
+        ObjectValue("Root", [
+          #("point", point(7.0, 9.0)),
+        ]),
+      ),
+    ),
+  )
+}
+
+pub fn shared_tree_change_rebase_parent_child_keeps_old_object_test() {
+  let child =
+    authored(revision_a(), SetField(["point", "x"], NumberValue(42.0)))
+  let parent = authored(revision_b(), SetField(["point"], point(10.0, 20.0)))
+  let assert Ok(context) =
+    change.rebase_context([
+      change.RevisionInfo(revision_a(), None),
+      change.RevisionInfo(revision_b(), None),
+    ])
+  let assert Ok(child_over_parent) =
+    change.rebase(
+      change.TaggedChange(Some(revision_a()), None, child),
+      change.TaggedChange(Some(revision_b()), None, parent),
+      context,
+    )
+  let rebased_data = change.to_data(child_over_parent)
+  let assert [
+    #(_, _),
+    #(
+      root_node_id,
+      change.NodeChange([#("point", change.ValueField(point_change))]),
+    ),
+  ] = rebased_data.nodes
+  root_node_id |> expect.to_equal(atom(3))
+  let assert optional_field.FieldChange(
+    [],
+    [#(optional_field.Detached(detached), child_id)],
+    None,
+  ) = point_change
+  detached |> expect.to_equal(atom_b(1))
+  child_id |> expect.to_equal(atom(2))
+  let initial = initial_forest()
+  let assert Ok(old_point) = forest.locate(initial, ["point"])
+  let assert Ok(parent_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_b()), None, parent))
+  let assert Ok(replaced) = forest.apply_delta(initial, parent_delta)
+  let assert Ok(child_delta) =
+    change.into_delta(change.TaggedChange(
+      Some(revision_a()),
+      None,
+      child_over_parent,
+    ))
+  let assert Ok(updated) = forest.apply_delta(replaced, child_delta)
+  forest.read(updated, ["point"])
+  |> expect.to_equal(Ok(Some(point(10.0, 20.0))))
+  forest.read_node(updated, old_point)
+  |> expect.to_equal(Ok(point(42.0, 2.0)))
+
+  let assert Ok(parent_over_child) =
+    change.rebase(
+      change.TaggedChange(Some(revision_b()), None, parent),
+      change.TaggedChange(Some(revision_a()), None, child),
+      context,
+    )
+  let parent_data = change.to_data(parent)
+  change.to_data(parent_over_child)
+  |> expect.to_equal(change.ChangeData(..parent_data, max_local_id: 3))
+  let assert Ok(child_authored_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_a()), None, child))
+  let assert Ok(child_first) = forest.apply_delta(initial, child_authored_delta)
+  let assert Ok(parent_rebased_delta) =
+    change.into_delta(change.TaggedChange(
+      Some(revision_b()),
+      None,
+      parent_over_child,
+    ))
+  let assert Ok(opposite) =
+    forest.apply_delta(child_first, parent_rebased_delta)
+  forest.read(opposite, ["point"])
+  |> expect.to_equal(Ok(Some(point(10.0, 20.0))))
+  forest.read_node(opposite, old_point)
+  |> expect.to_equal(Ok(point(42.0, 2.0)))
+}
+
+pub fn shared_tree_change_rebase_repeated_replacement_keeps_detached_target_test() {
+  let revision_c = revision("00000000-0000-4000-8000-0000000000c0")
+  let child =
+    authored(revision_a(), SetField(["point", "x"], NumberValue(42.0)))
+  let first_parent =
+    authored(revision_b(), SetField(["point"], point(10.0, 20.0)))
+  let assert Ok(context) =
+    change.rebase_context([
+      change.RevisionInfo(revision_a(), None),
+      change.RevisionInfo(revision_b(), None),
+      change.RevisionInfo(revision_c, None),
+    ])
+  let assert Ok(detached_child) =
+    change.rebase(
+      change.TaggedChange(Some(revision_a()), None, child),
+      change.TaggedChange(Some(revision_b()), None, first_parent),
+      context,
+    )
+
+  let initial = initial_forest()
+  let assert Ok(original_point) = forest.locate(initial, ["point"])
+  let assert Ok(first_parent_delta) =
+    change.into_delta(change.TaggedChange(
+      Some(revision_b()),
+      None,
+      first_parent,
+    ))
+  let assert Ok(after_first_parent) =
+    forest.apply_delta(initial, first_parent_delta)
+  let assert Ok(intermediate_point) =
+    forest.locate(after_first_parent, ["point"])
+  let assert Ok(second_parent) =
+    change.edit(
+      stored_schema(),
+      after_first_parent,
+      revision_c,
+      SetField(["point"], point(30.0, 40.0)),
+    )
+  let assert Ok(rebased_again) =
+    change.rebase(
+      change.TaggedChange(Some(revision_a()), None, detached_child),
+      change.TaggedChange(Some(revision_c), None, second_parent),
+      context,
+    )
+  let assert Ok(second_parent_delta) =
+    change.into_delta(change.TaggedChange(Some(revision_c), None, second_parent))
+  let assert Ok(after_second_parent) =
+    forest.apply_delta(after_first_parent, second_parent_delta)
+  let assert Ok(rebased_delta) =
+    change.into_delta(change.TaggedChange(
+      Some(revision_a()),
+      None,
+      rebased_again,
+    ))
+  let assert Ok(updated) =
+    forest.apply_delta(after_second_parent, rebased_delta)
+  forest.read(updated, ["point"])
+  |> expect.to_equal(Ok(Some(point(30.0, 40.0))))
+  forest.read_node(updated, intermediate_point)
+  |> expect.to_equal(Ok(point(10.0, 20.0)))
+  forest.read_node(updated, original_point)
+  |> expect.to_equal(Ok(point(42.0, 2.0)))
+}
+
+pub fn shared_tree_change_rebase_requires_complete_context_test() {
+  let first = authored(revision_a(), SetField(["point", "x"], NumberValue(7.0)))
+  let second =
+    authored(revision_b(), SetField(["point", "y"], NumberValue(9.0)))
+  let assert Ok(context) =
+    change.rebase_context([change.RevisionInfo(revision_a(), None)])
+  let assert Error(InvalidHistory(_)) =
+    change.rebase(
+      change.TaggedChange(Some(revision_a()), None, first),
+      change.TaggedChange(Some(revision_b()), None, second),
+      context,
+    )
+  Nil
+}

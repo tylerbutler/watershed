@@ -107,6 +107,18 @@ type PruneState {
   )
 }
 
+type RebaseState {
+  RebaseState(
+    nodes: List(#(AtomId, NodeChange)),
+    parents: List(#(AtomId, ParentField)),
+    aliases: List(#(AtomId, AtomId)),
+    authored: ChangeData,
+    base: ChangeData,
+    base_to_rebased: List(#(AtomId, AtomId)),
+    pairs: List(#(AtomId, AtomId)),
+  )
+}
+
 pub fn empty() -> Changeset {
   Changeset(
     ChangeData(
@@ -317,6 +329,552 @@ pub fn update_refreshers(
     ChangeData(..change.data, refreshers: refreshers)
     |> sort_atom_tables(change.data.revisions)
   from_data(data)
+}
+
+pub fn invert(
+  change: TaggedChange,
+  is_rollback: Bool,
+  inverse_revision: StableId,
+) -> Result(Changeset, TreeError) {
+  use _ <- result.try(check(
+    list.is_empty(change.change.data.destroys),
+    "invert",
+    "a destroying change cannot be inverted",
+  ))
+  let data = change.change.data
+  let revisions = tagged_revision_infos(change)
+  let allocation_revisions = inversion_revisions(data, revisions)
+  use watermark <- result.try(reserved_watermark(
+    data.max_local_id,
+    list.length(allocation_revisions),
+  ))
+  use #(fields, watermark) <- result.try(invert_field_map(
+    data.fields,
+    is_rollback,
+    inverse_revision,
+    watermark,
+  ))
+  use #(nodes, watermark) <- result.try(
+    list.try_fold(data.nodes, #([], watermark), fn(output, entry) {
+      let NodeChange(fields) = entry.1
+      use #(fields, watermark) <- result.try(invert_field_map(
+        fields,
+        is_rollback,
+        inverse_revision,
+        output.1,
+      ))
+      Ok(#(list.append(output.0, [#(entry.0, NodeChange(fields))]), watermark))
+    }),
+  )
+  use parents <- result.try(rebuild_parents(fields, nodes, data.aliases))
+  let destroys = case is_rollback {
+    True ->
+      list.map(data.builds, fn(build) {
+        forest.Destroy(build.id, list.length(build.trees))
+      })
+    False -> []
+  }
+  let inverted =
+    ChangeData(
+      max_local_id: watermark,
+      revisions: [
+        RevisionInfo(inverse_revision, case is_rollback {
+          True -> change.revision
+          False -> None
+        }),
+      ],
+      fields: fields,
+      nodes: nodes,
+      parents: parents,
+      aliases: data.aliases,
+      builds: [],
+      destroys: destroys,
+      refreshers: [],
+    )
+    |> sort_atom_tables([
+      RevisionInfo(inverse_revision, case is_rollback {
+        True -> change.revision
+        False -> None
+      }),
+      ..revisions
+    ])
+  from_data(inverted)
+}
+
+pub fn rebase(
+  change: TaggedChange,
+  over: TaggedChange,
+  context: RebaseContext,
+) -> Result(Changeset, TreeError) {
+  use _ <- result.try(validate_rebase_inputs(change, over, context))
+  let authored = change.change.data
+  let base = over.change.data
+  let state = RebaseState([], [], authored.aliases, authored, base, [], [])
+  use #(fields, state) <- result.try(rebase_field_maps(
+    authored.fields,
+    base.fields,
+    state,
+  ))
+  use parents <- result.try(rebuild_parents(fields, state.nodes, state.aliases))
+  let revisions = tagged_revision_infos(change)
+  let data =
+    ChangeData(
+      max_local_id: int_max(authored.max_local_id, base.max_local_id),
+      revisions: revisions,
+      fields: fields,
+      nodes: state.nodes,
+      parents: parents,
+      aliases: state.aliases,
+      builds: authored.builds,
+      destroys: authored.destroys,
+      refreshers: authored.refreshers,
+    )
+    |> sort_atom_tables(context.revisions)
+  use rebased <- result.try(from_data(data))
+  prune(rebased)
+}
+
+fn validate_rebase_inputs(
+  change: TaggedChange,
+  over: TaggedChange,
+  context: RebaseContext,
+) -> Result(Nil, TreeError) {
+  let expected =
+    list.append(tagged_revision_infos(change), tagged_revision_infos(over))
+  list.try_each(expected, fn(info) {
+    case revision_info(context.revisions, info.revision) {
+      None -> Error(InvalidHistory("rebase context is missing a revision"))
+      Some(actual) ->
+        case actual.rollback_of == info.rollback_of {
+          True -> Ok(Nil)
+          False ->
+            Error(InvalidHistory("rebase rollback metadata does not match"))
+        }
+    }
+  })
+}
+
+fn rebase_field_maps(
+  authored: List(#(String, FieldChange)),
+  base: List(#(String, FieldChange)),
+  state: RebaseState,
+) -> Result(#(List(#(String, FieldChange)), RebaseState), TreeError) {
+  list.try_fold(authored, #([], state), fn(output, entry) {
+    case pair_value(base, entry.0) {
+      None -> {
+        use state <- result.try(copy_field_children(entry.1, output.1))
+        Ok(#(list.append(output.0, [entry]), state))
+      }
+      Some(base_field) -> {
+        use #(field, state) <- result.try(rebase_field(
+          entry.1,
+          base_field,
+          output.1,
+        ))
+        Ok(#(list.append(output.0, [#(entry.0, field)]), state))
+      }
+    }
+  })
+}
+
+fn rebase_field(
+  authored: FieldChange,
+  base: FieldChange,
+  state: RebaseState,
+) -> Result(#(FieldChange, RebaseState), TreeError) {
+  case authored, base {
+    GenericField(authored), GenericField(base) -> {
+      use #(children, state) <- result.try(rebase_generic(authored, base, state))
+      Ok(#(GenericField(children), state))
+    }
+    ValueField(authored), ValueField(base) ->
+      optional_field.rebase(authored, base, state, rebase_child)
+      |> result.map(fn(output) { #(ValueField(output.0), output.1) })
+    OptionalField(authored), OptionalField(base) ->
+      optional_field.rebase(authored, base, state, rebase_child)
+      |> result.map(fn(output) { #(OptionalField(output.0), output.1) })
+    GenericField(authored), ValueField(base) ->
+      optional_field.rebase(
+        generic_as_optional(authored),
+        base,
+        state,
+        rebase_child,
+      )
+      |> result.map(fn(output) { #(ValueField(output.0), output.1) })
+    ValueField(authored), GenericField(base) ->
+      optional_field.rebase(
+        authored,
+        generic_as_optional(base),
+        state,
+        rebase_child,
+      )
+      |> result.map(fn(output) { #(ValueField(output.0), output.1) })
+    GenericField(authored), OptionalField(base) ->
+      optional_field.rebase(
+        generic_as_optional(authored),
+        base,
+        state,
+        rebase_child,
+      )
+      |> result.map(fn(output) { #(OptionalField(output.0), output.1) })
+    OptionalField(authored), GenericField(base) ->
+      optional_field.rebase(
+        authored,
+        generic_as_optional(base),
+        state,
+        rebase_child,
+      )
+      |> result.map(fn(output) { #(OptionalField(output.0), output.1) })
+    _, _ -> Error(CorruptData("rebase", "field kinds do not match"))
+  }
+}
+
+fn rebase_generic(
+  authored: List(#(Int, AtomId)),
+  base: List(#(Int, AtomId)),
+  state: RebaseState,
+) -> Result(#(List(#(Int, AtomId)), RebaseState), TreeError) {
+  use #(children, remaining, state) <- result.try(
+    list.try_fold(authored, #([], base, state), fn(output, child) {
+      let #(base_child, remaining) = take_pair(output.1, child.0)
+      use #(rebased, state) <- result.try(rebase_child(
+        Some(child.1),
+        base_child,
+        optional_field.Attached,
+        output.2,
+      ))
+      let children = case rebased {
+        None -> output.0
+        Some(rebased) -> list.append(output.0, [#(child.0, rebased)])
+      }
+      Ok(#(children, remaining, state))
+    }),
+  )
+  use #(children, state) <- result.try(
+    list.try_fold(remaining, #(children, state), fn(output, child) {
+      use #(rebased, state) <- result.try(rebase_child(
+        None,
+        Some(child.1),
+        optional_field.Attached,
+        output.1,
+      ))
+      let children = case rebased {
+        None -> output.0
+        Some(rebased) -> list.append(output.0, [#(child.0, rebased)])
+      }
+      Ok(#(children, state))
+    }),
+  )
+  Ok(#(children, state))
+}
+
+fn rebase_child(
+  authored: Option(AtomId),
+  base: Option(AtomId),
+  _attach: optional_field.AttachState,
+  state: RebaseState,
+) -> Result(#(Option(AtomId), RebaseState), TreeError) {
+  case authored, base {
+    Some(authored), Some(base) -> {
+      use #(rebased, state) <- result.try(rebase_nodes(authored, base, state))
+      Ok(#(Some(rebased), state))
+    }
+    Some(authored), None -> {
+      use #(authored, state) <- result.try(copy_authored_node(authored, state))
+      Ok(#(Some(authored), state))
+    }
+    None, Some(base) -> {
+      use base <- result.try(resolve_alias(base, state.base.aliases))
+      Ok(#(pair_value(state.base_to_rebased, base), state))
+    }
+    None, None -> Ok(#(None, state))
+  }
+}
+
+fn rebase_nodes(
+  authored: AtomId,
+  base: AtomId,
+  state: RebaseState,
+) -> Result(#(AtomId, RebaseState), TreeError) {
+  use authored <- result.try(resolve_alias(authored, state.authored.aliases))
+  use base <- result.try(resolve_alias(base, state.base.aliases))
+  case pair_value(state.base_to_rebased, base) {
+    Some(existing) -> Ok(#(existing, state))
+    None -> {
+      use authored_node <- result.try(node_for(
+        authored,
+        state.authored.nodes,
+        state.authored.aliases,
+      ))
+      use base_node <- result.try(node_for(
+        base,
+        state.base.nodes,
+        state.base.aliases,
+      ))
+      let NodeChange(authored_fields) = authored_node
+      let NodeChange(base_fields) = base_node
+      let state =
+        RebaseState(
+          ..state,
+          base_to_rebased: list.append(state.base_to_rebased, [
+            #(base, authored),
+          ]),
+          pairs: [#(authored, base), ..state.pairs],
+        )
+      use #(fields, state) <- result.try(rebase_field_maps(
+        authored_fields,
+        base_fields,
+        state,
+      ))
+      let nodes = put_pair(state.nodes, authored, NodeChange(fields))
+      Ok(#(authored, RebaseState(..state, nodes: nodes)))
+    }
+  }
+}
+
+fn copy_field_children(
+  field: FieldChange,
+  state: RebaseState,
+) -> Result(RebaseState, TreeError) {
+  list.try_fold(field_children(field), state, fn(state, child) {
+    copy_authored_node(child, state) |> result.map(fn(output) { output.1 })
+  })
+}
+
+fn copy_authored_node(
+  id: AtomId,
+  state: RebaseState,
+) -> Result(#(AtomId, RebaseState), TreeError) {
+  use canonical <- result.try(resolve_alias(id, state.authored.aliases))
+  case pair_value(state.nodes, canonical) {
+    Some(_) -> Ok(#(canonical, state))
+    None -> {
+      use node <- result.try(node_for(
+        canonical,
+        state.authored.nodes,
+        state.authored.aliases,
+      ))
+      let NodeChange(fields) = node
+      let state =
+        RebaseState(
+          ..state,
+          nodes: put_pair(state.nodes, canonical, NodeChange(fields)),
+        )
+      use state <- result.try(
+        list.try_fold(fields, state, fn(state, entry) {
+          copy_field_children(entry.1, state)
+        }),
+      )
+      Ok(#(canonical, state))
+    }
+  }
+}
+
+fn invert_field_map(
+  fields: List(#(String, FieldChange)),
+  is_rollback: Bool,
+  inverse_revision: StableId,
+  watermark: Int,
+) -> Result(#(List(#(String, FieldChange)), Int), TreeError) {
+  list.try_fold(fields, #([], watermark), fn(output, entry) {
+    use #(field, watermark) <- result.try(invert_field(
+      entry.1,
+      is_rollback,
+      inverse_revision,
+      output.1,
+    ))
+    Ok(#(list.append(output.0, [#(entry.0, field)]), watermark))
+  })
+}
+
+fn invert_field(
+  field: FieldChange,
+  is_rollback: Bool,
+  inverse_revision: StableId,
+  watermark: Int,
+) -> Result(#(FieldChange, Int), TreeError) {
+  case field {
+    GenericField(children) -> Ok(#(GenericField(children), watermark))
+    ValueField(change) ->
+      optional_field.invert(
+        change,
+        is_rollback,
+        Some(inverse_revision),
+        watermark,
+      )
+      |> result.map(fn(output) { #(ValueField(output.0), output.1) })
+    OptionalField(change) ->
+      optional_field.invert(
+        change,
+        is_rollback,
+        Some(inverse_revision),
+        watermark,
+      )
+      |> result.map(fn(output) { #(OptionalField(output.0), output.1) })
+  }
+}
+
+fn tagged_revision_infos(change: TaggedChange) -> List(RevisionInfo) {
+  case change.change.data.revisions {
+    [] ->
+      case change.revision {
+        None -> []
+        Some(revision) -> [RevisionInfo(revision, change.rollback_of)]
+      }
+    revisions -> revisions
+  }
+}
+
+fn inversion_revisions(
+  data: ChangeData,
+  revisions: List(RevisionInfo),
+) -> List(Option(StableId)) {
+  let initial = list.map(revisions, fn(info) { Some(info.revision) })
+  let ids = all_atoms(data)
+  list.fold(ids, initial, fn(revisions, id) {
+    case list.contains(revisions, id.revision) {
+      True -> revisions
+      False -> list.append(revisions, [id.revision])
+    }
+  })
+}
+
+fn reserved_watermark(
+  max_local_id: Int,
+  revision_count: Int,
+) -> Result(Int, TreeError) {
+  case max_local_id, revision_count {
+    -1, _ -> Ok(-1)
+    _, 0 -> Ok(max_local_id)
+    _, _ -> reserve_ranges(max_local_id, revision_count, -1)
+  }
+}
+
+fn reserve_ranges(
+  original_max: Int,
+  count: Int,
+  watermark: Int,
+) -> Result(Int, TreeError) {
+  case count {
+    0 -> Ok(watermark)
+    _ if watermark == -1 -> reserve_ranges(original_max, count - 1, original_max)
+    _ -> {
+      use _ <- result.try(check(
+        original_max < max_safe_integer
+          && original_max + 1 <= max_safe_integer - watermark,
+        "invert",
+        "identifier reservations overflow",
+      ))
+      reserve_ranges(original_max, count - 1, watermark + original_max + 1)
+    }
+  }
+}
+
+fn all_atoms(data: ChangeData) -> List(AtomId) {
+  list.append(
+    field_atoms(data.fields),
+    list.append(
+      list.flat_map(data.nodes, fn(entry) {
+        [entry.0, ..field_atoms(entry.1.fields)]
+      }),
+      list.append(
+        list.flat_map(data.parents, fn(entry) {
+          case entry.1.parent {
+            None -> [entry.0]
+            Some(parent) -> [entry.0, parent]
+          }
+        }),
+        list.append(
+          list.flat_map(data.aliases, fn(entry) { [entry.0, entry.1] }),
+          list.append(
+            list.map(data.builds, fn(build) { build.id }),
+            list.append(
+              list.map(data.destroys, fn(destroy) { destroy.id }),
+              list.map(data.refreshers, fn(build) { build.id }),
+            ),
+          ),
+        ),
+      ),
+    ),
+  )
+}
+
+fn field_atoms(fields: List(#(String, FieldChange))) -> List(AtomId) {
+  list.flat_map(fields, fn(entry) {
+    case entry.1 {
+      GenericField(children) -> list.map(children, fn(child) { child.1 })
+      ValueField(change) | OptionalField(change) -> {
+        let optional_field.FieldChange(moves, children, replacement) = change
+        list.append(
+          list.flat_map(moves, fn(move) { [move.0, move.1] }),
+          list.append(
+            list.flat_map(children, fn(child) {
+              case child.0 {
+                optional_field.Active -> [child.1]
+                optional_field.Detached(id) -> [id, child.1]
+              }
+            }),
+            case replacement {
+              None -> []
+              Some(replacement) ->
+                case replacement.source {
+                  None | Some(optional_field.Active) -> [replacement.detach_id]
+                  Some(optional_field.Detached(id)) -> [
+                    replacement.detach_id,
+                    id,
+                  ]
+                }
+            },
+          ),
+        )
+      }
+    }
+  })
+}
+
+fn rebuild_parents(
+  fields: List(#(String, FieldChange)),
+  nodes: List(#(AtomId, NodeChange)),
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(List(#(AtomId, ParentField)), TreeError) {
+  collect_parents(fields, None, nodes, aliases, [], [])
+}
+
+fn collect_parents(
+  fields: List(#(String, FieldChange)),
+  parent: Option(AtomId),
+  nodes: List(#(AtomId, NodeChange)),
+  aliases: List(#(AtomId, AtomId)),
+  parents: List(#(AtomId, ParentField)),
+  stack: List(AtomId),
+) -> Result(List(#(AtomId, ParentField)), TreeError) {
+  list.try_fold(fields, parents, fn(parents, entry) {
+    list.try_fold(field_children(entry.1), parents, fn(parents, child) {
+      use canonical <- result.try(resolve_alias(child, aliases))
+      use _ <- result.try(check(
+        !list.contains(stack, canonical),
+        "node parents",
+        "node ownership contains a cycle",
+      ))
+      use _ <- result.try(check(
+        pair_value(parents, canonical) == None,
+        "node parents",
+        "node has incompatible ownership",
+      ))
+      use node <- result.try(node_for(canonical, nodes, aliases))
+      let NodeChange(child_fields) = node
+      collect_parents(
+        child_fields,
+        Some(canonical),
+        nodes,
+        aliases,
+        list.append(parents, [
+          #(canonical, ParentField(parent, entry.0)),
+        ]),
+        [canonical, ..stack],
+      )
+    })
+  })
 }
 
 fn collect_replacements(
