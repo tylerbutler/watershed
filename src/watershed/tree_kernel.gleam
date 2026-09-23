@@ -26,6 +26,7 @@ pub opaque type TreeState {
     sequenced: forest.Forest,
     history: history.History,
     local_session: fluid_ids.SessionId,
+    next_local_id: Int,
   )
 }
 
@@ -59,7 +60,7 @@ pub fn restore(
     snapshot.history_snapshot,
     local_session,
   ))
-  Ok(TreeState(snapshot.stored, visible, visible, history, local_session))
+  Ok(TreeState(snapshot.stored, visible, visible, history, local_session, 0))
 }
 
 pub fn read(
@@ -99,12 +100,13 @@ pub fn apply_local(
   edit: Edit,
 ) -> Result(#(TreeState, history.Commit, List(TreeEvent)), TreeError) {
   use _ <- result.try(validate_edit(state, edit))
-  use authored <- result.try(change.edit(
+  use authored <- result.try(change.edit_from(
     state.stored,
     state.visible,
     revision,
     edit,
     order,
+    state.next_local_id,
   ))
   let commit = history.Commit(revision, state.local_session, authored)
   use update <- result.try(history.append_local(state.history, commit))
@@ -114,7 +116,16 @@ pub fn apply_local(
   })
   use visible <- result.try(forest.apply_delta(state.visible, delta))
   use events <- result.try(changed_events(state.visible, visible, True))
-  Ok(#(TreeState(..state, visible:, history: update.history), commit, events))
+  Ok(#(
+    TreeState(
+      ..state,
+      visible:,
+      history: update.history,
+      next_local_id: change.to_data(authored).max_local_id + 1,
+    ),
+    commit,
+    events,
+  ))
 }
 
 pub fn receive(

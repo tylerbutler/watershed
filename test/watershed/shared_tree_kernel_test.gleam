@@ -8,8 +8,8 @@ import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
 import watershed/tree/types.{
-  type TreeError, ClearField, InvalidEdit, NumberValue, ObjectValue, SetField,
-  StringValue,
+  type TreeError, AtomId, ClearField, InvalidEdit, NumberValue, ObjectValue,
+  SetField, StringValue,
 }
 import watershed/tree_kernel
 
@@ -383,4 +383,48 @@ pub fn shared_tree_kernel_optional_set_clear_preserves_absence_test() {
   let assert Ok(#(cleared, _, _)) =
     tree_kernel.apply_local(set, other_revision(), order, ClearField(["note"]))
   tree_kernel.read(cleared, ["note"]) |> expect.to_equal(Ok(None))
+}
+
+pub fn shared_tree_kernel_local_ids_continue_after_ack_test() {
+  let assert Ok(stored) = schema.stored_from_string(optional_schema)
+  let assert Ok(view) = schema.view_from_string(optional_schema)
+  let initial = history.inspect(history.new(session())).sequenced
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      view_id(),
+      stored,
+      forest.ForestData(Some(root()), [], 0),
+      initial,
+    )
+  let assert Ok(state) =
+    tree_kernel.restore(snapshot, view_id(), session(), view)
+  let assert Ok(order) =
+    change.identity_order([#(revision(), -2), #(other_revision(), -1)])
+  let assert Ok(#(set, commit, _)) =
+    tree_kernel.apply_local(
+      state,
+      revision(),
+      order,
+      SetField(["note"], StringValue("present")),
+    )
+  let assert Ok(#(acked, _, Nil)) =
+    tree_kernel.receive(
+      set,
+      commit,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(#(cleared, _, _)) =
+    tree_kernel.apply_local(
+      acked,
+      other_revision(),
+      order,
+      ClearField(["note"]),
+    )
+  let assert Ok(data) = tree_kernel.visible_data(cleared)
+  let assert [detached] = data.detached
+  detached.id |> expect.to_equal(AtomId(Some(other_revision()), 3))
 }

@@ -206,7 +206,23 @@ pub fn edit(
   operation: Edit,
   identity_order: IdentityOrder,
 ) -> Result(Changeset, TreeError) {
+  edit_from(schema, forest, revision, operation, identity_order, 0)
+}
+
+pub fn edit_from(
+  schema: StoredSchema,
+  forest: forest.Forest,
+  revision: StableId,
+  operation: Edit,
+  identity_order: IdentityOrder,
+  first_local_id: Int,
+) -> Result(Changeset, TreeError) {
   use _ <- result.try(require_identity_revision(identity_order, revision))
+  use _ <- result.try(check(
+    first_local_id >= 0 && first_local_id <= max_safe_integer,
+    "change allocator",
+    "invalid next identifier",
+  ))
   let #(path, value) = case operation {
     SetField(path, value) -> #(path, Some(value))
     ClearField(path) -> #(path, None)
@@ -221,6 +237,7 @@ pub fn edit(
     was_empty,
     value,
     revision,
+    first_local_id,
   ))
   use #(fields, nodes, parents, max_local_id) <- result.try(wrap_ancestors(
     is_root,
@@ -2172,29 +2189,30 @@ fn authored_field(
   was_empty: Bool,
   value: Option(TreeValue),
   revision: StableId,
+  first_local_id: Int,
 ) -> Result(#(FieldChange, List(forest.Build), Int), TreeError) {
   case cardinality, value {
     Required, Some(value) -> {
-      let fill = AtomId(Some(revision), 0)
-      let detach = AtomId(Some(revision), 1)
+      use #(fill, next_id) <- result.try(allocate(revision, first_local_id))
+      use #(detach, next_id) <- result.try(allocate(revision, next_id))
       Ok(#(
         ValueField(optional_field.set(False, fill, detach)),
         [forest.Build(fill, [value])],
-        2,
+        next_id,
       ))
     }
     Optional, Some(value) -> {
-      let detach = AtomId(Some(revision), 0)
-      let fill = AtomId(Some(revision), 1)
+      use #(detach, next_id) <- result.try(allocate(revision, first_local_id))
+      use #(fill, next_id) <- result.try(allocate(revision, next_id))
       Ok(#(
         OptionalField(optional_field.set(was_empty, fill, detach)),
         [forest.Build(fill, [value])],
-        2,
+        next_id,
       ))
     }
     Optional, None -> {
-      let detach = AtomId(Some(revision), 0)
-      Ok(#(OptionalField(optional_field.clear(was_empty, detach)), [], 1))
+      use #(detach, next_id) <- result.try(allocate(revision, first_local_id))
+      Ok(#(OptionalField(optional_field.clear(was_empty, detach)), [], next_id))
     }
     Required, None -> Error(InvalidEdit([], "required field is absent"))
   }
