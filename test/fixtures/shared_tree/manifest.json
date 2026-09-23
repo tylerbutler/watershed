@@ -345,6 +345,11 @@
       "id": "summary-foundations",
       "domain": "summary",
       "file": "cases/summary-foundations.json"
+    },
+    {
+      "id": "history-reconciliation",
+      "domain": "history",
+      "file": "cases/history-reconciliation.json"
     }
   ]
 }

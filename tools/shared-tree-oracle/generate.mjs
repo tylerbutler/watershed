@@ -35,6 +35,7 @@ export const requiredCases = [
   ["forest-delta", "forest"],
   ["container-foundations", "container"],
   ["summary-foundations", "summary"],
+  ["history-reconciliation", "history"],
 ];
 
 const forestScenarioIds = [
@@ -88,6 +89,25 @@ const schemaValidationCheckIds = [
   "unicode-and-empty-keys",
   "minimum-finite-number",
   "maximum-finite-number",
+];
+
+const historyScheduleIds = [
+  "local-ack",
+  "remote-between-pending",
+  "same-field-local-first",
+  "same-field-remote-first",
+  "stale-peer-chain",
+  "parent-child-local-first",
+  "parent-child-remote-first",
+  "optional-clear-and-null",
+  "two-inner-commits",
+  "non-tree-sequence-gap",
+  "window-advance-with-pending",
+  "settled-snapshot-tail",
+  "accepted-before-ack",
+  "never-submitted",
+  "resubmit-detached-repair",
+  "nonlexical-rollback-order",
 ];
 
 const identity = { package: "@fluidframework/tree", version: reference.version, commit: reference.commit };
@@ -916,6 +936,226 @@ function validateModularCase(value) {
   }
 }
 
+function validateHistoryCase(value) {
+  const label = "history-reconciliation";
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  const stable = (value, detail) => check(typeof value === "string"
+    && /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value),
+  detail);
+  const safe = (value, detail) => check(Number.isSafeInteger(value), detail);
+  const point = (value, detail) => {
+    check(object(value), `${detail} must be an object`);
+    safe(value.sequenceNumber, `${detail}.sequenceNumber`);
+    safe(value.indexInBatch, `${detail}.indexInBatch`);
+    check(value.indexInBatch >= 0, `${detail}.indexInBatch must be nonnegative`);
+  };
+  const commit = (value, detail) => {
+    check(object(value), `${detail} must be an object`);
+    stable(value.revision, `${detail}.revision`);
+    stable(value.originator, `${detail}.originator`);
+    check(object(value.change) && Array.isArray(value.change.revisions)
+      && Array.isArray(value.change.fields) && Array.isArray(value.change.nodes)
+      && Array.isArray(value.change.parents) && Array.isArray(value.change.aliases)
+      && Array.isArray(value.change.builds) && Array.isArray(value.change.destroys)
+      && Array.isArray(value.change.refreshers), `${detail}.change`);
+  };
+  const build = (value, detail) => {
+    check(object(value) && object(value.id) && nonemptyArray(value.trees), detail);
+    if (value.id.revision !== null) stable(value.id.revision, `${detail}.id.revision`);
+    safe(value.id.localId, `${detail}.id.localId`);
+    for (const tree of value.trees) validateTaggedValue(tree, label);
+  };
+  const history = (value, detail) => {
+    check(object(value) && object(value.sequenced) && Array.isArray(value.pending)
+      && Number.isSafeInteger(value.longestBranchLength)
+      && value.longestBranchLength >= 0, detail);
+    const sequenced = value.sequenced;
+    check(object(sequenced.base)
+      && ["initial", "sequenced"].includes(sequenced.base.kind)
+      && Array.isArray(sequenced.trunk) && Array.isArray(sequenced.peers),
+    `${detail}.sequenced`);
+    if (sequenced.base.kind === "sequenced") point(sequenced.base.point, `${detail}.base.point`);
+    safe(sequenced.sequenceNumber, `${detail}.sequenceNumber`);
+    safe(sequenced.minimumSequenceNumber, `${detail}.minimumSequenceNumber`);
+    for (const [index, entry] of sequenced.trunk.entries()) {
+      check(object(entry), `${detail}.trunk[${index}]`);
+      commit(entry.commit, `${detail}.trunk[${index}].commit`);
+      point(entry.point, `${detail}.trunk[${index}].point`);
+    }
+    const peerSessions = new Set();
+    for (const [index, peer] of sequenced.peers.entries()) {
+      check(object(peer) && Object.hasOwn(peer, "base") && Array.isArray(peer.commits),
+        `${detail}.peers[${index}]`);
+      stable(peer.originator, `${detail}.peers[${index}].originator`);
+      check(!peerSessions.has(peer.originator), `${detail}: duplicate peer session`);
+      peerSessions.add(peer.originator);
+      if (peer.base !== null) stable(peer.base, `${detail}.peers[${index}].base`);
+      for (const [commitIndex, entry] of peer.commits.entries()) {
+        commit(entry, `${detail}.peers[${index}].commits[${commitIndex}]`);
+      }
+    }
+    for (const [index, entry] of value.pending.entries()) {
+      commit(entry, `${detail}.pending[${index}]`);
+    }
+  };
+
+  check(object(value.input.sessions)
+    && Object.keys(value.input.sessions).sort().join(",") === "local,peerA,peerB,restored",
+  "sessions");
+  for (const session of Object.values(value.input.sessions)) stable(session, "session");
+  check(nonemptyArray(value.input.revisions), "revision identity order");
+  const stableIds = new Set();
+  const encodedIds = new Set();
+  for (const revision of value.input.revisions) {
+    stable(revision.stable, "revision stable ID");
+    safe(revision.encoded, "revision encoded ID");
+    check(!stableIds.has(revision.stable), "duplicate stable revision");
+    check(!encodedIds.has(revision.encoded), "duplicate encoded revision");
+    stableIds.add(revision.stable);
+    encodedIds.add(revision.encoded);
+  }
+  check(typeof value.input.schema === "string" && JSON.parse(value.input.schema).version === 2,
+    "stored schema");
+  validateTaggedValue(value.input.root, label);
+  check(object(value.input.changes) && Object.keys(value.input.changes).length > 0,
+    "authored changes");
+  check(nonemptyArray(value.input.schedules)
+    && Array.isArray(value.expected.observations)
+    && Array.isArray(value.raw.schedules), "paired schedules");
+  assert.deepEqual(value.input.schedules.map(({ label: id }) => id), historyScheduleIds,
+    `${label}: input schedule order`);
+  assert.deepEqual(value.expected.observations.map(({ label: id }) => id), historyScheduleIds,
+    `${label}: observation schedule order`);
+  assert.deepEqual(value.raw.schedules.map(({ label: id }) => id), historyScheduleIds,
+    `${label}: raw schedule order`);
+
+  for (const [scheduleIndex, schedule] of value.input.schedules.entries()) {
+    const observed = value.expected.observations[scheduleIndex];
+    const raw = value.raw.schedules[scheduleIndex];
+    check(object(schedule.initial) && stableIds.has(schedule.initial.localSession)
+      && schedule.initial.schema === value.input.schema
+      && object(schedule.initial.forest), `${schedule.label}: initial state`);
+    check(nonemptyArray(schedule.actions)
+      && observed.checkpoints.length === schedule.actions.length
+      && raw.actions.length === schedule.actions.length,
+    `${schedule.label}: action and checkpoint count`);
+    const actionIds = new Set();
+    for (const [index, action] of schedule.actions.entries()) {
+      check(object(action) && typeof action.id === "string" && action.id.length > 0
+        && typeof action.op === "string" && Array.isArray(action.allocations),
+      `${schedule.label}: action ${index}`);
+      check(!actionIds.has(action.id), `${schedule.label}: duplicate action ${action.id}`);
+      actionIds.add(action.id);
+      for (const [allocationIndex, allocation] of action.allocations.entries()) {
+        stable(allocation.revision,
+          `${schedule.label}.${action.id}.allocations[${allocationIndex}].revision`);
+        check(nonemptyArray(allocation.identityOrder),
+          `${schedule.label}.${action.id}.allocations[${allocationIndex}].identityOrder`);
+        check(allocation.identityOrder.some(({ stable: id }) => id === allocation.revision),
+          `${schedule.label}.${action.id}: allocation mapping`);
+      }
+      if (action.op === "append-local") {
+        check(object(action.commit) && typeof action.commit.change === "string",
+          `${schedule.label}.${action.id}: local commit`);
+        stable(action.commit.revision, `${schedule.label}.${action.id}.revision`);
+        stable(action.commit.originator, `${schedule.label}.${action.id}.originator`);
+      } else if (action.op === "receive") {
+        check(object(action.commit), `${schedule.label}.${action.id}: received commit`);
+        point(action.point, `${schedule.label}.${action.id}.point`);
+        safe(action.referenceSequenceNumber,
+          `${schedule.label}.${action.id}.referenceSequenceNumber`);
+        safe(action.minimumSequenceNumber,
+          `${schedule.label}.${action.id}.minimumSequenceNumber`);
+      } else if (action.op === "advance-minimum") {
+        safe(action.sequenceNumber, `${schedule.label}.${action.id}.sequenceNumber`);
+        safe(action.minimumSequenceNumber,
+          `${schedule.label}.${action.id}.minimumSequenceNumber`);
+      } else if (action.op === "snapshot-restore") {
+        stable(action.localSession, `${schedule.label}.${action.id}.localSession`);
+      } else if (action.op === "resubmit") {
+        check(Array.isArray(action.repair), `${schedule.label}.${action.id}.repair`);
+        const repairs = new Set();
+        for (const [repairIndex, entry] of action.repair.entries()) {
+          stable(entry.revision,
+            `${schedule.label}.${action.id}.repair[${repairIndex}].revision`);
+          check(!repairs.has(entry.revision),
+            `${schedule.label}.${action.id}: duplicate repair revision`);
+          repairs.add(entry.revision);
+          check(nonemptyArray(entry.builds),
+            `${schedule.label}.${action.id}.repair[${repairIndex}].builds`);
+          entry.builds.forEach((item, buildIndex) =>
+            build(item, `${schedule.label}.${action.id}.repair[${repairIndex}].builds[${buildIndex}]`));
+        }
+      } else {
+        assert.fail(`${label}: unsupported action ${action.op}`);
+      }
+
+      const checkpoint = observed.checkpoints[index];
+      check(object(checkpoint) && checkpoint.id === action.id
+        && checkpoint.operation === action.op
+        && Object.hasOwn(checkpoint, "delta")
+        && object(checkpoint.forest)
+        && Array.isArray(checkpoint.forest.detached)
+        && Array.isArray(checkpoint.trimmedRevisions)
+        && object(checkpoint.allocator)
+        && Array.isArray(checkpoint.allocator.consumed),
+      `${schedule.label}.${action.id}: checkpoint`);
+      history(checkpoint.history, `${schedule.label}.${action.id}.history`);
+      assert.deepEqual(checkpoint.allocator.consumed, action.allocations,
+        `${label}: ${schedule.label}.${action.id} allocation observations`);
+      for (const revision of checkpoint.trimmedRevisions) {
+        stable(revision, `${schedule.label}.${action.id}.trimmedRevision`);
+      }
+      if (action.op === "snapshot-restore") {
+        check(object(checkpoint.snapshot), `${schedule.label}.${action.id}.snapshot`);
+      }
+      if (action.op === "resubmit") {
+        check(Array.isArray(checkpoint.resubmitted),
+          `${schedule.label}.${action.id}.resubmitted`);
+        checkpoint.resubmitted.forEach((entry, commitIndex) =>
+          commit(entry, `${schedule.label}.${action.id}.resubmitted[${commitIndex}]`));
+      }
+      check(object(raw.actions[index]) && raw.actions[index].id === action.id,
+        `${schedule.label}.${action.id}: raw action`);
+    }
+  }
+
+  const inner = value.expected.observations.find(({ label: id }) => id === "two-inner-commits");
+  assert.deepEqual(inner.checkpoints[1].history.sequenced.trunk.map(({ point: value }) => value),
+    [{ sequenceNumber: 5, indexInBatch: 0 }, { sequenceNumber: 5, indexInBatch: 1 }],
+    `${label}: same-sequence inner ordering`);
+  const trimmed = value.expected.observations
+    .find(({ label: id }) => id === "window-advance-with-pending").checkpoints.at(-1);
+  check(trimmed.history.sequenced.base.kind === "sequenced"
+    && trimmed.history.sequenced.base.point.sequenceNumber === 2
+    && nonemptyArray(trimmed.trimmedRevisions)
+    && trimmed.history.pending.length === 1, "window trimming with pending state");
+  const snapshot = value.expected.observations
+    .find(({ label: id }) => id === "settled-snapshot-tail");
+  check(snapshot.checkpoints.some((item) => object(item.snapshot))
+    && snapshot.checkpoints.at(-1).history.pending.length === 0,
+  "snapshot restore continuation");
+  const accepted = value.expected.observations
+    .find(({ label: id }) => id === "accepted-before-ack").checkpoints.at(-1).resubmitted;
+  check(accepted.length === 1, "accepted-before-ack pending result");
+  const never = value.expected.observations.find(({ label: id }) => id === "never-submitted");
+  const resubmits = never.checkpoints.filter((item) => Array.isArray(item.resubmitted));
+  check(resubmits[0].resubmitted.length === 1
+    && resubmits[1].resubmitted[0].revision === resubmits[0].resubmitted[0].revision
+    && resubmits.at(-1).resubmitted.length === 0, "never-submitted stable resubmission");
+  const detachedRepair = value.input.schedules
+    .find(({ label: id }) => id === "resubmit-detached-repair").actions.at(-1).repair;
+  check(detachedRepair.length === 2, "per-commit detached repair");
+  const firstIds = detachedRepair[0].builds.map(({ id }) => JSON.stringify(id));
+  check(detachedRepair[1].builds.some(({ id }) => firstIds.includes(JSON.stringify(id))),
+    "shared removed root repair");
+  check(JSON.stringify(detachedRepair[0].builds) !== JSON.stringify(detachedRepair[1].builds),
+    "distinct per-commit repair");
+  check(value.raw.nonlexical.left.stable < value.raw.nonlexical.right.stable
+    && value.raw.nonlexical.left.encoded > value.raw.nonlexical.right.encoded,
+  "nonlexical compressed revision order");
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -995,6 +1235,7 @@ export function validateCases(cases) {
     }
     if (value.id === "field-compose-invert-rebase") validateFieldCase(value);
     if (value.id === "modular-nested-algebra") validateModularCase(value);
+    if (value.id === "history-reconciliation") validateHistoryCase(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
         && nonemptyArray(value.input.schedule)
@@ -1227,6 +1468,7 @@ export async function generate({ check = false } = {}) {
       ...await read(join(source, "tree-cases.json")),
       ...await read(join(source, "algebra-cases.json")),
       ...await read(join(source, "forest-cases.json")),
+      ...await read(join(source, "history-cases.json")),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

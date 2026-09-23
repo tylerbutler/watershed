@@ -6,6 +6,7 @@ import { dirname, join } from "node:path";
 import test from "node:test";
 import {
   forestInjectedTestPath,
+  historyInjectedTestPath,
   injectedTestPath,
   modularInjectedTestPath,
   publishCapture,
@@ -124,6 +125,17 @@ test("source verification byte-checks the owned modular injection", async (t) =>
   const { directory, commit } = await checkoutFixture(t);
   const target = join(directory, modularInjectedTestPath);
   const contents = await readFile(new URL("./upstream-modular.spec.ts", import.meta.url));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// changed by someone else\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
+});
+
+test("source verification byte-checks the owned history injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, historyInjectedTestPath);
+  const contents = await readFile(new URL("./upstream-history.spec.ts", import.meta.url));
   await mkdir(dirname(target), { recursive: true });
   await writeFile(target, contents);
   await verifyCheckout(directory, commit);
