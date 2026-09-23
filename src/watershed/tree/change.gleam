@@ -177,6 +177,17 @@ pub fn from_data(
   Ok(Changeset(data, identity_order))
 }
 
+pub fn with_identity_order(
+  change: Changeset,
+  identity_order: IdentityOrder,
+) -> Result(Changeset, TreeError) {
+  use _ <- result.try(merge_identity_orders(
+    change.identity_order,
+    identity_order,
+  ))
+  from_data(change.data, identity_order)
+}
+
 pub fn to_data(change: Changeset) -> ChangeData {
   change.data
 }
@@ -251,6 +262,7 @@ pub fn into_delta(change: TaggedChange) -> Result(forest.Delta, TreeError) {
 
 pub fn compose(changes: List(TaggedChange)) -> Result(Changeset, TreeError) {
   let #(revisions, max_local_id) = composition_metadata(changes)
+  use changes <- result.try(bind_composition_identity_order(changes))
   use composed <- result.try(balanced_compose(
     list.map(changes, fn(change) { change.change }),
     revisions,
@@ -264,6 +276,25 @@ pub fn compose(changes: List(TaggedChange)) -> Result(Changeset, TreeError) {
     ),
     composed.identity_order,
   )
+}
+
+fn bind_composition_identity_order(
+  changes: List(TaggedChange),
+) -> Result(List(TaggedChange), TreeError) {
+  case changes {
+    [] -> Ok([])
+    [first, ..rest] -> {
+      use identity_order <- result.try(
+        list.try_fold(rest, first.change.identity_order, fn(order, tagged) {
+          merge_identity_orders(order, tagged.change.identity_order)
+        }),
+      )
+      list.try_map(changes, fn(tagged) {
+        use checked <- result.try(from_data(tagged.change.data, identity_order))
+        Ok(TaggedChange(..tagged, change: checked))
+      })
+    }
+  }
 }
 
 pub fn replace_revisions(
@@ -1447,15 +1478,11 @@ fn compose_pair(
     first_data.aliases,
     second_data.aliases,
   ))
-  let state =
-    ComposeState(
-      merge_pairs(first_data.nodes, second_data.nodes),
-      merge_pairs(first_data.parents, second_data.parents),
-      aliases,
-      first_data,
-      second_data,
-      [],
-    )
+  let merged_nodes = merge_pairs(first_data.nodes, second_data.nodes)
+  let merged_parents = merge_pairs(first_data.parents, second_data.parents)
+  use nodes <- result.try(canonicalize_pair_keys(merged_nodes, aliases))
+  use parents <- result.try(canonicalize_pair_keys(merged_parents, aliases))
+  let state = ComposeState(nodes, parents, aliases, first_data, second_data, [])
   use #(fields, state) <- result.try(compose_field_maps(
     first_data.fields,
     second_data.fields,
@@ -1479,6 +1506,23 @@ fn compose_pair(
     ),
     identity_order,
   )
+}
+
+fn canonicalize_pair_keys(
+  entries: List(#(AtomId, value)),
+  aliases: List(#(AtomId, AtomId)),
+) -> Result(List(#(AtomId, value)), TreeError) {
+  list.try_fold(entries, [], fn(output, entry) {
+    use canonical <- result.try(resolve_alias(entry.0, aliases))
+    case canonical != entry.0 && pair_value(entries, canonical) != None {
+      True -> Ok(output)
+      False ->
+        case pair_value(output, canonical) {
+          Some(_) -> Ok(output)
+          None -> Ok(list.append(output, [#(canonical, entry.1)]))
+        }
+    }
+  })
 }
 
 fn compose_field_maps(
@@ -1974,7 +2018,11 @@ fn identity_key(
   let IdentityOrder(entries) = identity_order
   case pair_value(entries, revision) {
     Some(key) -> Ok(key)
-    None -> Error(InvalidHistory("identity order is missing a revision"))
+    None ->
+      Error(InvalidHistory(
+        "identity order is missing revision "
+        <> fluid_ids.stable_id_to_string(revision),
+      ))
   }
 }
 
