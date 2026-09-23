@@ -304,6 +304,7 @@ pub fn shared_tree_history_retained_duplicate_does_not_ack_next_test() -> Nil {
     )
   history.pending(duplicate.history) |> expect.to_equal([second])
   duplicate.delta |> expect.to_equal(None)
+  duplicate.sequenced_delta |> expect.to_equal(None)
 }
 
 pub fn shared_tree_history_retained_duplicate_rejects_conflicts_test() -> Nil {
