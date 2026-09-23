@@ -80,6 +80,14 @@ pub fn snapshot_parts(
   #(snapshot.stored, snapshot.forest_data, snapshot.history_snapshot)
 }
 
+pub fn visible_data(state: TreeState) -> Result(forest.ForestData, TreeError) {
+  forest.export_data(state.visible)
+}
+
+pub fn history_view(state: TreeState) -> history.HistoryView {
+  history.inspect(state.history)
+}
+
 pub fn validate_edit(state: TreeState, edit: Edit) -> Result(Nil, TreeError) {
   change.validate_edit(state.stored, state.visible, edit)
 }

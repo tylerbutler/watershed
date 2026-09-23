@@ -167,6 +167,11 @@ pub fn shared_tree_kernel_edits_locally_without_snapshotting_pending_test() {
   events |> expect.to_equal([tree_kernel.TreeChanged(True)])
   tree_kernel.read(edited, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  let assert Ok(visible_data) = tree_kernel.visible_data(edited)
+  visible_data.root |> expect.to_not_equal(Some(root()))
+  list.length(visible_data.detached) |> expect.to_equal(1)
+  tree_kernel.history_view(edited).pending
+  |> expect.to_equal([commit])
   tree_kernel.snapshot(edited) |> expect.to_equal(Ok(before))
   let assert Ok(#(acked, events, Nil)) =
     tree_kernel.receive(
