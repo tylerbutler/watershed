@@ -36,6 +36,7 @@ export const requiredCases = [
   ["container-foundations", "container"],
   ["summary-foundations", "summary"],
   ["history-reconciliation", "history"],
+  ["tree-codecs", "codec"],
 ];
 
 const forestScenarioIds = [
@@ -1255,6 +1256,116 @@ function validateHistoryCase(value) {
   "nonlexical immutable peer node rollback reuse");
 }
 
+export function validateCodecCase(value) {
+  const label = "tree-codecs";
+  const check = (condition, detail) => assert(condition, `${label}: ${detail}`);
+  check(object(value) && value.id === label && value.domain === "codec", "identity");
+  const input = value.input;
+  check(object(input), "input");
+  assert.deepEqual(input.profile, {
+    message: 7,
+    sharedTreeChange: 5,
+    modularChange: 5,
+    optionalField: 2,
+    genericField: 1,
+    fieldBatch: 2,
+    schema: 2,
+    forest: 2,
+    detachedFieldIndex: 2,
+    editManager: 7,
+  }, `${label}: profile`);
+
+  check(nonemptyArray(input.scenarios), "scenarios");
+  const scenarioIds = new Set();
+  for (const scenario of input.scenarios) {
+    check(object(scenario) && typeof scenario.id === "string" && scenario.id.length > 0
+      && !scenarioIds.has(scenario.id), "duplicate or missing scenario ID");
+    scenarioIds.add(scenario.id);
+    for (const field of ["session", "compressor", "peerSession", "peerCompressor",
+      "settledCompressor"]) {
+      check(typeof scenario[field] === "string" && scenario[field].length > 0,
+        `${scenario.id}: ${field}`);
+    }
+    check(nonemptyArray(scenario.allocationMessages), `${scenario.id}: allocationMessages`);
+    check(nonemptyArray(scenario.actions), `${scenario.id}: actions`);
+    check(nonemptyArray(scenario.messages), `${scenario.id}: messages`);
+    for (const raw of scenario.messages) {
+      check(typeof raw === "string" && raw.length > 0, `${scenario.id}: raw message`);
+      const message = JSON.parse(raw);
+      check(object(message) && message.version === 7
+        && typeof message.originatorId === "string"
+        && Array.isArray(message.changeset), `${scenario.id}: message envelope`);
+    }
+    check(summary(scenario.initialSummary) && summary(scenario.settledSummary),
+      `${scenario.id}: summaries`);
+  }
+
+  check(Array.isArray(input.schemas), "schemas");
+  assert.deepEqual(input.schemas.map(({ id }) => id), ["fixed", "empty", "optional"],
+    `${label}: schema IDs`);
+  for (const schema of input.schemas) {
+    check(object(schema) && typeof schema.raw === "string", `${schema?.id}: schema`);
+    const parsed = JSON.parse(schema.raw);
+    check(object(parsed) && parsed.version === 2 && object(parsed.nodes) && object(parsed.root),
+      `${schema.id}: schema value`);
+  }
+
+  check(Array.isArray(input.fieldBatches), "field batches");
+  assert.deepEqual(input.fieldBatches.map(({ id }) => id), [
+    "initial-forest-compressed",
+    "initial-build-compressed",
+    "simple-uncompressed",
+  ], `${label}: field batch IDs`);
+  for (const field of input.fieldBatches) {
+    check(object(field) && object(field.encoded) && field.encoded.version === 2
+      && Array.isArray(field.encoded.identifiers)
+      && Array.isArray(field.encoded.shapes)
+      && Array.isArray(field.encoded.data), `${field?.id}: field batch`);
+  }
+
+  const metadata = input.metadataMessage;
+  check(object(metadata) && typeof metadata.raw === "string"
+    && typeof metadata.session === "string" && typeof metadata.compressor === "string",
+  "metadata message context");
+  const metadataMessage = JSON.parse(metadata.raw);
+  check(object(metadataMessage) && object(metadataMessage.customMetadata)
+    && Object.keys(metadataMessage).some((key) =>
+      !["revision", "originatorId", "changeset", "version", "customMetadata"].includes(key)),
+  "metadata and tolerated envelope property");
+
+  check(Array.isArray(input.summaries), "summaries");
+  assert.deepEqual(input.summaries.map(({ id }) => id), ["initial", "settled-detached"],
+    `${label}: summary IDs`);
+  for (const entry of input.summaries) {
+    check(object(entry) && summary(entry.summary)
+      && typeof entry.session === "string" && entry.session.length > 0
+      && typeof entry.compressor === "string" && entry.compressor.length > 0,
+    `${entry?.id}: summary context`);
+  }
+
+  check(object(value.expected) && nonemptyArray(value.expected.observations),
+    "expected observations");
+  const observations = new Set(value.expected.observations.map(({ id }) => id));
+  for (const id of ["bootstrap-history", "initial-schema", "initial-forest",
+    "initial-detached", "settled-history", "settled-forest", "settled-detached", "metadata"]) {
+    check(observations.has(id), `missing observation ${id}`);
+  }
+
+  check(object(value.raw) && Array.isArray(value.raw.scenarios)
+    && value.raw.scenarios.length === input.scenarios.length
+    && object(value.raw.blobs), "raw evidence");
+  assert.deepEqual(value.raw.scenarios.map(({ id }) => id), [...scenarioIds],
+    `${label}: raw scenario order`);
+  for (const name of ["initial", "settled"]) {
+    const blobs = value.raw.blobs[name];
+    check(object(blobs), `raw ${name} blobs`);
+    for (const field of ["history", "schema", "forest", "detached"]) {
+      check(typeof blobs[field] === "string" && blobs[field].length > 0,
+        `raw ${name}.${field}`);
+    }
+  }
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -1335,6 +1446,7 @@ export function validateCases(cases) {
     if (value.id === "field-compose-invert-rebase") validateFieldCase(value);
     if (value.id === "modular-nested-algebra") validateModularCase(value);
     if (value.id === "history-reconciliation") validateHistoryCase(value);
+    if (value.id === "tree-codecs") validateCodecCase(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
         && nonemptyArray(value.input.schedule)
@@ -1570,6 +1682,7 @@ export async function generate({ check = false } = {}) {
       ...await read(join(source, "algebra-cases.json")),
       ...await read(join(source, "forest-cases.json")),
       ...await read(join(source, "history-cases.json")),
+      ...await read(join(source, "codec-cases.json")),
       ...await read(join(container, "container-cases.json")),
     ];
     const malformed = cases.find((item) => item.id === "id-ranges")?.raw.malformedAllocation;

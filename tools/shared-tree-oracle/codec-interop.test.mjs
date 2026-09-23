@@ -1,0 +1,87 @@
+import assert from "node:assert/strict";
+import test from "node:test";
+
+const reference = {
+  package: "@fluidframework/tree",
+  version: "3.1.0",
+  commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+};
+
+function artifact() {
+  return {
+    formatVersion: 1,
+    reference: { ...reference },
+    target: "erlang",
+    items: [
+      {
+        id: "native-string",
+        kind: "fieldBatch",
+        encoded: {
+          version: 2,
+          identifiers: [],
+          shapes: [{ c: { extraFields: 1 } }, { a: 0 }],
+          data: [[1, ["com.fluidframework.leaf.string", true, "native", []]]],
+        },
+      },
+    ],
+  };
+}
+
+test("codec interop exposes a fail-closed coordinator", async () => {
+  const module = await import("./codec-interop.mjs");
+  assert.equal(typeof module.validateNativeArtifact, "function");
+  assert.equal(typeof module.runCodecInterop, "function");
+});
+
+test("native codec artifact validation accepts a complete nonempty artifact", async () => {
+  const { validateNativeArtifact } = await import("./codec-interop.mjs");
+  assert.doesNotThrow(() => validateNativeArtifact(artifact()));
+});
+
+test("native codec artifact validation rejects stale, empty, duplicate, and incomplete data", async () => {
+  const { validateNativeArtifact } = await import("./codec-interop.mjs");
+  for (const mutate of [
+    (value) => { value.formatVersion = 2; },
+    (value) => { value.reference.commit = "other"; },
+    (value) => { value.target = "native"; },
+    (value) => { value.items = []; },
+    (value) => { value.items.push(structuredClone(value.items[0])); },
+    (value) => { value.items[0].kind = "unknown"; },
+    (value) => { delete value.items[0].encoded; },
+  ]) {
+    const value = artifact();
+    mutate(value);
+    assert.throws(() => validateNativeArtifact(value));
+  }
+});
+
+test("message and summary artifacts require their explicit compressor context", async () => {
+  const { validateNativeArtifact } = await import("./codec-interop.mjs");
+  for (const kind of ["message", "summary"]) {
+    const value = artifact();
+    value.items[0] = {
+      id: `native-${kind}`,
+      kind,
+      encoded: {},
+      compressor: "serialized",
+      compressorMode: "ongoing",
+      session: "11111111-1111-4111-8111-111111111111",
+    };
+    if (kind === "message") {
+      Object.assign(value.items[0], {
+        initialSummary: {},
+        allocationRanges: [],
+        sequenceNumber: 1,
+        referenceSequenceNumber: 0,
+        minimumSequenceNumber: 0,
+        indexInBatch: null,
+      });
+    }
+    assert.doesNotThrow(() => validateNativeArtifact(value));
+    delete value.items[0].compressor;
+    assert.throws(() => validateNativeArtifact(value), /compressor/);
+    value.items[0].compressor = "serialized";
+    delete value.items[0].compressorMode;
+    assert.throws(() => validateNativeArtifact(value), /compressorMode/);
+  }
+});

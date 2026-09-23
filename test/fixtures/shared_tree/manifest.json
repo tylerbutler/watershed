@@ -352,6 +352,11 @@
       "id": "history-reconciliation",
       "domain": "history",
       "file": "cases/history-reconciliation.json"
+    },
+    {
+      "id": "tree-codecs",
+      "domain": "codec",
+      "file": "cases/tree-codecs.json"
     }
   ]
 }

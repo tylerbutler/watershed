@@ -12,6 +12,7 @@ const oracleSource = join(directory, "upstream-oracle.spec.ts");
 const forestSource = join(directory, "upstream-forest.spec.ts");
 const modularSource = join(directory, "upstream-modular.spec.ts");
 const historySource = join(directory, "upstream-history.spec.ts");
+const codecsSource = join(directory, "upstream-codecs.spec.ts");
 
 export const reference = {
   version: "3.1.0",
@@ -36,12 +37,14 @@ export const injectedTestPath = "packages/dds/tree/src/test/watershedOracle.spec
 export const forestInjectedTestPath = "packages/dds/tree/src/test/watershedForest.spec.ts";
 export const modularInjectedTestPath = "packages/dds/tree/src/test/watershedModular.spec.ts";
 export const historyInjectedTestPath = "packages/dds/tree/src/test/watershedHistory.spec.ts";
+export const codecsInjectedTestPath = "packages/dds/tree/src/test/watershedCodecs.spec.ts";
 const injections = new Map([
   [injectedTestPath, oracleSource],
   ["packages/dds/tree/src/test/watershedAlgebra.spec.ts", join(directory, "upstream-algebra.spec.ts")],
   [forestInjectedTestPath, forestSource],
   [modularInjectedTestPath, modularSource],
   [historyInjectedTestPath, historySource],
+  [codecsInjectedTestPath, codecsSource],
 ]);
 
 export async function verifyPackages(root = directory) {
@@ -229,8 +232,29 @@ export async function captureSource(output) {
   await publishCapture(output, (temporary) => runSource(temporary));
 }
 
+export async function runCodecConsumer(inputFile, outputDirectory) {
+  await verifyPackages();
+  await verifyCheckout();
+  await injectOracle();
+  const tree = join(checkout, "packages/dds/tree");
+  await pnpm(["run", "build:compile"], tree);
+  await pnpm(["run", "build:test:esm"], tree);
+  await mkdir(outputDirectory, { recursive: true });
+  await pnpm([
+    "exec", "mocha", "--no-config", "--fail-zero", "--timeout", "30000",
+    "--node-option", "conditions=allow-ff-test-exports",
+    "lib/test/watershedCodecs.spec.js",
+  ], tree, {
+    ...process.env,
+    WATERSHED_ORACLE_CODEC_INPUT: resolve(inputFile),
+    WATERSHED_ORACLE_CODEC_OUTPUT: resolve(outputDirectory),
+    WATERSHED_ORACLE_COMMIT: reference.commit,
+  }, 90_000);
+  await verifyCheckout();
+}
+
 async function main() {
-  const [command, output] = process.argv.slice(2);
+  const [command, input, output] = process.argv.slice(2);
   switch (command) {
     case "prepare":
       await prepareSource();
@@ -242,10 +266,19 @@ async function main() {
       }, null, 2));
       break;
     case "generate":
-      await captureSource(resolve(output ?? join(directory, ".output/source")));
+      await captureSource(resolve(input ?? join(directory, ".output/source")));
+      break;
+    case "codec-consume":
+      if (input === undefined || output === undefined) {
+        throw new Error("Usage: node source.mjs codec-consume <input-file> <output-directory>");
+      }
+      await runCodecConsumer(input, output);
       break;
     default:
-      throw new Error("Usage: node source.mjs prepare|verify|generate [output-directory]");
+      throw new Error(
+        "Usage: node source.mjs prepare|verify|generate [output-directory]"
+          + "|codec-consume <input-file> <output-directory>",
+      );
   }
 }
 

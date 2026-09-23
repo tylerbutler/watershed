@@ -5,6 +5,7 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
+import * as generator from "./generate.mjs";
 import { compareDirectories, requiredCases, validateCases, writeCorpus } from "./generate.mjs";
 
 const schemaValidationCheckIds = [
@@ -46,6 +47,127 @@ function cases(exclude = []) {
     new URL(`../../test/fixtures/shared_tree/cases/${id}.json`, import.meta.url), "utf8",
   )));
 }
+
+function codecCaseFixture() {
+  const summary = {
+    type: 1,
+    tree: {
+      ".metadata": { type: 2, content: "{\"version\":2}" },
+      indexes: { type: 1, tree: {} },
+    },
+  };
+  const message = {
+    revision: 0,
+    originatorId: "11111111-1111-4111-8111-111111111111",
+    changeset: [{ data: { maxId: 0, changes: [] } }],
+    version: 7,
+  };
+  const fieldBatch = {
+    version: 2,
+    identifiers: [],
+    shapes: [{ c: { extraFields: 1 } }, { a: 0 }],
+    data: [[1, []]],
+  };
+  return {
+    formatVersion: 1,
+    reference: {
+      package: "@fluidframework/tree",
+      version: "3.1.0",
+      commit: "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960",
+    },
+    id: "tree-codecs",
+    domain: "codec",
+    input: {
+      profile: {
+        message: 7,
+        sharedTreeChange: 5,
+        modularChange: 5,
+        optionalField: 2,
+        genericField: 1,
+        fieldBatch: 2,
+        schema: 2,
+        forest: 2,
+        detachedFieldIndex: 2,
+        editManager: 7,
+      },
+      scenarios: [{
+        id: "ordinary",
+        session: "11111111-1111-4111-8111-111111111111",
+        compressor: "serialized",
+        peerSession: "22222222-2222-4222-8222-222222222222",
+        peerCompressor: "peer-serialized",
+        allocationMessages: [{ contents: { type: "idAllocation" } }],
+        actions: [{ op: "set" }],
+        messages: [JSON.stringify(message)],
+        initialSummary: summary,
+        settledSummary: summary,
+        settledCompressor: "settled",
+      }],
+      schemas: [
+        { id: "fixed", raw: "{\"version\":2,\"nodes\":{},\"root\":{\"kind\":\"Value\",\"types\":[\"x\"]}}" },
+        { id: "empty", raw: "{\"version\":2,\"nodes\":{},\"root\":{\"kind\":\"Forbidden\",\"types\":[]}}" },
+        { id: "optional", raw: "{\"version\":2,\"nodes\":{},\"root\":{\"kind\":\"Optional\",\"types\":[\"x\"]}}" },
+      ],
+      fieldBatches: [
+        { id: "initial-forest-compressed", encoded: fieldBatch },
+        { id: "initial-build-compressed", encoded: fieldBatch },
+        { id: "simple-uncompressed", encoded: fieldBatch },
+      ],
+      metadataMessage: {
+        raw: JSON.stringify({ ...message, customMetadata: { m: { value: true } }, extra: true }),
+        session: "11111111-1111-4111-8111-111111111111",
+        compressor: "serialized",
+      },
+      summaries: [
+        { id: "initial", summary, session: "11111111-1111-4111-8111-111111111111", compressor: "serialized" },
+        { id: "settled-detached", summary, session: "11111111-1111-4111-8111-111111111111", compressor: "settled" },
+      ],
+    },
+    expected: {
+      observations: [
+        { id: "bootstrap-history", value: { version: 7, trunk: [], branches: [] } },
+        { id: "initial-schema", value: {} },
+        { id: "initial-forest", value: {} },
+        { id: "initial-detached", value: {} },
+        { id: "settled-history", value: {} },
+        { id: "settled-forest", value: {} },
+        { id: "settled-detached", value: {} },
+        { id: "metadata", value: { m: { value: true } } },
+      ],
+    },
+    raw: {
+      scenarios: [{ id: "ordinary", messages: [{}], initialSummary: summary, settledSummary: summary }],
+      blobs: {
+        initial: { history: "{}", schema: "{}", forest: "{}", detached: "{}" },
+        settled: { history: "{}", schema: "{}", forest: "{}", detached: "{}" },
+      },
+    },
+  };
+}
+
+test("tree codec case validator requires complete replayable evidence", () => {
+  assert.doesNotThrow(() => generator.validateCodecCase(codecCaseFixture()));
+});
+
+test("tree codec case validator rejects missing context and observations", () => {
+  for (const mutate of [
+    (value) => { delete value.input.scenarios[0].compressor; },
+    (value) => { value.input.scenarios[0].messages = []; },
+    (value) => { delete value.raw.blobs.initial.detached; },
+    (value) => { value.expected.observations = []; },
+    (value) => { value.input.fieldBatches[0].encoded.version = 99; },
+    (value) => { value.input.scenarios.push(structuredClone(value.input.scenarios[0])); },
+  ]) {
+    const value = codecCaseFixture();
+    mutate(value);
+    assert.throws(() => generator.validateCodecCase(value), /tree-codecs/);
+  }
+});
+
+test("corpus requires the tree codecs case", () => {
+  assert.equal(requiredCases.length, 26);
+  assert.deepEqual(requiredCases.at(-1), ["tree-codecs", "codec"]);
+});
 
 test("corpus validation requires independent container and summary foundations", () => {
   const originalCases = cases(["container-foundations", "summary-foundations"]);
@@ -241,7 +363,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
 });
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 25);
+  assert.equal(requiredCases.length, 26);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);

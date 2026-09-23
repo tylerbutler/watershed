@@ -4,6 +4,7 @@ import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promis
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import test from "node:test";
+import * as source from "./source.mjs";
 import {
   forestInjectedTestPath,
   historyInjectedTestPath,
@@ -140,6 +141,25 @@ test("source verification byte-checks the owned history injection", async (t) =>
   await writeFile(target, contents);
   await verifyCheckout(directory, commit);
   await writeFile(target, "// changed by someone else\n");
+  await assert.rejects(verifyCheckout(directory, commit), /injected/);
+});
+
+test("source runner declares the owned codec injection", () => {
+  assert.equal(
+    source.codecsInjectedTestPath,
+    "packages/dds/tree/src/test/watershedCodecs.spec.ts",
+  );
+  assert.equal(typeof source.runCodecConsumer, "function");
+});
+
+test("source verification byte-checks the owned codec injection", async (t) => {
+  const { directory, commit } = await checkoutFixture(t);
+  const target = join(directory, source.codecsInjectedTestPath);
+  const contents = await readFile(new URL("./upstream-codecs.spec.ts", import.meta.url));
+  await mkdir(dirname(target), { recursive: true });
+  await writeFile(target, contents);
+  await verifyCheckout(directory, commit);
+  await writeFile(target, "// unexpected replacement\n");
   await assert.rejects(verifyCheckout(directory, commit), /injected/);
 });
 
