@@ -192,6 +192,34 @@
         },
         "blobEncoding": "base64"
       },
+      "deliveryPrefix": [
+        {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": null,
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 1,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "join",
+          "data": "{\"clientId\":\"ece66ab2-742b-47c9-85cc-6be18047b1f0\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:6facfa44-153c-4808-af82-1d13e8ff3b45\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"3cc3f48c-db02-4c55-8ca7-1fe645f4bdb5\",\"name\":\"3cc3f48c-db02\"}}}",
+          "expHash1": "-13d9f53c"
+        },
+        {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": null,
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 2,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "join",
+          "data": "{\"clientId\":\"2aeace6c-8225-4d61-aa70-0d88d867038c\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:dd115060-1440-470e-b1d6-b8c37eb703c2\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"c4ff2bc8-a33b-426a-93bc-9fa2fac31c18\",\"name\":\"c4ff2bc8-a33b\"}}}",
+          "expHash1": "564c0baa"
+        }
+      ],
       "bootstrapMessages": [
         {
           "clientId": "2aeace6c-8225-4d61-aa70-0d88d867038c",
@@ -258,11 +286,11 @@
       },
       {
         "checkpoint": "missing-tree-handle",
-        "rejection": "Bootstrap tree handle is missing\n+ actual - expected\n\n+ 'undefined'\n- 'function'\n"
+        "rejection": "missing-tree-handle"
       },
       {
         "checkpoint": "wrong-tree-handle-kind",
-        "rejection": "Bootstrap handle is not a tree\n+ actual - expected\n\n+ 'https://graph.microsoft.com/types/map'\n- 'https://graph.microsoft.com/types/tree'\n                                     ^\n"
+        "rejection": "wrong-tree-handle-kind"
       }
     ]
   },
@@ -623,6 +651,10 @@
         "traces": []
       }
     ],
+    "bootstrapRejections": {
+      "missing": "Bootstrap tree handle is missing\n+ actual - expected\n\n+ 'undefined'\n- 'function'\n",
+      "wrongKind": "Bootstrap handle is not a tree\n+ actual - expected\n\n+ 'https://graph.microsoft.com/types/map'\n- 'https://graph.microsoft.com/types/tree'\n                                     ^\n"
+    },
     "summary": {
       "submitted": {
         "stage": "submit",

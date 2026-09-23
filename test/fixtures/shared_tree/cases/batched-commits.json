@@ -35,6 +35,41 @@
         ]
       }
     ],
+    "writer": {
+      "initialClientId": "fb880d34-1aa4-443b-9707-d168d8a5768f",
+      "sessionId": "0d2ed6cf-580d-4d44-b916-22dec35bfb73",
+      "compressor": "AAAAAAAAAEAAAAAAAADwPwAAAAAAAPA/AAAAAAAA8D9z+1vD3iIWOVE3YD1buzQAAAAAAAAAAAAAAAAAAAiAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAAAAQAAAAAAAAPA/AAAAAAAA8D8AAAAAAADwPw==",
+      "clientId": "3966f62e-8d91-4c3a-9675-3b760f14be63"
+    },
+    "localEdits": [
+      {
+        "path": [
+          "title"
+        ],
+        "value": {
+          "kind": "string",
+          "value": "batched"
+        }
+      },
+      {
+        "path": [
+          "enabled"
+        ],
+        "value": {
+          "kind": "boolean",
+          "value": true
+        }
+      },
+      {
+        "path": [
+          "rating"
+        ],
+        "value": {
+          "kind": "number",
+          "value": 3
+        }
+      }
+    ],
     "decoderInput": {
       "initialSnapshot": {
         "version": {
@@ -167,6 +202,34 @@
         },
         "blobEncoding": "base64"
       },
+      "deliveryPrefix": [
+        {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": null,
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 1,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "join",
+          "data": "{\"clientId\":\"e4268f12-8c96-400d-ac32-58903a6aec70\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:86d33de4-24a6-4c26-aa00-b1742dccc117\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"432ba8db-7831-4d99-a6ed-c2877912eb9b\",\"name\":\"432ba8db-7831\"}}}",
+          "expHash1": "6a62296e"
+        },
+        {
+          "clientId": null,
+          "clientSequenceNumber": -1,
+          "contents": null,
+          "minimumSequenceNumber": 0,
+          "referenceSequenceNumber": -1,
+          "sequenceNumber": 2,
+          "timestamp": 1700000000000,
+          "traces": [],
+          "type": "join",
+          "data": "{\"clientId\":\"3966f62e-8d91-4c3a-9675-3b760f14be63\",\"detail\":{\"details\":{\"capabilities\":{\"interactive\":true},\"environment\":\"; loaderVersion:3.1.0; containerId:0f796255-b8e4-4278-a445-4c3e1c81acf6\"},\"mode\":\"write\",\"permission\":[],\"scopes\":[\"doc:read\",\"doc:write\"],\"user\":{\"id\":\"6b9ee8be-81b3-4333-8c83-6d8496e428ed\",\"name\":\"6b9ee8be-81b3\"}}}",
+          "expHash1": "-8eff0cc"
+        }
+      ],
       "groupedWireMessages": [
         {
           "clientId": "3966f62e-8d91-4c3a-9675-3b760f14be63",
@@ -200,7 +263,8 @@
             "x": 0,
             "y": 0
           }
-        }
+        },
+        "pendingCount": 3
       },
       {
         "checkpoint": "peer-after-delivery",
@@ -213,7 +277,8 @@
             "x": 0,
             "y": 0
           }
-        }
+        },
+        "pendingCount": 0
       }
     ]
   },

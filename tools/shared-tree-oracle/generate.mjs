@@ -1320,6 +1320,55 @@ export function validateCodecCase(value) {
   }
 }
 
+export function validateRuntimeCase(value) {
+  const label = value.id;
+  const input = value.input?.decoderInput;
+  const snapshot = input?.initialSnapshot;
+  const attributesId = snapshot?.tree?.trees?.[".protocol"]?.blobs?.attributes;
+  assert(typeof attributesId === "string" && typeof snapshot.blobs?.[attributesId] === "string",
+    `${label}: missing runtime prefix snapshot attributes`);
+  const attributes = JSON.parse(Buffer.from(snapshot.blobs[attributesId], "base64"));
+  const operations = label === "bootstrap-map-handles"
+    ? input.bootstrapMessages : input.groupedWireMessages;
+  assert(nonemptyArray(operations), `${label}: missing runtime operations`);
+  assert(Array.isArray(input.deliveryPrefix), `${label}: missing runtime delivery prefix`);
+  const messages = [...input.deliveryPrefix, ...operations];
+  assert.deepEqual(messages.map(({ sequenceNumber }) => sequenceNumber),
+    Array.from({ length: messages.length }, (_, index) => attributes.sequenceNumber + index + 1),
+    `${label}: noncontiguous runtime delivery prefix`);
+  assert.deepEqual(messages, value.raw.messages.filter(({ sequenceNumber }) =>
+    sequenceNumber > attributes.sequenceNumber
+      && sequenceNumber <= operations.at(-1).sequenceNumber),
+  `${label}: runtime delivery prefix differs from captured messages`);
+  if (label === "batched-commits") {
+    assert.equal(value.input.writer?.clientId, operations[0].clientId,
+      `${label}: writer transport identity`);
+    for (const key of ["initialClientId", "sessionId", "compressor"]) {
+      assert(typeof value.input.writer?.[key] === "string"
+        && value.input.writer[key].length > 0, `${label}: writer ${key}`);
+    }
+    assert.deepEqual(value.input.localEdits, [
+      { path: ["title"], value: { kind: "string", value: "batched" } },
+      { path: ["enabled"], value: { kind: "boolean", value: true } },
+      { path: ["rating"], value: { kind: "number", value: 3 } },
+    ], `${label}: local edit inputs`);
+    assert.deepEqual(value.expected.observations.map(({ checkpoint, pendingCount }) =>
+      ({ checkpoint, pendingCount })), [
+      { checkpoint: "local-after-batch", pendingCount: 3 },
+      { checkpoint: "peer-after-delivery", pendingCount: 0 },
+    ], `${label}: pending checkpoint evidence`);
+  } else {
+    for (const category of ["missing-tree-handle", "wrong-tree-handle-kind"]) {
+      assert.equal(value.expected.observations.find(({ checkpoint }) =>
+        checkpoint === category)?.rejection, category, `${label}: ${category}`);
+    }
+    assert.match(value.raw.bootstrapRejections?.missing ?? "", /^Bootstrap tree handle is missing/,
+      `${label}: missing handle evidence`);
+    assert.match(value.raw.bootstrapRejections?.wrongKind ?? "", /^Bootstrap handle is not a tree/,
+      `${label}: wrong handle kind evidence`);
+  }
+}
+
 export function validateCases(cases) {
   assert(Array.isArray(cases) && cases.length > 0, "The corpus is empty");
   const ids = new Set();
@@ -1368,8 +1417,10 @@ export function validateCases(cases) {
       `${value.id}: missing container wire or snapshot evidence`);
       if (value.id === "bootstrap-map-handles") {
         assert(nonemptyArray(input.bootstrapMessages), `${value.id}: missing SharedMap operations`);
+        validateRuntimeCase(value);
       } else if (value.id === "batched-commits") {
         assert(nonemptyArray(input.groupedWireMessages), `${value.id}: missing grouped operations`);
+        validateRuntimeCase(value);
       } else if (value.id === "reconnect-before-ack") {
         for (const name of ["acceptedBeforeAck", "neverSubmitted"]) {
           assert(input[name]?.pendingLocalState?.encoding === "utf8"
@@ -1590,13 +1641,13 @@ export async function writeCorpus(output, cases, smoke) {
         "id-ranges", "schema-validation", "forest-delta",
         "field-compose-invert-rebase", "modular-nested-algebra",
         "container-foundations", "summary-foundations",
-        "history-reconciliation", "tree-codecs",
+        "history-reconciliation", "tree-codecs", "tree-kernel",
       ],
       erlang: [
         "id-ranges", "schema-validation", "forest-delta",
         "field-compose-invert-rebase", "modular-nested-algebra",
         "container-foundations", "summary-foundations",
-        "history-reconciliation", "tree-codecs",
+        "history-reconciliation", "tree-codecs", "tree-kernel",
       ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),

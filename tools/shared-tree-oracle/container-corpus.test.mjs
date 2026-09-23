@@ -9,6 +9,7 @@ import {
   captureContainers,
   validateContainerSnapshotProfile,
 } from "./container-corpus.mjs";
+import { validateRuntimeCase } from "./generate.mjs";
 
 const execute = promisify(execFile);
 const expectedCases = [
@@ -88,6 +89,57 @@ test("container snapshot validation refuses runtime profile drift", async (t) =>
   assert.throws(() => validateContainerSnapshotProfile(withoutCompressor), /.idCompressor/);
 });
 
+test("runtime cases include replay prefixes and genuinely pending local edits", async (t) => {
+  const output = await mkdtemp(join(tmpdir(), "watershed-runtime-input-"));
+  t.after(() => rm(output, { recursive: true, force: true }));
+  const [bootstrap, batch] = await capture(output);
+  for (const value of [bootstrap, batch]) {
+    assert(Array.isArray(value.input.decoderInput.deliveryPrefix), "missing runtime delivery prefix");
+    assert.deepEqual(
+      value.input.decoderInput.deliveryPrefix.map(({ sequenceNumber }) => sequenceNumber),
+      [1, 2],
+    );
+    assert(value.input.decoderInput.deliveryPrefix.every(({ type }) => type === "join"));
+  }
+  assert.deepEqual(batch.input.localEdits, [
+    { path: ["title"], value: { kind: "string", value: "batched" } },
+    { path: ["enabled"], value: { kind: "boolean", value: true } },
+    { path: ["rating"], value: { kind: "number", value: 3 } },
+  ]);
+  assert.equal(batch.expected.observations[0].checkpoint, "local-after-batch");
+  assert.equal(batch.expected.observations[0].pendingCount, 3);
+  assert.equal(batch.expected.observations[1].pendingCount, 0);
+  assert.equal(batch.input.writer.clientId, batch.input.decoderInput.groupedWireMessages[0].clientId);
+  assert.equal(typeof batch.input.writer.compressor, "string");
+  assert.deepEqual(bootstrap.expected.observations.slice(1).map(({ rejection }) => rejection),
+    ["missing-tree-handle", "wrong-tree-handle-kind"]);
+  assert.match(bootstrap.raw.bootstrapRejections.missing, /Bootstrap tree handle is missing/);
+  assert.match(bootstrap.raw.bootstrapRejections.wrongKind, /Bootstrap handle is not a tree/);
+  for (const value of [bootstrap, batch]) {
+    assert.doesNotThrow(() => validateRuntimeCase(value));
+    for (const mutate of [
+      (copy) => { delete copy.input.decoderInput.deliveryPrefix; },
+      (copy) => { copy.input.decoderInput.deliveryPrefix.shift(); },
+      (copy) => { copy.input.decoderInput.deliveryPrefix.pop(); },
+      (copy) => { copy.input.decoderInput.deliveryPrefix.reverse(); },
+    ]) {
+      const copy = structuredClone(value);
+      mutate(copy);
+      assert.throws(() => validateRuntimeCase(copy), /runtime.*prefix/);
+    }
+  }
+  for (const mutate of [
+    (copy) => { delete copy.input.writer.compressor; },
+    (copy) => { copy.input.localEdits[0].path = []; },
+    (copy) => { copy.expected.observations[0].pendingCount = 0; },
+    (copy) => { copy.input.writer.clientId = "another-writer"; },
+  ]) {
+    const copy = structuredClone(batch);
+    mutate(copy);
+    assert.throws(() => validateRuntimeCase(copy), /batched-commits/);
+  }
+});
+
 test("container corpus preserves full runtime cases alongside scoped foundation evidence", {
   timeout: 120_000,
 }, async (t) => {
@@ -117,7 +169,7 @@ test("container corpus preserves full runtime cases alongside scoped foundation 
     ["valid-bootstrap", "missing-tree-handle", "wrong-tree-handle-kind"],
   );
   assert(bootstrap.expected.observations.some(({ rejection }) => /missing/i.test(rejection)));
-  assert(bootstrap.expected.observations.some(({ rejection }) => /not a tree/i.test(rejection)));
+  assert(bootstrap.expected.observations.some(({ rejection }) => rejection === "wrong-tree-handle-kind"));
   assert.match(bootstrap.expected.observations[0].bootstrapPath, /\/root$/);
   assert(bootstrap.expected.observations[0].treePath.split("/").filter(Boolean).length >= 2);
   assertSnapshot(bootstrap.input.decoderInput.initialSnapshot);

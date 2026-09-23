@@ -97,6 +97,29 @@ function rootState(session) {
   };
 }
 
+function pendingTreeCommits(session) {
+  const kernel = Reflect.get(session.data.tree, "kernel");
+  assert(kernel && typeof kernel === "object", "Missing pinned SharedTree kernel");
+  const manager = Reflect.get(kernel, "editManager");
+  assert.equal(manager?.constructor.name, "EditManager", "Unexpected pinned edit manager");
+  const commits = manager.getLocalCommits("main");
+  assert(Array.isArray(commits), "Missing local tree commits");
+  return commits.length;
+}
+
+function deliveryPrefix(snapshot, messages, firstSequenceNumber) {
+  const attributesId = snapshot.tree.trees[".protocol"]?.blobs.attributes;
+  assert.equal(typeof attributesId, "string", "Missing protocol attributes");
+  const attributes = JSON.parse(Buffer.from(snapshot.blobs[attributesId], "base64"));
+  const prefix = messages.filter(({ sequenceNumber }) =>
+    sequenceNumber > attributes.sequenceNumber && sequenceNumber < firstSequenceNumber);
+  assert.deepEqual(prefix.map(({ sequenceNumber }) => sequenceNumber),
+    Array.from({ length: firstSequenceNumber - attributes.sequenceNumber - 1 },
+      (_, index) => attributes.sequenceNumber + index + 1),
+    "Incomplete runtime delivery prefix");
+  return prefix;
+}
+
 function runtimeProfile() {
   return {
     oldestSupportedClient,
@@ -441,17 +464,20 @@ async function captureBootstrap(environment) {
     await synchronize(environment, [writer, reader], "missing bootstrap delivery");
     const missing = await rejection(() =>
       treeFromBootstrap(reader.data.bootstrap, reader.data.tree.attributes.type));
+    assert.match(missing, /^Bootstrap tree handle is missing/);
 
     writer.data.bootstrap.set("tree", writer.data.bootstrap.handle);
     await synchronize(environment, [writer, reader], "wrong bootstrap delivery");
     const wrongKind = await rejection(() =>
       treeFromBootstrap(reader.data.bootstrap, reader.data.tree.attributes.type));
+    assert.match(wrongKind, /^Bootstrap handle is not a tree/);
 
     writer.data.bootstrap.set("tree", originalHandle);
     await synchronize(environment, [writer, reader], "bootstrap restoration");
     const summary = await publishSummary(environment, documentId, "bootstrap map handles");
     const raw = await captureRaw(environment, writer);
     raw.sharedMapMessages = messagesContaining(raw.messages, "tree");
+    raw.bootstrapRejections = { missing, wrongKind };
     raw.summary = {
       submitted: summary.submitted,
       broadcast: summary.broadcast,
@@ -490,13 +516,15 @@ async function captureBootstrap(environment) {
       ],
       [
         { checkpoint: "valid-bootstrap", ...valid },
-        { checkpoint: "missing-tree-handle", rejection: missing },
-        { checkpoint: "wrong-tree-handle-kind", rejection: wrongKind },
+        { checkpoint: "missing-tree-handle", rejection: "missing-tree-handle" },
+        { checkpoint: "wrong-tree-handle-kind", rejection: "wrong-tree-handle-kind" },
       ],
       raw,
       {
         decoderInput: {
           initialSnapshot,
+          deliveryPrefix: deliveryPrefix(initialSnapshot, raw.messages,
+            raw.sharedMapMessages[0].sequenceNumber),
           bootstrapMessages: raw.sharedMapMessages,
         },
       },
@@ -514,16 +542,35 @@ async function captureBatchedCommits(environment) {
   try {
     await synchronize(environment, [writer, reader], "batched case initialization");
     const initialSnapshot = await readSnapshot(environment, writer.container.resolvedUrl);
+    const writerInput = {
+      initialClientId: writer.container.clientId,
+      sessionId: writer.runtime.idCompressor.localSessionId,
+      compressor: writer.runtime.idCompressor.serialize(true),
+    };
     writer.runtime.orderSequentially(() => {
       writer.data.view.root.title = "batched";
       writer.data.view.root.enabled = true;
       writer.data.view.root.rating = 3;
     });
+    const localCheckpoint = {
+      checkpoint: "local-after-batch",
+      root: rootState(writer),
+      pendingCount: pendingTreeCommits(writer),
+    };
     await synchronize(environment, [writer, reader], "batched commits delivery");
+    const peerCheckpoint = {
+      checkpoint: "peer-after-delivery",
+      root: rootState(reader),
+      pendingCount: pendingTreeCommits(reader),
+    };
     const summary = await publishSummary(environment, documentId, "batched commits");
     const raw = await captureRaw(environment, writer);
     raw.groupedCommits = groupedCommits(raw.messages).filter(({ commits }) => commits.length >= 3);
     const groupedMessages = groupedWireMessages(raw.messages, 3);
+    writerInput.clientId = writer.container.clientId;
+    assert.equal(groupedMessages.length, 1, "Expected one runtime batch");
+    assert.equal(groupedMessages[0].clientId, writerInput.clientId,
+      "Runtime batch author differs from connected writer");
     raw.summary = {
       submitted: summary.submitted,
       broadcast: summary.broadcast,
@@ -544,13 +591,21 @@ async function captureBatchedCommits(environment) {
         ],
       }],
       [
-        { checkpoint: "local-after-batch", root: rootState(writer) },
-        { checkpoint: "peer-after-delivery", root: rootState(reader) },
+        localCheckpoint,
+        peerCheckpoint,
       ],
       raw,
       {
+        writer: writerInput,
+        localEdits: [
+          { path: ["title"], value: { kind: "string", value: "batched" } },
+          { path: ["enabled"], value: { kind: "boolean", value: true } },
+          { path: ["rating"], value: { kind: "number", value: 3 } },
+        ],
         decoderInput: {
           initialSnapshot,
+          deliveryPrefix: deliveryPrefix(initialSnapshot, raw.messages,
+            groupedMessages[0].sequenceNumber),
           groupedWireMessages: groupedMessages,
         },
       },
