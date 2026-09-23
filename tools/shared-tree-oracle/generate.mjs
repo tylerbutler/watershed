@@ -1471,11 +1471,13 @@ export async function writeCorpus(output, cases, smoke) {
         "id-ranges", "schema-validation", "forest-delta",
         "field-compose-invert-rebase", "modular-nested-algebra",
         "container-foundations", "summary-foundations",
+        "history-reconciliation",
       ],
       erlang: [
         "id-ranges", "schema-validation", "forest-delta",
         "field-compose-invert-rebase", "modular-nested-algebra",
         "container-foundations", "summary-foundations",
+        "history-reconciliation",
       ],
     },
     cases: requiredCases.map(([id, domain]) => ({ id, domain, file: `cases/${id}.json` })),
