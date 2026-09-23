@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
@@ -12,6 +13,7 @@ import watershed/channel
 import watershed/handle
 import watershed/runtime_core.{type Core}
 import watershed/two_p_set_kernel
+import watershed/wire/op as wire_op
 
 const client_id = "default_doc_1"
 
@@ -58,10 +60,11 @@ fn bootstrap() -> Core {
 }
 
 pub fn detached_two_p_set_attaches_and_then_emits_delta_operations_test() -> Nil {
-  let address = "set-1"
+  let address = "watershed/set-1"
   let core =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitTwoPSet)
+    |> expect.to_be_ok
 
   let assert Ok(#(core, events, outbound)) =
     runtime_core.two_p_set_add(core, address, "stake-3")
@@ -73,7 +76,12 @@ pub fn detached_two_p_set_attaches_and_then_emits_delta_operations_test() -> Nil
   runtime_core.two_p_set_values(core, address) |> expect.to_equal(["stake-3"])
 
   let assert Ok(#(core, _, attach_outbound)) =
-    runtime_core.set(core, "root", "markers", handle.encode_handle(address))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "markers",
+      handle.encode_handle(address),
+    )
   attach_outbound |> list.length |> expect.to_equal(2)
 
   let assert Ok(#(_core, events, [operation])) =
@@ -83,9 +91,10 @@ pub fn detached_two_p_set_attaches_and_then_emits_delta_operations_test() -> Nil
     #(address, channel.TwoPSetEvent(two_p_set_kernel.ElementRemoved("stake-3"))),
   ])
   let encoded = json.to_string(operation.contents)
-  encoded
-  |> string.contains("\"address\":\"" <> address <> "\"")
-  |> expect.to_be_true()
+  let assert Ok(raw) = json.parse(encoded, decode.dynamic)
+  let assert Ok(wire_op.ChannelOperation(decoded_address, _)) =
+    wire_op.decode_operation_contents(raw)
+  decoded_address |> expect.to_equal(address)
   encoded
   |> string.contains("\"type\":\"twoPSetRemove\"")
   |> expect.to_be_true()

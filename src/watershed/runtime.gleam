@@ -1870,14 +1870,26 @@ fn create_channel(
   let state = cell_get(runtime.cell)
   case state.phase {
     Ready(core, resubmit_at) -> {
-      let address = id.uuid_v4()
-      let core = runtime_core.create_detached(core, address, init)
+      use address <- result.try(
+        runtime_core.new_channel_address(core, id.uuid_v4())
+        |> result.map_error(string.inspect),
+      )
+      use core <- result.try(
+        runtime_core.create_detached(core, address, init)
+        |> result.map_error(string.inspect),
+      )
       cell_set(runtime.cell, State(..state, phase: Ready(core, resubmit_at)))
       Ok(address)
     }
     Reconnecting(core) -> {
-      let address = id.uuid_v4()
-      let core = runtime_core.create_detached(core, address, init)
+      use address <- result.try(
+        runtime_core.new_channel_address(core, id.uuid_v4())
+        |> result.map_error(string.inspect),
+      )
+      use core <- result.try(
+        runtime_core.create_detached(core, address, init)
+        |> result.map_error(string.inspect),
+      )
       cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
       Ok(address)
     }
@@ -1903,6 +1915,37 @@ pub fn resolve_address(
         <> " (a foreign attach may still be in flight; retry)",
       )
   }
+}
+
+@target(javascript)
+pub fn resolve_handle_address(
+  runtime: Runtime,
+  value: Json,
+) -> Result(String, String) {
+  read(
+    runtime.cell,
+    Error("resolve requires a ready document connection"),
+    fn(core) {
+      runtime_core.resolve_handle_address(core, value)
+      |> result.map_error(string.inspect)
+    },
+  )
+}
+
+@target(javascript)
+pub fn bind_handle(
+  runtime: Runtime,
+  source: Json,
+  value: Json,
+) -> Result(Json, String) {
+  read(
+    runtime.cell,
+    Error("handle binding requires a ready document connection"),
+    fn(core) {
+      runtime_core.bind_handle(core, source, value)
+      |> result.map_error(string.inspect)
+    },
+  )
 }
 
 @target(javascript)
@@ -3069,9 +3112,13 @@ fn settle_reconnect(
   let state = cell_get(cell)
   case core.last_seen_sequence_number >= checkpoint {
     True -> {
-      let #(core, outbound) = runtime_core.resubmit(runtime_core.go_live(core))
-      cell_set(cell, State(..state, phase: Ready(core, None)))
-      send_outbound(state.channel, core.client_id, outbound)
+      case runtime_core.resubmit(runtime_core.go_live(core)) {
+        Ok(#(core, outbound)) -> {
+          cell_set(cell, State(..state, phase: Ready(core, None)))
+          send_outbound(state.channel, core.client_id, outbound)
+        }
+        Error(error) -> fail(cell, string.inspect(error))
+      }
     }
     False ->
       cell_set(cell, State(..state, phase: Ready(core, Some(checkpoint))))

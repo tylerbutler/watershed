@@ -30,7 +30,7 @@ const id_a = "default_doc_1"
 
 const id_b = "default_doc_2"
 
-const ordered_address = "oc-1"
+const ordered_address = "watershed/oc-1"
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -230,6 +230,7 @@ pub fn detached_add_attaches_with_optimistic_queue_test() -> Nil {
       ordered_address,
       channel.InitOrderedCollection,
     )
+    |> expect.to_be_ok
 
   let #(core, _) =
     expect_ok(runtime_core.ordered_add(core, ordered_address, json.string("d1")))
@@ -241,7 +242,7 @@ pub fn detached_add_attaches_with_optimistic_queue_test() -> Nil {
   let #(core, _attach_out) =
     expect_ok(runtime_core.set(
       core,
-      "root",
+      "watershed/root",
       "q",
       handle.encode_handle(ordered_address),
     ))
@@ -511,10 +512,11 @@ fn attached_pair() -> #(Core, Core, Int) {
       ordered_address,
       channel.InitOrderedCollection,
     )
+    |> expect.to_be_ok
   let #(core_a, attach_out) =
     expect_ok(runtime_core.set(
       core_a,
-      "root",
+      "watershed/root",
       "q",
       handle.encode_handle(ordered_address),
     ))

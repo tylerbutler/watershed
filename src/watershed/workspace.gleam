@@ -155,7 +155,7 @@ pub fn manifest_decoder() -> Decoder(ManifestEntry) {
   use version <- decode.field("version", decode.int)
   use config <- decode.field("config", wire.json_value_decoder())
   use child_handle <- decode.field("child", wire.json_value_decoder())
-  case handle.parse_handle(child_handle) {
+  case handle.resolve_path(child_handle, "/") {
     Ok(_) ->
       decode.success(ManifestEntry(
         instance_id: instance_id,
@@ -164,7 +164,7 @@ pub fn manifest_decoder() -> Decoder(ManifestEntry) {
         config: config,
         child_handle: child_handle,
       ))
-    Error(Nil) ->
+    Error(_) ->
       decode.failure(
         ManifestEntry(instance_id, kind, version, config, child_handle),
         "ChildHandle",

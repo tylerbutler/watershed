@@ -100,13 +100,13 @@ pub fn rich_text_operation_round_trips_through_channel_envelope_test() -> Nil {
       ),
     )
   let encoded =
-    wire_op.encode_channel_envelope(
-      "doc-1",
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/doc-1",
       channel.RichTextOperation(operation),
-    )
+    ))
     |> json.to_string
   let assert Ok(dynamic_value) = json.parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("doc-1", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc-1", payload)) =
     wire_op.decode_operation_contents(dynamic_value)
   let assert Ok(channel.RichTextOperation(decoded)) =
     decode.run(
@@ -255,10 +255,13 @@ pub fn rich_text_submit_canonicalizes_before_wire_round_trip_test() -> Nil {
   |> expect.to_equal(rich_text_kernel.RichTextWireOperation(0, canonical))
 
   let encoded =
-    wire_op.encode_channel_envelope("doc-1", channel.RichTextOperation(wire_op))
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/doc-1",
+      channel.RichTextOperation(wire_op),
+    ))
     |> json.to_string
   let assert Ok(dynamic_value) = json.parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("doc-1", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc-1", payload)) =
     wire_op.decode_operation_contents(dynamic_value)
   let assert Ok(decoded) =
     decode.run(

@@ -135,20 +135,29 @@ pub fn lww_register_channel_and_snapshot_contract_test() -> Nil {
 pub fn detached_attach_reconnect_and_ack_preserve_register_metadata_test() -> Nil {
   let core =
     bootstrap()
-    |> runtime_core.create_detached("cell", channel.InitLwwRegister)
+    |> runtime_core.create_detached("watershed/cell", channel.InitLwwRegister)
+    |> expect.to_be_ok
   let assert Ok(#(core, events, [])) =
-    runtime_core.lww_register_set(core, "cell", "baseline", 100)
+    runtime_core.lww_register_set(core, "watershed/cell", "baseline", 100)
   events
   |> expect.to_equal([
-    #("cell", channel.LwwRegisterEvent(register.Changed("", "baseline"))),
+    #(
+      "watershed/cell",
+      channel.LwwRegisterEvent(register.Changed("", "baseline")),
+    ),
   ])
   let assert Ok(#(core, _, [attach, reference])) =
-    runtime_core.set(core, "root", "cell", handle.encode_handle("cell"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "cell",
+      handle.encode_handle("watershed/cell"),
+    )
   let #(core, _) = acknowledge(core, attach)
   let #(core, _) = acknowledge(core, reference)
   let assert Ok(#(core, _, [write])) =
-    runtime_core.lww_register_set(core, "cell", "next", 0)
-  let assert Ok(#("cell", original)) =
+    runtime_core.lww_register_set(core, "watershed/cell", "next", 0)
+  let assert Ok(#("watershed/cell", original)) =
     json.parse(
       json.to_string(write.contents),
       op.lww_register_envelope_decoder(),
@@ -161,23 +170,24 @@ pub fn detached_attach_reconnect_and_ack_preserve_register_metadata_test() -> Ni
       checkpoint_sequence_number: Some(core.last_seen_sequence_number),
     )
   let core = runtime_core.adopt_reconnect(core, reconnect)
-  let #(core, resubmitted) = runtime_core.resubmit(core)
+  let #(core, resubmitted) = expect.to_be_ok(runtime_core.resubmit(core))
   let assert [resubmitted] = resubmitted
   json.parse(
     json.to_string(resubmitted.contents),
     op.lww_register_envelope_decoder(),
   )
-  |> expect.to_equal(Ok(#("cell", original)))
+  |> expect.to_equal(Ok(#("watershed/cell", original)))
   let #(core, ingested) = acknowledge(core, resubmitted)
   ingested.events |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.lww_register_value(core, "cell") |> expect.to_equal(Ok("next"))
+  runtime_core.lww_register_value(core, "watershed/cell")
+  |> expect.to_equal(Ok("next"))
   let assert Ok(channel.LwwRegisterState(kernel)) =
-    dict.get(core.channels, "cell")
+    dict.get(core.channels, "watershed/cell")
   kernel.pending |> expect.to_equal([])
   register.sequenced_value(kernel) |> expect.to_equal("next")
   let assert Ok(#(_, [], [same_value])) =
-    runtime_core.lww_register_set(core, "cell", "next", 0)
+    runtime_core.lww_register_set(core, "watershed/cell", "next", 0)
   let assert Ok(#(_, operation)) =
     json.parse(
       json.to_string(same_value.contents),
@@ -189,15 +199,21 @@ pub fn detached_attach_reconnect_and_ack_preserve_register_metadata_test() -> Ni
 pub fn register_summary_load_retains_winner_but_uses_the_joining_author_test() -> Nil {
   let core =
     bootstrap()
-    |> runtime_core.create_detached("cell", channel.InitLwwRegister)
+    |> runtime_core.create_detached("watershed/cell", channel.InitLwwRegister)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.lww_register_set(core, "cell", "confirmed", 100)
+    runtime_core.lww_register_set(core, "watershed/cell", "confirmed", 100)
   let assert Ok(#(core, _, [attach, reference])) =
-    runtime_core.set(core, "root", "cell", handle.encode_handle("cell"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "cell",
+      handle.encode_handle("watershed/cell"),
+    )
   let #(core, _) = acknowledge(core, attach)
   let #(core, _) = acknowledge(core, reference)
   let assert Ok(#(core, _, [_])) =
-    runtime_core.lww_register_set(core, "cell", "pending", 200)
+    runtime_core.lww_register_set(core, "watershed/cell", "pending", 200)
   let assert Ok(blob) =
     summary_blob.encode_channels(
       core.last_seen_sequence_number,
@@ -214,10 +230,10 @@ pub fn register_summary_load_retains_winner_but_uses_the_joining_author_test() -
     )
   let assert Ok(runtime_core.Complete(loaded)) =
     runtime_core.bootstrap(joining, Some(runtime_core.summary_from_blob(blob)))
-  runtime_core.lww_register_value(loaded, "cell")
+  runtime_core.lww_register_value(loaded, "watershed/cell")
   |> expect.to_equal(Ok("confirmed"))
   let assert Ok(#(_, _, [write])) =
-    runtime_core.lww_register_set(loaded, "cell", "new author", 0)
+    runtime_core.lww_register_set(loaded, "watershed/cell", "new author", 0)
   let assert Ok(#(_, operation)) =
     json.parse(
       json.to_string(write.contents),
@@ -229,31 +245,43 @@ pub fn register_summary_load_retains_winner_but_uses_the_joining_author_test() -
 pub fn register_access_and_clock_errors_are_observable_test() -> Nil {
   let core =
     bootstrap()
-    |> runtime_core.create_detached("cell", channel.InitLwwRegister)
-  runtime_core.lww_register_value(core, "root") |> expect.to_equal(Error(Nil))
-  runtime_core.lww_register_value(core, "missing")
+    |> runtime_core.create_detached("watershed/cell", channel.InitLwwRegister)
+    |> expect.to_be_ok
+  runtime_core.lww_register_value(core, "watershed/root")
+  |> expect.to_equal(Error(Nil))
+  runtime_core.lww_register_value(core, "watershed/missing")
   |> expect.to_equal(Error(Nil))
   let assert Error(runtime_core.WrongChannelType(
-    "root",
+    "watershed/root",
     channel.LwwRegisterChannel,
     channel.MapChannel,
-  )) = runtime_core.lww_register_set(core, "root", "wrong", 1)
-  let assert Error(runtime_core.LwwRegisterOperationFailed("cell", detail)) =
-    runtime_core.lww_register_set(core, "cell", "invalid", -1)
+  )) = runtime_core.lww_register_set(core, "watershed/root", "wrong", 1)
+  let assert Error(runtime_core.LwwRegisterOperationFailed(
+    "watershed/cell",
+    detail,
+  )) = runtime_core.lww_register_set(core, "watershed/cell", "invalid", -1)
   detail |> expect.to_equal("invalid LWW timestamp: -1")
   let assert Ok(#(core, _, [])) =
     runtime_core.lww_register_set(
       core,
-      "cell",
+      "watershed/cell",
       "last",
       lww_clock.max_safe_timestamp,
     )
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "root", "cell", handle.encode_handle("cell"))
-  let assert Error(runtime_core.LwwRegisterOperationFailed("cell", detail)) =
-    runtime_core.lww_register_set(core, "cell", "exhausted", 0)
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "cell",
+      handle.encode_handle("watershed/cell"),
+    )
+  let assert Error(runtime_core.LwwRegisterOperationFailed(
+    "watershed/cell",
+    detail,
+  )) = runtime_core.lww_register_set(core, "watershed/cell", "exhausted", 0)
   detail |> expect.to_equal("LWW clock exhausted")
-  runtime_core.lww_register_value(core, "cell") |> expect.to_equal(Ok("last"))
+  runtime_core.lww_register_value(core, "watershed/cell")
+  |> expect.to_equal(Ok("last"))
   let assert Error(channel.UnsupportedP2p("LWW clock exhausted")) =
     channel.apply_p2p_local(
       channel.LwwRegisterState({

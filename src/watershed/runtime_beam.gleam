@@ -404,6 +404,8 @@ pub type Msg {
   /// can retry after an error, because an attach from another client can
   /// still be in flight.
   ResolveAddress(address: String, reply: Subject(Result(Nil, String)))
+  ResolveHandleAddress(value: Json, reply: Subject(Result(String, String)))
+  BindHandle(source: Json, value: Json, reply: Subject(Result(Json, String)))
   ResolveSequence(address: String, reply: Subject(Result(Nil, String)))
   ResolveText(address: String, reply: Subject(Result(Nil, String)))
   /// Summarize the current confirmed state to the storage of floodgate. On a
@@ -1589,6 +1591,32 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
       process.send(reply, result)
       actor.continue(state)
     }
+    BindHandle(source, value, reply) -> {
+      let resolved =
+        read(
+          state,
+          Error("handle binding requires a ready document connection"),
+          fn(core) {
+            runtime_core.bind_handle(core, source, value)
+            |> result.map_error(string.inspect)
+          },
+        )
+      process.send(reply, resolved)
+      actor.continue(state)
+    }
+    ResolveHandleAddress(value, reply) -> {
+      let resolved =
+        read(
+          state,
+          Error("resolve requires a ready document connection"),
+          fn(core) {
+            runtime_core.resolve_handle_address(core, value)
+            |> result.map_error(string.inspect)
+          },
+        )
+      process.send(reply, resolved)
+      actor.continue(state)
+    }
     ResolveSequence(address, reply) -> {
       process.send(reply, resolve_sequence_address(state, address))
       actor.continue(state)
@@ -2089,16 +2117,28 @@ fn create_channel(
 ) -> actor.Next(State, Msg) {
   case state.phase {
     Ready(core, resubmit_at) -> {
-      let address = id.uuid_v4()
-      let core = runtime_core.create_detached(core, address, init)
-      process.send(reply, Ok(address))
-      actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+      case new_detached(core, init) {
+        Ok(#(core, address)) -> {
+          process.send(reply, Ok(address))
+          actor.continue(State(..state, phase: Ready(core, resubmit_at)))
+        }
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+      }
     }
     Reconnecting(core) -> {
-      let address = id.uuid_v4()
-      let core = runtime_core.create_detached(core, address, init)
-      process.send(reply, Ok(address))
-      actor.continue(State(..state, phase: Reconnecting(core)))
+      case new_detached(core, init) {
+        Ok(#(core, address)) -> {
+          process.send(reply, Ok(address))
+          actor.continue(State(..state, phase: Reconnecting(core)))
+        }
+        Error(error) -> {
+          process.send(reply, Error(error))
+          actor.continue(state)
+        }
+      }
     }
     Connecting(_) | Failed(_) -> {
       process.send(
@@ -2108,6 +2148,22 @@ fn create_channel(
       actor.continue(state)
     }
   }
+}
+
+@target(erlang)
+fn new_detached(
+  core: runtime_core.Core,
+  init: ChannelInit,
+) -> Result(#(runtime_core.Core, String), String) {
+  use address <- result.try(
+    runtime_core.new_channel_address(core, id.uuid_v4())
+    |> result.map_error(string.inspect),
+  )
+  use core <- result.try(
+    runtime_core.create_detached(core, address, init)
+    |> result.map_error(string.inspect),
+  )
+  Ok(#(core, address))
 }
 
 @target(erlang)
@@ -2315,9 +2371,13 @@ fn settle_reconnect(
 ) -> actor.Next(State, Msg) {
   case core.last_seen_sequence_number >= checkpoint {
     True -> {
-      let #(core, outbound) = runtime_core.resubmit(runtime_core.go_live(core))
-      send_outbound(state.channel, core.client_id, outbound)
-      actor.continue(State(..state, phase: Ready(core, None)))
+      case runtime_core.resubmit(runtime_core.go_live(core)) {
+        Ok(#(core, outbound)) -> {
+          send_outbound(state.channel, core.client_id, outbound)
+          actor.continue(State(..state, phase: Ready(core, None)))
+        }
+        Error(error) -> actor.continue(fail(state, string.inspect(error)))
+      }
     }
     False ->
       actor.continue(State(..state, phase: Ready(core, Some(checkpoint))))

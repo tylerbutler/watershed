@@ -71,10 +71,11 @@ fn decode_attach(operation: OutboundOperation) -> #(String, channel.Snapshot) {
 }
 
 pub fn detached_sequence_attaches_then_emits_operations_test() -> Nil {
-  let address = "sequence-1"
+  let address = "watershed/sequence-1"
   let core =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitSequence)
+    |> expect.to_be_ok
 
   let assert Ok(#(core, events, outbound)) =
     runtime_core.sequence_insert(core, address, 0, json.string("a"))
@@ -88,7 +89,12 @@ pub fn detached_sequence_attaches_then_emits_operations_test() -> Nil {
   ])
 
   let assert Ok(#(core, _, [child_attach, root_handle_operation])) =
-    runtime_core.set(core, "root", "items", handle.encode_handle(address))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "items",
+      handle.encode_handle(address),
+    )
   let #(child_address, child_snapshot) = decode_attach(child_attach)
   child_address |> expect.to_equal(address)
   let assert Ok(channel.SequenceState(child_kernel)) =
@@ -97,7 +103,7 @@ pub fn detached_sequence_attaches_then_emits_operations_test() -> Nil {
 
   let assert Ok(dynamic_value) =
     json.parse(json.to_string(root_handle_operation.contents), decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("root", contents)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/root", contents)) =
     wire_op.decode_operation_contents(dynamic_value)
   let assert Ok(channel.MapOperation(map_kernel.Set("items", value))) =
     decode.run(contents, wire_op.channel_operation_decoder(channel.MapChannel))
@@ -116,22 +122,27 @@ pub fn detached_sequence_attaches_then_emits_operations_test() -> Nil {
 pub fn sequence_invalid_index_is_explicit_core_error_test() -> Nil {
   let core =
     bootstrap()
-    |> runtime_core.create_detached("sequence-1", channel.InitSequence)
+    |> runtime_core.create_detached(
+      "watershed/sequence-1",
+      channel.InitSequence,
+    )
+    |> expect.to_be_ok
 
-  runtime_core.sequence_delete(core, "sequence-1", 0)
+  runtime_core.sequence_delete(core, "watershed/sequence-1", 0)
   |> expect.to_equal(
     Error(runtime_core.SequenceOperationFailed(
-      "sequence-1",
+      "watershed/sequence-1",
       "delete index 0 invalid for length 0",
     )),
   )
 }
 
 pub fn attached_sequence_move_and_delete_emit_operations_test() -> Nil {
-  let address = "sequence-1"
+  let address = "watershed/sequence-1"
   let core =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitSequence)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
     runtime_core.sequence_insert(core, address, 0, json.string("a"))
   let assert Ok(#(core, _, [])) =
@@ -139,7 +150,12 @@ pub fn attached_sequence_move_and_delete_emit_operations_test() -> Nil {
   let assert Ok(#(core, _, [])) =
     runtime_core.sequence_insert(core, address, 2, json.string("c"))
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "root", "items", handle.encode_handle(address))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "items",
+      handle.encode_handle(address),
+    )
 
   let assert Ok(#(core, _, [move_operation])) =
     runtime_core.sequence_move(core, address, 2, 0)
@@ -200,8 +216,8 @@ pub fn sequence_same_shape_rejects_altered_delta_test() -> Nil {
 }
 
 pub fn attached_sequence_insert_attaches_nested_handle_first_test() -> Nil {
-  let address = "sequence-1"
-  let child = "child-1"
+  let address = "watershed/sequence-1"
+  let child = "watershed/child-1"
   let nested_handle =
     json.object([
       #(
@@ -215,12 +231,19 @@ pub fn attached_sequence_insert_attaches_nested_handle_first_test() -> Nil {
   let core =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitSequence)
+    |> expect.to_be_ok
     |> runtime_core.create_detached(child, channel.InitMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "root", "items", handle.encode_handle(address))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "items",
+      handle.encode_handle(address),
+    )
   runtime_core.summary_channels(core)
   |> list.map(fn(entry) { entry.0 })
-  |> expect.to_equal(["root", address])
+  |> expect.to_equal(["watershed/root", address])
 
   let assert Ok(#(core, _, [child_attach, sequence_operation])) =
     runtime_core.sequence_insert(core, address, 0, nested_handle)
@@ -236,8 +259,8 @@ pub fn attached_sequence_insert_attaches_nested_handle_first_test() -> Nil {
 }
 
 pub fn attached_sequence_replace_attaches_nested_handle_first_test() -> Nil {
-  let address = "sequence-1"
-  let child = "child-1"
+  let address = "watershed/sequence-1"
+  let child = "watershed/child-1"
   let nested_handle =
     json.object([
       #(
@@ -251,14 +274,21 @@ pub fn attached_sequence_replace_attaches_nested_handle_first_test() -> Nil {
   let core =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitSequence)
+    |> expect.to_be_ok
     |> runtime_core.create_detached(child, channel.InitMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
     runtime_core.sequence_insert(core, address, 0, json.string("old"))
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "root", "items", handle.encode_handle(address))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "items",
+      handle.encode_handle(address),
+    )
   runtime_core.summary_channels(core)
   |> list.map(fn(entry) { entry.0 })
-  |> expect.to_equal(["root", address])
+  |> expect.to_equal(["watershed/root", address])
 
   let assert Ok(#(core, _, [child_attach, sequence_operation])) =
     runtime_core.sequence_replace(core, address, 0, nested_handle)
@@ -274,10 +304,11 @@ pub fn attached_sequence_replace_attaches_nested_handle_first_test() -> Nil {
 }
 
 pub fn sequence_edit_errors_preserve_optimistic_state_test() -> Nil {
-  let address = "sequence-1"
+  let address = "watershed/sequence-1"
   let empty =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitSequence)
+    |> expect.to_be_ok
 
   runtime_core.sequence_insert(empty, address, 1, json.string("a"))
   |> expect.to_equal(
@@ -336,17 +367,20 @@ pub fn sequence_edit_errors_preserve_optimistic_state_test() -> Nil {
 pub fn sequence_wrong_type_and_unknown_address_errors_test() -> Nil {
   let core = bootstrap()
 
-  runtime_core.sequence_insert(core, "root", 0, json.string("a"))
+  runtime_core.sequence_insert(core, "watershed/root", 0, json.string("a"))
   |> expect.to_equal(
     Error(runtime_core.WrongChannelType(
-      address: "root",
+      address: "watershed/root",
       expected: channel.SequenceChannel,
       actual: channel.MapChannel,
     )),
   )
-  runtime_core.sequence_insert(core, "missing", 0, json.string("a"))
+  runtime_core.sequence_insert(core, "watershed/missing", 0, json.string("a"))
   |> expect.to_equal(
-    Error(runtime_core.UnknownChannel(address: "missing", sequence_number: 1)),
+    Error(runtime_core.UnknownChannel(
+      address: "watershed/missing",
+      sequence_number: 1,
+    )),
   )
 }
 

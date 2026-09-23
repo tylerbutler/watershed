@@ -17,6 +17,7 @@ import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
+import gleam/result
 
 import signet/types as token
 import spillway/message.{
@@ -33,6 +34,17 @@ import spillway/types.{
 }
 
 import watershed/wire.{type OutboundOperation}
+
+pub fn container_contents(contents: Dynamic) -> Result(Json, String) {
+  case decode.run(contents, decode.string) {
+    Ok(raw) ->
+      json.parse(raw, wire.json_value_decoder())
+      |> result.map_error(fn(_) { "invalid JSON container contents" })
+    Error(_) ->
+      decode.run(contents, wire.json_value_decoder())
+      |> result.map_error(fn(_) { "invalid container contents" })
+  }
+}
 
 // ─────────────────────────────────────────────────────────────────────────────
 // Encoders (client → server)
@@ -464,21 +476,31 @@ pub fn sequenced_document_message_decoder() -> Decoder(SequencedDocumentMessage)
     None,
     decode.optional(decode.string),
   )
-  decode.success(SequencedDocumentMessage(
-    client_id: client_id,
-    sequence_number: sequence_number,
-    minimum_sequence_number: minimum_sequence_number,
-    client_sequence_number: client_sequence_number,
-    reference_sequence_number: reference_sequence_number,
-    message_type: message_type,
-    contents: contents,
-    metadata: metadata,
-    server_metadata: server_metadata,
-    origin: None,
-    traces: None,
-    timestamp: timestamp,
-    data: data,
-  ))
+  use compression <- decode.optional_field(
+    "compression",
+    None,
+    decode.optional(decode.string),
+  )
+  let message =
+    SequencedDocumentMessage(
+      client_id: client_id,
+      sequence_number: sequence_number,
+      minimum_sequence_number: minimum_sequence_number,
+      client_sequence_number: client_sequence_number,
+      reference_sequence_number: reference_sequence_number,
+      message_type: message_type,
+      contents: contents,
+      metadata: metadata,
+      server_metadata: server_metadata,
+      origin: None,
+      traces: None,
+      timestamp: timestamp,
+      data: data,
+    )
+  case compression {
+    None -> decode.success(message)
+    Some(_) -> decode.failure(message, "uncompressed sequenced message")
+  }
 }
 
 /// The `nack` event payload: `{clientId, nacks}`. This decoder reads the nack

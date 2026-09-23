@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
@@ -12,6 +13,7 @@ import watershed/channel
 import watershed/g_set_kernel
 import watershed/handle
 import watershed/runtime_core.{type Core}
+import watershed/wire/op as wire_op
 
 const client_id = "default_doc_1"
 
@@ -58,10 +60,11 @@ fn bootstrap() -> Core {
 }
 
 pub fn detached_g_set_attaches_and_then_emits_delta_operations_test() -> Nil {
-  let address = "set-1"
+  let address = "watershed/set-1"
   let core =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitGSet)
+    |> expect.to_be_ok
 
   let assert Ok(#(core, events, outbound)) =
     runtime_core.g_set_add(core, address, "BM-17")
@@ -73,7 +76,12 @@ pub fn detached_g_set_attaches_and_then_emits_delta_operations_test() -> Nil {
   runtime_core.g_set_values(core, address) |> expect.to_equal(["BM-17"])
 
   let assert Ok(#(core, _, attach_outbound)) =
-    runtime_core.set(core, "root", "benchmarks", handle.encode_handle(address))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "benchmarks",
+      handle.encode_handle(address),
+    )
   attach_outbound |> list.length |> expect.to_equal(2)
 
   let assert Ok(#(_core, events, [operation])) =
@@ -83,9 +91,10 @@ pub fn detached_g_set_attaches_and_then_emits_delta_operations_test() -> Nil {
     #(address, channel.GSetEvent(g_set_kernel.ElementAdded("BM-22"))),
   ])
   let encoded = json.to_string(operation.contents)
-  encoded
-  |> string.contains("\"address\":\"" <> address <> "\"")
-  |> expect.to_be_true()
+  let assert Ok(raw) = json.parse(encoded, decode.dynamic)
+  let assert Ok(wire_op.ChannelOperation(decoded_address, _)) =
+    wire_op.decode_operation_contents(raw)
+  decoded_address |> expect.to_equal(address)
   encoded |> string.contains("\"type\":\"gSetAdd\"") |> expect.to_be_true()
   encoded |> string.contains("\"element\":\"BM-22\"") |> expect.to_be_true()
 }

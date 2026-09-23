@@ -162,7 +162,7 @@ pub fn checkpoint_roster_is_advanced_by_replayed_membership_test() -> Nil {
   let core =
     bootstrap_from_summary(
       members: [our_client_id, peer_client_id, third_client_id],
-      channels: [#("pact", channel.PactMapSnapshot([]))],
+      channels: [#("watershed/pact", channel.PactMapSnapshot([]))],
       at: 5,
       initial_clients: [],
       initial_messages: [
@@ -177,7 +177,8 @@ pub fn checkpoint_roster_is_advanced_by_replayed_membership_test() -> Nil {
     )
 
   // The departed client is not owed a signoff the pact would wait on forever.
-  let assert Ok(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
+  let assert Ok(pending) =
+    runtime_core.pact_map_pending(core, "watershed/pact", "bpm")
   pending.expected_signoffs
   |> list.sort(by: int.compare)
   |> expect.to_equal(ids([our_client_id, peer_client_id]))
@@ -196,7 +197,7 @@ pub fn a_proposal_after_the_checkpoint_reconstructs_the_present_signoff_list_tes
   let core =
     bootstrap_from_summary(
       members: [our_client_id, peer_client_id, third_client_id],
-      channels: [#("pact", channel.PactMapSnapshot([]))],
+      channels: [#("watershed/pact", channel.PactMapSnapshot([]))],
       at: 5,
       initial_clients: [],
       initial_messages: [
@@ -209,7 +210,8 @@ pub fn a_proposal_after_the_checkpoint_reconstructs_the_present_signoff_list_tes
       ],
     )
 
-  let assert Ok(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
+  let assert Ok(pending) =
+    runtime_core.pact_map_pending(core, "watershed/pact", "bpm")
   pending.expected_signoffs
   |> list.sort(by: int.compare)
   |> expect.to_equal(ids([our_client_id, peer_client_id, third_client_id]))
@@ -247,7 +249,7 @@ pub fn a_gap_operation_is_judged_against_the_pre_reconnect_room_test() -> Nil {
   let core =
     bootstrap_from_summary(
       members: [our_client_id, peer_client_id, third_client_id],
-      channels: [#("pact", channel.PactMapSnapshot([]))],
+      channels: [#("watershed/pact", channel.PactMapSnapshot([]))],
       at: 5,
       initial_clients: [peer_client_id, third_client_id],
       initial_messages: [],
@@ -285,7 +287,8 @@ pub fn a_gap_operation_is_judged_against_the_pre_reconnect_room_test() -> Nil {
   // reconnected id did not exist. Judged against the post-reconnect room this
   // would instead read `[peer, reconnect]`: a signoff owed by a client that was
   // not there, and none owed by one that was.
-  let assert Ok(pending) = runtime_core.pact_map_pending(core, "pact", "bpm")
+  let assert Ok(pending) =
+    runtime_core.pact_map_pending(core, "watershed/pact", "bpm")
   pending.expected_signoffs
   |> list.sort(by: int.compare)
   |> expect.to_equal(ids([our_client_id, peer_client_id, third_client_id]))
@@ -353,7 +356,7 @@ fn bootstrap_from_summary(
   let summary =
     runtime_core.Summary(
       sequence_number: at,
-      channels: channels,
+      channels: [#("watershed/root", channel.MapSnapshot([])), ..channels],
       members: list.map(members, client_id.to_int),
     )
 
@@ -373,10 +376,10 @@ fn pact_set_message(
   value value: json.Json,
 ) -> types.SequencedDocumentMessage {
   let contents =
-    wire_op.encode_pact_map_envelope(
-      "pact",
+    expect.to_be_ok(wire_op.encode_pact_map_envelope(
+      "watershed/pact",
       pact_map_kernel.Set(key, Some(value), 0),
-    )
+    ))
   types.SequencedDocumentMessage(
     ..system_message("op", None, sequence_number),
     client_id: Some(author),

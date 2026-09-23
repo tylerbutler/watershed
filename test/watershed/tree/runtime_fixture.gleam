@@ -6,6 +6,8 @@ import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
+import signet/types as token
+import spillway/message
 import spillway/types.{type SequencedDocumentMessage}
 import watershed/fluid_ids
 import watershed/tree/codec
@@ -24,6 +26,46 @@ pub type RuntimeInput {
     minimum_sequence_number: Int,
     prefix: List(SequencedDocumentMessage),
     operations: List(SequencedDocumentMessage),
+  )
+}
+
+pub fn connected(
+  client_id: String,
+  messages: List(SequencedDocumentMessage),
+  checkpoint: Int,
+) -> message.ConnectedMessage {
+  message.ConnectedMessage(
+    claims: token.TokenClaims(
+      document_id: "tree",
+      scopes: [token.DocRead, token.DocWrite],
+      tenant_id: "default",
+      user: token.User(id: "test", properties: dict.new()),
+      issued_at: 0,
+      expiration: 0,
+      version: "1.0",
+      jti: None,
+    ),
+    client_id: client_id,
+    existing: True,
+    max_message_size: 16_000,
+    mode: types.WriteMode,
+    service_configuration: types.ServiceConfiguration(
+      block_size: 65_536,
+      max_message_size: 16_000,
+      noop_time_frequency: None,
+      noop_count_frequency: None,
+    ),
+    initial_clients: [],
+    initial_messages: messages,
+    initial_signals: [],
+    supported_versions: ["^0.1.0"],
+    supported_features: dict.new(),
+    version: "^0.1.0",
+    timestamp: None,
+    checkpoint_sequence_number: Some(checkpoint),
+    epoch: None,
+    relay_service_agent: None,
+    summary_context: None,
   )
 }
 

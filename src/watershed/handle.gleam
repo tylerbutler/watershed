@@ -6,6 +6,8 @@ import gleam/option
 import gleam/result
 import gleam/string
 import gleam/uri
+import watershed/json_ot
+import watershed/wire/fluid_summary
 
 pub const fluid_handle_type = "__fluid_handle__"
 
@@ -111,6 +113,98 @@ pub fn encode_path(absolute_path: String) -> Result(Json, HandleError) {
   )
 }
 
+pub fn routed_address(
+  value: Json,
+  context_path: String,
+) -> Result(String, HandleError) {
+  use path <- result.try(resolve_path(value, context_path))
+  case string.split(path, "/") {
+    ["", datastore, channel] -> {
+      use datastore <- result.try(decode_component(datastore))
+      use channel <- result.try(decode_component(channel))
+      Ok(
+        fluid_summary.encode_component(datastore)
+        <> "/"
+        <> fluid_summary.encode_component(channel),
+      )
+    }
+    _ -> Error(InvalidHandle("expected a datastore and channel path"))
+  }
+}
+
+/// Resolve an absolute marker without a source-channel context.
+pub fn absolute_routed_address(value: Json) -> Result(String, HandleError) {
+  use #(url, _) <- result.try(
+    json.parse(json.to_string(value), contextual_marker_decoder())
+    |> result.map_error(fn(_) { InvalidHandle("invalid handle marker") }),
+  )
+  case string.starts_with(url, "/") {
+    True -> routed_address(value, "/")
+    False ->
+      Error(InvalidHandle("relative handle requires source-channel context"))
+  }
+}
+
+pub fn collect_routed_addresses(
+  value: Json,
+  context_path: String,
+) -> Result(List(String), HandleError) {
+  use value <- result.try(
+    json.parse(json.to_string(value), json_ot.decoder())
+    |> result.map_error(fn(_) { InvalidHandle("invalid JSON value") }),
+  )
+  collect_routed(value, context_path)
+  |> result.map(list.unique)
+}
+
+fn collect_routed(
+  value: json_ot.JsonValue,
+  context_path: String,
+) -> Result(List(String), HandleError) {
+  case value {
+    json_ot.VObject(entries) ->
+      case list.key_find(entries, "type") {
+        Ok(json_ot.VString(marker)) if marker == fluid_handle_type ->
+          routed_address(json_ot.to_json(value), context_path)
+          |> result.map(fn(address) { [address] })
+        _ ->
+          list.try_map(entries, fn(entry) {
+            collect_routed(entry.1, context_path)
+          })
+          |> result.map(list.flatten)
+      }
+    json_ot.VArray(values) ->
+      list.try_map(values, collect_routed(_, context_path))
+      |> result.map(list.flatten)
+    json_ot.VNull
+    | json_ot.VBool(_)
+    | json_ot.VNumber(_)
+    | json_ot.VString(_) -> Ok([])
+  }
+}
+
+pub fn decode_component(component: String) -> Result(String, HandleError) {
+  use _ <- result.try(
+    component
+    |> string.split("%")
+    |> list.drop(1)
+    |> list.try_each(fn(suffix) {
+      let hex = string.slice(suffix, 0, 2)
+      case
+        string.length(hex) == 2
+        && list.all(string.to_graphemes(hex), fn(character) {
+          string.contains("0123456789abcdefABCDEF", character)
+        })
+      {
+        True -> Ok(Nil)
+        False -> Error(InvalidHandle("invalid path escape"))
+      }
+    }),
+  )
+  uri.percent_decode(component)
+  |> result.map_error(fn(_) { InvalidHandle("invalid path escape") })
+}
+
 fn validate_path(path: String, absolute: Bool) -> Result(String, HandleError) {
   use _ <- result.try(case path == "" {
     True -> Error(InvalidHandle("empty handle path"))
@@ -143,10 +237,7 @@ fn validate_path(path: String, absolute: Bool) -> Result(String, HandleError) {
         [] -> Error(InvalidHandle("empty handle path"))
         _ ->
           list.try_each(components, fn(component) {
-            use decoded <- result.try(
-              uri.percent_decode(component)
-              |> result.map_error(fn(_) { InvalidHandle("invalid path escape") }),
-            )
+            use decoded <- result.try(decode_component(component))
             case
               component == ""
               || decoded == "."

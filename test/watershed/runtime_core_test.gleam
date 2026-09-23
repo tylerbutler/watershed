@@ -63,7 +63,7 @@ fn map_operation_message(
   operation operation: map_kernel.MapOperation,
 ) -> types.SequencedDocumentMessage {
   channel_operation_message(
-    address: "root",
+    address: "watershed/root",
     client_id: client_id,
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
@@ -83,7 +83,9 @@ fn channel_operation_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_map_envelope(address, operation)),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_map_envelope(address, operation)),
+    ),
   )
 }
 
@@ -99,10 +101,12 @@ fn attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_attach(
-      address,
-      channel.MapSnapshot(snapshot),
-    )),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_attach(
+        address,
+        channel.MapSnapshot(snapshot),
+      )),
+    ),
   )
 }
 
@@ -260,7 +264,7 @@ fn root_events(
 ) -> List(map_kernel.MapEvent) {
   list.filter_map(events, fn(entry) {
     case entry {
-      #("root", channel.MapEvent(event)) -> Ok(event)
+      #("watershed/root", channel.MapEvent(event)) -> Ok(event)
       _ -> Error(Nil)
     }
   })
@@ -273,26 +277,26 @@ fn root_summary(
   runtime_core.Summary(
     sequence_number: sequence_number,
     channels: [
-      #("root", channel.MapSnapshot(entries)),
+      #("watershed/root", channel.MapSnapshot(entries)),
     ],
     members: [],
   )
 }
 
 fn root_get(core: Core, key: String) -> Result(Json, Nil) {
-  runtime_core.get(core, "root", key)
+  runtime_core.get(core, "watershed/root", key)
 }
 
 fn root_has(core: Core, key: String) -> Bool {
-  runtime_core.has(core, "root", key)
+  runtime_core.has(core, "watershed/root", key)
 }
 
 fn root_size(core: Core) -> Int {
-  runtime_core.size(core, "root")
+  runtime_core.size(core, "watershed/root")
 }
 
 fn root_entries(core: Core) -> List(#(String, Json)) {
-  runtime_core.entries(core, "root")
+  runtime_core.entries(core, "watershed/root")
 }
 
 fn rich_text_document(raw: String) -> rich_text.Document {
@@ -317,10 +321,12 @@ fn rich_text_operation_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_channel_envelope(
-      address,
-      channel.RichTextOperation(operation),
-    )),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_channel_envelope(
+        address,
+        channel.RichTextOperation(operation),
+      )),
+    ),
   )
 }
 
@@ -329,8 +335,11 @@ fn attached_rich_text_core() -> Core {
     runtime_core.Summary(
       sequence_number: 1,
       channels: [
-        #("root", channel.MapSnapshot([])),
-        #("rich", channel.RichTextSnapshot(rich_text.empty_document())),
+        #("watershed/root", channel.MapSnapshot([])),
+        #(
+          "watershed/rich",
+          channel.RichTextSnapshot(rich_text.empty_document()),
+        ),
       ],
       members: [],
     )
@@ -348,7 +357,7 @@ fn root_set(
   key: String,
   value: Json,
 ) -> #(Core, List(map_kernel.MapEvent), wire.OutboundOperation) {
-  case runtime_core.set(core, "root", key, value) {
+  case runtime_core.set(core, "watershed/root", key, value) {
     Ok(#(core, events, [outbound])) -> #(core, root_events(events), outbound)
     Ok(_) -> panic as "expected exactly one outbound op"
     Error(_) -> panic as "expected root set to succeed"
@@ -359,7 +368,7 @@ fn root_delete(
   core: Core,
   key: String,
 ) -> #(Core, List(map_kernel.MapEvent), wire.OutboundOperation) {
-  case runtime_core.delete(core, "root", key) {
+  case runtime_core.delete(core, "watershed/root", key) {
     Ok(#(core, events, [outbound])) -> #(core, root_events(events), outbound)
     Ok(_) -> panic as "expected exactly one outbound op"
     Error(_) -> panic as "expected root delete to succeed"
@@ -467,6 +476,8 @@ fn is_ack_mismatch(core_error: runtime_core.CoreError) -> Bool {
     | runtime_core.GCounterOperationFailed(..)
     | runtime_core.TextOperationFailed(..)
     | runtime_core.BadSummaryChannel(..)
+    | runtime_core.BadBootstrapSeed(..)
+    | runtime_core.ContainerOperationFailed(..)
     | runtime_core.LwwRegisterOperationFailed(..)
     | runtime_core.LwwMapOperationFailed(..) -> False
   }
@@ -721,7 +732,7 @@ pub fn summary_from_blob_takes_the_load_point_from_the_blob_test() -> Nil {
   let blob =
     summary_blob.SummaryBlob(sequence_number: 5, members: [1, 2], channels: [
       summary_blob.ChannelSnapshot(
-        address: "root",
+        address: "watershed/root",
         snapshot: channel.MapSnapshot([#("die", json.int(4))]),
       ),
     ])
@@ -729,7 +740,9 @@ pub fn summary_from_blob_takes_the_load_point_from_the_blob_test() -> Nil {
   let summary = runtime_core.summary_from_blob(blob)
   summary.sequence_number |> expect.to_equal(5)
   summary.channels
-  |> expect.to_equal([#("root", channel.MapSnapshot([#("die", json.int(4))]))])
+  |> expect.to_equal([
+    #("watershed/root", channel.MapSnapshot([#("die", json.int(4))])),
+  ])
   // The roster is checkpoint state like any snapshot, and rides along with it.
   summary.members |> expect.to_equal([1, 2])
 }
@@ -859,7 +872,10 @@ pub fn bootstrap_from_summary_no_deltas_test() -> Nil {
   // The confirmed entries a fresh summarize would capture round-trip exactly.
   runtime_core.summary_channels(core)
   |> expect.to_equal([
-    #("root", channel.MapSnapshot([#("a", json.int(1)), #("b", json.int(2))])),
+    #(
+      "watershed/root",
+      channel.MapSnapshot([#("a", json.int(1)), #("b", json.int(2))]),
+    ),
   ])
 }
 
@@ -1009,15 +1025,20 @@ pub fn unknown_address_operations_are_fatal_test() -> Nil {
       sequence_number: 2,
       client_sequence_number: 1,
       message_type: "op",
-      contents: json_to_dynamic(wire_op.encode_map_envelope(
-        "other-map",
-        Set("die", json.int(4)),
-      )),
+      contents: json_to_dynamic(
+        expect.to_be_ok(wire_op.encode_map_envelope(
+          "watershed/other-map",
+          Set("die", json.int(4)),
+        )),
+      ),
     )
   runtime_core.handle_sequenced(core, foreign)
   |> expect_error(fn(core_error) {
     core_error
-    == runtime_core.UnknownChannel(address: "other-map", sequence_number: 2)
+    == runtime_core.UnknownChannel(
+      address: "watershed/other-map",
+      sequence_number: 2,
+    )
   })
 }
 
@@ -1032,10 +1053,9 @@ pub fn undecodable_operation_contents_are_fatal_test() -> Nil {
       message_type: "op",
       contents: json_to_dynamic(json.object([#("bogus", json.bool(True))])),
     )
-  runtime_core.handle_sequenced(core, garbage)
-  |> expect_error(fn(core_error) {
-    core_error == runtime_core.BadOperationContents(sequence_number: 2)
-  })
+  let assert Error(runtime_core.ContainerOperationFailed(_)) =
+    runtime_core.handle_sequenced(core, garbage)
+  Nil
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1107,7 +1127,7 @@ pub fn acks_match_fifo_across_multiple_operations_test() -> Nil {
     runtime_core.InFlightOperation(
       client_id: our_client_id,
       client_sequence_number: 2,
-      address: "root",
+      address: "watershed/root",
       operation: channel.MapOperation(Set("b", json.int(2))),
       meta: channel.NoMeta,
     ),
@@ -1250,7 +1270,7 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
     runtime_core.InFlightOperation(
       client_id: our_client_id,
       client_sequence_number: 2,
-      address: "root",
+      address: "watershed/root",
       operation: channel.MapOperation(Set("b", json.int(2))),
       meta: channel.NoMeta,
     ),
@@ -1262,13 +1282,13 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
   core.last_seen_sequence_number |> expect.to_equal(3)
 
   // Resubmit the survivor with a fresh CSN under the new client id.
-  let #(core, outbound) = runtime_core.resubmit(core)
+  let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
   core.in_flight
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
       client_sequence_number: 3,
-      address: "root",
+      address: "watershed/root",
       operation: channel.MapOperation(Set("b", json.int(2))),
       meta: channel.NoMeta,
     ),
@@ -1336,7 +1356,7 @@ pub fn reconnect_with_all_operations_reconciled_resubmits_nothing_test() -> Nil 
     apply(core, join_message(sequence_number: 4, joining: reconnect_client_id))
 
   core.in_flight |> expect.to_equal([])
-  let #(core, outbound) = runtime_core.resubmit(core)
+  let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
   outbound |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
   root_get(core, "a") |> expect.to_equal(Ok(json.int(1)))
@@ -1375,7 +1395,7 @@ pub fn reconnect_applies_missed_delta_from_others_test() -> Nil {
 
   let #(core, _) =
     apply(core, join_message(sequence_number: 3, joining: reconnect_client_id))
-  let #(_, outbound) = runtime_core.resubmit(core)
+  let #(_, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
   outbound |> expect.to_equal([])
 }
 
@@ -1390,7 +1410,7 @@ pub fn resubmit_restamps_in_flight_in_order_test() -> Nil {
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 9),
     )
-  let #(core, outbound) = runtime_core.resubmit(core)
+  let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
 
   // Fresh sequential CSNs, new client id, order preserved, RSN = last_seen.
   core.next_client_sequence_number |> expect.to_equal(7)
@@ -1399,21 +1419,21 @@ pub fn resubmit_restamps_in_flight_in_order_test() -> Nil {
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
       client_sequence_number: 4,
-      address: "root",
+      address: "watershed/root",
       operation: channel.MapOperation(Set("a", json.int(1))),
       meta: channel.NoMeta,
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
       client_sequence_number: 5,
-      address: "root",
+      address: "watershed/root",
       operation: channel.MapOperation(Set("b", json.int(2))),
       meta: channel.NoMeta,
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
       client_sequence_number: 6,
-      address: "root",
+      address: "watershed/root",
       operation: channel.MapOperation(Delete("a")),
       meta: channel.NoMeta,
     ),
@@ -1439,18 +1459,19 @@ pub fn remote_attach_creates_channel_and_subsequent_operations_apply_with_tagged
         client_id: other_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "child",
+        address: "watershed/child",
         snapshot: child_snapshot,
       ),
     )
   attach_events |> expect.to_equal([])
-  runtime_core.entries(core, "child") |> expect.to_equal(child_snapshot)
+  runtime_core.entries(core, "watershed/child")
+  |> expect.to_equal(child_snapshot)
 
   let #(core, events) =
     apply_tagged(
       core,
       channel_operation_message(
-        address: "child",
+        address: "watershed/child",
         client_id: other_client_id,
         sequence_number: 3,
         client_sequence_number: 2,
@@ -1460,7 +1481,7 @@ pub fn remote_attach_creates_channel_and_subsequent_operations_apply_with_tagged
   events
   |> expect.to_equal([
     #(
-      "child",
+      "watershed/child",
       channel.MapEvent(ValueChanged(
         key: "b",
         previous_value: None,
@@ -1469,7 +1490,8 @@ pub fn remote_attach_creates_channel_and_subsequent_operations_apply_with_tagged
       )),
     ),
   ])
-  runtime_core.get(core, "child", "b") |> expect.to_equal(Ok(json.int(2)))
+  runtime_core.get(core, "watershed/child", "b")
+  |> expect.to_equal(Ok(json.int(2)))
 }
 
 pub fn duplicate_attach_is_fatal_test() -> Nil {
@@ -1481,7 +1503,7 @@ pub fn duplicate_attach_is_fatal_test() -> Nil {
         client_id: other_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "child",
+        address: "watershed/child",
         snapshot: [],
       ),
     )
@@ -1492,26 +1514,31 @@ pub fn duplicate_attach_is_fatal_test() -> Nil {
       client_id: other_client_id,
       sequence_number: 3,
       client_sequence_number: 2,
-      address: "child",
+      address: "watershed/child",
       snapshot: [],
     ),
   )
   |> expect_error(fn(core_error) {
     core_error
-    == runtime_core.DuplicateAttach(address: "child", sequence_number: 3)
+    == runtime_core.DuplicateAttach(
+      address: "watershed/child",
+      sequence_number: 3,
+    )
   })
 }
 
 pub fn detached_edits_produce_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.InitMap)
+  let core =
+    runtime_core.create_detached(core, "watershed/child", channel.InitMap)
+    |> expect.to_be_ok
 
-  case runtime_core.set(core, "child", "a", json.int(1)) {
+  case runtime_core.set(core, "watershed/child", "a", json.int(1)) {
     Ok(#(core, events, outbound)) -> {
       events
       |> expect.to_equal([
         #(
-          "child",
+          "watershed/child",
           channel.MapEvent(ValueChanged(
             key: "a",
             previous_value: None,
@@ -1522,7 +1549,7 @@ pub fn detached_edits_produce_no_outbound_test() -> Nil {
       ])
       outbound |> expect.to_equal([])
       core.in_flight |> expect.to_equal([])
-      runtime_core.get(core, "child", "a")
+      runtime_core.get(core, "watershed/child", "a")
       |> expect.to_equal(Ok(json.int(1)))
     }
     Error(_) -> panic as "expected detached edit to succeed"
@@ -1531,22 +1558,24 @@ pub fn detached_edits_produce_no_outbound_test() -> Nil {
 
 pub fn detached_rich_text_submit_updates_view_and_tags_event_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "rich", channel.InitRichText)
+  let core =
+    runtime_core.create_detached(core, "watershed/rich", channel.InitRichText)
+    |> expect.to_be_ok
   let delta = rich_text_delta("[{\"insert\":\"A\"}]")
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.submit_rich_text(core, "rich", delta)
+    runtime_core.submit_rich_text(core, "watershed/rich", delta)
 
   events
   |> expect.to_equal([
     #(
-      "rich",
+      "watershed/rich",
       channel.RichTextEvent(rich_text_kernel.RichTextChanged(delta, True)),
     ),
   ])
   outbound |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.rich_text_view(core, "rich")
+  runtime_core.rich_text_view(core, "watershed/rich")
   |> expect.to_equal(Ok(rich_text_document("[{\"insert\":\"A\"}]")))
 }
 
@@ -1556,26 +1585,26 @@ pub fn attached_rich_text_submit_buffers_and_ack_promotes_through_collect_test()
   let second = rich_text_delta("[{\"retain\":1},{\"insert\":\"B\"}]")
 
   let assert Ok(#(core, local_events, [outbound])) =
-    runtime_core.submit_rich_text(core, "rich", first)
+    runtime_core.submit_rich_text(core, "watershed/rich", first)
   outbound.client_sequence_number |> expect.to_equal(1)
   local_events
   |> expect.to_equal([
     #(
-      "rich",
+      "watershed/rich",
       channel.RichTextEvent(rich_text_kernel.RichTextChanged(first, True)),
     ),
   ])
 
   let assert Ok(#(core, buffered_events, [])) =
-    runtime_core.submit_rich_text(core, "rich", second)
+    runtime_core.submit_rich_text(core, "watershed/rich", second)
   buffered_events
   |> expect.to_equal([
     #(
-      "rich",
+      "watershed/rich",
       channel.RichTextEvent(rich_text_kernel.RichTextChanged(second, True)),
     ),
   ])
-  runtime_core.rich_text_view(core, "rich")
+  runtime_core.rich_text_view(core, "watershed/rich")
   |> expect.to_equal(Ok(rich_text_document("[{\"insert\":\"AB\"}]")))
 
   let assert Ok(#(core, ingested)) =
@@ -1585,7 +1614,7 @@ pub fn attached_rich_text_submit_buffers_and_ack_promotes_through_collect_test()
         client_id: our_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "rich",
+        address: "watershed/rich",
         operation: rich_text_kernel.RichTextWireOperation(1, first),
       ),
     )
@@ -1597,7 +1626,7 @@ pub fn attached_rich_text_submit_buffers_and_ack_promotes_through_collect_test()
     runtime_core.InFlightOperation(
       client_id: our_client_id,
       client_sequence_number: 2,
-      address: "rich",
+      address: "watershed/rich",
       operation: channel.RichTextOperation(
         rich_text_kernel.RichTextWireOperation(2, second),
       ),
@@ -1616,7 +1645,7 @@ pub fn remote_rich_text_submit_tags_nonlocal_event_test() -> Nil {
         client_id: other_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "rich",
+        address: "watershed/rich",
         operation: rich_text_kernel.RichTextWireOperation(1, delta),
       ),
     )
@@ -1624,11 +1653,11 @@ pub fn remote_rich_text_submit_tags_nonlocal_event_test() -> Nil {
   ingested.events
   |> expect.to_equal([
     #(
-      "rich",
+      "watershed/rich",
       channel.RichTextEvent(rich_text_kernel.RichTextChanged(delta, False)),
     ),
   ])
-  runtime_core.rich_text_view(core, "rich")
+  runtime_core.rich_text_view(core, "watershed/rich")
   |> expect.to_equal(Ok(rich_text_document("[{\"insert\":\"remote\"}]")))
 }
 
@@ -1636,21 +1665,23 @@ pub fn rich_text_submit_reports_type_and_algebra_errors_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   runtime_core.submit_rich_text(
     core,
-    "root",
+    "watershed/root",
     rich_text_delta("[{\"insert\":\"A\"}]"),
   )
   |> expect.to_equal(
     Error(runtime_core.WrongChannelType(
-      "root",
+      "watershed/root",
       expected: channel.RichTextChannel,
       actual: channel.MapChannel,
     )),
   )
 
-  let core = runtime_core.create_detached(core, "rich", channel.InitRichText)
+  let core =
+    runtime_core.create_detached(core, "watershed/rich", channel.InitRichText)
+    |> expect.to_be_ok
   runtime_core.submit_rich_text(
     core,
-    "rich",
+    "watershed/rich",
     rich_text_delta("[{\"delete\":1}]"),
   )
   |> expect.to_equal(
@@ -1662,24 +1693,38 @@ pub fn rich_text_submit_reports_type_and_algebra_errors_test() -> Nil {
 
 pub fn handle_set_emits_recursive_attach_post_order_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.InitMap)
-  let core = runtime_core.create_detached(core, "grand", channel.InitMap)
+  let core =
+    runtime_core.create_detached(core, "watershed/child", channel.InitMap)
+    |> expect.to_be_ok
+  let core =
+    runtime_core.create_detached(core, "watershed/grand", channel.InitMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.set(core, "grand", "g", json.int(1))
+    runtime_core.set(core, "watershed/grand", "g", json.int(1))
   let assert Ok(#(core, _, [])) =
-    runtime_core.set(core, "child", "ref", handle.encode_handle("grand"))
+    runtime_core.set(
+      core,
+      "watershed/child",
+      "ref",
+      handle.encode_handle("watershed/grand"),
+    )
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.set(core, "root", "child", handle.encode_handle("child"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "child",
+      handle.encode_handle("watershed/child"),
+    )
 
   events
   |> expect.to_equal([
     #(
-      "root",
+      "watershed/root",
       channel.MapEvent(ValueChanged(
         key: "child",
         previous_value: None,
-        value: Some(handle.encode_handle("child")),
+        value: Some(handle.encode_handle("watershed/child")),
         local: True,
       )),
     ),
@@ -1687,69 +1732,104 @@ pub fn handle_set_emits_recursive_attach_post_order_test() -> Nil {
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
     DecodedAttach(
-      address: "grand",
+      address: "watershed/grand",
       snapshot: channel.MapSnapshot([#("g", json.int(1))]),
     ),
     DecodedAttach(
-      address: "child",
-      snapshot: channel.MapSnapshot([#("ref", handle.encode_handle("grand"))]),
+      address: "watershed/child",
+      snapshot: channel.MapSnapshot([
+        #("ref", handle.encode_handle("watershed/grand")),
+      ]),
     ),
     DecodedChannelOperation(
-      address: "root",
+      address: "watershed/root",
       operation: channel.MapOperation(Set(
         "child",
-        handle.encode_handle("child"),
+        handle.encode_handle("watershed/child"),
       )),
     ),
   ])
-  runtime_core.has_channel(core, "child") |> expect.to_be_true()
-  runtime_core.has_channel(core, "grand") |> expect.to_be_true()
+  runtime_core.has_channel(core, "watershed/child") |> expect.to_be_true()
+  runtime_core.has_channel(core, "watershed/grand") |> expect.to_be_true()
 }
 
 pub fn handle_set_emits_cycle_safe_attach_post_order_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "a", channel.InitMap)
-  let core = runtime_core.create_detached(core, "b", channel.InitMap)
+  let core =
+    runtime_core.create_detached(core, "watershed/a", channel.InitMap)
+    |> expect.to_be_ok
+  let core =
+    runtime_core.create_detached(core, "watershed/b", channel.InitMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.set(core, "a", "peer", handle.encode_handle("b"))
+    runtime_core.set(
+      core,
+      "watershed/a",
+      "peer",
+      handle.encode_handle("watershed/b"),
+    )
   let assert Ok(#(core, _, [])) =
-    runtime_core.set(core, "b", "peer", handle.encode_handle("a"))
+    runtime_core.set(
+      core,
+      "watershed/b",
+      "peer",
+      handle.encode_handle("watershed/a"),
+    )
 
   let assert Ok(#(_, _, outbound)) =
-    runtime_core.set(core, "root", "ref", handle.encode_handle("a"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "ref",
+      handle.encode_handle("watershed/a"),
+    )
 
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
     DecodedAttach(
-      address: "b",
-      snapshot: channel.MapSnapshot([#("peer", handle.encode_handle("a"))]),
+      address: "watershed/b",
+      snapshot: channel.MapSnapshot([
+        #("peer", handle.encode_handle("watershed/a")),
+      ]),
     ),
     DecodedAttach(
-      address: "a",
-      snapshot: channel.MapSnapshot([#("peer", handle.encode_handle("b"))]),
+      address: "watershed/a",
+      snapshot: channel.MapSnapshot([
+        #("peer", handle.encode_handle("watershed/b")),
+      ]),
     ),
     DecodedChannelOperation(
-      address: "root",
-      operation: channel.MapOperation(Set("ref", handle.encode_handle("a"))),
+      address: "watershed/root",
+      operation: channel.MapOperation(Set(
+        "ref",
+        handle.encode_handle("watershed/a"),
+      )),
     ),
   ])
 }
 
 pub fn edits_between_attach_submit_and_ack_queue_fifo_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.InitMap)
+  let core =
+    runtime_core.create_detached(core, "watershed/child", channel.InitMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.set(core, "child", "a", json.int(1))
+    runtime_core.set(core, "watershed/child", "a", json.int(1))
   let assert Ok(#(core, _, initial_outbound)) =
-    runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "ref",
+      handle.encode_handle("watershed/child"),
+    )
   list.length(initial_outbound) |> expect.to_equal(2)
 
   let assert Ok(#(core, events, [child_outbound])) =
-    runtime_core.set(core, "child", "a", json.int(2))
+    runtime_core.set(core, "watershed/child", "a", json.int(2))
   events
   |> expect.to_equal([
     #(
-      "child",
+      "watershed/child",
       channel.MapEvent(ValueChanged(
         key: "a",
         previous_value: Some(json.int(1)),
@@ -1760,7 +1840,7 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() -> Nil {
   ])
   decode_outbound_contents(child_outbound)
   |> expect.to_equal(DecodedChannelOperation(
-    address: "child",
+    address: "watershed/child",
     operation: channel.MapOperation(Set("a", json.int(2))),
   ))
   core.in_flight
@@ -1768,20 +1848,23 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() -> Nil {
     runtime_core.InFlightAttach(
       client_id: our_client_id,
       client_sequence_number: 1,
-      address: "child",
+      address: "watershed/child",
       snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
     runtime_core.InFlightOperation(
       client_id: our_client_id,
       client_sequence_number: 2,
-      address: "root",
-      operation: channel.MapOperation(Set("ref", handle.encode_handle("child"))),
+      address: "watershed/root",
+      operation: channel.MapOperation(Set(
+        "ref",
+        handle.encode_handle("watershed/child"),
+      )),
       meta: channel.NoMeta,
     ),
     runtime_core.InFlightOperation(
       client_id: our_client_id,
       client_sequence_number: 3,
-      address: "child",
+      address: "watershed/child",
       operation: channel.MapOperation(Set("a", json.int(2))),
       meta: channel.NoMeta,
     ),
@@ -1794,7 +1877,7 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() -> Nil {
         client_id: our_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "child",
+        address: "watershed/child",
         snapshot: [#("a", json.int(1))],
       ),
     )
@@ -1807,7 +1890,7 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() -> Nil {
         client_id: our_client_id,
         sequence_number: 3,
         client_sequence_number: 2,
-        operation: Set("ref", handle.encode_handle("child")),
+        operation: Set("ref", handle.encode_handle("watershed/child")),
       ),
     )
   root_events_ |> expect.to_equal([])
@@ -1816,7 +1899,7 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() -> Nil {
     apply_tagged(
       core,
       channel_operation_message(
-        address: "child",
+        address: "watershed/child",
         client_id: our_client_id,
         sequence_number: 4,
         client_sequence_number: 3,
@@ -1824,31 +1907,42 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() -> Nil {
       ),
     )
   child_events |> expect.to_equal([])
-  runtime_core.get(core, "child", "a") |> expect.to_equal(Ok(json.int(2)))
+  runtime_core.get(core, "watershed/child", "a")
+  |> expect.to_equal(Ok(json.int(2)))
   core.in_flight |> expect.to_equal([])
 }
 
 pub fn attach_ack_pops_with_no_events_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.InitMap)
+  let core =
+    runtime_core.create_detached(core, "watershed/child", channel.InitMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.set(core, "child", "a", json.int(1))
+    runtime_core.set(core, "watershed/child", "a", json.int(1))
   let assert Ok(#(core, _, outbound)) =
-    runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "ref",
+      handle.encode_handle("watershed/child"),
+    )
   outbound
   |> expect.to_equal([
-    wire_op.outbound_attach_operation(
-      address: "child",
+    expect.to_be_ok(wire_op.outbound_attach_operation(
+      address: "watershed/child",
       client_sequence_number: 1,
       reference_sequence_number: 1,
       snapshot: channel.MapSnapshot([#("a", json.int(1))]),
-    ),
-    wire_op.outbound_channel_operation(
-      address: "root",
+    )),
+    expect.to_be_ok(wire_op.outbound_channel_operation(
+      address: "watershed/root",
       client_sequence_number: 2,
       reference_sequence_number: 1,
-      operation: channel.MapOperation(Set("ref", handle.encode_handle("child"))),
-    ),
+      operation: channel.MapOperation(Set(
+        "ref",
+        handle.encode_handle("watershed/child"),
+      )),
+    )),
   ])
 
   let #(core, events) =
@@ -1858,19 +1952,23 @@ pub fn attach_ack_pops_with_no_events_test() -> Nil {
         client_id: our_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "child",
+        address: "watershed/child",
         snapshot: [#("a", json.int(1))],
       ),
     )
   events |> expect.to_equal([])
-  runtime_core.entries(core, "child") |> expect.to_equal([#("a", json.int(1))])
+  runtime_core.entries(core, "watershed/child")
+  |> expect.to_equal([#("a", json.int(1))])
   core.in_flight
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,
       client_sequence_number: 2,
-      address: "root",
-      operation: channel.MapOperation(Set("ref", handle.encode_handle("child"))),
+      address: "watershed/root",
+      operation: channel.MapOperation(Set(
+        "ref",
+        handle.encode_handle("watershed/child"),
+      )),
       meta: channel.NoMeta,
     ),
   ])
@@ -1878,11 +1976,18 @@ pub fn attach_ack_pops_with_no_events_test() -> Nil {
 
 pub fn attach_ack_mismatch_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.InitMap)
+  let core =
+    runtime_core.create_detached(core, "watershed/child", channel.InitMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.set(core, "child", "a", json.int(1))
+    runtime_core.set(core, "watershed/child", "a", json.int(1))
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "ref",
+      handle.encode_handle("watershed/child"),
+    )
 
   runtime_core.handle_sequenced(
     core,
@@ -1890,7 +1995,7 @@ pub fn attach_ack_mismatch_is_fatal_test() -> Nil {
       client_id: our_client_id,
       sequence_number: 2,
       client_sequence_number: 1,
-      address: "child",
+      address: "watershed/child",
       snapshot: [#("wrong", json.int(1))],
     ),
   )
@@ -1899,11 +2004,18 @@ pub fn attach_ack_mismatch_is_fatal_test() -> Nil {
 
 pub fn attach_ack_value_mismatch_is_fatal_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.InitMap)
+  let core =
+    runtime_core.create_detached(core, "watershed/child", channel.InitMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.set(core, "child", "a", json.int(1))
+    runtime_core.set(core, "watershed/child", "a", json.int(1))
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "ref",
+      handle.encode_handle("watershed/child"),
+    )
 
   runtime_core.handle_sequenced(
     core,
@@ -1911,7 +2023,7 @@ pub fn attach_ack_value_mismatch_is_fatal_test() -> Nil {
       client_id: our_client_id,
       sequence_number: 2,
       client_sequence_number: 1,
-      address: "child",
+      address: "watershed/child",
       snapshot: [#("a", json.int(2))],
     ),
   )
@@ -1920,40 +2032,50 @@ pub fn attach_ack_value_mismatch_is_fatal_test() -> Nil {
 
 pub fn reconnect_resubmit_preserves_interleaved_attach_and_operation_queue_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "child", channel.InitMap)
+  let core =
+    runtime_core.create_detached(core, "watershed/child", channel.InitMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.set(core, "child", "a", json.int(1))
+    runtime_core.set(core, "watershed/child", "a", json.int(1))
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "root", "ref", handle.encode_handle("child"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "ref",
+      handle.encode_handle("watershed/child"),
+    )
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "child", "a", json.int(2))
+    runtime_core.set(core, "watershed/child", "a", json.int(2))
 
   let core =
     runtime_core.adopt_reconnect(
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 5),
     )
-  let #(core, outbound) = runtime_core.resubmit(core)
+  let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
 
   core.in_flight
   |> expect.to_equal([
     runtime_core.InFlightAttach(
       client_id: reconnect_client_id,
       client_sequence_number: 4,
-      address: "child",
+      address: "watershed/child",
       snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
       client_sequence_number: 5,
-      address: "root",
-      operation: channel.MapOperation(Set("ref", handle.encode_handle("child"))),
+      address: "watershed/root",
+      operation: channel.MapOperation(Set(
+        "ref",
+        handle.encode_handle("watershed/child"),
+      )),
       meta: channel.NoMeta,
     ),
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
       client_sequence_number: 6,
-      address: "child",
+      address: "watershed/child",
       operation: channel.MapOperation(Set("a", json.int(2))),
       meta: channel.NoMeta,
     ),
@@ -1961,15 +2083,18 @@ pub fn reconnect_resubmit_preserves_interleaved_attach_and_operation_queue_test(
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
     DecodedAttach(
-      address: "child",
+      address: "watershed/child",
       snapshot: channel.MapSnapshot([#("a", json.int(1))]),
     ),
     DecodedChannelOperation(
-      address: "root",
-      operation: channel.MapOperation(Set("ref", handle.encode_handle("child"))),
+      address: "watershed/root",
+      operation: channel.MapOperation(Set(
+        "ref",
+        handle.encode_handle("watershed/child"),
+      )),
     ),
     DecodedChannelOperation(
-      address: "child",
+      address: "watershed/child",
       operation: channel.MapOperation(Set("a", json.int(2))),
     ),
   ])
@@ -1980,8 +2105,8 @@ pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() -> Nil {
     runtime_core.Summary(
       sequence_number: 5,
       channels: [
-        #("root", channel.MapSnapshot([#("die", json.int(4))])),
-        #("child", channel.MapSnapshot([#("a", json.int(1))])),
+        #("watershed/root", channel.MapSnapshot([#("die", json.int(4))])),
+        #("watershed/child", channel.MapSnapshot([#("a", json.int(1))])),
       ],
       members: [],
     )
@@ -1990,11 +2115,11 @@ pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() -> Nil {
       client_id: other_client_id,
       sequence_number: 6,
       client_sequence_number: 1,
-      address: "grand",
+      address: "watershed/grand",
       snapshot: [#("g", json.int(9))],
     ),
     channel_operation_message(
-      address: "child",
+      address: "watershed/child",
       client_id: other_client_id,
       sequence_number: 7,
       client_sequence_number: 2,
@@ -2007,17 +2132,20 @@ pub fn bootstrap_from_multi_channel_summary_and_attach_replay_test() -> Nil {
   {
     Ok(runtime_core.Complete(core)) -> {
       root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
-      runtime_core.get(core, "child", "a") |> expect.to_equal(Ok(json.int(1)))
-      runtime_core.get(core, "child", "b") |> expect.to_equal(Ok(json.int(2)))
-      runtime_core.get(core, "grand", "g") |> expect.to_equal(Ok(json.int(9)))
+      runtime_core.get(core, "watershed/child", "a")
+      |> expect.to_equal(Ok(json.int(1)))
+      runtime_core.get(core, "watershed/child", "b")
+      |> expect.to_equal(Ok(json.int(2)))
+      runtime_core.get(core, "watershed/grand", "g")
+      |> expect.to_equal(Ok(json.int(9)))
       runtime_core.summary_channels(core)
       |> expect.to_equal([
-        #("root", channel.MapSnapshot([#("die", json.int(4))])),
+        #("watershed/root", channel.MapSnapshot([#("die", json.int(4))])),
         #(
-          "child",
+          "watershed/child",
           channel.MapSnapshot([#("a", json.int(1)), #("b", json.int(2))]),
         ),
-        #("grand", channel.MapSnapshot([#("g", json.int(9))])),
+        #("watershed/grand", channel.MapSnapshot([#("g", json.int(9))])),
       ])
     }
     Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
@@ -2031,11 +2159,11 @@ pub fn bootstrap_from_bare_attach_history_test() -> Nil {
       client_id: other_client_id,
       sequence_number: 1,
       client_sequence_number: 1,
-      address: "child",
+      address: "watershed/child",
       snapshot: [#("a", json.int(1))],
     ),
     channel_operation_message(
-      address: "child",
+      address: "watershed/child",
       client_id: other_client_id,
       sequence_number: 2,
       client_sequence_number: 2,
@@ -2045,24 +2173,28 @@ pub fn bootstrap_from_bare_attach_history_test() -> Nil {
       client_id: other_client_id,
       sequence_number: 3,
       client_sequence_number: 3,
-      operation: Set("ref", handle.encode_handle("child")),
+      operation: Set("ref", handle.encode_handle("watershed/child")),
     ),
   ]
 
   case runtime_core.bootstrap(connected_message(history, 4), summary: None) {
     Ok(runtime_core.Complete(core)) -> {
-      runtime_core.get(core, "child", "a") |> expect.to_equal(Ok(json.int(1)))
-      runtime_core.get(core, "child", "b") |> expect.to_equal(Ok(json.int(2)))
+      runtime_core.get(core, "watershed/child", "a")
+      |> expect.to_equal(Ok(json.int(1)))
+      runtime_core.get(core, "watershed/child", "b")
+      |> expect.to_equal(Ok(json.int(2)))
       root_get(core, "ref")
-      |> expect.to_equal(Ok(handle.encode_handle("child")))
+      |> expect.to_equal(Ok(handle.encode_handle("watershed/child")))
       runtime_core.summary_channels(core)
       |> expect.to_equal([
         #(
-          "root",
-          channel.MapSnapshot([#("ref", handle.encode_handle("child"))]),
+          "watershed/root",
+          channel.MapSnapshot([
+            #("ref", handle.encode_handle("watershed/child")),
+          ]),
         ),
         #(
-          "child",
+          "watershed/child",
           channel.MapSnapshot([#("a", json.int(1)), #("b", json.int(2))]),
         ),
       ])
@@ -2088,10 +2220,9 @@ fn counter_operation_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_counter_envelope(
-      address,
-      operation,
-    )),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_counter_envelope(address, operation)),
+    ),
   )
 }
 
@@ -2107,44 +2238,59 @@ fn counter_attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_attach(
-      address,
-      channel.CounterSnapshot(value),
-    )),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_attach(
+        address,
+        channel.CounterSnapshot(value),
+      )),
+    ),
   )
 }
 
 pub fn detached_counter_increment_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
+  let core =
+    runtime_core.create_detached(core, "watershed/tally", channel.InitCounter)
+    |> expect.to_be_ok
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.increment(core, "tally", 3)
+    runtime_core.increment(core, "watershed/tally", 3)
   events
   |> expect.to_equal([
-    #("tally", channel.CounterEvent(counter_kernel.Incremented(3, 3))),
+    #("watershed/tally", channel.CounterEvent(counter_kernel.Incremented(3, 3))),
   ])
   outbound |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(3))
+  runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(3))
 }
 
 pub fn counter_attach_via_handle_then_operations_round_trip_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
-  let assert Ok(#(core, _, [])) = runtime_core.increment(core, "tally", 2)
+  let core =
+    runtime_core.create_detached(core, "watershed/tally", channel.InitCounter)
+    |> expect.to_be_ok
+  let assert Ok(#(core, _, [])) =
+    runtime_core.increment(core, "watershed/tally", 2)
 
   // Storing the handle attaches the counter with its optimistic value.
   let assert Ok(#(core, _, outbound)) =
-    runtime_core.set(core, "root", "tally", handle.encode_handle("tally"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "tally",
+      handle.encode_handle("watershed/tally"),
+    )
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
-    DecodedAttach(address: "tally", snapshot: channel.CounterSnapshot(2)),
+    DecodedAttach(
+      address: "watershed/tally",
+      snapshot: channel.CounterSnapshot(2),
+    ),
     DecodedChannelOperation(
-      address: "root",
+      address: "watershed/root",
       operation: channel.MapOperation(Set(
         "tally",
-        handle.encode_handle("tally"),
+        handle.encode_handle("watershed/tally"),
       )),
     ),
   ])
@@ -2157,7 +2303,7 @@ pub fn counter_attach_via_handle_then_operations_round_trip_test() -> Nil {
         client_id: our_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "tally",
+        address: "watershed/tally",
         value: 2,
       ),
     )
@@ -2166,26 +2312,26 @@ pub fn counter_attach_via_handle_then_operations_round_trip_test() -> Nil {
     apply_tagged(
       core,
       channel_operation_message(
-        address: "root",
+        address: "watershed/root",
         client_id: our_client_id,
         sequence_number: 3,
         client_sequence_number: 2,
-        operation: Set("tally", handle.encode_handle("tally")),
+        operation: Set("tally", handle.encode_handle("watershed/tally")),
       ),
     )
   core.in_flight |> expect.to_equal([])
 
   // An attached increment goes on the wire with the next CSN.
   let assert Ok(#(core, events, [outbound_operation])) =
-    runtime_core.increment(core, "tally", 5)
+    runtime_core.increment(core, "watershed/tally", 5)
   events
   |> expect.to_equal([
-    #("tally", channel.CounterEvent(counter_kernel.Incremented(5, 7))),
+    #("watershed/tally", channel.CounterEvent(counter_kernel.Incremented(5, 7))),
   ])
   outbound_operation.client_sequence_number |> expect.to_equal(3)
   decode_outbound_contents(outbound_operation)
   |> expect.to_equal(DecodedChannelOperation(
-    address: "tally",
+    address: "watershed/tally",
     operation: channel.CounterOperation(counter_kernel.Increment(5)),
   ))
 
@@ -2194,7 +2340,7 @@ pub fn counter_attach_via_handle_then_operations_round_trip_test() -> Nil {
     apply_tagged(
       core,
       counter_operation_message(
-        address: "tally",
+        address: "watershed/tally",
         client_id: other_client_id,
         sequence_number: 4,
         client_sequence_number: 1,
@@ -2203,7 +2349,10 @@ pub fn counter_attach_via_handle_then_operations_round_trip_test() -> Nil {
     )
   events
   |> expect.to_equal([
-    #("tally", channel.CounterEvent(counter_kernel.Incremented(10, 17))),
+    #(
+      "watershed/tally",
+      channel.CounterEvent(counter_kernel.Incremented(10, 17)),
+    ),
   ])
 
   // Our own echo retires the pending increment without events.
@@ -2211,7 +2360,7 @@ pub fn counter_attach_via_handle_then_operations_round_trip_test() -> Nil {
     apply_tagged(
       core,
       counter_operation_message(
-        address: "tally",
+        address: "watershed/tally",
         client_id: our_client_id,
         sequence_number: 5,
         client_sequence_number: 3,
@@ -2220,7 +2369,7 @@ pub fn counter_attach_via_handle_then_operations_round_trip_test() -> Nil {
     )
   events |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(17))
+  runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(17))
 }
 
 pub fn remote_counter_attach_then_wrong_amount_ack_is_fatal_test() -> Nil {
@@ -2232,19 +2381,20 @@ pub fn remote_counter_attach_then_wrong_amount_ack_is_fatal_test() -> Nil {
         client_id: other_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "tally",
+        address: "watershed/tally",
         value: 40,
       ),
     )
   events |> expect.to_equal([])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(40))
+  runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(40))
 
-  let assert Ok(#(core, _, [_])) = runtime_core.increment(core, "tally", 1)
+  let assert Ok(#(core, _, [_])) =
+    runtime_core.increment(core, "watershed/tally", 1)
   expect_error(
     runtime_core.handle_sequenced(
       core,
       counter_operation_message(
-        address: "tally",
+        address: "watershed/tally",
         client_id: our_client_id,
         sequence_number: 3,
         client_sequence_number: 1,
@@ -2264,41 +2414,43 @@ pub fn reconnect_resubmits_counter_operations_restamped_test() -> Nil {
         client_id: other_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "tally",
+        address: "watershed/tally",
         value: 0,
       ),
     )
-  let assert Ok(#(core, _, [_])) = runtime_core.increment(core, "tally", 1)
-  let assert Ok(#(core, _, [_])) = runtime_core.increment(core, "tally", 2)
+  let assert Ok(#(core, _, [_])) =
+    runtime_core.increment(core, "watershed/tally", 1)
+  let assert Ok(#(core, _, [_])) =
+    runtime_core.increment(core, "watershed/tally", 2)
 
   let core =
     runtime_core.adopt_reconnect(
       core,
       reconnect_connected(client_id: reconnect_client_id, checkpoint: 2),
     )
-  let #(core, outbound) = runtime_core.resubmit(core)
+  let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
 
   list.map(outbound, fn(operation) { operation.client_sequence_number })
   |> expect.to_equal([3, 4])
   list.map(outbound, decode_outbound_contents)
   |> expect.to_equal([
     DecodedChannelOperation(
-      address: "tally",
+      address: "watershed/tally",
       operation: channel.CounterOperation(counter_kernel.Increment(1)),
     ),
     DecodedChannelOperation(
-      address: "tally",
+      address: "watershed/tally",
       operation: channel.CounterOperation(counter_kernel.Increment(2)),
     ),
   ])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(3))
+  runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(3))
 
   // The restamped echoes ack cleanly under the new client id.
   let #(core, _) =
     apply_tagged(
       core,
       counter_operation_message(
-        address: "tally",
+        address: "watershed/tally",
         client_id: reconnect_client_id,
         sequence_number: 3,
         client_sequence_number: 3,
@@ -2309,7 +2461,7 @@ pub fn reconnect_resubmits_counter_operations_restamped_test() -> Nil {
     apply_tagged(
       core,
       counter_operation_message(
-        address: "tally",
+        address: "watershed/tally",
         client_id: reconnect_client_id,
         sequence_number: 4,
         client_sequence_number: 4,
@@ -2317,7 +2469,7 @@ pub fn reconnect_resubmits_counter_operations_restamped_test() -> Nil {
       ),
     )
   core.in_flight |> expect.to_equal([])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(3))
+  runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(3))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2336,7 +2488,9 @@ fn claim_operation_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_claim_envelope(address, operation)),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_claim_envelope(address, operation)),
+    ),
   )
 }
 
@@ -2352,10 +2506,12 @@ fn claim_attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_attach(
-      address,
-      channel.ClaimsSnapshot(entries),
-    )),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_attach(
+        address,
+        channel.ClaimsSnapshot(entries),
+      )),
+    ),
   )
 }
 
@@ -2368,7 +2524,7 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
         client_id: other_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "locks",
+        address: "watershed/locks",
         entries: [],
       ),
     )
@@ -2377,10 +2533,16 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
     core: core,
     outbound: [first],
     immediate_outcome: None,
-  )) = runtime_core.claim_once(core, "locks", "owner", json.string("alice"))
+  )) =
+    runtime_core.claim_once(
+      core,
+      "watershed/locks",
+      "owner",
+      json.string("alice"),
+    )
   decode_outbound_contents(first)
   |> expect.to_equal(DecodedChannelOperation(
-    address: "locks",
+    address: "watershed/locks",
     operation: channel.ClaimsOperation(claims_kernel.Claim(
       key: "owner",
       value: json.string("alice"),
@@ -2395,13 +2557,13 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
     )
   let #(core, _) =
     apply(core, join_message(sequence_number: 3, joining: reconnect_client_id))
-  let #(core, outbound) = runtime_core.resubmit(core)
+  let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
   let assert [resubmitted] = outbound
   resubmitted.client_sequence_number |> expect.to_equal(2)
   resubmitted.reference_sequence_number |> expect.to_equal(3)
   decode_outbound_contents(resubmitted)
   |> expect.to_equal(DecodedChannelOperation(
-    address: "locks",
+    address: "watershed/locks",
     operation: channel.ClaimsOperation(claims_kernel.Claim(
       key: "owner",
       value: json.string("alice"),
@@ -2411,7 +2573,7 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
 
   let ack =
     claim_operation_message(
-      address: "locks",
+      address: "watershed/locks",
       client_id: reconnect_client_id,
       sequence_number: 4,
       client_sequence_number: 2,
@@ -2420,19 +2582,22 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
   let assert Ok(#(core, ingested)) = runtime_core.handle_sequenced(core, ack)
   ingested.events
   |> expect.to_equal([
-    #("locks", channel.ClaimsEvent(claims_kernel.Claimed("owner", True))),
+    #(
+      "watershed/locks",
+      channel.ClaimsEvent(claims_kernel.Claimed("owner", True)),
+    ),
   ])
   ingested.resolutions
   |> expect.to_equal([
     #(
-      "locks",
+      "watershed/locks",
       channel.ClaimResolved(
         "owner",
         claims_kernel.Accepted(json.string("alice")),
       ),
     ),
   ])
-  runtime_core.get_claim(core, "locks", "owner")
+  runtime_core.get_claim(core, "watershed/locks", "owner")
   |> expect.to_equal(Ok(json.string("alice")))
   core.in_flight |> expect.to_equal([])
 }
@@ -2442,9 +2607,9 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() -> Nil {
     runtime_core.Summary(
       sequence_number: 5,
       channels: [
-        #("root", channel.MapSnapshot([])),
+        #("watershed/root", channel.MapSnapshot([])),
         #(
-          "locks",
+          "watershed/locks",
           channel.ClaimsSnapshot([#("owner", json.string("alice"), 5)]),
         ),
       ],
@@ -2459,15 +2624,18 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() -> Nil {
   }
   runtime_core.summary_channels(core)
   |> expect.to_equal([
-    #("root", channel.MapSnapshot([])),
-    #("locks", channel.ClaimsSnapshot([#("owner", json.string("alice"), 5)])),
+    #("watershed/root", channel.MapSnapshot([])),
+    #(
+      "watershed/locks",
+      channel.ClaimsSnapshot([#("owner", json.string("alice"), 5)]),
+    ),
   ])
 
   let #(core, stale_events) =
     apply_tagged(
       core,
       claim_operation_message(
-        address: "locks",
+        address: "watershed/locks",
         client_id: other_client_id,
         sequence_number: 6,
         client_sequence_number: 1,
@@ -2475,14 +2643,14 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() -> Nil {
       ),
     )
   stale_events |> expect.to_equal([])
-  runtime_core.get_claim(core, "locks", "owner")
+  runtime_core.get_claim(core, "watershed/locks", "owner")
   |> expect.to_equal(Ok(json.string("alice")))
 
   let #(core, events) =
     apply_tagged(
       core,
       claim_operation_message(
-        address: "locks",
+        address: "watershed/locks",
         client_id: other_client_id,
         sequence_number: 7,
         client_sequence_number: 2,
@@ -2491,14 +2659,20 @@ pub fn claims_summary_round_trip_preserves_sequence_numbers_test() -> Nil {
     )
   events
   |> expect.to_equal([
-    #("locks", channel.ClaimsEvent(claims_kernel.Claimed("owner", False))),
+    #(
+      "watershed/locks",
+      channel.ClaimsEvent(claims_kernel.Claimed("owner", False)),
+    ),
   ])
-  runtime_core.get_claim(core, "locks", "owner")
+  runtime_core.get_claim(core, "watershed/locks", "owner")
   |> expect.to_equal(Ok(json.string("carol")))
   runtime_core.summary_channels(core)
   |> expect.to_equal([
-    #("root", channel.MapSnapshot([])),
-    #("locks", channel.ClaimsSnapshot([#("owner", json.string("carol"), 7)])),
+    #("watershed/root", channel.MapSnapshot([])),
+    #(
+      "watershed/locks",
+      channel.ClaimsSnapshot([#("owner", json.string("carol"), 7)]),
+    ),
   ])
 }
 
@@ -2518,7 +2692,9 @@ fn or_map_operation_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_or_map_envelope(address, operation)),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_or_map_envelope(address, operation)),
+    ),
   )
 }
 
@@ -2534,7 +2710,9 @@ fn or_map_attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_attach(address, snapshot)),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_attach(address, snapshot)),
+    ),
   )
 }
 
@@ -2563,19 +2741,23 @@ pub fn detached_or_map_increment_produces_no_outbound_test() -> Nil {
   let core =
     runtime_core.create_detached(
       core,
-      "scores",
+      "watershed/scores",
       channel.InitOrMap(or_map_kernel.TallyMode),
     )
+    |> expect.to_be_ok
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.or_map_increment(core, "scores", "score", 3)
+    runtime_core.or_map_increment(core, "watershed/scores", "score", 3)
   events
   |> expect.to_equal([
-    #("scores", channel.OrMapEvent(or_map_kernel.TallyUpdated("score", 3, 3))),
+    #(
+      "watershed/scores",
+      channel.OrMapEvent(or_map_kernel.TallyUpdated("score", 3, 3)),
+    ),
   ])
   outbound |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.or_map_value(core, "scores", "score")
+  runtime_core.or_map_value(core, "watershed/scores", "score")
   |> expect.to_equal(Ok(or_map_kernel.Tally(3)))
 }
 
@@ -2584,25 +2766,37 @@ pub fn or_map_set_detached_promotion_and_member_ack_test() -> Nil {
   let core =
     runtime_core.create_detached(
       core,
-      "sets",
+      "watershed/sets",
       channel.InitOrMap(or_map_kernel.OrSetMode),
     )
+    |> expect.to_be_ok
   let assert Ok(#(core, [], [])) =
-    runtime_core.or_map_remove_member(core, "sets", "missing", "draft")
-  runtime_core.or_map_value(core, "sets", "missing")
+    runtime_core.or_map_remove_member(
+      core,
+      "watershed/sets",
+      "missing",
+      "draft",
+    )
+  runtime_core.or_map_value(core, "watershed/sets", "missing")
   |> expect.to_equal(Error(Nil))
   let assert Ok(#(core, events, [])) =
-    runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+    runtime_core.or_map_add_member(core, "watershed/sets", "doc", "draft")
   events
   |> expect.to_equal([
     #(
-      "sets",
+      "watershed/sets",
       channel.OrMapEvent(or_map_kernel.SetMembersUpdated("doc", ["draft"])),
     ),
   ])
   let assert Ok(#(core, _, [attach, _])) =
-    runtime_core.set(core, "root", "sets", handle.encode_handle("sets"))
-  let assert DecodedAttach("sets", snapshot) = decode_outbound_contents(attach)
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "sets",
+      handle.encode_handle("watershed/sets"),
+    )
+  let assert DecodedAttach("watershed/sets", snapshot) =
+    decode_outbound_contents(attach)
   or_map_snapshot_entries(snapshot)
   |> expect.to_equal([#("doc", or_map_kernel.SetMembers(["draft"]))])
   let #(core, _) =
@@ -2612,7 +2806,7 @@ pub fn or_map_set_detached_promotion_and_member_ack_test() -> Nil {
         client_id: our_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "sets",
+        address: "watershed/sets",
         snapshot: snapshot,
       ),
     )
@@ -2620,23 +2814,25 @@ pub fn or_map_set_detached_promotion_and_member_ack_test() -> Nil {
     apply_tagged(
       core,
       channel_operation_message(
-        address: "root",
+        address: "watershed/root",
         client_id: our_client_id,
         sequence_number: 3,
         client_sequence_number: 2,
-        operation: Set("sets", handle.encode_handle("sets")),
+        operation: Set("sets", handle.encode_handle("watershed/sets")),
       ),
     )
   let assert Ok(#(core, [], [duplicate])) =
-    runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+    runtime_core.or_map_add_member(core, "watershed/sets", "doc", "draft")
   duplicate.client_sequence_number |> expect.to_equal(3)
-  let assert DecodedChannelOperation("sets", channel.OrMapOperation(operation)) =
-    decode_outbound_contents(duplicate)
+  let assert DecodedChannelOperation(
+    "watershed/sets",
+    channel.OrMapOperation(operation),
+  ) = decode_outbound_contents(duplicate)
   let assert #(core, []) =
     apply_tagged(
       core,
       or_map_operation_message(
-        address: "sets",
+        address: "watershed/sets",
         client_id: our_client_id,
         sequence_number: 4,
         client_sequence_number: 3,
@@ -2645,18 +2841,23 @@ pub fn or_map_set_detached_promotion_and_member_ack_test() -> Nil {
     )
   core.in_flight |> expect.to_equal([])
   let assert Ok(#(core, events, [remove])) =
-    runtime_core.or_map_remove_member(core, "sets", "doc", "draft")
+    runtime_core.or_map_remove_member(core, "watershed/sets", "doc", "draft")
   events
   |> expect.to_equal([
-    #("sets", channel.OrMapEvent(or_map_kernel.SetMembersUpdated("doc", []))),
+    #(
+      "watershed/sets",
+      channel.OrMapEvent(or_map_kernel.SetMembersUpdated("doc", [])),
+    ),
   ])
-  let assert DecodedChannelOperation("sets", channel.OrMapOperation(operation)) =
-    decode_outbound_contents(remove)
+  let assert DecodedChannelOperation(
+    "watershed/sets",
+    channel.OrMapOperation(operation),
+  ) = decode_outbound_contents(remove)
   let assert #(core, []) =
     apply_tagged(
       core,
       or_map_operation_message(
-        address: "sets",
+        address: "watershed/sets",
         client_id: our_client_id,
         sequence_number: 5,
         client_sequence_number: 4,
@@ -2664,7 +2865,7 @@ pub fn or_map_set_detached_promotion_and_member_ack_test() -> Nil {
       ),
     )
   core.in_flight |> expect.to_equal([])
-  runtime_core.or_map_value(core, "sets", "doc")
+  runtime_core.or_map_value(core, "watershed/sets", "doc")
   |> expect.to_equal(Ok(or_map_kernel.SetMembers([])))
 }
 
@@ -2673,23 +2874,29 @@ pub fn or_map_member_edits_keep_wrong_mode_and_wrong_channel_errors_test() -> Ni
   let core =
     runtime_core.create_detached(
       core,
-      "tally",
+      "watershed/tally",
       channel.InitOrMap(or_map_kernel.TallyMode),
     )
-  let assert Error(runtime_core.OrMapModeMismatch(address: "tally", ..)) =
-    runtime_core.or_map_add_member(core, "tally", "doc", "draft")
-  let assert Error(runtime_core.OrMapModeMismatch(address: "tally", ..)) =
-    runtime_core.or_map_remove_member(core, "tally", "doc", "draft")
+    |> expect.to_be_ok
+  let assert Error(runtime_core.OrMapModeMismatch(
+    address: "watershed/tally",
+    ..,
+  )) = runtime_core.or_map_add_member(core, "watershed/tally", "doc", "draft")
+  let assert Error(runtime_core.OrMapModeMismatch(
+    address: "watershed/tally",
+    ..,
+  )) =
+    runtime_core.or_map_remove_member(core, "watershed/tally", "doc", "draft")
   let assert Error(runtime_core.WrongChannelType(
-    address: "root",
+    address: "watershed/root",
     expected: channel.OrMapChannel,
     actual: channel.MapChannel,
-  )) = runtime_core.or_map_add_member(core, "root", "doc", "draft")
+  )) = runtime_core.or_map_add_member(core, "watershed/root", "doc", "draft")
   let assert Error(runtime_core.WrongChannelType(
-    address: "root",
+    address: "watershed/root",
     expected: channel.OrMapChannel,
     actual: channel.MapChannel,
-  )) = runtime_core.or_map_remove_member(core, "root", "doc", "draft")
+  )) = runtime_core.or_map_remove_member(core, "watershed/root", "doc", "draft")
   Nil
 }
 
@@ -2706,18 +2913,26 @@ pub fn or_map_member_clock_exhaustion_has_address_in_attached_and_detached_core_
   let detached =
     runtime_core.Core(
       ..core,
-      detached: dict.insert(core.detached, "sets", channel.OrMapState(kernel)),
+      detached: dict.insert(
+        core.detached,
+        "watershed/sets",
+        channel.OrMapState(kernel),
+      ),
     )
   let attached =
     runtime_core.Core(
       ..core,
-      channels: dict.insert(core.channels, "sets", channel.OrMapState(kernel)),
+      channels: dict.insert(
+        core.channels,
+        "watershed/sets",
+        channel.OrMapState(kernel),
+      ),
     )
   list.each([detached, attached], fn(core) {
     let assert Error(runtime_core.OrMapOperationFailed(
-      address: "sets",
+      address: "watershed/sets",
       detail: detail,
-    )) = runtime_core.or_map_add_member(core, "sets", "doc", "draft")
+    )) = runtime_core.or_map_add_member(core, "watershed/sets", "doc", "draft")
     string.is_empty(detail) |> expect.to_be_false
   })
 }
@@ -2729,15 +2944,21 @@ pub fn or_map_invalid_set_state_error_survives_remote_and_ack_dispatch_test() ->
   let core =
     runtime_core.Core(
       ..core,
-      channels: dict.insert(core.channels, "sets", channel.OrMapState(empty)),
+      channels: dict.insert(
+        core.channels,
+        "watershed/sets",
+        channel.OrMapState(empty),
+      ),
     )
   let assert Ok(#(pending, _, [outbound])) =
-    runtime_core.or_map_add_member(core, "sets", "doc", "draft")
-  let assert DecodedChannelOperation("sets", channel.OrMapOperation(operation)) =
-    decode_outbound_contents(outbound)
+    runtime_core.or_map_add_member(core, "watershed/sets", "doc", "draft")
+  let assert DecodedChannelOperation(
+    "watershed/sets",
+    channel.OrMapOperation(operation),
+  ) = decode_outbound_contents(outbound)
   list.each([#(core, other_client_id), #(pending, our_client_id)], fn(pair) {
     let assert Ok(channel.OrMapState(kernel)) =
-      dict.get(pair.0.channels, "sets")
+      dict.get(pair.0.channels, "watershed/sets")
     let corrupt =
       or_map_kernel.OrMapState(
         ..kernel,
@@ -2748,18 +2969,18 @@ pub fn or_map_invalid_set_state_error_survives_remote_and_ack_dispatch_test() ->
         ..pair.0,
         channels: dict.insert(
           pair.0.channels,
-          "sets",
+          "watershed/sets",
           channel.OrMapState(corrupt),
         ),
       )
     let assert Error(runtime_core.OrMapOperationFailed(
-      address: "sets",
+      address: "watershed/sets",
       detail: detail,
     )) =
       runtime_core.handle_sequenced(
         core,
         or_map_operation_message(
-          address: "sets",
+          address: "watershed/sets",
           client_id: pair.1,
           sequence_number: 2,
           client_sequence_number: 1,
@@ -2775,26 +2996,34 @@ pub fn or_map_attach_via_handle_then_operations_round_trip_test() -> Nil {
   let core =
     runtime_core.create_detached(
       core,
-      "scores",
+      "watershed/scores",
       channel.InitOrMap(or_map_kernel.TallyMode),
     )
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.or_map_increment(core, "scores", "score", 2)
+    runtime_core.or_map_increment(core, "watershed/scores", "score", 2)
 
   let assert Ok(#(core, _, outbound)) =
-    runtime_core.set(core, "root", "scores", handle.encode_handle("scores"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "scores",
+      handle.encode_handle("watershed/scores"),
+    )
   let assert [attach_outbound, root_outbound] =
     list.map(outbound, decode_outbound_contents)
-  let assert DecodedAttach(address: "scores", snapshot: attach_snapshot) =
-    attach_outbound
+  let assert DecodedAttach(
+    address: "watershed/scores",
+    snapshot: attach_snapshot,
+  ) = attach_outbound
   or_map_snapshot_entries(attach_snapshot)
   |> expect.to_equal([#("score", or_map_kernel.Tally(2))])
   root_outbound
   |> expect.to_equal(DecodedChannelOperation(
-    address: "root",
+    address: "watershed/root",
     operation: channel.MapOperation(Set(
       "scores",
-      handle.encode_handle("scores"),
+      handle.encode_handle("watershed/scores"),
     )),
   ))
 
@@ -2805,7 +3034,7 @@ pub fn or_map_attach_via_handle_then_operations_round_trip_test() -> Nil {
         client_id: our_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "scores",
+        address: "watershed/scores",
         snapshot: attach_snapshot,
       ),
     )
@@ -2814,24 +3043,27 @@ pub fn or_map_attach_via_handle_then_operations_round_trip_test() -> Nil {
     apply_tagged(
       core,
       channel_operation_message(
-        address: "root",
+        address: "watershed/root",
         client_id: our_client_id,
         sequence_number: 3,
         client_sequence_number: 2,
-        operation: Set("scores", handle.encode_handle("scores")),
+        operation: Set("scores", handle.encode_handle("watershed/scores")),
       ),
     )
   core.in_flight |> expect.to_equal([])
 
   let assert Ok(#(core, events, [outbound_operation])) =
-    runtime_core.or_map_increment(core, "scores", "score", 5)
+    runtime_core.or_map_increment(core, "watershed/scores", "score", 5)
   events
   |> expect.to_equal([
-    #("scores", channel.OrMapEvent(or_map_kernel.TallyUpdated("score", 5, 7))),
+    #(
+      "watershed/scores",
+      channel.OrMapEvent(or_map_kernel.TallyUpdated("score", 5, 7)),
+    ),
   ])
   outbound_operation.client_sequence_number |> expect.to_equal(3)
   let assert DecodedChannelOperation(
-    address: "scores",
+    address: "watershed/scores",
     operation: channel.OrMapOperation(own_operation),
   ) = decode_outbound_contents(outbound_operation)
 
@@ -2839,7 +3071,7 @@ pub fn or_map_attach_via_handle_then_operations_round_trip_test() -> Nil {
     apply_tagged(
       core,
       or_map_operation_message(
-        address: "scores",
+        address: "watershed/scores",
         client_id: other_client_id,
         sequence_number: 4,
         client_sequence_number: 1,
@@ -2848,14 +3080,17 @@ pub fn or_map_attach_via_handle_then_operations_round_trip_test() -> Nil {
     )
   events
   |> expect.to_equal([
-    #("scores", channel.OrMapEvent(or_map_kernel.TallyUpdated("score", 10, 17))),
+    #(
+      "watershed/scores",
+      channel.OrMapEvent(or_map_kernel.TallyUpdated("score", 10, 17)),
+    ),
   ])
 
   let #(core, events) =
     apply_tagged(
       core,
       or_map_operation_message(
-        address: "scores",
+        address: "watershed/scores",
         client_id: our_client_id,
         sequence_number: 5,
         client_sequence_number: 3,
@@ -2864,7 +3099,7 @@ pub fn or_map_attach_via_handle_then_operations_round_trip_test() -> Nil {
     )
   events |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.or_map_value(core, "scores", "score")
+  runtime_core.or_map_value(core, "watershed/scores", "score")
   |> expect.to_equal(Ok(or_map_kernel.Tally(17)))
 }
 
@@ -2873,11 +3108,13 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
   let core =
     runtime_core.create_detached(
       core,
-      "registers",
+      "watershed/registers",
       channel.InitOrMap(or_map_kernel.RegisterMode),
     )
-  case runtime_core.or_map_increment(core, "registers", "k", 1) {
-    Error(runtime_core.OrMapModeMismatch(address: "registers", ..)) -> Nil
+    |> expect.to_be_ok
+  case runtime_core.or_map_increment(core, "watershed/registers", "k", 1) {
+    Error(runtime_core.OrMapModeMismatch(address: "watershed/registers", ..)) ->
+      Nil
     Ok(_)
     | Error(runtime_core.AckMismatch(_))
     | Error(runtime_core.BadOperationContents(_))
@@ -2894,18 +3131,22 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
     | Error(runtime_core.LwwMapOperationFailed(..))
-    | Error(runtime_core.BadSummaryChannel(..)) ->
+    | Error(runtime_core.BadSummaryChannel(..))
+    | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected increment on RegisterMode to be rejected"
   }
 
   let core =
     runtime_core.create_detached(
       core,
-      "scores",
+      "watershed/scores",
       channel.InitOrMap(or_map_kernel.TallyMode),
     )
-  case runtime_core.or_map_set(core, "scores", "k", "v", 10) {
-    Error(runtime_core.OrMapModeMismatch(address: "scores", ..)) -> Nil
+    |> expect.to_be_ok
+  case runtime_core.or_map_set(core, "watershed/scores", "k", "v", 10) {
+    Error(runtime_core.OrMapModeMismatch(address: "watershed/scores", ..)) ->
+      Nil
     Ok(_)
     | Error(runtime_core.AckMismatch(_))
     | Error(runtime_core.BadOperationContents(_))
@@ -2922,7 +3163,9 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
     | Error(runtime_core.LwwMapOperationFailed(..))
-    | Error(runtime_core.BadSummaryChannel(..)) ->
+    | Error(runtime_core.BadSummaryChannel(..))
+    | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected set on TallyMode to be rejected"
   }
 }
@@ -2950,29 +3193,40 @@ pub fn mv_or_map_runtime_submit_ack_resubmit_and_summary_test() -> Nil {
   let core =
     bootstrap([], 1)
     |> runtime_core.create_detached(
-      "revisions",
+      "watershed/revisions",
       channel.InitOrMap(or_map_kernel.MvRegisterMode),
     )
+    |> expect.to_be_ok
   let assert Ok(#(core, events, [])) =
-    runtime_core.or_map_set_mv_register(core, "revisions", "gate", "initial")
+    runtime_core.or_map_set_mv_register(
+      core,
+      "watershed/revisions",
+      "gate",
+      "initial",
+    )
   events
   |> expect.to_equal([
     #(
-      "revisions",
+      "watershed/revisions",
       channel.OrMapEvent(or_map_kernel.MvRegisterUpdated("gate", ["initial"])),
     ),
   ])
   let assert Ok(#(core, _, [attach, reference])) =
     runtime_core.set(
       core,
-      "root",
+      "watershed/root",
       "revisions",
-      handle.encode_handle("revisions"),
+      handle.encode_handle("watershed/revisions"),
     )
   let core =
     core |> ack_mv_or_map_outbound(attach) |> ack_mv_or_map_outbound(reference)
   let assert Ok(#(core, _, [outbound])) =
-    runtime_core.or_map_set_mv_register(core, "revisions", "gate", "local")
+    runtime_core.or_map_set_mv_register(
+      core,
+      "watershed/revisions",
+      "gate",
+      "local",
+    )
   let assert Ok(#(_, _, remote)) =
     or_map_kernel.p2p_set_mv_register(
       or_map_kernel.new(replica_id.new("remote"), or_map_kernel.MvRegisterMode),
@@ -2982,25 +3236,31 @@ pub fn mv_or_map_runtime_submit_ack_resubmit_and_summary_test() -> Nil {
   let #(core, events) =
     apply_tagged(
       core,
-      or_map_operation_message("revisions", other_client_id, 4, 1, remote),
+      or_map_operation_message(
+        "watershed/revisions",
+        other_client_id,
+        4,
+        1,
+        remote,
+      ),
     )
   events
   |> expect.to_equal([
     #(
-      "revisions",
+      "watershed/revisions",
       channel.OrMapEvent(
         or_map_kernel.MvRegisterUpdated("gate", ["local", "remote"]),
       ),
     ),
   ])
-  let assert #(core, [resubmitted]) =
+  let assert Ok(#(core, [resubmitted])) =
     core
     |> runtime_core.adopt_reconnect(reconnect_connected("new-client", 4))
     |> runtime_core.resubmit
   json.to_string(resubmitted.contents)
   |> expect.to_equal(json.to_string(outbound.contents))
   let core = ack_mv_or_map_outbound(core, resubmitted)
-  runtime_core.or_map_values(core, "revisions", "gate")
+  runtime_core.or_map_values(core, "watershed/revisions", "gate")
   |> expect.to_equal(Ok(["local", "remote"]))
   let assert Ok(blob) =
     summary_blob.encode_channels(
@@ -3015,12 +3275,17 @@ pub fn mv_or_map_runtime_submit_ack_resubmit_and_summary_test() -> Nil {
       connected_message([], core.last_seen_sequence_number),
       summary: Some(runtime_core.summary_from_blob(blob)),
     )
-  runtime_core.or_map_values(loaded, "revisions", "gate")
+  runtime_core.or_map_values(loaded, "watershed/revisions", "gate")
   |> expect.to_equal(Ok(["local", "remote"]))
   let assert Ok(#(loaded, _, [resolution])) =
-    runtime_core.or_map_set_mv_register(loaded, "revisions", "gate", "resolved")
+    runtime_core.or_map_set_mv_register(
+      loaded,
+      "watershed/revisions",
+      "gate",
+      "resolved",
+    )
   let loaded = ack_mv_or_map_outbound(loaded, resolution)
-  runtime_core.or_map_values(loaded, "revisions", "gate")
+  runtime_core.or_map_values(loaded, "watershed/revisions", "gate")
   |> expect.to_equal(Ok(["resolved"]))
 }
 
@@ -3028,26 +3293,29 @@ pub fn mv_or_map_runtime_typed_reads_and_mode_errors_test() -> Nil {
   let core =
     bootstrap([], 1)
     |> runtime_core.create_detached(
-      "tally",
+      "watershed/tally",
       channel.InitOrMap(or_map_kernel.TallyMode),
     )
+    |> expect.to_be_ok
     |> runtime_core.create_detached(
-      "mv",
+      "watershed/mv",
       channel.InitOrMap(or_map_kernel.MvRegisterMode),
     )
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.or_map_increment(core, "tally", "k", 1)
-  runtime_core.or_map_values(core, "tally", "k") |> expect.to_equal(Error(Nil))
-  runtime_core.or_map_values(core, "mv", "missing")
+    runtime_core.or_map_increment(core, "watershed/tally", "k", 1)
+  runtime_core.or_map_values(core, "watershed/tally", "k")
   |> expect.to_equal(Error(Nil))
-  let assert Error(runtime_core.OrMapModeMismatch("tally", _)) =
-    runtime_core.or_map_set_mv_register(core, "tally", "k", "wrong")
-  let assert Error(runtime_core.OrMapModeMismatch("mv", _)) =
-    runtime_core.or_map_set(core, "mv", "k", "wrong", 0)
-  let assert Error(runtime_core.OrMapModeMismatch("mv", _)) =
-    runtime_core.or_map_increment(core, "mv", "k", 1)
+  runtime_core.or_map_values(core, "watershed/mv", "missing")
+  |> expect.to_equal(Error(Nil))
+  let assert Error(runtime_core.OrMapModeMismatch("watershed/tally", _)) =
+    runtime_core.or_map_set_mv_register(core, "watershed/tally", "k", "wrong")
+  let assert Error(runtime_core.OrMapModeMismatch("watershed/mv", _)) =
+    runtime_core.or_map_set(core, "watershed/mv", "k", "wrong", 0)
+  let assert Error(runtime_core.OrMapModeMismatch("watershed/mv", _)) =
+    runtime_core.or_map_increment(core, "watershed/mv", "k", 1)
   let assert Error(runtime_core.UnknownChannel(..)) =
-    runtime_core.or_map_set_mv_register(core, "absent", "k", "wrong")
+    runtime_core.or_map_set_mv_register(core, "watershed/absent", "k", "wrong")
   Nil
 }
 
@@ -3060,28 +3328,36 @@ pub fn or_map_register_set_attaches_handle_dependencies_test() -> Nil {
         client_id: other_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "registers",
+        address: "watershed/registers",
         snapshot: channel.attach_snapshot(channel.new(
           channel.InitOrMap(or_map_kernel.RegisterMode),
           replica: other_client_id,
         )),
       ),
     )
-  let core = runtime_core.create_detached(core, "child", channel.InitMap)
+  let core =
+    runtime_core.create_detached(core, "watershed/child", channel.InitMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, [])) =
-    runtime_core.set(core, "child", "k", json.int(1))
+    runtime_core.set(core, "watershed/child", "k", json.int(1))
 
-  let encoded_handle = json.to_string(handle.encode_handle("child"))
+  let encoded_handle = json.to_string(handle.encode_handle("watershed/child"))
   let assert Ok(#(_core, _events, outbound)) =
-    runtime_core.or_map_set(core, "registers", "child", encoded_handle, 99)
+    runtime_core.or_map_set(
+      core,
+      "watershed/registers",
+      "child",
+      encoded_handle,
+      99,
+    )
   let assert [attach, operation] = list.map(outbound, decode_outbound_contents)
   attach
   |> expect.to_equal(DecodedAttach(
-    address: "child",
+    address: "watershed/child",
     snapshot: channel.MapSnapshot([#("k", json.int(1))]),
   ))
   let assert DecodedChannelOperation(
-    address: "registers",
+    address: "watershed/registers",
     operation: channel.OrMapOperation(or_map_operation),
   ) = operation
   case or_map_operation {
@@ -3098,12 +3374,14 @@ pub fn or_map_register_set_attaches_handle_dependencies_test() -> Nil {
 
 pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
+  let core =
+    runtime_core.create_detached(core, "watershed/tally", channel.InitCounter)
+    |> expect.to_be_ok
 
   // Map verbs on a counter channel are rejected, not applied or crashed.
-  case runtime_core.set(core, "tally", "k", json.int(1)) {
+  case runtime_core.set(core, "watershed/tally", "k", json.int(1)) {
     Error(runtime_core.WrongChannelType(
-      address: "tally",
+      address: "watershed/tally",
       expected: channel.MapChannel,
       actual: channel.CounterChannel,
     )) -> Nil
@@ -3123,10 +3401,12 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
     | Error(runtime_core.LwwMapOperationFailed(..))
-    | Error(runtime_core.BadSummaryChannel(..)) ->
+    | Error(runtime_core.BadSummaryChannel(..))
+    | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected set on a counter channel to be rejected"
   }
-  case runtime_core.delete(core, "tally", "k") {
+  case runtime_core.delete(core, "watershed/tally", "k") {
     Error(runtime_core.WrongChannelType(..)) -> Nil
     Ok(_)
     | Error(runtime_core.AckMismatch(_))
@@ -3143,10 +3423,12 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
     | Error(runtime_core.LwwMapOperationFailed(..))
-    | Error(runtime_core.BadSummaryChannel(..)) ->
+    | Error(runtime_core.BadSummaryChannel(..))
+    | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected delete on a counter channel to be rejected"
   }
-  case runtime_core.clear(core, "tally") {
+  case runtime_core.clear(core, "watershed/tally") {
     Error(runtime_core.WrongChannelType(..)) -> Nil
     Ok(_)
     | Error(runtime_core.AckMismatch(_))
@@ -3163,13 +3445,15 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
     | Error(runtime_core.LwwMapOperationFailed(..))
-    | Error(runtime_core.BadSummaryChannel(..)) ->
+    | Error(runtime_core.BadSummaryChannel(..))
+    | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected clear on a counter channel to be rejected"
   }
   // And the counter verb on a map channel likewise.
-  case runtime_core.increment(core, "root", 1) {
+  case runtime_core.increment(core, "watershed/root", 1) {
     Error(runtime_core.WrongChannelType(
-      address: "root",
+      address: "watershed/root",
       expected: channel.CounterChannel,
       actual: channel.MapChannel,
     )) -> Nil
@@ -3189,15 +3473,18 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.TextOperationFailed(..))
     | Error(runtime_core.LwwRegisterOperationFailed(..))
     | Error(runtime_core.LwwMapOperationFailed(..))
-    | Error(runtime_core.BadSummaryChannel(..)) ->
+    | Error(runtime_core.BadSummaryChannel(..))
+    | Error(runtime_core.BadBootstrapSeed(..))
+    | Error(runtime_core.ContainerOperationFailed(..)) ->
       panic as "expected increment on a map channel to be rejected"
   }
   // Reads on the wrong channel type return empty defaults.
-  runtime_core.counter_value(core, "root") |> expect.to_equal(Error(Nil))
-  runtime_core.get(core, "tally", "k") |> expect.to_equal(Error(Nil))
-  runtime_core.entries(core, "tally") |> expect.to_equal([])
-  runtime_core.keys(core, "tally") |> expect.to_equal([])
-  runtime_core.size(core, "tally") |> expect.to_equal(0)
+  runtime_core.counter_value(core, "watershed/root")
+  |> expect.to_equal(Error(Nil))
+  runtime_core.get(core, "watershed/tally", "k") |> expect.to_equal(Error(Nil))
+  runtime_core.entries(core, "watershed/tally") |> expect.to_equal([])
+  runtime_core.keys(core, "watershed/tally") |> expect.to_equal([])
+  runtime_core.size(core, "watershed/tally") |> expect.to_equal(0)
 }
 
 pub fn summary_captures_confirmed_counter_value_test() -> Nil {
@@ -3209,7 +3496,7 @@ pub fn summary_captures_confirmed_counter_value_test() -> Nil {
         client_id: other_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "tally",
+        address: "watershed/tally",
         value: 0,
       ),
     )
@@ -3217,22 +3504,23 @@ pub fn summary_captures_confirmed_counter_value_test() -> Nil {
     apply_tagged(
       core,
       counter_operation_message(
-        address: "tally",
+        address: "watershed/tally",
         client_id: other_client_id,
         sequence_number: 3,
         client_sequence_number: 2,
         operation: counter_kernel.Increment(4),
       ),
     )
-  let assert Ok(#(core, _, [_])) = runtime_core.increment(core, "tally", 3)
+  let assert Ok(#(core, _, [_])) =
+    runtime_core.increment(core, "watershed/tally", 3)
 
   // The optimistic read includes the un-acked increment; the summary only
   // captures the confirmed value.
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(7))
+  runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(7))
   runtime_core.summary_channels(core)
   |> expect.to_equal([
-    #("root", channel.MapSnapshot([])),
-    #("tally", channel.CounterSnapshot(4)),
+    #("watershed/root", channel.MapSnapshot([])),
+    #("watershed/tally", channel.CounterSnapshot(4)),
   ])
 }
 
@@ -3242,10 +3530,12 @@ pub fn bootstrap_from_summary_with_counter_channel_test() -> Nil {
       sequence_number: 5,
       channels: [
         #(
-          "root",
-          channel.MapSnapshot([#("tally", handle.encode_handle("tally"))]),
+          "watershed/root",
+          channel.MapSnapshot([
+            #("tally", handle.encode_handle("watershed/tally")),
+          ]),
         ),
-        #("tally", channel.CounterSnapshot(9)),
+        #("watershed/tally", channel.CounterSnapshot(9)),
       ],
       members: [],
     )
@@ -3256,13 +3546,13 @@ pub fn bootstrap_from_summary_with_counter_channel_test() -> Nil {
     Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
       panic as "expected summary bootstrap to complete"
   }
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(9))
+  runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(9))
 
   let #(core, events) =
     apply_tagged(
       core,
       counter_operation_message(
-        address: "tally",
+        address: "watershed/tally",
         client_id: other_client_id,
         sequence_number: 6,
         client_sequence_number: 1,
@@ -3271,9 +3561,12 @@ pub fn bootstrap_from_summary_with_counter_channel_test() -> Nil {
     )
   events
   |> expect.to_equal([
-    #("tally", channel.CounterEvent(counter_kernel.Incremented(2, 11))),
+    #(
+      "watershed/tally",
+      channel.CounterEvent(counter_kernel.Incremented(2, 11)),
+    ),
   ])
-  runtime_core.counter_value(core, "tally") |> expect.to_equal(Ok(11))
+  runtime_core.counter_value(core, "watershed/tally") |> expect.to_equal(Ok(11))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -3292,10 +3585,12 @@ fn register_operation_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_register_collection_envelope(
-      address,
-      operation,
-    )),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_register_collection_envelope(
+        address,
+        operation,
+      )),
+    ),
   )
 }
 
@@ -3311,10 +3606,12 @@ fn register_attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_attach(
-      address,
-      channel.RegisterCollectionSnapshot(registers),
-    )),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_attach(
+        address,
+        channel.RegisterCollectionSnapshot(registers),
+      )),
+    ),
   )
 }
 
@@ -3330,16 +3627,22 @@ pub fn detached_register_write_produces_no_outbound_test() -> Nil {
   let core =
     runtime_core.create_detached(
       core,
-      "registers",
+      "watershed/registers",
       channel.InitRegisterCollection,
     )
+    |> expect.to_be_ok
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.register_write(core, "registers", "station", json.string("A"))
+    runtime_core.register_write(
+      core,
+      "watershed/registers",
+      "station",
+      json.string("A"),
+    )
   events
   |> expect.to_equal([
     #(
-      "registers",
+      "watershed/registers",
       channel.RegisterCollectionEvent(register_collection_kernel.AtomicChanged(
         "station",
         json.string("A"),
@@ -3347,7 +3650,7 @@ pub fn detached_register_write_produces_no_outbound_test() -> Nil {
       )),
     ),
     #(
-      "registers",
+      "watershed/registers",
       channel.RegisterCollectionEvent(register_collection_kernel.VersionChanged(
         "station",
         json.string("A"),
@@ -3358,7 +3661,7 @@ pub fn detached_register_write_produces_no_outbound_test() -> Nil {
   outbound |> expect.to_equal([])
   runtime_core.register_read(
     core,
-    "registers",
+    "watershed/registers",
     "station",
     register_collection_kernel.Atomic,
   )
@@ -3374,17 +3677,22 @@ pub fn register_collection_attached_write_round_trips_test() -> Nil {
         client_id: other_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "registers",
+        address: "watershed/registers",
         registers: [],
       ),
     )
 
   let assert Ok(#(core, events, [outbound])) =
-    runtime_core.register_write(core, "registers", "station", json.string("A"))
+    runtime_core.register_write(
+      core,
+      "watershed/registers",
+      "station",
+      json.string("A"),
+    )
   events |> expect.to_equal([])
   decode_outbound_contents(outbound)
   |> expect.to_equal(DecodedChannelOperation(
-    address: "registers",
+    address: "watershed/registers",
     operation: channel.RegisterCollectionOperation(
       register_collection_kernel.Write(
         "station",
@@ -3395,7 +3703,7 @@ pub fn register_collection_attached_write_round_trips_test() -> Nil {
   ))
   runtime_core.register_read(
     core,
-    "registers",
+    "watershed/registers",
     "station",
     register_collection_kernel.Atomic,
   )
@@ -3405,7 +3713,7 @@ pub fn register_collection_attached_write_round_trips_test() -> Nil {
     apply_tagged(
       core,
       register_operation_message(
-        address: "registers",
+        address: "watershed/registers",
         client_id: our_client_id,
         sequence_number: 3,
         client_sequence_number: 1,
@@ -3419,7 +3727,7 @@ pub fn register_collection_attached_write_round_trips_test() -> Nil {
   events
   |> expect.to_equal([
     #(
-      "registers",
+      "watershed/registers",
       channel.RegisterCollectionEvent(register_collection_kernel.AtomicChanged(
         "station",
         json.string("A"),
@@ -3427,7 +3735,7 @@ pub fn register_collection_attached_write_round_trips_test() -> Nil {
       )),
     ),
     #(
-      "registers",
+      "watershed/registers",
       channel.RegisterCollectionEvent(register_collection_kernel.VersionChanged(
         "station",
         json.string("A"),
@@ -3437,7 +3745,7 @@ pub fn register_collection_attached_write_round_trips_test() -> Nil {
   ])
   runtime_core.register_read(
     core,
-    "registers",
+    "watershed/registers",
     "station",
     register_collection_kernel.Atomic,
   )
@@ -3454,17 +3762,22 @@ pub fn register_collection_ack_with_wrong_shape_is_fatal_test() -> Nil {
         client_id: other_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "registers",
+        address: "watershed/registers",
         registers: [],
       ),
     )
   let assert Ok(#(core, _, [_])) =
-    runtime_core.register_write(core, "registers", "station", json.string("A"))
+    runtime_core.register_write(
+      core,
+      "watershed/registers",
+      "station",
+      json.string("A"),
+    )
 
   runtime_core.handle_sequenced(
     core,
     register_operation_message(
-      address: "registers",
+      address: "watershed/registers",
       client_id: our_client_id,
       sequence_number: 3,
       client_sequence_number: 1,
@@ -3484,9 +3797,9 @@ pub fn bootstrap_from_summary_with_register_collection_test() -> Nil {
     runtime_core.Summary(
       sequence_number: 5,
       channels: [
-        #("root", channel.MapSnapshot([])),
+        #("watershed/root", channel.MapSnapshot([])),
         #(
-          "registers",
+          "watershed/registers",
           channel.RegisterCollectionSnapshot([
             #(
               "station",
@@ -3506,7 +3819,7 @@ pub fn bootstrap_from_summary_with_register_collection_test() -> Nil {
   }
   runtime_core.register_read(
     core,
-    "registers",
+    "watershed/registers",
     "station",
     register_collection_kernel.Atomic,
   )
@@ -3516,7 +3829,7 @@ pub fn bootstrap_from_summary_with_register_collection_test() -> Nil {
     apply_tagged(
       core,
       register_operation_message(
-        address: "registers",
+        address: "watershed/registers",
         client_id: other_client_id,
         sequence_number: 6,
         client_sequence_number: 1,
@@ -3530,7 +3843,7 @@ pub fn bootstrap_from_summary_with_register_collection_test() -> Nil {
   events
   |> expect.to_equal([
     #(
-      "registers",
+      "watershed/registers",
       channel.RegisterCollectionEvent(register_collection_kernel.AtomicChanged(
         "station",
         json.string("Remote"),
@@ -3538,7 +3851,7 @@ pub fn bootstrap_from_summary_with_register_collection_test() -> Nil {
       )),
     ),
     #(
-      "registers",
+      "watershed/registers",
       channel.RegisterCollectionEvent(register_collection_kernel.VersionChanged(
         "station",
         json.string("Remote"),
@@ -3546,7 +3859,7 @@ pub fn bootstrap_from_summary_with_register_collection_test() -> Nil {
       )),
     ),
   ])
-  runtime_core.register_versions(core, "registers", "station")
+  runtime_core.register_versions(core, "watershed/registers", "station")
   |> expect.to_equal(Ok([json.string("Remote")]))
 }
 
@@ -3560,7 +3873,7 @@ pub fn owed_operation_is_auto_submitted_after_sequenced_batch_test() -> Nil {
   // A reacting kernel arm would return this from `channel.apply_remote`; inject
   // it directly to exercise the generic buffer without a producing kernel.
   let owed = channel.MapOperation(Set("owed", json.int(9)))
-  let core = runtime_core.enqueue_owed(core, "root", [owed])
+  let core = runtime_core.enqueue_owed(core, "watershed/root", [owed])
 
   // A remote operation drives a sequenced batch; `collect_released_operations`
   // then drains the owed buffer, stamping the follow-up with a fresh CSN +
@@ -3583,7 +3896,10 @@ pub fn owed_operation_is_auto_submitted_after_sequenced_batch_test() -> Nil {
   outbound.client_sequence_number |> expect.to_equal(1)
   outbound.reference_sequence_number |> expect.to_equal(2)
   decode_outbound_contents(outbound)
-  |> expect.to_equal(DecodedChannelOperation(address: "root", operation: owed))
+  |> expect.to_equal(DecodedChannelOperation(
+    address: "watershed/root",
+    operation: owed,
+  ))
 
   // It is recorded in-flight so the ordinary ack path reclaims it, ...
   core.in_flight
@@ -3591,7 +3907,7 @@ pub fn owed_operation_is_auto_submitted_after_sequenced_batch_test() -> Nil {
     runtime_core.InFlightOperation(
       client_id: our_client_id,
       client_sequence_number: 1,
-      address: "root",
+      address: "watershed/root",
       operation: owed,
       meta: channel.NoMeta,
     ),
@@ -3609,8 +3925,8 @@ pub fn multiple_owed_operations_drain_in_order_with_sequential_client_sequence_n
   let first = channel.MapOperation(Set("first", json.int(1)))
   let second = channel.MapOperation(Set("second", json.int(2)))
   // Two separate enqueues accumulate (append) on the same channel.
-  let core = runtime_core.enqueue_owed(core, "root", [first])
-  let core = runtime_core.enqueue_owed(core, "root", [second])
+  let core = runtime_core.enqueue_owed(core, "watershed/root", [first])
+  let core = runtime_core.enqueue_owed(core, "watershed/root", [second])
 
   let assert Ok(#(core, ingested)) =
     runtime_core.handle_sequenced(
@@ -3627,8 +3943,8 @@ pub fn multiple_owed_operations_drain_in_order_with_sequential_client_sequence_n
     #(operation.client_sequence_number, decode_outbound_contents(operation))
   })
   |> expect.to_equal([
-    #(1, DecodedChannelOperation(address: "root", operation: first)),
-    #(2, DecodedChannelOperation(address: "root", operation: second)),
+    #(1, DecodedChannelOperation(address: "watershed/root", operation: first)),
+    #(2, DecodedChannelOperation(address: "watershed/root", operation: second)),
   ])
   core.next_client_sequence_number |> expect.to_equal(3)
 }
@@ -3649,10 +3965,12 @@ fn text_operation_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_channel_envelope(
-      address,
-      channel.TextOperation(operation),
-    )),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_channel_envelope(
+        address,
+        channel.TextOperation(operation),
+      )),
+    ),
   )
 }
 
@@ -3668,7 +3986,9 @@ fn text_attach_message(
     sequence_number: sequence_number,
     client_sequence_number: client_sequence_number,
     message_type: "op",
-    contents: json_to_dynamic(wire_op.encode_attach(address, snapshot)),
+    contents: json_to_dynamic(
+      expect.to_be_ok(wire_op.encode_attach(address, snapshot)),
+    ),
   )
 }
 
@@ -3706,22 +4026,26 @@ fn remote_text_insert_operation(
 
 pub fn text_create_detached_reports_text_type_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
 
-  runtime_core.require_channel_type(core, "doc", channel.TextChannel)
+  runtime_core.require_channel_type(core, "watershed/doc", channel.TextChannel)
   |> expect.to_equal(Ok(Nil))
-  runtime_core.text_value(core, "doc") |> expect.to_equal("")
-  runtime_core.text_length(core, "doc") |> expect.to_equal(0)
+  runtime_core.text_value(core, "watershed/doc") |> expect.to_equal("")
+  runtime_core.text_length(core, "watershed/doc") |> expect.to_equal(0)
 }
 
 pub fn text_mutation_on_wrong_channel_type_is_rejected_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
+  let core =
+    runtime_core.create_detached(core, "watershed/tally", channel.InitCounter)
+    |> expect.to_be_ok
 
-  runtime_core.text_insert(core, "tally", 0, "x")
+  runtime_core.text_insert(core, "watershed/tally", 0, "x")
   |> expect.to_equal(
     Error(runtime_core.WrongChannelType(
-      "tally",
+      "watershed/tally",
       expected: channel.TextChannel,
       actual: channel.CounterChannel,
     )),
@@ -3731,134 +4055,162 @@ pub fn text_mutation_on_wrong_channel_type_is_rejected_test() -> Nil {
 pub fn text_mutation_on_missing_channel_is_unknown_channel_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
-  runtime_core.text_insert(core, "missing", 0, "x")
+  runtime_core.text_insert(core, "watershed/missing", 0, "x")
   |> expect.to_equal(
-    Error(runtime_core.UnknownChannel(address: "missing", sequence_number: 1)),
+    Error(runtime_core.UnknownChannel(
+      address: "watershed/missing",
+      sequence_number: 1,
+    )),
   )
 }
 
 pub fn text_reads_default_for_missing_or_wrong_channel_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "tally", channel.InitCounter)
+  let core =
+    runtime_core.create_detached(core, "watershed/tally", channel.InitCounter)
+    |> expect.to_be_ok
 
-  runtime_core.text_value(core, "missing") |> expect.to_equal("")
-  runtime_core.text_length(core, "missing") |> expect.to_equal(0)
-  runtime_core.text_value(core, "tally") |> expect.to_equal("")
-  runtime_core.text_length(core, "tally") |> expect.to_equal(0)
+  runtime_core.text_value(core, "watershed/missing") |> expect.to_equal("")
+  runtime_core.text_length(core, "watershed/missing") |> expect.to_equal(0)
+  runtime_core.text_value(core, "watershed/tally") |> expect.to_equal("")
+  runtime_core.text_length(core, "watershed/tally") |> expect.to_equal(0)
 }
 
 pub fn detached_text_insert_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.text_insert(core, "doc", 0, "hello")
+    runtime_core.text_insert(core, "watershed/doc", 0, "hello")
   events
   |> expect.to_equal([
-    #("doc", channel.TextEvent(text_kernel.TextChanged("hello"))),
+    #("watershed/doc", channel.TextEvent(text_kernel.TextChanged("hello"))),
   ])
   outbound |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.text_value(core, "doc") |> expect.to_equal("hello")
-  runtime_core.text_length(core, "doc") |> expect.to_equal(5)
+  runtime_core.text_value(core, "watershed/doc") |> expect.to_equal("hello")
+  runtime_core.text_length(core, "watershed/doc") |> expect.to_equal(5)
 }
 
 pub fn detached_text_delete_range_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, _)) =
-    runtime_core.text_insert(core, "doc", 0, "hello")
+    runtime_core.text_insert(core, "watershed/doc", 0, "hello")
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.text_delete_range(core, "doc", 1, 3)
+    runtime_core.text_delete_range(core, "watershed/doc", 1, 3)
   events
   |> expect.to_equal([
-    #("doc", channel.TextEvent(text_kernel.TextChanged("hlo"))),
+    #("watershed/doc", channel.TextEvent(text_kernel.TextChanged("hlo"))),
   ])
   outbound |> expect.to_equal([])
-  runtime_core.text_value(core, "doc") |> expect.to_equal("hlo")
+  runtime_core.text_value(core, "watershed/doc") |> expect.to_equal("hlo")
 }
 
 pub fn detached_text_replace_range_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, _)) =
-    runtime_core.text_insert(core, "doc", 0, "hello")
+    runtime_core.text_insert(core, "watershed/doc", 0, "hello")
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.text_replace_range(core, "doc", 0, 1, "H")
+    runtime_core.text_replace_range(core, "watershed/doc", 0, 1, "H")
   events
   |> expect.to_equal([
-    #("doc", channel.TextEvent(text_kernel.TextChanged("Hello"))),
+    #("watershed/doc", channel.TextEvent(text_kernel.TextChanged("Hello"))),
   ])
   outbound |> expect.to_equal([])
-  runtime_core.text_value(core, "doc") |> expect.to_equal("Hello")
+  runtime_core.text_value(core, "watershed/doc") |> expect.to_equal("Hello")
 }
 
 pub fn detached_text_append_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, _)) =
-    runtime_core.text_insert(core, "doc", 0, "hello")
+    runtime_core.text_insert(core, "watershed/doc", 0, "hello")
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.text_append(core, "doc", " world")
+    runtime_core.text_append(core, "watershed/doc", " world")
   events
   |> expect.to_equal([
-    #("doc", channel.TextEvent(text_kernel.TextChanged("hello world"))),
+    #(
+      "watershed/doc",
+      channel.TextEvent(text_kernel.TextChanged("hello world")),
+    ),
   ])
   outbound |> expect.to_equal([])
-  runtime_core.text_value(core, "doc") |> expect.to_equal("hello world")
+  runtime_core.text_value(core, "watershed/doc")
+  |> expect.to_equal("hello world")
 }
 
 pub fn detached_text_valid_empty_edits_are_true_no_operations_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
-  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "watershed/doc", 0, "abc")
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.text_insert(core, "doc", 1, "")
+    runtime_core.text_insert(core, "watershed/doc", 1, "")
   events |> expect.to_equal([])
   outbound |> expect.to_equal([])
-  runtime_core.text_value(core, "doc") |> expect.to_equal("abc")
+  runtime_core.text_value(core, "watershed/doc") |> expect.to_equal("abc")
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.text_delete_range(core, "doc", 1, 1)
+    runtime_core.text_delete_range(core, "watershed/doc", 1, 1)
   events |> expect.to_equal([])
   outbound |> expect.to_equal([])
-  runtime_core.text_value(core, "doc") |> expect.to_equal("abc")
+  runtime_core.text_value(core, "watershed/doc") |> expect.to_equal("abc")
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.text_replace_range(core, "doc", 2, 2, "")
+    runtime_core.text_replace_range(core, "watershed/doc", 2, 2, "")
   events |> expect.to_equal([])
   outbound |> expect.to_equal([])
-  runtime_core.text_value(core, "doc") |> expect.to_equal("abc")
+  runtime_core.text_value(core, "watershed/doc") |> expect.to_equal("abc")
 
   let assert Ok(#(_core, events, outbound)) =
-    runtime_core.text_append(core, "doc", "")
+    runtime_core.text_append(core, "watershed/doc", "")
   events |> expect.to_equal([])
   outbound |> expect.to_equal([])
 }
 
 pub fn text_insert_out_of_bounds_is_text_operation_failed_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
 
-  runtime_core.text_insert(core, "doc", 5, "x")
+  runtime_core.text_insert(core, "watershed/doc", 5, "x")
   |> expect.to_equal(
-    Error(runtime_core.TextOperationFailed("doc", "insert index 5 outside 0..0")),
+    Error(runtime_core.TextOperationFailed(
+      "watershed/doc",
+      "insert index 5 outside 0..0",
+    )),
   )
 }
 
 pub fn text_delete_range_out_of_bounds_is_text_operation_failed_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
-  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "watershed/doc", 0, "abc")
 
-  runtime_core.text_delete_range(core, "doc", 1, 10)
+  runtime_core.text_delete_range(core, "watershed/doc", 1, 10)
   |> expect.to_equal(
     Error(runtime_core.TextOperationFailed(
-      "doc",
+      "watershed/doc",
       "delete range 1..10 invalid for length 3",
     )),
   )
@@ -3866,13 +4218,16 @@ pub fn text_delete_range_out_of_bounds_is_text_operation_failed_test() -> Nil {
 
 pub fn text_replace_range_out_of_bounds_is_text_operation_failed_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
-  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "watershed/doc", 0, "abc")
 
-  runtime_core.text_replace_range(core, "doc", 0, 10, "x")
+  runtime_core.text_replace_range(core, "watershed/doc", 0, 10, "x")
   |> expect.to_equal(
     Error(runtime_core.TextOperationFailed(
-      "doc",
+      "watershed/doc",
       "replace range 0..10 invalid for length 3",
     )),
   )
@@ -3880,47 +4235,62 @@ pub fn text_replace_range_out_of_bounds_is_text_operation_failed_test() -> Nil {
 
 pub fn text_optimistic_reads_value_length_substring_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, _)) =
-    runtime_core.text_insert(core, "doc", 0, "hi 👋 world")
+    runtime_core.text_insert(core, "watershed/doc", 0, "hi 👋 world")
 
-  runtime_core.text_value(core, "doc") |> expect.to_equal("hi 👋 world")
-  runtime_core.text_length(core, "doc") |> expect.to_equal(10)
-  runtime_core.text_substring(core, "doc", 0, 2) |> expect.to_equal(Ok("hi"))
-  runtime_core.text_substring(core, "doc", 3, 4) |> expect.to_equal(Ok("👋"))
-  runtime_core.text_substring(core, "doc", 0, 10)
+  runtime_core.text_value(core, "watershed/doc")
+  |> expect.to_equal("hi 👋 world")
+  runtime_core.text_length(core, "watershed/doc") |> expect.to_equal(10)
+  runtime_core.text_substring(core, "watershed/doc", 0, 2)
+  |> expect.to_equal(Ok("hi"))
+  runtime_core.text_substring(core, "watershed/doc", 3, 4)
+  |> expect.to_equal(Ok("👋"))
+  runtime_core.text_substring(core, "watershed/doc", 0, 10)
   |> expect.to_equal(Ok("hi 👋 world"))
 }
 
 pub fn text_substring_invalid_range_is_explicit_error_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
-  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "watershed/doc", 0, "abc")
 
-  runtime_core.text_substring(core, "doc", 2, 1)
+  runtime_core.text_substring(core, "watershed/doc", 2, 1)
   |> expect.to_equal(Error("substring range 2..1 invalid for length 3"))
 }
 
 pub fn text_substring_missing_channel_is_explicit_error_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
-  runtime_core.text_substring(core, "missing", 0, 1)
+  runtime_core.text_substring(core, "watershed/missing", 0, 1)
   |> expect.to_equal(Error(
-    "text substring requires a text channel at missing, found none",
+    "text substring requires a text channel at watershed/missing, found none",
   ))
 }
 
 pub fn text_attach_via_handle_then_operations_round_trip_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
 
   // Storing the handle attaches the (still-empty) text with its optimistic
   // state.
   let assert Ok(#(core, _, outbound)) =
-    runtime_core.set(core, "root", "doc", handle.encode_handle("doc"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "doc",
+      handle.encode_handle("watershed/doc"),
+    )
   let assert [attach_outbound, root_outbound] =
     list.map(outbound, decode_outbound_contents)
-  let assert DecodedAttach(address: "doc", snapshot: attach_snapshot) =
+  let assert DecodedAttach(address: "watershed/doc", snapshot: attach_snapshot) =
     attach_outbound
   let assert channel.TextSummary(attach_text) = attach_snapshot
   text_kernel.from_sequenced(attach_text, replica_id.new("test-loader"))
@@ -3928,8 +4298,11 @@ pub fn text_attach_via_handle_then_operations_round_trip_test() -> Nil {
   |> expect.to_equal("")
   root_outbound
   |> expect.to_equal(DecodedChannelOperation(
-    address: "root",
-    operation: channel.MapOperation(Set("doc", handle.encode_handle("doc"))),
+    address: "watershed/root",
+    operation: channel.MapOperation(Set(
+      "doc",
+      handle.encode_handle("watershed/doc"),
+    )),
   ))
 
   // Server echoes both; the acks retire them silently.
@@ -3940,7 +4313,7 @@ pub fn text_attach_via_handle_then_operations_round_trip_test() -> Nil {
         client_id: our_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "doc",
+        address: "watershed/doc",
         snapshot: attach_snapshot,
       ),
     )
@@ -3949,11 +4322,11 @@ pub fn text_attach_via_handle_then_operations_round_trip_test() -> Nil {
     apply_tagged(
       core,
       channel_operation_message(
-        address: "root",
+        address: "watershed/root",
         client_id: our_client_id,
         sequence_number: 3,
         client_sequence_number: 2,
-        operation: Set("doc", handle.encode_handle("doc")),
+        operation: Set("doc", handle.encode_handle("watershed/doc")),
       ),
     )
   core.in_flight |> expect.to_equal([])
@@ -3961,14 +4334,14 @@ pub fn text_attach_via_handle_then_operations_round_trip_test() -> Nil {
   // An attached insert goes on the wire with the next CSN, tagged with
   // TextMeta so the ack path can match it FIFO.
   let assert Ok(#(core, events, [outbound_operation])) =
-    runtime_core.text_insert(core, "doc", 0, "hello")
+    runtime_core.text_insert(core, "watershed/doc", 0, "hello")
   events
   |> expect.to_equal([
-    #("doc", channel.TextEvent(text_kernel.TextChanged("hello"))),
+    #("watershed/doc", channel.TextEvent(text_kernel.TextChanged("hello"))),
   ])
   outbound_operation.client_sequence_number |> expect.to_equal(3)
   let assert DecodedChannelOperation(
-    address: "doc",
+    address: "watershed/doc",
     operation: channel.TextOperation(own_operation),
   ) = decode_outbound_contents(outbound_operation)
 
@@ -3979,24 +4352,25 @@ pub fn text_attach_via_handle_then_operations_round_trip_test() -> Nil {
     apply_tagged(
       core,
       text_operation_message(
-        address: "doc",
+        address: "watershed/doc",
         client_id: other_client_id,
         sequence_number: 4,
         client_sequence_number: 1,
         operation: remote_operation,
       ),
     )
-  let assert [#("doc", channel.TextEvent(text_kernel.TextChanged(_)))] = events
+  let assert [#("watershed/doc", channel.TextEvent(text_kernel.TextChanged(_)))] =
+    events
   // Total grapheme count is order-independent: both concurrent inserts
   // landed somewhere in the merged optimistic text.
-  runtime_core.text_length(core, "doc") |> expect.to_equal(8)
+  runtime_core.text_length(core, "watershed/doc") |> expect.to_equal(8)
 
   // Our own echo retires the pending insert without events (ack transparency).
   let #(core, events) =
     apply_tagged(
       core,
       text_operation_message(
-        address: "doc",
+        address: "watershed/doc",
         client_id: our_client_id,
         sequence_number: 5,
         client_sequence_number: 3,
@@ -4005,18 +4379,25 @@ pub fn text_attach_via_handle_then_operations_round_trip_test() -> Nil {
     )
   events |> expect.to_equal([])
   core.in_flight |> expect.to_equal([])
-  runtime_core.text_length(core, "doc") |> expect.to_equal(8)
+  runtime_core.text_length(core, "watershed/doc") |> expect.to_equal(8)
 }
 
 pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, _)) =
-    runtime_core.text_insert(core, "doc", 0, "seed")
+    runtime_core.text_insert(core, "watershed/doc", 0, "seed")
   let assert Ok(#(core, _, outbound)) =
-    runtime_core.set(core, "root", "doc", handle.encode_handle("doc"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "doc",
+      handle.encode_handle("watershed/doc"),
+    )
   let assert [attach_outbound, _] = list.map(outbound, decode_outbound_contents)
-  let assert DecodedAttach(address: "doc", snapshot: attach_snapshot) =
+  let assert DecodedAttach(address: "watershed/doc", snapshot: attach_snapshot) =
     attach_outbound
   let #(core, _) =
     apply_tagged(
@@ -4025,7 +4406,7 @@ pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() -> Nil 
         client_id: our_client_id,
         sequence_number: 2,
         client_sequence_number: 1,
-        address: "doc",
+        address: "watershed/doc",
         snapshot: attach_snapshot,
       ),
     )
@@ -4033,11 +4414,11 @@ pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() -> Nil 
     apply_tagged(
       core,
       channel_operation_message(
-        address: "root",
+        address: "watershed/root",
         client_id: our_client_id,
         sequence_number: 3,
         client_sequence_number: 2,
-        operation: Set("doc", handle.encode_handle("doc")),
+        operation: Set("doc", handle.encode_handle("watershed/doc")),
       ),
     )
 
@@ -4045,13 +4426,13 @@ pub fn text_attached_empty_edit_leaves_runtime_counters_untouched_test() -> Nil 
   let before_in_flight = core.in_flight
 
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.text_insert(core, "doc", 2, "")
+    runtime_core.text_insert(core, "watershed/doc", 2, "")
   events |> expect.to_equal([])
   outbound |> expect.to_equal([])
   core.next_client_sequence_number
   |> expect.to_equal(before_client_sequence_number)
   core.in_flight |> expect.to_equal(before_in_flight)
-  runtime_core.text_value(core, "doc") |> expect.to_equal("seed")
+  runtime_core.text_value(core, "watershed/doc") |> expect.to_equal("seed")
 }
 
 pub fn text_summary_round_trip_reload_with_new_replica_test() -> Nil {
@@ -4060,8 +4441,8 @@ pub fn text_summary_round_trip_reload_with_new_replica_test() -> Nil {
     runtime_core.Summary(
       sequence_number: 5,
       channels: [
-        #("root", channel.MapSnapshot([])),
-        #("doc", channel.TextSummary(seeded.sequenced)),
+        #("watershed/root", channel.MapSnapshot([])),
+        #("watershed/doc", channel.TextSummary(seeded.sequenced)),
       ],
       members: [],
     )
@@ -4072,13 +4453,15 @@ pub fn text_summary_round_trip_reload_with_new_replica_test() -> Nil {
     Ok(runtime_core.MissingPrefix(..)) | Error(_) ->
       panic as "expected summary bootstrap to complete"
   }
-  runtime_core.text_value(core, "doc") |> expect.to_equal("hello")
+  runtime_core.text_value(core, "watershed/doc") |> expect.to_equal("hello")
 
   // The reloaded channel's sequenced summary is rebranded to the connecting
   // client's replica id (so future local deltas use the correct author),
   // even though the content and its original authorship are unchanged.
-  let assert [#("root", channel.MapSnapshot([])), #("doc", document_snapshot)] =
-    runtime_core.summary_channels(core)
+  let assert [
+    #("watershed/root", channel.MapSnapshot([])),
+    #("watershed/doc", document_snapshot),
+  ] = runtime_core.summary_channels(core)
   let assert channel.TextSummary(reloaded) = document_snapshot
   text_kernel.from_sequenced(reloaded, replica_id.new("checker"))
   |> text_kernel.value
@@ -4087,63 +4470,81 @@ pub fn text_summary_round_trip_reload_with_new_replica_test() -> Nil {
   // A further attached edit stamps against the loaded replica's identity and
   // the summary's sequence number.
   let assert Ok(#(core, events, [outbound_operation])) =
-    runtime_core.text_append(core, "doc", "!")
+    runtime_core.text_append(core, "watershed/doc", "!")
   events
   |> expect.to_equal([
-    #("doc", channel.TextEvent(text_kernel.TextChanged("hello!"))),
+    #("watershed/doc", channel.TextEvent(text_kernel.TextChanged("hello!"))),
   ])
   outbound_operation.reference_sequence_number |> expect.to_equal(5)
-  runtime_core.text_value(core, "doc") |> expect.to_equal("hello!")
+  runtime_core.text_value(core, "watershed/doc") |> expect.to_equal("hello!")
 }
 
 pub fn text_anchor_at_and_resolve_track_position_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, _)) =
-    runtime_core.text_insert(core, "doc", 0, "hello")
+    runtime_core.text_insert(core, "watershed/doc", 0, "hello")
 
-  let assert Ok(anchor) = runtime_core.text_anchor_at(core, "doc", 5, After)
+  let assert Ok(anchor) =
+    runtime_core.text_anchor_at(core, "watershed/doc", 5, After)
 
   let assert Ok(#(core, _, _)) =
-    runtime_core.text_insert(core, "doc", 0, "say ")
-  runtime_core.text_resolve_anchor(core, "doc", anchor)
+    runtime_core.text_insert(core, "watershed/doc", 0, "say ")
+  runtime_core.text_resolve_anchor(core, "watershed/doc", anchor)
   |> expect.to_equal(Ok(9))
 }
 
 pub fn text_start_and_end_anchors_track_boundaries_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
-  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "watershed/doc", 0, "abc")
 
   runtime_core.text_resolve_anchor(
     core,
-    "doc",
+    "watershed/doc",
     runtime_core.text_start_anchor(),
   )
   |> expect.to_equal(Ok(0))
-  runtime_core.text_resolve_anchor(core, "doc", runtime_core.text_end_anchor())
+  runtime_core.text_resolve_anchor(
+    core,
+    "watershed/doc",
+    runtime_core.text_end_anchor(),
+  )
   |> expect.to_equal(Ok(3))
 
-  let assert Ok(#(core, _, _)) = runtime_core.text_append(core, "doc", "de")
-  runtime_core.text_resolve_anchor(core, "doc", runtime_core.text_end_anchor())
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_append(core, "watershed/doc", "de")
+  runtime_core.text_resolve_anchor(
+    core,
+    "watershed/doc",
+    runtime_core.text_end_anchor(),
+  )
   |> expect.to_equal(Ok(5))
 }
 
 pub fn text_anchor_at_out_of_bounds_is_explicit_error_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
-  let assert Ok(#(core, _, _)) = runtime_core.text_insert(core, "doc", 0, "abc")
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
+  let assert Ok(#(core, _, _)) =
+    runtime_core.text_insert(core, "watershed/doc", 0, "abc")
 
-  runtime_core.text_anchor_at(core, "doc", 4, Before)
+  runtime_core.text_anchor_at(core, "watershed/doc", 4, Before)
   |> expect.to_equal(Error("anchor index 4 outside 0..3"))
 }
 
 pub fn text_anchor_at_missing_channel_is_explicit_error_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
 
-  runtime_core.text_anchor_at(core, "missing", 0, Before)
+  runtime_core.text_anchor_at(core, "watershed/missing", 0, Before)
   |> expect.to_equal(Error(
-    "text anchor_at requires a text channel at missing, found none",
+    "text anchor_at requires a text channel at watershed/missing, found none",
   ))
 }
 
@@ -4152,26 +4553,29 @@ pub fn text_resolve_anchor_missing_channel_is_explicit_error_test() -> Nil {
 
   runtime_core.text_resolve_anchor(
     core,
-    "missing",
+    "watershed/missing",
     runtime_core.text_start_anchor(),
   )
   |> expect.to_equal(Error(
-    "text resolve_anchor requires a text channel at missing, found none",
+    "text resolve_anchor requires a text channel at watershed/missing, found none",
   ))
 }
 
 pub fn text_anchor_json_round_trips_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
-  let core = runtime_core.create_detached(core, "doc", channel.InitText)
+  let core =
+    runtime_core.create_detached(core, "watershed/doc", channel.InitText)
+    |> expect.to_be_ok
   let assert Ok(#(core, _, _)) =
-    runtime_core.text_insert(core, "doc", 0, "abcde")
+    runtime_core.text_insert(core, "watershed/doc", 0, "abcde")
 
-  let assert Ok(anchor) = runtime_core.text_anchor_at(core, "doc", 2, After)
+  let assert Ok(anchor) =
+    runtime_core.text_anchor_at(core, "watershed/doc", 2, After)
   let assert Ok(decoded) =
     runtime_core.text_anchor_from_json(
       json.to_string(runtime_core.text_anchor_to_json(anchor)),
     )
-  runtime_core.text_resolve_anchor(core, "doc", decoded)
+  runtime_core.text_resolve_anchor(core, "watershed/doc", decoded)
   |> expect.to_equal(Ok(2))
   decoded |> expect.to_equal(anchor)
 }

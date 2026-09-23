@@ -29,7 +29,7 @@ const id_a = "default_doc_1"
 
 const id_b = "default_doc_2"
 
-const directory_address = "dir-1"
+const directory_address = "watershed/dir-1"
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -167,13 +167,14 @@ pub fn attached_directory_emits_operations_and_reads_test() -> Nil {
   let core =
     bootstrap(id_a)
     |> runtime_core.create_detached(directory_address, channel.InitDirectory)
+    |> expect.to_be_ok
 
   // Setting a handle to the directory in root attaches it (attach operation +
   // root set operation).
   let #(core, attach_outbound) =
     expect_ok(runtime_core.set(
       core,
-      "root",
+      "watershed/root",
       "tree",
       handle.encode_handle(directory_address),
     ))
@@ -216,14 +217,17 @@ pub fn directory_set_attaches_handle_dependencies_test() -> Nil {
   let core =
     bootstrap(id_a)
     |> runtime_core.create_detached(directory_address, channel.InitDirectory)
+    |> expect.to_be_ok
   let #(core, _) =
     expect_ok(runtime_core.set(
       core,
-      "root",
+      "watershed/root",
       "tree",
       handle.encode_handle(directory_address),
     ))
-  let core = runtime_core.create_detached(core, "document", channel.InitJsonOt)
+  let core =
+    runtime_core.create_detached(core, "watershed/document", channel.InitJsonOt)
+    |> expect.to_be_ok
 
   let assert #(_core, [attach_operation, set_operation]) =
     expect_ok(runtime_core.directory_set(
@@ -231,7 +235,7 @@ pub fn directory_set_attaches_handle_dependencies_test() -> Nil {
       directory_address,
       "/",
       "config",
-      handle.encode_handle("document"),
+      handle.encode_handle("watershed/document"),
     ))
 
   json.to_string(attach_operation.contents)
@@ -310,10 +314,11 @@ pub fn two_clients_converge_test() -> Nil {
       directory_address,
       channel.InitDirectory,
     )
+    |> expect.to_be_ok
   let #(a, attach_out) =
     expect_ok(runtime_core.set(
       a,
-      "root",
+      "watershed/root",
       "tree",
       handle.encode_handle(directory_address),
     ))
@@ -397,10 +402,11 @@ pub fn concurrent_same_name_create_converges_test() -> Nil {
       directory_address,
       channel.InitDirectory,
     )
+    |> expect.to_be_ok
   let #(a, attach_out) =
     expect_ok(runtime_core.set(
       a,
-      "root",
+      "watershed/root",
       "tree",
       handle.encode_handle(directory_address),
     ))

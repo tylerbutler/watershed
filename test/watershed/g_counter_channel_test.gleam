@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic/decode
 import gleam/json
 import gleam/option.{None, Some}
 import gleam/string
@@ -12,6 +13,7 @@ import watershed/channel
 import watershed/g_counter_kernel
 import watershed/handle
 import watershed/runtime_core.{type Core}
+import watershed/wire/op as wire_op
 
 const client_id = "default_doc_1"
 
@@ -82,10 +84,11 @@ pub fn g_counter_snapshot_round_trips_test() -> Nil {
 }
 
 pub fn detached_g_counter_increments_and_then_emits_operations_test() -> Nil {
-  let address = "gc-1"
+  let address = "watershed/gc-1"
   let core =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitGCounter)
+    |> expect.to_be_ok
 
   let assert Ok(#(core, events, outbound)) =
     runtime_core.g_counter_increment(core, address, 4)
@@ -97,7 +100,12 @@ pub fn detached_g_counter_increments_and_then_emits_operations_test() -> Nil {
   runtime_core.g_counter_value(core, address) |> expect.to_equal(Ok(4))
 
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "root", "hits", handle.encode_handle(address))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "hits",
+      handle.encode_handle(address),
+    )
 
   let assert Ok(#(core, events, [operation])) =
     runtime_core.g_counter_increment(core, address, 2)
@@ -108,9 +116,10 @@ pub fn detached_g_counter_increments_and_then_emits_operations_test() -> Nil {
   runtime_core.g_counter_value(core, address) |> expect.to_equal(Ok(6))
 
   let encoded = json.to_string(operation.contents)
-  encoded
-  |> string.contains("\"address\":\"" <> address <> "\"")
-  |> expect.to_be_true()
+  let assert Ok(raw) = json.parse(encoded, decode.dynamic)
+  let assert Ok(wire_op.ChannelOperation(decoded_address, _)) =
+    wire_op.decode_operation_contents(raw)
+  decoded_address |> expect.to_equal(address)
   encoded
   |> string.contains("\"type\":\"gCounterIncrement\"")
   |> expect.to_be_true()
@@ -118,15 +127,21 @@ pub fn detached_g_counter_increments_and_then_emits_operations_test() -> Nil {
 }
 
 pub fn g_counter_refuses_a_negative_increment_test() -> Nil {
-  let address = "gc-2"
+  let address = "watershed/gc-2"
   let core =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitGCounter)
+    |> expect.to_be_ok
 
   let assert Ok(#(core, _, _)) =
     runtime_core.g_counter_increment(core, address, 7)
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "root", "hits", handle.encode_handle(address))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "hits",
+      handle.encode_handle(address),
+    )
 
   let before = core
   let assert Error(runtime_core.GCounterOperationFailed(failed_address, _)) =
@@ -140,14 +155,16 @@ pub fn g_counter_refuses_a_negative_increment_test() -> Nil {
 pub fn g_counter_read_rejects_another_channel_type_test() -> Nil {
   let core =
     bootstrap()
-    |> runtime_core.create_detached("pnc", channel.InitPnCounter)
+    |> runtime_core.create_detached("watershed/pnc", channel.InitPnCounter)
+    |> expect.to_be_ok
 
-  runtime_core.g_counter_value(core, "pnc") |> expect.to_equal(Error(Nil))
+  runtime_core.g_counter_value(core, "watershed/pnc")
+  |> expect.to_equal(Error(Nil))
 
   let assert Error(runtime_core.WrongChannelType(
-    address: "pnc",
+    address: "watershed/pnc",
     expected: channel.GCounterChannel,
     ..,
-  )) = runtime_core.g_counter_increment(core, "pnc", 1)
+  )) = runtime_core.g_counter_increment(core, "watershed/pnc", 1)
   Nil
 }

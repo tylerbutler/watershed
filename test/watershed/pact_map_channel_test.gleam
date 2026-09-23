@@ -36,7 +36,7 @@ const id_a = "default_doc_1"
 
 const id_b = "default_doc_2"
 
-const pact_map_address = "pm-1"
+const pact_map_address = "watershed/pm-1"
 
 // ── fixtures ────────────────────────────────────────────────────────────────
 
@@ -377,10 +377,11 @@ pub fn remote_set_auto_submits_accept_test() -> Nil {
   let core_a =
     bootstrap(id_a)
     |> runtime_core.create_detached(pact_map_address, channel.InitPactMap)
+    |> expect.to_be_ok
   let #(core_a, attach_out) =
     expect_ok(runtime_core.set(
       core_a,
-      "root",
+      "watershed/root",
       "pm",
       handle.encode_handle(pact_map_address),
     ))

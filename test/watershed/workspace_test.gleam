@@ -132,6 +132,15 @@ pub fn invalid_child_handle_is_rejected_test() -> Nil {
   }
 }
 
+pub fn manifest_accepts_routed_child_handle_test() -> Nil {
+  let manifest =
+    entry("tasks-1", "watershed/tasks", 1, json.object([]), "A%2FB/child")
+  let assert Ok(decoded) =
+    manifest |> workspace.encode_manifest |> workspace.decode_manifest
+  handle.resolve_path(decoded.child_handle, "/")
+  |> expect.to_equal(Ok("/A%2FB/child"))
+}
+
 pub fn connection_round_trip_test() -> Nil {
   let original = connection("edge-1", "tasks-1", "selected", "notes-1", "focus")
 

@@ -173,15 +173,22 @@ pub fn lww_map_ack_metadata_and_operation_matching_test() -> Nil {
 
 pub fn lww_map_core_attach_reconnect_summary_and_errors_test() -> Nil {
   let core =
-    bootstrap() |> runtime_core.create_detached("map", channel.InitLwwMap)
+    bootstrap()
+    |> runtime_core.create_detached("watershed/map", channel.InitLwwMap)
+    |> expect.to_be_ok
   let assert Ok(#(core, [], [])) =
-    runtime_core.lww_map_remove(core, "map", "k", 100)
+    runtime_core.lww_map_remove(core, "watershed/map", "k", 100)
   let assert Ok(#(core, _, [attach, reference])) =
-    runtime_core.set(core, "root", "map", handle.encode_handle("map"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "map",
+      handle.encode_handle("watershed/map"),
+    )
   let core = acknowledge(core, attach) |> acknowledge(reference)
   let assert Ok(#(core, _, [write])) =
-    runtime_core.lww_map_set(core, "map", "k", "restored", 0)
-  let assert Ok(#("map", original)) =
+    runtime_core.lww_map_set(core, "watershed/map", "k", "restored", 0)
+  let assert Ok(#("watershed/map", original)) =
     json.parse(json.to_string(write.contents), op.lww_map_envelope_decoder())
   let assert kernel.Set("k", "restored", 101, _) = original
   let reconnect =
@@ -190,21 +197,22 @@ pub fn lww_map_core_attach_reconnect_summary_and_errors_test() -> Nil {
       client_id: "default_doc_2",
       checkpoint_sequence_number: Some(core.last_seen_sequence_number),
     )
-  let assert #(core, [resubmitted]) =
+  let assert Ok(#(core, [resubmitted])) =
     core |> runtime_core.adopt_reconnect(reconnect) |> runtime_core.resubmit
   json.parse(
     json.to_string(resubmitted.contents),
     op.lww_map_envelope_decoder(),
   )
-  |> expect.to_equal(Ok(#("map", original)))
+  |> expect.to_equal(Ok(#("watershed/map", original)))
   let core = acknowledge(core, resubmitted)
   core.in_flight |> expect.to_equal([])
-  runtime_core.lww_map_get(core, "map", "k") |> expect.to_equal(Ok("restored"))
-  runtime_core.lww_map_entries(core, "map")
+  runtime_core.lww_map_get(core, "watershed/map", "k")
+  |> expect.to_equal(Ok("restored"))
+  runtime_core.lww_map_entries(core, "watershed/map")
   |> expect.to_equal([#("k", "restored")])
-  runtime_core.lww_map_keys(core, "map") |> expect.to_equal(["k"])
+  runtime_core.lww_map_keys(core, "watershed/map") |> expect.to_equal(["k"])
   let assert Ok(#(core, [], [_])) =
-    runtime_core.lww_map_set(core, "map", "k", "restored", 200)
+    runtime_core.lww_map_set(core, "watershed/map", "k", "restored", 200)
   let assert Ok(blob) =
     summary_blob.encode_channels(
       core.last_seen_sequence_number,
@@ -221,18 +229,19 @@ pub fn lww_map_core_attach_reconnect_summary_and_errors_test() -> Nil {
   let assert Ok(runtime_core.Complete(loaded)) =
     runtime_core.bootstrap(joining, Some(runtime_core.summary_from_blob(blob)))
   let assert Ok(#(_, _, [next])) =
-    runtime_core.lww_map_remove(loaded, "map", "k", 0)
+    runtime_core.lww_map_remove(loaded, "watershed/map", "k", 0)
   let assert Ok(#(_, kernel.Remove("k", 102, _))) =
     json.parse(json.to_string(next.contents), op.lww_map_envelope_decoder())
-  runtime_core.lww_map_get(core, "root", "k") |> expect.to_equal(Error(Nil))
-  runtime_core.lww_map_entries(core, "missing") |> expect.to_equal([])
-  runtime_core.lww_map_keys(core, "root") |> expect.to_equal([])
+  runtime_core.lww_map_get(core, "watershed/root", "k")
+  |> expect.to_equal(Error(Nil))
+  runtime_core.lww_map_entries(core, "watershed/missing") |> expect.to_equal([])
+  runtime_core.lww_map_keys(core, "watershed/root") |> expect.to_equal([])
   let assert Error(runtime_core.WrongChannelType(
-    "root",
+    "watershed/root",
     channel.LwwMapChannel,
     channel.MapChannel,
-  )) = runtime_core.lww_map_set(core, "root", "k", "wrong", 1)
-  let assert Error(runtime_core.LwwMapOperationFailed("map", _)) =
-    runtime_core.lww_map_remove(core, "map", "k", -1)
+  )) = runtime_core.lww_map_set(core, "watershed/root", "k", "wrong", 1)
+  let assert Error(runtime_core.LwwMapOperationFailed("watershed/map", _)) =
+    runtime_core.lww_map_remove(core, "watershed/map", "k", -1)
   Nil
 }

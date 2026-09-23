@@ -48,6 +48,7 @@ import watershed/register_collection_kernel
 import watershed/sequence_kernel
 import watershed/text_kernel
 import watershed/wire
+import watershed/wire/fluid_container
 import watershed/wire/op as wire_op
 import watershed/wire/socket
 import watershed/wire/summary
@@ -312,9 +313,13 @@ pub fn lww_register_operation_round_trips_test() -> Nil {
       "hello",
       100,
     )
-  let encoded = wire_op.encode_lww_register_envelope("cell", operation)
+  let encoded =
+    expect.to_be_ok(wire_op.encode_lww_register_envelope(
+      "watershed/cell",
+      operation,
+    ))
   json.parse(json.to_string(encoded), wire_op.lww_register_envelope_decoder())
-  |> expect.to_equal(Ok(#("cell", operation)))
+  |> expect.to_equal(Ok(#("watershed/cell", operation)))
   json.parse(
     wire_op.encode_lww_register_operation(operation) |> json.to_string,
     decode.field("type", decode.string, decode.success),
@@ -406,9 +411,10 @@ pub fn lww_map_wire_round_trips_and_rejects_mismatched_fragments_test() -> Nil {
   [#(set, "lwwMapSet"), #(remove, "lwwMapRemove")]
   |> list.each(fn(pair) {
     let encoded =
-      wire_op.encode_lww_map_envelope("map", pair.0) |> json.to_string
+      expect.to_be_ok(wire_op.encode_lww_map_envelope("watershed/map", pair.0))
+      |> json.to_string
     json.parse(encoded, wire_op.lww_map_envelope_decoder())
-    |> expect.to_equal(Ok(#("map", pair.0)))
+    |> expect.to_equal(Ok(#("watershed/map", pair.0)))
     json.parse(
       wire_op.encode_lww_map_operation(pair.0) |> json.to_string,
       decode.field("type", decode.string, decode.success),
@@ -791,14 +797,14 @@ pub fn summary_blob_round_trips_test() -> Nil {
   ]
   let encoded =
     summary_blob.encode_channels(7, [11, 12], [
-      #("root", channel.MapSnapshot(entries)),
+      #("watershed/root", channel.MapSnapshot(entries)),
     ])
     |> json.to_string
   let assert Ok(blob) = summary_blob.decode(encoded)
   blob.sequence_number |> expect.to_equal(7)
   blob.members |> expect.to_equal([11, 12])
   let assert [decoded_channel] = blob.channels
-  decoded_channel.address |> expect.to_equal("root")
+  decoded_channel.address |> expect.to_equal("watershed/root")
   let assert channel.MapSnapshot(decoded_entries) = decoded_channel.snapshot
   // Values compare structurally by re-encoding through the same codec.
   let normalize = fn(pairs: List(#(String, json.Json))) {
@@ -912,8 +918,9 @@ fn operation_event_fixture() -> String {
        \"clientSequenceNumber\": 2,
        \"referenceSequenceNumber\": 5,
        \"type\": \"op\",
-       \"contents\": {\"address\": \"root\",
-                      \"contents\": {\"type\": \"delete\", \"key\": \"die\"}},
+       \"contents\": {\"type\":\"component\",\"contents\":{\"address\":\"watershed\",
+         \"contents\":{\"type\":\"op\",\"content\":{\"address\":\"root\",
+         \"contents\":{\"type\":\"delete\",\"key\":\"die\"}}}}},
        \"metadata\": null,
        \"timestamp\": 1234},
       {\"clientId\": null,
@@ -932,27 +939,7 @@ fn operation_event_fixture() -> String {
 /// The same two messages as `operation_event_fixture`, in the shape floodgate
 /// pushes: the bare array, with no enclosing `{documentId, operation}` object.
 fn bare_operation_event_fixture() -> String {
-  "[
-      {\"clientId\": \"default_dice_1\",
-       \"sequenceNumber\": 7,
-       \"minimumSequenceNumber\": 3,
-       \"clientSequenceNumber\": 2,
-       \"referenceSequenceNumber\": 5,
-       \"type\": \"op\",
-       \"contents\": {\"address\": \"root\",
-                      \"contents\": {\"type\": \"delete\", \"key\": \"die\"}},
-       \"metadata\": null,
-       \"timestamp\": 1234},
-      {\"clientId\": null,
-       \"sequenceNumber\": 8,
-       \"minimumSequenceNumber\": 3,
-       \"clientSequenceNumber\": -1,
-       \"referenceSequenceNumber\": 7,
-       \"type\": \"join\",
-       \"contents\": {\"clientId\": \"default_dice_2\"},
-       \"metadata\": null,
-       \"timestamp\": 1235}
-    ]"
+  "[{\"clientId\":\"default_dice_1\",\"sequenceNumber\":7,\"minimumSequenceNumber\":3,\"clientSequenceNumber\":2,\"referenceSequenceNumber\":5,\"type\":\"op\",\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"root\",\"contents\":{\"type\":\"delete\",\"key\":\"die\"}}}}},\"metadata\":null,\"timestamp\":1234},{\"clientId\":null,\"sequenceNumber\":8,\"minimumSequenceNumber\":3,\"clientSequenceNumber\":-1,\"referenceSequenceNumber\":7,\"type\":\"join\",\"contents\":{\"clientId\":\"default_dice_2\"},\"metadata\":null,\"timestamp\":1235}]"
 }
 
 pub fn decode_operation_message_test() -> Nil {
@@ -1003,7 +990,7 @@ pub fn decode_map_envelope_from_sequenced_contents_test() -> Nil {
   let assert [operation, _join] = operation_message.ops
 
   wire_op.decode_map_envelope(operation.contents)
-  |> expect.to_equal(Ok(#("root", Delete("die"))))
+  |> expect.to_equal(Ok(#("watershed/root", Delete("die"))))
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1011,9 +998,11 @@ pub fn decode_map_envelope_from_sequenced_contents_test() -> Nil {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn round_trip_map_operation(operation: map_kernel.MapOperation) -> Nil {
-  let encoded = wire_op.encode_map_envelope("root", operation) |> json.to_string
+  let encoded =
+    expect.to_be_ok(wire_op.encode_map_envelope("watershed/root", operation))
+    |> json.to_string
   let decoded = parse(encoded, wire_op.map_envelope_decoder())
-  decoded |> expect.to_equal(#("root", operation))
+  decoded |> expect.to_equal(#("watershed/root", operation))
 }
 
 pub fn map_operation_set_round_trip_test() -> Nil {
@@ -1041,20 +1030,19 @@ pub fn map_operation_clear_round_trip_test() -> Nil {
 
 pub fn map_operation_set_wire_shape_test() -> Nil {
   // Byte-identical to the TS `@fluidframework/map` operation format.
-  wire_op.encode_map_envelope("root", Set("die", json.int(4)))
+  expect.to_be_ok(wire_op.encode_map_envelope(
+    "watershed/root",
+    Set("die", json.int(4)),
+  ))
   |> json.to_string
   |> expect.to_equal(
-    "{\"address\":\"root\",\"contents\":"
-    <> "{\"type\":\"set\",\"key\":\"die\","
-    <> "\"value\":{\"type\":\"Plain\",\"value\":4}}}",
+    "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"root\",\"contents\":{\"type\":\"set\",\"key\":\"die\",\"value\":{\"type\":\"Plain\",\"value\":4}}}}}}",
   )
 }
 
 pub fn map_operation_rejects_non_plain_value_test() -> Nil {
   let shared =
-    "{\"address\": \"root\",
-      \"contents\": {\"type\": \"set\", \"key\": \"k\",
-                     \"value\": {\"type\": \"Shared\", \"value\": \"handle\"}}}"
+    "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"root\",\"contents\":{\"type\":\"set\",\"key\":\"k\",\"value\":{\"type\":\"Shared\",\"value\":\"handle\"}}}}}}"
   let _ =
     json.parse(shared, wire_op.map_envelope_decoder())
     |> expect.to_be_error()
@@ -1069,9 +1057,13 @@ fn round_trip_counter_operation(
   operation: counter_kernel.CounterOperation,
 ) -> Nil {
   let encoded =
-    wire_op.encode_counter_envelope("counter", operation) |> json.to_string
+    expect.to_be_ok(wire_op.encode_counter_envelope(
+      "watershed/counter",
+      operation,
+    ))
+    |> json.to_string
   let decoded = parse(encoded, wire_op.counter_envelope_decoder())
-  decoded |> expect.to_equal(#("counter", operation))
+  decoded |> expect.to_equal(#("watershed/counter", operation))
 }
 
 pub fn counter_operation_increment_round_trip_test() -> Nil {
@@ -1083,11 +1075,13 @@ pub fn counter_operation_negative_increment_round_trip_test() -> Nil {
 }
 
 pub fn counter_operation_wire_shape_test() -> Nil {
-  wire_op.encode_counter_envelope("counter", counter_kernel.Increment(4))
+  expect.to_be_ok(wire_op.encode_counter_envelope(
+    "watershed/counter",
+    counter_kernel.Increment(4),
+  ))
   |> json.to_string
   |> expect.to_equal(
-    "{\"address\":\"counter\",\"contents\":"
-    <> "{\"type\":\"increment\",\"incrementAmount\":4}}",
+    "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"counter\",\"contents\":{\"type\":\"increment\",\"incrementAmount\":4}}}}}",
   )
 }
 
@@ -1108,9 +1102,13 @@ fn round_trip_pn_counter_operation(
   operation: pn_counter_kernel.PnCounterOperation,
 ) -> Nil {
   let encoded =
-    wire_op.encode_pn_counter_envelope("pnc", operation) |> json.to_string
+    expect.to_be_ok(wire_op.encode_pn_counter_envelope(
+      "watershed/pnc",
+      operation,
+    ))
+    |> json.to_string
   let decoded = parse(encoded, wire_op.pn_counter_envelope_decoder())
-  decoded |> expect.to_equal(#("pnc", operation))
+  decoded |> expect.to_equal(#("watershed/pnc", operation))
 }
 
 pub fn pn_counter_operation_increment_round_trip_test() -> Nil {
@@ -1137,15 +1135,16 @@ fn a_g_counter_operation(amount: Int) -> g_counter_kernel.GCounterOperation {
 pub fn g_counter_operation_round_trip_test() -> Nil {
   let operation = a_g_counter_operation(7)
   let encoded =
-    wire_op.encode_g_counter_envelope("gc", operation) |> json.to_string
+    expect.to_be_ok(wire_op.encode_g_counter_envelope("watershed/gc", operation))
+    |> json.to_string
   let decoded = parse(encoded, wire_op.g_counter_envelope_decoder())
-  decoded |> expect.to_equal(#("gc", operation))
+  decoded |> expect.to_equal(#("watershed/gc", operation))
 }
 
 pub fn g_counter_operation_rejects_a_negative_amount_test() -> Nil {
   let operation = a_g_counter_operation(7)
   let encoded =
-    wire_op.encode_g_counter_envelope("gc", operation)
+    expect.to_be_ok(wire_op.encode_g_counter_envelope("watershed/gc", operation))
     |> json.to_string
     |> string.replace("\"amount\":7", "\"amount\":-7")
   json.parse(encoded, wire_op.g_counter_envelope_decoder())
@@ -1170,10 +1169,11 @@ fn round_trip_pact_map_operation(
   operation: pact_map_kernel.PactMapOperation,
 ) -> Nil {
   let encoded =
-    wire_op.encode_pact_map_envelope("pm", operation) |> json.to_string
+    expect.to_be_ok(wire_op.encode_pact_map_envelope("watershed/pm", operation))
+    |> json.to_string
   let assert Ok(#(address, decoded)) =
     json.parse(encoded, wire_op.pact_map_envelope_decoder())
-  address |> expect.to_equal("pm")
+  address |> expect.to_equal("watershed/pm")
   // `Json` values are opaque and not reliably equal across a decode; compare
   // canonical re-encodings instead.
   json.to_string(wire_op.encode_pact_map_operation(decoded))
@@ -1215,10 +1215,11 @@ fn round_trip_ordered_operation(
   operation: ordered_collection_kernel.OrderedOperation,
 ) -> Nil {
   let encoded =
-    wire_op.encode_ordered_envelope("oc", operation) |> json.to_string
+    expect.to_be_ok(wire_op.encode_ordered_envelope("watershed/oc", operation))
+    |> json.to_string
   let assert Ok(#(address, decoded)) =
     json.parse(encoded, wire_op.ordered_envelope_decoder())
-  address |> expect.to_equal("oc")
+  address |> expect.to_equal("watershed/oc")
   // `Json` values are opaque and not reliably equal across a decode; compare
   // canonical re-encodings instead.
   json.to_string(wire_op.encode_ordered_operation(decoded))
@@ -1247,7 +1248,7 @@ pub fn ordered_operation_release_round_trip_test() -> Nil {
 
 pub fn counter_operation_rejects_fractional_increment_test() -> Nil {
   let fractional =
-    "{\"address\":\"counter\",\"contents\":{\"type\":\"increment\",\"incrementAmount\":1.5}}"
+    "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"counter\",\"contents\":{\"type\":\"increment\",\"incrementAmount\":1.5}}}}}"
   let _ =
     json.parse(fractional, wire_op.counter_envelope_decoder())
     |> expect.to_be_error()
@@ -1260,24 +1261,17 @@ pub fn counter_operation_rejects_fractional_increment_test() -> Nil {
 
 pub fn encode_submit_operation_test() -> Nil {
   let operation =
-    wire_op.outbound_channel_operation(
-      address: "root",
+    expect.to_be_ok(wire_op.outbound_channel_operation(
+      address: "watershed/root",
       client_sequence_number: 1,
       reference_sequence_number: 5,
       operation: channel.MapOperation(Set("die", json.int(4))),
-    )
+    ))
 
   socket.encode_submit_operation("default_dice_1", [[operation]])
   |> json.to_string
   |> expect.to_equal(
-    "{\"clientId\":\"default_dice_1\",\"messageBatches\":[["
-    <> "{\"type\":\"op\","
-    <> "\"contents\":{\"address\":\"root\",\"contents\":"
-    <> "{\"type\":\"set\",\"key\":\"die\","
-    <> "\"value\":{\"type\":\"Plain\",\"value\":4}}},"
-    <> "\"clientSequenceNumber\":1,"
-    <> "\"referenceSequenceNumber\":5}"
-    <> "]]}",
+    "{\"clientId\":\"default_dice_1\",\"messageBatches\":[[{\"type\":\"op\",\"contents\":{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"root\",\"contents\":{\"type\":\"set\",\"key\":\"die\",\"value\":{\"type\":\"Plain\",\"value\":4}}}}}},\"clientSequenceNumber\":1,\"referenceSequenceNumber\":5}]]}",
   )
 }
 
@@ -1477,13 +1471,13 @@ fn decode_sequence_channel_round_trip(
   operation: sequence_kernel.SequenceOperation,
 ) -> sequence_kernel.SequenceOperation {
   let encoded =
-    wire_op.encode_channel_envelope(
-      "items",
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/items",
       channel.SequenceOperation(operation),
-    )
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("items", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/items", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let assert Ok(channel.SequenceOperation(decoded)) =
     decode.run(
@@ -1539,13 +1533,13 @@ pub fn sequence_insert_noncanonical_json_semantics_round_trip_test() -> Nil {
 pub fn sequence_delta_stays_double_encoded_in_channel_payload_test() -> Nil {
   let operation = sample_sequence_insert_operation()
   let encoded =
-    wire_op.encode_channel_envelope(
-      "items",
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/items",
       channel.SequenceOperation(operation),
-    )
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("items", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/items", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let assert Ok(delta) =
     decode.run(payload, decode.at(["delta"], decode.string))
@@ -1558,10 +1552,10 @@ pub fn sequence_delta_stays_double_encoded_in_channel_payload_test() -> Nil {
 pub fn sequence_decoder_rejects_malformed_delta_envelope_test() -> Nil {
   let dynamic =
     parse(
-      "{\"address\":\"items\",\"contents\":{\"type\":\"sequenceDelete\",\"index\":0,\"delta\":\"not-json\"}}",
+      "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"items\",\"contents\":{\"type\":\"sequenceDelete\",\"index\":0,\"delta\":\"not-json\"}}}}}",
       decode.dynamic,
     )
-  let assert Ok(wire_op.ChannelOperation("items", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/items", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
     decode.run(
@@ -1579,27 +1573,25 @@ pub fn sequence_decoder_rejects_compacted_state_as_delta_test() -> Nil {
   let #(forged_delta, _) =
     sequence.compact(sequence.new(replica_id.new("attacker")), frontier)
   let encoded =
-    json.object([
-      #("address", json.string("items")),
-      #(
-        "contents",
-        json.object([
-          #("type", json.string("sequenceDelete")),
-          #("index", json.int(0)),
-          #(
-            "delta",
-            json.string(
-              json.to_string(
-                sequence.to_json(forged_delta, fn(value: json.Json) { value }),
-              ),
+    fluid_container.encode(fluid_container.ChannelOperation(
+      fluid_container.Route("watershed", "items"),
+      json.object([
+        #("type", json.string("sequenceDelete")),
+        #("index", json.int(0)),
+        #(
+          "delta",
+          json.string(
+            json.to_string(
+              sequence.to_json(forged_delta, fn(value: json.Json) { value }),
             ),
           ),
-        ]),
-      ),
-    ])
+        ),
+      ]),
+    ))
+    |> expect.to_be_ok
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("items", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/items", payload)) =
     wire_op.decode_operation_contents(dynamic)
 
   let _ =
@@ -1616,13 +1608,16 @@ pub fn sequence_decoder_rejects_compacted_state_as_delta_test() -> Nil {
 pub fn attach_codec_round_trip_test() -> Nil {
   let entries = [#("k", json.int(1)), #("s", json.string("v"))]
   let encoded =
-    wire_op.encode_attach("root", channel.MapSnapshot(entries))
+    expect.to_be_ok(wire_op.encode_attach(
+      "watershed/root",
+      channel.MapSnapshot(entries),
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(attach) -> {
       let assert wire_op.AttachOperation(address, snapshot) = attach
-      address |> expect.to_equal("root")
+      address |> expect.to_equal("watershed/root")
       snapshot |> expect.to_equal(channel.MapSnapshot(entries))
     }
     Error(_) -> panic as "attach decode failed"
@@ -1633,12 +1628,12 @@ pub fn decode_operation_contents_discrimination_test() -> Nil {
   // A map envelope decodes as ChannelOperation, its payload left for stage-two
   // decoding against the addressed channel's registered type.
   let map_json =
-    "{\"address\": \"root\", \"contents\": {\"type\": \"set\", \"key\": \"k\", \"value\": {\"type\": \"Plain\", \"value\": 4}}}"
+    "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"root\",\"contents\":{\"type\":\"set\",\"key\":\"k\",\"value\":{\"type\":\"Plain\",\"value\":4}}}}}}"
   let dynamic = parse(map_json, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(contents) -> {
       let assert wire_op.ChannelOperation(address, payload) = contents
-      address |> expect.to_equal("root")
+      address |> expect.to_equal("watershed/root")
       case
         decode.run(
           payload,
@@ -1656,7 +1651,13 @@ pub fn decode_operation_contents_discrimination_test() -> Nil {
 pub fn decode_operation_contents_rejects_bad_attach_test() -> Nil {
   // An explicit "attach" with an unknown channel type must be rejected.
   let bad =
-    "{\"type\": \"attach\", \"address\": \"root\", \"channelType\": \"weird\", \"snapshot\": [{\"key\": \"k\", \"value\": 1}]}"
+    fluid_container.encode(fluid_container.ChannelAttach(
+      fluid_container.Route("watershed", "root"),
+      "weird",
+      json.object([#("entries", json.preprocessed_array([]))]),
+    ))
+    |> expect.to_be_ok
+    |> json.to_string
   let dynamic = parse(bad, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Error(_) -> Nil
@@ -1669,7 +1670,7 @@ pub fn summary_blob_v4_round_trips_test() -> Nil {
   let entries = [#("a", json.int(1))]
   let channel_json =
     json.object([
-      #("address", json.string("root")),
+      #("address", json.string("watershed/root")),
       #("type", json.string(wire.channel_type_map)),
       #(
         "data",
@@ -1691,7 +1692,7 @@ pub fn summary_blob_v4_round_trips_test() -> Nil {
       blob.sequence_number |> expect.to_equal(5)
       blob.members |> expect.to_equal([2, 7])
       let assert [ch] = blob.channels
-      ch.address |> expect.to_equal("root")
+      ch.address |> expect.to_equal("watershed/root")
       ch.snapshot |> expect.to_equal(channel.MapSnapshot(entries))
     }
     Error(_) -> panic as "v4 decode failed"
@@ -1769,13 +1770,17 @@ pub fn summary_blob_unknown_channel_type_rejected_test() -> Nil {
 
 pub fn counter_attach_codec_round_trip_test() -> Nil {
   let encoded =
-    wire_op.encode_attach("tally", channel.CounterSnapshot(41))
+    expect.to_be_ok(wire_op.encode_attach(
+      "watershed/tally",
+      channel.CounterSnapshot(41),
+    ))
     |> json.to_string
-  string_contains(encoded, "\"channelType\":\"counter\"") |> expect.to_be_true()
+  string_contains(encoded, "\"type\":\"org.watershed/counter\"")
+  |> expect.to_be_true()
   let dynamic = parse(encoded, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(wire_op.AttachOperation(address, snapshot)) -> {
-      address |> expect.to_equal("tally")
+      address |> expect.to_equal("watershed/tally")
       snapshot |> expect.to_equal(channel.CounterSnapshot(41))
     }
     Ok(wire_op.ChannelOperation(..)) | Error(_) ->
@@ -1785,15 +1790,15 @@ pub fn counter_attach_codec_round_trip_test() -> Nil {
 
 pub fn counter_channel_operation_stage_two_decode_test() -> Nil {
   let encoded =
-    wire_op.encode_channel_envelope(
-      "tally",
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/tally",
       channel.CounterOperation(counter_kernel.Increment(5)),
-    )
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(wire_op.ChannelOperation(address, payload)) -> {
-      address |> expect.to_equal("tally")
+      address |> expect.to_equal("watershed/tally")
       decode.run(
         payload,
         wire_op.channel_operation_decoder(channel.CounterChannel),
@@ -1818,28 +1823,45 @@ pub fn counter_channel_operation_stage_two_decode_test() -> Nil {
 pub fn claim_operation_round_trip_test() -> Nil {
   let operation = claims_kernel.Claim("owner", json.string("alice"), 9)
   let encoded =
-    wire_op.encode_claim_envelope("locks", operation) |> json.to_string
+    expect.to_be_ok(wire_op.encode_claim_envelope("watershed/locks", operation))
+    |> json.to_string
   let decoded = parse(encoded, claim_envelope_decoder())
-  decoded |> expect.to_equal(#("locks", operation))
+  decoded |> expect.to_equal(#("watershed/locks", operation))
 }
 
 fn claim_envelope_decoder() -> decode.Decoder(
   #(String, claims_kernel.ClaimOperation),
 ) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", wire_op.claim_operation_decoder())
-  decode.success(#(address, operation))
+  routed_payload_decoder(wire_op.claim_operation_decoder())
+}
+
+fn routed_payload_decoder(
+  payload: decode.Decoder(operation),
+) -> decode.Decoder(#(String, operation)) {
+  use datastore <- decode.then(decode.at(["contents", "address"], decode.string))
+  use address <- decode.then(decode.at(
+    ["contents", "contents", "content", "address"],
+    decode.string,
+  ))
+  use operation <- decode.then(decode.at(
+    ["contents", "contents", "content", "contents"],
+    payload,
+  ))
+  decode.success(#(datastore <> "/" <> address, operation))
 }
 
 pub fn claim_channel_operation_stage_two_decode_test() -> Nil {
   let operation = claims_kernel.Claim("owner", json.string("alice"), 9)
   let encoded =
-    wire_op.encode_channel_envelope("locks", channel.ClaimsOperation(operation))
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/locks",
+      channel.ClaimsOperation(operation),
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(wire_op.ChannelOperation(address, payload)) -> {
-      address |> expect.to_equal("locks")
+      address |> expect.to_equal("watershed/locks")
       decode.run(
         payload,
         wire_op.channel_operation_decoder(channel.ClaimsChannel),
@@ -1861,12 +1883,15 @@ pub fn claim_channel_operation_stage_two_decode_test() -> Nil {
 
 pub fn claims_attach_codec_round_trip_test() -> Nil {
   let snapshot = channel.ClaimsSnapshot([#("owner", json.string("alice"), 7)])
-  let encoded = wire_op.encode_attach("locks", snapshot) |> json.to_string
-  string_contains(encoded, "\"channelType\":\"claims\"") |> expect.to_be_true()
+  let encoded =
+    expect.to_be_ok(wire_op.encode_attach("watershed/locks", snapshot))
+    |> json.to_string
+  string_contains(encoded, "\"type\":\"org.watershed/claims\"")
+  |> expect.to_be_true()
   let dynamic = parse(encoded, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(wire_op.AttachOperation(address, decoded)) -> {
-      address |> expect.to_equal("locks")
+      address |> expect.to_equal("watershed/locks")
       decoded |> expect.to_equal(snapshot)
     }
     Ok(wire_op.ChannelOperation(..)) | Error(_) ->
@@ -1904,17 +1929,19 @@ fn sample_remove_operation() -> or_map_kernel.OrMapOperation {
 
 fn round_trip_or_map_operation(operation: or_map_kernel.OrMapOperation) -> Nil {
   let encoded =
-    wire_op.encode_or_map_envelope("scores", operation) |> json.to_string
+    expect.to_be_ok(wire_op.encode_or_map_envelope(
+      "watershed/scores",
+      operation,
+    ))
+    |> json.to_string
   let decoded = parse(encoded, or_map_envelope_decoder())
-  decoded |> expect.to_equal(#("scores", operation))
+  decoded |> expect.to_equal(#("watershed/scores", operation))
 }
 
 fn or_map_envelope_decoder() -> decode.Decoder(
   #(String, or_map_kernel.OrMapOperation),
 ) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", wire_op.or_map_operation_decoder())
-  decode.success(#(address, operation))
+  routed_payload_decoder(wire_op.or_map_operation_decoder())
 }
 
 pub fn or_map_increment_operation_round_trip_test() -> Nil {
@@ -2100,12 +2127,15 @@ pub fn or_map_remove_operation_round_trip_test() -> Nil {
 pub fn or_map_channel_operation_stage_two_decode_test() -> Nil {
   let operation = sample_tally_operation()
   let encoded =
-    wire_op.encode_channel_envelope("scores", channel.OrMapOperation(operation))
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/scores",
+      channel.OrMapOperation(operation),
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(wire_op.ChannelOperation(address, payload)) -> {
-      address |> expect.to_equal("scores")
+      address |> expect.to_equal("watershed/scores")
       decode.run(
         payload,
         wire_op.channel_operation_decoder(channel.OrMapChannel),
@@ -2130,16 +2160,17 @@ pub fn or_map_attach_codec_round_trip_test() -> Nil {
     or_map_kernel.new(replica_id.new("client-a"), or_map_kernel.TallyMode)
   let assert Ok(#(state, _, _, _)) = or_map_kernel.increment(state, "score", 4)
   let encoded =
-    wire_op.encode_attach(
-      "scores",
+    expect.to_be_ok(wire_op.encode_attach(
+      "watershed/scores",
       channel.OrMapSnapshot(state.mode, state.optimistic),
-    )
+    ))
     |> json.to_string
-  string_contains(encoded, "\"channelType\":\"ormap\"") |> expect.to_be_true()
+  string_contains(encoded, "\"type\":\"org.watershed/ormap\"")
+  |> expect.to_be_true()
   let dynamic = parse(encoded, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(wire_op.AttachOperation(address, channel.OrMapSnapshot(mode, snapshot))) -> {
-      address |> expect.to_equal("scores")
+      address |> expect.to_equal("watershed/scores")
       mode |> expect.to_equal(or_map_kernel.TallyMode)
       let assert Ok(kernel) =
         or_map_kernel.from_sequenced(snapshot, mode, replica_id.new("loader"))
@@ -2159,10 +2190,16 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() -> Nil {
     or_map_kernel.increment(or_map, "score", 2)
   let encoded =
     summary_blob.encode_channels(9, [3], [
-      #("root", channel.MapSnapshot([#("k", json.int(1))])),
-      #("tally", channel.CounterSnapshot(7)),
-      #("scores", channel.OrMapSnapshot(or_map.mode, or_map.optimistic)),
-      #("locks", channel.ClaimsSnapshot([#("owner", json.string("alice"), 9)])),
+      #("watershed/root", channel.MapSnapshot([#("k", json.int(1))])),
+      #("watershed/tally", channel.CounterSnapshot(7)),
+      #(
+        "watershed/scores",
+        channel.OrMapSnapshot(or_map.mode, or_map.optimistic),
+      ),
+      #(
+        "watershed/locks",
+        channel.ClaimsSnapshot([#("owner", json.string("alice"), 9)]),
+      ),
     ])
     |> json.to_string
   string_contains(encoded, "\"type\":\"counter\"") |> expect.to_be_true()
@@ -2175,19 +2212,19 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() -> Nil {
         root,
         tally,
         summary_blob.ChannelSnapshot(
-          address: "scores",
+          address: "watershed/scores",
           snapshot: channel.OrMapSnapshot(mode, snapshot),
         ),
         locks,
       ] = blob.channels
       root
       |> expect.to_equal(summary_blob.ChannelSnapshot(
-        address: "root",
+        address: "watershed/root",
         snapshot: channel.MapSnapshot([#("k", json.int(1))]),
       ))
       tally
       |> expect.to_equal(summary_blob.ChannelSnapshot(
-        address: "tally",
+        address: "watershed/tally",
         snapshot: channel.CounterSnapshot(7),
       ))
       mode |> expect.to_equal(or_map_kernel.TallyMode)
@@ -2197,7 +2234,7 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() -> Nil {
       |> expect.to_equal([#("score", or_map_kernel.Tally(2))])
       locks
       |> expect.to_equal(summary_blob.ChannelSnapshot(
-        address: "locks",
+        address: "watershed/locks",
         snapshot: channel.ClaimsSnapshot([
           #("owner", json.string("alice"), 9),
         ]),
@@ -2220,21 +2257,19 @@ pub fn register_collection_operation_round_trip_test() -> Nil {
       reference_sequence_number: 7,
     )
   let encoded =
-    wire_op.encode_register_collection_envelope("registers", operation)
+    expect.to_be_ok(wire_op.encode_register_collection_envelope(
+      "watershed/registers",
+      operation,
+    ))
     |> json.to_string
   let decoded = parse(encoded, register_collection_envelope_decoder())
-  decoded |> expect.to_equal(#("registers", operation))
+  decoded |> expect.to_equal(#("watershed/registers", operation))
 }
 
 fn register_collection_envelope_decoder() -> decode.Decoder(
   #(String, register_collection_kernel.WriteOperation),
 ) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field(
-    "contents",
-    wire_op.register_collection_operation_decoder(),
-  )
-  decode.success(#(address, operation))
+  routed_payload_decoder(wire_op.register_collection_operation_decoder())
 }
 
 pub fn register_collection_channel_operation_stage_two_decode_test() -> Nil {
@@ -2245,15 +2280,15 @@ pub fn register_collection_channel_operation_stage_two_decode_test() -> Nil {
       reference_sequence_number: 7,
     )
   let encoded =
-    wire_op.encode_channel_envelope(
-      "registers",
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/registers",
       channel.RegisterCollectionOperation(operation),
-    )
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(wire_op.ChannelOperation(address, payload)) -> {
-      address |> expect.to_equal("registers")
+      address |> expect.to_equal("watershed/registers")
       decode.run(
         payload,
         wire_op.channel_operation_decoder(channel.RegisterCollectionChannel),
@@ -2279,13 +2314,15 @@ pub fn register_collection_snapshot_round_trip_test() -> Nil {
     channel.RegisterCollectionSnapshot([
       #("station", register_collection_kernel.Register(version, [version])),
     ])
-  let encoded = wire_op.encode_attach("registers", snapshot) |> json.to_string
-  string_contains(encoded, "\"channelType\":\"registerCollection\"")
+  let encoded =
+    expect.to_be_ok(wire_op.encode_attach("watershed/registers", snapshot))
+    |> json.to_string
+  string_contains(encoded, "\"type\":\"org.watershed/registerCollection\"")
   |> expect.to_be_true()
   let dynamic = parse(encoded, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(wire_op.AttachOperation(address, decoded)) -> {
-      address |> expect.to_equal("registers")
+      address |> expect.to_equal("watershed/registers")
       decoded |> expect.to_equal(snapshot)
     }
     Ok(wire_op.ChannelOperation(..)) | Error(_) ->
@@ -2337,10 +2374,13 @@ fn decode_text_channel_round_trip(
   operation: text_kernel.TextOperation,
 ) -> text_kernel.TextOperation {
   let encoded =
-    wire_op.encode_channel_envelope("doc", channel.TextOperation(operation))
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/doc",
+      channel.TextOperation(operation),
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let assert Ok(channel.TextOperation(decoded)) =
     decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
@@ -2375,12 +2415,15 @@ pub fn text_append_channel_operation_round_trips_test() -> Nil {
 pub fn text_channel_operation_stage_two_decode_test() -> Nil {
   let operation = sample_text_append_operation()
   let encoded =
-    wire_op.encode_channel_envelope("doc", channel.TextOperation(operation))
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/doc",
+      channel.TextOperation(operation),
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
   case wire_op.decode_operation_contents(dynamic) {
     Ok(wire_op.ChannelOperation(address, payload)) -> {
-      address |> expect.to_equal("doc")
+      address |> expect.to_equal("watershed/doc")
       decode.run(
         payload,
         wire_op.channel_operation_decoder(channel.TextChannel),
@@ -2403,10 +2446,13 @@ pub fn text_channel_operation_stage_two_decode_test() -> Nil {
 pub fn text_insert_envelope_carries_intent_fields_test() -> Nil {
   let operation = sample_text_insert_operation()
   let encoded =
-    wire_op.encode_channel_envelope("doc", channel.TextOperation(operation))
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/doc",
+      channel.TextOperation(operation),
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let assert Ok(operation_type) =
     decode.run(payload, decode.at(["type"], decode.string))
@@ -2421,10 +2467,13 @@ pub fn text_insert_envelope_carries_intent_fields_test() -> Nil {
 pub fn text_delete_range_envelope_carries_intent_fields_test() -> Nil {
   let operation = sample_text_delete_range_operation()
   let encoded =
-    wire_op.encode_channel_envelope("doc", channel.TextOperation(operation))
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/doc",
+      channel.TextOperation(operation),
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let assert Ok(operation_type) =
     decode.run(payload, decode.at(["type"], decode.string))
@@ -2438,10 +2487,13 @@ pub fn text_delete_range_envelope_carries_intent_fields_test() -> Nil {
 pub fn text_replace_range_envelope_carries_intent_fields_test() -> Nil {
   let operation = sample_text_replace_range_operation()
   let encoded =
-    wire_op.encode_channel_envelope("doc", channel.TextOperation(operation))
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/doc",
+      channel.TextOperation(operation),
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let assert Ok(operation_type) =
     decode.run(payload, decode.at(["type"], decode.string))
@@ -2458,10 +2510,13 @@ pub fn text_replace_range_envelope_carries_intent_fields_test() -> Nil {
 pub fn text_append_envelope_carries_intent_fields_test() -> Nil {
   let operation = sample_text_append_operation()
   let encoded =
-    wire_op.encode_channel_envelope("doc", channel.TextOperation(operation))
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/doc",
+      channel.TextOperation(operation),
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let assert Ok(operation_type) =
     decode.run(payload, decode.at(["type"], decode.string))
@@ -2474,10 +2529,13 @@ pub fn text_append_envelope_carries_intent_fields_test() -> Nil {
 pub fn text_delta_stays_double_encoded_in_channel_payload_test() -> Nil {
   let operation = sample_text_insert_operation()
   let encoded =
-    wire_op.encode_channel_envelope("doc", channel.TextOperation(operation))
+    expect.to_be_ok(wire_op.encode_channel_envelope(
+      "watershed/doc",
+      channel.TextOperation(operation),
+    ))
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let assert Ok(delta) =
     decode.run(payload, decode.at(["delta"], decode.string))
@@ -2488,10 +2546,10 @@ pub fn text_delta_stays_double_encoded_in_channel_payload_test() -> Nil {
 pub fn text_decoder_rejects_malformed_delta_envelope_test() -> Nil {
   let dynamic =
     parse(
-      "{\"address\":\"doc\",\"contents\":{\"type\":\"textDeleteRange\",\"start\":0,\"end\":1,\"delta\":\"not-json\"}}",
+      "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"doc\",\"contents\":{\"type\":\"textDeleteRange\",\"start\":0,\"end\":1,\"delta\":\"not-json\"}}}}}",
       decode.dynamic,
     )
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
     decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
@@ -2506,21 +2564,19 @@ pub fn text_decoder_rejects_compacted_state_as_delta_test() -> Nil {
   let #(forged_delta, _) =
     text.compact(text.new(replica_id.new("attacker")), frontier)
   let encoded =
-    json.object([
-      #("address", json.string("doc")),
-      #(
-        "contents",
-        json.object([
-          #("type", json.string("textDeleteRange")),
-          #("start", json.int(0)),
-          #("end", json.int(0)),
-          #("delta", json.string(json.to_string(text.to_json(forged_delta)))),
-        ]),
-      ),
-    ])
+    fluid_container.encode(fluid_container.ChannelOperation(
+      fluid_container.Route("watershed", "doc"),
+      json.object([
+        #("type", json.string("textDeleteRange")),
+        #("start", json.int(0)),
+        #("end", json.int(0)),
+        #("delta", json.string(json.to_string(text.to_json(forged_delta)))),
+      ]),
+    ))
+    |> expect.to_be_ok
     |> json.to_string
   let dynamic = parse(encoded, decode.dynamic)
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
     decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
@@ -2531,10 +2587,10 @@ pub fn text_decoder_rejects_compacted_state_as_delta_test() -> Nil {
 pub fn text_decoder_rejects_missing_index_field_test() -> Nil {
   let dynamic =
     parse(
-      "{\"address\":\"doc\",\"contents\":{\"type\":\"textInsert\",\"value\":\"a\",\"delta\":\"\"}}",
+      "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"doc\",\"contents\":{\"type\":\"textInsert\",\"value\":\"a\",\"delta\":\"\"}}}}}",
       decode.dynamic,
     )
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
     decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
@@ -2545,10 +2601,10 @@ pub fn text_decoder_rejects_missing_index_field_test() -> Nil {
 pub fn text_decoder_rejects_missing_range_fields_test() -> Nil {
   let dynamic =
     parse(
-      "{\"address\":\"doc\",\"contents\":{\"type\":\"textReplaceRange\",\"start\":0,\"value\":\"a\",\"delta\":\"\"}}",
+      "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"doc\",\"contents\":{\"type\":\"textReplaceRange\",\"start\":0,\"value\":\"a\",\"delta\":\"\"}}}}}",
       decode.dynamic,
     )
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
     decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
@@ -2559,10 +2615,10 @@ pub fn text_decoder_rejects_missing_range_fields_test() -> Nil {
 pub fn text_decoder_rejects_missing_delta_field_test() -> Nil {
   let dynamic =
     parse(
-      "{\"address\":\"doc\",\"contents\":{\"type\":\"textAppend\",\"value\":\"a\"}}",
+      "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"doc\",\"contents\":{\"type\":\"textAppend\",\"value\":\"a\"}}}}}",
       decode.dynamic,
     )
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
     decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))
@@ -2573,10 +2629,10 @@ pub fn text_decoder_rejects_missing_delta_field_test() -> Nil {
 pub fn text_decoder_rejects_unknown_operation_type_test() -> Nil {
   let dynamic =
     parse(
-      "{\"address\":\"doc\",\"contents\":{\"type\":\"textFrobnicate\",\"delta\":\"\"}}",
+      "{\"type\":\"component\",\"contents\":{\"address\":\"watershed\",\"contents\":{\"type\":\"op\",\"content\":{\"address\":\"doc\",\"contents\":{\"type\":\"textFrobnicate\",\"delta\":\"\"}}}}}",
       decode.dynamic,
     )
-  let assert Ok(wire_op.ChannelOperation("doc", payload)) =
+  let assert Ok(wire_op.ChannelOperation("watershed/doc", payload)) =
     wire_op.decode_operation_contents(dynamic)
   let _ =
     decode.run(payload, wire_op.channel_operation_decoder(channel.TextChannel))

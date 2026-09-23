@@ -58,35 +58,43 @@ fn bootstrap() -> runtime_core.Core {
 
 pub fn detached_attach_and_resubmit_preserve_the_original_write_test() -> Nil {
   let core =
-    bootstrap() |> runtime_core.create_detached("cell", channel.InitMvRegister)
+    bootstrap()
+    |> runtime_core.create_detached("watershed/cell", channel.InitMvRegister)
+    |> expect.to_be_ok
   let assert Ok(#(core, events, outbound)) =
-    runtime_core.mv_register_set(core, "cell", "baseline")
+    runtime_core.mv_register_set(core, "watershed/cell", "baseline")
   events
   |> expect.to_equal([
-    #("cell", channel.MvRegisterEvent(mv.ValuesChanged(["baseline"]))),
+    #("watershed/cell", channel.MvRegisterEvent(mv.ValuesChanged(["baseline"]))),
   ])
   outbound |> expect.to_equal([])
   let assert Ok(#(core, _, attaches)) =
-    runtime_core.set(core, "root", "cell", handle.encode_handle("cell"))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "cell",
+      handle.encode_handle("watershed/cell"),
+    )
   list.length(attaches) |> expect.to_equal(2)
-  runtime_core.mv_register_values(core, "cell")
+  runtime_core.mv_register_values(core, "watershed/cell")
   |> expect.to_equal(Ok(["baseline"]))
   let assert Ok(#(core, _, [write])) =
-    runtime_core.mv_register_set(core, "cell", "next")
-  let assert Ok(#("cell", original)) =
+    runtime_core.mv_register_set(core, "watershed/cell", "next")
+  let assert Ok(#("watershed/cell", original)) =
     json.parse(
       json.to_string(write.contents),
       op.mv_register_envelope_decoder(),
     )
-  let #(_, replayed) = runtime_core.resubmit(core)
+  let #(_, replayed) = expect.to_be_ok(runtime_core.resubmit(core))
   let assert Ok(resubmitted) = list.last(replayed)
   json.parse(
     json.to_string(resubmitted.contents),
     op.mv_register_envelope_decoder(),
   )
-  |> expect.to_equal(Ok(#("cell", original)))
-  runtime_core.mv_register_values(core, "root") |> expect.to_equal(Error(Nil))
-  runtime_core.mv_register_set(core, "root", "wrong kind")
+  |> expect.to_equal(Ok(#("watershed/cell", original)))
+  runtime_core.mv_register_values(core, "watershed/root")
+  |> expect.to_equal(Error(Nil))
+  runtime_core.mv_register_set(core, "watershed/root", "wrong kind")
   |> result.is_error
   |> expect.to_be_true()
 }
@@ -118,9 +126,12 @@ pub fn snapshot_and_kind_round_trip_test() -> Nil {
 
 pub fn operation_requires_one_matching_causal_write_test() -> Nil {
   let #(a, _, write) = mv.p2p_set(mv.new(replica_id.new("a")), "hello")
-  let encoded = op.encode_mv_register_envelope("cell", write) |> json.to_string
+  let encoded =
+    op.encode_mv_register_envelope("watershed/cell", write)
+    |> expect.to_be_ok
+    |> json.to_string
   json.parse(encoded, op.mv_register_envelope_decoder())
-  |> expect.to_equal(Ok(#("cell", write)))
+  |> expect.to_equal(Ok(#("watershed/cell", write)))
   let assert Ok(tag) =
     json.parse(op.encode_mv_register_operation(write) |> json.to_string, {
       use value <- decode.field("type", decode.string)

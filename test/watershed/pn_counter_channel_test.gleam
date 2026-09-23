@@ -1,4 +1,5 @@
 import gleam/dict
+import gleam/dynamic/decode
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
@@ -13,6 +14,7 @@ import watershed/channel
 import watershed/handle
 import watershed/pn_counter_kernel
 import watershed/runtime_core.{type Core}
+import watershed/wire/op as wire_op
 
 const client_id = "default_doc_1"
 
@@ -59,10 +61,11 @@ fn bootstrap() -> Core {
 }
 
 pub fn detached_pn_counter_updates_and_then_emits_operations_test() -> Nil {
-  let address = "pnc-1"
+  let address = "watershed/pnc-1"
   let core =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitPnCounter)
+    |> expect.to_be_ok
 
   let assert Ok(#(core, events, outbound)) =
     runtime_core.pn_counter_update(core, address, 5)
@@ -79,7 +82,12 @@ pub fn detached_pn_counter_updates_and_then_emits_operations_test() -> Nil {
   runtime_core.pn_counter_value(core, address) |> expect.to_equal(Ok(3))
 
   let assert Ok(#(core, _, _)) =
-    runtime_core.set(core, "root", "count", handle.encode_handle(address))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "count",
+      handle.encode_handle(address),
+    )
 
   let assert Ok(#(_core, events, [operation])) =
     runtime_core.pn_counter_update(core, address, 4)
@@ -88,9 +96,10 @@ pub fn detached_pn_counter_updates_and_then_emits_operations_test() -> Nil {
     #(address, channel.PnCounterEvent(pn_counter_kernel.Updated(4, 7))),
   ])
   let encoded = json.to_string(operation.contents)
-  encoded
-  |> string.contains("\"address\":\"" <> address <> "\"")
-  |> expect.to_be_true()
+  let assert Ok(raw) = json.parse(encoded, decode.dynamic)
+  let assert Ok(wire_op.ChannelOperation(decoded_address, _)) =
+    wire_op.decode_operation_contents(raw)
+  decoded_address |> expect.to_equal(address)
   encoded
   |> string.contains("\"type\":\"pnCounterUpdate\"")
   |> expect.to_be_true()
@@ -119,16 +128,22 @@ pub fn pn_counter_channel_type_round_trips_test() -> Nil {
 }
 
 pub fn detached_pn_counter_attaches_with_optimistic_value_test() -> Nil {
-  let address = "pnc-2"
+  let address = "watershed/pnc-2"
   let core =
     bootstrap()
     |> runtime_core.create_detached(address, channel.InitPnCounter)
+    |> expect.to_be_ok
 
   let assert Ok(#(core, _, _)) =
     runtime_core.pn_counter_update(core, address, 3)
 
   let assert Ok(#(core, _, attach_outbound)) =
-    runtime_core.set(core, "root", "count", handle.encode_handle(address))
+    runtime_core.set(
+      core,
+      "watershed/root",
+      "count",
+      handle.encode_handle(address),
+    )
   attach_outbound |> list.length |> expect.to_equal(2)
 
   // The attach preserves the detached optimistic value.

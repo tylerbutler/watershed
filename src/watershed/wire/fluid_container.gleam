@@ -1,17 +1,61 @@
 //// Fluid container, datastore, and channel envelopes for the pinned profile.
 ////
-//// DDS contents stay opaque. The live runtime does not use this module yet.
+//// DDS contents stay opaque until the runtime selects their registered codec.
 
 import gleam/dynamic/decode.{type Decoder}
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 import watershed/fluid_ids
+import watershed/handle
 import watershed/wire
+import watershed/wire/fluid_summary
 
 pub type Route {
   Route(data_store_id: String, channel_id: String)
+}
+
+pub fn route_key(route: Route) -> Result(String, ContainerError) {
+  let Route(data_store_id, channel_id) = route
+  use _ <- result.try(validate_route(data_store_id, channel_id, "route"))
+  let key =
+    fluid_summary.encode_component(data_store_id)
+    <> "/"
+    <> fluid_summary.encode_component(channel_id)
+  use _ <- result.try(
+    handle.encode_path("/" <> key)
+    |> result.map_error(fn(_) {
+      InvalidRoute("route", "invalid path component")
+    }),
+  )
+  Ok(key)
+}
+
+pub fn route_from_path(path: String) -> Result(Route, ContainerError) {
+  use _ <- result.try(
+    handle.encode_path(path)
+    |> result.map_error(fn(_) { InvalidRoute("route", "invalid channel path") }),
+  )
+  case string.split(path, "/") {
+    ["", datastore, channel] -> {
+      use datastore <- result.try(
+        handle.decode_component(datastore)
+        |> result.map_error(fn(_) {
+          InvalidRoute("route", "invalid datastore escape")
+        }),
+      )
+      use channel <- result.try(
+        handle.decode_component(channel)
+        |> result.map_error(fn(_) {
+          InvalidRoute("route", "invalid channel escape")
+        }),
+      )
+      Ok(Route(datastore, channel))
+    }
+    _ -> Error(InvalidRoute("route", "expected a datastore and channel path"))
+  }
 }
 
 pub type MessageKind {
@@ -57,6 +101,16 @@ pub fn decode(
   contents: Json,
   metadata: Option(Json),
 ) -> Result(DecodedBatch, ContainerError) {
+  use compression <- result.try(
+    json.parse(json.to_string(contents), compression_decoder())
+    |> result.map_error(fn(_) {
+      MalformedMessage("message", "invalid compression field")
+    }),
+  )
+  use _ <- result.try(case compression {
+    Some(format) -> Error(UnsupportedCompression(format))
+    None -> Ok(Nil)
+  })
   use message_type <- result.try(
     json.parse(json.to_string(contents), message_type_decoder())
     |> result.map_error(fn(_) {
@@ -74,6 +128,15 @@ pub fn decode(
       )
     }
   }
+}
+
+fn compression_decoder() -> Decoder(Option(String)) {
+  use compression <- decode.optional_field(
+    "compression",
+    None,
+    decode.map(decode.string, Some),
+  )
+  decode.success(compression)
 }
 
 pub fn encode(message: MessageKind) -> Result(Json, ContainerError) {

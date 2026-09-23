@@ -24,6 +24,7 @@ import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
+import gleam/string
 
 import lattice_core/replica_id
 import lattice_counters/g_counter.{type GCounter}
@@ -140,6 +141,42 @@ pub fn type_to_string(channel_type: ChannelType) -> String {
     SequenceChannel -> wire.channel_type_sequence
     RichTextChannel -> wire.channel_type_rich_text
     TextChannel -> wire.channel_type_text
+  }
+}
+
+pub fn fluid_type_to_string(channel_type: ChannelType) -> String {
+  case channel_type {
+    MapChannel -> "https://graph.microsoft.com/types/map"
+    other -> "org.watershed/" <> type_to_string(other)
+  }
+}
+
+pub fn fluid_attributes(channel_type: ChannelType) -> Json {
+  let #(snapshot_version, package_version) = case channel_type {
+    MapChannel -> #("0.2", "3.1.0")
+    _ -> #("1", "1")
+  }
+  json.object([
+    #("type", json.string(fluid_type_to_string(channel_type))),
+    #("snapshotFormatVersion", json.string(snapshot_version)),
+    #("packageVersion", json.string(package_version)),
+  ])
+}
+
+pub fn fluid_string_to_type(raw: String) -> Result(ChannelType, Nil) {
+  case raw {
+    "https://graph.microsoft.com/types/map" -> Ok(MapChannel)
+    _ ->
+      case string.starts_with(raw, "org.watershed/") {
+        True -> {
+          let name = string.drop_start(raw, string.length("org.watershed/"))
+          case name {
+            "map" -> Error(Nil)
+            _ -> string_to_type(name)
+          }
+        }
+        False -> Error(Nil)
+      }
   }
 }
 
@@ -2712,12 +2749,24 @@ fn same_json_value(ours: Json, echoed: Json) -> Bool {
 /// The handle addresses that the current values of the channel reach, for the
 /// order of the attach dependencies. A counter holds no handle.
 pub fn handle_addresses(state: ChannelState) -> List(String) {
+  handle_values(state)
+  |> list.flat_map(handle.collect_handle_addresses)
+  |> list.unique
+}
+
+pub fn routed_handle_addresses(
+  state: ChannelState,
+  context: String,
+) -> Result(List(String), handle.HandleError) {
+  handle_values(state)
+  |> list.try_map(handle.collect_routed_addresses(_, context))
+  |> result.map(fn(addresses) { list.flatten(addresses) |> list.unique })
+}
+
+fn handle_values(state: ChannelState) -> List(Json) {
   case state {
     MapState(kernel) ->
-      list.flat_map(map_kernel.entries(kernel), fn(entry) {
-        handle.collect_handle_addresses(entry.1)
-      })
-      |> list.unique
+      list.map(map_kernel.entries(kernel), fn(entry) { entry.1 })
     CounterState(_) -> []
     PnCounterState(_) -> []
     GCounterState(_) -> []
@@ -2730,19 +2779,16 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
         | or_map_kernel.OrSetMode
         | or_map_kernel.MvRegisterMode -> []
         or_map_kernel.RegisterMode ->
-          list.flat_map(or_map_kernel.entries(kernel), fn(entry) {
+          list.filter_map(or_map_kernel.entries(kernel), fn(entry) {
             case entry.1 {
               or_map_kernel.Register(raw) ->
-                case json.parse(raw, wire.json_value_decoder()) {
-                  Ok(value) -> handle.collect_handle_addresses(value)
-                  Error(_) -> []
-                }
+                json.parse(raw, wire.json_value_decoder())
+                |> result.replace_error(Nil)
               or_map_kernel.Tally(_)
               | or_map_kernel.SetMembers(_)
-              | or_map_kernel.MvRegister(_) -> []
+              | or_map_kernel.MvRegister(_) -> Error(Nil)
             }
           })
-          |> list.unique
       }
     OrSetState(_) -> []
     GSetState(_) -> []
@@ -2754,22 +2800,15 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
           let #(_, register_collection_kernel.Register(atomic, versions)) =
             entry
           [atomic, ..versions]
-          |> list.flat_map(fn(version) {
-            handle.collect_handle_addresses(version.value)
-          })
+          |> list.map(fn(version) { version.value })
         },
       )
-      |> list.unique
     ClaimsState(kernel) ->
       list.append(
         claims_kernel.summary_entries(kernel)
-          |> list.flat_map(fn(entry) {
-            handle.collect_handle_addresses(entry.1)
-          }),
-        claims_kernel.pending_values(kernel)
-          |> list.flat_map(handle.collect_handle_addresses),
+          |> list.map(fn(entry) { entry.1 }),
+        claims_kernel.pending_values(kernel),
       )
-      |> list.unique
     TaskManagerState(_) -> []
     JsonOtState(_) -> []
     PactMapState(_) -> []
@@ -2784,18 +2823,13 @@ pub fn handle_addresses(state: ChannelState) -> List(String) {
           value
         }),
       )
-      |> list.flat_map(handle.collect_handle_addresses)
-      |> list.unique
-    SequenceState(kernel) ->
-      sequence_kernel.values(kernel)
-      |> list.flat_map(handle.collect_handle_addresses)
-      |> list.unique
+    SequenceState(kernel) -> sequence_kernel.values(kernel)
     RichTextState(kernel) -> {
       let document = case rich_text_kernel.view(kernel) {
         Ok(document) -> document
         Error(_) -> rich_text_kernel.summary(kernel)
       }
-      handle.collect_handle_addresses(rich_text.document_to_json(document))
+      [rich_text.document_to_json(document)]
     }
     // Text holds only graphemes, never nested DDS handles.
     TextState(_) -> []

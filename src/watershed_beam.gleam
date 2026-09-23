@@ -234,8 +234,8 @@ pub fn resolve_lww_map(
   document: Document(root),
   value: Json,
 ) -> Result(LwwMap, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -515,9 +515,21 @@ pub fn runtime_subject(document: Document(root)) -> Subject(runtime_beam.Msg) {
 }
 
 @target(erlang)
-/// The root map of the document, at the channel address `"root"`.
+/// The native root map, at the channel address `"watershed/root"`.
 pub fn root(document: Document(root)) -> SharedMap {
-  SharedMap(runtime: document.runtime, address: "root")
+  SharedMap(runtime: document.runtime, address: "watershed/root")
+}
+
+@target(erlang)
+fn resolve_handle_address(
+  document: Document(root),
+  value: Json,
+) -> Result(String, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: runtime_beam.ResolveHandleAddress(value, _),
+  )
 }
 
 @target(erlang)
@@ -549,7 +561,22 @@ pub fn handle_of(map: SharedMap) -> Json {
 /// Whether a value that you read from a map is a handle marker. See
 /// `resolve`.
 pub fn is_handle(value: Json) -> Bool {
-  handle.parse_handle(value) != Error(Nil)
+  handle.routed_address(value, "/") |> result.is_ok
+}
+
+@target(erlang)
+/// Bind a relative handle to its source channel. `source` must be an absolute
+/// channel handle, such as `handle_of(map)`. Pass the result to a typed resolver.
+pub fn bind_handle(
+  document: Document(root),
+  source: Json,
+  value: Json,
+) -> Result(Json, String) {
+  process.call(
+    document.runtime,
+    waiting: call_timeout_milliseconds,
+    sending: runtime_beam.BindHandle(source, value, _),
+  )
 }
 
 @target(erlang)
@@ -557,12 +584,13 @@ pub fn is_handle(value: Json) -> Bool {
 /// it references. A caller can retry after an error. A handle from a remote
 /// value can stay unresolved for a short time, while the attach operation of
 /// the channel that it references is still in flight.
+/// Bind a relative marker with `bind_handle` before resolution.
 pub fn resolve(
   document: Document(root),
   value: Json,
 ) -> Result(SharedMap, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -1661,8 +1689,8 @@ pub fn resolve_counter(
   document: Document(root),
   value: Json,
 ) -> Result(SharedCounter, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -1786,8 +1814,8 @@ pub fn resolve_json_ot(
   document: Document(root),
   value: Json,
 ) -> Result(JsonOt, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -1887,8 +1915,8 @@ pub fn resolve_rich_text(
   document: Document(root),
   value: Json,
 ) -> Result(SharedRichText, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -1991,8 +2019,8 @@ pub fn resolve_or_map(
   document: Document(root),
   value: Json,
 ) -> Result(OrMap, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -2184,8 +2212,8 @@ pub fn resolve_or_set(
   document: Document(root),
   value: Json,
 ) -> Result(OrSet, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -2287,8 +2315,8 @@ pub fn resolve_sequence(
   document: Document(root),
   value: Json,
 ) -> Result(SharedSequence, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       runtime_beam.resolve_sequence(document.runtime, address)
       |> result.map(fn(_) {
@@ -2446,8 +2474,8 @@ pub fn resolve_text(
   document: Document(root),
   value: Json,
 ) -> Result(SharedText, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       runtime_beam.resolve_text(document.runtime, address)
       |> result.map(fn(_) {
@@ -2680,8 +2708,8 @@ pub fn resolve_register_collection(
   document: Document(root),
   value: Json,
 ) -> Result(RegisterCollection, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -2809,8 +2837,8 @@ pub fn resolve_claims(
   document: Document(root),
   value: Json,
 ) -> Result(Claims, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -2906,8 +2934,8 @@ pub fn resolve_task_manager(
   document: Document(root),
   value: Json,
 ) -> Result(TaskManager, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -3020,8 +3048,8 @@ pub fn resolve_g_set(
   document: Document(root),
   value: Json,
 ) -> Result(GSet, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -3123,8 +3151,8 @@ pub fn resolve_two_p_set(
   document: Document(root),
   value: Json,
 ) -> Result(TwoPSet, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -3245,8 +3273,8 @@ pub fn resolve_directory(
   document: Document(root),
   value: Json,
 ) -> Result(SharedDirectory, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -3452,8 +3480,8 @@ pub fn resolve_g_counter(
   document: Document(root),
   value: Json,
 ) -> Result(GCounter, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -3554,8 +3582,8 @@ pub fn resolve_pn_counter(
   document: Document(root),
   value: Json,
 ) -> Result(PnCounter, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -3649,8 +3677,8 @@ pub fn resolve_pact_map(
   document: Document(root),
   value: Json,
 ) -> Result(PactMap, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -3839,8 +3867,8 @@ pub fn resolve_ordered_collection(
   document: Document(root),
   value: Json,
 ) -> Result(OrderedCollection, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,
@@ -4453,8 +4481,8 @@ pub fn resolve_mv_register(
   document: Document(root),
   value: Json,
 ) -> Result(MvRegister, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) -> {
       use _ <- result.try(
         process.call(
@@ -4588,8 +4616,8 @@ pub fn resolve_lww_register(
   document: Document(root),
   value: Json,
 ) -> Result(LwwRegister, String) {
-  case handle.parse_handle(value) {
-    Error(Nil) -> Error("value is not a handle marker")
+  case resolve_handle_address(document, value) {
+    Error(error) -> Error(error)
     Ok(address) ->
       process.call(
         document.runtime,

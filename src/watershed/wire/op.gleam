@@ -1,33 +1,21 @@
-//// Codecs for the contents of an `"op"` message. There are three kinds: a
-//// kernel DDS operation in its `{address, contents}` document envelope, an
-//// attach envelope that carries a channel snapshot, and the `"summarize"`
-//// operation that announces a stored snapshot.
+//// DDS codecs inside routed Fluid container envelopes.
 ////
-//// The `{address, contents}` envelope carries no channel type. The channel
-//// registry is the authoritative source of the type of a channel, so the
-//// decode has two stages. `decode_operation_contents` returns an attach
-//// operation fully decoded, because the attach envelope has a `channelType`
-//// field. It returns a channel operation as `#(address, Dynamic)` only. The
-//// runtime then finds the type of the channel by its address and completes the
-//// decode with `channel_operation_decoder`.
+//// Channel operations carry no type. The runtime selects the payload decoder
+//// from its checked registry. Attach messages carry channel attributes and
+//// snapshot blobs. The SharedMap codec uses upstream Plain values. Other
+//// existing DDSes retain their native payloads and Watershed type identifiers.
 ////
-//// The map operation format in the envelope is the same as the format of the
-//// TypeScript `@fluidframework/map` operations: `set`, `delete`, and `clear`,
-//// with each value in a `{"type": "Plain", "value": ...}` wrapper. That
-//// agreement is a convenience, because it keeps the vocabulary of the corpus
-//// tests the same as the vocabulary of the TypeScript oracle. It is not a
-//// compatibility contract. Nothing outside the project reads the wire formats
-//// or the storage formats of watershed yet, so a format change needs a new
-//// version and new fixtures, but it needs no migration code. Change a format
-//// with care all the same. That freedom ends when real documents or real
-//// clients exist.
+//// The summarize operation still publishes the native non-tree summary.
 
+import gleam/dict
 import gleam/dynamic.{type Dynamic}
 import gleam/dynamic/decode.{type Decoder}
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{None, Some}
 import gleam/result
+import gleam/string
 
 import lattice_core/replica_id
 import lattice_core/version_vector
@@ -71,6 +59,9 @@ import watershed/task_manager_kernel.{type TaskManagerOperation}
 import watershed/text_kernel.{type TextOperation}
 import watershed/two_p_set_kernel.{type TwoPSetOperation}
 import watershed/wire.{type OutboundOperation}
+import watershed/wire/fluid_container
+import watershed/wire/json_object
+import watershed/wire/socket
 
 /// The contents of a sequenced `"op"` message. The contents are a kernel
 /// channel operation, whose payload is not decoded yet because the
@@ -88,28 +79,58 @@ pub fn outbound_channel_operation(
   client_sequence_number client_sequence_number: Int,
   reference_sequence_number reference_sequence_number: Int,
   operation operation: channel.ChannelOperation,
-) -> OutboundOperation {
-  wire.OutboundOperation(
+) -> Result(OutboundOperation, fluid_container.ContainerError) {
+  use contents <- result.try(encode_channel_envelope(address, operation))
+  Ok(wire.OutboundOperation(
     client_sequence_number: client_sequence_number,
     reference_sequence_number: reference_sequence_number,
     operation_type: "op",
-    contents: encode_channel_envelope(address, operation),
+    contents: contents,
     metadata: None,
-  )
+  ))
 }
 
-/// An attach envelope carries the full channel snapshot as
-/// `{type:"attach", address, channelType, snapshot}`. The channel type sets the
-/// shape of the `snapshot` payload.
-pub fn encode_attach(address: String, snapshot: channel.Snapshot) -> Json {
+/// Encode a routed channel attach with attributes and a header blob.
+pub fn encode_attach(
+  address: String,
+  snapshot: channel.Snapshot,
+) -> Result(Json, fluid_container.ContainerError) {
+  use route <- result.try(fluid_container.route_from_path("/" <> address))
+  let kind = channel.snapshot_type(snapshot)
+  let attributes = channel.fluid_attributes(kind)
+  let blobs = case snapshot {
+    channel.MapSnapshot(entries) -> encode_map_attach_blobs(entries)
+    _ -> [attach_blob("header", channel.encode_snapshot(snapshot))]
+  }
+  let snapshot =
+    json.object([
+      #(
+        "entries",
+        json.preprocessed_array([
+          attach_blob(".attributes", attributes),
+          ..blobs
+        ]),
+      ),
+    ])
+  fluid_container.encode(fluid_container.ChannelAttach(
+    route,
+    channel.fluid_type_to_string(kind),
+    snapshot,
+  ))
+}
+
+fn attach_blob(path: String, contents: Json) -> Json {
   json.object([
-    #("type", json.string("attach")),
-    #("address", json.string(address)),
+    #("path", json.string(path)),
+    #("mode", json.string("100644")),
+    #("type", json.string("Blob")),
     #(
-      "channelType",
-      json.string(channel.type_to_string(channel.snapshot_type(snapshot))),
+      "value",
+      json.object([
+        #("contents", json.string(json.to_string(contents))),
+        #("encoding", json.string("utf-8")),
+      ]),
     ),
-    #("snapshot", channel.encode_snapshot(snapshot)),
   ])
 }
 
@@ -118,14 +139,15 @@ pub fn outbound_attach_operation(
   client_sequence_number client_sequence_number: Int,
   reference_sequence_number reference_sequence_number: Int,
   snapshot snapshot: channel.Snapshot,
-) -> OutboundOperation {
-  wire.OutboundOperation(
+) -> Result(OutboundOperation, fluid_container.ContainerError) {
+  use contents <- result.try(encode_attach(address, snapshot))
+  Ok(wire.OutboundOperation(
     client_sequence_number: client_sequence_number,
     reference_sequence_number: reference_sequence_number,
     operation_type: "op",
-    contents: encode_attach(address, snapshot),
+    contents: contents,
     metadata: None,
-  )
+  ))
 }
 
 /// A `"summarize"` operation that announces a stored snapshot. The contents
@@ -155,15 +177,16 @@ pub fn outbound_summarize_operation(
   )
 }
 
-/// The `{address, contents}` document envelope around a kernel operation.
+/// The routed Fluid container envelope around a kernel operation.
 pub fn encode_channel_envelope(
   address: String,
   operation: channel.ChannelOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_channel_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  use route <- result.try(fluid_container.route_from_path("/" <> address))
+  fluid_container.encode(fluid_container.ChannelOperation(
+    route,
+    encode_channel_operation(operation),
+  ))
 }
 
 pub fn encode_channel_operation(operation: channel.ChannelOperation) -> Json {
@@ -257,12 +280,12 @@ pub fn channel_operation_decoder(
   }
 }
 
-/// The `{address, contents}` document envelope around a map operation.
-pub fn encode_map_envelope(address: String, operation: MapOperation) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_map_operation(operation)),
-  ])
+/// The routed Fluid container envelope around a map operation.
+pub fn encode_map_envelope(
+  address: String,
+  operation: MapOperation,
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.MapOperation(operation))
 }
 
 pub fn encode_map_operation(operation: MapOperation) -> Json {
@@ -288,16 +311,116 @@ pub fn encode_map_operation(operation: MapOperation) -> Json {
   }
 }
 
-/// The `{address, contents}` document envelope around a SharedCounter
+pub fn decode_map_header(
+  header: Json,
+) -> Result(List(#(String, Json)), String) {
+  decode_map_header_string(json.to_string(header))
+}
+
+pub fn decode_map_header_string(
+  raw: String,
+) -> Result(List(#(String, Json)), String) {
+  use #(blobs, entries) <- result.try(decode_map_header_parts(raw))
+  case blobs {
+    [] -> Ok(entries)
+    _ -> Error("SharedMap header requires external blobs")
+  }
+}
+
+fn decode_map_header_parts(
+  raw: String,
+) -> Result(#(List(String), List(#(String, Json))), String) {
+  use blobs <- result.try(
+    json.parse(raw, map_header_decoder())
+    |> result.map_error(fn(error) {
+      "invalid SharedMap header: " <> string.inspect(error)
+    }),
+  )
+  use fields <- result.try(json_object.members(raw))
+  use content <- result.try(
+    list.key_find(fields, "content")
+    |> result.replace_error("missing SharedMap content"),
+  )
+  use entries <- result.try(decode_map_content(content))
+  Ok(#(blobs, entries))
+}
+
+fn decode_map_content(raw: String) -> Result(List(#(String, Json)), String) {
+  use entries <- result.try(json_object.members(raw))
+  list.try_map(entries, fn(entry) {
+    use value <- result.try(
+      json.parse(entry.1, plain_value_decoder())
+      |> result.map_error(fn(_) { "invalid SharedMap value" }),
+    )
+    Ok(#(entry.0, value))
+  })
+}
+
+fn encode_map_attach_blobs(entries: List(#(String, Json))) -> List(Json) {
+  let keys = fn(entries: List(#(String, Json))) {
+    list.map(entries, fn(entry) { entry.0 })
+  }
+  case keys(json_object.javascript_order(entries)) == keys(entries) {
+    True -> [attach_blob("header", encode_map_header(entries))]
+    False -> {
+      // Separate blobs preserve map order when object keys would reorder it.
+      let blobs =
+        list.index_map(entries, fn(entry, index) {
+          #("blob" <> int.to_string(index), entry)
+        })
+      [
+        attach_blob(
+          "header",
+          json.object([
+            #("blobs", json.array(blobs, fn(blob) { json.string(blob.0) })),
+            #("content", json.object([])),
+          ]),
+        ),
+        ..list.map(blobs, fn(blob) {
+          attach_blob(blob.0, encode_map_content([blob.1]))
+        })
+      ]
+    }
+  }
+}
+
+pub fn encode_map_header(entries: List(#(String, Json))) -> Json {
+  json.object([
+    #("blobs", json.preprocessed_array([])),
+    #("content", encode_map_content(entries)),
+  ])
+}
+
+fn encode_map_content(entries: List(#(String, Json))) -> Json {
+  json.object(
+    list.map(entries, fn(entry) {
+      #(
+        entry.0,
+        json.object([
+          #("type", json.string("Plain")),
+          #("value", entry.1),
+        ]),
+      )
+    }),
+  )
+}
+
+fn map_header_decoder() -> Decoder(List(String)) {
+  use blobs <- decode.field("blobs", decode.list(decode.string))
+  use _content <- decode.field(
+    "content",
+    decode.dict(decode.string, plain_value_decoder()),
+  )
+  decode.success(blobs)
+}
+
+/// The routed Fluid container envelope around a SharedCounter
 /// operation.
 pub fn encode_counter_envelope(
   address: String,
   operation: CounterOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_counter_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.CounterOperation(operation))
 }
 
 pub fn encode_counter_operation(operation: CounterOperation) -> Json {
@@ -310,15 +433,12 @@ pub fn encode_counter_operation(operation: CounterOperation) -> Json {
   }
 }
 
-/// The `{address, contents}` document envelope around a PnCounter operation.
+/// The routed Fluid container envelope around a PnCounter operation.
 pub fn encode_pn_counter_envelope(
   address: String,
   operation: PnCounterOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_pn_counter_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.PnCounterOperation(operation))
 }
 
 pub fn encode_pn_counter_operation(operation: PnCounterOperation) -> Json {
@@ -332,15 +452,12 @@ pub fn encode_pn_counter_operation(operation: PnCounterOperation) -> Json {
   }
 }
 
-/// The `{address, contents}` document envelope around a GCounter operation.
+/// The routed Fluid container envelope around a GCounter operation.
 pub fn encode_g_counter_envelope(
   address: String,
   operation: GCounterOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_g_counter_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.GCounterOperation(operation))
 }
 
 pub fn encode_g_counter_operation(operation: GCounterOperation) -> Json {
@@ -357,14 +474,14 @@ pub fn encode_g_counter_operation(operation: GCounterOperation) -> Json {
 pub fn encode_lww_register_envelope(
   address: String,
   operation: LwwRegisterOperation,
-) -> Json {
+) -> Result(Json, fluid_container.ContainerError) {
   encode_channel_envelope(address, channel.LwwRegisterOperation(operation))
 }
 
 pub fn encode_lww_map_envelope(
   address: String,
   operation: LwwMapOperation,
-) -> Json {
+) -> Result(Json, fluid_container.ContainerError) {
   encode_channel_envelope(address, channel.LwwMapOperation(operation))
 }
 
@@ -403,9 +520,7 @@ pub fn decode_lww_map_envelope(
 }
 
 pub fn lww_map_envelope_decoder() -> Decoder(#(String, LwwMapOperation)) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", lww_map_operation_decoder())
-  decode.success(#(address, operation))
+  routed_operation_decoder(lww_map_operation_decoder())
 }
 
 pub fn lww_map_operation_decoder() -> Decoder(LwwMapOperation) {
@@ -465,9 +580,7 @@ pub fn decode_lww_register_envelope(
 pub fn lww_register_envelope_decoder() -> Decoder(
   #(String, LwwRegisterOperation),
 ) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", lww_register_operation_decoder())
-  decode.success(#(address, operation))
+  routed_operation_decoder(lww_register_operation_decoder())
 }
 
 pub fn lww_register_operation_decoder() -> Decoder(LwwRegisterOperation) {
@@ -518,11 +631,8 @@ pub fn lww_register_operation_decoder() -> Decoder(LwwRegisterOperation) {
 pub fn encode_mv_register_envelope(
   address: String,
   operation: MvRegisterOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_mv_register_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.MvRegisterOperation(operation))
 }
 
 pub fn encode_mv_register_operation(operation: MvRegisterOperation) -> Json {
@@ -541,9 +651,7 @@ pub fn decode_mv_register_envelope(
 }
 
 pub fn mv_register_envelope_decoder() -> Decoder(#(String, MvRegisterOperation)) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", mv_register_operation_decoder())
-  decode.success(#(address, operation))
+  routed_operation_decoder(mv_register_operation_decoder())
 }
 
 pub fn mv_register_operation_decoder() -> Decoder(MvRegisterOperation) {
@@ -568,15 +676,12 @@ pub fn mv_register_operation_decoder() -> Decoder(MvRegisterOperation) {
   }
 }
 
-/// The `{address, contents}` document envelope around an OrMap operation.
+/// The routed Fluid container envelope around an OrMap operation.
 pub fn encode_or_map_envelope(
   address: String,
   operation: OrMapOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_or_map_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.OrMapOperation(operation))
 }
 
 pub fn encode_or_map_operation(operation: OrMapOperation) -> Json {
@@ -629,11 +734,8 @@ pub fn encode_or_map_operation(operation: OrMapOperation) -> Json {
 pub fn encode_or_set_envelope(
   address: String,
   operation: OrSetOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_or_set_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.OrSetOperation(operation))
 }
 
 pub fn encode_or_set_operation(operation: OrSetOperation) -> Json {
@@ -656,11 +758,8 @@ pub fn encode_or_set_operation(operation: OrSetOperation) -> Json {
 pub fn encode_g_set_envelope(
   address: String,
   operation: GSetOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_g_set_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.GSetOperation(operation))
 }
 
 pub fn encode_g_set_operation(operation: GSetOperation) -> Json {
@@ -677,11 +776,8 @@ pub fn encode_g_set_operation(operation: GSetOperation) -> Json {
 pub fn encode_two_p_set_envelope(
   address: String,
   operation: TwoPSetOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_two_p_set_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.TwoPSetOperation(operation))
 }
 
 pub fn encode_two_p_set_operation(operation: TwoPSetOperation) -> Json {
@@ -704,11 +800,11 @@ pub fn encode_two_p_set_operation(operation: TwoPSetOperation) -> Json {
 pub fn encode_register_collection_envelope(
   address: String,
   operation: WriteOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_register_collection_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(
+    address,
+    channel.RegisterCollectionOperation(operation),
+  )
 }
 
 pub fn encode_register_collection_operation(operation: WriteOperation) -> Json {
@@ -732,11 +828,8 @@ pub fn encode_register_collection_operation(operation: WriteOperation) -> Json {
 pub fn encode_claim_envelope(
   address: String,
   operation: ClaimOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_claim_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.ClaimsOperation(operation))
 }
 
 pub fn encode_claim_operation(operation: ClaimOperation) -> Json {
@@ -779,11 +872,8 @@ pub fn encode_rich_text_operation(operation: RichTextWireOperation) -> Json {
 pub fn encode_task_manager_envelope(
   address: String,
   operation: TaskManagerOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_task_manager_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.TaskManagerOperation(operation))
 }
 
 pub fn encode_task_manager_operation(operation: TaskManagerOperation) -> Json {
@@ -903,15 +993,12 @@ fn directory_operation_decoder() -> Decoder(channel.ChannelOperation) {
   }
 }
 
-/// The `{address, contents}` document envelope around a PactMap operation.
+/// The routed Fluid container envelope around a PactMap operation.
 pub fn encode_pact_map_envelope(
   address: String,
   operation: pact_map_kernel.PactMapOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_pact_map_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(address, channel.PactMapOperation(operation))
 }
 
 /// Encode a PactMap operation. The value of a `Set` operation is an
@@ -956,9 +1043,7 @@ pub fn decode_pact_map_envelope(
 pub fn pact_map_envelope_decoder() -> Decoder(
   #(String, pact_map_kernel.PactMapOperation),
 ) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", pact_map_operation_decoder())
-  decode.success(#(address, operation))
+  routed_operation_decoder(pact_map_operation_decoder())
 }
 
 pub fn pact_map_operation_decoder() -> Decoder(pact_map_kernel.PactMapOperation) {
@@ -990,16 +1075,16 @@ fn pact_map_value_decoder() -> Decoder(option.Option(Json)) {
   }
 }
 
-/// The `{address, contents}` document envelope around an ordered-collection
+/// The routed Fluid container envelope around an ordered-collection
 /// operation.
 pub fn encode_ordered_envelope(
   address: String,
   operation: OrderedOperation,
-) -> Json {
-  json.object([
-    #("address", json.string(address)),
-    #("contents", encode_ordered_operation(operation)),
-  ])
+) -> Result(Json, fluid_container.ContainerError) {
+  encode_channel_envelope(
+    address,
+    channel.OrderedCollectionOperation(operation),
+  )
 }
 
 pub fn encode_ordered_operation(operation: OrderedOperation) -> Json {
@@ -1031,9 +1116,7 @@ pub fn decode_ordered_envelope(
 }
 
 pub fn ordered_envelope_decoder() -> Decoder(#(String, OrderedOperation)) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", ordered_operation_decoder())
-  decode.success(#(address, operation))
+  routed_operation_decoder(ordered_operation_decoder())
 }
 
 pub fn ordered_operation_decoder() -> Decoder(OrderedOperation) {
@@ -1243,9 +1326,7 @@ pub fn decode_map_envelope(
 }
 
 pub fn map_envelope_decoder() -> Decoder(#(String, MapOperation)) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", map_operation_decoder())
-  decode.success(#(address, operation))
+  routed_operation_decoder(map_operation_decoder())
 }
 
 pub fn map_operation_decoder() -> Decoder(MapOperation) {
@@ -1274,9 +1355,7 @@ pub fn decode_counter_envelope(
 }
 
 pub fn counter_envelope_decoder() -> Decoder(#(String, CounterOperation)) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", counter_operation_decoder())
-  decode.success(#(address, operation))
+  routed_operation_decoder(counter_operation_decoder())
 }
 
 pub fn counter_operation_decoder() -> Decoder(CounterOperation) {
@@ -1299,9 +1378,7 @@ pub fn decode_pn_counter_envelope(
 }
 
 pub fn pn_counter_envelope_decoder() -> Decoder(#(String, PnCounterOperation)) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", pn_counter_operation_decoder())
-  decode.success(#(address, operation))
+  routed_operation_decoder(pn_counter_operation_decoder())
 }
 
 pub fn pn_counter_operation_decoder() -> Decoder(PnCounterOperation) {
@@ -1329,9 +1406,7 @@ pub fn decode_g_counter_envelope(
 }
 
 pub fn g_counter_envelope_decoder() -> Decoder(#(String, GCounterOperation)) {
-  use address <- decode.field("address", decode.string)
-  use operation <- decode.field("contents", g_counter_operation_decoder())
-  decode.success(#(address, operation))
+  routed_operation_decoder(g_counter_operation_decoder())
 }
 
 /// The grow-only counter accepts one operation type. The decoder rejects a
@@ -1750,26 +1825,9 @@ fn plain_value_decoder() -> Decoder(Json) {
 }
 
 pub fn attach_envelope_decoder() -> Decoder(OperationContents) {
-  use t <- decode.field("type", decode.string)
-  case t {
-    "attach" -> {
-      use address <- decode.field("address", decode.string)
-      use channel_type <- decode.field("channelType", decode.string)
-      case channel.string_to_type(channel_type) {
-        Ok(channel_type) -> {
-          use snapshot <- decode.field(
-            "snapshot",
-            channel.snapshot_decoder(channel_type),
-          )
-          decode.success(AttachOperation(address: address, snapshot: snapshot))
-        }
-        Error(_) ->
-          decode.failure(
-            AttachOperation(address: "", snapshot: channel.MapSnapshot([])),
-            "ChannelType",
-          )
-      }
-    }
+  use contents <- decode.then(decode.dynamic)
+  case decode_operation_contents(contents) {
+    Ok(AttachOperation(..) as operation) -> decode.success(operation)
     _ ->
       decode.failure(
         AttachOperation(address: "", snapshot: channel.MapSnapshot([])),
@@ -1780,18 +1838,315 @@ pub fn attach_envelope_decoder() -> Decoder(OperationContents) {
 
 pub fn decode_operation_contents(
   contents: Dynamic,
-) -> Result(OperationContents, List(decode.DecodeError)) {
-  // An explicit top-level `type: "attach"` must decode as an attach envelope
-  // (no fallback); anything else decodes as the `{address, contents}`
-  // envelope, its payload left for stage-two decoding by channel type.
-  case decode.run(contents, decode.at(["type"], decode.string)) {
-    Ok("attach") -> decode.run(contents, attach_envelope_decoder())
-    _ -> decode.run(contents, channel_envelope_decoder())
+) -> Result(OperationContents, fluid_container.ContainerError) {
+  use contents <- result.try(
+    socket.container_contents(contents)
+    |> result.map_error(fn(detail) {
+      fluid_container.MalformedMessage("contents", detail)
+    }),
+  )
+  use batch <- result.try(fluid_container.decode(contents, None))
+  case batch {
+    fluid_container.DecodedBatch(
+      False,
+      _,
+      [fluid_container.ContainerMessage(kind, _, _)],
+    ) -> decode_channel_message(kind)
+    _ ->
+      Error(fluid_container.UnsupportedMessage(
+        "expected a singleton channel message",
+      ))
   }
 }
 
-fn channel_envelope_decoder() -> Decoder(OperationContents) {
-  use address <- decode.field("address", decode.string)
-  use contents <- decode.field("contents", decode.dynamic)
-  decode.success(ChannelOperation(address: address, contents: contents))
+pub fn decode_channel_message(
+  kind: fluid_container.MessageKind,
+) -> Result(OperationContents, fluid_container.ContainerError) {
+  case kind {
+    fluid_container.ChannelOperation(route, payload) -> {
+      use address <- result.try(fluid_container.route_key(route))
+      use payload <- result.try(
+        json.parse(json.to_string(payload), decode.dynamic)
+        |> result.map_error(fn(_) {
+          fluid_container.MalformedMessage("contents", "invalid JSON payload")
+        }),
+      )
+      Ok(ChannelOperation(address, payload))
+    }
+    fluid_container.ChannelAttach(route, channel_type, snapshot) -> {
+      use address <- result.try(fluid_container.route_key(route))
+      use snapshot <- result.try(decode_attach_snapshot(channel_type, snapshot))
+      Ok(AttachOperation(address, snapshot))
+    }
+    _ -> Error(fluid_container.UnsupportedMessage("expected a channel message"))
+  }
+}
+
+fn routed_operation_decoder(
+  operation_decoder: Decoder(operation),
+) -> Decoder(#(String, operation)) {
+  use contents <- decode.then(decode.dynamic)
+  use operation <- decode.then(decode.at(
+    ["contents", "contents", "content", "contents"],
+    operation_decoder,
+  ))
+  case decode_operation_contents(contents) {
+    Ok(ChannelOperation(address, _)) -> decode.success(#(address, operation))
+    _ -> decode.failure(#("", operation), "routed channel operation")
+  }
+}
+
+type AttachEntry {
+  AttachBlob(contents: String)
+  AttachTree(snapshot: Json)
+}
+
+fn attach_entries(
+  snapshot: Json,
+) -> Result(dict.Dict(String, AttachEntry), fluid_container.ContainerError) {
+  use entries <- result.try(
+    json.parse(
+      json.to_string(snapshot),
+      decode.field(
+        "entries",
+        decode.list({
+          use path <- decode.field("path", decode.string)
+          use mode <- decode.field("mode", decode.string)
+          use kind <- decode.field("type", decode.string)
+          use value <- decode.field("value", wire.json_value_decoder())
+          decode.success(#(path, mode, kind, value))
+        }),
+        decode.success,
+      ),
+    )
+    |> result.map_error(fn(_) {
+      fluid_container.MalformedMessage("attach", "invalid snapshot entries")
+    }),
+  )
+  list.try_fold(entries, dict.new(), fn(found, entry) {
+    let #(path, mode, kind, value) = entry
+    use _ <- result.try(case path != "" && !dict.has_key(found, path) {
+      True -> Ok(Nil)
+      False ->
+        Error(fluid_container.MalformedMessage(
+          "attach",
+          "empty or duplicate entry path",
+        ))
+    })
+    use value <- result.try(case kind, mode {
+      "Tree", "040000" -> Ok(AttachTree(value))
+      "Blob", "100644" ->
+        json.parse(json.to_string(value), {
+          use contents <- decode.field("contents", decode.string)
+          use encoding <- decode.field("encoding", decode.string)
+          case encoding {
+            "utf-8" -> decode.success(contents)
+            _ -> decode.failure("", "UTF-8 attach blob")
+          }
+        })
+        |> result.map(AttachBlob)
+        |> result.map_error(fn(_) {
+          fluid_container.MalformedMessage("attach", "invalid UTF-8 blob")
+        })
+      _, _ ->
+        Error(fluid_container.UnsupportedMessage("unsupported attach entry"))
+    })
+    Ok(dict.insert(found, path, value))
+  })
+}
+
+fn attach_blob_contents(
+  entries: dict.Dict(String, AttachEntry),
+  path: String,
+) -> Result(String, fluid_container.ContainerError) {
+  case dict.get(entries, path) {
+    Ok(AttachBlob(contents)) -> Ok(contents)
+    _ ->
+      Error(fluid_container.MalformedMessage("attach", "missing blob " <> path))
+  }
+}
+
+fn attach_tree(
+  entries: dict.Dict(String, AttachEntry),
+  path: String,
+) -> Result(Json, fluid_container.ContainerError) {
+  case dict.get(entries, path) {
+    Ok(AttachTree(snapshot)) -> Ok(snapshot)
+    _ ->
+      Error(fluid_container.MalformedMessage("attach", "missing tree " <> path))
+  }
+}
+
+fn package_path_decoder() -> Decoder(List(String)) {
+  decode.one_of(decode.list(decode.string), [
+    {
+      use raw <- decode.then(decode.string)
+      case json.parse(raw, decode.list(decode.string)) {
+        Ok(path) -> decode.success(path)
+        Error(_) -> decode.failure([], "JSON package path")
+      }
+    },
+  ])
+}
+
+pub fn decode_datastore_attach(
+  contents: Json,
+) -> Result(
+  #(List(String), List(#(String, channel.Snapshot))),
+  fluid_container.ContainerError,
+) {
+  use #(kind, snapshot) <- result.try(
+    json.parse(json.to_string(contents), {
+      use kind <- decode.field("type", decode.string)
+      use snapshot <- decode.field("snapshot", wire.json_value_decoder())
+      decode.success(#(kind, snapshot))
+    })
+    |> result.map_error(fn(_) {
+      fluid_container.MalformedMessage(
+        "datastore attach",
+        "missing datastore metadata",
+      )
+    }),
+  )
+  use entries <- result.try(attach_entries(snapshot))
+  use _ <- result.try(case list.sort(dict.keys(entries), string.compare) {
+    [".channels", ".component"] -> Ok(Nil)
+    _ ->
+      Error(fluid_container.UnsupportedMessage(
+        "unsupported datastore attach snapshot",
+      ))
+  })
+  use component <- result.try(attach_blob_contents(entries, ".component"))
+  use package_path <- result.try(
+    json.parse(component, {
+      use package_path <- decode.field("pkg", package_path_decoder())
+      use version <- decode.field("summaryFormatVersion", decode.int)
+      use _root <- decode.field("isRootDataStore", decode.bool)
+      case
+        version == 2
+        && list.last(package_path) == Ok(kind)
+        && list.all(package_path, fn(part) { part != "" })
+      {
+        True -> decode.success(package_path)
+        False -> decode.failure([], "version 2 datastore package")
+      }
+    })
+    |> result.map_error(fn(_) {
+      fluid_container.MalformedMessage(
+        "datastore attach",
+        "unsupported component metadata",
+      )
+    }),
+  )
+  use channels <- result.try(attach_tree(entries, ".channels"))
+  use channels <- result.try(attach_entries(channels))
+  use channels <- result.try(
+    list.try_map(dict.to_list(channels), fn(entry) {
+      use snapshot <- result.try(attach_tree(channels, entry.0))
+      use channel_entries <- result.try(attach_entries(snapshot))
+      use attributes <- result.try(attach_blob_contents(
+        channel_entries,
+        ".attributes",
+      ))
+      use kind <- result.try(
+        json.parse(attributes, decode.at(["type"], decode.string))
+        |> result.map_error(fn(_) {
+          fluid_container.MalformedMessage(
+            "datastore attach",
+            "missing channel type",
+          )
+        }),
+      )
+      use snapshot <- result.try(decode_attach_snapshot(kind, snapshot))
+      Ok(#(entry.0, snapshot))
+    }),
+  )
+  Ok(#(package_path, channels))
+}
+
+pub fn decode_attach_snapshot(
+  channel_type: String,
+  snapshot: Json,
+) -> Result(channel.Snapshot, fluid_container.ContainerError) {
+  use kind <- result.try(
+    channel.fluid_string_to_type(channel_type)
+    |> result.replace_error(fluid_container.UnsupportedMessage(channel_type)),
+  )
+  use entries <- result.try(attach_entries(snapshot))
+  use _ <- result.try(
+    case
+      kind == channel.MapChannel
+      || list.sort(dict.keys(entries), string.compare)
+      == [".attributes", "header"]
+    {
+      True -> Ok(Nil)
+      False ->
+        Error(fluid_container.UnsupportedMessage(
+          "unsupported channel attach snapshot",
+        ))
+    },
+  )
+  use attributes <- result.try(attach_blob_contents(entries, ".attributes"))
+  use attributes <- result.try(
+    json.parse(attributes, {
+      use name <- decode.field("type", decode.string)
+      use version <- decode.field("snapshotFormatVersion", decode.string)
+      use package_version <- decode.field("packageVersion", decode.string)
+      decode.success(#(name, version, package_version))
+    })
+    |> result.map_error(fn(_) {
+      fluid_container.MalformedMessage("attach", "invalid channel attributes")
+    }),
+  )
+  let expected = case kind {
+    channel.MapChannel -> #(channel_type, "0.2", "3.1.0")
+    _ -> #(channel_type, "1", "1")
+  }
+  use _ <- result.try(case attributes == expected {
+    True -> Ok(Nil)
+    False ->
+      Error(fluid_container.UnsupportedMessage("unsupported channel attributes"))
+  })
+  use header <- result.try(attach_blob_contents(entries, "header"))
+  let decoded = case kind {
+    channel.MapChannel ->
+      decode_map_attach(entries, header)
+      |> result.map(channel.MapSnapshot)
+    _ ->
+      json.parse(header, channel.snapshot_decoder(kind))
+      |> result.map_error(string.inspect)
+  }
+  decoded
+  |> result.map_error(fn(detail) {
+    fluid_container.MalformedMessage("attach", detail)
+  })
+}
+
+fn decode_map_attach(
+  blobs: dict.Dict(String, AttachEntry),
+  header: String,
+) -> Result(List(#(String, Json)), String) {
+  use #(names, inline) <- result.try(decode_map_header_parts(header))
+  use _ <- result.try(
+    case
+      list.sort(dict.keys(blobs), string.compare)
+      == list.sort([".attributes", "header", ..names], string.compare)
+    {
+      True -> Ok(Nil)
+      False -> Error("SharedMap blob references do not match its snapshot")
+    },
+  )
+  use entries <- result.try(
+    list.try_fold(names, inline, fn(entries, name) {
+      use raw <- result.try(
+        attach_blob_contents(blobs, name) |> result.map_error(string.inspect),
+      )
+      use more <- result.try(decode_map_content(raw))
+      Ok(list.append(entries, more))
+    }),
+  )
+  case list.length(entries) == dict.size(dict.from_list(entries)) {
+    True -> Ok(entries)
+    False -> Error("duplicate SharedMap key across snapshot blobs")
+  }
 }

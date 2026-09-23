@@ -52,6 +52,11 @@ pub type Fixture {
 
 @target(javascript)
 fn operation(sequence: Int, value: String) -> frame.Sequenced {
+  let assert Ok(contents) =
+    op.encode_map_envelope(
+      "watershed/root",
+      map_kernel.Set("value", json.string(value)),
+    )
   frame.Sequenced(
     client_id: Some("other"),
     sequence_number: sequence,
@@ -59,10 +64,7 @@ fn operation(sequence: Int, value: String) -> frame.Sequenced {
     client_sequence_number: sequence,
     reference_sequence_number: 0,
     operation_type: "op",
-    contents: op.encode_map_envelope(
-      "root",
-      map_kernel.Set("value", json.string(value)),
-    ),
+    contents: contents,
     metadata: None,
     timestamp: 0,
     data: None,
@@ -136,7 +138,7 @@ fn make_fixture() -> Fixture {
       },
     )
   let _subscription =
-    runtime.subscribe(runtime, "root", fn(_) {
+    runtime.subscribe(runtime, "watershed/root", fn(_) {
       transport_js.set_cell(changes, transport_js.get_cell(changes) + 1)
     })
   let assert Some(callbacks) = transport_js.get_cell(callbacks)
@@ -188,7 +190,7 @@ fn make_fixture() -> Fixture {
     failure: fn() { transport_js.get_cell(failure) },
     failures: fn() { transport_js.get_cell(failures) },
     value: fn() {
-      runtime.get(runtime, "root", "value")
+      runtime.get(runtime, "watershed/root", "value")
       |> result.try(fn(value) {
         json.parse(json.to_string(value), decode.string)
         |> result.replace_error(Nil)
@@ -219,7 +221,10 @@ pub fn run() -> Promise(Nil) {
   run_ffi(
     make_fixture,
     summary_blob.encode_channels(1, [], [
-      #("root", channel.MapSnapshot([#("value", json.string("summary"))])),
+      #(
+        "watershed/root",
+        channel.MapSnapshot([#("value", json.string("summary"))]),
+      ),
     ])
       |> json.to_string,
     fn(sequence, value) {

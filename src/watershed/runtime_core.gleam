@@ -33,6 +33,7 @@ import watershed/claims_kernel
 import watershed/client_id
 import watershed/counter_kernel
 import watershed/directory_kernel
+import watershed/fluid_ids
 import watershed/g_counter_kernel
 import watershed/g_set_kernel
 import watershed/handle
@@ -54,13 +55,17 @@ import watershed/sequence_kernel
 import watershed/summary_policy.{type Policy}
 import watershed/task_manager_kernel
 import watershed/text_kernel
+import watershed/tree/schema as tree_schema
 import watershed/two_p_set_kernel
 import watershed/wire
+import watershed/wire/fluid_container
+import watershed/wire/fluid_summary
 import watershed/wire/op as wire_op
+import watershed/wire/socket
 import watershed/wire/summary as wire_summary
 import watershed/wire/summary_blob.{type SummaryBlob}
 
-const root_address = "root"
+const root_address = "watershed/root"
 
 /// Where the core reads its operations from now. A replay reads a complete,
 /// ordered log, so it needs none of the protections that guard the live lane.
@@ -76,6 +81,9 @@ pub type IngestPosition {
 pub type Core {
   Core(
     client_id: String,
+    routing: Routing,
+    compressor: Option(fluid_ids.Compressor),
+    minimum_sequence_number: Int,
     channels: Dict(String, ChannelState),
     channel_order: List(String),
     detached: Dict(String, ChannelState),
@@ -151,6 +159,8 @@ pub type InFlight {
 }
 
 pub type CoreError {
+  ContainerOperationFailed(error: fluid_container.ContainerError)
+  BadBootstrapSeed(detail: String)
   AckMismatch(detail: String)
   BadOperationContents(sequence_number: Int)
   HistoryGap(detail: String)
@@ -239,6 +249,221 @@ pub type Summary {
   )
 }
 
+pub type SeedProfile {
+  NativeMapSeed
+  RoutedSeed
+}
+
+pub type DatastoreSeed {
+  DatastoreSeed(id: String, package_path: List(String))
+}
+
+pub type ChannelSeed {
+  ChannelSeed(
+    route: fluid_container.Route,
+    attributes: Json,
+    snapshot: Snapshot,
+  )
+}
+
+pub type TreeViewSeed {
+  TreeViewSeed(
+    route: fluid_container.Route,
+    view_id: fluid_ids.StableId,
+    view: tree_schema.ViewSchema,
+  )
+}
+
+pub type BootstrapSeedInput {
+  BootstrapSeedInput(
+    profile: SeedProfile,
+    sequence_number: Int,
+    minimum_sequence_number: Int,
+    members: List(Int),
+    datastores: List(DatastoreSeed),
+    aliases: List(#(String, String)),
+    channels: List(ChannelSeed),
+    bootstrap_map: fluid_container.Route,
+    compressor: Option(fluid_ids.Compressor),
+    tree_views: List(TreeViewSeed),
+  )
+}
+
+pub opaque type BootstrapSeed {
+  BootstrapSeed(input: BootstrapSeedInput)
+}
+
+pub type Routing {
+  Routing(
+    profile: SeedProfile,
+    datastores: Dict(String, List(String)),
+    aliases: Dict(String, String),
+    channel_attributes: Dict(String, Json),
+    bootstrap_map: fluid_container.Route,
+  )
+}
+
+pub fn bootstrap_seed(
+  input: BootstrapSeedInput,
+) -> Result(BootstrapSeed, CoreError) {
+  use _ <- result.try(seed_requirement(
+    input.minimum_sequence_number >= 0
+      && input.sequence_number >= input.minimum_sequence_number,
+    "invalid sequence numbers",
+  ))
+  use _ <- result.try(seed_requirement(
+    input.tree_views == [],
+    "tree channels are not registered",
+  ))
+  use _ <- result.try(seed_requirement(
+    input.profile != NativeMapSeed
+      || input.bootstrap_map == fluid_container.Route("watershed", "root"),
+    "native seed requires the native root route",
+  ))
+  use datastores <- result.try(
+    list.try_fold(input.datastores, dict.new(), fn(stores, store) {
+      use _ <- result.try(seed_requirement(
+        result.is_ok(
+          fluid_container.route_key(fluid_container.Route(store.id, "root")),
+        )
+          && store.package_path != []
+          && list.all(store.package_path, fn(part) { part != "" }),
+        "missing datastore metadata",
+      ))
+      use _ <- result.try(seed_requirement(
+        !dict.has_key(stores, store.id),
+        "duplicate datastore identity",
+      ))
+      Ok(dict.insert(stores, store.id, store))
+    }),
+  )
+  use _ <- result.try(
+    list.try_fold(input.aliases, dict.new(), fn(aliases, entry) {
+      use _ <- result.try(seed_requirement(
+        result.is_ok(
+          fluid_container.route_key(fluid_container.Route(entry.0, "root")),
+        )
+          && dict.has_key(datastores, entry.1),
+        "invalid datastore alias",
+      ))
+      use _ <- result.try(seed_requirement(
+        !dict.has_key(datastores, entry.0) || entry.0 == entry.1,
+        "alias conflicts with a datastore identity",
+      ))
+      use _ <- result.try(seed_requirement(
+        !dict.has_key(aliases, entry.0),
+        "duplicate datastore alias",
+      ))
+      Ok(dict.insert(aliases, entry.0, entry.1))
+    }),
+  )
+  use channels <- result.try(case input.profile, input.channels {
+    NativeMapSeed, [] -> {
+      use _ <- result.try(seed_requirement(
+        input.sequence_number == 0
+          && input.bootstrap_map == fluid_container.Route("watershed", "root")
+          && dict.has_key(datastores, "watershed"),
+        "invalid native map initialization",
+      ))
+      Ok([
+        ChannelSeed(
+          input.bootstrap_map,
+          channel.fluid_attributes(channel.MapChannel),
+          channel.MapSnapshot([]),
+        ),
+      ])
+    }
+    _, channels -> Ok(channels)
+  })
+  use registered <- result.try(
+    list.try_fold(channels, dict.new(), fn(registered, entry) {
+      use key <- result.try(
+        fluid_container.route_key(entry.route)
+        |> result.map_error(fn(error) {
+          BadBootstrapSeed(string.inspect(error))
+        }),
+      )
+      use _ <- result.try(seed_requirement(
+        dict.has_key(datastores, entry.route.data_store_id),
+        "channel datastore is not registered",
+      ))
+      use _ <- result.try(seed_requirement(
+        !dict.has_key(registered, key),
+        "duplicate channel route",
+      ))
+      use attributes_type <- result.try(
+        json.parse(
+          json.to_string(entry.attributes),
+          decode.at(["type"], decode.string),
+        )
+        |> result.map_error(fn(_) {
+          BadBootstrapSeed("missing channel attributes")
+        }),
+      )
+      use _ <- result.try(seed_requirement(
+        attributes_type
+          == channel.fluid_type_to_string(channel.snapshot_type(entry.snapshot)),
+        "channel attributes do not match the snapshot",
+      ))
+      use snapshot_version <- result.try(
+        json.parse(
+          json.to_string(entry.attributes),
+          decode.at(["snapshotFormatVersion"], decode.string),
+        )
+        |> result.map_error(fn(_) {
+          BadBootstrapSeed("missing channel snapshot version")
+        }),
+      )
+      use package_version <- result.try(
+        json.parse(
+          json.to_string(entry.attributes),
+          decode.at(["packageVersion"], decode.string),
+        )
+        |> result.map_error(fn(_) {
+          BadBootstrapSeed("missing channel package version")
+        }),
+      )
+      use _ <- result.try(seed_requirement(
+        snapshot_version != "" && package_version != "",
+        "empty channel version",
+      ))
+      use _ <- result.try(seed_requirement(
+        case channel.snapshot_type(entry.snapshot) {
+          channel.MapChannel ->
+            snapshot_version == "0.2" && package_version == "3.1.0"
+          _ -> snapshot_version == "1" && package_version == "1"
+        },
+        "unsupported channel attributes",
+      ))
+      use _ <- result.try(
+        channel.from_snapshot(entry.snapshot, replica: "bootstrap-seed")
+        |> result.map_error(fn(detail) { BadSummaryChannel(key, detail) }),
+      )
+      Ok(dict.insert(registered, key, entry))
+    }),
+  )
+  use root <- result.try(
+    fluid_container.route_key(input.bootstrap_map)
+    |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) }),
+  )
+  use root <- result.try(
+    dict.get(registered, root)
+    |> result.replace_error(BadBootstrapSeed("bootstrap map is not registered")),
+  )
+  use _ <- result.try(seed_requirement(
+    channel.snapshot_type(root.snapshot) == channel.MapChannel,
+    "bootstrap route is not a map",
+  ))
+  Ok(BootstrapSeed(BootstrapSeedInput(..input, channels: channels)))
+}
+
+fn seed_requirement(valid: Bool, detail: String) -> Result(Nil, CoreError) {
+  case valid {
+    True -> Ok(Nil)
+    False -> Error(BadBootstrapSeed(detail))
+  }
+}
+
 // ─────────────────────────────────────────────────────────────────────────────
 // Bootstrap
 // ─────────────────────────────────────────────────────────────────────────────
@@ -281,14 +506,104 @@ pub fn bootstrap(
       summary,
       Summary(sequence_number: 0, channels: [], members: []),
     )
-  use #(channels, channel_order) <- result.try(seed_channels(
-    seeded,
+  use _ <- result.try(case summary {
+    Some(_) ->
+      seed_requirement(
+        list.any(seeded, fn(entry) { entry.0 == root_address }),
+        "native summary has no root map",
+      )
+    None -> Ok(Nil)
+  })
+  use channels <- result.try(
+    list.try_map(seeded, fn(entry) {
+      use route <- result.try(
+        fluid_container.route_from_path("/" <> entry.0)
+        |> result.map_error(ContainerOperationFailed),
+      )
+      Ok(ChannelSeed(
+        route,
+        channel.fluid_attributes(channel.snapshot_type(entry.1)),
+        entry.1,
+      ))
+    }),
+  )
+  use seed <- result.try(
+    bootstrap_seed(
+      BootstrapSeedInput(
+        profile: NativeMapSeed,
+        sequence_number: last_seen,
+        minimum_sequence_number: 0,
+        members: seed_members,
+        datastores: [DatastoreSeed("watershed", ["org.watershed"])],
+        aliases: [#("root", "watershed")],
+        channels: channels,
+        bootstrap_map: fluid_container.Route("watershed", "root"),
+        compressor: None,
+        tree_views: [],
+      ),
+    ),
+  )
+  bootstrap_seeded(connected, seed)
+}
+
+pub fn bootstrap_seeded(
+  connected: ConnectedMessage,
+  seed: BootstrapSeed,
+) -> Result(Bootstrapped, CoreError) {
+  let BootstrapSeed(input) = seed
+  use entries <- result.try(
+    list.try_map(input.channels, fn(entry) {
+      use key <- result.try(
+        fluid_container.route_key(entry.route)
+        |> result.map_error(fn(error) {
+          BadBootstrapSeed(string.inspect(error))
+        }),
+      )
+      Ok(#(key, entry))
+    }),
+  )
+  use #(channels, channel_order) <- result.try(load_channels(
+    list.map(entries, fn(entry) { #(entry.0, entry.1.snapshot) }),
     connected.client_id,
   ))
+  start_core(
+    connected,
+    input.sequence_number,
+    input.members,
+    channels,
+    channel_order,
+    Routing(
+      input.profile,
+      dict.from_list(
+        list.map(input.datastores, fn(store) { #(store.id, store.package_path) }),
+      ),
+      dict.from_list(input.aliases),
+      dict.from_list(
+        list.map(entries, fn(entry) { #(entry.0, entry.1.attributes) }),
+      ),
+      input.bootstrap_map,
+    ),
+    input.compressor,
+    input.minimum_sequence_number,
+  )
+}
 
+fn start_core(
+  connected: ConnectedMessage,
+  last_seen: Int,
+  seed_members: List(Int),
+  channels: Dict(String, ChannelState),
+  channel_order: List(String),
+  routing: Routing,
+  compressor: Option(fluid_ids.Compressor),
+  minimum_sequence_number: Int,
+) -> Result(Bootstrapped, CoreError) {
   let core =
     Core(
       client_id: connected.client_id,
+      routing: routing,
+      compressor: compressor,
+      minimum_sequence_number: minimum_sequence_number,
       channels: channels,
       channel_order: channel_order,
       detached: dict.new(),
@@ -325,6 +640,80 @@ pub fn bootstrap(
       core.last_seen_sequence_number,
     )
   Ok(settle_bootstrap(core, checkpoint))
+}
+
+pub fn root_channel_address(core: Core) -> Result(String, CoreError) {
+  use key <- result.try(
+    fluid_container.route_key(core.routing.bootstrap_map)
+    |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) }),
+  )
+  use _ <- result.try(require_channel_type(core, key, channel.MapChannel))
+  Ok(key)
+}
+
+pub fn resolve_handle_address(
+  core: Core,
+  value: Json,
+) -> Result(String, CoreError) {
+  resolve_routed_handle(core, handle.absolute_routed_address(value))
+}
+
+/// Bind a handle to the datastore of its source channel.
+pub fn bind_handle(
+  core: Core,
+  source: Json,
+  value: Json,
+) -> Result(Json, CoreError) {
+  use source <- result.try(resolve_handle_address(core, source))
+  use context <- result.try(handle_context(source))
+  use address <- result.try(resolve_routed_handle(
+    core,
+    handle.routed_address(value, context),
+  ))
+  Ok(handle.encode_handle(address))
+}
+
+fn resolve_routed_handle(
+  core: Core,
+  address: Result(String, handle.HandleError),
+) -> Result(String, CoreError) {
+  use address <- result.try(
+    address
+    |> result.map_error(fn(error) {
+      ContainerOperationFailed(fluid_container.InvalidRoute(
+        "handle",
+        string.inspect(error),
+      ))
+    }),
+  )
+  use address <- result.try(resolve_alias(core, address))
+  case has_channel(core, address) {
+    True -> Ok(address)
+    False -> Error(UnknownChannel(address, core.last_seen_sequence_number))
+  }
+}
+
+fn resolve_alias(core: Core, address: String) -> Result(String, CoreError) {
+  use route <- result.try(
+    fluid_container.route_from_path("/" <> address)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  let datastore =
+    dict.get(core.routing.aliases, route.data_store_id)
+    |> result.unwrap(route.data_store_id)
+  fluid_container.route_key(fluid_container.Route(datastore, route.channel_id))
+  |> result.map_error(ContainerOperationFailed)
+}
+
+pub fn new_channel_address(
+  core: Core,
+  id: String,
+) -> Result(String, CoreError) {
+  fluid_container.route_key(fluid_container.Route(
+    core.routing.bootstrap_map.data_store_id,
+    id,
+  ))
+  |> result.map_error(ContainerOperationFailed)
 }
 
 pub fn resume_bootstrap(
@@ -383,6 +772,16 @@ fn replay(
 /// point only the current sequence point matters.
 fn settle_bootstrap(core: Core, checkpoint: Int) -> Bootstrapped {
   case core.out_of_order {
+    []
+      if core.routing.profile == RoutedSeed
+      && core.last_seen_sequence_number < checkpoint
+    ->
+      MissingPrefix(
+        core: core,
+        checkpoint: checkpoint,
+        from: core.last_seen_sequence_number,
+        to: checkpoint,
+      )
     [] ->
       Complete(
         Core(
@@ -516,41 +915,24 @@ pub fn build_summarize(
   )
 }
 
-fn seed_channels(
+fn load_channels(
   seeded: List(#(String, Snapshot)),
-  replica replica: String,
+  replica: String,
 ) -> Result(#(Dict(String, ChannelState), List(String)), CoreError) {
-  use #(channels, channel_order) <- result.try(
-    list.try_fold(seeded, #(dict.new(), []), fn(acc, entry) {
-      let #(channels, channel_order) = acc
-      let #(address, snapshot) = entry
-      use state <- result.try(
-        channel.from_snapshot(snapshot, replica: replica)
-        |> result.map_error(fn(detail) {
-          BadSummaryChannel(address: address, detail: detail)
-        }),
-      )
-      Ok(#(
-        dict.insert(channels, address, state),
-        list.unique(list.append(channel_order, [address])),
-      ))
-    }),
-  )
-
-  case dict.has_key(channels, root_address) {
-    True -> Ok(#(channels, channel_order))
-    False ->
-      Ok(
-        #(
-          dict.insert(
-            channels,
-            root_address,
-            channel.new(channel.InitMap, replica: replica),
-          ),
-          [root_address, ..channel_order],
-        ),
-      )
-  }
+  list.try_fold(seeded, #(dict.new(), []), fn(acc, entry) {
+    let #(channels, channel_order) = acc
+    let #(address, snapshot) = entry
+    use state <- result.try(
+      channel.from_snapshot(snapshot, replica: replica)
+      |> result.map_error(fn(detail) {
+        BadSummaryChannel(address: address, detail: detail)
+      }),
+    )
+    Ok(#(
+      dict.insert(channels, address, state),
+      list.unique(list.append(channel_order, [address])),
+    ))
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -692,39 +1074,52 @@ fn roster_of(connected: ConnectedMessage) -> Set(Int) {
   |> set.insert(client_id_to_int(connected.client_id))
 }
 
-pub fn resubmit(core: Core) -> #(Core, List(wire.OutboundOperation)) {
-  let #(core, next_client_sequence_number, new_in_flight, outbound) =
-    list.fold(
+pub fn resubmit(
+  core: Core,
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  use #(core, next_client_sequence_number, new_in_flight, outbound) <- result.try(
+    list.try_fold(
       core.in_flight,
       #(core, core.next_client_sequence_number, [], []),
       fn(acc, entry) {
         let #(core, client_sequence_number, entries, outbounds) = acc
         let #(core, next_client_sequence_number, restamped, outbound) =
           restamp_in_flight(core, entry, client_sequence_number)
-        #(
+        use outbound <- result.try(
+          list.try_map(outbound, fn(outbound) {
+            result.map_error(outbound, ContainerOperationFailed)
+          }),
+        )
+        Ok(#(
           core,
           next_client_sequence_number,
           list.append(entries, restamped),
           list.append(outbounds, outbound),
-        )
+        ))
       },
-    )
+    ),
+  )
 
-  #(
+  Ok(#(
     Core(
       ..core,
       next_client_sequence_number: next_client_sequence_number,
       in_flight: new_in_flight,
     ),
     outbound,
-  )
+  ))
 }
 
 fn restamp_in_flight(
   core: Core,
   entry: InFlight,
   client_sequence_number: Int,
-) -> #(Core, Int, List(InFlight), List(wire.OutboundOperation)) {
+) -> #(
+  Core,
+  Int,
+  List(InFlight),
+  List(Result(wire.OutboundOperation, fluid_container.ContainerError)),
+) {
   case entry {
     InFlightOperation(
       address: address,
@@ -801,7 +1196,12 @@ fn restamp_task_manager(
   operation: task_manager_kernel.TaskManagerOperation,
   meta: channel.LocalOperationMeta,
   client_sequence_number: Int,
-) -> #(Core, Int, List(InFlight), List(wire.OutboundOperation)) {
+) -> #(
+  Core,
+  Int,
+  List(InFlight),
+  List(Result(wire.OutboundOperation, fluid_container.ContainerError)),
+) {
   case meta, dict.get(core.channels, address) {
     channel.TaskManagerMeta(message_id), Ok(channel.TaskManagerState(kernel)) -> {
       case
@@ -882,7 +1282,12 @@ fn restamp_directory(
   operation: directory_kernel.DirectoryOperation,
   message_id: Int,
   client_sequence_number: Int,
-) -> #(Core, Int, List(InFlight), List(wire.OutboundOperation)) {
+) -> #(
+  Core,
+  Int,
+  List(InFlight),
+  List(Result(wire.OutboundOperation, fluid_container.ContainerError)),
+) {
   case dict.get(core.channels, address) {
     Ok(channel.DirectoryState(kernel)) -> {
       let self = client_id_to_int(core.client_id)
@@ -958,7 +1363,7 @@ pub fn handle_sequenced(
       // buffered operation to the wire while acking its own operation; collect
       // and stamp those now, after every operation in this batch has been
       // applied and rebased.
-      let #(core, outbound) = collect_released_operations(core)
+      use #(core, outbound) <- result.try(collect_released_operations(core))
       Ok(#(
         core,
         Ingested(
@@ -989,12 +1394,12 @@ pub fn handle_sequenced(
 /// buffer.
 fn collect_released_operations(
   core: Core,
-) -> #(Core, List(wire.OutboundOperation)) {
-  list.fold(core.channel_order, #(core, []), fn(acc, address) {
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  list.try_fold(core.channel_order, #(core, []), fn(acc, address) {
     let #(core, outs) = acc
-    let #(core, owed_outs) = drain_owed(core, address)
-    let #(core, kernel_outs) = drain_kernel_outbound(core, address)
-    #(core, list.append(outs, list.append(owed_outs, kernel_outs)))
+    use #(core, owed_outs) <- result.try(drain_owed(core, address))
+    use #(core, kernel_outs) <- result.try(drain_kernel_outbound(core, address))
+    Ok(#(core, list.append(outs, list.append(owed_outs, kernel_outs))))
   })
 }
 
@@ -1003,17 +1408,17 @@ fn collect_released_operations(
 fn drain_owed(
   core: Core,
   address: String,
-) -> #(Core, List(wire.OutboundOperation)) {
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
   case dict.get(core.owed, address) {
     Ok([_, ..] as operations) -> {
       let core = Core(..core, owed: dict.delete(core.owed, address))
-      list.fold(operations, #(core, []), fn(acc, operation) {
+      list.try_fold(operations, #(core, []), fn(acc, operation) {
         let #(core, outs) = acc
-        let #(core, out) = stamp_outbound(core, address, operation)
-        #(core, list.append(outs, [out]))
+        use #(core, out) <- result.try(stamp_outbound(core, address, operation))
+        Ok(#(core, list.append(outs, [out])))
       })
     }
-    _ -> #(core, [])
+    _ -> Ok(#(core, []))
   }
 }
 
@@ -1022,17 +1427,21 @@ fn drain_owed(
 fn drain_kernel_outbound(
   core: Core,
   address: String,
-) -> #(Core, List(wire.OutboundOperation)) {
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
   case dict.get(core.channels, address) {
-    Error(_) -> #(core, [])
+    Error(_) -> Ok(#(core, []))
     Ok(state) ->
       case channel.take_outbound(state) {
-        #(_, None) -> #(core, [])
+        #(_, None) -> Ok(#(core, []))
         #(state, Some(operation)) -> {
           let core =
             Core(..core, channels: dict.insert(core.channels, address, state))
-          let #(core, out) = stamp_outbound(core, address, operation)
-          #(core, [out])
+          use #(core, out) <- result.try(stamp_outbound(
+            core,
+            address,
+            operation,
+          ))
+          Ok(#(core, [out]))
         }
       }
   }
@@ -1044,15 +1453,17 @@ fn stamp_outbound(
   core: Core,
   address: String,
   operation: channel.ChannelOperation,
-) -> #(Core, wire.OutboundOperation) {
+) -> Result(#(Core, wire.OutboundOperation), CoreError) {
   let client_sequence_number = core.next_client_sequence_number
-  let outbound =
+  use outbound <- result.try(
     wire_op.outbound_channel_operation(
       address: address,
       client_sequence_number: client_sequence_number,
       reference_sequence_number: core.last_seen_sequence_number,
       operation: operation,
     )
+    |> result.map_error(ContainerOperationFailed),
+  )
   let core =
     Core(
       ..core,
@@ -1067,7 +1478,7 @@ fn stamp_outbound(
         ),
       ]),
     )
-  #(core, outbound)
+  Ok(#(core, outbound))
 }
 
 fn apply_one(
@@ -1305,9 +1716,138 @@ fn handle_operation(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
 ) {
-  case wire_op.decode_operation_contents(msg.contents) {
-    Error(_) -> Error(BadOperationContents(msg.sequence_number))
-    Ok(wire_op.AttachOperation(address, snapshot)) ->
+  use contents <- result.try(
+    socket.container_contents(msg.contents)
+    |> result.map_error(fn(detail) {
+      ContainerOperationFailed(fluid_container.MalformedMessage(
+        "contents",
+        detail,
+      ))
+    }),
+  )
+  use metadata <- result.try(case msg.metadata {
+    None -> Ok(None)
+    Some(raw) ->
+      decode.run(raw, wire.json_value_decoder())
+      |> result.map(Some)
+      |> result.map_error(fn(_) { BadOperationContents(msg.sequence_number) })
+  })
+  use batch <- result.try(
+    fluid_container.decode(contents, metadata)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  list.try_fold(batch.messages, #(core, [], []), fn(acc, message) {
+    let #(core, events, resolutions) = acc
+    use #(core, more_events, more_resolutions) <- result.try(case message.kind {
+      fluid_container.ChannelOperation(..)
+      | fluid_container.ChannelAttach(..) -> {
+        use operation <- result.try(
+          wire_op.decode_channel_message(message.kind)
+          |> result.map_error(ContainerOperationFailed),
+        )
+        handle_channel_operation(core, msg, operation)
+      }
+      fluid_container.DatastoreAlias(datastore, alias) -> {
+        use _ <- result.try(seed_requirement(
+          !dict.has_key(core.routing.datastores, alias) || alias == datastore,
+          "alias conflicts with a datastore identity",
+        ))
+        use _ <- result.try(seed_requirement(
+          dict.has_key(core.routing.datastores, datastore)
+            && result.is_ok(
+            fluid_container.route_key(fluid_container.Route(alias, "root")),
+          ),
+          "invalid datastore alias",
+        ))
+        use _ <- result.try(seed_requirement(
+          !dict.has_key(core.routing.aliases, alias)
+            || dict.get(core.routing.aliases, alias) == Ok(datastore),
+          "datastore alias is already registered",
+        ))
+        Ok(
+          #(
+            Core(
+              ..core,
+              routing: Routing(
+                ..core.routing,
+                aliases: dict.insert(core.routing.aliases, alias, datastore),
+              ),
+            ),
+            [],
+            [],
+          ),
+        )
+      }
+      fluid_container.DatastoreAttach(datastore, contents) -> {
+        use _ <- result.try(seed_requirement(
+          result.is_ok(
+            fluid_container.route_key(fluid_container.Route(datastore, "root")),
+          )
+            && !dict.has_key(core.routing.datastores, datastore)
+            && !dict.has_key(core.routing.aliases, datastore),
+          "invalid or duplicate datastore identity",
+        ))
+        use #(package_path, channels) <- result.try(
+          wire_op.decode_datastore_attach(contents)
+          |> result.map_error(ContainerOperationFailed),
+        )
+        let candidate =
+          Core(
+            ..core,
+            routing: Routing(
+              ..core.routing,
+              datastores: dict.insert(
+                core.routing.datastores,
+                datastore,
+                package_path,
+              ),
+            ),
+          )
+        use candidate <- result.try(
+          list.try_fold(channels, candidate, fn(candidate, entry) {
+            use address <- result.try(
+              fluid_container.route_key(fluid_container.Route(
+                datastore,
+                entry.0,
+              ))
+              |> result.map_error(ContainerOperationFailed),
+            )
+            use #(candidate, _, _) <- result.try(remote_attach(
+              candidate,
+              msg.sequence_number,
+              address,
+              entry.1,
+            ))
+            Ok(candidate)
+          }),
+        )
+        Ok(#(candidate, [], []))
+      }
+      fluid_container.IdAllocation(_) ->
+        Error(
+          ContainerOperationFailed(fluid_container.UnsupportedMessage(
+            "id allocation without tree runtime",
+          )),
+        )
+    })
+    Ok(#(
+      core,
+      list.append(events, more_events),
+      list.append(resolutions, more_resolutions),
+    ))
+  })
+}
+
+fn handle_channel_operation(
+  core: Core,
+  msg: SequencedDocumentMessage,
+  operation: wire_op.OperationContents,
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
+  case operation {
+    wire_op.AttachOperation(address, snapshot) ->
       case is_own_operation(core, msg.client_id) {
         True ->
           ack_own_attach(
@@ -1319,7 +1859,7 @@ fn handle_operation(
           )
         False -> remote_attach(core, msg.sequence_number, address, snapshot)
       }
-    Ok(wire_op.ChannelOperation(address, raw_contents)) ->
+    wire_op.ChannelOperation(address, raw_contents) ->
       // The operation envelope carries no channel type; the registry is the
       // authoritative source, so decode against the addressed channel's own
       // grammar. Channels are always attached before their operations arrive.
@@ -1391,6 +1931,14 @@ fn remote_attach(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
 ) {
+  use route <- result.try(
+    fluid_container.route_from_path("/" <> address)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use _ <- result.try(seed_requirement(
+    dict.has_key(core.routing.datastores, route.data_store_id),
+    "channel datastore is not registered",
+  ))
   case has_channel(core, address) {
     True -> Error(DuplicateAttach(address, sequence_number))
     False -> {
@@ -1662,16 +2210,36 @@ pub fn create_detached(
   core: Core,
   address: String,
   init: channel.ChannelInit,
-) -> Core {
+) -> Result(Core, CoreError) {
+  use route <- result.try(
+    fluid_container.route_from_path("/" <> address)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use canonical <- result.try(
+    fluid_container.route_key(route)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use _ <- result.try(seed_requirement(
+    canonical == address
+      && dict.has_key(core.routing.datastores, route.data_store_id),
+    "detached channel has an invalid route",
+  ))
   case address == root_address || has_channel(core, address) {
-    True -> core
+    True -> Ok(core)
     False ->
-      Core(
-        ..core,
-        detached: dict.insert(
-          core.detached,
-          address,
-          channel.new(init, replica: core.client_id),
+      Ok(
+        Core(
+          ..core,
+          routing: register_channel_attributes(
+            core.routing,
+            address,
+            channel.init_type(init),
+          ),
+          detached: dict.insert(
+            core.detached,
+            address,
+            channel.new(init, replica: core.client_id),
+          ),
         ),
       )
   }
@@ -1705,21 +2273,24 @@ pub fn set(
     Ok(Attached(_)) -> {
       // Attaching dependencies first can reshape `core.channels`, so re-read
       // the kernel afterwards (its own type cannot change underneath us).
-      let #(core, attach_outbound) = attach_dependencies(core, value)
+      use #(core, attach_outbound) <- result.try(attach_dependencies(
+        core,
+        address,
+        value,
+      ))
       use located <- result.try(locate_map(core, address))
       let kernel = case located {
         Detached(kernel) | Attached(kernel) -> kernel
       }
       let #(kernel, events, operation) = map_kernel.set(kernel, key, value)
-      let #(core, events, outbound) =
-        stamp_attached(
-          core,
-          address,
-          channel.MapState(kernel),
-          tag_map_events(address, events),
-          channel.MapOperation(operation),
-          channel.NoMeta,
-        )
+      use #(core, events, outbound) <- result.try(stamp_attached(
+        core,
+        address,
+        channel.MapState(kernel),
+        tag_map_events(address, events),
+        channel.MapOperation(operation),
+        channel.NoMeta,
+      ))
       Ok(#(core, events, list.append(attach_outbound, outbound)))
     }
   }
@@ -1747,14 +2318,14 @@ pub fn delete(
     }
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation) = map_kernel.delete(kernel, key)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.MapState(kernel),
         tag_map_events(address, events),
         channel.MapOperation(operation),
         channel.NoMeta,
-      ))
+      )
     }
   }
 }
@@ -1780,14 +2351,14 @@ pub fn clear(
     }
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation) = map_kernel.clear(kernel)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.MapState(kernel),
         tag_map_events(address, events),
         channel.MapOperation(operation),
         channel.NoMeta,
-      ))
+      )
     }
   }
 }
@@ -1816,14 +2387,14 @@ pub fn increment(
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation, message_id) =
         counter_kernel.increment(kernel, amount)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.CounterState(kernel),
         tag_counter_events(address, events),
         channel.CounterOperation(operation),
         channel.CounterMeta(message_id),
-      ))
+      )
     }
   }
 }
@@ -1856,14 +2427,14 @@ pub fn pn_counter_update(
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation, message_id) =
         pn_counter_kernel.update(kernel, amount)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.PnCounterState(kernel),
         tag_pn_counter_events(address, events),
         channel.PnCounterOperation(operation),
         channel.PnCounterMeta(message_id),
-      ))
+      )
     }
   }
 }
@@ -1909,14 +2480,14 @@ pub fn g_counter_increment(
           )
         }),
       )
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.GCounterState(kernel),
         tag_g_counter_events(address, events),
         channel.GCounterOperation(operation),
         channel.GCounterMeta(message_id),
-      ))
+      )
     }
   }
 }
@@ -1960,14 +2531,14 @@ pub fn lww_register_set(
   case located {
     Detached(_) -> Ok(#(put_detached_channel(core, address, state), events, []))
     Attached(_) ->
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         state,
         events,
         channel.LwwRegisterOperation(operation),
         channel.LwwRegisterMeta(message_id),
-      ))
+      )
   }
 }
 
@@ -2050,14 +2621,14 @@ fn edit_lww_map(
   case located {
     Detached(_) -> Ok(#(put_detached_channel(core, address, state), events, []))
     Attached(_) ->
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         state,
         events,
         channel.LwwMapOperation(operation),
         channel.LwwMapMeta(message_id),
-      ))
+      )
   }
 }
 
@@ -2111,7 +2682,7 @@ pub fn mv_register_set(
     Attached(channel.MvRegisterState(kernel)) -> {
       let #(kernel, events, operation, message_id) =
         mv_register_kernel.set(kernel, value)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.MvRegisterState(kernel),
@@ -2120,7 +2691,7 @@ pub fn mv_register_set(
         }),
         channel.MvRegisterOperation(operation),
         channel.MvRegisterMeta(message_id),
-      ))
+      )
     }
     Detached(other) | Attached(other) ->
       Error(WrongChannelType(
@@ -2210,14 +2781,14 @@ fn pact_map_submit(
         // A refusal changes nothing, and the caller can retry later.
         Error(_) -> Ok(#(core, [], []))
         Ok(operation) ->
-          Ok(stamp_attached(
+          stamp_attached(
             core,
             address,
             channel.PactMapState(kernel),
             [],
             channel.PactMapOperation(operation),
             channel.NoMeta,
-          ))
+          )
       }
   }
 }
@@ -2257,14 +2828,14 @@ pub fn ordered_add(
     }
     Ok(Attached(kernel)) -> {
       let operation = ordered_collection_kernel.add(kernel, value)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.OrderedCollectionState(kernel),
         [],
         channel.OrderedCollectionOperation(operation),
         channel.NoMeta,
-      ))
+      )
     }
   }
 }
@@ -2323,15 +2894,14 @@ pub fn ordered_acquire_submit(
     }
     Ok(Attached(kernel)) -> {
       let operation = ordered_collection_kernel.acquire(acquire_id)
-      let #(core, events, outbound) =
-        stamp_attached(
-          core,
-          address,
-          channel.OrderedCollectionState(kernel),
-          [],
-          channel.OrderedCollectionOperation(operation),
-          channel.NoMeta,
-        )
+      use #(core, events, outbound) <- result.try(stamp_attached(
+        core,
+        address,
+        channel.OrderedCollectionState(kernel),
+        [],
+        channel.OrderedCollectionOperation(operation),
+        channel.NoMeta,
+      ))
       Ok(#(core, events, outbound, None))
     }
   }
@@ -2376,14 +2946,14 @@ fn ordered_submit(
     Error(core_error) -> Error(core_error)
     Ok(Detached(_)) -> Ok(#(core, [], []))
     Ok(Attached(kernel)) ->
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.OrderedCollectionState(kernel),
         [],
         channel.OrderedCollectionOperation(operation),
         channel.NoMeta,
-      ))
+      )
   }
 }
 
@@ -2508,19 +3078,18 @@ fn directory_storage_edit(
     Ok(Attached(kernel)) -> {
       case run(kernel) {
         Ok(#(kernel, events, operation, message_id)) -> {
-          let #(core, attach_outbound) = case dependency_value {
-            Some(value) -> attach_dependencies(core, value)
-            None -> #(core, [])
-          }
-          let #(core, events, outbound) =
-            stamp_attached(
-              core,
-              address,
-              channel.DirectoryState(kernel),
-              tag_directory_events(address, events),
-              channel.DirectoryOperation(operation, message_id),
-              channel.DirectoryMeta(message_id),
-            )
+          use #(core, attach_outbound) <- result.try(case dependency_value {
+            Some(value) -> attach_dependencies(core, address, value)
+            None -> Ok(#(core, []))
+          })
+          use #(core, events, outbound) <- result.try(stamp_attached(
+            core,
+            address,
+            channel.DirectoryState(kernel),
+            tag_directory_events(address, events),
+            channel.DirectoryOperation(operation, message_id),
+            channel.DirectoryMeta(message_id),
+          ))
           Ok(#(core, events, list.append(attach_outbound, outbound)))
         }
         Error(error) ->
@@ -2573,14 +3142,14 @@ fn directory_subdirectory_edit(
     Ok(Attached(kernel)) ->
       case run(kernel) {
         Ok(#(kernel, events, Some(operation), message_id)) ->
-          Ok(stamp_attached(
+          stamp_attached(
             core,
             address,
             channel.DirectoryState(kernel),
             tag_directory_events(address, events),
             channel.DirectoryOperation(operation, message_id),
             channel.DirectoryMeta(message_id),
-          ))
+          )
         Ok(#(kernel, events, None, _message_id)) ->
           Ok(
             #(
@@ -2652,14 +3221,14 @@ pub fn submit_json_ot(
         )
       {
         Ok(#(kernel, Some(wire), events)) ->
-          Ok(stamp_attached(
+          stamp_attached(
             core,
             address,
             channel.JsonOtState(kernel),
             tag_json_ot_events(address, events),
             channel.JsonOtOperation(wire),
             channel.NoMeta,
-          ))
+          )
         Ok(#(kernel, None, events)) ->
           Ok(
             #(
@@ -2721,14 +3290,14 @@ pub fn submit_rich_text(
         rich_text_kernel.submit(kernel, delta, core.last_seen_sequence_number)
       {
         Ok(#(kernel, Some(wire), events)) ->
-          Ok(stamp_attached(
+          stamp_attached(
             core,
             address,
             channel.RichTextState(kernel),
             tag_rich_text_events(address, events),
             channel.RichTextOperation(wire),
             channel.NoMeta,
-          ))
+          )
         Ok(#(kernel, None, events)) ->
           Ok(
             #(
@@ -2810,14 +3379,14 @@ pub fn or_map_increment(
     Ok(Attached(kernel)) ->
       case or_map_kernel.increment(kernel, key, amount) {
         Ok(#(kernel, events, operation, message_id)) ->
-          Ok(stamp_attached(
+          stamp_attached(
             core,
             address,
             channel.OrMapState(kernel),
             tag_or_map_events(address, events),
             channel.OrMapOperation(operation),
             channel.OrMapMeta(message_id),
-          ))
+          )
         Error(error) -> Error(or_map_kernel_error(address, error))
       }
   }
@@ -2848,8 +3417,9 @@ pub fn or_map_set(
         Error(error) -> Error(or_map_kernel_error(address, error))
       }
     Ok(Attached(_)) -> {
-      let #(core, attach_outbound) =
-        attach_dependencies_from_register_string(core, value)
+      use #(core, attach_outbound) <- result.try(
+        attach_dependencies_from_register_string(core, address, value),
+      )
       // Re-read the channel. Attaching the dependencies of the value rewrites
       // `core.channels`, so the kernel found above is stale.
       use located <- result.try(locate_or_map(core, address))
@@ -2858,15 +3428,14 @@ pub fn or_map_set(
       }
       case or_map_kernel.set_register(kernel, key, value, timestamp) {
         Ok(#(kernel, events, operation, message_id)) -> {
-          let #(core, events, outbound) =
-            stamp_attached(
-              core,
-              address,
-              channel.OrMapState(kernel),
-              tag_or_map_events(address, events),
-              channel.OrMapOperation(operation),
-              channel.OrMapMeta(message_id),
-            )
+          use #(core, events, outbound) <- result.try(stamp_attached(
+            core,
+            address,
+            channel.OrMapState(kernel),
+            tag_or_map_events(address, events),
+            channel.OrMapOperation(operation),
+            channel.OrMapMeta(message_id),
+          ))
           Ok(#(core, events, list.append(attach_outbound, outbound)))
         }
         Error(error) -> Error(or_map_kernel_error(address, error))
@@ -2940,14 +3509,14 @@ fn edit_or_map(
   case located {
     Detached(_) -> Ok(#(put_detached_channel(core, address, state), events, []))
     Attached(_) ->
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         state,
         events,
         channel.OrMapOperation(operation),
         channel.OrMapMeta(message_id),
-      ))
+      )
   }
 }
 
@@ -2977,14 +3546,14 @@ pub fn or_map_remove(
     Ok(Attached(kernel)) ->
       case or_map_kernel.remove(kernel, key) {
         Ok(#(kernel, events, operation, message_id)) ->
-          Ok(stamp_attached(
+          stamp_attached(
             core,
             address,
             channel.OrMapState(kernel),
             tag_or_map_events(address, events),
             channel.OrMapOperation(operation),
             channel.OrMapMeta(message_id),
-          ))
+          )
         Error(error) -> Error(or_map_kernel_error(address, error))
       }
   }
@@ -3033,14 +3602,14 @@ pub fn or_set_add(
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation, message_id) =
         or_set_kernel.add(kernel, element)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.OrSetState(kernel),
         tag_or_set_events(address, events),
         channel.OrSetOperation(operation),
         channel.OrSetMeta(message_id),
-      ))
+      )
     }
   }
 }
@@ -3069,14 +3638,14 @@ pub fn or_set_remove(
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation, message_id) =
         or_set_kernel.remove(kernel, element)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.OrSetState(kernel),
         tag_or_set_events(address, events),
         channel.OrSetOperation(operation),
         channel.OrSetMeta(message_id),
-      ))
+      )
     }
   }
 }
@@ -3125,19 +3694,18 @@ fn mutate_sequence(
             sequence_kernel.edit_error_detail(error),
           ))
         Ok(#(kernel, events, operation, message_id)) -> {
-          let #(core, attach_outbound) = case dependencies {
-            Some(value) -> attach_dependencies(core, value)
-            None -> #(core, [])
-          }
-          let #(core, events, outbound) =
-            stamp_attached(
-              core,
-              address,
-              channel.SequenceState(kernel),
-              tag_sequence_events(address, events),
-              channel.SequenceOperation(operation),
-              channel.SequenceMeta(message_id),
-            )
+          use #(core, attach_outbound) <- result.try(case dependencies {
+            Some(value) -> attach_dependencies(core, address, value)
+            None -> Ok(#(core, []))
+          })
+          use #(core, events, outbound) <- result.try(stamp_attached(
+            core,
+            address,
+            channel.SequenceState(kernel),
+            tag_sequence_events(address, events),
+            channel.SequenceOperation(operation),
+            channel.SequenceMeta(message_id),
+          ))
           Ok(#(core, events, list.append(attach_outbound, outbound)))
         }
       }
@@ -3255,14 +3823,14 @@ fn mutate_text(
           events,
           Some(text_kernel.Submission(operation, message_id)),
         )) ->
-          Ok(stamp_attached(
+          stamp_attached(
             core,
             address,
             channel.TextState(kernel),
             tag_text_events(address, events),
             channel.TextOperation(operation),
             channel.TextMeta(message_id),
-          ))
+          )
         Ok(#(kernel, events, None)) ->
           Ok(
             #(
@@ -3349,14 +3917,14 @@ pub fn g_set_add(
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation, message_id) =
         g_set_kernel.add(kernel, element)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.GSetState(kernel),
         tag_g_set_events(address, events),
         channel.GSetOperation(operation),
         channel.GSetMeta(message_id),
-      ))
+      )
     }
   }
 }
@@ -3385,14 +3953,14 @@ pub fn two_p_set_add(
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation, message_id) =
         two_p_set_kernel.add(kernel, element)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.TwoPSetState(kernel),
         tag_two_p_set_events(address, events),
         channel.TwoPSetOperation(operation),
         channel.TwoPSetMeta(message_id),
-      ))
+      )
     }
   }
 }
@@ -3421,14 +3989,14 @@ pub fn two_p_set_remove(
     Ok(Attached(kernel)) -> {
       let #(kernel, events, operation, message_id) =
         two_p_set_kernel.remove(kernel, element)
-      Ok(stamp_attached(
+      stamp_attached(
         core,
         address,
         channel.TwoPSetState(kernel),
         tag_two_p_set_events(address, events),
         channel.TwoPSetOperation(operation),
         channel.TwoPSetMeta(message_id),
-      ))
+      )
     }
   }
 }
@@ -3462,7 +4030,11 @@ pub fn register_write(
     Ok(Attached(_)) -> {
       // Attaching the dependencies of the value rewrites `core.channels`, so
       // the kernel found above is stale. Read it again.
-      let #(core, attach_outbound) = attach_dependencies(core, value)
+      use #(core, attach_outbound) <- result.try(attach_dependencies(
+        core,
+        address,
+        value,
+      ))
       use located <- result.try(locate_register_collection(core, address))
       let kernel = case located {
         Detached(kernel) | Attached(kernel) -> kernel
@@ -3474,15 +4046,14 @@ pub fn register_write(
           value,
           core.last_seen_sequence_number,
         )
-      let #(core, events, outbound) =
-        stamp_attached(
-          core,
-          address,
-          channel.RegisterCollectionState(kernel),
-          [],
-          channel.RegisterCollectionOperation(operation),
-          channel.NoMeta,
-        )
+      use #(core, events, outbound) <- result.try(stamp_attached(
+        core,
+        address,
+        channel.RegisterCollectionState(kernel),
+        [],
+        channel.RegisterCollectionOperation(operation),
+        channel.NoMeta,
+      ))
       Ok(#(core, events, list.append(attach_outbound, outbound)))
     }
   }
@@ -3532,16 +4103,19 @@ pub fn claim_once(
         Ok(claims_kernel.AlreadyClaimed(current_value)) ->
           Ok(ClaimAlreadyClaimed(current_value))
         Ok(claims_kernel.Submitted(kernel, operation)) -> {
-          let #(core, attach_outbound) = attach_dependencies(core, value)
-          let #(core, _events, outbound) =
-            stamp_attached(
-              core,
-              address,
-              channel.ClaimsState(kernel),
-              [],
-              channel.ClaimsOperation(operation),
-              channel.NoMeta,
-            )
+          use #(core, attach_outbound) <- result.try(attach_dependencies(
+            core,
+            address,
+            value,
+          ))
+          use #(core, _events, outbound) <- result.try(stamp_attached(
+            core,
+            address,
+            channel.ClaimsState(kernel),
+            [],
+            channel.ClaimsOperation(operation),
+            channel.NoMeta,
+          ))
           Ok(ClaimPending(
             core: core,
             outbound: list.append(attach_outbound, outbound),
@@ -3585,16 +4159,19 @@ pub fn compare_and_set_claim(
         )
       {
         Ok(claims_kernel.Submitted(kernel, operation)) -> {
-          let #(core, attach_outbound) = attach_dependencies(core, value)
-          let #(core, _events, outbound) =
-            stamp_attached(
-              core,
-              address,
-              channel.ClaimsState(kernel),
-              [],
-              channel.ClaimsOperation(operation),
-              channel.NoMeta,
-            )
+          use #(core, attach_outbound) <- result.try(attach_dependencies(
+            core,
+            address,
+            value,
+          ))
+          use #(core, _events, outbound) <- result.try(stamp_attached(
+            core,
+            address,
+            channel.ClaimsState(kernel),
+            [],
+            channel.ClaimsOperation(operation),
+            channel.NoMeta,
+          ))
           Ok(ClaimPending(
             core: core,
             outbound: list.append(attach_outbound, outbound),
@@ -3663,15 +4240,14 @@ pub fn task_manager_volunteer(
             outcome,
           ))
         Some(operation) -> {
-          let #(core, events, outbound) =
-            stamp_attached(
-              core,
-              address,
-              channel.TaskManagerState(kernel),
-              [],
-              channel.TaskManagerOperation(operation),
-              channel.TaskManagerMeta(message_id),
-            )
+          use #(core, events, outbound) <- result.try(stamp_attached(
+            core,
+            address,
+            channel.TaskManagerState(kernel),
+            [],
+            channel.TaskManagerOperation(operation),
+            channel.TaskManagerMeta(message_id),
+          ))
           Ok(#(core, events, outbound, outcome))
         }
       }
@@ -3727,14 +4303,14 @@ pub fn task_manager_abandon(
             ),
           )
         Some(operation) ->
-          Ok(stamp_attached(
+          stamp_attached(
             core,
             address,
             channel.TaskManagerState(kernel),
             tag_task_manager_events(address, events),
             channel.TaskManagerOperation(operation),
             channel.TaskManagerMeta(message_id),
-          ))
+          )
       }
     }
   }
@@ -3788,14 +4364,14 @@ pub fn task_manager_complete(
         )
       {
         Ok(#(kernel, operation)) ->
-          Ok(stamp_attached(
+          stamp_attached(
             core,
             address,
             channel.TaskManagerState(kernel),
             [],
             channel.TaskManagerOperation(operation),
             channel.TaskManagerMeta(message_id),
-          ))
+          )
         Error(task_manager_kernel.NotAssigned(_)) ->
           Error(TaskNotAssigned(address, task_id))
         Error(task_manager_kernel.UnexpectedAck(_, detail))
@@ -4155,20 +4731,39 @@ pub fn require_channel_type(
 
 fn attach_dependencies(
   core: Core,
+  source_address: String,
   value: Json,
-) -> #(Core, List(wire.OutboundOperation)) {
-  let #(order, _) =
-    collect_attach_order(core, handle.collect_handle_addresses(value), [])
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  use context <- result.try(handle_context(source_address))
+  use addresses <- result.try(
+    handle.collect_routed_addresses(value, context)
+    |> result.map_error(fn(error) {
+      ContainerOperationFailed(fluid_container.InvalidRoute(
+        "handle",
+        string.inspect(error),
+      ))
+    }),
+  )
+  use #(order, _) <- result.try(collect_attach_order(core, addresses, []))
   submit_attaches(core, order)
+}
+
+fn handle_context(address: String) -> Result(String, CoreError) {
+  use route <- result.try(
+    fluid_container.route_from_path("/" <> address)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  Ok("/" <> fluid_summary.encode_component(route.data_store_id))
 }
 
 fn attach_dependencies_from_register_string(
   core: Core,
+  source_address: String,
   value: String,
-) -> #(Core, List(wire.OutboundOperation)) {
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
   case json.parse(value, wire.json_value_decoder()) {
-    Ok(json_value) -> attach_dependencies(core, json_value)
-    Error(_) -> #(core, [])
+    Ok(json_value) -> attach_dependencies(core, source_address, json_value)
+    Error(_) -> Ok(#(core, []))
   }
 }
 
@@ -4176,11 +4771,15 @@ fn collect_attach_order(
   core: Core,
   addresses: List(String),
   visited: List(String),
-) -> #(List(String), List(String)) {
-  list.fold(addresses, #([], visited), fn(acc, address) {
+) -> Result(#(List(String), List(String)), CoreError) {
+  list.try_fold(addresses, #([], visited), fn(acc, address) {
     let #(order, visited) = acc
-    let #(next, visited) = collect_attach_for(core, address, visited)
-    #(list.append(order, next), visited)
+    use #(next, visited) <- result.try(collect_attach_for(
+      core,
+      address,
+      visited,
+    ))
+    Ok(#(list.append(order, next), visited))
   })
 }
 
@@ -4188,17 +4787,31 @@ fn collect_attach_for(
   core: Core,
   address: String,
   visited: List(String),
-) -> #(List(String), List(String)) {
+) -> Result(#(List(String), List(String)), CoreError) {
+  use address <- result.try(resolve_alias(core, address))
   case list.any(visited, fn(seen) { seen == address }) {
-    True -> #([], visited)
+    True -> Ok(#([], visited))
     False -> {
       let visited = [address, ..visited]
       case dict.get(core.detached, address) {
-        Error(_) -> #([], visited)
+        Error(_) -> Ok(#([], visited))
         Ok(state) -> {
-          let deps = channel.handle_addresses(state)
-          let #(order, visited) = collect_attach_order(core, deps, visited)
-          #(list.append(order, [address]), visited)
+          use context <- result.try(handle_context(address))
+          use deps <- result.try(
+            channel.routed_handle_addresses(state, context)
+            |> result.map_error(fn(error) {
+              ContainerOperationFailed(fluid_container.InvalidRoute(
+                "handle",
+                string.inspect(error),
+              ))
+            }),
+          )
+          use #(order, visited) <- result.try(collect_attach_order(
+            core,
+            deps,
+            visited,
+          ))
+          Ok(#(list.append(order, [address]), visited))
         }
       }
     }
@@ -4208,32 +4821,32 @@ fn collect_attach_for(
 fn submit_attaches(
   core: Core,
   addresses: List(String),
-) -> #(Core, List(wire.OutboundOperation)) {
-  list.fold(addresses, #(core, []), fn(acc, address) {
+) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  list.try_fold(addresses, #(core, []), fn(acc, address) {
     let #(core, outbound) = acc
     case dict.get(core.detached, address) {
-      Error(_) -> #(core, outbound)
+      Error(_) -> Ok(#(core, outbound))
       Ok(state) -> {
         let snapshot = channel.attach_snapshot(state)
         let client_sequence_number = core.next_client_sequence_number
-        let outbound_operation =
+        use outbound_operation <- result.try(
           wire_op.outbound_attach_operation(
             address: address,
             client_sequence_number: client_sequence_number,
             reference_sequence_number: core.last_seen_sequence_number,
             snapshot: snapshot,
           )
+          |> result.map_error(ContainerOperationFailed),
+        )
+        let core =
+          add_attached_channel(
+            core,
+            address,
+            channel.attach_state(state, replica: core.client_id),
+          )
         let core =
           Core(
             ..core,
-            channels: dict.insert(
-              core.channels,
-              address,
-              channel.attach_state(state, replica: core.client_id),
-            ),
-            channel_order: list.unique(
-              list.append(core.channel_order, [address]),
-            ),
             detached: dict.delete(core.detached, address),
             next_client_sequence_number: client_sequence_number + 1,
             in_flight: list.append(core.in_flight, [
@@ -4245,7 +4858,7 @@ fn submit_attaches(
               ),
             ]),
           )
-        #(core, list.append(outbound, [outbound_operation]))
+        Ok(#(core, list.append(outbound, [outbound_operation])))
       }
     }
   })
@@ -4258,15 +4871,20 @@ fn stamp_attached(
   events: List(#(String, ChannelEvent)),
   operation: channel.ChannelOperation,
   meta: channel.LocalOperationMeta,
-) -> #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)) {
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
   let client_sequence_number = core.next_client_sequence_number
-  let outbound =
+  use outbound <- result.try(
     wire_op.outbound_channel_operation(
       address: address,
       client_sequence_number: client_sequence_number,
       reference_sequence_number: core.last_seen_sequence_number,
       operation: operation,
     )
+    |> result.map_error(ContainerOperationFailed),
+  )
   let core =
     Core(
       ..core,
@@ -4282,7 +4900,7 @@ fn stamp_attached(
         ),
       ]),
     )
-  #(core, events, [outbound])
+  Ok(#(core, events, [outbound]))
 }
 
 fn tag_events(
@@ -5013,8 +5631,28 @@ fn add_attached_channel(
 ) -> Core {
   Core(
     ..core,
+    routing: register_channel_attributes(
+      core.routing,
+      address,
+      channel.channel_type(state),
+    ),
     channels: dict.insert(core.channels, address, state),
     channel_order: list.unique(list.append(core.channel_order, [address])),
+  )
+}
+
+fn register_channel_attributes(
+  routing: Routing,
+  address: String,
+  kind: channel.ChannelType,
+) -> Routing {
+  Routing(
+    ..routing,
+    channel_attributes: dict.insert(
+      routing.channel_attributes,
+      address,
+      channel.fluid_attributes(kind),
+    ),
   )
 }
 

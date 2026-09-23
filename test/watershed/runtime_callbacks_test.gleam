@@ -195,23 +195,26 @@ pub fn a_throwing_subscriber_cannot_skip_other_observers_or_gap_requests_test() 
   callbacks.on_event("connect_document_success", connected(0))
   let seen = transport_js.new_cell([])
   let _good =
-    runtime.subscribe(owner, "root", fn(_) {
+    runtime.subscribe(owner, "watershed/root", fn(_) {
       transport_js.set_cell(seen, [
-        runtime.get(owner, "root", "value"),
+        runtime.get(owner, "watershed/root", "value"),
         ..transport_js.get_cell(seen)
       ])
     })
   let _bad =
-    runtime.subscribe(owner, "root", fn(_) { panic as "subscriber fault" })
+    runtime.subscribe(owner, "watershed/root", fn(_) {
+      panic as "subscriber fault"
+    })
   let first =
     frame.Sequenced(
       ..noop(1),
       client_id: Some("other"),
       operation_type: "op",
       contents: op.encode_map_envelope(
-        "root",
-        map_kernel.Set("value", json.int(1)),
-      ),
+          "watershed/root",
+          map_kernel.Set("value", json.int(1)),
+        )
+        |> expect.to_be_ok,
     )
   callbacks.on_event(
     "op",
