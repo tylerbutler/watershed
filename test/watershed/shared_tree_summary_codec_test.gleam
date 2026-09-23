@@ -322,6 +322,137 @@ pub fn shared_tree_summary_preserves_batch_positions_and_metadata_test() {
   Nil
 }
 
+pub fn shared_tree_summary_peer_base_uses_edit_manager_revision_codec_test() {
+  let assert Ok(owner) =
+    fluid_ids.session_id("10000000-0000-4000-8000-000000000001")
+  let assert Ok(peer) =
+    fluid_ids.session_id("20000000-0000-4000-8000-000000000002")
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.decompress(compressor, local)
+  let commit =
+    summary.SummaryCommit(
+      codec.WireCommit(revision, owner, [], None),
+      Some(1),
+      None,
+    )
+  let history =
+    summary.EditManagerSummary([commit], [
+      summary.PeerBranch(peer, summary.StableRevision(revision), []),
+    ])
+  let encode_context = codec.EncodeContext(codec.Fluid310, compressor, None)
+  let assert Ok(encoded) = summary.encode_edit_manager(history, encode_context)
+  json.to_string(encoded)
+  |> string.contains("\"base\":0")
+  |> expect.to_be_true
+  summary.decode_edit_manager(
+    encoded,
+    codec.DecodeContext(codec.Fluid310, compressor),
+  )
+  |> expect.to_equal(Ok(history))
+}
+
+pub fn shared_tree_summary_finalized_detached_major_uses_op_space_test() {
+  let assert Ok(owner) =
+    fluid_ids.session_id("10000000-0000-4000-8000-000000000001")
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.decompress(compressor, local)
+  let detached =
+    summary.DetachedFieldIndex(
+      [summary.DetachedField(summary.StableRevision(revision), 0, 1)],
+      1,
+    )
+  let assert Ok(encoded) =
+    summary.encode_detached(
+      detached,
+      owner,
+      codec.EncodeContext(codec.Fluid310, compressor, None),
+    )
+  json.to_string(encoded)
+  |> string.contains("\"data\":[[0,0,1]]")
+  |> expect.to_be_true
+  summary.decode_detached(
+    encoded,
+    owner,
+    codec.DecodeContext(codec.Fluid310, compressor),
+  )
+  |> expect.to_equal(Ok(detached))
+}
+
+pub fn shared_tree_summary_rejects_peer_base_missing_from_trunk_test() {
+  let assert Ok(owner) =
+    fluid_ids.session_id("10000000-0000-4000-8000-000000000001")
+  let assert Ok(peer) =
+    fluid_ids.session_id("20000000-0000-4000-8000-000000000002")
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.decompress(compressor, local)
+  let history =
+    summary.EditManagerSummary([], [
+      summary.PeerBranch(peer, summary.StableRevision(revision), []),
+    ])
+  let assert Error(_) =
+    summary.encode_edit_manager(
+      history,
+      codec.EncodeContext(codec.Fluid310, compressor, None),
+    )
+  let raw =
+    "{\"trunk\":[],\"branches\":[[\""
+    <> fluid_ids.session_id_to_string(peer)
+    <> "\",{\"base\":0,\"commits\":[]}]],\"version\":7}"
+  let assert Error(_) =
+    summary.decode_edit_manager(
+      raw_json(raw),
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+  Nil
+}
+
+pub fn shared_tree_summary_rejects_singleton_sequence_bounds_test() {
+  let assert Ok(owner) =
+    fluid_ids.session_id("10000000-0000-4000-8000-000000000001")
+  let assert Ok(#(compressor, local)) =
+    fluid_ids.new(owner) |> fluid_ids.generate
+  let assert #(compressor, Some(range)) =
+    fluid_ids.take_creation_range(compressor)
+  let assert Ok(compressor) = fluid_ids.finalize(compressor, range)
+  let assert Ok(revision) = fluid_ids.decompress(compressor, local)
+  let commit = codec.WireCommit(revision, owner, [], None)
+  let context = codec.EncodeContext(codec.Fluid310, compressor, None)
+  let unsafe_sequence = 9_007_199_254_740_991 + 1
+  let assert Error(_) =
+    summary.encode_edit_manager(
+      summary.EditManagerSummary(
+        [
+          summary.SummaryCommit(commit, Some(unsafe_sequence), None),
+        ],
+        [],
+      ),
+      context,
+    )
+  let assert Error(_) =
+    summary.encode_edit_manager(
+      summary.EditManagerSummary(
+        [
+          summary.SummaryCommit(commit, Some(1), Some(-1)),
+        ],
+        [],
+      ),
+      context,
+    )
+  Nil
+}
+
 fn raw_json(raw: String) -> json.Json {
   let assert Ok(value) = json_ot.parse_json(raw)
   json_ot.to_json(value)

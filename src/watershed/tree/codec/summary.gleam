@@ -649,12 +649,11 @@ fn decode_branch(
     location <> "[1]",
   ))
   use base_value <- result.try(required(members, "base", location <> "[1].base"))
-  use base <- result.try(decode_summary_revision(
+  use base <- result.try(decode_peer_base(
     base_value,
     session,
     context,
     location <> "[1].base",
-    True,
   ))
   use commits_value <- result.try(required(
     members,
@@ -683,9 +682,8 @@ fn encode_branch(
   context: codec.EncodeContext,
 ) -> Result(Json, TreeError) {
   let PeerBranch(session, base, commits) = branch
-  use base <- result.try(encode_summary_revision(
+  use base <- result.try(encode_peer_base(
     base,
-    session,
     context,
     "editManager.branches.base",
   ))
@@ -770,6 +768,28 @@ fn decode_authored_revision(
   }
 }
 
+fn decode_peer_base(
+  value: JsonValue,
+  session: fluid_ids.SessionId,
+  context: codec.DecodeContext,
+  location: String,
+) -> Result(SummaryRevision, TreeError) {
+  decode_summary_revision(value, session, context, location, False)
+}
+
+fn encode_peer_base(
+  value: SummaryRevision,
+  context: codec.EncodeContext,
+  location: String,
+) -> Result(Json, TreeError) {
+  case value {
+    RootRevision -> Ok(json.string("root"))
+    StableRevision(revision) ->
+      codec.encode_stable_revision(revision, context, location)
+      |> result.map(json.int)
+  }
+}
+
 fn decode_summary_revision(
   value: JsonValue,
   session: fluid_ids.SessionId,
@@ -818,23 +838,14 @@ fn encode_summary_revision(
   case value {
     RootRevision -> Ok(json.string("root"))
     StableRevision(revision) -> {
-      let codec.EncodeContext(compressor: compressor, ..) = context
-      use compressed <- result.try(
-        fluid_ids.recompress(compressor, revision)
-        |> result.map_error(fn(error) {
-          CorruptData(location, string.inspect(error))
-        }),
-      )
-      use compressed <- result.try(case compressed {
-        Some(value) -> Ok(value)
-        None ->
-          Error(CorruptData(location, "revision is not in the compressor"))
-      })
-      case fluid_ids.session_space_id_to_int(compressed) < 0 {
+      use operation <- result.try(codec.encode_stable_revision(
+        revision,
+        context,
+        location,
+      ))
+      case operation < 0 {
         True -> Ok(json.string(fluid_ids.stable_id_to_string(revision)))
-        False ->
-          codec.encode_stable_revision(revision, context, location)
-          |> result.map(json.int)
+        False -> Ok(json.int(operation))
       }
     }
   }
@@ -999,14 +1010,83 @@ fn validate_history(
   trunk: List(SummaryCommit),
   branches: List(PeerBranch),
 ) -> Result(Nil, TreeError) {
+  use _ <- result.try(
+    list.try_each(trunk, fn(commit) {
+      validate_commit_position(commit, True, "editManager.trunk")
+    }),
+  )
   use _ <- result.try(validate_sequence_order(trunk))
   use _ <- result.try(unique_commit_revisions(trunk))
   use _ <- result.try(
     list.try_each(branches, fn(branch) {
+      use _ <- result.try(
+        list.try_each(branch.commits, fn(commit) {
+          validate_commit_position(
+            commit,
+            False,
+            "editManager.branches.commits",
+          )
+        }),
+      )
       unique_commit_revisions(branch.commits)
     }),
   )
+  use _ <- result.try(validate_peer_bases(trunk, branches))
   unique_branch_sessions(branches)
+}
+
+fn validate_commit_position(
+  commit: SummaryCommit,
+  sequenced: Bool,
+  location: String,
+) -> Result(Nil, TreeError) {
+  let SummaryCommit(_, sequence, index) = commit
+  case sequenced, sequence, index {
+    True, Some(sequence), index ->
+      case
+        sequence >= min_safe_integer
+        && sequence <= max_safe_integer
+        && option_nonnegative_safe(index)
+      {
+        True -> Ok(Nil)
+        False -> Error(CorruptData(location, "invalid sequence position"))
+      }
+    True, None, _ ->
+      Error(CorruptData(
+        location <> ".sequenceNumber",
+        "required property is missing",
+      ))
+    False, None, None -> Ok(Nil)
+    False, _, _ ->
+      Error(CorruptData(location, "branch commit has sequence metadata"))
+  }
+}
+
+fn option_nonnegative_safe(value: Option(Int)) -> Bool {
+  case value {
+    None -> True
+    Some(value) -> value >= 0 && value <= max_safe_integer
+  }
+}
+
+fn validate_peer_bases(
+  trunk: List(SummaryCommit),
+  branches: List(PeerBranch),
+) -> Result(Nil, TreeError) {
+  list.try_each(branches, fn(branch) {
+    case branch.base {
+      RootRevision -> Ok(Nil)
+      StableRevision(base) ->
+        case list.any(trunk, fn(commit) { revision_id(commit) == base }) {
+          True -> Ok(Nil)
+          False ->
+            Error(CorruptData(
+              "editManager.branches.base",
+              "peer base is not retained in the trunk",
+            ))
+        }
+    }
+  })
 }
 
 fn validate_sequence_order(

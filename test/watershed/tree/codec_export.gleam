@@ -34,6 +34,8 @@ const fresh_summary_session = "30000000-0000-4000-8000-000000000003"
 
 const message_session = "40000000-0000-4000-8000-000000000004"
 
+const summary_peer_session = "50000000-0000-4000-8000-000000000005"
+
 pub fn main() {
   let output = case envoy.get("WATERSHED_TREE_CODEC_OUTPUT") {
     Ok(value) -> value
@@ -176,6 +178,7 @@ fn summary_item(
     )
     |> native,
   )
+  use decoded <- result.try(add_peer_base(id, decoded))
   use encoded <- result.try(
     summary.encode(
       decoded,
@@ -199,6 +202,41 @@ fn summary_item(
       ),
     ]),
   )
+}
+
+fn add_peer_base(
+  id: String,
+  value: summary.TreeSummaryData,
+) -> Result(summary.TreeSummaryData, String) {
+  case id {
+    "initial" -> {
+      let summary.TreeSummaryData(
+        stored,
+        forest,
+        detached,
+        summary.EditManagerSummary(trunk, branches),
+      ) = value
+      use first <- result.try(
+        list.first(trunk)
+        |> result.map_error(fn(_) { "initial summary has no trunk commit" }),
+      )
+      let summary.SummaryCommit(codec.WireCommit(revision, ..), ..) = first
+      use peer <- result.try(
+        fluid_ids.session_id(summary_peer_session)
+        |> result.map_error(string.inspect),
+      )
+      Ok(summary.TreeSummaryData(
+        stored,
+        forest,
+        detached,
+        summary.EditManagerSummary(trunk, [
+          summary.PeerBranch(peer, summary.StableRevision(revision), []),
+          ..branches
+        ]),
+      ))
+    }
+    _ -> Ok(value)
+  }
 }
 
 fn initial_state(
