@@ -1329,8 +1329,8 @@ Checkpoint commits:
 `test/watershed/shared_tree_codec_test.gleam`, and
 `test/watershed/shared_tree_kernel_test.gleam`.
 
-**Status:** Task 10a, the native codec boundary, is complete on
-`feat/sharedtree-codecs`. It implements the selected Message V7,
+**Status:** Task 10a, the native codec boundary, and Task 10b, the pure
+kernel, are complete. Task 10a implements the selected Message V7,
 SharedTreeChange V5, ModularChange V5, field, schema, FieldBatch V2, Forest V2,
 DetachedFieldIndex V2, and EditManager V7 formats. Both native targets read the
 26-case corpus, and the pinned upstream source consumes 14 fresh artifacts from
@@ -1338,8 +1338,11 @@ each target. Summary evidence checks detached content with stable identities,
 retained history, and peer bases after a real DDS load. It includes a consistent
 native-authored summary with a sequenced edit and continuation. The FieldBatch
 writer uses the standard four-shape V2 layout with a constant-null shape. Task
-10b, the pure kernel and runtime conversion, remains open. Tasks 11-15 are
-unchanged.
+10b replays all seven object schedules from their inputs on both native targets.
+Its checkpoints cover both clients, pending and sequenced revisions, visible
+and retained trees, and whole-tree invalidation after visible changes.
+Document-level compressor ownership and live runtime dispatch remain in
+Tasks 11-14. Tasks 11-15 are otherwise unchanged.
 
 **Interfaces:** Codecs consume the profile's explicit version selection and
 document compressor. `DecodeContext` supplies originator/revision/session
@@ -1355,6 +1358,8 @@ pub type TreeEvent {
 }
 pub fn restore(
   snapshot: TreeSnapshot,
+  view_id: StableId,
+  local_session: SessionId,
   view: ViewSchema,
 ) -> Result(TreeState, TreeError)
 pub fn read(state: TreeState, path: FieldPath) -> Result(Option(TreeValue), TreeError)
@@ -1362,7 +1367,7 @@ pub fn validate_edit(state: TreeState, edit: Edit) -> Result(Nil, TreeError)
 pub fn apply_local(
   state: TreeState,
   revision: StableId,
-  originator: SessionId,
+  order: IdentityOrder,
   edit: Edit,
 ) -> Result(#(TreeState, Commit, List(TreeEvent)), TreeError)
 pub fn receive(
@@ -1371,12 +1376,20 @@ pub fn receive(
   point: SequencePoint,
   reference_sequence_number: Int,
   minimum_sequence_number: Int,
-) -> Result(#(TreeState, List(TreeEvent)), TreeError)
+  allocation: allocation,
+  mint: MintRevision(allocation),
+) -> Result(#(TreeState, List(TreeEvent), allocation), TreeError)
 pub fn snapshot(state: TreeState) -> Result(TreeSnapshot, TreeError)
 ```
 
 The opaque snapshot consists of stored schema, sequenced forest, detached index,
-and history. The document-level compressor remains outside it.
+and history. The document-level compressor remains outside it. On delivery,
+`receive_ordered` takes a checked compressor-derived `IdentityOrder` and
+rebinds authored, pending, sequenced, and retained changesets before calling
+`receive`. `identity_revisions` exposes the revisions needed for that order.
+The fixture sequencer finalizes creation ranges when their allocation messages
+arrive, not when local edits are authored. Acknowledgements do not emit a
+whole-tree event when the visible root is unchanged.
 
 - [x] **1. Add raw upstream decode and native encode consumption tests.**
 
@@ -1403,7 +1416,7 @@ Implement stored schema, tree content, detached-field index, and edit-manager
 codecs. These are not a JSON rendering of visible `TreeValue`.
 Use real upstream loaders as the authority for native encoding acceptance.
 
-- [ ] **3. Implement the task 10b kernel around schema, forest, and history.**
+- [x] **3. Implement the task 10b kernel around schema, forest, and history.**
 
 `validate_edit` runs before runtime ID allocation. `apply_local` builds a commit,
 updates pending history/visible forest, and returns its event. `receive` performs
@@ -1411,14 +1424,14 @@ remote or acknowledgement reconciliation. Compare the externally visible state
 before/after the atomic transition; suppress acknowledgements that change
 nothing. Keep retained-state changes even when no visible event occurs.
 
-- [ ] **4. Run the task 10b object-only corpus and corruption cases.**
+- [x] **4. Run the task 10b object-only corpus and corruption cases.**
 
 The public event contract is whole-tree invalidation, normalized from upstream
 batch-level observations. Do not claim parity with upstream's complete
 node-specific event API. Check error-state invariants and absence of emitted
 messages/events after invalid local input.
 
-- [ ] **5. Run the task 10b focused pair and commit.**
+- [x] **5. Run the task 10b focused pair and commit.**
 
 Commit subject: `feat(tree): add native SharedTree kernel and codecs`.
 

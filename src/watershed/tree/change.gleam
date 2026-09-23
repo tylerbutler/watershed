@@ -188,6 +188,109 @@ pub fn with_identity_order(
   from_data(change.data, identity_order)
 }
 
+pub fn rebind_identity_order(
+  change: Changeset,
+  identity_order: IdentityOrder,
+  tagged_revisions: List(StableId),
+) -> Result(Changeset, TreeError) {
+  let IdentityOrder(entries) = identity_order
+  let used = list.append(tagged_revisions, data_identity_revisions(change.data))
+  let entries = list.filter(entries, fn(entry) { list.contains(used, entry.0) })
+  from_data(change.data, IdentityOrder(entries))
+}
+
+pub fn identity_revisions(change: Changeset) -> List(StableId) {
+  let IdentityOrder(entries) = change.identity_order
+  list.map(entries, fn(entry) { entry.0 })
+}
+
+fn data_identity_revisions(data: ChangeData) -> List(StableId) {
+  let metadata =
+    list.flat_map(data.revisions, fn(info) {
+      case info.rollback_of {
+        None -> [info.revision]
+        Some(original) -> [info.revision, original]
+      }
+    })
+  let fields =
+    list.flat_map(data.fields, fn(entry) { field_identity_revisions(entry.1) })
+  let nodes =
+    list.flat_map(data.nodes, fn(entry) {
+      let NodeChange(fields) = entry.1
+      list.append(
+        atom_identity_revisions(entry.0),
+        list.flat_map(fields, fn(field) { field_identity_revisions(field.1) }),
+      )
+    })
+  let parents =
+    list.flat_map(data.parents, fn(entry) {
+      let ParentField(parent, _) = entry.1
+      list.append(atom_identity_revisions(entry.0), case parent {
+        None -> []
+        Some(parent) -> atom_identity_revisions(parent)
+      })
+    })
+  let aliases =
+    list.flat_map(data.aliases, fn(entry) {
+      list.append(
+        atom_identity_revisions(entry.0),
+        atom_identity_revisions(entry.1),
+      )
+    })
+  let builds =
+    list.flat_map(list.append(data.builds, data.refreshers), fn(entry) {
+      atom_identity_revisions(entry.id)
+    })
+  let destroys =
+    list.flat_map(data.destroys, fn(entry) { atom_identity_revisions(entry.id) })
+  list.unique(
+    list.flatten([metadata, fields, nodes, parents, aliases, builds, destroys]),
+  )
+}
+
+fn field_identity_revisions(field: FieldChange) -> List(StableId) {
+  case field {
+    GenericField(children) ->
+      list.flat_map(children, fn(child) { atom_identity_revisions(child.1) })
+    ValueField(change) | OptionalField(change) -> {
+      let optional_field.FieldChange(moves, children, replacement) = change
+      let moves =
+        list.flat_map(moves, fn(move) {
+          list.append(
+            atom_identity_revisions(move.0),
+            atom_identity_revisions(move.1),
+          )
+        })
+      let children =
+        list.flat_map(children, fn(child) {
+          let source = case child.0 {
+            optional_field.Active -> []
+            optional_field.Detached(id) -> atom_identity_revisions(id)
+          }
+          list.append(source, atom_identity_revisions(child.1))
+        })
+      let replacement = case replacement {
+        None -> []
+        Some(optional_field.Replacement(_, source, detach)) -> {
+          let source = case source {
+            Some(optional_field.Detached(id)) -> atom_identity_revisions(id)
+            _ -> []
+          }
+          list.append(source, atom_identity_revisions(detach))
+        }
+      }
+      list.flatten([moves, children, replacement])
+    }
+  }
+}
+
+fn atom_identity_revisions(atom: AtomId) -> List(StableId) {
+  case atom.revision {
+    None -> []
+    Some(revision) -> [revision]
+  }
+}
+
 pub fn to_data(change: Changeset) -> ChangeData {
   change.data
 }

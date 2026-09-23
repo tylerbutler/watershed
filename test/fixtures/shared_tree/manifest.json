@@ -215,7 +215,8 @@
       "container-foundations",
       "summary-foundations",
       "history-reconciliation",
-      "tree-codecs"
+      "tree-codecs",
+      "tree-kernel"
     ],
     "erlang": [
       "id-ranges",
@@ -226,7 +227,8 @@
       "container-foundations",
       "summary-foundations",
       "history-reconciliation",
-      "tree-codecs"
+      "tree-codecs",
+      "tree-kernel"
     ]
   },
   "cases": [

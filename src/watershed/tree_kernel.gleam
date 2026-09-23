@@ -70,6 +70,31 @@ pub fn read(
   forest.read(state.visible, path)
 }
 
+pub fn reference_at(
+  state: TreeState,
+  path: FieldPath,
+) -> Result(forest.NodeRef, TreeError) {
+  forest.locate(state.visible, path)
+}
+
+pub fn read_reference(
+  state: TreeState,
+  reference: forest.NodeRef,
+) -> Result(TreeValue, TreeError) {
+  forest.read_node(state.visible, reference)
+}
+
+pub fn ensure_attached(
+  state: TreeState,
+  reference: forest.NodeRef,
+) -> Result(Nil, TreeError) {
+  use attached <- result.try(forest.is_attached(state.visible, reference))
+  case attached {
+    True -> Ok(Nil)
+    False -> Error(types.InvalidEdit([], "cannot edit a detached node"))
+  }
+}
+
 pub fn snapshot(state: TreeState) -> Result(TreeSnapshot, TreeError) {
   use data <- result.try(forest.export_data(state.sequenced))
   Ok(TreeSnapshot(state.stored, data, history.inspect(state.history).sequenced))
@@ -87,6 +112,10 @@ pub fn visible_data(state: TreeState) -> Result(forest.ForestData, TreeError) {
 
 pub fn history_view(state: TreeState) -> history.HistoryView {
   history.inspect(state.history)
+}
+
+pub fn identity_revisions(state: TreeState) -> List(fluid_ids.StableId) {
+  history.identity_revisions(state.history)
 }
 
 pub fn validate_edit(state: TreeState, edit: Edit) -> Result(Nil, TreeError) {
@@ -157,6 +186,31 @@ pub fn receive(
     events,
     allocation,
   ))
+}
+
+pub fn receive_ordered(
+  state: TreeState,
+  commit: history.Commit,
+  order: change.IdentityOrder,
+  point: SequencePoint,
+  reference_sequence_number: Int,
+  minimum_sequence_number: Int,
+  allocation: allocation,
+  mint: history.MintRevision(allocation),
+) -> Result(#(TreeState, List(TreeEvent), allocation), TreeError) {
+  use history <- result.try(history.rebind_identity_order(state.history, order))
+  use authored <- result.try(
+    change.rebind_identity_order(commit.change, order, [commit.revision]),
+  )
+  receive(
+    TreeState(..state, history:),
+    history.Commit(..commit, change: authored),
+    point,
+    reference_sequence_number,
+    minimum_sequence_number,
+    allocation,
+    mint,
+  )
 }
 
 fn apply_optional(

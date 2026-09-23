@@ -149,6 +149,117 @@ pub fn new(local_session: fluid_ids.SessionId) -> History {
   )
 }
 
+pub fn rebind_identity_order(
+  state: History,
+  identity_order: change.IdentityOrder,
+) -> Result(History, TreeError) {
+  use trunk <- result.try(
+    list.try_map(state.trunk, fn(entry) {
+      use commit <- result.try(rebind_commit(entry.commit, identity_order))
+      Ok(SequencedCommit(..entry, commit:))
+    }),
+  )
+  use peers <- result.try(
+    list.try_map(state.peers, fn(peer) {
+      use commits <- result.try(
+        list.try_map(peer.commits, fn(entry) {
+          use commit <- result.try(rebind_commit(entry.commit, identity_order))
+          Ok(BranchCommit(..entry, commit:))
+        }),
+      )
+      Ok(PeerState(..peer, commits:))
+    }),
+  )
+  use pending <- result.try(
+    list.try_map(state.pending, fn(entry) {
+      use original <- result.try(rebind_commit(
+        entry.original.commit,
+        identity_order,
+      ))
+      use current <- result.try(rebind_commit(
+        entry.current.commit,
+        identity_order,
+      ))
+      Ok(LocalCommit(
+        BranchCommit(..entry.original, commit: original),
+        BranchCommit(..entry.current, commit: current),
+      ))
+    }),
+  )
+  use rollbacks <- result.try(
+    list.try_map(state.rollbacks, fn(entry) {
+      use bound <- result.try(
+        change.rebind_identity_order(entry.change, identity_order, [
+          entry.revision,
+        ]),
+      )
+      Ok(RollbackEntry(..entry, change: bound))
+    }),
+  )
+  use receipts <- result.try(
+    list.try_map(state.receipts, fn(entry) {
+      use commit <- result.try(case entry.commit {
+        None -> Ok(None)
+        Some(commit) ->
+          rebind_commit(commit, identity_order) |> result.map(Some)
+      })
+      Ok(RetainedReceipt(..entry, commit:))
+    }),
+  )
+  Ok(History(..state, trunk:, peers:, pending:, rollbacks:, receipts:))
+}
+
+pub fn identity_revisions(state: History) -> List(fluid_ids.StableId) {
+  let commits =
+    list.append(
+      list.map(state.trunk, fn(entry) { entry.commit }),
+      list.append(
+        list.flat_map(state.peers, fn(peer) {
+          list.map(peer.commits, fn(entry) { entry.commit })
+        }),
+        list.flat_map(state.pending, fn(entry) {
+          [entry.original.commit, entry.current.commit]
+        }),
+      ),
+    )
+  let commits =
+    list.append(
+      commits,
+      list.flat_map(state.receipts, fn(entry) {
+        case entry.commit {
+          None -> []
+          Some(commit) -> [commit]
+        }
+      }),
+    )
+  let revisions =
+    list.append(
+      history_revisions(state),
+      list.flat_map(commits, fn(commit) {
+        change.identity_revisions(commit.change)
+      }),
+    )
+  list.append(
+    revisions,
+    list.flat_map(state.rollbacks, fn(entry) {
+      [entry.revision, ..change.identity_revisions(entry.change)]
+    }),
+  )
+  |> list.unique
+}
+
+fn rebind_commit(
+  commit: Commit,
+  identity_order: change.IdentityOrder,
+) -> Result(Commit, TreeError) {
+  use bound <- result.try(
+    change.rebind_identity_order(commit.change, identity_order, [
+      commit.revision,
+    ]),
+  )
+  Ok(Commit(..commit, change: bound))
+}
+
 pub fn append_local(
   state: History,
   commit: Commit,

@@ -325,6 +325,111 @@ pub fn shared_tree_kernel_rebases_pending_and_snapshots_trunk_test() {
   |> expect.to_equal(Ok(Some(NumberValue(8.0))))
 }
 
+pub fn shared_tree_kernel_rebinds_authored_orders_before_remote_delivery_test() {
+  let local = initial_state()
+  let peer = initial_state_for(other_session())
+  let assert Ok(rollback) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000006")
+  let assert Ok(local_order) = change.identity_order([#(revision(), -1)])
+  let assert Ok(peer_order) = change.identity_order([#(other_revision(), -1)])
+  let assert Ok(delivery_order) =
+    change.identity_order([
+      #(revision(), 513),
+      #(other_revision(), 1),
+      #(rollback, 1025),
+    ])
+  let assert Ok(#(local, _, _)) =
+    tree_kernel.apply_local(
+      local,
+      revision(),
+      local_order,
+      SetField(["point", "x"], NumberValue(7.0)),
+    )
+  let assert Ok(#(_, remote, _)) =
+    tree_kernel.apply_local(
+      peer,
+      other_revision(),
+      peer_order,
+      SetField(["point", "x"], NumberValue(8.0)),
+    )
+  let assert Ok(before) = tree_kernel.snapshot(local)
+  tree_kernel.receive_ordered(
+    local,
+    remote,
+    peer_order,
+    types.SequencePoint(1, 0),
+    0,
+    0,
+    Nil,
+    no_mint,
+  )
+  |> expect.to_be_error
+  tree_kernel.snapshot(local) |> expect.to_equal(Ok(before))
+  let #(received, _, _) = case
+    tree_kernel.receive_ordered(
+      local,
+      remote,
+      delivery_order,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Allocation([rollback], delivery_order, 0),
+      mint,
+    )
+  {
+    Ok(value) -> value
+    Error(error) -> panic as string.inspect(error)
+  }
+  tree_kernel.read(received, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  tree_kernel.history_view(received).pending
+  |> list.length
+  |> expect.to_equal(1)
+  list.any(tree_kernel.identity_revisions(received), fn(id) { id == rollback })
+  |> expect.to_equal(False)
+}
+
+pub fn shared_tree_kernel_rebinding_drops_unused_identity_keys_test() {
+  let assert Ok(order) =
+    change.identity_order([#(revision(), 1), #(other_revision(), 513)])
+  let assert Ok(bound) =
+    change.rebind_identity_order(change.empty(), order, [revision()])
+  change.identity_revisions(bound) |> expect.to_equal([revision()])
+}
+
+pub fn shared_tree_kernel_rebinding_trims_obsolete_history_keys_test() {
+  let assert Ok(third) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000006")
+  let revisions = [revision(), other_revision(), third]
+  let assert Ok(order) =
+    change.identity_order([
+      #(revision(), 1),
+      #(other_revision(), 513),
+      #(third, 1025),
+    ])
+  let _ =
+    list.fold(revisions, #(history.new(session()), 0), fn(state, revision) {
+      let sequence = state.1 + 1
+      let commit = history.Commit(revision, session(), change.empty())
+      let assert Ok(appended) = history.append_local(state.0, commit)
+      let assert Ok(bound) =
+        history.rebind_identity_order(appended.history, order)
+      let assert Ok(#(update, Nil)) =
+        history.receive(
+          bound,
+          commit,
+          types.SequencePoint(sequence, 0),
+          sequence - 1,
+          sequence,
+          Nil,
+          no_mint,
+        )
+      history.identity_revisions(update.history) |> expect.to_equal([])
+      #(update.history, sequence)
+    })
+  Nil
+}
+
 pub fn shared_tree_kernel_failed_receive_preserves_both_views_test() {
   let state = initial_state()
   let peer = initial_state_for(other_session())
