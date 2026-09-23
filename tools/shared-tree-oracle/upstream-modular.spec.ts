@@ -60,11 +60,22 @@ import {
 
 const referenceCommit = "c3c5bf0ecd313362e83fe8a02b7d39e7e0736960";
 let revisionCompressor = testIdCompressor;
+type ObservationCompressor = typeof testIdCompressor;
 
 function revision(value: RevisionTag | undefined): string | null {
 	if (value === undefined) return null;
 	assert(typeof value === "number", "The modular profile requires compressed revision IDs");
 	return revisionCompressor.decompress(value);
+}
+
+function withRevisionCompressor<T>(compressor: ObservationCompressor, run: () => T): T {
+	const previous = revisionCompressor;
+	revisionCompressor = compressor;
+	try {
+		return run();
+	} finally {
+		revisionCompressor = previous;
+	}
 }
 
 function revisionTag(value: unknown): SessionSpaceCompressedId {
@@ -76,6 +87,17 @@ function revisionTag(value: unknown): SessionSpaceCompressedId {
 
 function atom(value: ChangeAtomId): Atom {
 	return { revision: revision(value.revision), localId: value.localId };
+}
+
+export function atomWithCompressor(value: ChangeAtomId, compressor: ObservationCompressor): Atom {
+	return withRevisionCompressor(compressor, () => atom(value));
+}
+
+export function detachedWithCompressor(
+	value: DeltaDetachedNodeId,
+	compressor: ObservationCompressor,
+): Atom {
+	return withRevisionCompressor(compressor, () => detached(value));
 }
 
 function detached(value: DeltaDetachedNodeId): Atom {
@@ -158,6 +180,13 @@ function structure(change: ModularChangeset): object {
 	};
 }
 
+export function structureWithCompressor(
+	change: ModularChangeset,
+	compressor: ObservationCompressor,
+): object {
+	return withRevisionCompressor(compressor, () => structure(change));
+}
+
 function deltaFields(value: DeltaFieldMap | undefined): DeltaInput["fields"] {
 	return [...(value ?? [])].map(([key, field]) => [key, {
 		marks: field.marks.map((mark) => ({
@@ -183,6 +212,14 @@ function deltaData(value: DeltaRoot, latest: RevisionTag | undefined): DeltaInpu
 		})),
 		destroy: (value.destroy ?? []).map((destroy) => ({ id: detached(destroy.id), count: destroy.count })),
 	};
+}
+
+export function deltaDataWithCompressor(
+	value: DeltaRoot,
+	latest: RevisionTag | undefined,
+	compressor: ObservationCompressor,
+): DeltaInput {
+	return withRevisionCompressor(compressor, () => deltaData(value, latest));
 }
 
 function fieldPath(path: string[]): FieldUpPath {

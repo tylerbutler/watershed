@@ -142,6 +142,43 @@ test("modular evidence distinguishes root names and compressed revision order", 
   assert.deepEqual(nested.delta.global.map(({ id }) => id.localId), [20, 10]);
 });
 
+test("history corpus requires the complete source-backed schedule matrix", () => {
+  const corpus = cases();
+  const fixture = corpus.find(({ id }) => id === "history-reconciliation");
+  assert.equal(fixture.domain, "history");
+  assert.equal(fixture.input.schedules.length, 16);
+  assert.equal(fixture.expected.observations.length, 16);
+  assert.doesNotThrow(() => validateCases(corpus));
+});
+
+test("history corpus rejects incomplete allocation, branch, point, and checkpoint evidence", () => {
+  for (const mutate of [
+    (value) => { delete value.input.schedules[0].actions[0].allocations; },
+    (value) => {
+      const peer = value.expected.observations
+        .flatMap(({ checkpoints }) => checkpoints)
+        .flatMap(({ history }) => history.sequenced.peers)[0];
+      delete peer.base;
+    },
+    (value) => {
+      delete value.input.schedules
+        .flatMap(({ actions }) => actions)
+        .find(({ op }) => op === "receive").point;
+    },
+    (value) => { value.expected.observations[1].checkpoints.splice(2, 1); },
+    (value) => { delete value.expected.observations[0].checkpoints[0].forest.detached; },
+    (value) => {
+      value.input.schedules
+        .find(({ label }) => label === "resubmit-detached-repair")
+        .actions.at(-1).repair[0].builds = [];
+    },
+  ]) {
+    const corpus = cases();
+    mutate(corpus.find(({ id }) => id === "history-reconciliation"));
+    assert.throws(() => validateCases(corpus), /history-reconciliation/);
+  }
+});
+
 test("field corpus refuses incomplete operations, callbacks, identities and observations", () => {
   for (const mutate of [
     (value) => { value.input.operations.compose = null; },
@@ -203,7 +240,7 @@ test("manifest records complete native runners and actual wire field kinds", asy
 });
 
 test("corpus validation requires every named case and nonempty observations", () => {
-  assert.equal(requiredCases.length, 24);
+  assert.equal(requiredCases.length, 25);
   assert.doesNotThrow(() => validateCases(cases()));
   assert.throws(() => validateCases([]), /empty|missing/i);
   assert.throws(() => validateCases(cases().slice(1)), /schema-profile/);

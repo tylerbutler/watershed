@@ -1079,6 +1079,8 @@ if (process.env.WATERSHED_ORACLE_CORPUS === "1") {
 			);
 			const { expandModularEvidence } = await import("./watershedModular.spec.js");
 			expandModularEvidence(output);
+			const { captureHistoryEvidence } = await import("./watershedHistory.spec.js");
+			captureHistoryEvidence(output);
 		});
 	});
 }
