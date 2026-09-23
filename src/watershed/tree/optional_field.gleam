@@ -137,13 +137,17 @@ pub fn compose(
     ),
   )
   let remaining_children =
-    register_map_entries(remapped_second_children, remaining_children)
+    grouped_map_entries(remapped_second_children, remaining_children, fn(child) {
+      register_group(child.0)
+    })
   use #(children, state) <- result.try(compose_remaining_children(
     remaining_children,
     state,
     compose_child,
     children,
   ))
+  let first_moves =
+    grouped_map_entries(first_moves, first_moves, fn(move) { move.0.revision })
   let #(moves, remaining_first_moves) =
     compose_second_moves(second_moves, first_moves, first_destination, [])
   let moves =
@@ -253,7 +257,10 @@ pub fn rebase(
       [],
     ),
   )
-  let remaining_over = register_map_entries(over_children, remaining_over)
+  let remaining_over =
+    grouped_map_entries(over_children, remaining_over, fn(child) {
+      register_group(child.0)
+    })
   use #(children, state) <- result.try(rebase_base_children(
     remaining_over,
     forward,
@@ -673,20 +680,21 @@ fn option_or(first: Option(a), second: Option(a)) -> Option(a) {
   }
 }
 
-fn register_map_entries(
-  original: List(#(RegisterId, AtomId)),
-  remaining: List(#(RegisterId, AtomId)),
-) -> List(#(RegisterId, AtomId)) {
+fn grouped_map_entries(
+  original: List(entry),
+  remaining: List(entry),
+  group_by: fn(entry) -> key,
+) -> List(entry) {
   let groups =
-    list.fold(original, [], fn(groups, child) {
-      let group = register_group(child.0)
+    list.fold(original, [], fn(groups, entry) {
+      let group = group_by(entry)
       case list.contains(groups, group) {
         True -> groups
         False -> list.append(groups, [group])
       }
     })
   list.flat_map(groups, fn(group) {
-    list.filter(remaining, fn(child) { register_group(child.0) == group })
+    list.filter(remaining, fn(entry) { group_by(entry) == group })
   })
 }
 

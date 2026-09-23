@@ -156,6 +156,26 @@ pub fn shared_tree_field_compose_callback_refusal_returns_no_state_test() {
   |> expect.to_equal(Error(CorruptData("child", "callback refused")))
 }
 
+pub fn shared_tree_field_compose_moves_follow_source_revision_order_test() {
+  let first =
+    optional_field.FieldChange(
+      [
+        #(atom(0), atom(1)),
+        #(atom_b(2), atom_b(3)),
+        #(atom(4), atom(5)),
+      ],
+      [],
+      None,
+    )
+  let second = optional_field.FieldChange([#(atom(1), atom(6))], [], None)
+  compose_without_children(first, second).moves
+  |> expect.to_equal([
+    #(atom(0), atom(6)),
+    #(atom(4), atom(5)),
+    #(atom_b(2), atom_b(3)),
+  ])
+}
+
 pub fn shared_tree_field_callbacks_follow_register_map_order_test() {
   let interleaved = [
     #(optional_field.Detached(atom(4)), atom(40)),
@@ -561,6 +581,8 @@ pub fn shared_tree_field_required_schema_refuses_clear_delta_test() {
       stored,
       Some(NumberValue(1.0)),
     )
+  let before = forest.export_data(state)
+  let assert Ok(reference) = forest.locate(state, [])
   let assert Ok(field_delta) =
     optional_field.into_delta(optional_field.clear(False, atom(6)), fn(_) {
       Ok([])
@@ -579,7 +601,74 @@ pub fn shared_tree_field_required_schema_refuses_clear_delta_test() {
       ),
     )
   let assert Error(_) = forest.apply_delta(state, delta)
-  Nil
+  forest.export_data(state) |> expect.to_equal(before)
+  forest.is_attached(state, reference) |> expect.to_equal(Ok(True))
+  forest.read_node(state, reference) |> expect.to_equal(Ok(NumberValue(1.0)))
+}
+
+pub fn shared_tree_field_null_and_absence_preserve_detached_identity_test() {
+  let initial = field_forest(None)
+  let assert Ok(filled) =
+    apply_to_forest(initial, optional_field.set(True, atom(0), atom(1)), [
+      forest.Build(atom(0), [types.NullValue]),
+    ])
+  forest.visible_root(filled) |> expect.to_equal(Ok(Some(types.NullValue)))
+  let assert Ok(reference) = forest.locate(filled, [])
+  let assert Ok(cleared) =
+    apply_to_forest(filled, optional_field.clear(False, atom(2)), [])
+  forest.visible_root(cleared) |> expect.to_equal(Ok(None))
+  forest.is_attached(cleared, reference) |> expect.to_equal(Ok(False))
+  forest.read_node(cleared, reference) |> expect.to_equal(Ok(types.NullValue))
+}
+
+pub fn shared_tree_field_inverse_restores_original_forest_identity_test() {
+  list.each([True, False], fn(rollback) {
+    let initial = field_forest(Some(NumberValue(1.0)))
+    let assert Ok(original) = forest.locate(initial, [])
+    let change = optional_field.set(False, atom(0), atom(1))
+    let assert Ok(changed) =
+      apply_to_forest(initial, change, [
+        forest.Build(atom(0), [NumberValue(2.0)]),
+      ])
+    let assert Ok(replacement) = forest.locate(changed, [])
+    let assert Ok(#(inverse, _)) =
+      optional_field.invert(change, rollback, atom_b(0).revision, -1)
+    let assert Ok(restored) = apply_to_forest(changed, inverse, [])
+    forest.locate(restored, []) |> expect.to_equal(Ok(original))
+    forest.read_node(restored, original)
+    |> expect.to_equal(Ok(NumberValue(1.0)))
+    forest.is_attached(restored, replacement) |> expect.to_equal(Ok(False))
+    forest.read_node(restored, replacement)
+    |> expect.to_equal(Ok(NumberValue(2.0)))
+    let assert Ok(data) = forest.export_data(restored)
+    list.length(data.detached) |> expect.to_equal(1)
+  })
+}
+
+pub fn shared_tree_field_refused_attach_and_swap_preserve_forest_test() {
+  let empty = optional_field.FieldChange([], [], None)
+  let assert Ok(built) =
+    apply_to_forest(field_forest(None), empty, [
+      forest.Build(atom(4), [NumberValue(4.0)]),
+      forest.Build(atom(5), [NumberValue(5.0)]),
+    ])
+  let before = forest.export_data(built)
+  [
+    optional_field.set(True, atom(99), atom(1)),
+    optional_field.FieldChange(
+      [#(atom(4), atom(5)), #(atom(5), atom(4))],
+      [],
+      None,
+    ),
+  ]
+  |> list.each(fn(change) {
+    optional_field.validate(change) |> expect.to_equal(Ok(Nil))
+    let assert Error(CorruptData(_, _)) = apply_to_forest(built, change, [])
+    forest.export_data(built) |> expect.to_equal(before)
+  })
+  let self_move = optional_field.FieldChange([#(atom(4), atom(4))], [], None)
+  let assert Ok(unchanged) = apply_to_forest(built, self_move, [])
+  forest.export_data(unchanged) |> expect.to_equal(before)
 }
 
 pub fn shared_tree_field_composed_application_matches_sequential_test() {
@@ -628,45 +717,151 @@ pub fn shared_tree_field_rollback_restores_registers_and_undo_restores_value_tes
 }
 
 pub fn shared_tree_field_composition_is_associative_in_valid_context_test() {
-  let first = optional_field.set(False, atom(0), atom(1))
-  let second = optional_field.set(False, atom_b(2), atom_b(3))
-  let third = optional_field.clear(False, atom(4))
-  let initial = [
-    #(optional_field.Active, "old"),
-    #(optional_field.Detached(atom(0)), "first"),
-    #(optional_field.Detached(atom_b(2)), "second"),
-  ]
-  let left =
-    compose_without_children(compose_without_children(first, second), third)
-  let right =
-    compose_without_children(first, compose_without_children(second, third))
-  assert_registers_equal(
-    apply_change(initial, left),
-    apply_change(initial, right),
-    [
-      optional_field.Active,
-      optional_field.Detached(atom(0)),
-      optional_field.Detached(atom(1)),
-      optional_field.Detached(atom_b(2)),
-      optional_field.Detached(atom_b(3)),
-      optional_field.Detached(atom(4)),
-    ],
-  )
+  list.each([True, False], fn(was_empty) {
+    list.each(valid_edits(was_empty, 10), fn(first) {
+      let assert Some(first_replacement) = first.replacement
+      list.each(valid_edits(first_replacement.source == None, 20), fn(second) {
+        let assert Some(second_replacement) = second.replacement
+        list.each(valid_edits(second_replacement.source == None, 30), fn(third) {
+          let left =
+            compose_without_children(
+              compose_without_children(first, second),
+              third,
+            )
+          let right =
+            compose_without_children(
+              first,
+              compose_without_children(second, third),
+            )
+          left.replacement |> expect.to_equal(right.replacement)
+          let root = case was_empty {
+            True -> None
+            False -> Some(NumberValue(0.0))
+          }
+          let builds = [
+            forest.Build(atom(10), [NumberValue(1.0)]),
+            forest.Build(atom(20), [NumberValue(2.0)]),
+            forest.Build(atom(30), [NumberValue(3.0)]),
+          ]
+          let assert Ok(built) =
+            apply_to_forest(
+              field_forest(root),
+              optional_field.FieldChange([], [], None),
+              builds,
+            )
+          let references =
+            list.map(builds, fn(build) {
+              let assert Ok(reference) = forest.locate_detached(built, build.id)
+              let assert [value] = build.trees
+              #(reference, value)
+            })
+          let assert Ok(left_state) = apply_to_forest(built, left, [])
+          let assert Ok(right_state) = apply_to_forest(built, right, [])
+          let retained = fn(state) {
+            let assert Ok(data) = forest.export_data(state)
+            #(
+              data.root,
+              list.map(data.detached, fn(entry) {
+                #(entry.id, entry.latest_relevant_revision, entry.value)
+              }),
+            )
+          }
+          // Equivalent rename orders can allocate different forest root IDs.
+          retained(left_state) |> expect.to_equal(retained(right_state))
+          list.each(references, fn(entry) {
+            forest.read_node(left_state, entry.0)
+            |> expect.to_equal(Ok(entry.1))
+            forest.read_node(right_state, entry.0)
+            |> expect.to_equal(Ok(entry.1))
+            forest.is_attached(left_state, entry.0)
+            |> expect.to_equal(forest.is_attached(right_state, entry.0))
+          })
+        })
+      })
+    })
+  })
 }
 
-pub fn shared_tree_field_rebase_over_rollback_pair_restores_change_test() {
-  let authored = optional_field.set(False, atom(0), atom(1))
-  let base = optional_field.clear(False, atom_b(2))
-  let assert Ok(#(base_inverse, _)) =
-    optional_field.invert(
-      base,
-      True,
-      Some(revision("00000000-0000-4000-8000-0000000000c0")),
-      -1,
+pub fn shared_tree_field_rebase_do_inverse_and_sandwich_laws_test() {
+  list.each([True, False], fn(was_empty) {
+    list.each(valid_edits(was_empty, 10), fn(authored) {
+      list.each(valid_edits(was_empty, 20), fn(base) {
+        list.each([True, False], fn(rollback) {
+          let assert Ok(#(inverse, _)) =
+            optional_field.invert(base, rollback, atom_b(0).revision, -1)
+          let rebased = rebase_without_children(authored, base)
+          let restored = rebase_without_children(rebased, inverse)
+          restored |> expect.to_equal(authored)
+          rebase_without_children(restored, base) |> expect.to_equal(rebased)
+        })
+      })
+    })
+  })
+}
+
+pub fn shared_tree_field_inverse_composition_has_no_visible_delta_test() {
+  list.each([True, False], fn(was_empty) {
+    list.each(valid_edits(was_empty, 10), fn(change) {
+      let assert Ok(#(inverse, _)) =
+        optional_field.invert(change, True, atom_b(0).revision, -1)
+      list.each([#(change, inverse), #(inverse, change)], fn(pair) {
+        let composed = compose_without_children(pair.0, pair.1)
+        let assert Ok(delta) =
+          optional_field.into_delta(composed, fn(_) {
+            Error(CorruptData("test child", "Unexpected child callback"))
+          })
+        delta.local |> expect.to_equal(None)
+      })
+    })
+  })
+}
+
+fn valid_edits(
+  was_empty: Bool,
+  offset: Int,
+) -> List(optional_field.FieldChange) {
+  [
+    optional_field.set(was_empty, atom(offset), atom(offset + 1)),
+    optional_field.clear(was_empty, atom(offset + 2)),
+  ]
+}
+
+fn field_forest(root: Option(types.TreeValue)) -> forest.Forest {
+  let assert Ok(stored) =
+    schema.stored_from_string(
+      "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.null\":{\"kind\":{\"leaf\":4}}},\"root\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.number\",\"com.fluidframework.leaf.null\"]}}",
     )
-  let rebased = rebase_without_children(authored, base)
-  rebase_without_children(rebased, base_inverse)
-  |> expect.to_equal(authored)
+  let assert Ok(state) =
+    forest.new(revision("00000000-0000-4000-8000-000000000001"), stored, root)
+  state
+}
+
+fn apply_to_forest(
+  state: forest.Forest,
+  change: optional_field.FieldChange,
+  builds: List(forest.Build),
+) -> Result(forest.Forest, types.TreeError) {
+  let assert Ok(delta) =
+    optional_field.into_delta(change, fn(_) {
+      Error(CorruptData("test child", "Unexpected child callback"))
+    })
+  let fields = case delta.local {
+    None -> []
+    Some(local) -> [#("rootFieldKey", local)]
+  }
+  let assert Ok(delta) =
+    forest.delta(
+      forest.DeltaData(
+        latest_revision: atom(0).revision,
+        fields:,
+        build: builds,
+        refreshers: [],
+        global: delta.global,
+        rename: delta.rename,
+        destroy: [],
+      ),
+    )
+  forest.apply_delta(state, delta)
 }
 
 fn compose_without_children(

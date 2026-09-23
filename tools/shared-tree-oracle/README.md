@@ -255,7 +255,7 @@ future work.
 passes each fresh artifact to the pinned source consumer. The consumer decodes
 schema and FieldBatch output, applies native-authored messages, loads native
 DDS tree-index summaries, and makes another accepted upstream edit. The
-coordinator requires all 13 scenario IDs, compares both targets with fixed
+coordinator requires all 14 scenario IDs, compares both targets with fixed
 semantic expectations, rejects empty or stale artifacts, and removes its owned
 temporary output.
 
@@ -335,6 +335,9 @@ the task 10a production codecs are separate.
 
 `src/watershed/tree/optional_field.gleam` implements the shared required/optional
 field algebra. Child callbacks return candidate state through typed results.
+Composition retains first-seen source-revision groups for unmatched moves.
+Native algebra-law tests also check retained node references through the real
+forest, including rollback, undo, and atomic refusals.
 The schema/forest boundary rejects a required field left empty. Simultaneous
 register mappings remain valid algebra even though the forest rejects direct
 transfers around an occupied rename cycle.
@@ -383,54 +386,6 @@ binary, escaped-name, empty-tree, and failure probes. It also runs as part of
 `fetch_summary` and `upload_summary` callers still use the single-header format;
 Task 13 replaces that path after the runtime and tree codecs can form a complete
 document summary.
-
-### Field algebra source contract
-
-The `field-compose-invert-rebase` case retains its seven original observations
-and adds 43 source-generated scenarios. Each named action invokes the pinned
-required/optional field editor, composer, inverter, rebaser, revision replacer,
-or delta converter. Forest actions apply those deltas to upstream's real forest.
-The scripts record callback arguments and results, inverse allocation counters,
-register identities, deltas, retained content, and applicable algebra laws.
-
-`input.revisionTable` pairs upstream numeric revisions with their actual
-decompressed stable UUIDs. The native test adapter uses that table in both
-directions; it does not invent identities. Its V2 translation preserves Active
-(`null`) versus clearing (an omitted source), and is test-only code, not a
-production wire codec. The runner receives only `input`; `assert_case` compares
-its entire output, including every scenario checkpoint, with `expected`.
-
-Simultaneous detached-register swaps are valid algebra. Applying the resulting
-occupied cyclic rename directly to the forest is refused. This observation uses
-the shared reason `occupied-rename-cycle`; `raw` retains upstream's exact
-`Error: 0x7cf`. Each implementation checks the specific refusal and unchanged
-register state before reporting that reason. Unrelated failures are not mapped
-to it.
-
-### Native field algebra
-
-`src/watershed/tree/optional_field.gleam` implements the field layer in pure
-Gleam. Composition is pairwise. Composition and rebasing thread caller-owned
-child callback state explicitly, including base-only callbacks and the child's
-attachment state. They return no candidate context on failure. Inversion
-distinguishes rollback from ordinary undo and returns a candidate allocation
-counter with the inverse; the caller accepts both together.
-
-Required fields use the same algebra as optional fields, with the forest
-enforcing cardinality. Field-only delta conversion produces local marks,
-detached child changes, and renames. It does not produce builds, summaries,
-history, or document runtime metadata. Revision replacement checks every atom
-location and rejects identity collisions.
-
-The focused native command is
-`gleam test --target erlang -- --test-name-filter=shared_tree_field`; repeat it
-with `--target javascript`. Exact oracle checkpoints include forest allocation
-metadata. Separate algebra-law tests compare retained atom identities, content,
-and real node references across equivalent edit paths: different rename orders
-can allocate different internal forest root IDs.
-
-This coverage does not establish a native SharedTree runtime, production codec
-interoperability, or mixed-client document editing. Those remain later tasks.
 
 ### Forest delta source contract
 

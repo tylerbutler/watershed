@@ -502,68 +502,6 @@ test("corpus validation refuses placeholder observations and incomplete domain e
   assert.throws(() => validateCases(missingAlgebra), /algebra/);
 });
 
-test("field evidence requires the complete scenario matrix", () => {
-  const corpus = cases();
-  const field = corpus.find(({ id }) => id === "field-compose-invert-rebase");
-  assert(Array.isArray(field.input.scenarios));
-  assert(Array.isArray(field.expected.scenarios));
-  assert(Array.isArray(field.raw.scenarios));
-  field.input.scenarios.pop();
-  field.expected.scenarios.pop();
-  field.raw.scenarios.pop();
-  assert.throws(() => validateCases(corpus), /field-compose-invert-rebase/);
-});
-
-test("field evidence rejects incomplete or non-replayable scripts", () => {
-  const mutations = [
-    (value) => { value.input.scenarios[1].id = value.input.scenarios[0].id; },
-    (value) => { delete value.input.scenarios[0].actions[0].id; },
-    (value) => {
-      const actions = value.input.scenarios.find(({ id }) => id === "rebase-set-set-orders").actions;
-      actions[1].id = actions[0].id;
-    },
-    (value) => { value.input.scenarios[0].actions[0].op = "unknown"; },
-    (value) => {
-      value.input.scenarios.find(({ id }) => id === "compose-set-set").actions[0].left = "missing";
-    },
-    (value) => {
-      value.input.scenarios.find(({ id }) => id === "law-associativity").actions[0].left = "left";
-    },
-    (value) => { value.input.revisionTable.pop(); },
-    (value) => { value.input.revisionTable[1].revision = value.input.revisionTable[0].revision; },
-    (value) => { value.input.revisionTable[1].stableId = value.input.revisionTable[0].stableId; },
-    (value) => { value.expected.scenarios[0].checkpoints.pop(); },
-    (value) => { value.expected.scenarios[20].checkpoints.reverse(); },
-    (value) => {
-      delete value.expected.scenarios
-        .find(({ id }) => id === "invert-set-rollback").checkpoints[0].allocations;
-    },
-    (value) => {
-      delete value.raw.scenarios
-        .find(({ id }) => id === "compose-child-both").checkpoints[0].callbacks;
-    },
-    (value) => {
-      delete value.raw.scenarios
-        .find(({ id }) => id === "delta-local-global").checkpoints[0].delta;
-    },
-    (value) => {
-      value.expected.observations
-        .find(({ operation }) => operation === "simultaneous-swap-direct-application-refusal")
-        .reason = "unknown";
-    },
-    (value) => {
-      value.raw.swapApplication.refusal.error = "Error: different";
-    },
-    (value) => { value.input.scenarios[0].actions[0].expected = {}; },
-  ];
-  for (const [index, mutate] of mutations.entries()) {
-    const corpus = cases();
-    mutate(corpus.find(({ id }) => id === "field-compose-invert-rebase"));
-    assert.throws(() => validateCases(corpus), /field-compose-invert-rebase/,
-      `field mutation ${index}`);
-  }
-});
-
 test("ID corpus requires replayable restoration and complete cluster and precision traces", () => {
   for (const mutate of [
     (value) => { delete value.input.operations.restoration.ongoing.serialized; },

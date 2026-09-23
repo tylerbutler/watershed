@@ -77,12 +77,12 @@ are complete. Task 10 is the next semantics task. The diagram retains the
 original dependency split:
 
 ```text
-Completed Tasks 1-7 -> contract and ownership check
+Completed Tasks 1-6 -> contract and ownership check
                                   |
      +----------------------------+----------------------------+
      |                            |                            |
- A: 8 modular changes     B: 11a container/             C: 13a summary-tree/
-                             routing/handle                storage foundations
+ A: 7 field algebra        B: 11a container/             C: 13a summary-tree/
+    -> 8 modular changes     routing/handle                storage foundations
     -> 9 edit history        foundations                       |
     -> 10 codecs/kernel           |                            |
      |                            |                            |
@@ -101,12 +101,12 @@ Completed Tasks 1-7 -> contract and ownership check
 
 `11a` and `13a` name foundation slices of Tasks 11 and 13, not new numbered
 tasks. Completing either slice does not close its parent task. Keep the
-`8 -> 9 -> 10` chain ordered, then give one owner the shared integration
+`7 -> 8 -> 9 -> 10` chain ordered, then give one owner the shared integration
 work. This plan does not require subagents.
 
 ### Parallel workstreams and integration
 
-All three lanes can proceed from the completed foundations after agreeing their
+All three lanes can start from the completed Tasks 1-6 after agreeing their
 contracts and file ownership. Task 11's container formats depend on the M0
 evidence and ID contract, not on the future tree kernel. Task 13's tree/blob I/O
 can likewise proceed before its document restoration and publication work.
@@ -116,7 +116,7 @@ focused `test/watershed/shared_tree_*_test.gleam` tests and task-local adapters.
 
 | Lane | Owned files and deliverable | Stop before |
 | --- | --- | --- |
-| A: tree semantics | `tree/optional_field.gleam`, `tree/change.gleam`, `tree/history.gleam`, `tree/codec.gleam`, `tree_kernel.gleam`; extend the completed field algebra with modular hooks, nested changes, reconciliation, codecs, and pure kernel | Live runtime changes |
+| A: tree semantics | `tree/optional_field.gleam`, `tree/change.gleam`, `tree/history.gleam`, `tree/codec.gleam`, `tree_kernel.gleam`; field algebra, nested changes, reconciliation, codecs, and pure kernel | Live runtime changes |
 | B: container protocol | `wire/fluid_container.gleam`, bounded additions to `handle.gleam` and its tests; typed envelopes, ordered batches, routes, context-aware handles, and bootstrap-map wire checks | Runtime dispatch, broad existing-DDS envelope replacement, and facade root changes |
 | C: storage foundations | `wire/fluid_summary.gleam`, `git_storage.gleam`, and storage tests; summary trees/blobs/handles, lossless bytes, reference resolution, and hierarchical fetch/staging | Complete `DocumentSummary`, runtime bootstrap/publication, and native cross-writer claims |
 
@@ -125,7 +125,7 @@ focused `test/watershed/shared_tree_*_test.gleam` tests and task-local adapters.
 boundary, and the sequencing metadata that history and reconnect consume.
 Preserve outer sequence, reference and minimum sequence numbers, inner batch
 position, transport submission identity, tree revision, and compressor session
-as distinct concepts. Lane A derives unfinished modular and history signatures
+as distinct concepts. Lane A derives unfinished algebra and history signatures
 from the pinned corpus before downstream work consumes them. Do not dispatch
 history against guessed contexts or scaffold implementations. Keep Task 10 on
 Lane A rather than adding a codec worker before the real changeset/history
@@ -1070,11 +1070,11 @@ revision-tagged composition and modular context belong to Task 8.
 
 ```gleam
 pub fn shared_tree_field_algebra_matches_upstream_test() {
-  fixtures.assert_case("field-compose-invert-rebase", field_fixture.run)
+  fixtures.assert_case("field-compose-invert-rebase", run_field_case)
 }
 ```
 
-`field_fixture.run` decodes typed register changes and invokes the named algebra
+`run_field_case` decodes typed register changes and invokes the named algebra
 function from each fixture action. It compares canonical register maps and
 revision-aware results, not only the current field value.
 

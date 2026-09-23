@@ -36,13 +36,10 @@ import {
 	makeDetachedNodeId,
 	moveToDetachedField,
 	revisionMetadataSourceFromInfo,
-	rootFieldKey,
 	tagChange,
 	type ChangeAtomId,
 	type ChangeEncodingContext,
 	type ChangesetLocalId,
-	type DeltaFieldMap,
-	type DeltaRoot,
 	type DeltaDetachedNodeId,
 	type DetachedField,
 	type FieldKey,
@@ -89,14 +86,8 @@ import {
 	requiredFieldEditor,
 	required,
 } from "../feature-libraries/optional-field/requiredField.js";
-import {
-	brand,
-	idAllocatorFromMaxId,
-	type JsonCompatible,
-	type JsonCompatibleReadOnly,
-} from "../util/index.js";
-import { cursorToJsonObject, fieldJsonCursor } from "./json/index.js";
-import { initializeForest } from "./feature-libraries/index.js";
+import { brand, idAllocatorFromMaxId, type JsonCompatibleReadOnly } from "../util/index.js";
+import { cursorToJsonObject } from "./json/index.js";
 import {
 	assertIsSessionId,
 	buildTestForest,
@@ -122,7 +113,6 @@ interface OracleCase {
 	readonly input: JsonCompatibleReadOnly | object;
 	readonly expected: {
 		readonly observations: readonly (JsonCompatibleReadOnly | object)[];
-		readonly scenarios?: readonly object[];
 	};
 	readonly raw: JsonCompatibleReadOnly | object;
 }
@@ -177,10 +167,8 @@ interface DirectSwapApplication {
 			},
 		];
 	};
-	readonly observation: {
+	readonly observation: RefusalObservation & {
 		readonly operation: "simultaneous-swap-direct-application-refusal";
-		readonly status: "rejected";
-		readonly reason: "occupied-rename-cycle";
 		readonly postFailureForestRead: JsonCompatibleReadOnly | object;
 	};
 	readonly raw: {
@@ -355,8 +343,7 @@ function applyDirectSimultaneousSwap(
 		},
 		observation: {
 			operation: "simultaneous-swap-direct-application-refusal",
-			status: refusal.status,
-			reason: "occupied-rename-cycle",
+			...refusal,
 			postFailureForestRead,
 		},
 		raw: {
@@ -1815,10 +1802,7 @@ describe("watershed upstream algebra oracle", () => {
 			"WATERSHED_ORACLE_COMMIT must match the pinned Fluid commit.",
 		);
 
-		const idCase = makeIdCase(commit);
-		const fieldCase = makeFieldCase(commit);
-		const modularCase = makeModularCase(commit);
-		const cases = [idCase, expandFieldCase(fieldCase), modularCase];
+		const cases = [makeIdCase(commit), makeFieldCase(commit), makeModularCase(commit)];
 		assert.deepEqual(
 			cases.map(({ id, domain }) => ({ id, domain })),
 			[
