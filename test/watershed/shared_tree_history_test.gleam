@@ -333,6 +333,50 @@ pub fn shared_tree_history_retained_duplicate_rejects_conflicts_test() -> Nil {
   Nil
 }
 
+pub fn shared_tree_history_retained_duplicate_preserves_advanced_minimum_test() -> Nil {
+  let first = empty_commit(revision_a(), local_session())
+  let second = empty_commit(revision_b(), local_session())
+  let assert Ok(local) =
+    history.append_local(history.new(local_session()), first)
+  let assert Ok(#(acked, Nil)) =
+    history.receive(
+      local.history,
+      first,
+      types.SequencePoint(3, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(#(advanced, Nil)) =
+    history.advance_minimum(acked.history, 5, 1, Nil, no_mint)
+  let assert Ok(pending) = history.append_local(advanced.history, second)
+  let before = history.inspect(pending.history)
+  let assert Ok(#(replayed, Nil)) =
+    history.receive(
+      pending.history,
+      first,
+      types.SequencePoint(3, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  history.inspect(replayed.history) |> expect.to_equal(before)
+  replayed.delta |> expect.to_equal(None)
+  history.receive(
+    pending.history,
+    second,
+    types.SequencePoint(6, 0),
+    5,
+    0,
+    Nil,
+    no_mint,
+  )
+  |> expect.to_be_error
+  Nil
+}
+
 pub fn shared_tree_history_rebased_ack_replay_does_not_ack_next_test() -> Nil {
   let #(local, remote, _, allocation) = conflicting_commits()
   let assert Ok(local_update) =
@@ -487,6 +531,22 @@ pub fn shared_tree_history_restore_rejects_duplicate_trunk_revision_test() -> Ni
       ],
       [],
       2,
+      -9_007_199_254_740_991,
+    )
+  history.restore(snapshot, local_session()) |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_history_restore_rejects_conflicting_revision_origin_test() -> Nil {
+  let trunk = peer_edit(7.0)
+  let other_session = session("00000000-0000-4000-8000-000000000003")
+  let peer = history.Commit(..peer_edit(8.0), originator: other_session)
+  let snapshot =
+    history.HistorySnapshot(
+      history.InitialBase,
+      [history.SequencedCommit(trunk, types.SequencePoint(1, 0))],
+      [history.PeerBranch(other_session, None, [peer])],
+      1,
       -9_007_199_254_740_991,
     )
   history.restore(snapshot, local_session()) |> expect.to_be_error

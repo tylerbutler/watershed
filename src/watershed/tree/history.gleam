@@ -104,6 +104,7 @@ type RetainedReceipt {
     commit: Option(Commit),
     point: SequencePoint,
     reference_sequence_number: Option(Int),
+    minimum_sequence_number: Option(Int),
   )
 }
 
@@ -205,9 +206,14 @@ pub fn receive(
           commit,
           point,
           reference_sequence_number,
+          minimum_sequence_number,
           allocation,
         )
       None -> {
+        use _ <- result.try(check(
+          minimum_sequence_number >= state.minimum_sequence_number,
+          "minimum sequence number regresses",
+        ))
         use _ <- result.try(validate_new_receive_order(state, point))
         case commit.originator == state.local_session {
           False ->
@@ -247,6 +253,7 @@ fn receive_duplicate(
   commit: Commit,
   point: SequencePoint,
   reference_sequence_number: Int,
+  minimum_sequence_number: Int,
   allocation: allocation,
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
   use _ <- result.try(check(
@@ -286,6 +293,10 @@ fn receive_duplicate(
     expected_reference == reference_sequence_number,
     "duplicate commit reference does not match",
   ))
+  use _ <- result.try(check(
+    receipt.minimum_sequence_number == Some(minimum_sequence_number),
+    "duplicate commit minimum sequence number does not match",
+  ))
   Ok(#(HistoryUpdate(state, None, []), allocation))
 }
 
@@ -324,6 +335,7 @@ fn receive_local(
               Some(commit),
               point,
               Some(reference_sequence_number),
+              Some(supplied_minimum),
             ),
           ]),
           sequence_number: int_max(state.sequence_number, point.sequence_number),
@@ -413,6 +425,7 @@ fn receive_remote(
           Some(commit),
           point,
           Some(reference_sequence_number),
+          Some(supplied_minimum),
         ),
       ]),
       next_node_id: next_node_id,
@@ -1111,7 +1124,7 @@ pub fn restore(
     local_base: None,
     rollbacks: [],
     receipts: list.map(snapshot.trunk, fn(entry) {
-      RetainedReceipt(entry.commit.revision, None, entry.point, None)
+      RetainedReceipt(entry.commit.revision, None, entry.point, None, None)
     }),
     next_node_id: next_node_id,
     sequence_number: snapshot.sequence_number,
@@ -1257,10 +1270,6 @@ fn validate_receive_fields(
     "reference sequence number is in unprocessed history",
   ))
   use _ <- result.try(check(
-    supplied_minimum >= state.minimum_sequence_number,
-    "minimum sequence number regresses",
-  ))
-  use _ <- result.try(check(
     supplied_minimum <= point.sequence_number,
     "minimum sequence number exceeds the received sequence number",
   ))
@@ -1381,6 +1390,25 @@ fn validate_snapshot(snapshot: HistorySnapshot) -> Result(Nil, TreeError) {
         }),
       )
       validate_unique_revisions(list.append(ancestry, peer.commits))
+    }),
+  )
+  let commits =
+    list.append(
+      list.map(snapshot.trunk, fn(entry) { entry.commit }),
+      list.flat_map(snapshot.peers, fn(peer) { peer.commits }),
+    )
+  use _ <- result.try(
+    list.try_fold(commits, [], fn(origins, commit) {
+      case list.key_find(origins, commit.revision) {
+        Error(Nil) -> Ok([#(commit.revision, commit.originator), ..origins])
+        Ok(originator) -> {
+          use _ <- result.try(check(
+            originator == commit.originator,
+            "snapshot revision has conflicting originators",
+          ))
+          Ok(origins)
+        }
+      }
     }),
   )
   Ok(Nil)
