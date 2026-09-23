@@ -152,6 +152,21 @@ fn conflicting_commits() -> #(
   )
 }
 
+fn peer_edit(value: Float) -> history.Commit {
+  let view = revision("00000000-0000-4000-8000-000000000099")
+  let assert Ok(state) = forest.new(view, stored_schema(), Some(root()))
+  let assert Ok(order) = change.identity_order([#(revision_a(), -1)])
+  let assert Ok(authored) =
+    change.edit(
+      stored_schema(),
+      state,
+      revision_a(),
+      SetField(["point", "x"], NumberValue(value)),
+      order,
+    )
+  history.Commit(revision_a(), peer_session(), authored)
+}
+
 pub fn shared_tree_history_starts_empty_test() -> Nil {
   let state = history.new(local_session())
   history.pending(state) |> expect.to_equal([])
@@ -258,13 +273,107 @@ pub fn shared_tree_history_retained_duplicate_does_not_ack_next_test() -> Nil {
     history.receive(
       second_update.history,
       first,
-      types.SequencePoint(2, 0),
-      1,
+      types.SequencePoint(1, 0),
+      0,
       0,
       Nil,
       no_mint,
     )
   history.pending(duplicate.history) |> expect.to_equal([second])
+  duplicate.delta |> expect.to_equal(None)
+}
+
+pub fn shared_tree_history_retained_duplicate_rejects_conflicts_test() -> Nil {
+  let first = empty_commit(revision_a(), local_session())
+  let assert Ok(first_update) =
+    history.append_local(history.new(local_session()), first)
+  let assert Ok(#(acked, Nil)) =
+    history.receive(
+      first_update.history,
+      first,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let changed = peer_edit(9.0)
+  let conflicting_change =
+    history.Commit(first.revision, first.originator, changed.change)
+  history.receive(
+    acked.history,
+    conflicting_change,
+    types.SequencePoint(1, 0),
+    0,
+    0,
+    Nil,
+    no_mint,
+  )
+  |> expect.to_be_error
+  history.receive(
+    acked.history,
+    first,
+    types.SequencePoint(1, 0),
+    1,
+    0,
+    Nil,
+    no_mint,
+  )
+  |> expect.to_be_error
+  history.receive(
+    acked.history,
+    history.Commit(..first, originator: peer_session()),
+    types.SequencePoint(1, 0),
+    0,
+    0,
+    Nil,
+    no_mint,
+  )
+  |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_history_rebased_ack_replay_does_not_ack_next_test() -> Nil {
+  let #(local, remote, _, allocation) = conflicting_commits()
+  let assert Ok(local_update) =
+    history.append_local(history.new(local_session()), local)
+  let assert Ok(#(remote_update, allocation)) =
+    history.receive(
+      local_update.history,
+      remote,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  let assert Ok(#(acked, allocation)) =
+    history.receive(
+      remote_update.history,
+      local,
+      types.SequencePoint(2, 0),
+      1,
+      0,
+      allocation,
+      mint,
+    )
+  let next =
+    empty_commit(
+      revision("00000000-0000-4000-8000-00000000000d"),
+      local_session(),
+    )
+  let assert Ok(pending) = history.append_local(acked.history, next)
+  let assert Ok(#(duplicate, _)) =
+    history.receive(
+      pending.history,
+      local,
+      types.SequencePoint(2, 0),
+      1,
+      0,
+      allocation,
+      mint,
+    )
+  history.pending(duplicate.history) |> expect.to_equal([next])
   duplicate.delta |> expect.to_equal(None)
 }
 
@@ -349,6 +458,124 @@ pub fn shared_tree_history_restore_rejects_missing_peer_base_test() -> Nil {
       -9_007_199_254_740_991,
     )
   history.restore(invalid, local_session()) |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_history_restore_allows_divergent_revision_copy_test() -> Nil {
+  let trunk = peer_edit(7.0)
+  let authored = peer_edit(8.0)
+  let snapshot =
+    history.HistorySnapshot(
+      history.InitialBase,
+      [history.SequencedCommit(trunk, types.SequencePoint(1, 0))],
+      [history.PeerBranch(peer_session(), None, [authored])],
+      1,
+      -9_007_199_254_740_991,
+    )
+  history.restore(snapshot, local_session()) |> expect.to_be_ok
+  Nil
+}
+
+pub fn shared_tree_history_restore_rejects_duplicate_trunk_revision_test() -> Nil {
+  let commit = peer_edit(7.0)
+  let snapshot =
+    history.HistorySnapshot(
+      history.InitialBase,
+      [
+        history.SequencedCommit(commit, types.SequencePoint(1, 0)),
+        history.SequencedCommit(commit, types.SequencePoint(2, 0)),
+      ],
+      [],
+      2,
+      -9_007_199_254_740_991,
+    )
+  history.restore(snapshot, local_session()) |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_history_rejects_receive_behind_processed_watermark_test() -> Nil {
+  let assert Ok(#(advanced, Nil)) =
+    history.advance_minimum(history.new(local_session()), 10, 5, Nil, no_mint)
+  let remote = empty_commit(revision_b(), peer_session())
+  history.receive(
+    advanced.history,
+    remote,
+    types.SequencePoint(6, 0),
+    5,
+    5,
+    Nil,
+    no_mint,
+  )
+  |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_history_rejects_reused_trimmed_sequence_point_test() -> Nil {
+  let first = empty_commit(revision_b(), peer_session())
+  let assert Ok(#(received, Nil)) =
+    history.receive(
+      history.new(local_session()),
+      first,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(#(trimmed, Nil)) =
+    history.advance_minimum(received.history, 10, 1, Nil, no_mint)
+  let next = empty_commit(revision_r(), peer_session())
+  history.receive(
+    trimmed.history,
+    next,
+    types.SequencePoint(1, 1),
+    1,
+    1,
+    Nil,
+    no_mint,
+  )
+  |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_history_allows_same_sequence_continuation_and_gaps_test() -> Nil {
+  let first = empty_commit(revision_b(), peer_session())
+  let second = empty_commit(revision_r(), peer_session())
+  let assert Ok(#(received, Nil)) =
+    history.receive(
+      history.new(local_session()),
+      first,
+      types.SequencePoint(5, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let assert Ok(#(continued, Nil)) =
+    history.receive(
+      received.history,
+      second,
+      types.SequencePoint(5, 1),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  let gap =
+    empty_commit(
+      revision("00000000-0000-4000-8000-00000000000d"),
+      peer_session(),
+    )
+  history.receive(
+    continued.history,
+    gap,
+    types.SequencePoint(9, 0),
+    5,
+    0,
+    Nil,
+    no_mint,
+  )
+  |> expect.to_be_ok
   Nil
 }
 

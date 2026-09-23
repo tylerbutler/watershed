@@ -1124,25 +1124,58 @@ function validateHistoryCase(value) {
   assert.deepEqual(inner.checkpoints[1].history.sequenced.trunk.map(({ point: value }) => value),
     [{ sequenceNumber: 5, indexInBatch: 0 }, { sequenceNumber: 5, indexInBatch: 1 }],
     `${label}: same-sequence inner ordering`);
+  const staleInput = value.input.schedules
+    .find(({ label: id }) => id === "stale-peer-chain");
+  const stale = value.expected.observations
+    .find(({ label: id }) => id === "stale-peer-chain");
+  assert.deepEqual(staleInput.actions.map((action) => [
+    action.commit.change,
+    action.referenceSequenceNumber,
+  ]), [
+    ["remote-parent-b", 0],
+    ["remote-parent", 0],
+    ["remote-child-y", 0],
+  ], `${label}: stale peer divergent continuation inputs`);
+  const stalePeer = stale.checkpoints.at(-1).history.sequenced.peers
+    .find((peer) => peer.originator === value.input.sessions.peerA);
+  check(stalePeer.commits.length === 2
+    && stalePeer.commits[0].revision === staleInput.actions[1].commit.revision
+    && stalePeer.commits[1].revision === staleInput.actions[2].commit.revision
+    && staleInput.actions[2].allocations.length === 1,
+  "stale peer continuation and rollback reuse");
   const trimmed = value.expected.observations
     .find(({ label: id }) => id === "window-advance-with-pending").checkpoints.at(-1);
   check(trimmed.history.sequenced.base.kind === "sequenced"
-    && trimmed.history.sequenced.base.point.sequenceNumber === 2
+    && trimmed.history.sequenced.base.point.sequenceNumber === 1
     && nonemptyArray(trimmed.trimmedRevisions)
-    && trimmed.history.pending.length === 1, "window trimming with pending state");
+    && trimmed.history.pending.length === 1
+    && trimmed.history.sequenced.peers.some((peer) => peer.commits.length > 0),
+  "window trimming with pending divergent peer state");
   const snapshot = value.expected.observations
     .find(({ label: id }) => id === "settled-snapshot-tail");
-  check(snapshot.checkpoints.some((item) => object(item.snapshot))
+  const restored = snapshot.checkpoints.find((item) => object(item.snapshot));
+  const snapshotPeer = restored.snapshot.peers
+    .find((peer) => peer.originator === value.input.sessions.peerA);
+  const tailPeer = snapshot.checkpoints.at(-1).history.sequenced.peers
+    .find((peer) => peer.originator === value.input.sessions.peerA);
+  check(snapshotPeer.commits.length === 2
+    && tailPeer.commits.length === 3
+    && tailPeer.commits[0].revision === snapshotPeer.commits[0].revision
+    && tailPeer.commits[1].revision === snapshotPeer.commits[1].revision
     && snapshot.checkpoints.at(-1).history.pending.length === 0,
-  "snapshot restore continuation");
+  "snapshot restore divergent peer continuation");
   const accepted = value.expected.observations
     .find(({ label: id }) => id === "accepted-before-ack").checkpoints.at(-1).resubmitted;
   check(accepted.length === 1, "accepted-before-ack pending result");
   const never = value.expected.observations.find(({ label: id }) => id === "never-submitted");
+  const neverInput = value.input.schedules.find(({ label: id }) => id === "never-submitted");
   const resubmits = never.checkpoints.filter((item) => Array.isArray(item.resubmitted));
   check(resubmits[0].resubmitted.length === 1
     && resubmits[1].resubmitted[0].revision === resubmits[0].resubmitted[0].revision
-    && resubmits.at(-1).resubmitted.length === 0, "never-submitted stable resubmission");
+    && resubmits.at(-1).resubmitted.length === 0
+    && neverInput.actions.filter((action) => action.op === "resubmit")
+      .every((action) => action.repair.length === 0),
+  "never-submitted stable resubmission without external repair");
   const detachedRepair = value.input.schedules
     .find(({ label: id }) => id === "resubmit-detached-repair").actions.at(-1).repair;
   check(detachedRepair.length === 2, "per-commit detached repair");
@@ -1154,6 +1187,26 @@ function validateHistoryCase(value) {
   check(value.raw.nonlexical.left.stable < value.raw.nonlexical.right.stable
     && value.raw.nonlexical.left.encoded > value.raw.nonlexical.right.encoded,
   "nonlexical compressed revision order");
+  const nonlexicalInput = value.input.schedules
+    .find(({ label: id }) => id === "nonlexical-rollback-order");
+  const nonlexical = value.expected.observations
+    .find(({ label: id }) => id === "nonlexical-rollback-order");
+  const firstContinuation = nonlexical.checkpoints
+    .find((checkpoint) => checkpoint.id === "peer-a-continues");
+  const secondContinuation = nonlexical.checkpoints
+    .find((checkpoint) => checkpoint.id === "peer-a-continues-again");
+  const firstPeer = firstContinuation.history.sequenced.peers
+    .find((peer) => peer.originator === value.input.sessions.peerA);
+  const secondPeer = secondContinuation.history.sequenced.peers
+    .find((peer) => peer.originator === value.input.sessions.peerA);
+  check(firstPeer.commits.length === 2
+    && secondPeer.commits.length === 3
+    && secondPeer.commits[0].revision === firstPeer.commits[0].revision
+    && nonlexicalInput.actions
+      .find((action) => action.id === "peer-a-continues").allocations.length === 2
+    && nonlexicalInput.actions
+      .find((action) => action.id === "peer-a-continues-again").allocations.length === 2,
+  "nonlexical immutable peer node rollback reuse");
 }
 
 export function validateCases(cases) {
