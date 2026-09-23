@@ -2,6 +2,7 @@
 
 import envoy
 import gleam/bit_array
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
 import gleam/option.{None, Some}
@@ -17,11 +18,7 @@ import watershed/tree/codec
 import watershed/tree/codec/field_batch
 import watershed/tree/codec/summary
 import watershed/tree/forest
-import watershed/tree/schema
-import watershed/tree/types.{
-  BooleanValue, ClearField, NullValue, NumberValue, ObjectValue, SetField,
-  StringValue,
-}
+import watershed/tree/types.{AtomId, ClearField, SetField, StringValue}
 import watershed/wire/fluid_summary
 
 const fixture_path = "test/fixtures/shared_tree/cases/tree-codecs.json"
@@ -35,6 +32,8 @@ const fresh_summary_session = "30000000-0000-4000-8000-000000000003"
 const message_session = "40000000-0000-4000-8000-000000000004"
 
 const summary_peer_session = "50000000-0000-4000-8000-000000000005"
+
+const native_summary_consumer_session = "60000000-0000-4000-8000-000000000006"
 
 pub fn main() {
   let output = case envoy.get("WATERSHED_TREE_CODEC_OUTPUT") {
@@ -66,6 +65,7 @@ type Input {
     schemas: List(#(String, String)),
     field_batches: List(#(String, Json)),
     summaries: List(#(String, JsonValue, String, String)),
+    message_bases: List(#(String, JsonValue, String, String)),
   )
 }
 
@@ -105,18 +105,21 @@ fn decode_input(raw: String) -> Result(Input, String) {
   use summaries <- result.try(array(summaries))
   use summaries <- result.try(
     list.try_map(summaries, fn(value) {
-      use id <- result.try(field_text(value, "id"))
-      use encoded <- result.try(field(value, "summary"))
-      use session <- result.try(field_text(value, "session"))
-      use compressor <- result.try(field_text(value, "compressor"))
-      Ok(#(id, encoded, session, compressor))
+      decode_summary_source(value, "summary")
     }),
   )
-  Ok(Input(schemas, batches, summaries))
+  use scenarios <- result.try(field(input, "scenarios"))
+  use scenarios <- result.try(array(scenarios))
+  use message_bases <- result.try(
+    list.try_map(scenarios, fn(value) {
+      decode_summary_source(value, "initialSummary")
+    }),
+  )
+  Ok(Input(schemas, batches, summaries, message_bases))
 }
 
 fn build_artifact(input: Input) -> Result(Json, String) {
-  let Input(schemas, batches, summaries) = input
+  let Input(schemas, batches, summaries, message_bases) = input
   use schema_items <- result.try(
     list.try_map(schemas, fn(source) {
       use decoded <- result.try(codec.decode_schema(source.1) |> native)
@@ -132,10 +135,19 @@ fn build_artifact(input: Input) -> Result(Json, String) {
     }),
   )
   use summary_items <- result.try(list.try_map(summaries, summary_item))
-  use initial <- result.try(initial_state(summaries))
-  use message_items <- result.try(native_messages(initial))
+  use initial <- result.try(summary_state(summaries, "initial"))
+  use note <- result.try(summary_state(message_bases, "optional"))
+  use settled <- result.try(summary_state(summaries, "settled-detached"))
+  use message_items <- result.try(native_messages(initial, note))
+  use authored_summary <- result.try(native_summary(settled))
   let items =
-    list.flatten([schema_items, batch_items, message_items, summary_items])
+    list.flatten([
+      schema_items,
+      batch_items,
+      message_items,
+      summary_items,
+      [authored_summary],
+    ])
   case items {
     [] -> Error("codec artifact has no items")
     _ ->
@@ -239,22 +251,23 @@ fn add_peer_base(
   }
 }
 
-fn initial_state(
+fn summary_state(
   summaries: List(#(String, JsonValue, String, String)),
+  id: String,
 ) -> Result(InitialState, String) {
   use source <- result.try(
-    list.find(summaries, fn(item) { item.0 == "initial" })
-    |> result.map_error(fn(_) { "missing initial summary" }),
+    list.find(summaries, fn(item) { item.0 == id })
+    |> result.map_error(fn(_) { "missing summary " <> id }),
   )
   let #(_, encoded, session_raw, compressor_raw) = source
   use session <- result.try(
     fluid_ids.session_id(session_raw)
     |> result.map_error(string.inspect),
   )
-  use compressor <- result.try(
-    fluid_ids.deserialize(json.string(compressor_raw), session)
-    |> result.map_error(string.inspect),
-  )
+  use #(session, compressor) <- result.try(restore_summary_compressor(
+    compressor_raw,
+    session,
+  ))
   use value <- result.try(
     summary.decode(
       summary_entry(encoded),
@@ -267,87 +280,52 @@ fn initial_state(
   Ok(InitialState(value, session, compressor))
 }
 
-fn native_messages(initial: InitialState) -> Result(List(Json), String) {
-  let InitialState(value, session, compressor) = initial
-  let summary.TreeSummaryData(stored, summary.ForestSummary(fields), _, history) =
-    value
-  use root <- result.try(
-    list.key_find(fields, "rootFieldKey")
-    |> result.map_error(fn(_) { "initial summary has no root field" }),
-  )
-  use root <- result.try(case root {
-    [root] -> Ok(root)
-    _ -> Error("initial summary root field is not a singleton")
-  })
-  let with_note =
-    ObjectValue("org.watershed.shared-tree.m1.Root", [
-      #("title", StringValue("")),
-      #("enabled", BooleanValue(False)),
-      #("rating", NumberValue(0.0)),
-      #("marker", NullValue),
-      #("note", StringValue("to-clear")),
-      #(
-        "point",
-        ObjectValue("org.watershed.shared-tree.m1.Point", [
-          #("x", NumberValue(0.0)),
-          #("y", NumberValue(0.0)),
-        ]),
-      ),
-    ])
+fn native_messages(
+  initial: InitialState,
+  note: InitialState,
+) -> Result(List(Json), String) {
   let cases = [
     #(
       "message-point-replacement",
-      root,
+      initial,
       SetField(
         ["point"],
-        ObjectValue("org.watershed.shared-tree.m1.Point", [
-          #("x", NumberValue(10.0)),
-          #("y", NumberValue(20.0)),
+        types.ObjectValue("org.watershed.shared-tree.m1.Point", [
+          #("x", types.NumberValue(10.0)),
+          #("y", types.NumberValue(20.0)),
         ]),
       ),
       False,
     ),
     #(
       "message-nested-scalar",
-      root,
-      SetField(["point", "x"], NumberValue(7.0)),
+      initial,
+      SetField(["point", "x"], types.NumberValue(7.0)),
       False,
     ),
     #(
       "message-optional-set",
-      root,
+      initial,
       SetField(["note"], StringValue("native-note")),
       False,
     ),
-    #("message-optional-clear", with_note, ClearField(["note"]), False),
-    #("message-detached-repair", with_note, ClearField(["note"]), True),
+    #("message-optional-clear", note, ClearField(["note"]), False),
+    #("message-detached-repair", note, ClearField(["note"]), True),
   ]
   list.try_map(cases, fn(example) {
-    native_message(
-      example.0,
-      example.1,
-      example.2,
-      example.3,
-      value,
-      history,
-      stored,
-      session,
-      compressor,
-    )
+    native_message(example.0, example.1, example.2, example.3)
   })
 }
 
 fn native_message(
   id: String,
-  root: types.TreeValue,
+  initial: InitialState,
   operation: types.Edit,
   add_repair: Bool,
-  base: summary.TreeSummaryData,
-  history: summary.EditManagerSummary,
-  stored: schema.StoredSchema,
-  session: fluid_ids.SessionId,
-  compressor: fluid_ids.Compressor,
 ) -> Result(Json, String) {
+  let InitialState(base, session, compressor) = initial
+  let summary.TreeSummaryData(stored, _, _, _) = base
+  use root <- result.try(summary_root(base))
   use #(compressor, local) <- result.try(
     fluid_ids.generate(compressor)
     |> result.map_error(string.inspect),
@@ -403,17 +381,9 @@ fn native_message(
     )
     |> native,
   )
-  let summary.TreeSummaryData(_, _, detached, _) = base
-  let initial =
-    summary.TreeSummaryData(
-      stored,
-      summary.ForestSummary([#("rootFieldKey", [root])]),
-      detached,
-      history,
-    )
   use initial_summary <- result.try(
     summary.encode(
-      initial,
+      base,
       session,
       codec.EncodeContext(codec.Fluid310, compressor, Some(stored)),
     )
@@ -439,6 +409,181 @@ fn native_message(
   )
 }
 
+fn native_summary(initial: InitialState) -> Result(Json, String) {
+  let InitialState(base, session, compressor) = initial
+  let summary.TreeSummaryData(stored, _, _, history) = base
+  use #(compressor, local) <- result.try(
+    fluid_ids.generate(compressor)
+    |> result.map_error(string.inspect),
+  )
+  let #(compressor, range) = fluid_ids.take_creation_range(compressor)
+  use range <- result.try(case range {
+    Some(range) -> Ok(range)
+    None -> Error("native summary generated no allocation range")
+  })
+  use compressor <- result.try(
+    fluid_ids.finalize(compressor, range)
+    |> result.map_error(string.inspect),
+  )
+  use revision <- result.try(
+    fluid_ids.decompress(compressor, local)
+    |> result.map_error(string.inspect),
+  )
+  use order <- result.try(
+    codec.identity_order([revision], compressor, "summary-native-authored")
+    |> native,
+  )
+  use data <- result.try(summary_forest_data(base))
+  use state <- result.try(forest.import_data(revision, stored, data) |> native)
+  use authored <- result.try(
+    change.edit(
+      stored,
+      state,
+      revision,
+      SetField(["title"], StringValue("watershed-native-summary")),
+      order,
+    )
+    |> native,
+  )
+  use delta <- result.try(
+    change.into_delta(change.TaggedChange(Some(revision), None, authored))
+    |> native,
+  )
+  use updated <- result.try(forest.apply_delta(state, delta) |> native)
+  use data <- result.try(forest.export_data(updated) |> native)
+  let #(forest_summary, detached) = summary_parts(data)
+  let summary.EditManagerSummary(trunk, branches) = history
+  let sequenced =
+    summary.SummaryCommit(
+      codec.WireCommit(
+        revision,
+        session,
+        [codec.DataChange(authored)],
+        Some(
+          codec.CustomMetadata(
+            Some(
+              json.object([#("source", json.string("watershed-native-summary"))]),
+            ),
+            [],
+          ),
+        ),
+      ),
+      Some(next_sequence_number(trunk)),
+      None,
+    )
+  let value =
+    summary.TreeSummaryData(
+      stored,
+      forest_summary,
+      detached,
+      summary.EditManagerSummary(list.append(trunk, [sequenced]), branches),
+    )
+  use encoded <- result.try(
+    summary.encode(
+      value,
+      session,
+      codec.EncodeContext(codec.Fluid310, compressor, Some(stored)),
+    )
+    |> native,
+  )
+  use serialized <- result.try(serialize_compressor(compressor, False))
+  use fresh <- result.try(
+    fluid_ids.session_id(native_summary_consumer_session)
+    |> result.map_error(string.inspect),
+  )
+  Ok(
+    item("summary-native-authored", "summary", summary_json(encoded), [
+      #("compressor", json.string(serialized)),
+      #("compressorMode", json.string("summary")),
+      #("session", json.string(fluid_ids.session_id_to_string(fresh))),
+    ]),
+  )
+}
+
+fn summary_root(
+  value: summary.TreeSummaryData,
+) -> Result(types.TreeValue, String) {
+  let summary.TreeSummaryData(_, summary.ForestSummary(fields), _, _) = value
+  use root <- result.try(
+    list.key_find(fields, "rootFieldKey")
+    |> result.map_error(fn(_) { "summary has no root field" }),
+  )
+  case root {
+    [root] -> Ok(root)
+    _ -> Error("summary root field is not a singleton")
+  }
+}
+
+fn summary_forest_data(
+  value: summary.TreeSummaryData,
+) -> Result(forest.ForestData, String) {
+  let summary.TreeSummaryData(
+    _,
+    summary.ForestSummary(fields),
+    summary.DetachedFieldIndex(entries, max_id),
+    _,
+  ) = value
+  use root <- result.try(summary_root(value))
+  use detached <- result.try(
+    list.try_map(entries, fn(entry) {
+      let summary.DetachedField(major, minor, root_id) = entry
+      use values <- result.try(
+        list.key_find(fields, "repair-" <> int.to_string(root_id))
+        |> result.map_error(fn(_) { "summary repair field is missing" }),
+      )
+      use value <- result.try(case values {
+        [value] -> Ok(value)
+        _ -> Error("summary repair field is not a singleton")
+      })
+      let major = case major {
+        summary.RootRevision -> None
+        summary.StableRevision(revision) -> Some(revision)
+      }
+      Ok(forest.DetachedTreeData(AtomId(major, minor), root_id, None, value))
+    }),
+  )
+  Ok(forest.ForestData(Some(root), detached, max_id + 1))
+}
+
+fn summary_parts(
+  data: forest.ForestData,
+) -> #(summary.ForestSummary, summary.DetachedFieldIndex) {
+  let forest.ForestData(root, detached, next_root_id) = data
+  let root_fields = case root {
+    Some(root) -> [#("rootFieldKey", [root])]
+    None -> []
+  }
+  let repair_fields =
+    list.map(detached, fn(entry) {
+      let forest.DetachedTreeData(_, root, _, value) = entry
+      #("repair-" <> int.to_string(root), [value])
+    })
+  let entries =
+    list.map(detached, fn(entry) {
+      let forest.DetachedTreeData(AtomId(major, minor), root, _, _) = entry
+      let major = case major {
+        None -> summary.RootRevision
+        Some(revision) -> summary.StableRevision(revision)
+      }
+      summary.DetachedField(major, minor, root)
+    })
+  #(
+    summary.ForestSummary(list.append(root_fields, repair_fields)),
+    summary.DetachedFieldIndex(entries, next_root_id - 1),
+  )
+}
+
+fn next_sequence_number(trunk: List(summary.SummaryCommit)) -> Int {
+  list.fold(trunk, 0, fn(latest, commit) {
+    let summary.SummaryCommit(_, sequence, _) = commit
+    case sequence {
+      Some(sequence) -> int.max(latest, sequence)
+      None -> latest
+    }
+  })
+  + 1
+}
+
 fn add_repair_content(
   authored: change.Changeset,
   order: change.IdentityOrder,
@@ -450,7 +595,7 @@ fn add_repair_content(
   )
   change.from_data(
     change.ChangeData(..data, refreshers: [
-      forest.Build(detached, [StringValue("to-clear")]),
+      forest.Build(detached, [StringValue("seed")]),
       ..data.refreshers
     ]),
     order,
@@ -569,6 +714,17 @@ fn summary_json(value: fluid_summary.SummaryEntry) -> Json {
     fluid_summary.SummaryHandle(_, _) ->
       panic as "native summary output contains a handle"
   }
+}
+
+fn decode_summary_source(
+  value: JsonValue,
+  summary_field: String,
+) -> Result(#(String, JsonValue, String, String), String) {
+  use id <- result.try(field_text(value, "id"))
+  use encoded <- result.try(field(value, summary_field))
+  use session <- result.try(field_text(value, "session"))
+  use compressor <- result.try(field_text(value, "compressor"))
+  Ok(#(id, encoded, session, compressor))
 }
 
 fn field(value: JsonValue, name: String) -> Result(JsonValue, String) {

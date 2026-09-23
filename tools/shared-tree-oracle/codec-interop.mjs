@@ -28,6 +28,7 @@ const requiredItemIds = [
   "message-detached-repair",
   "summary-initial",
   "summary-settled-detached",
+  "summary-native-authored",
 ];
 const point = (x, y) => ({
   type: "org.watershed.shared-tree.m1.Point",
@@ -46,14 +47,52 @@ const rootField = {
     point: [point(0, 0)],
   },
 };
-const visibleRoot = ({ pointValue = { x: 0, y: 0 }, note } = {}) => ({
-  title: "",
+const visibleRoot = ({ title = "", pointValue = { x: 0, y: 0 }, note } = {}) => ({
+  title,
   enabled: false,
   rating: 0,
   marker: null,
   ...(note === undefined ? {} : { note }),
   point: pointValue,
 });
+const firstRevision = "8f95be09-8376-4ff7-8755-ccd7e8124b07";
+const firstSession = "8f95be09-8376-4ff7-8755-ccd7e8124b06";
+const secondRevision = "a0693eac-892a-4396-86f7-ad20dc1cade2";
+const nativeRevision = "30000000-0000-4000-8000-000000000003";
+const pointRemoval = {
+  major: firstRevision,
+  minor: 1,
+  tree: point(7, 0),
+};
+const numberRemoval = {
+  major: secondRevision,
+  minor: 1,
+  tree: {
+    type: "com.fluidframework.leaf.number",
+    value: 0,
+  },
+};
+const settledHistory = {
+  trunk: [
+    {
+      revision: firstRevision,
+      session: firstSession,
+      sequenceNumber: 4,
+      indexInBatch: null,
+    },
+    {
+      revision: secondRevision,
+      session: secondRevision,
+      sequenceNumber: 6,
+      indexInBatch: null,
+    },
+  ],
+  peers: [{
+    session: secondRevision,
+    base: "root",
+    revisions: [secondRevision],
+  }],
+};
 const expectedObservations = [
   { id: "fixed", kind: "schema", nodes: 6, rootKind: "Value" },
   { id: "empty", kind: "schema", nodes: 0, rootKind: "Forbidden" },
@@ -80,6 +119,7 @@ const expectedObservations = [
     id: "message-point-replacement",
     kind: "message",
     decoded: true,
+    beforeApply: visibleRoot(),
     afterApply: visibleRoot({ pointValue: { x: 10, y: 20 } }),
     continued: "upstream-continuation",
   },
@@ -87,6 +127,7 @@ const expectedObservations = [
     id: "message-nested-scalar",
     kind: "message",
     decoded: true,
+    beforeApply: visibleRoot(),
     afterApply: visibleRoot({ pointValue: { x: 7, y: 0 } }),
     continued: "upstream-continuation",
   },
@@ -94,6 +135,7 @@ const expectedObservations = [
     id: "message-optional-set",
     kind: "message",
     decoded: true,
+    beforeApply: visibleRoot(),
     afterApply: visibleRoot({ note: "native-note" }),
     continued: "upstream-continuation",
   },
@@ -101,6 +143,7 @@ const expectedObservations = [
     id: "message-optional-clear",
     kind: "message",
     decoded: true,
+    beforeApply: visibleRoot({ note: "seed" }),
     afterApply: visibleRoot(),
     continued: "upstream-continuation",
   },
@@ -108,6 +151,7 @@ const expectedObservations = [
     id: "message-detached-repair",
     kind: "message",
     decoded: true,
+    beforeApply: visibleRoot({ note: "seed" }),
     afterApply: visibleRoot(),
     continued: "upstream-continuation",
   },
@@ -115,14 +159,61 @@ const expectedObservations = [
     id: "summary-initial",
     kind: "summary",
     visible: visibleRoot(),
-    removedCount: 0,
+    removed: [],
+    history: {
+      trunk: [{
+        revision: "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        session: "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        sequenceNumber: 2,
+        indexInBatch: null,
+      }],
+      peers: [{
+        session: "50000000-0000-4000-8000-000000000005",
+        base: "8f95be09-8376-4ff7-8755-ccd7e8124b06",
+        revisions: [],
+      }],
+    },
     continued: "upstream-continuation",
   },
   {
     id: "summary-settled-detached",
     kind: "summary",
     visible: visibleRoot({ pointValue: { x: 10, y: 20 } }),
-    removedCount: 2,
+    removed: [pointRemoval, numberRemoval],
+    history: settledHistory,
+    continued: "upstream-continuation",
+  },
+  {
+    id: "summary-native-authored",
+    kind: "summary",
+    visible: visibleRoot({
+      title: "watershed-native-summary",
+      pointValue: { x: 10, y: 20 },
+    }),
+    removed: [
+      {
+        major: nativeRevision,
+        minor: 1,
+        tree: {
+          type: "com.fluidframework.leaf.string",
+          value: "",
+        },
+      },
+      pointRemoval,
+      numberRemoval,
+    ],
+    history: {
+      trunk: [
+        ...settledHistory.trunk,
+        {
+          revision: nativeRevision,
+          session: nativeRevision,
+          sequenceNumber: 7,
+          indexInBatch: null,
+        },
+      ],
+      peers: settledHistory.peers,
+    },
     continued: "upstream-continuation",
   },
 ];
@@ -191,6 +282,13 @@ function validateConsumerOutput(output, artifact, expectedIds) {
     requireValue(item !== undefined, `unexpected consumer observation ${observation.id}`);
     requireValue(observation.kind === item.kind,
       `${observation.id} consumer kind`);
+    if (item.kind === "summary") {
+      requireValue(Array.isArray(observation.removed), `${observation.id} removed content`);
+      requireValue(object(observation.history)
+        && Array.isArray(observation.history.trunk)
+        && Array.isArray(observation.history.peers),
+      `${observation.id} history`);
+    }
   }
   requireValue(expectedIds.length === ids.size
     && expectedIds.every((id) => ids.has(id)), "required scenario IDs");

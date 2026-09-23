@@ -7,7 +7,7 @@ import { strict as assert } from "node:assert";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
-import type { IIdCompressor } from "@fluidframework/id-compressor";
+import type { IIdCompressor, SessionSpaceCompressedId } from "@fluidframework/id-compressor";
 import {
 	deserializeIdCompressor,
 	type SerializedIdCompressorWithNoSession,
@@ -103,10 +103,10 @@ function services(summary: Parameters<typeof MockSharedObjectServices.createFrom
 	return value;
 }
 
-async function loadSummary(item: ArtifactItem) {
+async function loadSummary(item: ArtifactItem, idCompressor = compressor(item)) {
 	assert(item.encoded !== null && typeof item.encoded === "object",
 		`${item.id}: summary encoding`);
-	const runtime = new MockFluidDataStoreRuntime({ idCompressor: compressor(item) });
+	const runtime = new MockFluidDataStoreRuntime({ idCompressor });
 	return factory.load(
 		runtime,
 		`codec-${item.id}`,
@@ -127,6 +127,66 @@ function visibleRoot(root: Root | undefined) {
 		note: root.note,
 		point: { x: root.point.x, y: root.point.y },
 	};
+}
+
+function stableRevision(idCompressor: IIdCompressor, revision: unknown): string {
+	if (revision === "root") return revision;
+	assert(typeof revision === "number", "Revision must be a compressed ID or root");
+	return idCompressor.decompress(revision as SessionSpaceCompressedId);
+}
+
+function summaryHistory(tree: unknown, idCompressor: IIdCompressor, id: string) {
+	const kernel: unknown = Reflect.get(tree as object, "kernel");
+	assert(kernel !== null && typeof kernel === "object", `${id}: missing kernel`);
+	const manager: unknown = Reflect.get(kernel, "editManager");
+	assert(manager !== null && typeof manager === "object", `${id}: missing edit manager`);
+	const getSummaryData: unknown = Reflect.get(manager, "getSummaryData");
+	assert(typeof getSummaryData === "function", `${id}: missing summary history`);
+	const data = asObject(getSummaryData.call(manager), `${id}: summary history`);
+	const main = asObject(data.main, `${id}: main history`);
+	assert(Array.isArray(main.trunk), `${id}: trunk history`);
+	assert(main.peerLocalBranches instanceof Map, `${id}: peer history`);
+	const trunk = main.trunk.map((value, index) => {
+		const commit = asObject(value, `${id}: trunk commit ${index}`);
+		assert(typeof commit.sessionId === "string", `${id}: trunk session ${index}`);
+		assert(Number.isSafeInteger(commit.sequenceNumber), `${id}: trunk sequence ${index}`);
+		return {
+			revision: stableRevision(idCompressor, commit.revision),
+			session: commit.sessionId,
+			sequenceNumber: commit.sequenceNumber,
+			indexInBatch: commit.indexInBatch ?? null,
+		};
+	});
+	const peers = [...main.peerLocalBranches.entries()]
+		.map(([session, value], index) => {
+			assert(typeof session === "string", `${id}: peer session ${index}`);
+			const branch = asObject(value, `${id}: peer branch ${index}`);
+			assert(Array.isArray(branch.commits), `${id}: peer commits ${index}`);
+			return {
+				session,
+				base: stableRevision(idCompressor, branch.base),
+				revisions: branch.commits.map((entry, commitIndex) => {
+					const commit = asObject(entry, `${id}: peer commit ${index}.${commitIndex}`);
+					return stableRevision(idCompressor, commit.revision);
+				}),
+			};
+		})
+		.sort((left, right) => left.session.localeCompare(right.session));
+	return { trunk, peers };
+}
+
+function removedContent(removed: unknown[], idCompressor: IIdCompressor, id: string) {
+	return removed.map((value, index) => {
+		assert(Array.isArray(value) && value.length === 3, `${id}: removed entry ${index}`);
+		const [major, minor, tree] = value;
+		assert(Number.isSafeInteger(minor) && minor >= 0, `${id}: removed minor ${index}`);
+		assert(tree !== null && typeof tree === "object", `${id}: removed tree ${index}`);
+		return {
+			major: stableRevision(idCompressor, major),
+			minor,
+			tree,
+		};
+	});
 }
 
 async function consume(item: ArtifactItem) {
@@ -179,6 +239,8 @@ async function consume(item: ArtifactItem) {
 				),
 				factory.attributes,
 			);
+			const view = tree.viewWith(configuration);
+			const beforeApply = visibleRoot(view.root);
 			const kernel: unknown = Reflect.get(tree, "kernel");
 			assert(kernel !== null && typeof kernel === "object", `${item.id}: missing kernel`);
 			const messageCodec: unknown = Reflect.get(kernel, "messageCodec");
@@ -209,21 +271,23 @@ async function consume(item: ArtifactItem) {
 					clientSequenceNumber: 1,
 				}],
 			});
-			const view = tree.viewWith(configuration);
 			const afterApply = visibleRoot(view.root);
 			view.root.title = "upstream-continuation";
 			return {
 				id: item.id,
 				kind: item.kind,
 				decoded: true,
+				beforeApply,
 				afterApply,
 				continued: view.root.title,
 			};
 		}
 		case "summary": {
-			const tree = await loadSummary(item);
+			const idCompressor = compressor(item);
+			const tree = await loadSummary(item, idCompressor);
 			const view = tree.viewWith(configuration);
 			const visible = visibleRoot(view.root);
+			const history = summaryHistory(tree, idCompressor, item.id);
 			const contentSnapshot: unknown = Reflect.get(tree, "contentSnapshot");
 			assert(typeof contentSnapshot === "function", `${item.id}: missing content snapshot`);
 			const snapshot: unknown = contentSnapshot.call(tree);
@@ -235,7 +299,8 @@ async function consume(item: ArtifactItem) {
 				id: item.id,
 				kind: item.kind,
 				visible,
-				removedCount: snapshot.removed.length,
+				removed: removedContent(snapshot.removed, idCompressor, item.id),
+				history,
 				continued: view.root.title,
 			};
 		}

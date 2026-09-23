@@ -196,3 +196,48 @@ test("codec interop rejects missing and divergent consumer observations", async 
     /target observations differ/,
   );
 });
+
+test("codec interop rejects summaries without detached and history evidence", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "watershed-codec-summary-evidence-"));
+  t.after(async () => {
+    const { rm } = await import("node:fs/promises");
+    await rm(root, { recursive: true, force: true });
+  });
+  const { runCodecInterop } = await import("./codec-interop.mjs");
+  await assert.rejects(
+    runCodecInterop({
+      outputRoot: root,
+      produce: async (target, output) => {
+        const value = artifact();
+        value.target = target;
+        value.items[0] = {
+          id: "summary",
+          kind: "summary",
+          encoded: {},
+          compressor: "serialized",
+          compressorMode: "summary",
+          session: "11111111-1111-4111-8111-111111111111",
+        };
+        await writeFile(output, JSON.stringify(value));
+      },
+      consume: async (input, output) => {
+        const value = JSON.parse(await readFile(input, "utf8"));
+        await mkdir(output, { recursive: true });
+        await writeFile(join(output, "codec-observations.json"), JSON.stringify({
+          formatVersion: 1,
+          reference,
+          target: value.target,
+          observations: [{
+            id: "summary",
+            kind: "summary",
+            visible: null,
+            continued: "upstream-continuation",
+          }],
+        }));
+      },
+      expectedIds: ["summary"],
+      expected: null,
+    }),
+    /removed content/,
+  );
+});

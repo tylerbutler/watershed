@@ -1333,10 +1333,13 @@ Checkpoint commits:
 `feat/sharedtree-codecs`. It implements the selected Message V7,
 SharedTreeChange V5, ModularChange V5, field, schema, FieldBatch V2, Forest V2,
 DetachedFieldIndex V2, and EditManager V7 formats. Both native targets read the
-26-case corpus, and the pinned upstream source consumes 13 fresh artifacts from
-each target. The FieldBatch writer uses the standard four-shape V2 layout with
-a constant-null shape. Task 10b, the pure kernel and runtime conversion, remains
-open. Tasks 11-15 are unchanged.
+26-case corpus, and the pinned upstream source consumes 14 fresh artifacts from
+each target. Summary evidence checks detached content with stable identities,
+retained history, and peer bases after a real DDS load. It includes a consistent
+native-authored summary with a sequenced edit and continuation. The FieldBatch
+writer uses the standard four-shape V2 layout with a constant-null shape. Task
+10b, the pure kernel and runtime conversion, remains open. Tasks 11-15 are
+unchanged.
 
 **Interfaces:** Codecs consume the profile's explicit version selection and
 document compressor. `DecodeContext` supplies originator/revision/session
