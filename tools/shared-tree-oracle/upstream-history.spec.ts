@@ -642,28 +642,25 @@ export function captureHistoryEvidence(output: string): void {
 			const repairEntries: object[] = [];
 			const resubmitted = manager.getLocalCommits("main").map((commit, index) => {
 				const roots = [...relevantRemovedRoots(commit.change)];
-				const builds = roots.map((rootId) => ({
-					id: detachedWithCompressor(rootId, compressor),
-					trees: [repair?.(commit, index, roots) ?? point(1, 2)],
-				}));
+				const builds: object[] = [];
+				const updated = updateRefreshers(
+					commit.change,
+					(rootId) => {
+						const trees = [repair?.(commit, index, roots) ?? point(1, 2)];
+						builds.push({
+							id: detachedWithCompressor(rootId, compressor),
+							trees,
+						});
+						return treeChunk(trees, compressor);
+					},
+					roots,
+				);
 				if (builds.length > 0) {
 					repairEntries.push({
 						revision: stable(compressor, commit.revision),
 						builds,
 					});
 				}
-				const updated = updateRefreshers(
-					commit.change,
-					(rootId) => {
-						const expected = detachedWithCompressor(rootId, compressor);
-						const build = builds.find((item) =>
-							item.id.revision === expected.revision
-								&& item.id.localId === expected.localId);
-						assert(build !== undefined, "Repair content must include each removed root");
-						return treeChunk(build.trees, compressor);
-					},
-					roots,
-				);
 				return {
 					revision: stable(compressor, commit.revision),
 					originator: currentLocalSession,
@@ -719,10 +716,9 @@ export function captureHistoryEvidence(output: string): void {
 	});
 
 	runSchedule("stale-peer-chain", ({ receive }) => {
-		receive("peer-title", "remote-title-a", 1, 0, 0, 0);
-		receive("peer-note", "remote-note-set", 2, 0, 0, 0);
-		receive("other-peer", "remote-rating-b", 3, 0, 2, 0);
-		receive("peer-advanced", "remote-child-y", 4, 0, 2, 0);
+		receive("peer-b-parent", "remote-parent-b", 1, 0, 0, 0);
+		receive("peer-a-parent", "remote-parent", 2, 0, 0, 0);
+		receive("peer-a-child", "remote-child-y", 3, 0, 0, 0);
 	});
 
 	runSchedule("parent-child-local-first", ({ append, receive }) => {
@@ -757,19 +753,23 @@ export function captureHistoryEvidence(output: string): void {
 	});
 
 	runSchedule("window-advance-with-pending", ({ append, receive, advance }) => {
-		receive("stale-peer-one", "remote-title-a", 1, 0, 0, 0);
+		receive("peer-b-parent", "remote-parent-b", 1, 0, 0, 0);
+		receive("peer-b-barrier", "remote-rating-b", 2, 0, 1, 0);
+		receive("peer-a-parent", "remote-parent", 3, 0, 0, 0);
+		receive("peer-a-child", "remote-child-y", 4, 0, 0, 0);
 		append("append-pending", "local-enabled");
-		receive("stale-peer-two", "remote-note-set", 2, 0, 0, 0);
-		advance("advance-window", 3, 2);
+		advance("advance-window", 5, 1);
 	});
 
 	runSchedule("settled-snapshot-tail", ({ append, receive, advance, snapshotRestore }) => {
-		receive("peer-before-snapshot", "remote-title-a", 1, 0, 0, 0);
-		advance("minimum-before-snapshot", 2, 0);
+		receive("peer-b-parent", "remote-parent-b", 1, 0, 0, 0);
+		receive("peer-a-parent", "remote-parent", 2, 0, 0, 0);
+		receive("peer-a-child", "remote-child-y", 3, 0, 0, 0);
+		advance("minimum-before-snapshot", 4, 0);
 		snapshotRestore("restore", sessions.restored);
-		receive("stale-peer-after-restore", "remote-note-set", 3, 0, 0, 0);
+		receive("stale-peer-after-restore", "remote-child-x", 5, 0, 0, 0);
 		append("append-after-restore", "restored-title");
-		receive("ack-after-restore", "restored-title", 4, 0, 3, 0);
+		receive("ack-after-restore", "restored-title", 6, 0, 5, 0);
 	});
 
 	runSchedule("accepted-before-ack", ({ append, receive, resubmit }) => {
@@ -803,7 +803,9 @@ export function captureHistoryEvidence(output: string): void {
 		append("append-local", "local-title-a");
 		receive("peer-b-first", "nonlexical-peer-b", 1, 0, 0, 0);
 		receive("peer-a-second", "nonlexical-peer-a", 2, 0, 0, 0);
-		receive("ack-local", "local-title-a", 3, 0, 0, 0);
+		receive("peer-a-continues", "remote-note-set", 3, 0, 0, 0);
+		receive("peer-a-continues-again", "remote-rating-a", 4, 0, 0, 0);
+		receive("ack-local", "local-title-a", 5, 0, 0, 0);
 	});
 
 	const changeInput = Object.fromEntries([...changes].map(([name, authored]) => [

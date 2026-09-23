@@ -257,6 +257,19 @@ pub fn shared_tree_change_compose_rejects_conflicting_identity_orders_test() {
   Nil
 }
 
+pub fn shared_tree_change_with_identity_order_preserves_existing_context_test() {
+  let assert Ok(initial_order) =
+    change.identity_order([#(revision_a(), 1), #(revision_b(), 2)])
+  let assert Ok(extension) =
+    change.identity_order([#(revision_a(), 1), #(revision_c(), 3)])
+  let assert Ok(remapped_existing) = change.identity_order([#(revision_b(), 4)])
+  let assert Ok(initial) = change.from_data(empty_data(), initial_order)
+  let assert Ok(extended) = change.with_identity_order(initial, extension)
+  let assert Error(InvalidHistory(_)) =
+    change.with_identity_order(extended, remapped_existing)
+  Nil
+}
+
 pub fn shared_tree_change_invert_uses_explicit_nonlexical_identity_order_test() {
   let a = nonlexical_a()
   let b = nonlexical_b()

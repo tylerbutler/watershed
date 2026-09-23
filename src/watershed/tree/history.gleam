@@ -98,6 +98,15 @@ type RollbackEntry {
   )
 }
 
+type RetainedReceipt {
+  RetainedReceipt(
+    revision: fluid_ids.StableId,
+    commit: Option(Commit),
+    point: SequencePoint,
+    reference_sequence_number: Option(Int),
+  )
+}
+
 type RebaseResult {
   RebaseResult(
     base: BranchBase,
@@ -115,6 +124,7 @@ pub opaque type History {
     pending: List(LocalCommit),
     local_base: Option(BranchBase),
     rollbacks: List(RollbackEntry),
+    receipts: List(RetainedReceipt),
     next_node_id: Int,
     sequence_number: Int,
     minimum_sequence_number: Int,
@@ -130,6 +140,7 @@ pub fn new(local_session: fluid_ids.SessionId) -> History {
     pending: [],
     local_base: None,
     rollbacks: [],
+    receipts: [],
     next_node_id: 0,
     sequence_number: 0,
     minimum_sequence_number: minimum_sequence_number,
@@ -179,26 +190,47 @@ pub fn receive(
   mint: MintRevision(allocation),
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
   let _ = mint
-  use _ <- result.try(validate_receive(
+  use _ <- result.try(validate_receive_fields(
     state,
     point,
     reference_sequence_number,
     minimum_sequence_number,
   ))
   use #(update, allocation) <- result.try(
-    case commit.originator == state.local_session {
-      False ->
-        receive_remote(
+    case trunk_commit(state.trunk, commit.revision) {
+      Some(existing) ->
+        receive_duplicate(
           state,
+          existing,
           commit,
           point,
           reference_sequence_number,
-          minimum_sequence_number,
           allocation,
-          mint,
         )
-      True ->
-        receive_local(state, commit, point, minimum_sequence_number, allocation)
+      None -> {
+        use _ <- result.try(validate_new_receive_order(state, point))
+        case commit.originator == state.local_session {
+          False ->
+            receive_remote(
+              state,
+              commit,
+              point,
+              reference_sequence_number,
+              minimum_sequence_number,
+              allocation,
+              mint,
+            )
+          True ->
+            receive_local(
+              state,
+              commit,
+              point,
+              reference_sequence_number,
+              minimum_sequence_number,
+              allocation,
+            )
+        }
+      }
     },
   )
   use #(next, trimmed, allocation) <- result.try(trim_history(
@@ -209,59 +241,96 @@ pub fn receive(
   Ok(#(HistoryUpdate(prune_rollbacks(next), update.delta, trimmed), allocation))
 }
 
+fn receive_duplicate(
+  state: History,
+  existing: SequencedCommit,
+  commit: Commit,
+  point: SequencePoint,
+  reference_sequence_number: Int,
+  allocation: allocation,
+) -> Result(#(HistoryUpdate, allocation), TreeError) {
+  use _ <- result.try(check(
+    existing.point == point,
+    "duplicate commit sequence point does not match",
+  ))
+  use receipt <- result.try(
+    case
+      list.find(state.receipts, fn(receipt) {
+        receipt.revision == commit.revision
+      })
+    {
+      Ok(receipt) -> Ok(receipt)
+      Error(Nil) ->
+        Error(InvalidHistory("duplicate commit receipt metadata is missing"))
+    },
+  )
+  use expected_commit <- result.try(case receipt.commit {
+    Some(commit) -> Ok(commit)
+    None ->
+      Error(InvalidHistory(
+        "duplicate commit contents are unavailable after restore",
+      ))
+  })
+  use _ <- result.try(check(
+    expected_commit == commit,
+    "duplicate commit contents do not match",
+  ))
+  use expected_reference <- result.try(case receipt.reference_sequence_number {
+    Some(reference) -> Ok(reference)
+    None ->
+      Error(InvalidHistory(
+        "duplicate commit reference is unavailable after restore",
+      ))
+  })
+  use _ <- result.try(check(
+    expected_reference == reference_sequence_number,
+    "duplicate commit reference does not match",
+  ))
+  Ok(#(HistoryUpdate(state, None, []), allocation))
+}
+
 fn receive_local(
   state: History,
   commit: Commit,
   point: SequencePoint,
+  reference_sequence_number: Int,
   supplied_minimum: Int,
   allocation: allocation,
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
-  case trunk_commit(state.trunk, commit.revision) {
-    Some(existing) -> {
+  case state.pending {
+    [] -> Error(InvalidHistory("local acknowledgement has no pending commit"))
+    [LocalCommit(original, current), ..rest] -> {
       use _ <- result.try(check(
-        existing.commit.originator == commit.originator,
-        "duplicate commit originator does not match",
+        original.commit.revision == commit.revision,
+        "local acknowledgement is not for the oldest pending commit",
       ))
+      use _ <- result.try(check(
+        original.commit.originator == commit.originator,
+        "local acknowledgement originator does not match",
+      ))
+      let sequenced = SequencedCommit(current.commit, point)
       let next =
         History(
           ..state,
+          trunk: list.append(state.trunk, [sequenced]),
+          pending: rest,
+          local_base: case rest {
+            [] -> None
+            _ -> Some(Revision(current.commit.revision))
+          },
+          receipts: list.append(state.receipts, [
+            RetainedReceipt(
+              commit.revision,
+              Some(commit),
+              point,
+              Some(reference_sequence_number),
+            ),
+          ]),
           sequence_number: int_max(state.sequence_number, point.sequence_number),
           minimum_sequence_number: supplied_minimum,
         )
       Ok(#(HistoryUpdate(next, None, []), allocation))
     }
-    None ->
-      case state.pending {
-        [] ->
-          Error(InvalidHistory("local acknowledgement has no pending commit"))
-        [LocalCommit(original, current), ..rest] -> {
-          use _ <- result.try(check(
-            original.commit.revision == commit.revision,
-            "local acknowledgement is not for the oldest pending commit",
-          ))
-          use _ <- result.try(check(
-            original.commit.originator == commit.originator,
-            "local acknowledgement originator does not match",
-          ))
-          let sequenced = SequencedCommit(current.commit, point)
-          let next =
-            History(
-              ..state,
-              trunk: list.append(state.trunk, [sequenced]),
-              pending: rest,
-              local_base: case rest {
-                [] -> None
-                _ -> Some(Revision(current.commit.revision))
-              },
-              sequence_number: int_max(
-                state.sequence_number,
-                point.sequence_number,
-              ),
-              minimum_sequence_number: supplied_minimum,
-            )
-          Ok(#(HistoryUpdate(next, None, []), allocation))
-        }
-      }
   }
 }
 
@@ -274,100 +343,90 @@ fn receive_remote(
   allocation: allocation,
   mint: MintRevision(allocation),
 ) -> Result(#(HistoryUpdate, allocation), TreeError) {
-  case trunk_commit(state.trunk, commit.revision) {
-    Some(existing) -> {
-      use _ <- result.try(check(
-        existing.commit.originator == commit.originator,
-        "duplicate commit originator does not match",
-      ))
-      let next =
-        History(
-          ..state,
-          sequence_number: int_max(state.sequence_number, point.sequence_number),
-          minimum_sequence_number: supplied_minimum,
-        )
-      Ok(#(HistoryUpdate(next, None, []), allocation))
-    }
-    None -> {
-      use reference <- result.try(reference_base(
-        state,
-        reference_sequence_number,
-      ))
-      let peer =
-        peer_state(state.peers, commit.originator)
-        |> option.unwrap(PeerState(commit.originator, reference, []))
-      use #(authored_peer, allocation, rollbacks, next_node_id) <- result.try(
-        rebase_branch(
-          peer.base,
-          peer.commits,
-          state.trunk,
-          reference,
-          state.rollbacks,
-          state.next_node_id,
-          allocation,
-          mint,
-        ),
-      )
-      let incoming = BranchCommit(next_node_id, commit)
-      let authored_commits = list.append(authored_peer.commits, [incoming])
-      use #(merged_peer, allocation, rollbacks, next_node_id) <- result.try(
-        rebase_branch(
-          authored_peer.base,
-          authored_commits,
-          state.trunk,
-          trunk_head(state.trunk),
-          rollbacks,
-          next_node_id + 1,
-          allocation,
-          mint,
-        ),
-      )
-      use merged <- result.try(single_incoming_commit(
-        merged_peer.commits,
-        commit,
-      ))
-      let next_trunk = case merged {
-        None -> state.trunk
-        Some(merged) ->
-          list.append(state.trunk, [SequencedCommit(merged.commit, point)])
-      }
-      let peer = case merged {
-        Some(merged) if merged.node_id == incoming.node_id ->
-          PeerState(commit.originator, Revision(incoming.commit.revision), [])
-        _ -> PeerState(commit.originator, authored_peer.base, authored_commits)
-      }
-      let peers = replace_peer(state.peers, peer)
-      use #(pending, local_base, delta, allocation, rollbacks, next_node_id) <- result.try(
-        rebase_pending(
-          state,
-          next_trunk,
-          rollbacks,
-          next_node_id,
-          allocation,
-          mint,
-        ),
-      )
-      let next =
-        History(
-          ..state,
-          trunk: next_trunk,
-          peers: peers,
-          pending: pending,
-          local_base: local_base,
-          rollbacks: rollbacks,
-          next_node_id: next_node_id,
-          sequence_number: int_max(state.sequence_number, point.sequence_number),
-          minimum_sequence_number: supplied_minimum,
-        )
-      Ok(#(HistoryUpdate(next, delta, []), allocation))
-    }
+  use reference <- result.try(reference_base(state, reference_sequence_number))
+  let peer =
+    peer_state(state.peers, commit.originator)
+    |> option.unwrap(PeerState(commit.originator, reference, []))
+  let known_revisions = [commit.revision, ..history_revisions(state)]
+  use #(authored_peer, allocation, rollbacks, next_node_id) <- result.try(
+    rebase_branch(
+      peer.base,
+      peer.commits,
+      state.trunk,
+      reference,
+      state.rollbacks,
+      known_revisions,
+      state.next_node_id,
+      allocation,
+      mint,
+    ),
+  )
+  let incoming = BranchCommit(next_node_id, commit)
+  let authored_commits = list.append(authored_peer.commits, [incoming])
+  use #(merged_peer, allocation, rollbacks, next_node_id) <- result.try(
+    rebase_branch(
+      authored_peer.base,
+      authored_commits,
+      state.trunk,
+      trunk_head(state.trunk),
+      rollbacks,
+      known_revisions,
+      next_node_id + 1,
+      allocation,
+      mint,
+    ),
+  )
+  use merged <- result.try(single_incoming_commit(merged_peer.commits, commit))
+  let next_trunk = case merged {
+    None -> state.trunk
+    Some(merged) ->
+      list.append(state.trunk, [SequencedCommit(merged.commit, point)])
   }
+  let peer = case merged {
+    Some(merged) if merged.node_id == incoming.node_id ->
+      PeerState(commit.originator, Revision(incoming.commit.revision), [])
+    _ -> PeerState(commit.originator, authored_peer.base, authored_commits)
+  }
+  let peers = replace_peer(state.peers, peer)
+  use #(pending, local_base, delta, allocation, rollbacks, next_node_id) <- result.try(
+    rebase_pending(
+      state,
+      next_trunk,
+      rollbacks,
+      known_revisions,
+      next_node_id,
+      allocation,
+      mint,
+    ),
+  )
+  let next =
+    History(
+      ..state,
+      trunk: next_trunk,
+      peers: peers,
+      pending: pending,
+      local_base: local_base,
+      rollbacks: rollbacks,
+      receipts: list.append(state.receipts, [
+        RetainedReceipt(
+          commit.revision,
+          Some(commit),
+          point,
+          Some(reference_sequence_number),
+        ),
+      ]),
+      next_node_id: next_node_id,
+      sequence_number: int_max(state.sequence_number, point.sequence_number),
+      minimum_sequence_number: supplied_minimum,
+    )
+  Ok(#(HistoryUpdate(next, delta, []), allocation))
 }
 
 fn rebase_pending(
   state: History,
   next_trunk: List(SequencedCommit),
   rollbacks: List(RollbackEntry),
+  known_revisions: List(fluid_ids.StableId),
   next_node_id: Int,
   allocation: allocation,
   mint: MintRevision(allocation),
@@ -402,6 +461,7 @@ fn rebase_pending(
           next_trunk,
           trunk_head(next_trunk),
           rollbacks,
+          known_revisions,
           next_node_id,
           allocation,
           mint,
@@ -430,6 +490,7 @@ fn rebase_branch(
   target: List(SequencedCommit),
   up_to: BranchBase,
   rollbacks: List(RollbackEntry),
+  known_revisions: List(fluid_ids.StableId),
   next_node_id: Int,
   allocation: allocation,
   mint: MintRevision(allocation),
@@ -464,6 +525,8 @@ fn rebase_branch(
       !contains_revision(target_commits, commit.commit.revision)
     })
   let target_rebase_path = remove_common_prefix(source_commits, target_commits)
+  let source_rebase_path =
+    remove_source_common_prefix(source_commits, target_commits)
   case target_rebase_path {
     [] -> {
       let #(surviving_source, next_node_id) = case up_to_index {
@@ -480,47 +543,65 @@ fn rebase_branch(
     _ -> {
       let edits = list.map(target_rebase_path, tagged_commit)
       let revision_edits =
-        list.append(edits, list.map(source_commits, tagged_branch_commit))
+        list.append(edits, list.map(source_rebase_path, tagged_branch_commit))
       use #(rebased, edits, _, allocation, rollbacks, next_node_id) <- result.try(
         list.try_fold(
-          surviving_source,
+          source_rebase_path,
           #([], edits, revision_edits, allocation, rollbacks, next_node_id),
           fn(state, commit) {
             use #(rollback, allocation, rollbacks) <- result.try(
-              rollback_for(commit, state.4, state.3, mint)
+              rollback_for(commit, state.4, known_revisions, state.3, mint)
               |> history_error("cannot create rollback: "),
             )
-            use over <- result.try(
-              change.compose(state.1)
-              |> history_error("cannot compose rebase target: "),
-            )
-            use context <- result.try(rebase_context(state.2))
-            use rebased <- result.try(
-              change.rebase(
-                tagged_branch_commit(commit),
-                change.TaggedChange(None, None, over),
-                context,
-              )
-              |> history_error("cannot rebase source commit: "),
-            )
-            let current = Commit(..commit.commit, change: rebased)
-            let current_node = BranchCommit(state.5, current)
             let rollback_tagged =
               change.TaggedChange(
                 Some(rollback.revision),
                 Some(commit.commit.revision),
                 rollback.change,
               )
+            use #(rebased_commits, edits, next_node_id) <- result.try(
+              case
+                branch_contains_revision(
+                  surviving_source,
+                  commit.commit.revision,
+                )
+              {
+                False -> Ok(#(state.0, [rollback_tagged, ..state.1], state.5))
+                True -> {
+                  use over <- result.try(
+                    change.compose(state.1)
+                    |> history_error("cannot compose rebase target: "),
+                  )
+                  use context <- result.try(rebase_context(state.2))
+                  use rebased <- result.try(
+                    change.rebase(
+                      tagged_branch_commit(commit),
+                      change.TaggedChange(None, None, over),
+                      context,
+                    )
+                    |> history_error("cannot rebase source commit: "),
+                  )
+                  let current = Commit(..commit.commit, change: rebased)
+                  let current_node = BranchCommit(state.5, current)
+                  Ok(#(
+                    list.append(state.0, [current_node]),
+                    [
+                      rollback_tagged,
+                      change.TaggedChange(None, None, over),
+                      tagged_commit(current),
+                    ],
+                    state.5 + 1,
+                  ))
+                }
+              },
+            )
             Ok(#(
-              list.append(state.0, [current_node]),
-              [
-                rollback_tagged,
-                ..list.append(state.1, [tagged_commit(current)])
-              ],
+              rebased_commits,
+              edits,
               [rollback_tagged, ..state.2],
               allocation,
               rollbacks,
-              state.5 + 1,
+              next_node_id,
             ))
           },
         ),
@@ -556,6 +637,7 @@ fn reparent_commits(
 fn rollback_for(
   commit: BranchCommit,
   rollbacks: List(RollbackEntry),
+  known_revisions: List(fluid_ids.StableId),
   allocation: allocation,
   mint: MintRevision(allocation),
 ) -> Result(#(RollbackEntry, allocation, List(RollbackEntry)), TreeError) {
@@ -563,6 +645,11 @@ fn rollback_for(
     Ok(entry) -> Ok(#(entry, allocation, rollbacks))
     Error(Nil) -> {
       use #(revision, identity_order, allocation) <- result.try(mint(allocation))
+      use _ <- result.try(check(
+        !list.contains(known_revisions, revision)
+          && !list.any(rollbacks, fn(entry) { entry.revision == revision }),
+        "rollback revision is already in use",
+      ))
       use bound <- result.try(change.with_identity_order(
         commit.commit.change,
         identity_order,
@@ -725,6 +812,20 @@ fn remove_common_prefix(
   }
 }
 
+fn remove_source_common_prefix(
+  source: List(BranchCommit),
+  target: List(Commit),
+) -> List(BranchCommit) {
+  case source, target {
+    [source, ..source_rest], [target, ..target_rest] ->
+      case source.commit.revision == target.revision {
+        True -> remove_source_common_prefix(source_rest, target_rest)
+        False -> [source, ..source_rest]
+      }
+    source, _ -> source
+  }
+}
+
 fn replace_current_pending(
   pending: List(LocalCommit),
   current: List(BranchCommit),
@@ -842,6 +943,7 @@ fn trim_history(
     None -> Ok(#(state, [], allocation))
     Some(new_base) -> {
       let base = Revision(new_base.commit.revision)
+      let known_revisions = history_revisions(state)
       use #(peers, allocation, rollbacks, next_node_id) <- result.try(
         list.try_fold(
           state.peers,
@@ -854,6 +956,7 @@ fn trim_history(
                 state.trunk,
                 base,
                 output.2,
+                known_revisions,
                 output.3,
                 output.1,
                 mint,
@@ -886,6 +989,9 @@ fn trim_history(
           trunk: retained,
           peers: peers,
           rollbacks: rollbacks,
+          receipts: list.filter(state.receipts, fn(receipt) {
+            trunk_commit(retained, receipt.revision) != None
+          }),
           next_node_id: next_node_id,
           local_base: case state.local_base {
             Some(local_base) if local_base == base -> Some(Sentinel)
@@ -1004,6 +1110,9 @@ pub fn restore(
     pending: [],
     local_base: None,
     rollbacks: [],
+    receipts: list.map(snapshot.trunk, fn(entry) {
+      RetainedReceipt(entry.commit.revision, None, entry.point, None)
+    }),
     next_node_id: next_node_id,
     sequence_number: snapshot.sequence_number,
     minimum_sequence_number: snapshot.minimum_sequence_number,
@@ -1065,7 +1174,13 @@ pub fn resubmit(
         Ok(builds) -> builds
         Error(Nil) -> []
       }
-      use _ <- result.try(validate_repair_roots(roots, provided))
+      let external_roots =
+        list.filter(roots, fn(root) {
+          !list.any(change.to_data(commit.change).builds, fn(build) {
+            build_covers(build, root)
+          })
+        })
+      use _ <- result.try(validate_repair_roots(external_roots, provided))
       use updated <- result.try(change.update_refreshers(
         commit.change,
         roots,
@@ -1085,6 +1200,12 @@ pub fn resubmit(
     }),
   )
   Ok(commits)
+}
+
+fn build_covers(build: forest.Build, root: types.AtomId) -> Bool {
+  build.id.revision == root.revision
+  && root.local_id >= build.id.local_id
+  && root.local_id < build.id.local_id + list.length(build.trees)
 }
 
 fn validate_repair_roots(
@@ -1116,7 +1237,7 @@ fn validate_repair_roots(
   })
 }
 
-fn validate_receive(
+fn validate_receive_fields(
   state: History,
   point: SequencePoint,
   reference_sequence_number: Int,
@@ -1143,13 +1264,51 @@ fn validate_receive(
     supplied_minimum <= point.sequence_number,
     "minimum sequence number exceeds the received sequence number",
   ))
-  case list.last(state.trunk) {
-    Error(Nil) -> Ok(Nil)
-    Ok(last) ->
+  Ok(Nil)
+}
+
+fn validate_new_receive_order(
+  state: History,
+  point: SequencePoint,
+) -> Result(Nil, TreeError) {
+  use _ <- result.try(check(
+    point.sequence_number >= state.sequence_number,
+    "received sequence number precedes the processed watermark",
+  ))
+  let latest = latest_tree_point(state)
+  use _ <- result.try(case latest {
+    None -> Ok(Nil)
+    Some(previous) ->
       check(
-        compare_points(last.point, point) == order.Lt,
-        "received sequence point is not after the trunk head",
+        compare_points(previous, point) == order.Lt,
+        "received sequence point is not after retained history",
       )
+  })
+  case point.sequence_number == state.sequence_number {
+    False -> Ok(Nil)
+    True ->
+      case latest {
+        Some(previous) ->
+          check(
+            previous.sequence_number == point.sequence_number,
+            "received sequence does not continue the processed batch",
+          )
+        None ->
+          Error(InvalidHistory(
+            "received sequence does not continue the processed batch",
+          ))
+      }
+  }
+}
+
+fn latest_tree_point(state: History) -> Option(SequencePoint) {
+  case list.last(state.trunk) {
+    Ok(entry) -> Some(entry.point)
+    Error(Nil) ->
+      case state.base {
+        InitialBase -> None
+        SequencedBase(point) -> Some(point)
+      }
   }
 }
 
@@ -1203,53 +1362,54 @@ fn validate_snapshot(snapshot: HistorySnapshot) -> Result(Nil, TreeError) {
     "snapshot contains duplicate peer branches",
   ))
   use _ <- result.try(
+    validate_unique_revisions(
+      list.map(snapshot.trunk, fn(entry) { entry.commit }),
+    ),
+  )
+  use _ <- result.try(
     list.try_each(snapshot.peers, fn(peer) {
-      use _ <- result.try(case peer.base {
-        None -> Ok(Nil)
-        Some(revision) ->
+      use ancestry <- result.try(case peer.base {
+        None -> Ok([])
+        Some(revision) -> commits_through_revision(snapshot.trunk, revision)
+      })
+      use _ <- result.try(
+        list.try_each(peer.commits, fn(commit) {
           check(
-            trunk_commit(snapshot.trunk, revision) != None,
-            "snapshot peer base is not on the retained trunk",
+            commit.originator == peer.originator,
+            "snapshot peer commit originator does not match its branch",
           )
-      })
-      list.try_each(peer.commits, fn(commit) {
-        check(
-          commit.originator == peer.originator,
-          "snapshot peer commit originator does not match its branch",
-        )
-      })
+        }),
+      )
+      validate_unique_revisions(list.append(ancestry, peer.commits))
     }),
   )
-  let commits =
-    list.append(
-      list.map(snapshot.trunk, fn(entry) { entry.commit }),
-      list.flat_map(snapshot.peers, fn(peer) { peer.commits }),
-    )
-  validate_commit_consistency(commits, [])
+  Ok(Nil)
 }
 
-fn validate_commit_consistency(
-  commits: List(Commit),
-  seen: List(Commit),
-) -> Result(Nil, TreeError) {
-  case commits {
-    [] -> Ok(Nil)
-    [first, ..rest] -> {
-      use seen <- result.try(
-        case list.find(seen, fn(commit) { commit.revision == first.revision }) {
-          Error(Nil) -> Ok([first, ..seen])
-          Ok(existing) -> {
-            use _ <- result.try(check(
-              existing == first,
-              "snapshot assigns different commits to one revision",
-            ))
-            Ok(seen)
-          }
-        },
-      )
-      validate_commit_consistency(rest, seen)
-    }
+fn commits_through_revision(
+  trunk: List(SequencedCommit),
+  revision: fluid_ids.StableId,
+) -> Result(List(Commit), TreeError) {
+  case trunk {
+    [] ->
+      Error(InvalidHistory("snapshot peer base is not on the retained trunk"))
+    [first, ..rest] ->
+      case first.commit.revision == revision {
+        True -> Ok([first.commit])
+        False -> {
+          use commits <- result.try(commits_through_revision(rest, revision))
+          Ok([first.commit, ..commits])
+        }
+      }
   }
+}
+
+fn validate_unique_revisions(commits: List(Commit)) -> Result(Nil, TreeError) {
+  check(
+    list.length(list.unique(list.map(commits, fn(commit) { commit.revision })))
+      == list.length(commits),
+    "snapshot ancestry path contains a duplicate revision",
+  )
 }
 
 fn validate_point(point: SequencePoint) -> Result(Nil, TreeError) {
@@ -1308,6 +1468,20 @@ fn has_revision(state: History, revision: fluid_ids.StableId) -> Bool {
   || list.any(state.peers, fn(peer) {
     list.any(peer.commits, fn(commit) { commit.commit.revision == revision })
   })
+}
+
+fn history_revisions(state: History) -> List(fluid_ids.StableId) {
+  list.append(
+    list.map(state.trunk, fn(entry) { entry.commit.revision }),
+    list.append(
+      list.flat_map(state.pending, fn(entry) {
+        [entry.original.commit.revision, entry.current.commit.revision]
+      }),
+      list.flat_map(state.peers, fn(peer) {
+        list.map(peer.commits, fn(commit) { commit.commit.revision })
+      }),
+    ),
+  )
 }
 
 fn trunk_commit(

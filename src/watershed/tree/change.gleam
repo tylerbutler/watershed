@@ -181,7 +181,7 @@ pub fn with_identity_order(
   change: Changeset,
   identity_order: IdentityOrder,
 ) -> Result(Changeset, TreeError) {
-  use _ <- result.try(merge_identity_orders(
+  use identity_order <- result.try(merge_identity_orders(
     change.identity_order,
     identity_order,
   ))

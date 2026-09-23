@@ -119,6 +119,60 @@ pub fn shared_tree_history_runner_rejects_rollback_identity_reuse_test() -> Nil 
   Nil
 }
 
+pub fn shared_tree_history_runner_rejects_cached_rollback_revision_reuse_test() -> Nil {
+  let input = fixture_input()
+  let reused =
+    get_at(input, [
+      Key("schedules"),
+      Index(4),
+      Key("actions"),
+      Index(1),
+      Key("allocations"),
+      Index(0),
+      Key("revision"),
+    ])
+  let changed =
+    replace_at(
+      input,
+      [
+        Key("schedules"),
+        Index(4),
+        Key("actions"),
+        Index(2),
+        Key("allocations"),
+        Index(0),
+        Key("revision"),
+      ],
+      reused,
+    )
+  run_value(changed) |> expect.to_be_error
+  Nil
+}
+
+pub fn shared_tree_history_runner_accepts_exact_rebased_remote_replay_test() -> Nil {
+  let input = fixture_input()
+  let assert VArray(actions) =
+    get_at(input, [
+      Key("schedules"),
+      Index(4),
+      Key("actions"),
+    ])
+  let assert Ok(replay) = list.drop(actions, 2) |> list.first
+  let replay = replace_at(replay, [Key("allocations")], VArray([]))
+  let changed =
+    replace_at(
+      input,
+      [
+        Key("schedules"),
+        Index(4),
+        Key("actions"),
+      ],
+      VArray(list.append(actions, [replay])),
+    )
+  run_value(changed) |> expect.to_be_ok
+  Nil
+}
+
 pub fn shared_tree_history_runner_uses_per_commit_repair_test() -> Nil {
   let input = fixture_input()
   let assert Ok(original) = run_value(input)
