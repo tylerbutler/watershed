@@ -61,6 +61,7 @@ pub type HistoryUpdate {
   HistoryUpdate(
     history: History,
     delta: Option(forest.Delta),
+    sequenced_delta: Option(forest.Delta),
     trimmed_revisions: List(fluid_ids.StableId),
   )
 }
@@ -178,7 +179,7 @@ pub fn append_local(
       },
       next_node_id: state.next_node_id + 1,
     )
-  Ok(HistoryUpdate(next, Some(delta), []))
+  Ok(HistoryUpdate(next, Some(delta), None, []))
 }
 
 pub fn receive(
@@ -244,7 +245,15 @@ pub fn receive(
     allocation,
     mint,
   ))
-  Ok(#(HistoryUpdate(prune_rollbacks(next), update.delta, trimmed), allocation))
+  Ok(#(
+    HistoryUpdate(
+      prune_rollbacks(next),
+      update.delta,
+      update.sequenced_delta,
+      trimmed,
+    ),
+    allocation,
+  ))
 }
 
 fn receive_duplicate(
@@ -297,7 +306,7 @@ fn receive_duplicate(
     receipt.minimum_sequence_number == Some(minimum_sequence_number),
     "duplicate commit minimum sequence number does not match",
   ))
-  Ok(#(HistoryUpdate(state, None, []), allocation))
+  Ok(#(HistoryUpdate(state, None, None, []), allocation))
 }
 
 fn receive_local(
@@ -341,7 +350,14 @@ fn receive_local(
           sequence_number: int_max(state.sequence_number, point.sequence_number),
           minimum_sequence_number: supplied_minimum,
         )
-      Ok(#(HistoryUpdate(next, None, []), allocation))
+      use sequenced_delta <- result.try(
+        change.into_delta(change.TaggedChange(
+          Some(current.commit.revision),
+          None,
+          current.commit.change,
+        )),
+      )
+      Ok(#(HistoryUpdate(next, None, Some(sequenced_delta), []), allocation))
     }
   }
 }
@@ -432,7 +448,17 @@ fn receive_remote(
       sequence_number: int_max(state.sequence_number, point.sequence_number),
       minimum_sequence_number: supplied_minimum,
     )
-  Ok(#(HistoryUpdate(next, delta, []), allocation))
+  use sequenced_delta <- result.try(case merged {
+    None -> Ok(None)
+    Some(merged) ->
+      change.into_delta(change.TaggedChange(
+        Some(merged.commit.revision),
+        None,
+        merged.commit.change,
+      ))
+      |> result.map(Some)
+  })
+  Ok(#(HistoryUpdate(next, delta, sequenced_delta, []), allocation))
 }
 
 fn rebase_pending(
@@ -1073,7 +1099,7 @@ pub fn advance_minimum(
     allocation,
     mint,
   ))
-  Ok(#(HistoryUpdate(prune_rollbacks(next), None, trimmed), allocation))
+  Ok(#(HistoryUpdate(prune_rollbacks(next), None, None, trimmed), allocation))
 }
 
 pub fn pending(state: History) -> List(Commit) {

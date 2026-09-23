@@ -208,6 +208,29 @@ pub fn shared_tree_history_ack_does_not_apply_twice_test() -> Nil {
   |> expect.to_equal(forest.export_data(optimistic_forest))
 }
 
+pub fn shared_tree_history_ack_advances_sequenced_forest_test() -> Nil {
+  let #(commit, initial_forest) = real_commit()
+  let assert Ok(local) =
+    history.append_local(history.new(local_session()), commit)
+  let assert Some(local_delta) = local.delta
+  let assert Ok(optimistic) = forest.apply_delta(initial_forest, local_delta)
+  let assert Ok(#(ack, Nil)) =
+    history.receive(
+      local.history,
+      commit,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  ack.delta |> expect.to_equal(None)
+  let assert Some(sequenced_delta) = ack.sequenced_delta
+  let assert Ok(sequenced) = forest.apply_delta(initial_forest, sequenced_delta)
+  forest.export_data(sequenced)
+  |> expect.to_equal(forest.export_data(optimistic))
+}
+
 pub fn shared_tree_history_local_contract_refusals_test() -> Nil {
   let first = empty_commit(revision_a(), local_session())
   let second = empty_commit(revision_b(), local_session())
@@ -464,6 +487,26 @@ pub fn shared_tree_history_rebases_pending_over_remote_test() -> Nil {
   allocation.consumed |> expect.to_equal(1)
   forest.export_data(reconciled)
   |> expect.to_equal(forest.export_data(reconciled))
+}
+
+pub fn shared_tree_history_remote_exposes_rebased_trunk_delta_test() -> Nil {
+  let #(local, remote, initial_forest, allocation) = conflicting_commits()
+  let assert Ok(pending) =
+    history.append_local(history.new(local_session()), local)
+  let assert Ok(#(received, _)) =
+    history.receive(
+      pending.history,
+      remote,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      allocation,
+      mint,
+    )
+  let assert Some(delta) = received.sequenced_delta
+  let assert Ok(sequenced) = forest.apply_delta(initial_forest, delta)
+  forest.read(sequenced, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(8.0))))
 }
 
 pub fn shared_tree_history_remote_failure_is_atomic_test() -> Nil {
