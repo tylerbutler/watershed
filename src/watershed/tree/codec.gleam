@@ -196,7 +196,7 @@ pub fn encode_message(
       case metadata_has_value(metadata) {
         True ->
           list.append(fields, [
-            #("customMetadata", encode_custom_metadata(metadata)),
+            #("customMetadata", custom_metadata_to_json(metadata)),
           ])
         False -> fields
       }
@@ -565,7 +565,10 @@ fn decode_revision_infos(
             False,
             location <> ".revision",
           ))
-          let assert StableRevision(revision) = revision
+          use revision <- result.try(authored_revision(
+            revision,
+            location <> ".revision",
+          ))
           use rollback <- result.try(case optional(members, "rollbackOf") {
             None -> Ok(None)
             Some(value) -> {
@@ -576,7 +579,10 @@ fn decode_revision_infos(
                 False,
                 location <> ".rollbackOf",
               ))
-              let assert StableRevision(revision) = revision
+              use revision <- result.try(authored_revision(
+                revision,
+                location <> ".rollbackOf",
+              ))
               Ok(Some(revision))
             }
           })
@@ -1013,7 +1019,7 @@ fn decode_atom(
         False,
         location <> "[1]",
       ))
-      let assert StableRevision(revision) = revision
+      use revision <- result.try(authored_revision(revision, location <> "[1]"))
       Ok(types.AtomId(Some(revision), local_id))
     }
     _ ->
@@ -1051,7 +1057,10 @@ fn decode_builds(
             False,
             group_location <> "[1]",
           ))
-          let assert StableRevision(revision) = revision
+          use revision <- result.try(authored_revision(
+            revision,
+            group_location <> "[1]",
+          ))
           Ok(#(entries, Some(revision)))
         }
         _ ->
@@ -1549,6 +1558,17 @@ fn decode_revision_value(
   }
 }
 
+fn authored_revision(
+  revision: Revision,
+  location: String,
+) -> Result(fluid_ids.StableId, TreeError) {
+  case revision {
+    StableRevision(revision) -> Ok(revision)
+    RootRevision ->
+      Error(CorruptData(location, "root is not an authored revision"))
+  }
+}
+
 fn decode_pairs(
   value: JsonValue,
   location: String,
@@ -1600,7 +1620,17 @@ fn decode_custom_metadata_node(
   Ok(CustomMetadata(metadata, children))
 }
 
-fn encode_custom_metadata(value: CustomMetadata) -> Json {
+/// Decode recursive commit metadata without changing compressor state.
+pub fn custom_metadata_from_json(
+  value: Json,
+  location: String,
+) -> Result(Option(CustomMetadata), TreeError) {
+  use value <- result.try(json_value(value, location))
+  decode_custom_metadata(value, location)
+}
+
+/// Encode recursive commit metadata.
+pub fn custom_metadata_to_json(value: CustomMetadata) -> Json {
   let CustomMetadata(metadata, children) = value
   let fields = case metadata {
     None -> []
@@ -1610,7 +1640,7 @@ fn encode_custom_metadata(value: CustomMetadata) -> Json {
     [] -> fields
     _ ->
       list.append(fields, [
-        #("c", json.array(children, encode_custom_metadata)),
+        #("c", json.array(children, custom_metadata_to_json)),
       ])
   }
   json.object(fields)
