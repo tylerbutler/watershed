@@ -209,6 +209,11 @@ pub fn shared_tree_kernel_rejects_invalid_edit_before_allocation_test() {
   let assert Ok(before) = tree_kernel.snapshot(state)
   let assert Error(InvalidEdit(_, _)) =
     tree_kernel.validate_edit(state, ClearField(["point", "x"]))
+  tree_kernel.validate_edit(
+    state,
+    SetField(["point", "x"], StringValue("wrong type")),
+  )
+  |> expect.to_be_error
   let assert Ok(order) = change.identity_order([#(revision(), -1)])
   tree_kernel.apply_local(state, revision(), order, ClearField(["point", "x"]))
   |> expect.to_be_error
