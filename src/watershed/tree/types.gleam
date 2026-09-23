@@ -27,6 +27,7 @@ pub type TreeError {
   InvalidSchema(detail: String)
   InvalidEdit(path: FieldPath, detail: String)
   UnsupportedFormat(family: String, version: String)
+  UnsupportedFeature(location: String, feature: String)
   CorruptData(location: String, detail: String)
   InvalidHistory(detail: String)
 }

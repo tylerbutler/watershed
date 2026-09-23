@@ -81,6 +81,11 @@ pub fn stored_from_string(raw: String) -> Result(StoredSchema, TreeError) {
   decode_repository(raw) |> result.map(StoredSchema)
 }
 
+/// Return the validated persisted representation without normalization.
+pub fn stored_to_json(schema: StoredSchema) -> Json {
+  json_ot.to_json(schema.repository.persisted)
+}
+
 /// Decode a fixed view in schema-v2 form, without view options or upgrades.
 pub fn view_from_string(raw: String) -> Result(ViewSchema, TreeError) {
   decode_repository(raw) |> result.map(ViewSchema)

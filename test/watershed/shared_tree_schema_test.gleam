@@ -174,6 +174,20 @@ pub fn shared_tree_schema_json_entrypoints_test() -> Nil {
   Nil
 }
 
+pub fn shared_tree_schema_preserves_validated_stored_json_test() -> Nil {
+  let raw =
+    string.replace(
+      string_schema,
+      "\"version\":2",
+      "\"version\":2,\"metadata\":{\"source\":\"upstream\"}",
+    )
+  let assert Ok(stored) = schema.stored_from_string(raw)
+  schema.stored_to_json(stored)
+  |> json.to_string
+  |> string.contains("\"source\":\"upstream\"")
+  |> expect.to_be_true
+}
+
 fn compatible(stored: String, view: String) -> Result(Nil, types.TreeError) {
   let assert Ok(stored) = schema.stored_from_string(stored)
   let assert Ok(view) = schema.view_from_string(view)
