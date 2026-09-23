@@ -336,6 +336,44 @@ function treeMessages(messages: unknown): Record<string, unknown>[] {
 	return result;
 }
 
+function idAllocationMessages(messages: unknown): Record<string, unknown>[] {
+	const result: Record<string, unknown>[] = [];
+	function visit(value: unknown): void {
+		if (Array.isArray(value)) {
+			value.forEach(visit);
+		} else if (value !== null && typeof value === "object") {
+			const object = value as Record<string, unknown>;
+			const contents = object.contents;
+			if (contents !== null
+				&& typeof contents === "object"
+				&& Reflect.get(contents, "type") === "idAllocation") {
+				result.push(object);
+			}
+			Object.values(object).forEach(visit);
+		}
+	}
+	visit(messages);
+	return result;
+}
+
+function uniqueAllocationMessages(messages: unknown[]): Record<string, unknown>[] {
+	const seen = new Set<string>();
+	const result: Record<string, unknown>[] = [];
+	for (const message of messages) {
+		const object = asObject(message, "allocation message");
+		const contents = asObject(object.contents, "allocation message contents");
+		if (contents.type !== "idAllocation") {
+			continue;
+		}
+		const key = JSON.stringify(contents.contents);
+		if (!seen.has(key)) {
+			seen.add(key);
+			result.push(object);
+		}
+	}
+	return result;
+}
+
 function summaryRecord(summary: SummaryTree) {
 	const history = blob(summary, "indexes", "EditManager", "String");
 	const schema = blob(summary, "indexes", "Schema", "SchemaString");
@@ -383,6 +421,13 @@ export function captureCodecEvidence(output: string): void {
 		const initialSummary = initial.summary as SummaryTree;
 		const settledSummary = raw.summary as SummaryTree;
 		const messages = treeMessages(raw.messages);
+		const allocationMessages = uniqueAllocationMessages(idAllocationMessages(raw.messages))
+			.filter((message) => {
+				const contents = asObject(message.contents, `${id}: allocation contents`);
+				const range = asObject(contents.contents, `${id}: allocation range`);
+				const ids = asObject(range.ids, `${id}: allocation IDs`);
+				return range.sessionId !== sessions[0] || ids.firstGenCount !== 1;
+			});
 		assert(messages.length > 0, `${id}: raw messages`);
 		return {
 			id,
@@ -390,7 +435,7 @@ export function captureCodecEvidence(output: string): void {
 			compressor: compressors[0],
 			peerSession: sessions[1],
 			peerCompressor: compressors[1],
-			allocationMessages: initial.initializationMessages,
+			allocationMessages,
 			actions: input.actions,
 			messages,
 			rawMessages: raw.messages,
@@ -474,6 +519,11 @@ export function captureCodecEvidence(output: string): void {
 				raw: JSON.stringify(metadataMessage),
 				session: selected[0].session,
 				compressor: selected[0].compressor,
+				allocationMessages: selected[0].allocationMessages.filter((message) => {
+					const contents = asObject(message.contents, "allocation message contents");
+					const range = asObject(contents.contents, "allocation range");
+					return range.sessionId === selected[0].peerSession;
+				}),
 			},
 			summaries: [
 				{
