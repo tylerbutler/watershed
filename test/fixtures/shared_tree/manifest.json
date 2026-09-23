@@ -214,7 +214,8 @@
       "modular-nested-algebra",
       "container-foundations",
       "summary-foundations",
-      "history-reconciliation"
+      "history-reconciliation",
+      "tree-codecs"
     ],
     "erlang": [
       "id-ranges",
@@ -224,7 +225,8 @@
       "modular-nested-algebra",
       "container-foundations",
       "summary-foundations",
-      "history-reconciliation"
+      "history-reconciliation",
+      "tree-codecs"
     ]
   },
   "cases": [

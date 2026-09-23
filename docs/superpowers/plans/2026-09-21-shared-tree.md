@@ -1329,6 +1329,15 @@ Checkpoint commits:
 `test/watershed/shared_tree_codec_test.gleam`, and
 `test/watershed/shared_tree_kernel_test.gleam`.
 
+**Status:** Task 10a, the native codec boundary, is complete on
+`feat/sharedtree-codecs`. It implements the selected Message V7,
+SharedTreeChange V5, ModularChange V5, field, schema, FieldBatch V2, Forest V2,
+DetachedFieldIndex V2, and EditManager V7 formats. Both native targets read the
+26-case corpus, and the pinned upstream source consumes 13 fresh artifacts from
+each target. The FieldBatch writer uses the standard four-shape V2 layout with
+a constant-null shape. Task 10b, the pure kernel and runtime conversion, remains
+open. Tasks 11-15 are unchanged.
+
 **Interfaces:** Codecs consume the profile's explicit version selection and
 document compressor. `DecodeContext` supplies originator/revision/session
 context; `EncodeContext` supplies schema and whether output is a message or
@@ -1366,7 +1375,7 @@ pub fn snapshot(state: TreeState) -> Result(TreeSnapshot, TreeError)
 The opaque snapshot consists of stored schema, sequenced forest, detached index,
 and history. The document-level compressor remains outside it.
 
-- [ ] **1. Add raw upstream decode and native encode consumption tests.**
+- [x] **1. Add raw upstream decode and native encode consumption tests.**
 
 ```gleam
 pub fn shared_tree_kernel_matches_upstream_test() {
@@ -1379,7 +1388,7 @@ normalized edit actions. Export native-encoded operations to the oracle for
 actual upstream decoding/application. A native encode/decode round trip is an
 additional check, not interoperability evidence.
 
-- [ ] **2. Implement the profile's codec family as a closed version dispatch.**
+- [x] **2. Implement the profile's codec family as a closed version dispatch.**
 
 Use the observed version dependency graph, including message versus changeset
 versus optional-field versions. The inspected upstream message envelope includes
@@ -1391,7 +1400,7 @@ Implement stored schema, tree content, detached-field index, and edit-manager
 codecs. These are not a JSON rendering of visible `TreeValue`.
 Use real upstream loaders as the authority for native encoding acceptance.
 
-- [ ] **3. Implement the kernel around schema, forest, and history.**
+- [ ] **3. Implement the task 10b kernel around schema, forest, and history.**
 
 `validate_edit` runs before runtime ID allocation. `apply_local` builds a commit,
 updates pending history/visible forest, and returns its event. `receive` performs
@@ -1399,14 +1408,14 @@ remote or acknowledgement reconciliation. Compare the externally visible state
 before/after the atomic transition; suppress acknowledgements that change
 nothing. Keep retained-state changes even when no visible event occurs.
 
-- [ ] **4. Run the object-only corpus and corruption cases.**
+- [ ] **4. Run the task 10b object-only corpus and corruption cases.**
 
 The public event contract is whole-tree invalidation, normalized from upstream
 batch-level observations. Do not claim parity with upstream's complete
 node-specific event API. Check error-state invariants and absence of emitted
 messages/events after invalid local input.
 
-- [ ] **5. Run the focused pair and commit.**
+- [ ] **5. Run the task 10b focused pair and commit.**
 
 Commit subject: `feat(tree): add native SharedTree kernel and codecs`.
 

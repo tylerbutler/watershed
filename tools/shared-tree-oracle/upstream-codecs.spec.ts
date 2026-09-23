@@ -22,6 +22,7 @@ import {
 import { FluidClientVersion, FormatValidatorNoOp } from "../codec/index.js";
 import {
 	fieldBatchCodecBuilder,
+	cursorForJsonableTreeField,
 	jsonableTreeFromFieldCursor,
 	schemaCodecBuilder,
 	TreeCompressionStrategy,
@@ -255,7 +256,13 @@ if (nativeInput !== undefined) {
 			assert(Array.isArray(artifact.items) && artifact.items.length > 0);
 			assert.equal(new Set(artifact.items.map(({ id }) => id)).size, artifact.items.length);
 			const observations = [];
-			for (const item of artifact.items) observations.push(await consume(item));
+			for (const item of artifact.items) {
+				try {
+					observations.push(await consume(item));
+				} catch (error) {
+					throw new Error(`Failed to consume ${item.id}`, { cause: error });
+				}
+			}
 			assert.equal(observations.length, artifact.items.length);
 			mkdirSync(output, { recursive: true });
 			writeFileSync(join(output, "codec-observations.json"), `${JSON.stringify({
@@ -462,8 +469,7 @@ export function captureCodecEvidence(output: string): void {
 			"com.fluidframework.leaf.string", true, "native", [],
 		]]],
 	};
-
-	const metadataMessage = structuredClone(selected[0].messages.at(-1));
+		const metadataMessage = structuredClone(selected[0].messages.at(-1));
 	assert(metadataMessage !== undefined, "Missing metadata message source");
 	metadataMessage.customMetadata = {
 		m: { source: "watershed", count: 2 },
@@ -551,7 +557,7 @@ export function captureCodecEvidence(output: string): void {
 				{ id: "settled-detached", value: settled.parsed.detached },
 				...selected.map((scenario) => ({
 					id: `message-${scenario.id}`,
-					value: scenario.observation,
+					value: { messages: scenario.messages },
 				})),
 				{ id: "metadata", value: metadataMessage.customMetadata },
 			],

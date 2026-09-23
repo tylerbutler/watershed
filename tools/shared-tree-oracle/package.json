@@ -11,6 +11,7 @@
     "source:prepare": "node source.mjs prepare",
     "source:verify": "node source.mjs verify",
     "source:capture": "node source.mjs generate",
+    "codec:interop": "node codec-interop.mjs",
     "preflight": "node service.mjs preflight"
   },
   "dependencies": {

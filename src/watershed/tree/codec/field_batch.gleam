@@ -128,7 +128,17 @@ pub fn encode(fields: List(List(TreeValue))) -> Result(Json, TreeError) {
         "shapes",
         VArray([
           VObject([#("c", VObject([#("extraFields", VNumber(NInt(1)))]))]),
-          VObject([#("a", VNumber(NInt(0)))]),
+          VObject([#("a", VNumber(NInt(2)))]),
+          VObject([#("d", VNumber(NInt(0)))]),
+          VObject([
+            #(
+              "c",
+              VObject([
+                #("type", VString(null_leaf)),
+                #("value", VArray([VNull])),
+              ]),
+            ),
+          ]),
         ]),
       ),
       #("data", VArray(data)),
@@ -795,7 +805,13 @@ fn encode_node(
 ) -> Result(List(JsonValue), TreeError) {
   case value {
     StringValue(value) ->
-      Ok([VString(string_leaf), VBool(True), VString(value), VArray([])])
+      Ok([
+        VNumber(NInt(0)),
+        VString(string_leaf),
+        VBool(True),
+        VString(value),
+        VArray([]),
+      ])
     NumberValue(value) -> {
       use _ <- result.try(case finite(value) {
         True -> Ok(Nil)
@@ -803,6 +819,7 @@ fn encode_node(
           Error(CorruptData(location, "number is outside the finite range"))
       })
       Ok([
+        VNumber(NInt(0)),
         VString(number_leaf),
         VBool(True),
         VNumber(
@@ -815,8 +832,14 @@ fn encode_node(
       ])
     }
     BooleanValue(value) ->
-      Ok([VString(boolean_leaf), VBool(True), VBool(value), VArray([])])
-    NullValue -> Ok([VString(null_leaf), VBool(True), VNull, VArray([])])
+      Ok([
+        VNumber(NInt(0)),
+        VString(boolean_leaf),
+        VBool(True),
+        VBool(value),
+        VArray([]),
+      ])
+    NullValue -> Ok([VNumber(NInt(3))])
     ObjectValue(type_id, fields) -> {
       use encoded_fields <- result.try(
         list.try_fold(fields, [], fn(encoded, field) {
@@ -837,7 +860,12 @@ fn encode_node(
           Ok(list.append(encoded, [VString(field.0), VArray(child)]))
         }),
       )
-      Ok([VString(type_id), VBool(False), VArray(encoded_fields)])
+      Ok([
+        VNumber(NInt(0)),
+        VString(type_id),
+        VBool(False),
+        VArray(encoded_fields),
+      ])
     }
   }
 }

@@ -1,4 +1,7 @@
 import assert from "node:assert/strict";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import test from "node:test";
 
 const reference = {
@@ -84,4 +87,112 @@ test("message and summary artifacts require their explicit compressor context", 
     delete value.items[0].compressorMode;
     assert.throws(() => validateNativeArtifact(value), /compressorMode/);
   }
+});
+
+test("codec interop produces and consumes fresh artifacts for both targets", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "watershed-codec-interop-"));
+  t.after(async () => {
+    const { rm } = await import("node:fs/promises");
+    await rm(root, { recursive: true, force: true });
+  });
+  const calls = [];
+  const { runCodecInterop } = await import("./codec-interop.mjs");
+  const result = await runCodecInterop({
+    outputRoot: root,
+    produce: async (target, output) => {
+      calls.push(`produce:${target}`);
+      const value = artifact();
+      value.target = target;
+      await writeFile(output, JSON.stringify(value));
+    },
+    consume: async (input, output) => {
+      const value = JSON.parse(await readFile(input, "utf8"));
+      calls.push(`consume:${value.target}`);
+      await mkdir(output, { recursive: true });
+      await writeFile(join(output, "codec-observations.json"), JSON.stringify({
+        formatVersion: 1,
+        reference,
+        target: value.target,
+        observations: [{
+          id: "native-string",
+          kind: "fieldBatch",
+          fields: [[{
+            type: "com.fluidframework.leaf.string",
+            value: "native",
+          }]],
+        }],
+      }));
+    },
+    expectedIds: ["native-string"],
+    expected: null,
+  });
+  assert.deepEqual(calls, [
+    "produce:erlang",
+    "consume:erlang",
+    "produce:javascript",
+    "consume:javascript",
+  ]);
+  assert.equal(result.itemCount, 1);
+  assert.equal(result.targetCount, 2);
+});
+
+test("codec interop rejects missing and divergent consumer observations", async (t) => {
+  const root = await mkdtemp(join(tmpdir(), "watershed-codec-interop-"));
+  t.after(async () => {
+    const { rm } = await import("node:fs/promises");
+    await rm(root, { recursive: true, force: true });
+  });
+  const { runCodecInterop } = await import("./codec-interop.mjs");
+  await assert.rejects(
+    runCodecInterop({
+      outputRoot: root,
+      produce: async (target, output) => {
+        const value = artifact();
+        value.target = target;
+        await writeFile(output, JSON.stringify(value));
+      },
+      consume: async (input, output) => {
+        const value = JSON.parse(await readFile(input, "utf8"));
+        if (value.target === "erlang") {
+          await mkdir(output, { recursive: true });
+          await writeFile(join(output, "codec-observations.json"), JSON.stringify({
+            formatVersion: 1,
+            reference,
+            target: value.target,
+            observations: [],
+          }));
+        }
+      },
+      expectedIds: ["native-string"],
+      expected: null,
+    }),
+  );
+
+  await assert.rejects(
+    runCodecInterop({
+      outputRoot: root,
+      produce: async (target, output) => {
+        const value = artifact();
+        value.target = target;
+        await writeFile(output, JSON.stringify(value));
+      },
+      consume: async (input, output) => {
+        const value = JSON.parse(await readFile(input, "utf8"));
+        await mkdir(output, { recursive: true });
+        await writeFile(join(output, "codec-observations.json"), JSON.stringify({
+          formatVersion: 1,
+          reference,
+          target: value.target,
+          observations: [{
+            id: "native-string",
+            kind: "fieldBatch",
+            fields: value.target === "erlang" ? [] : [[{ type: "different" }]],
+          }],
+        }));
+      },
+      expectedIds: ["native-string"],
+      expected: null,
+    }),
+    /target observations differ/,
+  );
 });

@@ -184,6 +184,9 @@ shared-tree-oracle:
 shared-tree-oracle-check:
     npm --prefix tools/shared-tree-oracle run check
 
+shared-tree-codec-interop:
+    npm --prefix tools/shared-tree-oracle run codec:interop
+
 # The p2p gate: two *real* browser pages join a room through the real
 # signaling process, clap concurrently, and must converge on the same total
 # and the same canonical digest — with the late page ready only after its

@@ -30,6 +30,59 @@ pub fn shared_tree_codec_field_batch_uncompressed_string_test() {
   decoded |> expect.to_equal(fields)
 }
 
+pub fn shared_tree_codec_field_batch_uses_constant_shape_for_null_test() {
+  let assert Ok(encoded) =
+    field_batch.encode([[StringValue("native"), NullValue]])
+  encoded
+  |> expect.to_equal(
+    json.object([
+      #("version", json.int(2)),
+      #("identifiers", json.array([], fn(value) { value })),
+      #(
+        "shapes",
+        json.array(
+          [
+            json.object([
+              #("c", json.object([#("extraFields", json.int(1))])),
+            ]),
+            json.object([#("a", json.int(2))]),
+            json.object([#("d", json.int(0))]),
+            json.object([
+              #(
+                "c",
+                json.object([
+                  #("type", json.string("com.fluidframework.leaf.null")),
+                  #("value", json.array([json.null()], fn(value) { value })),
+                ]),
+              ),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+      #(
+        "data",
+        json.array(
+          [
+            stream([
+              json.int(1),
+              stream([
+                json.int(0),
+                json.string("com.fluidframework.leaf.string"),
+                json.bool(True),
+                json.string("native"),
+                stream([]),
+                json.int(3),
+              ]),
+            ]),
+          ],
+          fn(value) { value },
+        ),
+      ),
+    ]),
+  )
+}
+
 pub fn shared_tree_codec_field_batch_rejects_unknown_version_test() {
   let encoded =
     json.object([

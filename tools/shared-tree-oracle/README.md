@@ -35,6 +35,7 @@ npm --prefix tools/shared-tree-oracle test
 npm --prefix tools/shared-tree-oracle run source:prepare
 npm --prefix tools/shared-tree-oracle run source:verify
 npm --prefix tools/shared-tree-oracle run source:capture
+npm --prefix tools/shared-tree-oracle run codec:interop
 ```
 
 The capture is written to `.output/source/source-smoke.json`. To choose an output
@@ -62,10 +63,12 @@ an injected test whose contents differ from its committed oracle source.
 
 Only `packages/dds/tree/src/test/watershedOracle.spec.ts`,
 `watershedAlgebra.spec.ts`, `watershedForest.spec.ts`, and
-`watershedModular.spec.ts` in that same directory
+`watershedModular.spec.ts`, `watershedHistory.spec.ts`, and
+`watershedCodecs.spec.ts` in that same directory
 are injected. They must match `upstream-oracle.spec.ts`,
 `upstream-algebra.spec.ts`, `upstream-forest.spec.ts`, and
-`upstream-modular.spec.ts`, respectively. If you
+`upstream-modular.spec.ts`, `upstream-history.spec.ts`, and
+`upstream-codecs.spec.ts`, respectively. If you
 intentionally edit an oracle after preparing a checkout, review the old injected
 copy and remove that one file before preparing again. Do not discard other
 reference changes to make verification pass. Avoid code-map queries inside the
@@ -101,7 +104,8 @@ At the pinned commit, the explicit `minVersionForCollab` of `2.117.0` produces:
 | --- | --- |
 | Message and EditManager | 7 |
 | SharedTreeChange and ModularChange | 5 |
-| Forest, Schema, DetachedFieldIndex, FieldBatch | 2 |
+| Forest payload, Schema, DetachedFieldIndex, FieldBatch | 2 |
+| Forest index metadata wrapper | 3 |
 | Value and Optional fields | 2 |
 | Sequence fields | 3 |
 | Forbidden and Identifier fields | 1 |
@@ -202,7 +206,7 @@ gleam test --target erlang -- --test-name-filter=shared_tree
 gleam test --target javascript -- --test-name-filter=shared_tree
 ```
 
-`generate` produces all 24 named cases under `test/fixtures/shared_tree/cases/`
+`generate` produces all 26 named cases under `test/fixtures/shared_tree/cases/`
 and their manifest. `check` regenerates them in an owned temporary directory and
 compares the complete file set and every byte without changing the fixtures.
 Missing files, extra files, incomplete observations, and changed outputs fail.
@@ -240,9 +244,30 @@ and 5 add the native `id-ranges` and `schema-validation` runners on both targets
 Task 6 adds the input-only `forest-delta` runner. The foundation wave adds
 `field-compose-invert-rebase`, `modular-nested-algebra`,
 `container-foundations`, and `summary-foundations`. Task 9 adds the input-only
-`history-reconciliation` runner. These eight complete cases are registered as
-native semantic runners on both targets. Document runtime replay, production
-tree codecs, and native writer-matrix results remain future work.
+`history-reconciliation` runner. Task 10a adds the input-only `tree-codecs`
+runner. These nine complete cases are registered as native semantic runners on
+both targets. Document runtime replay and native writer-matrix results remain
+future work.
+
+### Native codec interoperability
+
+`npm run codec:interop` runs the native exporter on Erlang and JavaScript, then
+passes each fresh artifact to the pinned source consumer. The consumer decodes
+schema and FieldBatch output, applies native-authored messages, loads native
+DDS tree-index summaries, and makes another accepted upstream edit. The
+coordinator requires all 13 scenario IDs, compares both targets with fixed
+semantic expectations, rejects empty or stale artifacts, and removes its owned
+temporary output.
+
+The FieldBatch writer uses four fixed V2 shapes: a generic node, a field array,
+a polymorphic selector, and a constant-null node. Null is stored in the shape,
+not the data stream, because the pinned decoder treats a literal data-stream
+null as an out-of-bounds value. This is a schema-independent writer, not a
+compression optimizer.
+
+This gate proves codec-level interoperability for the selected profile. It does
+not add the task 10b kernel, publish complete Fluid documents, run the service,
+or satisfy tasks 11-15.
 
 ### Field algebra and foundation scope
 
@@ -298,14 +323,15 @@ The test adapter checks the original V5 inputs against the full structural
 inputs, which preserve identities lost by wire encoding. Its V5/V2 encoding is
 limited to the original fixture forms and is not a production codec. Mutations
 exercise operation operands, repair content, aliases, detached-only edits, and
-revision ordering without reading `raw` or expected observations.
+revision ordering without reading `raw` or expected observations. Task 10a now
+owns the production codec modules; task 10b still owns the pure kernel.
 
 The expanded `field-compose-invert-rebase` case contains 24 ordered
 observations. It covers pairwise composition, rollback and undo inversion,
 rebasing with child callbacks, field deltas, and revision replacement. The
 native adapter executes the supplied operation arguments and compares register
 identities, callback traces, and allocator results. Its V2 decoding is test-only;
-Task 10 still owns production tree codecs.
+the task 10a production codecs are separate.
 
 `src/watershed/tree/optional_field.gleam` implements the shared required/optional
 field algebra. Child callbacks return candidate state through typed results.
