@@ -9,10 +9,13 @@ import watershed/tree/history
 import watershed/tree/schema
 import watershed/tree/types.{
   type TreeError, ClearField, InvalidEdit, NumberValue, ObjectValue, SetField,
+  StringValue,
 }
 import watershed/tree_kernel
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
+
+const optional_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"com.fluidframework.leaf.string\":{\"kind\":{\"leaf\":1}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]},\"note\":{\"kind\":\"Optional\",\"types\":[\"com.fluidframework.leaf.string\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
 fn session() -> fluid_ids.SessionId {
   let assert Ok(id) =
@@ -337,4 +340,37 @@ pub fn shared_tree_kernel_failed_receive_preserves_both_views_test() {
   tree_kernel.snapshot(state) |> expect.to_equal(Ok(before))
   tree_kernel.read(state, ["point", "x"])
   |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+}
+
+pub fn shared_tree_kernel_optional_set_clear_preserves_absence_test() {
+  let assert Ok(stored) = schema.stored_from_string(optional_schema)
+  let assert Ok(view) = schema.view_from_string(optional_schema)
+  let initial = history.inspect(history.new(session())).sequenced
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      view_id(),
+      stored,
+      forest.ForestData(Some(root()), [], 0),
+      initial,
+    )
+  let assert Ok(state) =
+    tree_kernel.restore(snapshot, view_id(), session(), view)
+  tree_kernel.read(state, ["note"]) |> expect.to_equal(Ok(None))
+  let assert Ok(order) =
+    change.identity_order([
+      #(revision(), -2),
+      #(other_revision(), -1),
+    ])
+  let assert Ok(#(set, _, _)) =
+    tree_kernel.apply_local(
+      state,
+      revision(),
+      order,
+      SetField(["note"], StringValue("present")),
+    )
+  tree_kernel.read(set, ["note"])
+  |> expect.to_equal(Ok(Some(StringValue("present"))))
+  let assert Ok(#(cleared, _, _)) =
+    tree_kernel.apply_local(set, other_revision(), order, ClearField(["note"]))
+  tree_kernel.read(cleared, ["note"]) |> expect.to_equal(Ok(None))
 }
