@@ -213,7 +213,8 @@
       "field-compose-invert-rebase",
       "modular-nested-algebra",
       "container-foundations",
-      "summary-foundations"
+      "summary-foundations",
+      "history-reconciliation"
     ],
     "erlang": [
       "id-ranges",
@@ -222,7 +223,8 @@
       "field-compose-invert-rebase",
       "modular-nested-algebra",
       "container-foundations",
-      "summary-foundations"
+      "summary-foundations",
+      "history-reconciliation"
     ]
   },
   "cases": [

@@ -238,10 +238,11 @@ the first differing JSON path on failure. Necessary initial state and replay
 bytes therefore live in `input`; `raw` preserves supporting evidence. Tasks 4
 and 5 add the native `id-ranges` and `schema-validation` runners on both targets.
 Task 6 adds the input-only `forest-delta` runner. The foundation wave adds
-`field-compose-invert-rebase`, `container-foundations`, and
-`summary-foundations`. Only these six complete cases are registered as native
-semantic runners on both targets. Full tree reconciliation, document runtime
-replay, and native writer-matrix results remain future work.
+`field-compose-invert-rebase`, `modular-nested-algebra`,
+`container-foundations`, and `summary-foundations`. Task 9 adds the input-only
+`history-reconciliation` runner. These eight complete cases are registered as
+native semantic runners on both targets. Document runtime replay, production
+tree codecs, and native writer-matrix results remain future work.
 
 ### Field algebra and foundation scope
 
@@ -265,6 +266,24 @@ exceptions into expected results. Real composed nested edits are separate
 positive cases. Both native targets replay the complete expanded case from
 `input` alone. The pure schedules cover nested editing and algebra, not history,
 reloads, or runtime interoperability. The lifecycle cases remain unregistered.
+
+### History reconciliation scope
+
+`history-reconciliation` records 16 schedules from the pinned `EditManager`.
+They cover local acknowledgement, stale peer branches, multiple pending edits,
+same-field and parent/child conflicts in both orders, same-sequence inner
+positions, non-tree sequence gaps, minimum-sequence trimming, settled snapshot
+restore, accepted-before-ack replay, never-submitted work, detached repair
+content, and compressed revision order that differs from UUID order.
+
+The native runner builds every observation from `input`. Reconciliation uses an
+explicit state-threaded rollback allocator; each allocation carries the stable
+revision and the complete checked identity order in force at that point.
+Snapshots reject pending local commits and restore only validated settled
+history. Resubmission is pure: it preserves pending revisions, adds repair
+content per commit, and rejects duplicate, missing, or extraneous repair data.
+This scope does not add production history codecs, a document kernel, runtime
+facades, transport behavior, or summary publication.
 
 `tree/change` supplies checked modular state, local edits, balanced composition,
 rollback/undo inversion, tagged rebasing, revision replacement, pruning, repair
@@ -474,10 +493,10 @@ index metadata is version 3 while its content codec is version 2.
 | Forest, detached roots, repair content, parent/child replacement | `forest-delta` (native), `parent-child-both-orders`, `detached-child-edit`, forest and detached-index summaries | 6, 13 |
 | Value/Optional v2, register moves, simultaneous register swaps | `field-compose-invert-rebase`, `optional-set-clear`, conflicting writes | 7, 10 |
 | Modular v5, generic nested fields, aliases, replacement revisions, builds/refreshers/pruning | `modular-nested-algebra` (native), `nested-independent` | 8, 10 |
-| SharedTreeChange v5, Message/EditManager v7; pending revisions, stale peers and min-sequence | `multiple-pending`, `history-window`, both-order cases | 9, 10 |
+| SharedTreeChange v5, Message/EditManager v7; pending revisions, stale peers and min-sequence | `history-reconciliation` (native); `multiple-pending`, `history-window`, both-order cases | 9, 10 |
 | Real root map, `"tree"` handle, SharedMap op/header, hierarchical addresses | `bootstrap-map-handles` | 11, 12, 14 |
 | Grouped runtime messages, inner positions, ID allocation, runtime document schema | `batched-commits`, full container history | 11, 12 |
-| Accepted-before-ack and never-submitted reconnect states | `reconnect-before-ack` | 9, 11, 14 |
+| Accepted-before-ack and never-submitted reconnect states | `history-reconciliation` (native); `reconnect-before-ack` | 9, 11, 14 |
 | Snapshot at S, data edit before publication at P, complete interval and later tail | `summary-tail` | 13 |
 | Aliases, recent batches, datastore/channel metadata, protocol quorum and attributes, GC metadata v3 | Full container snapshots plus `profile.json` paths | 11, 13 |
 | Upstream-written summary reload and further editing; native cells explicitly absent | `summary-writer-matrix` | 13, 15 |

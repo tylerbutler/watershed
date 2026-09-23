@@ -206,7 +206,7 @@ pub fn receive(
     allocation,
     mint,
   ))
-  Ok(#(HistoryUpdate(next, update.delta, trimmed), allocation))
+  Ok(#(HistoryUpdate(prune_rollbacks(next), update.delta, trimmed), allocation))
 }
 
 fn receive_local(
@@ -813,6 +813,22 @@ fn tagged_branch_commit(commit: BranchCommit) -> change.TaggedChange {
   tagged_commit(commit.commit)
 }
 
+fn prune_rollbacks(state: History) -> History {
+  let live_nodes =
+    list.append(
+      list.map(state.pending, fn(entry) { entry.current.node_id }),
+      list.flat_map(state.peers, fn(peer) {
+        list.map(peer.commits, fn(commit) { commit.node_id })
+      }),
+    )
+  History(
+    ..state,
+    rollbacks: list.filter(state.rollbacks, fn(entry) {
+      list.contains(live_nodes, entry.source_node)
+    }),
+  )
+}
+
 fn trim_history(
   state: History,
   allocation: allocation,
@@ -938,7 +954,7 @@ pub fn advance_minimum(
     allocation,
     mint,
   ))
-  Ok(#(HistoryUpdate(next, None, trimmed), allocation))
+  Ok(#(HistoryUpdate(prune_rollbacks(next), None, trimmed), allocation))
 }
 
 pub fn pending(state: History) -> List(Commit) {

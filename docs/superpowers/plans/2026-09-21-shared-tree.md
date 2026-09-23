@@ -62,19 +62,19 @@ this plan; do those actions in Task 1 after adding its manifests.
 
 ### Dependency order
 
-Tasks 1-8 are complete: the pinned oracle, real-service profile, corpus, ID
-compression, fixed schemas, persistent forest, field algebra, and nested modular
-changes. Tasks 9-16 remain open; standalone foundation slices do not close their
-parent tasks.
+Tasks 1-9 are complete: the pinned oracle, real-service profile, corpus, ID
+compression, fixed schemas, persistent forest, field algebra, nested modular
+changes, and edit history. Tasks 10-16 remain open; standalone foundation slices
+do not close their parent tasks.
 The manifest records native semantic runners for `id-ranges`,
 `schema-validation`, `forest-delta`, `field-compose-invert-rebase`,
 `modular-nested-algebra`, `container-foundations`, and `summary-foundations` on
-both targets. The other generated cases are not evidence of implemented native
-semantics.
+both targets. Task 9 adds `history-reconciliation` as the eighth runner. The
+other generated cases are not evidence of implemented native semantics.
 
-The work follows three lanes. The foundation wave (7, 11a, and 13a) is complete;
-Task 9 is the next semantics task. The diagram retains the original dependency
-split:
+The work follows three lanes. The foundation wave (7, 11a, and 13a) and Task 9
+are complete. Task 10 is the next semantics task. The diagram retains the
+original dependency split:
 
 ```text
 Completed Tasks 1-6 -> contract and ownership check
@@ -1230,14 +1230,22 @@ identity-order corrections. Final conformance commit:
 
 ### Task 9: implement edit history and pending-commit reconciliation
 
-**Files:** Create `tree/history.gleam` and
-`test/watershed/shared_tree_history_test.gleam`.
+**Status:** Complete. Pure history and the input-only
+`history-reconciliation` runner pass on both targets. Production codecs, the
+sequenced kernel view, runtime integration, and summary publication remain
+outside this task.
+
+**Files:** `tree/history.gleam`,
+`test/watershed/shared_tree_history_test.gleam`,
+`test/watershed/shared_tree_history_resubmit_test.gleam`, and
+`test/watershed/tree/history_fixture.gleam`, with
+`test/watershed/shared_tree_history_fixture_test.gleam` for corpus parity.
 
 **Interfaces:** Define `Commit(revision, originator, change)`, opaque `History`,
 `HistorySnapshot`, and `HistoryUpdate(history, delta)`. Export:
 
 ```gleam
-pub fn new() -> History
+pub fn new(local_session: SessionId) -> History
 pub fn append_local(
   state: History,
   commit: Commit,
@@ -1248,30 +1256,43 @@ pub fn receive(
   point: SequencePoint,
   reference_sequence_number: Int,
   minimum_sequence_number: Int,
-) -> Result(HistoryUpdate, TreeError)
+  allocation: allocation,
+  mint: MintRevision(allocation),
+) -> Result(#(HistoryUpdate, allocation), TreeError)
+pub fn advance_minimum(
+  state: History,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+  allocation: allocation,
+  mint: MintRevision(allocation),
+) -> Result(#(HistoryUpdate, allocation), TreeError)
 pub fn pending(state: History) -> List(Commit)
 pub fn snapshot(state: History) -> Result(HistorySnapshot, TreeError)
-pub fn restore(snapshot: HistorySnapshot) -> Result(History, TreeError)
+pub fn restore(
+  snapshot: HistorySnapshot,
+  local_session: SessionId,
+) -> Result(History, TreeError)
+pub fn resubmit(
+  state: History,
+  repair: List(#(StableId, List(Build))),
+) -> Result(List(Commit), TreeError)
 ```
 
-Add a resubmission function that returns the pending commits and retained revision
-identities after reconciling a replayed server tail. Its exact wire metadata is
-provided by Task 11; tree revisions must not change merely because client
-sequence numbers change after reconnect.
+Rollback allocation is explicit and state-threaded. Snapshots are settled-state
+only. Resubmission preserves pending revision and session identities and applies
+validated repair content per commit. Task 10 must expose a separate sequenced
+kernel view; pending snapshot refusal does not weaken document-summary
+requirements.
 
-- [ ] **1. Test multiple pending commits and peer history.**
+- [x] **1. Capture and replay multiple pending commits and peer history.**
 
 ```gleam
-pub fn shared_tree_history_pending_matches_upstream_test() {
-  fixtures.assert_case("multiple-pending", run_history_case)
-}
-
-pub fn shared_tree_history_window_matches_upstream_test() {
-  fixtures.assert_case("history-window", run_history_case)
+pub fn shared_tree_history_matches_upstream_test() {
+  fixtures.assert_case("history-reconciliation", history_fixture.run)
 }
 ```
 
-- [ ] **2. Implement the trunk, local branch, and necessary peer branches.**
+- [x] **2. Implement the trunk, local branch, and necessary peer branches.**
 
 Port the relevant edit-manager behavior: interpret a remote change in its author
 context, rebase it onto the trunk, reconcile local pending changes, and report
@@ -1279,25 +1300,28 @@ one final forest delta. Match self acknowledgements by revision and supported
 runtime metadata. Never identify a tree commit only by an integer hash of the
 transport client ID.
 
-- [ ] **3. Preserve the collaboration window.**
+- [x] **3. Preserve the collaboration window.**
 
 Retain the revisions and detached repair state needed by outstanding local and
 peer changes. Use minimum sequence numbers and the pinned history rules when
-advancing the base. A safe first implementation may retain more history, but it
-must still write an upstream-valid summary and honor reference contexts.
-Record a memory ceiling before relying on indefinite retention; do not silently
-discard history when the ceiling is reached.
+advancing the base. Rebase peer paths before eviction, report exact trimmed
+revisions, and reject references that precede retained history.
 
-- [ ] **4. Test resubmission and atomic reconciliation.**
+- [x] **4. Test resubmission and atomic reconciliation.**
 
 Replay a server-accepted commit after a lost acknowledgement and verify it is
 not applied or emitted a second time. Replay a never-submitted commit and verify
 exactly one subsequent submission. Test two inner commits sharing an outer
 sequence number. Do not expose temporary rollback/rebase states to observers.
 
-- [ ] **5. Run the focused pair and commit.**
+- [x] **5. Run the focused pair and commit.**
 
-Commit subject: `feat(tree): reconcile sequenced and pending history`.
+Checkpoint commits:
+`feat(tree): track local commits and acknowledgements`,
+`feat(tree): reconcile remote and pending branches`,
+`feat(tree): retain and restore collaboration history`,
+`feat(tree): prepare stable reconnect resubmissions`, and
+`test(tree): verify edit history conformance`.
 
 ### Task 10: implement tree codecs and the pure kernel
 
