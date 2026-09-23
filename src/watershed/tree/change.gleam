@@ -246,6 +246,19 @@ pub fn edit(
   )
 }
 
+pub fn validate_edit(
+  schema: StoredSchema,
+  forest: forest.Forest,
+  operation: Edit,
+) -> Result(Nil, TreeError) {
+  let #(path, value) = case operation {
+    SetField(path, value) -> #(path, Some(value))
+    ClearField(path) -> #(path, None)
+  }
+  use _ <- result.try(edit_destination(schema, forest, path, value))
+  Ok(Nil)
+}
+
 pub fn into_delta(change: TaggedChange) -> Result(forest.Delta, TreeError) {
   let data = change.change.data
   use parts <- result.try(delta_fields(data.fields, data))

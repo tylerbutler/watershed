@@ -1,11 +1,15 @@
+import gleam/list
 import gleam/option.{None, Some}
 import gleam/string
 import startest/expect
 import watershed/fluid_ids
+import watershed/tree/change
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
-import watershed/tree/types.{NumberValue, ObjectValue}
+import watershed/tree/types.{
+  type TreeError, ClearField, InvalidEdit, NumberValue, ObjectValue, SetField,
+}
 import watershed/tree_kernel
 
 const tree_schema = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Point\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}},\"Root\":{\"kind\":{\"object\":{\"point\":{\"kind\":\"Value\",\"types\":[\"Point\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
@@ -22,10 +26,75 @@ fn view_id() -> fluid_ids.StableId {
   id
 }
 
+fn revision() -> fluid_ids.StableId {
+  let assert Ok(id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000003")
+  id
+}
+
+fn other_session() -> fluid_ids.SessionId {
+  let assert Ok(id) =
+    fluid_ids.session_id("00000000-0000-4000-8000-000000000004")
+  id
+}
+
+fn other_revision() -> fluid_ids.StableId {
+  let assert Ok(id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000005")
+  id
+}
+
 fn root() -> types.TreeValue {
   ObjectValue("Root", [
     #("point", ObjectValue("Point", [#("x", NumberValue(1.0))])),
   ])
+}
+
+fn initial_state() -> tree_kernel.TreeState {
+  initial_state_for(session())
+}
+
+fn initial_state_for(local: fluid_ids.SessionId) -> tree_kernel.TreeState {
+  let assert Ok(stored) = schema.stored_from_string(tree_schema)
+  let assert Ok(view) = schema.view_from_string(tree_schema)
+  let initial = history.inspect(history.new(local)).sequenced
+  let assert Ok(snapshot) =
+    tree_kernel.snapshot_from_parts(
+      view_id(),
+      stored,
+      forest.ForestData(Some(root()), [], 0),
+      initial,
+    )
+  let assert Ok(state) = tree_kernel.restore(snapshot, view_id(), local, view)
+  state
+}
+
+fn no_mint(
+  _state: Nil,
+) -> Result(#(fluid_ids.StableId, change.IdentityOrder, Nil), TreeError) {
+  Error(types.InvalidHistory("unexpected rollback allocation"))
+}
+
+type Allocation {
+  Allocation(
+    revisions: List(fluid_ids.StableId),
+    order: change.IdentityOrder,
+    consumed: Int,
+  )
+}
+
+fn mint(
+  allocation: Allocation,
+) -> Result(#(fluid_ids.StableId, change.IdentityOrder, Allocation), TreeError) {
+  case allocation.revisions {
+    [] -> Error(types.InvalidHistory("rollback allocation is exhausted"))
+    [revision, ..rest] ->
+      Ok(#(
+        revision,
+        allocation.order,
+        Allocation(rest, allocation.order, allocation.consumed + 1),
+      ))
+  }
 }
 
 pub fn shared_tree_kernel_restores_checked_snapshot_test() {
@@ -78,4 +147,194 @@ pub fn shared_tree_kernel_rejects_corrupt_forest_test() {
   )
   |> expect.to_be_error
   Nil
+}
+
+pub fn shared_tree_kernel_edits_locally_without_snapshotting_pending_test() {
+  let state = initial_state()
+  let assert Ok(before) = tree_kernel.snapshot(state)
+  let assert Ok(order) = change.identity_order([#(revision(), -1)])
+  let assert Ok(#(edited, commit, events)) =
+    tree_kernel.apply_local(
+      state,
+      revision(),
+      order,
+      SetField(["point", "x"], NumberValue(7.0)),
+    )
+  commit.revision |> expect.to_equal(revision())
+  events |> expect.to_equal([tree_kernel.TreeChanged(True)])
+  tree_kernel.read(edited, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+  tree_kernel.snapshot(edited) |> expect.to_equal(Ok(before))
+  let assert Ok(#(acked, events, Nil)) =
+    tree_kernel.receive(
+      edited,
+      commit,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  events |> expect.to_equal([])
+  let assert Ok(after) = tree_kernel.snapshot(acked)
+  after |> expect.to_not_equal(before)
+  let #(_, sequenced_data, sequenced_history) =
+    tree_kernel.snapshot_parts(after)
+  sequenced_data.root
+  |> expect.to_equal(
+    Some(
+      ObjectValue("Root", [
+        #("point", ObjectValue("Point", [#("x", NumberValue(7.0))])),
+      ]),
+    ),
+  )
+  list.length(sequenced_history.trunk) |> expect.to_equal(1)
+  let assert Ok(view) = schema.view_from_string(tree_schema)
+  let assert Ok(reloaded) =
+    tree_kernel.restore(after, view_id(), session(), view)
+  tree_kernel.read(reloaded, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(7.0))))
+}
+
+pub fn shared_tree_kernel_rejects_invalid_edit_before_allocation_test() {
+  let state = initial_state()
+  let assert Ok(before) = tree_kernel.snapshot(state)
+  let assert Error(InvalidEdit(_, _)) =
+    tree_kernel.validate_edit(state, ClearField(["point", "x"]))
+  let assert Ok(order) = change.identity_order([#(revision(), -1)])
+  tree_kernel.apply_local(state, revision(), order, ClearField(["point", "x"]))
+  |> expect.to_be_error
+  tree_kernel.snapshot(state) |> expect.to_equal(Ok(before))
+  tree_kernel.read(state, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+}
+
+pub fn shared_tree_kernel_suppresses_same_value_event_test() {
+  let state = initial_state()
+  let assert Ok(order) = change.identity_order([#(revision(), -1)])
+  let assert Ok(#(edited, _, events)) =
+    tree_kernel.apply_local(
+      state,
+      revision(),
+      order,
+      SetField(["point", "x"], NumberValue(1.0)),
+    )
+  events |> expect.to_equal([])
+  tree_kernel.read(edited, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
+}
+
+pub fn shared_tree_kernel_receive_remote_and_duplicate_test() {
+  let sender = initial_state_for(other_session())
+  let receiver = initial_state()
+  let assert Ok(order) = change.identity_order([#(other_revision(), -1)])
+  let assert Ok(#(_, commit, _)) =
+    tree_kernel.apply_local(
+      sender,
+      other_revision(),
+      order,
+      SetField(["point", "x"], NumberValue(9.0)),
+    )
+  let assert Ok(#(updated, events, Nil)) =
+    tree_kernel.receive(
+      receiver,
+      commit,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  events |> expect.to_equal([tree_kernel.TreeChanged(False)])
+  tree_kernel.read(updated, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(9.0))))
+  let assert Ok(#(replayed, events, Nil)) =
+    tree_kernel.receive(
+      updated,
+      commit,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Nil,
+      no_mint,
+    )
+  events |> expect.to_equal([])
+  tree_kernel.snapshot(replayed)
+  |> expect.to_equal(tree_kernel.snapshot(updated))
+}
+
+pub fn shared_tree_kernel_rebases_pending_and_snapshots_trunk_test() {
+  let local = initial_state()
+  let peer = initial_state_for(other_session())
+  let assert Ok(rollback) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000006")
+  let assert Ok(authored_order) =
+    change.identity_order([
+      #(revision(), -2),
+      #(other_revision(), -1),
+    ])
+  let assert Ok(rollback_order) =
+    change.identity_order([
+      #(revision(), -2),
+      #(other_revision(), -1),
+      #(rollback, 0),
+    ])
+  let assert Ok(#(local, _, _)) =
+    tree_kernel.apply_local(
+      local,
+      revision(),
+      authored_order,
+      SetField(["point", "x"], NumberValue(7.0)),
+    )
+  let assert Ok(#(_, remote, _)) =
+    tree_kernel.apply_local(
+      peer,
+      other_revision(),
+      authored_order,
+      SetField(["point", "x"], NumberValue(8.0)),
+    )
+  let assert Ok(#(received, _, allocation)) =
+    tree_kernel.receive(
+      local,
+      remote,
+      types.SequencePoint(1, 0),
+      0,
+      0,
+      Allocation([rollback], rollback_order, 0),
+      mint,
+    )
+  allocation.consumed |> expect.to_equal(1)
+  let assert Ok(snapshot) = tree_kernel.snapshot(received)
+  let assert Ok(view) = schema.view_from_string(tree_schema)
+  let assert Ok(reloaded) =
+    tree_kernel.restore(snapshot, view_id(), other_session(), view)
+  tree_kernel.read(reloaded, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(8.0))))
+}
+
+pub fn shared_tree_kernel_failed_receive_preserves_both_views_test() {
+  let state = initial_state()
+  let peer = initial_state_for(other_session())
+  let assert Ok(order) = change.identity_order([#(other_revision(), -1)])
+  let assert Ok(#(_, commit, _)) =
+    tree_kernel.apply_local(
+      peer,
+      other_revision(),
+      order,
+      SetField(["point", "x"], NumberValue(9.0)),
+    )
+  let assert Ok(before) = tree_kernel.snapshot(state)
+  tree_kernel.receive(
+    state,
+    commit,
+    types.SequencePoint(1, 0),
+    2,
+    0,
+    Nil,
+    no_mint,
+  )
+  |> expect.to_be_error
+  tree_kernel.snapshot(state) |> expect.to_equal(Ok(before))
+  tree_kernel.read(state, ["point", "x"])
+  |> expect.to_equal(Ok(Some(NumberValue(1.0))))
 }
