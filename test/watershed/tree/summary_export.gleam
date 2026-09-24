@@ -3,9 +3,10 @@
 import envoy
 import gleam/bit_array
 import gleam/dynamic/decode
+import gleam/int
 import gleam/json.{type Json}
 import gleam/list
-import gleam/option.{None}
+import gleam/option.{None, Some}
 import gleam/result
 import gleam/string
 import simplifile
@@ -13,6 +14,7 @@ import watershed/channel
 import watershed/fluid_ids
 import watershed/runtime_core
 import watershed/tree/runtime_fixture
+import watershed/tree/types.{NumberValue}
 import watershed/wire
 import watershed/wire/fluid_document
 import watershed/wire/fluid_summary
@@ -137,6 +139,36 @@ fn export_case(state: Json) -> Result(Json, String) {
     |> result.map_error(string.inspect),
   )
   use address <- result.try(tree_address(reloaded))
+  use path <- result.try(
+    json.parse(
+      json.to_string(state),
+      decode.at(["continuationEdit", "path"], decode.list(decode.string)),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use kind <- result.try(
+    json.parse(
+      json.to_string(state),
+      decode.at(["continuationEdit", "value", "kind"], decode.string),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use expected <- result.try(
+    json.parse(
+      json.to_string(state),
+      decode.at(["continuationEdit", "value", "value"], decode.int),
+    )
+    |> result.map_error(string.inspect),
+  )
+  use edit <- result.try(
+    runtime_core.tree_read(core, address, path)
+    |> result.map_error(string.inspect),
+  )
+  let expected_number = int.to_float(expected)
+  use _ <- result.try(case kind, edit {
+    "number", Some(NumberValue(value)) if value == expected_number -> Ok(Nil)
+    _, _ -> Error(id <> ": continuation edit differs from captured root")
+  })
   use restored <- result.try(
     case
       runtime_core.bootstrap_document(

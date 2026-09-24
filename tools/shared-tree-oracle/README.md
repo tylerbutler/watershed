@@ -46,7 +46,8 @@ npm --prefix tools/shared-tree-oracle run summary:interop -- --service floodgate
 The default summary gate exports all four input-only `summary-writer-matrix`
 persistence states on JavaScript and BEAM. Each exporter decodes the captured
 hierarchy, replays the supplied sequenced tail, captures a new summary through
-the production core, re-encodes it, and checks the restored root and sequence.
+the production core, re-encodes it, and checks the declared continuation edit,
+restored root, and sequence.
 The coordinator checks the pinned reference, complete scenario IDs, both
 targets, hierarchy shape, and snapshot/publication positions. It uses owned
 temporary artifacts and rejects missing, stale, or incomplete output.

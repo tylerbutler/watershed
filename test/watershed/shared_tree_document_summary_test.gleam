@@ -1,3 +1,4 @@
+import gleam/dict
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
@@ -10,6 +11,7 @@ import watershed/runtime_core
 import watershed/tree/document_summary_fixture
 import watershed/tree/fixtures
 import watershed/tree/runtime_fixture
+import watershed/tree/summary_export
 import watershed/tree_kernel
 import watershed/wire
 import watershed/wire/fluid_document
@@ -432,6 +434,57 @@ pub fn shared_tree_document_summary_rejects_bad_tree_and_compressor_test() {
     |> string.contains(pair.1)
     |> expect.to_be_true()
   })
+}
+
+pub fn shared_tree_summary_export_rejects_mismatched_continuation_test() {
+  let assert Ok(fixture) = fixtures.load("summary-writer-matrix")
+  let assert Ok(states) =
+    json.parse(
+      json.to_string(fixture.input),
+      decode.at(["persistenceStates"], decode.list(wire.json_value_decoder())),
+    )
+  let assert [first, ..rest] = states
+  let assert Ok(attributes) =
+    json.parse(
+      json.to_string(first),
+      decode.dict(decode.string, wire.json_value_decoder()),
+    )
+  let corrupt =
+    json.object([
+      #(
+        "input",
+        json.object([
+          #(
+            "persistenceStates",
+            json.array(
+              [
+                json.object(
+                  dict.insert(
+                    attributes,
+                    "continuationEdit",
+                    json.object([
+                      #("path", json.array(["rating"], json.string)),
+                      #(
+                        "value",
+                        json.object([
+                          #("kind", json.string("number")),
+                          #("value", json.int(999)),
+                        ]),
+                      ),
+                    ]),
+                  )
+                  |> dict.to_list,
+                ),
+                ..rest
+              ],
+              fn(value) { value },
+            ),
+          ),
+        ]),
+      ),
+    ])
+  let assert Error(detail) = summary_export.export(corrupt, "javascript")
+  detail |> string.contains("continuation edit differs") |> expect.to_be_true()
 }
 
 fn replace_entry(
