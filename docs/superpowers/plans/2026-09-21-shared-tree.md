@@ -1749,24 +1749,34 @@ and unsupported codec must not expose a ready document. Run the existing
 summary/storage/runtime tests after updating their format fixtures.
 Commit subject: `feat(tree): persist interoperable Fluid summaries`.
 
-Task 13's focused cross-writer proof covers all nine upstream/JavaScript/BEAM
-writer-to-reader pairs on pinned Floodgate. Each fresh reader edits and an
-independent peer observes the change. A second native publication also reloads
-and continues on BEAM and upstream. The default `summary:interop` command
-replays four whole-summary states, including detached branches and a non-tree
-tail, through fresh native decode, core capture, and hierarchy encode on both
-targets. The input-only `summary-tail` runner checks S-to-publication replay.
-Native SharedTree automatic summaries stay disabled; manual publication
-requires a synchronized client. Arbitrary Fluid document profiles, public tree
-facades, pending-tree reconnect, the wider service schedule, and permanent CI
-gates remain outside Task 13 (Tasks 14–16).
+Task 13 review fixes cover sequenced datastore/channel/alias capture, restored
+batch identity checks before DDS application, upstream split SharedMap blobs,
+and disabling BEAM automatic tree summaries without blocking manual
+publication. The default `summary:interop` command creates fresh native
+summaries on both targets from all four whole-document states. It installs
+each detached/history-bearing artifact as an ordinary upstream local document:
+an upstream reader restores the tree, authors a new edit, and a separate peer
+observes it. It also checks a pinned upstream 9 KiB split-map summary on both
+native targets. The input-only `summary-tail` runner checks S-to-publication
+replay.
 
-Focused and complete root Gleam suites, storage/bootstrap smokes, oracle
-generation/check, codec/runtime interoperability, and the nine-cell real
-service mode passed in the implementation worktree. The workspace-wide
-`just build` and `just test` commands were attempted but cannot yet pass:
-example projects with no lockfiles hit the external Hex API rate limit while
-resolving dependencies; this is not a compile/test failure in Watershed.
+The focused cross-writer proof covers all nine upstream/JavaScript/BEAM
+writer-to-reader pairs on pinned Floodgate. Each reader edits and an independent
+peer observes the change. A second native publication reloads and continues
+on BEAM and upstream. A BEAM client with a zero-jitter automatic policy must
+not publish an ordinarily loaded tree, while synchronized manual publication
+remains available. Arbitrary Fluid document profiles, public tree facades,
+pending-tree reconnect, the wider service schedule, and permanent CI gates
+remain outside Task 13 (Tasks 14–16).
+
+The review worktree passed 1962 Erlang and 2238 JavaScript root tests, both
+production builds, storage/bootstrap smokes, 73 oracle tests, 26 pinned
+upstream cases, codec/runtime interoperability, the six fresh retained
+artifact upstream continuations, the split-map upstream load, and the nine-cell
+real-service mode with the BEAM automatic-policy check. Workspace-wide
+`just build` and `just test` involve example projects; their prior run hit
+external Hex API rate limits. The parent is resolving those example dependencies
+and will retry the workspace-wide commands separately.
 
 #### Foundation-wave closure
 

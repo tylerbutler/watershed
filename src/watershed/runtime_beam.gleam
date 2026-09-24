@@ -1358,9 +1358,12 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         state.pending_summary
       {
         Ready(core, None), Some(channel), Some(policy), None ->
-          case runtime_core.wants_summary(core, policy) {
-            False -> actor.continue(state)
-            True ->
+          case
+            runtime_core.has_tree(core)
+            || !runtime_core.wants_summary(core, policy)
+          {
+            True -> actor.continue(state)
+            False ->
               case do_summarize(state, core, channel, None) {
                 Ok(#(core, pending)) ->
                   actor.continue(track_pending_summary(state, core, pending))
@@ -3487,7 +3490,7 @@ fn request_operations(
 /// again in `MaybeSummarize` and stops. A lost race costs one
 /// unnecessary upload, and nothing more.
 fn arm_summary(state: State, core: runtime_core.Core) -> State {
-  case runtime_core.has_tree(core) && core.persistence == None {
+  case runtime_core.has_tree(core) {
     True -> state
     False -> arm_native_summary(state, core)
   }

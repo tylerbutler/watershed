@@ -29,6 +29,8 @@ import gleam/int
 import gleam/io
 @target(erlang)
 import watershed/runtime_beam
+@target(erlang)
+import watershed/summary_policy
 
 fn tree_address(root: String) -> Result(String, String) {
   case string.split(root, "/") {
@@ -171,6 +173,20 @@ pub fn main() {
   let assert Ok(address) = tree_address(root)
   let assert Ok(title) = envoy.get("WATERSHED_TREE_TITLE")
   let assert Ok(publish) = envoy.get("WATERSHED_TREE_PUBLISH")
+  let assert Ok(auto_summary) = envoy.get("WATERSHED_TREE_AUTO")
+  case auto_summary {
+    "true" ->
+      runtime_beam.auto_summarize(
+        actor,
+        Some(
+          summary_policy.policy()
+          |> summary_policy.with_threshold(1)
+          |> summary_policy.with_jitter_milliseconds(0),
+        ),
+      )
+    "false" -> Nil
+    _ -> panic as "WATERSHED_TREE_AUTO must be true or false"
+  }
   let assert Ok(Nil) =
     runtime_beam.tree_edit(
       actor,
@@ -183,7 +199,14 @@ pub fn main() {
       let assert Ok(version) = runtime_beam.summarize(actor)
       io.println("WATERSHED_TREE_VERSION=" <> version)
     }
-    "false" -> io.println("WATERSHED_TREE_EDITED=" <> title)
+    "false" -> {
+      case auto_summary {
+        "true" -> process.sleep(2000)
+        "false" -> Nil
+        _ -> panic as "WATERSHED_TREE_AUTO must be true or false"
+      }
+      io.println("WATERSHED_TREE_EDITED=" <> title)
+    }
     _ -> panic as "WATERSHED_TREE_PUBLISH must be true or false"
   }
 }

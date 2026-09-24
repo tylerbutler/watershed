@@ -8,6 +8,7 @@ import { dirname, join, resolve } from "node:path";
 import { setTimeout as delay } from "node:timers/promises";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { parseArgs, promisify } from "node:util";
+import { SummaryType } from "@fluidframework/driver-definitions/internal";
 
 import {
   openSession, preflight, serviceConfig, tokenProvider, withLocalFloodgate,
@@ -114,7 +115,7 @@ async function editJavascript(config, document, jwt, title, publish) {
   return result[0];
 }
 
-async function editErlang(config, document, jwt, title, publish) {
+async function editErlang(config, document, jwt, title, publish, auto = false) {
   const erlang = join(repository, "build/dev/erlang");
   const libraries = (await readdir(erlang, { withFileTypes: true }))
     .filter((entry) => entry.isDirectory())
@@ -135,6 +136,7 @@ async function editErlang(config, document, jwt, title, publish) {
       WATERSHED_TREE_TOKEN: jwt,
       WATERSHED_TREE_TITLE: title,
       WATERSHED_TREE_PUBLISH: String(publish),
+      WATERSHED_TREE_AUTO: String(auto),
       ERL_CRASH_DUMP: join(directory, ".output/summary-erl-crash.dump"),
     },
   }).catch((error) => {
@@ -303,6 +305,61 @@ async function checkSplitMap(owned) {
   }
 }
 
+function upstreamSummary(entry) {
+  if (entry.type === "blob") {
+    const bytes = Buffer.from(entry.base64, "base64");
+    const content = bytes.toString("utf8");
+    assert(Buffer.from(content).equals(bytes), "Native artifact contains a non-UTF-8 blob");
+    return { type: SummaryType.Blob, content };
+  }
+  assert.equal(entry.type, "tree", "Unsupported native summary entry");
+  return {
+    type: SummaryType.Tree,
+    tree: Object.fromEntries(entry.entries.map(([name, child]) =>
+      [name, upstreamSummary(child)])),
+  };
+}
+
+async function consumeRetainedArtifact(environment, output, target) {
+  const results = [];
+  for (const id of ["concurrent-detached", "after-peer-leave", "after-nontree-tail"]) {
+    const native = output.cases.find((item) => item.id === id);
+    assert(native, `${target} omitted ${id}`);
+    const document = `native-${target}-${id}-${randomUUID()}`;
+    const url = await environment.urlResolver.resolve({
+      url: `http://localhost:3000/${document}`,
+    });
+    const snapshot = upstreamSummary(native.tree);
+    const protocol = snapshot.tree[".protocol"];
+    assert(protocol, `${target} ${id} omitted protocol`);
+    delete snapshot.tree[".protocol"];
+    const service = await environment.documentServiceFactory.createContainer(
+      { type: SummaryType.Tree, tree: { ".protocol": protocol, ".app": snapshot } }, url,
+    );
+    service.dispose();
+    const sessions = [];
+    try {
+      const reader = await environment.open(document);
+      sessions.push(reader);
+      assert.equal(reader.data.view.root.rating,
+        { "concurrent-detached": 2, "after-peer-leave": 3, "after-nontree-tail": 4 }[id],
+        `${target} ${id} did not restore the native tree root`);
+      const next = native.publicationSequenceNumber + 1000;
+      reader.data.view.root.rating = next;
+      await observed(() => !reader.container.isDirty,
+        `${target} ${id} post-restore edit acknowledgement`);
+      const peer = await environment.open(document);
+      sessions.push(peer);
+      await observed(() => peer.data.view.root.rating === next,
+        `${target} ${id} independent peer continuation`);
+      results.push({ target, id, loaded: true, authored: next, peerObserved: true });
+    } finally {
+      for (const session of sessions) environment.dispose(session);
+    }
+  }
+  return results;
+}
+
 export async function runArtifactInterop({
   produce = produceSummary, cases = persistenceStates,
 } = {}) {
@@ -310,28 +367,37 @@ export async function runArtifactInterop({
   const input = join(repository, "test/fixtures/shared_tree/cases/summary-writer-matrix.json");
   try {
     const results = [];
-    for (const target of ["javascript", "erlang"]) {
-      const path = join(owned, `${target}.json`);
-      await produce(target, path, input);
-      let output;
-      try {
-        output = JSON.parse(await readFile(path, "utf8"));
-      } catch (error) {
-        throw new Error(`Missing or invalid ${target} summary artifact: ${path}`, {
-          cause: error,
+    const retained = [];
+    const environment = makeEnvironment();
+    try {
+      for (const target of ["javascript", "erlang"]) {
+        const path = join(owned, `${target}.json`);
+        await produce(target, path, input);
+        let output;
+        try {
+          output = JSON.parse(await readFile(path, "utf8"));
+        } catch (error) {
+          throw new Error(`Missing or invalid ${target} summary artifact: ${path}`, {
+            cause: error,
+          });
+        }
+        validateSummaryArtifact(output, target, cases);
+        if (cases === persistenceStates) {
+          retained.push(...await consumeRetainedArtifact(environment, output, target));
+        }
+        results.push({
+          target, caseCount: output.cases.length,
+          scenarios: output.cases.map(({ id, snapshotSequenceNumber,
+            publicationSequenceNumber }) => ({
+            id, snapshotSequenceNumber, publicationSequenceNumber,
+          })),
         });
       }
-      validateSummaryArtifact(output, target, cases);
-      results.push({
-        target, caseCount: output.cases.length,
-        scenarios: output.cases.map(({ id, snapshotSequenceNumber,
-          publicationSequenceNumber }) => ({
-          id, snapshotSequenceNumber, publicationSequenceNumber,
-        })),
-      });
+    } finally {
+      await environment.close();
     }
     const splitMap = await checkSplitMap(owned);
-    return { reference: identity, targets: results, splitMap };
+    return { reference: identity, targets: results, retained, splitMap };
   } finally {
     await rm(owned, { recursive: true, force: true });
   }
@@ -408,6 +474,11 @@ export async function runService(config) {
     "after-repeated-publication", false), "after-repeated-publication");
   await observeFreshUpstream(config, document, "after-repeated-publication");
   assert.equal(await publishedVersion(config, document, jwt), repeatedVersion);
+  assert.equal(await editErlang(config, document, jwt,
+    "after-auto-policy", false, true), "after-auto-policy");
+  assert.equal(await publishedVersion(config, document, jwt), repeatedVersion,
+    "BEAM automatically published a loaded SharedTree");
+  await observeFreshUpstream(config, document, "after-auto-policy");
   return {
     document,
     versions,
@@ -418,6 +489,7 @@ export async function runService(config) {
       publicationSequenceNumber: repeatedAck,
       upstreamAndErlangContinued: true,
     },
+    loadedTreeAutomaticSummaryDisabled: true,
   };
 }
 

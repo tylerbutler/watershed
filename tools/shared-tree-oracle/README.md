@@ -51,6 +51,12 @@ restored root, and sequence.
 The coordinator checks the pinned reference, complete scenario IDs, both
 targets, hierarchy shape, and snapshot/publication positions. It uses owned
 temporary artifacts and rejects missing, stale, or incomplete output.
+For each target, it also creates ordinary upstream documents directly from
+fresh native retained-history snapshots (including detached branches and a
+non-tree tail). The upstream reader must restore the tree, author a new edit,
+and have an independent upstream peer observe it. A separate pinned upstream
+summary with a 9 KiB split SharedMap value must load and re-encode on both
+native targets.
 
 The optional Floodgate mode requires the same local checkout and tools as
 `preflight` below. It creates a fresh upstream document, then tests all nine
@@ -61,6 +67,9 @@ over the existing transport and HTTP storage; the coordinator does not upload
 on their behalf. It checks the published commit, protocol snapshot sequence,
 and matching acknowledgement separately. This fixed-profile test is not the
 wider service scheduling matrix or arbitrary-container compatibility.
+It also sets a zero-jitter automatic policy on an ordinarily loaded BEAM tree:
+an acknowledged edit must not publish a checkpoint, while explicit BEAM
+publication in the nine-cell matrix remains available.
 
 The capture is written to `.output/source/source-smoke.json`. To choose an output
 directory, pass an absolute path:
