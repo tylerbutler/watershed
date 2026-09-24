@@ -1,5 +1,6 @@
 //// Pure state for the fixed SharedTree object profile.
 
+import gleam/list
 import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/fluid_ids
@@ -155,6 +156,56 @@ pub fn visible_data(state: TreeState) -> Result(forest.ForestData, TreeError) {
 
 pub fn history_view(state: TreeState) -> history.HistoryView {
   history.inspect(state.history)
+}
+
+/// Rebuild repair content from the forest before each pending commit.
+pub fn resubmit_commits(
+  state: TreeState,
+) -> Result(List(history.Commit), TreeError) {
+  use #(scratch, repair) <- result.try(
+    list.try_fold(
+      history.pending(state.history),
+      #(state.sequenced, []),
+      fn(acc, commit) {
+        let #(before, repairs) = acc
+        use roots <- result.try(change.relevant_removed_roots(commit.change))
+        let builds = change.to_data(commit.change).builds
+        use external <- result.try(
+          roots
+          |> list.filter(fn(root) {
+            !list.any(builds, fn(build) { history.build_covers(build, root) })
+          })
+          |> list.try_map(fn(root) {
+            use reference <- result.try(forest.locate_detached(before, root))
+            use value <- result.try(forest.read_node(before, reference))
+            Ok(forest.Build(root, [value]))
+          }),
+        )
+        use enriched <- result.try(change.update_refreshers(
+          commit.change,
+          roots,
+          external,
+        ))
+        use delta <- result.try(
+          change.into_delta(change.TaggedChange(
+            Some(commit.revision),
+            None,
+            enriched,
+          )),
+        )
+        use after <- result.try(forest.apply_delta(before, delta))
+        Ok(#(after, list.append(repairs, [#(commit.revision, external)])))
+      },
+    ),
+  )
+  use expected <- result.try(forest.visible_root(state.visible))
+  use actual <- result.try(forest.visible_root(scratch))
+  use _ <- result.try(case expected == actual {
+    True -> Ok(Nil)
+    False ->
+      Error(types.InvalidHistory("pending replay does not match visible tree"))
+  })
+  history.resubmit(state.history, repair)
 }
 
 pub fn stored_schema(state: TreeState) -> schema.StoredSchema {

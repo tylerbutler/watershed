@@ -1367,7 +1367,7 @@ pub fn resubmit(
   Ok(commits)
 }
 
-fn build_covers(build: forest.Build, root: types.AtomId) -> Bool {
+pub fn build_covers(build: forest.Build, root: types.AtomId) -> Bool {
   build.id.revision == root.revision
   && root.local_id >= build.id.local_id
   && root.local_id < build.id.local_id + list.length(build.trees)

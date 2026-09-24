@@ -55,6 +55,7 @@ import watershed/sequence_kernel
 import watershed/summary_policy.{type Policy}
 import watershed/task_manager_kernel
 import watershed/text_kernel
+import watershed/tree/history
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema as tree_schema
 import watershed/tree/types as tree_types
@@ -1365,76 +1366,272 @@ fn roster_of(connected: ConnectedMessage) -> Set(Int) {
 pub fn resubmit(
   core: Core,
 ) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
-  use _ <- result.try(
-    case
-      list.any(core.in_flight, fn(entry) {
-        case entry {
-          InFlightBatch(pending: [], ..) -> True
-          InFlightBatch(pending: [_, _, ..], ..) -> True
-          _ -> False
-        }
-      })
-    {
-      True ->
-        Error(
-          ChannelBoundaryFailed(channel.UnsupportedTreeOperation(
-            "pending tree resubmission requires runtime lifecycle support",
-          )),
-        )
-      False -> Ok(Nil)
-    },
+  use prepared <- result.try(
+    core.channels
+    |> dict.to_list
+    |> list.try_fold([], fn(commits, entry) {
+      case entry.1 {
+        channel.TreeState(state) ->
+          tree_kernel.resubmit_commits(state)
+          |> result.map_error(fn(error) { TreeOperationFailed(entry.0, error) })
+          |> result.map(fn(pending) {
+            list.append(
+              commits,
+              list.map(pending, fn(commit) { #(entry.0, commit) }),
+            )
+          })
+        _ -> Ok(commits)
+      }
+    }),
   )
-  use #(core, next_client_sequence_number, new_in_flight, outbound) <- result.try(
+  use
+    #(
+      core,
+      compressor,
+      remaining,
+      next_client_sequence_number,
+      new_in_flight,
+      outbound,
+    )
+  <- result.try(
     list.try_fold(
       core.in_flight,
-      #(core, core.next_client_sequence_number, [], []),
+      #(
+        core,
+        core.compressor,
+        prepared,
+        core.next_client_sequence_number,
+        [],
+        [],
+      ),
       fn(acc, entry) {
-        let #(core, client_sequence_number, entries, outbounds) = acc
-        let #(core, next_client_sequence_number, restamped, outbound) =
-          restamp_in_flight(core, entry, client_sequence_number)
-        use outbound <- result.try(
-          list.try_map(outbound, fn(outbound) {
-            result.map_error(outbound, ContainerOperationFailed)
-          }),
-        )
-        use restamped <- result.try(
-          list.try_map(
-            list.index_map(restamped, fn(item, index) { #(item, index) }),
-            fn(entry) {
-              use sent <- result.try(
-                list.drop(outbound, entry.1)
-                |> list.first
-                |> result.map_error(fn(_) {
-                  AckMismatch("resubmit lost a pending outbound operation")
-                }),
-              )
-              pending_submission(
-                core.client_id,
-                client_sequence_number + entry.1,
-                core.last_seen_sequence_number,
-                entry.0,
-                sent,
-              )
-            },
-          ),
-        )
-        Ok(#(
+        let #(
           core,
-          next_client_sequence_number,
-          list.append(entries, restamped),
-          list.append(outbounds, outbound),
-        ))
+          compressor,
+          remaining,
+          client_sequence_number,
+          entries,
+          outbounds,
+        ) = acc
+        case entry {
+          InFlightBatch(pending: [], ..) -> {
+            use #(compressor, remaining, updated, sent) <- result.try(
+              resubmit_tree_batch(
+                core,
+                compressor,
+                remaining,
+                entry,
+                client_sequence_number,
+              ),
+            )
+            Ok(#(
+              core,
+              compressor,
+              remaining,
+              client_sequence_number + 1,
+              list.append(entries, [updated]),
+              list.append(outbounds, [sent]),
+            ))
+          }
+          InFlightBatch(pending: [_, _, ..], ..) ->
+            Error(AckMismatch("resubmit cannot flatten a grouped pending batch"))
+          _ -> {
+            let #(core, next_sequence, restamped, outbound) =
+              restamp_in_flight(core, entry, client_sequence_number)
+            use outbound <- result.try(
+              list.try_map(outbound, fn(outbound) {
+                result.map_error(outbound, ContainerOperationFailed)
+              }),
+            )
+            use restamped <- result.try(
+              list.try_map(
+                list.index_map(restamped, fn(item, index) { #(item, index) }),
+                fn(entry) {
+                  use sent <- result.try(
+                    list.drop(outbound, entry.1)
+                    |> list.first
+                    |> result.map_error(fn(_) {
+                      AckMismatch("resubmit lost a pending outbound operation")
+                    }),
+                  )
+                  pending_submission(
+                    core.client_id,
+                    client_sequence_number + entry.1,
+                    core.last_seen_sequence_number,
+                    entry.0,
+                    sent,
+                  )
+                },
+              ),
+            )
+            Ok(#(
+              core,
+              compressor,
+              remaining,
+              next_sequence,
+              list.append(entries, restamped),
+              list.append(outbounds, outbound),
+            ))
+          }
+        }
       },
     ),
   )
+  use _ <- result.try(case remaining {
+    [] -> Ok(Nil)
+    _ -> Error(AckMismatch("pending tree commit has no submission"))
+  })
 
   Ok(#(
     Core(
       ..core,
+      compressor: compressor,
       next_client_sequence_number: next_client_sequence_number,
       in_flight: new_in_flight,
     ),
     outbound,
+  ))
+}
+
+fn resubmit_tree_batch(
+  core: Core,
+  compressor: Option(fluid_ids.Compressor),
+  remaining: List(#(String, history.Commit)),
+  entry: InFlight,
+  csn: Int,
+) -> Result(
+  #(
+    Option(fluid_ids.Compressor),
+    List(#(String, history.Commit)),
+    InFlight,
+    wire.OutboundOperation,
+  ),
+  CoreError,
+) {
+  let assert InFlightBatch(
+    grouped: grouped,
+    batch_id: batch_id,
+    items: items,
+    ..,
+  ) = entry
+  use compressor <- result.try(case compressor {
+    Some(compressor) -> Ok(compressor)
+    None -> Error(BadBootstrapSeed("tree channel has no document compressor"))
+  })
+  use _ <- result.try(case grouped, batch_id {
+    True, Some(_) -> Ok(Nil)
+    _, _ ->
+      Error(AckMismatch("pending tree submission has no grouped identity"))
+  })
+  let #(compressor, creation) = fluid_ids.take_creation_range(compressor)
+  use #(remaining, rebuilt, tree_count) <- result.try(
+    list.try_fold(items, #(remaining, [], 0), fn(acc, item) {
+      let #(remaining, rebuilt, count) = acc
+      case item {
+        fluid_container.ChannelOperation(route, contents) -> {
+          use address <- result.try(
+            fluid_container.route_key(route)
+            |> result.map_error(ContainerOperationFailed),
+          )
+          use state <- result.try(tree_channel(core, address))
+          use #(original, _) <- result.try(
+            tree_runtime.decode_message(
+              json.to_string(contents),
+              state,
+              compressor,
+            )
+            |> result.map_error(fn(error) {
+              TreeOperationFailed(address, error)
+            }),
+          )
+          use current <- result.try(
+            list.find(remaining, fn(entry) {
+              entry.0 == address && entry.1.revision == original.revision
+            })
+            |> result.map_error(fn(_) {
+              AckMismatch("pending tree revision is missing after catch-up")
+            }),
+          )
+          use encoded <- result.try(
+            tree_runtime.encode_commit(current.1, state, compressor)
+            |> result.map_error(fn(error) {
+              TreeOperationFailed(address, error)
+            }),
+          )
+          let prefix = case creation, count {
+            Some(range), 0 -> [fluid_container.IdAllocation(range)]
+            _, _ -> []
+          }
+          Ok(#(
+            list.filter(remaining, fn(entry) {
+              entry.0 != address || entry.1.revision != original.revision
+            }),
+            list.append(
+              rebuilt,
+              list.append(prefix, [
+                fluid_container.ChannelOperation(route, encoded),
+              ]),
+            ),
+            count + 1,
+          ))
+        }
+        _ -> Ok(#(remaining, list.append(rebuilt, [item]), count))
+      }
+    }),
+  )
+  use _ <- result.try(case tree_count {
+    0 -> Error(AckMismatch("empty pending tree submission"))
+    _ -> Ok(Nil)
+  })
+  let metadata =
+    json.object([
+      #("batchId", json.string(option.unwrap(batch_id, ""))),
+      #("groupedOpCount", json.int(list.length(rebuilt))),
+    ])
+  let last = list.length(rebuilt) - 1
+  use contents <- result.try(
+    fluid_container.encode_batch(fluid_container.DecodedBatch(
+      True,
+      Some(metadata),
+      list.index_map(rebuilt, fn(item, index) {
+        let boundary = case index {
+          0 ->
+            Some(
+              json.object([
+                #("batch", json.bool(True)),
+                #("batchId", json.string(option.unwrap(batch_id, ""))),
+              ]),
+            )
+          index if index == last ->
+            Some(json.object([#("batch", json.bool(False))]))
+          _ -> None
+        }
+        fluid_container.ContainerMessage(item, index, boundary)
+      }),
+    ))
+    |> result.map_error(ContainerOperationFailed),
+  )
+  let sent =
+    wire.OutboundOperation(
+      csn,
+      core.last_seen_sequence_number,
+      "op",
+      contents,
+      Some(metadata),
+    )
+  Ok(#(
+    Some(compressor),
+    remaining,
+    InFlightBatch(
+      core.client_id,
+      csn,
+      core.last_seen_sequence_number,
+      True,
+      batch_id,
+      rebuilt,
+      [],
+    ),
+    sent,
   ))
 }
 

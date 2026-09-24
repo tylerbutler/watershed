@@ -51,6 +51,228 @@ pub fn shared_tree_resolve_checks_handle_kind_and_view_test() -> Nil {
   Nil
 }
 
+pub fn shared_tree_resubmit_keeps_identity_and_visible_state_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(pending, _, [_])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("pending")),
+    ])
+  let reconnected =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected(
+        "reader-next",
+        [],
+        pending.last_seen_sequence_number,
+      ),
+    )
+  let assert Ok(#(resubmitted, [outbound])) =
+    runtime_core.resubmit(runtime_core.go_live(reconnected))
+  resubmitted.channels |> expect.to_equal(pending.channels)
+  resubmitted.compressor |> expect.to_equal(pending.compressor)
+  outbound.reference_sequence_number
+  |> expect.to_equal(pending.last_seen_sequence_number)
+  let assert [runtime_core.InFlightBatch(batch_id: before_id, ..)] =
+    pending.in_flight
+  let assert [
+    runtime_core.InFlightBatch(client_id: "reader-next", batch_id: after_id, ..),
+  ] = resubmitted.in_flight
+  after_id |> expect.to_equal(before_id)
+}
+
+pub fn shared_tree_resubmit_preserves_grouped_and_separate_batches_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(first, _, [initial])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("first")),
+      tree_types.SetField(["title"], tree_types.StringValue("second")),
+    ])
+  let assert Ok(#(pending, _, [_])) =
+    runtime_core.submit_tree_edits(first, "A/_C", [
+      tree_types.SetField(["note"], tree_types.StringValue("third")),
+    ])
+  let assert Ok(#(rebuilt, [one, two])) =
+    runtime_core.resubmit(
+      runtime_core.go_live(runtime_core.adopt_reconnect(
+        pending,
+        runtime_fixture.connected(
+          "rejoined",
+          [],
+          pending.last_seen_sequence_number,
+        ),
+      )),
+    )
+  let assert [
+    runtime_core.InFlightBatch(batch_id: old_one, ..),
+    runtime_core.InFlightBatch(batch_id: old_two, ..),
+  ] = pending.in_flight
+  let assert [
+    runtime_core.InFlightBatch(batch_id: new_one, ..),
+    runtime_core.InFlightBatch(batch_id: new_two, ..),
+  ] = rebuilt.in_flight
+  new_one |> expect.to_equal(old_one)
+  new_two |> expect.to_equal(old_two)
+  let assert Ok(original) =
+    fluid_container.decode(initial.contents, initial.metadata)
+  let assert Ok(first_batch) =
+    fluid_container.decode(one.contents, one.metadata)
+  let assert Ok(second_batch) =
+    fluid_container.decode(two.contents, two.metadata)
+  list.length(first_batch.messages)
+  |> expect.to_equal(list.length(original.messages))
+  list.length(second_batch.messages) |> expect.to_equal(2)
+  first_batch.metadata |> expect.to_equal(original.metadata)
+}
+
+pub fn shared_tree_resubmit_does_not_duplicate_old_session_ack_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("accepted")),
+    ])
+  let rejoined =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected(
+        "rejoined",
+        [],
+        pending.last_seen_sequence_number,
+      ),
+    )
+  let old_echo =
+    types.SequencedDocumentMessage(
+      ..from_outbound(outbound),
+      client_id: Some(pending.client_id),
+    )
+  let #(caught_up, _) =
+    runtime_core.handle_sequenced(rejoined, old_echo) |> expect.to_be_ok
+  let assert Ok(#(ready, [])) =
+    runtime_core.resubmit(runtime_core.go_live(caught_up))
+  ready.in_flight |> expect.to_equal([])
+  let assert Ok(channel.TreeState(tree)) = dict.get(ready.channels, "A/_C")
+  tree_kernel.history_view(tree).pending |> expect.to_equal([])
+}
+
+pub fn shared_tree_resubmit_after_remote_rebase_keeps_pending_batch_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(first, _, [accepted])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("accepted")),
+    ])
+  let assert Ok(#(pending, _, [_])) =
+    runtime_core.submit_tree_edits(first, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("remaining")),
+    ])
+  let rejoined =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected(
+        "rejoined",
+        [],
+        pending.last_seen_sequence_number,
+      ),
+    )
+  let old_echo =
+    types.SequencedDocumentMessage(
+      ..from_outbound(accepted),
+      client_id: Some(pending.client_id),
+    )
+  let #(caught_up, _) =
+    runtime_core.handle_sequenced(rejoined, old_echo) |> expect.to_be_ok
+  let assert Ok(#(ready, [resent])) =
+    runtime_core.resubmit(runtime_core.go_live(caught_up))
+  let assert [runtime_core.InFlightBatch(batch_id: old_id, ..)] =
+    caught_up.in_flight
+  let assert [runtime_core.InFlightBatch(batch_id: new_id, ..)] =
+    ready.in_flight
+  new_id |> expect.to_equal(old_id)
+  resent.reference_sequence_number |> expect.to_equal(3)
+  runtime_core.tree_read(ready, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("remaining"))))
+}
+
+pub fn shared_tree_resubmit_includes_rebase_rollback_allocation_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(pending, _, [_])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("pending")),
+    ])
+  let assert Ok(fixture) = fixtures.load("batched-commits")
+  let assert Some(compressor) = pending.compressor
+  let assert Ok(input) =
+    runtime_fixture.read(fixture.input, fluid_ids.local_session(compressor))
+  let assert [remote] = input.operations
+  let rejoined =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected(
+        "rejoined",
+        [],
+        pending.last_seen_sequence_number,
+      ),
+    )
+  let #(caught_up, _) =
+    runtime_core.handle_sequenced(rejoined, remote) |> expect.to_be_ok
+  let assert Ok(#(ready, [resent])) =
+    runtime_core.resubmit(runtime_core.go_live(caught_up))
+  let assert Ok(batch) =
+    fluid_container.decode(resent.contents, resent.metadata)
+  let allocations =
+    list.filter(batch.messages, fn(message) {
+      case message.kind {
+        fluid_container.IdAllocation(_) -> True
+        _ -> False
+      }
+    })
+  list.length(allocations) |> expect.to_equal(2)
+  resent.reference_sequence_number |> expect.to_equal(3)
+  let assert Some(compressor) = ready.compressor
+  let #(_, next_range) = fluid_ids.take_creation_range(compressor)
+  next_range |> expect.to_equal(None)
+  let own_ack =
+    types.SequencedDocumentMessage(
+      ..from_outbound(resent),
+      client_id: Some("rejoined"),
+      sequence_number: 4,
+    )
+  let #(acknowledged, _) =
+    runtime_core.handle_sequenced(ready, own_ack) |> expect.to_be_ok
+  acknowledged.in_flight |> expect.to_equal([])
+  let assert Ok(channel.TreeState(tree)) =
+    dict.get(acknowledged.channels, "A/_C")
+  tree_kernel.history_view(tree).pending |> expect.to_equal([])
+}
+
+pub fn shared_tree_resubmit_preserves_interleaved_map_submission_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(first, _, [_])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("one")),
+    ])
+  let assert Ok(root) = runtime_core.root_channel_address(first)
+  let assert Ok(#(second, _, [_])) =
+    runtime_core.set(first, root, "extra", json.string("map"))
+  let assert Ok(#(pending, _, [_])) =
+    runtime_core.submit_tree_edits(second, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("two")),
+    ])
+  let assert Ok(#(ready, outbounds)) =
+    runtime_core.resubmit(
+      runtime_core.go_live(runtime_core.adopt_reconnect(
+        pending,
+        runtime_fixture.connected(
+          "rejoined",
+          [],
+          pending.last_seen_sequence_number,
+        ),
+      )),
+    )
+  list.length(outbounds) |> expect.to_equal(3)
+  list.length(ready.in_flight) |> expect.to_equal(3)
+  runtime_core.get(ready, root, "extra")
+  |> expect.to_equal(Ok(json.string("map")))
+}
+
 pub fn shared_tree_runtime_route_identity_test() -> Nil {
   fluid_container.route_key(fluid_container.Route("A", "root"))
   |> expect.to_equal(Ok("A/root"))
