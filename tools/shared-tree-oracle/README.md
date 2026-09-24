@@ -64,11 +64,18 @@ For each of JavaScript and BEAM, the gate requires
 `facade-and-summary-continuation`, `accepted-before-ack`, `never-submitted`,
 `interleaved-pending`, `detached-repair`, and `repeated-reconnect`. It checks
 visible values, pending counts, changed transport IDs, sequenced batch
-identity, and upstream continuation. An exact twelve-cell validator rejects
+identity, and upstream continuation. The repeated-reconnect case forwards
+the replacement handshake before it pauses inbound catch-up, then checks the
+new identity and catching-up phase before dropping that transport. The
+detached-repair case compares two separate resubmitted child commits with
+their withheld original revisions and batch IDs, then checks each encoded
+refresher against the pinned upstream predecessor state. An exact twelve-cell validator rejects
 missing, duplicated, stale, skipped, failed, or wrong-profile results. A
 missing service, compiler, BEAM executable, or pinned dependency fails the run.
-The TCP gate never parses or fabricates the service's wire protocol. This is
-not the broader Task 15 cross-writer matrix or a permanent CI gate.
+The TCP gate forwards unmodified bytes; for these two cases it inspects
+WebSocket frame boundaries and decoded payloads to pause after the handshake
+and capture withheld submissions. It does not fabricate service messages.
+This is not the broader Task 15 cross-writer matrix or a permanent CI gate.
 
 The default summary gate exports all four input-only `summary-writer-matrix`
 persistence states on JavaScript and BEAM. Each exporter decodes the captured

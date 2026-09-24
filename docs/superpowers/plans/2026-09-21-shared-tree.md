@@ -1936,11 +1936,29 @@ pending counts, and native/upstream continuation. The root suites passed
 1977 BEAM and 2253 JavaScript tests; both native builds, 81 oracle tests,
 the runtime and retained-summary gates, all three storage/bootstrap smokes,
 compile-fail checks, formatting, and website type checks passed. The live
-`repeated-reconnect` gate cuts a newly opened recovery transport before it
-can receive its inbound catch-up; it then verifies the queued remote tail and
+`repeated-reconnect` gate forwards the replacement handshake, checks its
+new client ID and actual catching-up phase, then cuts that transport before
+it receives its inbound tail. It verifies the queued remote tail and
 the local edit, and repeats a second pending edit and transport loss. The
 old-session join-before-leave race is covered by deterministic runtime tests
 rather than induced by the live gate.
+
+Review correction (Task 14): a later regression found that a rebased
+multi-batch queue could place rollback IDs ahead of an earlier batch's
+outstanding range. Resubmission now leaves each original range in its batch
+and puts newly generated rollback IDs after those ranges. The BEAM runtime
+keeps the current reconnect generation after a failed history request, stops
+on authorization refusal, bounds recoverable retries, and retains pending
+tree state on semantic replay errors. The JavaScript runtime also retains
+pending state on replay errors. The focused gate now checks two distinct
+per-commit detached refreshers against the pinned upstream oracle and
+compares original and resubmitted revision/batch identities. Tasks 15 and 16
+remain open. Review-fix run `7d3d7898-4eeb-4ee0-ab49-2338e20d8083` passed
+all twelve live cases, including two refreshers with predecessor values
+`(1, 2)` and `(42, 2)` on each target. The root suites passed 1983 BEAM
+and 2255 JavaScript tests; both builds, 83 oracle unit tests, runtime and
+retained-summary gates, storage/bootstrap smokes, compile-fail checks,
+formatting, and website type checks passed.
 
 ### Task 15: prove mixed-client and cross-writer interoperability
 

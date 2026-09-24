@@ -59,7 +59,13 @@ export function validateResults(results, runId) {
         Number.isSafeInteger(submission.sequenceNumber)
         && typeof submission.batchId === "string"
         && Number.isSafeInteger(submission.revision)
-        && typeof submission.originatorId === "string"),
+        && typeof submission.originatorId === "string")
+      && (item.caseId !== "detached-repair"
+        || (Array.isArray(item.evidence.repairValues)
+          && item.evidence.repairValues.length === 2
+          && item.evidence.repairValues.every((values) =>
+            Array.isArray(values) && values.length === 2
+            && values.every(Number.isFinite)))),
     "Result lacks measured native connection evidence");
     actual.push(`${item.target}:${item.caseId}`);
   }
@@ -158,16 +164,63 @@ function treeSubmission(message) {
   };
 }
 
+function withheldSubmissions(gate, allowIncomplete = false) {
+  return gate.withheldOutboundPayloads({ allowIncomplete }).flatMap((payload) => {
+    const frame = JSON.parse(payload);
+    if (frame[3] !== "submitOp") return [];
+    return frame[4].messageBatches.flat()
+      .map((message) => treeSubmission({
+        ...message, clientId: frame[4].clientId, sequenceNumber: 0,
+      }))
+      .filter(Boolean);
+  });
+}
+
+function refresherValues(submission) {
+  const outer = JSON.parse(submission.contents);
+  const tree = outer.contents.find((item) => item.contents?.type === "component")
+    ?.contents?.contents?.contents?.content?.contents;
+  const repair = tree?.changeset?.[0]?.data?.refreshers;
+  assert.equal(repair?.builds?.length, 1, "Missing per-commit detached root");
+  const point = repair.trees.data?.[0]?.[1];
+  assert.equal(point?.[1], "org.watershed.shared-tree.m1.Point");
+  const fields = point?.[3];
+  assert.deepEqual([fields?.[0], fields?.[2]], ["x", "y"]);
+  assert.equal(fields[1]?.[1], "com.fluidframework.leaf.number");
+  assert.equal(fields[3]?.[1], "com.fluidframework.leaf.number");
+  return [fields[1][3], fields[3][3]];
+}
+
+async function upstreamRepairValues() {
+  const fixture = JSON.parse(await readFile(join(repository,
+    "test/fixtures/shared_tree/cases/history-reconciliation.json"), "utf8"));
+  const commits = fixture.expected.observations
+    .find(({ label }) => label === "resubmit-detached-repair")
+    ?.checkpoints.at(-1).resubmitted;
+  assert.equal(commits?.length, 2, "Pinned upstream two-commit repair is missing");
+  const values = commits.map((commit) => commit.change.refreshers[0].trees[0]
+    .fields.map(([, field]) => field.value));
+  assert.deepEqual(values, [[1, 2], [42, 2]],
+    "Pinned upstream repair profile changed");
+  return values;
+}
+
 async function caseRun(config, viewSchema, runId, target, caseId) {
   const containers = [];
   let native;
   const checkpoints = [];
   let pending;
   let prefix;
+  let originalDetached;
+  let repairValues;
   try {
     const creator = await openSession(config, containers);
     const documentId = creator.container.resolvedUrl.id;
     const peer = await openSession(config, containers, documentId);
+    if (caseId === "detached-repair") {
+      peer.data.view.root.point = { x: 1, y: 2 };
+      await until(() => !peer.container.isDirty, "oracle repair starting point");
+    }
     const summarizer = await openSession(config, containers, documentId, true);
     assert(summarizer.data.ISummarizer, "Missing upstream summarizer");
     const summary = summarizer.data.ISummarizer.summarizeOnDemand({
@@ -306,9 +359,20 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
     } else if (caseId === "detached-repair") {
       native.gate.pauseOutbound();
       await success(await native.request({
-        command: "set", path: ["point", "x"], value: { kind: "number", value: 9 },
-      }), "pending child edit");
-      pending = await capture("detached-child-pending");
+        command: "set", path: ["point", "x"], value: { kind: "number", value: 42 },
+      }), "first pending child edit");
+      await success(await native.request({
+        command: "set", path: ["point", "y"], value: { kind: "number", value: 7 },
+      }), "second pending child edit");
+      pending = await capture("two-detached-children-pending");
+      assert.equal(pending.observation.pendingTreeCount, 2,
+        "Detached repair must cover two separate child commits");
+      await until(() => withheldSubmissions(native.gate, true).length === 2,
+        "capture both original unsubmitted child commits");
+      originalDetached = withheldSubmissions(native.gate);
+      assert(originalDetached.every((entry) =>
+        entry.clientId === pending.observation.clientId));
+      assert.notEqual(originalDetached[0].batchId, originalDetached[1].batchId);
       peer.data.view.root.point = { x: 3, y: 4 };
       await until(() => !peer.container.isDirty, "remote parent replacement");
       await reconnect(native);
@@ -341,14 +405,19 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
       assert.equal(rejected.ok, false, "Tree edit succeeded during reconnect");
       peer.data.view.root.rating = 17;
       await until(() => !peer.container.isDirty, "sequenced catch-up tail");
-      await native.gate.reconnect({ pauseInbound: true });
+      await native.gate.reconnect({ pauseAfterConnectSuccess: true });
       await success(await native.request({ command: "reconnect" }),
         "start first reconnect");
-      await until(() => native.gate.connections > 0,
-        "first reconnect transport opened");
+      await until(async () => {
+        const observation = (await checkpoint(native)).observation;
+        return native.gate.connectSuccesses === 1
+          && observation.clientId !== pending.observation.clientId
+          && observation.phase === "catching-up"
+          && observation.pendingTreeCount === 1;
+      }, "new identity entered catch-up before interruption");
       const interrupted = await capture("interrupted-recovery");
-      assert.equal(interrupted.observation.synced, false,
-        "Gate did not interrupt the first recovery");
+      assert.equal(interrupted.observation.phase, "catching-up",
+        "Gate did not interrupt actual catch-up");
       await native.gate.disconnect();
       await native.request({ command: "disconnect" });
       await native.gate.reconnect();
@@ -407,8 +476,17 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
       assert(remote, "No remote operation was sequenced between pending batches");
     }
     if (caseId === "detached-repair") {
-      assert.equal(submissions.length, 1,
-        "Repaired detached edit was not submitted exactly once");
+      assert.equal(submissions.length, 2,
+        "Both repaired detached edits must be submitted exactly once");
+      for (let index = 0; index < 2; index++) {
+        assert.equal(submissions[index].clientId, final.observation.clientId);
+        assert.equal(submissions[index].batchId, originalDetached[index].batchId);
+        assert.equal(submissions[index].revision, originalDetached[index].revision);
+        assert.equal(submissions[index].originatorId, originalDetached[index].originatorId);
+      }
+      repairValues = submissions.map(refresherValues);
+      assert.deepEqual(repairValues, await upstreamRepairValues(),
+        "Each emitted refresher must match its pinned upstream predecessor state");
     }
     if (caseId === "repeated-reconnect") {
       assert.equal(submissions.length, 1,
@@ -428,6 +506,7 @@ async function caseRun(config, viewSchema, runId, target, caseId) {
         clientId: final.observation.clientId,
         pendingTreeCount: final.observation.pendingTreeCount,
         checkpoints,
+        ...(repairValues ? { repairValues } : {}),
         submissions: submissions.map(({ contents: _, ...identity }) => identity),
       },
     };

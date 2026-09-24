@@ -8,6 +8,8 @@ const valid = () => targets.flatMap((target) => caseIds.map((caseId) => ({
   passed: true, skipped: false,
   evidence: {
     sequenceNumber: 1, clientId: "client", pendingTreeCount: 0,
+    ...(caseId === "detached-repair"
+      ? { repairValues: [[1, 2], [42, 2]] } : {}),
     checkpoints: ["initial", "final"].map((label) => ({
       label, sequenceNumber: 1, clientId: "client",
       pendingTreeCount: 0, values: {}, events: [],
@@ -36,6 +38,10 @@ test("twelve measured cases pass only with one run and the fixed profile", () =>
     (results) => { results[0].evidence = {}; },
     (results) => { results[0].runId = ""; },
     (results) => { results[0].evidence.submissions = []; },
+    (results) => {
+      delete results.find(({ caseId }) => caseId === "detached-repair")
+        .evidence.repairValues;
+    },
   ]) {
     const results = valid();
     mutation(results);

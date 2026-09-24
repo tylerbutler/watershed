@@ -7,6 +7,7 @@ import { createConnection, createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { constants, inflateRawSync } from "node:zlib";
 
 const repository = resolve(dirname(fileURLToPath(import.meta.url)), "../..");
 
@@ -104,6 +105,9 @@ export class TcpGate {
   #withheld = false;
   #inbound = false;
   #outbound = false;
+  #pauseAfterConnectSuccess = false;
+  #connectSuccesses = 0;
+  #withheldBytes = [];
 
   constructor(server, host, port) {
     this.#server = server;
@@ -122,6 +126,7 @@ export class TcpGate {
 
   get port() { return this.#server.address().port; }
   get connections() { return this.#pairs.size; }
+  get connectSuccesses() { return this.#connectSuccesses; }
 
   #accept(client) {
     client.on("error", () => client.destroy());
@@ -133,14 +138,86 @@ export class TcpGate {
   #forward(client) {
     if (client.destroyed) return;
     const upstream = createConnection(this.#port, this.#host);
-    const pair = { client, upstream };
+    const pair = {
+      client, upstream, buffer: Buffer.alloc(0),
+      dictionary: Buffer.alloc(0), upgrading: true,
+    };
     this.#pairs.add(pair);
     upstream.on("error", () => client.destroy());
     client.on("close", () => { upstream.destroy(); this.#pairs.delete(pair); });
     upstream.on("close", () => { client.destroy(); this.#pairs.delete(pair); });
-    client.pipe(upstream);
-    upstream.pipe(client);
-    if (this.#outbound) client.pause();
+    pair.capture = (chunk) => {
+      this.#withheldBytes.push(chunk);
+      if (this.#withheldBytes.reduce((total, bytes) => total + bytes.length, 0)
+        > 1024 * 1024) {
+        client.destroy(new Error("Withheld outbound exceeded byte limit"));
+      }
+    };
+    if (this.#outbound) client.on("data", pair.capture);
+    else client.pipe(upstream);
+    if (this.#pauseAfterConnectSuccess) {
+      pair.inspect = (chunk) => {
+        pair.buffer = Buffer.concat([pair.buffer, chunk]);
+        if (pair.buffer.length > 1024 * 1024) {
+          client.destroy(new Error("Reconnect handshake exceeded byte limit"));
+          return;
+        }
+        if (pair.upgrading) {
+          const end = pair.buffer.indexOf("\r\n\r\n");
+          if (end < 0) return;
+          const header = pair.buffer.subarray(0, end + 4);
+          pair.buffer = pair.buffer.subarray(end + 4);
+          client.write(header);
+          pair.upgrading = false;
+          if (!header.toString("ascii").startsWith("HTTP/1.1 101")) {
+            this.#release(pair);
+            return;
+          }
+        }
+        while (pair.buffer.length >= 2) {
+          const marker = pair.buffer[1] & 0x7f;
+          const headerSize = marker === 126 ? 4 : marker === 127 ? 10 : 2;
+          if (pair.buffer.length < headerSize) return;
+          const length = marker === 126
+            ? pair.buffer.readUInt16BE(2)
+            : marker === 127
+              ? Number(pair.buffer.readBigUInt64BE(2))
+              : marker;
+          if (!Number.isSafeInteger(length) || length > 1024 * 1024) {
+            client.destroy(new Error("Reconnect frame exceeded byte limit"));
+            return;
+          }
+          if (pair.buffer.length < headerSize + length) return;
+          const frame = pair.buffer.subarray(0, headerSize + length);
+          pair.buffer = pair.buffer.subarray(headerSize + length);
+          client.write(frame);
+          let payload = frame.subarray(headerSize);
+          if (frame[0] & 0x40) {
+            try {
+              payload = inflateRawSync(Buffer.concat([
+                payload, Buffer.from([0, 0, 0xff, 0xff]),
+              ]), {
+                dictionary: pair.dictionary,
+                finishFlush: constants.Z_SYNC_FLUSH,
+              });
+              pair.dictionary = Buffer.concat([pair.dictionary, payload]).subarray(-32768);
+            } catch (error) {
+              client.destroy(new Error("Cannot inspect compressed reconnect frame", { cause: error }));
+              return;
+            }
+          }
+          if (payload.includes('"connect_document_success"')) {
+            this.#connectSuccesses++;
+            this.#inbound = true;
+            upstream.pause();
+            return;
+          }
+        }
+      };
+      upstream.on("data", pair.inspect);
+    } else {
+      upstream.pipe(client);
+    }
     if (this.#inbound) upstream.pause();
   }
 
@@ -149,9 +226,69 @@ export class TcpGate {
     for (const { upstream } of this.#pairs) upstream.pause();
   }
 
+  #release(pair) {
+    if (pair.inspect) {
+      pair.upstream.off("data", pair.inspect);
+      pair.inspect = undefined;
+      if (pair.buffer.length) pair.client.write(pair.buffer);
+      pair.buffer = Buffer.alloc(0);
+      pair.upstream.pipe(pair.client);
+    }
+    pair.upstream.resume();
+  }
+
+  resumeInbound() {
+    this.#inbound = false;
+    for (const pair of this.#pairs) this.#release(pair);
+  }
+
   pauseOutbound() {
     this.#outbound = true;
-    for (const { client } of this.#pairs) client.pause();
+    for (const pair of this.#pairs) {
+      pair.client.unpipe(pair.upstream);
+      pair.client.on("data", pair.capture);
+      pair.client.resume();
+    }
+  }
+
+  withheldOutboundPayloads({ allowIncomplete = false } = {}) {
+    const bytes = Buffer.concat(this.#withheldBytes);
+    const payloads = [];
+    let dictionary = Buffer.alloc(0);
+    for (let at = 0; at < bytes.length;) {
+      if (allowIncomplete && at + 2 > bytes.length) return payloads;
+      assert(at + 2 <= bytes.length, "Incomplete withheld WebSocket frame");
+      const masked = (bytes[at + 1] & 0x80) !== 0;
+      const marker = bytes[at + 1] & 0x7f;
+      const header = marker === 126 ? 4 : marker === 127 ? 10 : 2;
+      if (allowIncomplete && at + header + (masked ? 4 : 0) > bytes.length) {
+        return payloads;
+      }
+      assert(at + header + (masked ? 4 : 0) <= bytes.length,
+        "Incomplete withheld frame header");
+      const length = marker === 126 ? bytes.readUInt16BE(at + 2)
+        : marker === 127 ? Number(bytes.readBigUInt64BE(at + 2)) : marker;
+      assert(Number.isSafeInteger(length) && length <= 1024 * 1024,
+        "Invalid withheld frame length");
+      const start = at + header + (masked ? 4 : 0);
+      if (allowIncomplete && start + length > bytes.length) return payloads;
+      assert(start + length <= bytes.length, "Incomplete withheld frame payload");
+      let payload = Buffer.from(bytes.subarray(start, start + length));
+      if (masked) {
+        for (let i = 0; i < length; i++) {
+          payload[i] ^= bytes[at + header + i % 4];
+        }
+      }
+      if (bytes[at] & 0x40) {
+        payload = inflateRawSync(Buffer.concat([
+          payload, Buffer.from([0, 0, 0xff, 0xff]),
+        ]), { dictionary, finishFlush: constants.Z_SYNC_FLUSH });
+        dictionary = Buffer.concat([dictionary, payload]).subarray(-32768);
+      }
+      if ((bytes[at] & 0x0f) === 1) payloads.push(payload.toString("utf8"));
+      at = start + length;
+    }
+    return payloads;
   }
 
   async disconnect() {
@@ -163,9 +300,10 @@ export class TcpGate {
     this.#pairs.clear();
   }
 
-  async reconnect({ pauseInbound = false } = {}) {
+  async reconnect({ pauseInbound = false, pauseAfterConnectSuccess = false } = {}) {
     this.#withheld = false;
     this.#inbound = pauseInbound;
+    this.#pauseAfterConnectSuccess = pauseAfterConnectSuccess;
     this.#outbound = false;
     for (const client of this.#waiting) {
       this.#waiting.delete(client);

@@ -126,6 +126,10 @@ keeps their core and compressor, replays the sequenced tail, waits for the old
 submitting session's sequenced leave and the new join, and resubmits only edits
 that the server has not accepted. Missing history or failed repair retains the
 pending state with an explicit error; it does not report a synchronized tree.
+Authorization refusal stops reconnect with the pending tree still readable;
+recoverable connection failures have a bounded, delayed retry and report
+their cause through `connection_observation`. A replay error also suspends
+recovery without discarding accepted local edits.
 This is in-memory reconnect, not disk recovery or offline authoring.
 The focused `client:interop -- --local-floodgate` oracle exercises six live
 schedules on each native target; broader mixed-client matrices and permanent
