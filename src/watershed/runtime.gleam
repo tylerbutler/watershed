@@ -4064,11 +4064,20 @@ fn notify_session_lost(cell: Cell(State), previous: Phase) -> Nil {
 @target(javascript)
 fn fail(cell: Cell(State), reason: String) -> Nil {
   let state = cell_get(cell)
+  let phase = case state.phase {
+    Ready(core, _) | Reconnecting(core) ->
+      case runtime_core.has_pending_tree(core) {
+        True -> SuspendedPendingTree(core, reason)
+        False -> Failed(reason)
+      }
+    SuspendedPendingTree(core, _) -> SuspendedPendingTree(core, reason)
+    Connecting | Failed(_) -> Failed(reason)
+  }
   cell_set(
     cell,
     State(
       ..state,
-      phase: Failed(reason),
+      phase: phase,
       claim_waiters: dict.new(),
       acquire_waiters: dict.new(),
       pending_summary: None,

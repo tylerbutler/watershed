@@ -51,6 +51,8 @@ import watershed/wire/fluid_container
 @target(erlang)
 import watershed/wire/op as wire_op
 @target(erlang)
+import watershed/wire/socket
+@target(erlang)
 import watershed_beam
 
 @target(erlang)
@@ -100,6 +102,304 @@ fn membership_frame(
     timestamp: 0,
     data: Some(data),
   )
+}
+
+@target(erlang)
+fn pending_reconnect_actor() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Ok(seed) = runtime_core.bootstrap_seed(input)
+  let connections = process.new_subject()
+  let assert Ok(actor) =
+    runtime_beam.start_with_transport_and_seed(
+      host: "seed.invalid",
+      port: 0,
+      connect_message: connect_message(),
+      seed: seed,
+      transport: runtime_beam.Transport(connect: fn(callbacks) {
+        process.send(connections, callbacks)
+      }),
+    )
+  let assert Ok(first) = process.receive(connections, 1000)
+  first.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  first.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 0,
+      initial_clients: ["reader"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.await_ready(actor) |> expect.to_equal(Ok(Nil))
+  runtime_beam.tree_edit(
+    actor,
+    "A/_C",
+    tree_types.SetField(["title"], tree_types.StringValue("retained")),
+  )
+  |> expect.to_equal(Ok(Nil))
+  first.on_close("transport lost")
+  #(actor, connections)
+}
+
+@target(erlang)
+pub fn failed_reconnect_request_does_not_restore_stale_phase_test() {
+  let #(actor, connections) = pending_reconnect_actor()
+  let assert Ok(second) = process.receive(connections, 1000)
+  second.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, _) {
+        case event {
+          "requestOps" -> Error("history request refused")
+          _ -> Ok(Nil)
+        }
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  second.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  let assert Ok(third) = process.receive(connections, 1000)
+  let observation = runtime_beam.connection_observation(actor)
+  observation.phase |> expect.to_equal("reconnecting")
+  observation.pending_tree_count |> expect.to_equal(1)
+  third.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  third.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader-3",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-3"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  runtime_beam.connection_observation(actor).client_id
+  |> expect.to_equal(Some("reader-3"))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn failed_gap_request_does_not_restore_old_catching_up_core_test() {
+  let #(actor, connections) = pending_reconnect_actor()
+  let assert Ok(second) = process.receive(connections, 1000)
+  second.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case
+          event == "requestOps"
+          && json.to_string(payload)
+          == json.to_string(socket.encode_request_operations(from: 1))
+        {
+          True -> Error("gap request refused")
+          False -> Ok(Nil)
+        }
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  second.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  second.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+    ]),
+  )
+  second.on_event(
+    "op",
+    frame.encode_operation_event([membership_frame(3, "leave", "\"other\"")]),
+  )
+  let observation = runtime_beam.connection_observation(actor)
+  observation.phase |> expect.to_equal("reconnecting")
+  observation.error |> expect.to_equal(Some("gap request refused"))
+  observation.pending_tree_count |> expect.to_equal(1)
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn permanent_reconnect_rejection_retains_pending_without_retry_test() {
+  let #(actor, connections) = pending_reconnect_actor()
+  let assert Ok(second) = process.receive(connections, 1000)
+  second.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  second.on_event(
+    "connect_document_error",
+    json.object([
+      #("code", json.int(401)),
+      #("message", json.string("authorization revoked")),
+    ]),
+  )
+  let observation = runtime_beam.connection_observation(actor)
+  observation.phase |> expect.to_equal("suspended")
+  observation.error |> expect.to_equal(Some("authorization revoked"))
+  observation.pending_tree_count |> expect.to_equal(1)
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("retained"))))
+  second.on_event(
+    "connect_document_error",
+    json.object([
+      #("code", json.int(401)),
+      #("message", json.string("authorization revoked")),
+    ]),
+  )
+  process.receive(connections, 0) |> expect.to_equal(Error(Nil))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn repeated_reconnect_server_failures_stop_with_observable_reason_test() {
+  let #(actor, connections) = pending_reconnect_actor()
+  let error =
+    json.object([
+      #("code", json.int(503)),
+      #("message", json.string("service unavailable")),
+    ])
+  list.each([Nil, Nil, Nil], fn(_) {
+    let assert Ok(callbacks) = process.receive(connections, 1000)
+    callbacks.on_ready(
+      runtime_beam.TransportHandle(
+        push: fn(_, _) { Ok(Nil) },
+        close: fn() { Nil },
+        drop: fn() { Nil },
+      ),
+    )
+    callbacks.on_event("connect_document_error", error)
+    let observation = runtime_beam.connection_observation(actor)
+    observation.phase |> expect.to_equal("reconnecting")
+    observation.error |> expect.to_equal(Some("service unavailable"))
+    observation.pending_tree_count |> expect.to_equal(1)
+    process.receive(connections, 0) |> expect.to_equal(Error(Nil))
+  })
+  let assert Ok(last) = process.receive(connections, 1000)
+  last.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  last.on_event("connect_document_error", error)
+  let observation = runtime_beam.connection_observation(actor)
+  observation.phase |> expect.to_equal("suspended")
+  observation.error |> expect.to_equal(Some("service unavailable"))
+  process.receive(connections, 500) |> expect.to_equal(Error(Nil))
+  process.send(actor, runtime_beam.Shutdown)
+}
+
+@target(erlang)
+pub fn bad_replayed_operation_suspends_without_killing_actor_test() {
+  let #(actor, connections) = pending_reconnect_actor()
+  let assert Ok(second) = process.receive(connections, 1000)
+  second.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(_, _) { Ok(Nil) },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  second.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  let assert Ok(contents) =
+    fluid_container.encode_batch(
+      fluid_container.DecodedBatch(True, None, [
+        fluid_container.ContainerMessage(
+          fluid_container.ChannelOperation(
+            fluid_container.Route("missing", "root"),
+            wire_op.encode_map_operation(map_kernel.Clear),
+          ),
+          0,
+          None,
+        ),
+      ]),
+    )
+  second.on_event(
+    "op",
+    frame.encode_operation_event([
+      frame.Sequenced(
+        client_id: Some("other"),
+        sequence_number: 1,
+        minimum_sequence_number: 0,
+        client_sequence_number: 1,
+        reference_sequence_number: 0,
+        operation_type: "op",
+        contents: contents,
+        metadata: None,
+        timestamp: 0,
+        data: None,
+      ),
+    ]),
+  )
+  let observation = runtime_beam.connection_observation(actor)
+  observation.phase |> expect.to_equal("suspended")
+  observation.pending_tree_count |> expect.to_equal(1)
+  observation.error |> expect.to_not_equal(None)
+  runtime_beam.tree_read(actor, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("retained"))))
+  process.send(actor, runtime_beam.Shutdown)
 }
 
 @target(erlang)

@@ -1498,6 +1498,15 @@ pub fn resubmit(
                 remaining,
                 entry,
                 client_sequence_number,
+                !list.any(
+                  list.drop(core.in_flight, list.length(entries) + 1),
+                  fn(later) {
+                    case later {
+                      InFlightBatch(pending: [], ..) -> True
+                      _ -> False
+                    }
+                  },
+                ),
               ),
             )
             Ok(#(
@@ -1575,6 +1584,7 @@ fn resubmit_tree_batch(
   remaining: List(#(String, history.Commit)),
   entry: InFlight,
   csn: Int,
+  last_tree_batch: Bool,
 ) -> Result(
   #(
     Option(fluid_ids.Compressor),
@@ -1599,7 +1609,10 @@ fn resubmit_tree_batch(
     _, _ ->
       Error(AckMismatch("pending tree submission has no grouped identity"))
   })
-  let #(compressor, creation) = fluid_ids.take_creation_range(compressor)
+  let #(compressor, creation) = case last_tree_batch {
+    True -> fluid_ids.take_creation_range(compressor)
+    False -> #(compressor, None)
+  }
   use #(remaining, rebuilt, tree_count) <- result.try(
     list.try_fold(items, #(remaining, [], 0), fn(acc, item) {
       let #(remaining, rebuilt, count) = acc
@@ -1634,20 +1647,13 @@ fn resubmit_tree_batch(
               TreeOperationFailed(address, error)
             }),
           )
-          let prefix = case creation, count {
-            Some(range), 0 -> [fluid_container.IdAllocation(range)]
-            _, _ -> []
-          }
           Ok(#(
             list.filter(remaining, fn(entry) {
               entry.0 != address || entry.1.revision != original.revision
             }),
-            list.append(
-              rebuilt,
-              list.append(prefix, [
-                fluid_container.ChannelOperation(route, encoded),
-              ]),
-            ),
+            list.append(rebuilt, [
+              fluid_container.ChannelOperation(route, encoded),
+            ]),
             count + 1,
           ))
         }
@@ -1659,6 +1665,14 @@ fn resubmit_tree_batch(
     0 -> Error(AckMismatch("empty pending tree submission"))
     _ -> Ok(Nil)
   })
+  let rebuilt = case creation {
+    None -> rebuilt
+    Some(range) ->
+      list.append(list.take(rebuilt, 1), [
+        fluid_container.IdAllocation(range),
+        ..list.drop(rebuilt, 1)
+      ])
+  }
   let metadata =
     json.object([
       #("batchId", json.string(option.unwrap(batch_id, ""))),

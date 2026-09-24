@@ -212,6 +212,7 @@ pub type ClaimSubmitReply {
 pub type Msg {
   Heartbeat
   ReconnectTimedOut(client_id: String)
+  RetryReconnect(generation: Int)
   /// A wake-up from the automatic summarization policy, after a delay that
   /// differs for each client. The message carries no state. The actor makes the
   /// decision again against the core as it is at that moment, so a summary from
@@ -719,6 +720,8 @@ type State {
     seed: Option(runtime_core.BootstrapSeed),
     transport: Transport,
     generation: Int,
+    reconnect_failures: Int,
+    reconnect_error: Option(String),
     channel: Option(TransportHandle),
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
@@ -845,6 +848,8 @@ fn start_with_optional_seed(
         seed: seed,
         transport: transport,
         generation: 0,
+        reconnect_failures: 0,
+        reconnect_error: None,
         channel: None,
         phase: Connecting([]),
         subscribers: [],
@@ -1396,6 +1401,15 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         _ -> actor.continue(state)
       }
 
+    RetryReconnect(generation) -> {
+      case state.generation == generation, state.phase {
+        True, Reconnecting(_) ->
+          connect_transport(state.transport, state.self, generation)
+        _, _ -> Nil
+      }
+      actor.continue(state)
+    }
+
     OperationsSinceSummary(reply) -> {
       process.send(reply, read(state, 0, runtime_core.operations_since_summary))
       actor.continue(state)
@@ -1543,7 +1557,11 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         Connecting(_) ->
           runtime_core.connection_observation(None, "connecting", None)
         Reconnecting(core) ->
-          runtime_core.connection_observation(Some(core), "reconnecting", None)
+          runtime_core.connection_observation(
+            Some(core),
+            "reconnecting",
+            state.reconnect_error,
+          )
         Ready(core, Some(_)) ->
           runtime_core.connection_observation(Some(core), "catching-up", None)
         Ready(core, None) ->
@@ -2632,6 +2650,7 @@ fn handle_inbound(
           // Ask for the gap. Nothing else will: no server pushes it unprompted,
           // and the reactive `requestOps` in the `"op"` handler below needs an
           // operation to react to. See `runtime_core.catch_up_from`.
+          let generation = state.generation
           let state =
             request_operations(
               State(..state, phase: Reconnecting(core)),
@@ -2642,11 +2661,14 @@ fn handle_inbound(
           // catch-up `settle_reconnect` may still be pending — rejoining now is
           // both correct and the fastest way back to a roster.
           case state.phase {
-            SuspendedPendingTree(_, _) -> actor.continue(state)
-            _ -> {
+            Reconnecting(current)
+              if current.client_id == core.client_id
+              && state.generation == generation
+            -> {
               notify_presence_session(state, core)
               settle_reconnect(state, core, checkpoint)
             }
+            _ -> actor.continue(state)
           }
         }
         // A late duplicate success; nothing to do.
@@ -2667,49 +2689,75 @@ fn handle_inbound(
               ),
               "connect_document_error payload",
             )
-          actor.continue(connection_failed(state, connect_error.message))
+          case
+            connect_error.code >= 400
+            && connect_error.code < 500
+            && connect_error.code != 408
+            && connect_error.code != 429
+          {
+            True ->
+              actor.continue(suspend_or_fail(state, connect_error.message))
+            False ->
+              actor.continue(connection_failed(state, connect_error.message))
+          }
         }
       }
 
     "op" ->
       case state.phase {
         Ready(core, resubmit_at) -> {
-          let #(
-            core,
-            events,
-            resolutions,
-            summary_events,
-            request_from,
-            released,
-          ) = apply_operations(core, operation_message(payload))
-          let state = resolve_claim_waiters(state, resolutions)
-          let state = resolve_acquire_waiters(state, resolutions)
-          let state = apply_summary_events(state, summary_events)
-          fan_out(state.subscribers, events)
-          let state =
-            request_operations(
-              State(..state, phase: Ready(core, resubmit_at)),
+          case apply_operations(core, operation_message(payload)) {
+            Error(error) ->
+              case runtime_core.has_pending_tree(core) {
+                True ->
+                  actor.continue(suspend_or_fail(
+                    state,
+                    "sequenced op processing failed: " <> string.inspect(error),
+                  ))
+                False ->
+                  panic as {
+                    "sequenced op processing failed: " <> string.inspect(error)
+                  }
+              }
+            Ok(#(
               core,
+              events,
+              resolutions,
+              summary_events,
               request_from,
-            )
-          case state.phase, resubmit_at {
-            SuspendedPendingTree(_, _), _ -> actor.continue(state)
-            // Mid-reconnect: the operations a kernel just released are already
-            // in the in-flight queue, and `settle_reconnect` is about to
-            // restamp that whole queue with fresh client sequence numbers and
-            // send it. Sending them here as well would put two copies of each
-            // on the wire — the server sequences both, the client only expects
-            // the restamped one, and the stale ack fails the FIFO match. Every
-            // other submit path already gates on `resubmit_at`; this one is the
-            // only route by which an operation reaches the wire without the
-            // application asking, which is why only the consensus kernels
-            // (whose `Accept`s are released, not submitted) could trip it.
-            _, Some(checkpoint) -> settle_reconnect(state, core, checkpoint)
-            _, None -> {
-              let #(state, _) = send_ready(state, core, None, released)
-              case state.phase {
-                Ready(_, _) -> actor.continue(arm_summary(state, core))
-                _ -> actor.continue(state)
+              released,
+            )) -> {
+              let state = resolve_claim_waiters(state, resolutions)
+              let state = resolve_acquire_waiters(state, resolutions)
+              let state = apply_summary_events(state, summary_events)
+              fan_out(state.subscribers, events)
+              let state =
+                request_operations(
+                  State(..state, phase: Ready(core, resubmit_at)),
+                  core,
+                  request_from,
+                )
+              case state.phase, resubmit_at {
+                SuspendedPendingTree(_, _), _ -> actor.continue(state)
+                Reconnecting(_), _ -> actor.continue(state)
+                // Mid-reconnect: the operations a kernel just released are already
+                // in the in-flight queue, and `settle_reconnect` is about to
+                // restamp that whole queue with fresh client sequence numbers and
+                // send it. Sending them here as well would put two copies of each
+                // on the wire — the server sequences both, the client only expects
+                // the restamped one, and the stale ack fails the FIFO match. Every
+                // other submit path already gates on `resubmit_at`; this one is the
+                // only route by which an operation reaches the wire without the
+                // application asking, which is why only the consensus kernels
+                // (whose `Accept`s are released, not submitted) could trip it.
+                _, Some(checkpoint) -> settle_reconnect(state, core, checkpoint)
+                _, None -> {
+                  let #(state, _) = send_ready(state, core, None, released)
+                  case state.phase {
+                    Ready(_, _) -> actor.continue(arm_summary(state, core))
+                    _ -> actor.continue(state)
+                  }
+                }
               }
             }
           }
@@ -2795,12 +2843,7 @@ fn settle_reconnect(
         Error(error) ->
           case runtime_core.has_pending_tree(core) {
             True ->
-              actor.continue(
-                State(
-                  ..state,
-                  phase: SuspendedPendingTree(core, string.inspect(error)),
-                ),
-              )
+              actor.continue(suspend_or_fail(state, string.inspect(error)))
             False -> actor.continue(fail(state, string.inspect(error)))
           }
       }
@@ -2824,13 +2867,16 @@ fn operation_message(payload: Json) -> List(SequencedDocumentMessage) {
 fn apply_operations(
   core: runtime_core.Core,
   operations: List(SequencedDocumentMessage),
-) -> #(
-  runtime_core.Core,
-  List(#(String, ChannelEvent)),
-  List(#(String, Resolution)),
-  List(runtime_core.SummaryEvent),
-  Option(Int),
-  List(wire.OutboundOperation),
+) -> Result(
+  #(
+    runtime_core.Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(runtime_core.SummaryEvent),
+    Option(Int),
+    List(wire.OutboundOperation),
+  ),
+  runtime_core.CoreError,
 ) {
   do_apply_operations(core, operations, [], [], [], None, [])
 }
@@ -2844,23 +2890,27 @@ fn do_apply_operations(
   summary_events: List(List(runtime_core.SummaryEvent)),
   request_from: Option(Int),
   released: List(wire.OutboundOperation),
-) -> #(
-  runtime_core.Core,
-  List(#(String, ChannelEvent)),
-  List(#(String, Resolution)),
-  List(runtime_core.SummaryEvent),
-  Option(Int),
-  List(wire.OutboundOperation),
+) -> Result(
+  #(
+    runtime_core.Core,
+    List(#(String, ChannelEvent)),
+    List(#(String, Resolution)),
+    List(runtime_core.SummaryEvent),
+    Option(Int),
+    List(wire.OutboundOperation),
+  ),
+  runtime_core.CoreError,
 ) {
   case operations {
-    [] -> #(
-      core,
-      list.reverse(events) |> list.flatten,
-      list.reverse(resolutions) |> list.flatten,
-      list.reverse(summary_events) |> list.flatten,
-      request_from,
-      released,
-    )
+    [] ->
+      Ok(#(
+        core,
+        list.reverse(events) |> list.flatten,
+        list.reverse(resolutions) |> list.flatten,
+        list.reverse(summary_events) |> list.flatten,
+        request_from,
+        released,
+      ))
     [operation, ..rest] ->
       case runtime_core.handle_sequenced(core, operation) {
         Ok(#(core, ingested)) ->
@@ -2873,10 +2923,7 @@ fn do_apply_operations(
             option.or(request_from, ingested.request_operations_from),
             list.append(released, ingested.outbound),
           )
-        Error(core_error) ->
-          panic as {
-            "sequenced op processing failed: " <> string.inspect(core_error)
-          }
+        Error(core_error) -> Error(core_error)
       }
   }
 }
@@ -3558,7 +3605,61 @@ fn connection_failed(state: State, reason: String) -> State {
   case state.phase {
     Ready(core, _) | Reconnecting(core) ->
       case runtime_core.has_pending_tree(core) {
-        True -> begin_reconnect(state, core)
+        True -> {
+          let failures = state.reconnect_failures + 1
+          case failures > 3 {
+            True -> suspend_or_fail(state, reason)
+            False -> {
+              let generation = state.generation + 1
+              let _ =
+                process.send_after(
+                  state.self,
+                  failures * 100,
+                  RetryReconnect(generation),
+                )
+              case state.channel {
+                Some(channel) -> channel.close()
+                None -> Nil
+              }
+              notify_session_lost(state)
+              let state = abort_pending_summary(state)
+              State(
+                ..state,
+                channel: None,
+                phase: Reconnecting(core),
+                generation: generation,
+                reconnect_failures: failures,
+                reconnect_error: Some(reason),
+              )
+            }
+          }
+        }
+        False -> fail(state, reason)
+      }
+    SuspendedPendingTree(_, _) -> state
+    Connecting(_) | Failed(_) -> fail(state, reason)
+  }
+}
+
+@target(erlang)
+fn suspend_or_fail(state: State, reason: String) -> State {
+  case state.phase {
+    Ready(core, _) | Reconnecting(core) ->
+      case runtime_core.has_pending_tree(core) {
+        True -> {
+          let state = abort_pending_summary(abort_outcome_waiters(state))
+          case state.channel {
+            Some(channel) -> channel.close()
+            None -> Nil
+          }
+          notify_session_lost(state)
+          State(
+            ..state,
+            channel: None,
+            phase: SuspendedPendingTree(core, reason),
+            reconnect_error: Some(reason),
+          )
+        }
         False -> fail(state, reason)
       }
     SuspendedPendingTree(_, _) -> state
@@ -3599,11 +3700,16 @@ fn request_operations(
 ) -> State {
   case state.channel, request_from {
     Some(channel), Some(from) ->
-      send_or_suspend(
-        state,
-        core,
-        channel.push("requestOps", socket.encode_request_operations(from: from)),
-      ).0
+      case
+        channel.push("requestOps", socket.encode_request_operations(from: from))
+      {
+        Ok(Nil) -> state
+        Error(reason) ->
+          case runtime_core.has_pending_tree(core) {
+            True -> connection_failed(state, reason)
+            False -> panic as reason
+          }
+      }
     _, _ -> state
   }
 }
@@ -3962,15 +4068,10 @@ fn send_or_suspend(
     Error(reason) ->
       case runtime_core.has_pending_tree(core) {
         False -> panic as reason
-        True -> {
-          let next = begin_reconnect(state, core)
-          let next = abort_outcome_waiters(next)
-          case state.channel {
-            Some(channel) -> channel.close()
-            None -> Nil
-          }
-          #(next, outcome)
-        }
+        True -> #(
+          abort_outcome_waiters(connection_failed(state, reason)),
+          outcome,
+        )
       }
   }
 }
@@ -3984,12 +4085,21 @@ fn send_ready(
 ) -> #(State, Result(Nil, String)) {
   let state = State(..state, phase: Ready(core, resubmit_at))
   case resubmit_at, state.channel {
-    None, Some(_) ->
-      send_or_suspend(
-        state,
-        core,
-        send_outbound_checked(state.channel, core.client_id, outbound),
-      )
+    None, Some(_) -> {
+      let #(state, outcome) =
+        send_or_suspend(
+          state,
+          core,
+          send_outbound_checked(state.channel, core.client_id, outbound),
+        )
+      case outcome {
+        Ok(Nil) -> #(
+          State(..state, reconnect_failures: 0, reconnect_error: None),
+          outcome,
+        )
+        Error(_) -> #(state, outcome)
+      }
+    }
     _, _ -> #(state, Ok(Nil))
   }
 }

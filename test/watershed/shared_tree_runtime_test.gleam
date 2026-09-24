@@ -243,6 +243,63 @@ pub fn shared_tree_resubmit_includes_rebase_rollback_allocation_test() -> Nil {
   tree_kernel.history_view(tree).pending |> expect.to_equal([])
 }
 
+pub fn shared_tree_resubmit_allocates_in_original_batch_order_after_rebase_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(first, _, [_])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("first")),
+    ])
+  let assert Ok(#(pending, _, [_])) =
+    runtime_core.submit_tree_edits(first, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("second")),
+    ])
+  let assert Ok(fixture) = fixtures.load("batched-commits")
+  let assert Some(compressor) = pending.compressor
+  let assert Ok(input) =
+    runtime_fixture.read(fixture.input, fluid_ids.local_session(compressor))
+  let assert [remote] = input.operations
+  let rejoined =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected(
+        "rejoined",
+        [],
+        pending.last_seen_sequence_number,
+      ),
+    )
+  let #(caught_up, _) =
+    runtime_core.handle_sequenced(rejoined, remote) |> expect.to_be_ok
+  let assert Ok(#(ready, [first_sent, second_sent])) =
+    runtime_core.resubmit(runtime_core.go_live(caught_up))
+  let assert [
+    runtime_core.InFlightBatch(batch_id: first_id, ..),
+    runtime_core.InFlightBatch(batch_id: second_id, ..),
+  ] = pending.in_flight
+  let assert [
+    runtime_core.InFlightBatch(batch_id: first_rebuilt, ..),
+    runtime_core.InFlightBatch(batch_id: second_rebuilt, ..),
+  ] = ready.in_flight
+  first_rebuilt |> expect.to_equal(first_id)
+  second_rebuilt |> expect.to_equal(second_id)
+  let first_ack =
+    types.SequencedDocumentMessage(
+      ..from_outbound(first_sent),
+      client_id: Some("rejoined"),
+      sequence_number: 4,
+    )
+  let #(after_first, _) =
+    runtime_core.handle_sequenced(ready, first_ack) |> expect.to_be_ok
+  let second_ack =
+    types.SequencedDocumentMessage(
+      ..from_outbound(second_sent),
+      client_id: Some("rejoined"),
+      sequence_number: 5,
+    )
+  let #(after_second, _) =
+    runtime_core.handle_sequenced(after_first, second_ack) |> expect.to_be_ok
+  after_second.in_flight |> expect.to_equal([])
+}
+
 pub fn shared_tree_resubmit_preserves_interleaved_map_submission_test() -> Nil {
   let assert Ok(core) = runtime_fixture.routed_core()
   let assert Ok(#(first, _, [_])) =
