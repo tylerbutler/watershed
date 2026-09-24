@@ -1669,9 +1669,13 @@ The HTTP probe fetches, stages, and refetches the captured upstream snapshot
 probes cover binary content, escaped names, empty trees, and failed requests.
 The probe is included in `just test`.
 
-Existing single-header storage callers remain unchanged. `DocumentSummary`,
-live bootstrap/publication, summary-tail semantic replay, and cross-writer
-acceptance remain unimplemented; the interfaces below describe that later work.
+The remaining Task 13 implementation now decodes and captures full document
+summaries in pure Gleam on both targets. Ordinary connections restore the
+published hierarchy and replay the tail; synchronized native writers stage
+the flat application hierarchy and publish through the existing acknowledgement
+lifecycle. The former version-4 disk format and tree-ID fallback are removed.
+The public `load_version` result remains a snapshot inspection projection,
+not the full restoration model.
 
 **Files:** Create `wire/fluid_summary.gleam` and
 `test/watershed/shared_tree_summary_test.gleam`. Modify `git_storage.gleam`,
@@ -1703,13 +1707,13 @@ datastore metadata, channel snapshots, compressor state, and the membership
 information needed by existing DDSes. `SummaryError` distinguishes missing,
 cyclic, wrong-kind, malformed, and unsupported entries.
 
-- [ ] **1. Fail on an actual upstream summary with the current loader.**
+- [x] **1. Fail on an actual upstream summary with the current loader.**
 
 Use `summary-tail` and verify that the current single-`header` loader cannot
 satisfy the required tree. The replacement test then requires full decoding,
 restoration, and subsequent tail application.
 
-- [ ] **2. Replace the Watershed-only summary layout.**
+- [x] **2. Replace the Watershed-only summary layout.**
 
 Implement the recorded hierarchy and metadata, including SharedTree's
 `indexes` subtree and relevant version metadata. Resolve handles by their
@@ -1721,7 +1725,7 @@ authentication, HTTP status/error reporting, commit lookup, and delta fetching.
 Remove obsolete version-4-only storage code after its callers move. Do not write
 a version-4 migration reader.
 
-- [ ] **3. Publish one consistent sequenced document state.**
+- [x] **3. Publish one consistent sequenced document state.**
 
 Take compressor, tree history, forest, detached content, route registry, and
 protocol metadata at the same sequence point. Exclude pending local edits.
@@ -1731,19 +1735,38 @@ Honor the difference between snapshot sequence S and publication sequence P.
 Write a full valid summary first. Reading upstream incremental handles remains
 required if the profile can produce them.
 
-- [ ] **4. Test both directions with upstream loaders.**
+- [x] **4. Test both directions with upstream loaders.**
 
 For each native target, publish a summary after replacement and detached edits.
 Load it with an upstream client, read the tree, make another edit, and have the
 native client observe it. Load an upstream summary with each native target and
 continue editing. Include a tail between snapshot and publication.
 
-- [ ] **5. Test failure atomicity and existing DDS persistence; commit.**
+- [x] **5. Test failure atomicity and existing DDS persistence; commit.**
 
 Missing blob, invalid base64, cyclic handle, wrong schema, bad compressor data,
 and unsupported codec must not expose a ready document. Run the existing
 summary/storage/runtime tests after updating their format fixtures.
 Commit subject: `feat(tree): persist interoperable Fluid summaries`.
+
+Task 13's focused cross-writer proof covers all nine upstream/JavaScript/BEAM
+writer-to-reader pairs on pinned Floodgate. Each fresh reader edits and an
+independent peer observes the change. A second native publication also reloads
+and continues on BEAM and upstream. The default `summary:interop` command
+replays four whole-summary states, including detached branches and a non-tree
+tail, through fresh native decode, core capture, and hierarchy encode on both
+targets. The input-only `summary-tail` runner checks S-to-publication replay.
+Native SharedTree automatic summaries stay disabled; manual publication
+requires a synchronized client. Arbitrary Fluid document profiles, public tree
+facades, pending-tree reconnect, the wider service schedule, and permanent CI
+gates remain outside Task 13 (Tasks 14–16).
+
+Focused and complete root Gleam suites, storage/bootstrap smokes, oracle
+generation/check, codec/runtime interoperability, and the nine-cell real
+service mode passed in the implementation worktree. The workspace-wide
+`just build` and `just test` commands were attempted but cannot yet pass:
+example projects with no lockfiles hit the external Hex API rate limit while
+resolving dependencies; this is not a compile/test failure in Watershed.
 
 #### Foundation-wave closure
 

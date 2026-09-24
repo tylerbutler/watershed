@@ -117,7 +117,7 @@ export function validatePreflight(result) {
   assert.equal(result.mockService, false, "Preflight mockService must be false");
 }
 
-function tokenProvider(config) {
+export function tokenProvider(config) {
   async function token(tenantId, documentId = "") {
     const now = Math.floor(Date.now() / 1000);
     const encode = (value) => Buffer.from(JSON.stringify(value)).toString("base64url");
@@ -179,7 +179,7 @@ async function waitFor(predicate, stage, milliseconds = 15_000) {
   }
 }
 
-async function openSession(config, containers, documentId, summarizing = false) {
+export async function openSession(config, containers, documentId, summarizing = false) {
   let runtime;
   const documentServiceFactory = new RouterliciousDocumentServiceFactory(
     tokenProvider(config), driverPolicies,

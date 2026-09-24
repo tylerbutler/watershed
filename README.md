@@ -92,11 +92,11 @@ batches. The development oracle compares native replay with Fluid 3.1.0 and
 feeds fresh native messages to an upstream container on its local service,
 then returns an upstream edit to the native core.
 
-Tree documents currently need a checked `runtime_core.BootstrapSeed`. Use the
-runtime's seeded start or the facade's `connect_via_seed` with an injected
-transport. Ordinary connection functions still use the native non-tree summary
-loader; they do not load arbitrary upstream Fluid documents. Native tree
-creation and public typed tree handles remain future work.
+Ordinary connections can load published upstream SharedTree summaries for this
+fixed container and schema profile without a caller-supplied seed. The checked
+`runtime_core.BootstrapSeed` and `connect_via_seed` remain available for injected
+transports. Arbitrary Fluid containers, native tree creation, and public typed
+tree handles are not supported.
 
 On either facade, `resolve_root(document)` returns the checked bootstrap
 `SharedMap` or an error before readiness. Its handle preserves the full route,
@@ -106,14 +106,14 @@ resolution requires an absolute marker. Use
 `bind_handle(document, source_handle, value)` to resolve a relative marker in
 its source channel's datastore.
 
-Tree summary publication returns `"tree summary publication is not supported"`
-before snapshot or network work, and automatic summary policy skips these
-documents. A transport loss or failed send with pending tree edits retains the
-core and compressor in a suspended state. Further edits fail with
+Manual `summarize` publishes a complete tree document when it is synchronized
+and has its original routing and protocol metadata. Automatic summary policy
+still skips tree documents. A transport loss or failed send with pending tree
+edits retains the core and compressor in a suspended state. Further edits fail with
 `"pending tree reconnect and resubmission are not supported"`. A tree document
 without pending edits can catch up using the same compressor session.
-Compatible document summaries, full reconnect/resubmission, and real-service
-mixed-client acceptance remain open. SharedTree has no P2P mode.
+Full reconnect/resubmission and broader mixed-client schedules remain open.
+SharedTree has no P2P mode.
 
 ## Data structures
 
@@ -488,17 +488,22 @@ Tune `summary_policy.policy()` with `with_threshold` and
 `with_jitter_milliseconds`, then apply it with `auto_summarize(document, policy)`.
 `stop_auto_summarize(document)` opts that client out; `auto_summarize` re-enables
 it. Manual `summarize(document)` remains available, and
-`operations_since_summary` reports the message count. Uploads need floodgate
+`operations_since_summary` reports the message count. Tree documents require
+manual synchronized publication; automatic scheduling remains disabled for
+them. Uploads need floodgate
 summary storage and a token with `summary:write`, which `connect` includes by
 default. The call completes only after Floodgate publishes the checkpoint and
 returns its Git commit ID. `get_versions(document, count:)` lists those commits
 newest first. Pass an ID to `load_version(document, handle:)` to read that
 historical snapshot without changing the live document.
+This `load_version` result is a snapshot inspection projection, not a complete
+restoration object; ordinary connections load the full published hierarchy.
 
 A checkpoint captures confirmed channel state and membership at the blob's
 own sequence number. A later client loads it and replays subsequent messages,
 including those sequenced during upload. Pending local edits are not in the
-checkpoint; reconnect preserves and resubmits them. See
+checkpoint; non-tree reconnect preserves and resubmits them, while pending
+SharedTree reconnect remains unsupported. See
 [reconnect and summaries](https://watershed.tylerbutler.com/runtime/reconnect)
 for the boundary and retry behavior.
 

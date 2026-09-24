@@ -1,9 +1,10 @@
 # SharedTree interoperability oracle
 
 This development-only package runs actual Fluid SharedTree code. It is not a
-production dependency. The runtime gate below tests DDS-level native outbound
-and replay with the local upstream container service; it does not establish
-complete native summary publication or real-service interoperability.
+production dependency. The runtime gate tests DDS-level native outbound and
+replay. The summary gate checks fresh full-hierarchy artifacts on both native
+targets and, in its focused service mode, actual native publication and
+continuation by fresh clients.
 
 The public collaboration test uses an in-memory service. The source capture uses
 upstream's deterministic DDS test runtimes. Container fixtures use complete
@@ -38,7 +39,27 @@ npm --prefix tools/shared-tree-oracle run source:verify
 npm --prefix tools/shared-tree-oracle run source:capture
 npm --prefix tools/shared-tree-oracle run codec:interop
 npm --prefix tools/shared-tree-oracle run runtime:interop
+npm --prefix tools/shared-tree-oracle run summary:interop
+npm --prefix tools/shared-tree-oracle run summary:interop -- --service floodgate --local
 ```
+
+The default summary gate exports all four input-only `summary-writer-matrix`
+persistence states on JavaScript and BEAM. Each exporter decodes the captured
+hierarchy, replays the supplied sequenced tail, captures a new summary through
+the production core, re-encodes it, and checks the restored root and sequence.
+The coordinator checks the pinned reference, complete scenario IDs, both
+targets, hierarchy shape, and snapshot/publication positions. It uses owned
+temporary artifacts and rejects missing, stale, or incomplete output.
+
+The optional Floodgate mode requires the same local checkout and tools as
+`preflight` below. It creates a fresh upstream document, then tests all nine
+upstream/JavaScript/BEAM writer-to-reader combinations against published
+versions. Each reader opens an ordinary connection, edits, and has a separate
+upstream peer observe the change. Native writers publish their own hierarchies
+over the existing transport and HTTP storage; the coordinator does not upload
+on their behalf. It checks the published commit, protocol snapshot sequence,
+and matching acknowledgement separately. This fixed-profile test is not the
+wider service scheduling matrix or arbitrary-container compatibility.
 
 The capture is written to `.output/source/source-smoke.json`. To choose an output
 directory, pass an absolute path:
@@ -248,10 +269,10 @@ Task 6 adds the input-only `forest-delta` runner. The foundation wave adds
 `container-foundations`, and `summary-foundations`. Task 9 adds the input-only
 `history-reconciliation` runner. Task 10 adds the input-only `tree-codecs`
 and `tree-kernel` runners. The runtime fixture adds input-only
-`bootstrap-map-handles` and `batched-commits` runners. All twelve cases are
-registered on both targets.
-Native document summary publication and the complete writer matrix remain
-future work.
+`bootstrap-map-handles` and `batched-commits` runners. All twelve cases are registered on both targets. The input-only `summary-tail`
+semantic runner and fresh document-summary artifact gate now cover complete
+document restoration and native capture; the separate service mode covers
+published writer-to-reader persistence.
 
 ### Complete summary restoration inputs
 
