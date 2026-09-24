@@ -62,19 +62,21 @@ this plan; do those actions in Task 1 after adding its manifests.
 
 ### Dependency order
 
-Tasks 1-9 are complete: the pinned oracle, real-service profile, corpus, ID
-compression, fixed schemas, persistent forest, field algebra, nested modular
-changes, and edit history. Tasks 10-16 remain open; standalone foundation slices
-do not close their parent tasks.
+Tasks 1-12 are complete for the approved seed-only runtime stage: the pinned
+oracle, real-service preflight, corpus, native semantics and codecs, routed
+container messages, and JavaScript/BEAM runtime integration. Tasks 13-16 remain
+open. Task 13a's standalone storage foundations do not close compatible
+document loading or publication.
 The manifest records native semantic runners for `id-ranges`,
 `schema-validation`, `forest-delta`, `field-compose-invert-rebase`,
 `modular-nested-algebra`, `container-foundations`, and `summary-foundations` on
-both targets. Task 9 adds `history-reconciliation` as the eighth runner. The
-other generated cases are not evidence of implemented native semantics.
+both targets. `history-reconciliation`, `tree-codecs`, `tree-kernel`,
+`bootstrap-map-handles`, and `batched-commits` bring that count to twelve.
+The other generated cases are not evidence of implemented native semantics.
 
-The work follows three lanes. The foundation wave (7, 11a, and 13a) and Task 9
-are complete. Task 10 is the next semantics task. The diagram retains the
-original dependency split:
+The foundation lanes and their Task 11/12 runtime join are complete.
+Task 13's compatible summaries are next. The diagram retains the original
+dependency split:
 
 ```text
 Completed Tasks 1-6 -> contract and ownership check
@@ -1441,15 +1443,17 @@ Commit subject: `feat(tree): add native SharedTree kernel and codecs`.
 bootstrap-map wire checks as slice `11a`. Defer live dispatch, existing-DDS
 envelope replacement, and shared runtime/socket changes to the Task 12 join.
 See [Parallel workstreams and integration](#parallel-workstreams-and-integration).
-This task remains open until both the foundation and integration work pass.
-
-Implementation (11a): complete. Typed container envelopes preserve ordered
+Implementation (11a and runtime integration): complete. Typed container envelopes preserve ordered
 inner messages, outer and inner metadata, allocation data, and datastore/channel
 identity. Attach snapshots are checked before a whole batch is accepted.
-Contextual handle APIs are additive; the existing single-segment helpers and
-live callers are unchanged. The complete `container-foundations` case passes on
-both targets. Full `bootstrap-map-handles` and `batched-commits` runtime replay
-remain pending.
+The sequenced runtime uses canonical datastore/channel keys and rejects old
+direct envelopes. Context-free document handle resolution requires absolute
+markers; `bind_handle` supplies explicit source context for relative markers.
+Independent P2P helpers retain their single-segment contract. Complete
+`container-foundations`, `bootstrap-map-handles`, and `batched-commits` cases
+pass on both targets. The local-driver interop gate also loads native
+SharedMap headers and consumes native allocation/tree batches in upstream
+containers.
 
 **Files:** Create `wire/fluid_container.gleam` and
 `test/watershed/shared_tree_container_test.gleam`. Modify `wire/op.gleam`,
@@ -1490,7 +1494,7 @@ invalid routing, malformed batches, and unsupported compression.
 Transport sequence numbers and client sequence numbers stay with the original
 outer message; inner positions never replace them.
 
-- [ ] **1. Add raw envelope cases before replacing current encoding.**
+- [x] **1. Add raw envelope cases before replacing current encoding.**
 
 Test the captured upstream envelope hierarchy, attach attributes, aliases,
 batched operations, and allocation-before-dependent-commit ordering.
@@ -1499,7 +1503,7 @@ collision even if the first service profile uses only one datastore.
 Add `bootstrap-map-handles`: load the actual upstream map and tree handle,
 resolve a multi-segment handle, and reject missing or wrong-kind root channels.
 
-- [ ] **2. Replace the direct document channel wrapper.**
+- [x] **2. Replace the direct document channel wrapper.**
 
 Implement the profile's real `component`/datastore/channel routing. Do not treat
 the existing `{address, contents}` wrapper as the entire Fluid container op.
@@ -1512,14 +1516,14 @@ absolute paths emitted by the profile, same channel names in different stores,
 and refusal of paths outside the document. Do not flatten a handle to its last
 segment.
 
-- [ ] **3. Separate sequencing from channel dispatch.**
+- [x] **3. Separate sequencing from channel dispatch.**
 
 One outer server message advances the global sequence watermark once, even when
 it contains multiple inner messages. Validate the complete supported batch
 before committing mutations. Include system operations that do not target a
 DDS in acknowledgement, minimum-sequence, and retry accounting.
 
-- [ ] **4. Update existing DDS encoders and fixtures.**
+- [x] **4. Update existing DDS encoders and fixtures.**
 
 Replace old envelope fixtures rather than adding a legacy decoder. Keep each
 existing DDS payload/merge rule unchanged unless its new enclosing Fluid
@@ -1529,11 +1533,29 @@ The bootstrap SharedMap is a required upstream DDS in this profile: prove its
 handle value and summary encoding with upstream, rather than assuming the
 existing SharedMap behavioral corpus establishes wire compatibility.
 
-- [ ] **5. Run focused and existing wire suites on both targets; commit.**
+- [x] **5. Run focused and existing wire suites on both targets; commit.**
 
 Commit subject: `feat(runtime): route Fluid container messages`.
 
 ### Task 12: integrate tree channels into both runtimes
+
+**Implementation:** complete for the approved seed-only stage. Both targets
+restore checked routed seeds, submit and receive atomic tree batches, advance
+tree watermarks on other document messages, and retain pending tree state on
+unsupported reconnect or failed sends. Full input-only runtime comparisons
+and fresh native outbound consumption pass on both targets against the pinned
+upstream local service.
+
+**Approved staging:** ordinary connection functions retain their non-tree
+summary loader. `connect_via_seed` and seeded runtime starts accept checked
+state; they are not production Fluid summary loaders. Keep
+`root(document)` as the native `/watershed/root` accessor and use the additive
+checked `resolve_root(document)` for routed bootstrap maps. Refuse tree
+publication before snapshot, CSN, or HTTP work; disable automatic tree
+summaries. Retain pending edits and compressor state in
+`SuspendedPendingTree` rather than attempting generic resubmission. Task 13
+owns compatible document loading/publication; Task 14 owns full reconnect
+and public tree handles. Tasks 15-16 remain open.
 
 **Scheduling:** This is the join point for Lane A's Task 10, Lane B's `11a`,
 and Lane C's `13a`. One integration owner completes the remaining Task 11 work
@@ -1555,14 +1577,14 @@ metadata, and pending system messages. Tree snapshots do not duplicate the
 document compressor.
 
 Replace `seed_channels`' unconditional missing-root-map insertion when loading
-an existing container. The loader must locate the profile's real bootstrap map
-and retain its route in document state. Both facade `root` functions resolve
-that route instead of constructing an unverified address `"root"`. A missing or
+an existing container. The checked seed must locate the profile's real bootstrap map
+and retain its route in document state. Both facade `resolve_root` functions resolve
+that route; `root` retains the native address as described above. A missing or
 wrong-kind required root fails bootstrap before readiness. Keep new native
 map-document initialization distinct from loading an existing container, so
 ordinary existing DDS creation behavior does not disappear.
 
-- [ ] **1. Add a runtime test covering allocation and tree submission.**
+- [x] **1. Add a runtime test covering allocation and tree submission.**
 
 ```gleam
 pub fn shared_tree_runtime_allocates_before_submitting_commit_test() {
@@ -1573,21 +1595,21 @@ pub fn shared_tree_runtime_allocates_before_submitting_commit_test() {
 The adapter drives the actual runtime core and serializes its outbound messages,
 then compares message ordering, IDs, observed events, and final tree state.
 
-- [ ] **2. Wire local edit validation and allocation as one transition.**
+- [x] **2. Wire local edit validation and allocation as one transition.**
 
 Validate the edit first, generate its revision ID in a candidate compressor,
 build the tree commit, enqueue any required allocation message before dependent
 content, and publish the new core state only on success. Invalid edits leave the
 compressor, pending queues, forest, events, and CSN allocation unchanged.
 
-- [ ] **3. Wire remote delivery and acknowledgements.**
+- [x] **3. Wire remote delivery and acknowledgements.**
 
 Finalize allocation messages before decoding dependent compressed IDs. Route
 each inner operation to the right tree with its originator session and complete
 sequence/reference/minimum metadata. Track outer transport submission identities
 separately from tree revisions and ID compressor sessions.
 
-- [ ] **4. Update cross-cutting dispatch and test transport behavior.**
+- [x] **4. Update cross-cutting dispatch and test transport behavior.**
 
 Follow every compiler error from the new closed-sum variants. Check
 `supports_p2p`, P2P snapshots, digests, replay, rollback, attach, and snapshot
@@ -1598,7 +1620,7 @@ Teach sluice the observed outer/inner batching and metadata rules needed by the
 tests; it must not pretend a grouped message is several distinct server sequence
 numbers. Keep the real-service gate independent of sluice.
 
-- [ ] **5. Run both runtime suites and the existing bootstrap smoke; commit.**
+- [x] **5. Run both runtime suites and the existing bootstrap smoke; commit.**
 
 ```sh
 rtk proxy gleam test --target erlang
@@ -1610,6 +1632,20 @@ If an unrelated baseline fails, reproduce it on the implementation branch's
 unchanged baseline and record that evidence. Do not assume an old remembered
 failure still applies. Commit subject:
 `feat(runtime): host native SharedTree on both targets`.
+
+**Closure evidence:** the root suites pass 1,951 Erlang and 2,227 JavaScript
+tests. Both compile-fail cases, SharedTree storage and asynchronous bootstrap
+smokes, 68 oracle tests, all 26 fixture checks, and runtime interop on two
+targets with five native scenarios pass. `just build` and serial workspace tests pass, including
+the migrated website counter adapter and JSON-workspace fixtures.
+The old `runtime_bootstrap` smoke still fails with
+`Missing HTTP request /trees/`; unchanged baseline `06b3753` reproduces it.
+The website snippet-coverage test also fails on the unchanged baseline because
+`tools/website-samples/test/website_samples_test.gleam` is outside its scan roots.
+The final website unit run has 2,319 passing tests and this one failure;
+browser integration skips because Chromium is unavailable.
+These baseline failures do not establish tree summary support or close the
+remaining milestone gates.
 
 ### Task 13: read and publish compatible summaries
 

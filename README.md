@@ -83,6 +83,38 @@ than a `Subject`. On the BEAM, import `watershed_beam` as shown above.
 Everything below the facade is the same code. See the [connect
 guide](https://watershed.tylerbutler.com/guide/connect) for both.
 
+## SharedTree runtime (experimental)
+
+The fixed-schema SharedTree object profile now runs in the native document
+core on JavaScript and BEAM. It supports required and optional fields, routed
+map/tree handles, optimistic edits, and atomic allocation-before-content
+batches. The development oracle compares native replay with Fluid 3.1.0 and
+feeds fresh native messages to an upstream container on its local service,
+then returns an upstream edit to the native core.
+
+Tree documents currently need a checked `runtime_core.BootstrapSeed`. Use the
+runtime's seeded start or the facade's `connect_via_seed` with an injected
+transport. Ordinary connection functions still use the native non-tree summary
+loader; they do not load arbitrary upstream Fluid documents. Native tree
+creation and public typed tree handles remain future work.
+
+On either facade, `resolve_root(document)` returns the checked bootstrap
+`SharedMap` or an error before readiness. Its handle preserves the full route,
+such as `/A/root`. Existing `root(document)` still names the native
+`/watershed/root`; use `resolve_root` for routed seeds. Document-only handle
+resolution requires an absolute marker. Use
+`bind_handle(document, source_handle, value)` to resolve a relative marker in
+its source channel's datastore.
+
+Tree summary publication returns `"tree summary publication is not supported"`
+before snapshot or network work, and automatic summary policy skips these
+documents. A transport loss or failed send with pending tree edits retains the
+core and compressor in a suspended state. Further edits fail with
+`"pending tree reconnect and resubmission are not supported"`. A tree document
+without pending edits can catch up using the same compressor session.
+Compatible document summaries, full reconnect/resubmission, and real-service
+mixed-client acceptance remain open. SharedTree has no P2P mode.
+
 ## Data structures
 
 Every structure rides the same sequenced stream and can be mixed freely in one

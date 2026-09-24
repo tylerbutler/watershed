@@ -246,9 +246,10 @@ and 5 add the native `id-ranges` and `schema-validation` runners on both targets
 Task 6 adds the input-only `forest-delta` runner. The foundation wave adds
 `field-compose-invert-rebase`, `modular-nested-algebra`,
 `container-foundations`, and `summary-foundations`. Task 9 adds the input-only
-`history-reconciliation` runner. Task 10a adds the input-only `tree-codecs`
-runner. The runtime fixture adds input-only `bootstrap-map-handles` and
-`batched-commits` runners. All twelve cases are registered on both targets.
+`history-reconciliation` runner. Task 10 adds the input-only `tree-codecs`
+and `tree-kernel` runners. The runtime fixture adds input-only
+`bootstrap-map-handles` and `batched-commits` runners. All twelve cases are
+registered on both targets.
 Native document summary publication and the complete writer matrix remain
 future work.
 
@@ -376,9 +377,10 @@ The two runtime cases now have native replay comparisons and the local-driver
 interop gate above. `summary-tail`, native document publication, and real-service
 mixed-client acceptance remain separate work.
 
-The contextual `handle.resolve_path` and `handle.encode_path` APIs preserve full
-document paths. Existing single-segment helpers and their live callers retain
-their behavior until the coordinated runtime cutover.
+The sequenced runtime uses canonical datastore/channel paths and rejects the
+old direct envelope. Document-only handle resolution requires absolute paths;
+`bind_handle(document, source_handle, value)` supplies the source context for
+relative markers. Independent P2P helpers retain their single-segment contract.
 
 ### Hierarchical storage foundations
 
