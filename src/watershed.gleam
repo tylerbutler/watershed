@@ -113,6 +113,8 @@ import watershed/rich_text_kernel
 @target(javascript)
 import watershed/runtime
 @target(javascript)
+import watershed/runtime_core
+@target(javascript)
 import watershed/schema.{
   type ChannelField, type ChildField, type Field, type FieldChange,
   type FieldError,
@@ -349,6 +351,39 @@ pub fn connect_via(
   transport transport: runtime.Transport,
   on_ready on_ready: fn(Result(Nil, String)) -> Nil,
 ) -> Document(root) {
+  connect_via_with_seed(tenant, document, user_id, transport, None, on_ready)
+}
+
+@target(javascript)
+/// Connect a checked seed through an injected transport. This path does not
+/// load a Watershed summary. It does not publish a Fluid tree summary.
+pub fn connect_via_seed(
+  tenant tenant: String,
+  document document: String,
+  user_id user_id: String,
+  transport transport: runtime.Transport,
+  seed seed: runtime_core.BootstrapSeed,
+  on_ready on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Document(root) {
+  connect_via_with_seed(
+    tenant,
+    document,
+    user_id,
+    transport,
+    Some(seed),
+    on_ready,
+  )
+}
+
+@target(javascript)
+fn connect_via_with_seed(
+  tenant: String,
+  document: String,
+  user_id: String,
+  transport: runtime.Transport,
+  seed: option.Option(runtime_core.BootstrapSeed),
+  on_ready: fn(Result(Nil, String)) -> Nil,
+) -> Document(root) {
   let connect_message =
     ConnectMessage(
       tenant_id: tenant,
@@ -375,12 +410,24 @@ pub fn connect_via(
       supported_features: None,
       relay_user_agent: None,
     )
-  Document(runtime: runtime.start_with_transport(
-    http_base_url: "sluice",
-    connect_message: connect_message,
-    transport: transport,
-    on_ready: on_ready,
-  ))
+  let runtime = case seed {
+    None ->
+      runtime.start_with_transport(
+        http_base_url: "sluice",
+        connect_message: connect_message,
+        transport: transport,
+        on_ready: on_ready,
+      )
+    Some(seed) ->
+      runtime.start_with_transport_and_seed(
+        http_base_url: "sluice",
+        connect_message: connect_message,
+        transport: transport,
+        seed: seed,
+        on_ready: on_ready,
+      )
+  }
+  Document(runtime: runtime)
 }
 
 @target(javascript)
@@ -392,9 +439,19 @@ pub fn runtime_of(document: Document(root)) -> runtime.Runtime {
 }
 
 @target(javascript)
-/// The native root map, at the channel address `"watershed/root"`.
+/// The native root map, at `"watershed/root"`. For a routed seed, use
+/// `resolve_root`. This signature is kept for native-map documents.
 pub fn root(document: Document(root)) -> SharedMap {
   SharedMap(runtime: document.runtime, address: "watershed/root")
+}
+
+@target(javascript)
+/// Find the checked bootstrap map of a ready document, including routed seeds.
+pub fn resolve_root(document: Document(root)) -> Result(SharedMap, String) {
+  runtime.resolve_root(document.runtime)
+  |> result.map(fn(address) {
+    SharedMap(runtime: document.runtime, address: address)
+  })
 }
 
 // docs:snippet-start watershed-create-map

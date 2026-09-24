@@ -699,6 +699,48 @@ pub fn shared_tree_runtime_routed_seed_restores_tree_with_document_session_test(
   Nil
 }
 
+pub fn seeded_runtime_preserves_saved_local_compressor_identity_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert Some(compressor) = input.compressor
+  let assert Ok(#(saved, _)) = fluid_ids.generate(compressor)
+  let assert Ok(seed) =
+    runtime_core.bootstrap_seed(
+      runtime_core.BootstrapSeedInput(..input, compressor: Some(saved)),
+    )
+  let assert Ok(prepared) =
+    runtime_core.prepare_seed(seed, fn() {
+      panic as "saved local state must not create another session"
+    })
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_seeded(
+      runtime_fixture.connected("reader", [], 0),
+      prepared,
+    )
+  let assert Some(loaded) = core.compressor
+  fluid_ids.local_session(loaded)
+  |> expect.to_equal(fluid_ids.local_session(saved))
+}
+
+pub fn seeded_runtime_rejects_missing_and_wrong_kind_roots_test() {
+  let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
+  let assert [_, tree] = input.channels
+  runtime_core.bootstrap_seed(
+    runtime_core.BootstrapSeedInput(..input, channels: [tree]),
+  )
+  |> expect.to_equal(
+    Error(runtime_core.BadBootstrapSeed("bootstrap map is not registered")),
+  )
+  runtime_core.bootstrap_seed(
+    runtime_core.BootstrapSeedInput(
+      ..input,
+      bootstrap_map: fluid_container.Route("A", "_C"),
+    ),
+  )
+  |> expect.to_equal(
+    Error(runtime_core.BadBootstrapSeed("bootstrap route is not a map")),
+  )
+}
+
 pub fn shared_tree_runtime_rejects_native_tree_creation_test() {
   let assert Ok(core) = runtime_fixture.routed_core()
   let assert Ok(channel.TreeState(state)) = dict.get(core.channels, "A/_C")

@@ -14,10 +14,16 @@ import signet/types as token
 import spillway/message
 import spillway/types
 
+import watershed/canonical_json
+import watershed/json_ot
 import watershed/presence
+import watershed/runtime_core
 import watershed/sluice/core.{type Outbound, type Sluice}
 import watershed/sluice/frame as frame_codec
+import watershed/tree/runtime_fixture
+import watershed/tree/types as tree_types
 import watershed/wire
+import watershed/wire/fluid_container
 import watershed/wire/socket
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -27,6 +33,11 @@ import watershed/wire/socket
 fn json_to_dynamic(value: json.Json) -> decode.Dynamic {
   let assert Ok(dynamic) = json.parse(json.to_string(value), decode.dynamic)
   dynamic
+}
+
+fn canonical(value: json.Json) -> String {
+  let assert Ok(parsed) = json_ot.parse_json(json.to_string(value))
+  canonical_json.to_string(parsed)
 }
 
 fn test_client() -> types.Client {
@@ -112,6 +123,42 @@ fn operation_of(frame: Outbound) -> types.SequencedDocumentMessage {
     )
   let assert [operation] = message.ops
   operation
+}
+
+pub fn grouped_tree_allocation_and_three_commits_sequence_once_test() {
+  let assert Ok(seed) = runtime_fixture.routed_core()
+  let assert Ok(#(_, _, [outbound])) =
+    runtime_core.submit_tree_edits(seed, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("first")),
+      tree_types.SetField(["title"], tree_types.StringValue("second")),
+      tree_types.SetField(["title"], tree_types.StringValue("third")),
+    ])
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  list.length(batch.messages) |> expect.to_equal(4)
+  let sluice = core.new("default", "dice")
+  let #(sluice, first) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+  let #(sluice, _) = connect(sluice, None)
+  let #(sluice, _) = drain(sluice)
+  let submitted = socket.encode_submit_operation(first, [[outbound]])
+  let sluice =
+    core.handle(sluice, first, "submitOp", json_to_dynamic(submitted))
+  let #(_, frames) = drain(sluice)
+  let assert [_, _] = frames
+  list.each(frames, fn(delivered) {
+    delivered.event |> expect.to_equal("op")
+    let operation = operation_of(delivered)
+    operation.sequence_number |> expect.to_equal(3)
+    operation.client_sequence_number
+    |> expect.to_equal(outbound.client_sequence_number)
+    canonical(wire.dynamic_to_json(operation.contents))
+    |> expect.to_equal(canonical(outbound.contents))
+    option.map(operation.metadata, fn(metadata) {
+      canonical(wire.dynamic_to_json(metadata))
+    })
+    |> expect.to_equal(option.map(outbound.metadata, canonical))
+  })
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

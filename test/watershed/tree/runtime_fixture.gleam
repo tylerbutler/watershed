@@ -12,6 +12,7 @@ import spillway/types.{type SequencedDocumentMessage}
 import watershed/channel
 import watershed/fluid_ids
 import watershed/runtime_core
+import watershed/sluice/frame
 import watershed/tree/codec
 import watershed/tree/codec/summary
 import watershed/tree/fixtures
@@ -75,6 +76,21 @@ pub fn connected(
     epoch: None,
     relay_service_agent: None,
     summary_context: None,
+  )
+}
+
+pub fn sequenced_frame(message: SequencedDocumentMessage) -> frame.Sequenced {
+  frame.Sequenced(
+    client_id: message.client_id,
+    sequence_number: message.sequence_number,
+    minimum_sequence_number: message.minimum_sequence_number,
+    client_sequence_number: message.client_sequence_number,
+    reference_sequence_number: message.reference_sequence_number,
+    operation_type: message.message_type,
+    contents: wire.dynamic_to_json(message.contents),
+    metadata: option.map(message.metadata, wire.dynamic_to_json),
+    timestamp: message.timestamp,
+    data: message.data,
   )
 }
 

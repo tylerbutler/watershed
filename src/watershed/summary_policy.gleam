@@ -29,7 +29,9 @@
 //// If it fails or the client is no longer settled, another sequenced message
 //// is needed to schedule the next attempt.
 ////
-//// **The policy is enabled by default on both runtimes.**
+//// **The policy is enabled by default for native-map documents on both
+//// runtimes.** Checked tree seeds disable it because tree summary publication
+//// is not supported.
 //// `watershed.auto_summarize` and `watershed_beam.auto_summarize` replace the
 //// policy on a connected document. Their `stop_auto_summarize` functions
 //// disable it for that client. Uploads require floodgate summary storage and

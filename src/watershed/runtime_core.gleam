@@ -308,6 +308,52 @@ pub opaque type BootstrapSeed {
   BootstrapSeed(input: BootstrapSeedInput)
 }
 
+pub fn seed_has_tree(seed: BootstrapSeed) -> Bool {
+  let BootstrapSeed(input) = seed
+  list.any(input.channels, fn(entry) {
+    channel.snapshot_type(entry.snapshot) == channel.TreeChannel
+  })
+}
+
+/// Assign one document session to a summary seed. A saved local session stays
+/// unchanged so its pending IDs keep their original identity.
+pub fn prepare_seed(
+  seed: BootstrapSeed,
+  new_session: fn() -> String,
+) -> Result(BootstrapSeed, CoreError) {
+  let BootstrapSeed(input) = seed
+  case input.compressor {
+    Some(compressor) ->
+      case fluid_ids.has_local_state(compressor) {
+        True -> Ok(seed)
+        False -> {
+          use session <- result.try(
+            fluid_ids.session_id(new_session())
+            |> result.map_error(fn(error) {
+              BadBootstrapSeed(string.inspect(error))
+            }),
+          )
+          use saved <- result.try(
+            fluid_ids.serialize(compressor, False)
+            |> result.map_error(fn(error) {
+              BadBootstrapSeed(string.inspect(error))
+            }),
+          )
+          use compressor <- result.try(
+            fluid_ids.deserialize(saved, session)
+            |> result.map_error(fn(error) {
+              BadBootstrapSeed(string.inspect(error))
+            }),
+          )
+          bootstrap_seed(
+            BootstrapSeedInput(..input, compressor: Some(compressor)),
+          )
+        }
+      }
+    None -> Ok(seed)
+  }
+}
+
 pub type Routing {
   Routing(
     profile: SeedProfile,
@@ -2865,6 +2911,40 @@ pub fn create_detached(
 
 pub fn has_channel(core: Core, address: String) -> Bool {
   dict.has_key(core.channels, address) || dict.has_key(core.detached, address)
+}
+
+pub fn has_tree(core: Core) -> Bool {
+  core.channels
+  |> dict.values
+  |> list.any(fn(state) {
+    case state {
+      channel.TreeState(_) -> True
+      _ -> False
+    }
+  })
+}
+
+pub fn has_pending_tree(core: Core) -> Bool {
+  list.any(core.in_flight, fn(entry) {
+    case entry {
+      InFlightBatch(items: items, ..) ->
+        list.any(items, fn(item) {
+          case item {
+            fluid_container.ChannelOperation(route, _) ->
+              case fluid_container.route_key(route) {
+                Ok(address) ->
+                  case dict.get(core.channels, address) {
+                    Ok(channel.TreeState(_)) -> True
+                    _ -> False
+                  }
+                Error(_) -> False
+              }
+            _ -> False
+          }
+        })
+      _ -> False
+    }
+  })
 }
 
 pub fn tree_read(

@@ -347,6 +347,7 @@ fn sluice_transport(actor: Subject(Message)) -> runtime_beam.Transport {
               waiting: call_timeout_milliseconds,
               sending: fn(reply) { Push(client_id, event, payload, reply) },
             )
+            Ok(Nil)
           },
           close: fn() { Nil },
           drop: fn() { Nil },

@@ -100,6 +100,8 @@ import watershed/rich_text_kernel
 @target(erlang)
 import watershed/runtime_beam
 @target(erlang)
+import watershed/runtime_core
+@target(erlang)
 import watershed/schema.{
   type ChannelField, type ChildField, type Field, type FieldChange,
   type FieldError,
@@ -492,15 +494,49 @@ pub fn connect_via(
   user_id user_id: String,
   transport transport: runtime_beam.Transport,
 ) -> Result(Document(root), String) {
+  connect_via_with_seed(tenant, document, user_id, transport, None)
+}
+
+@target(erlang)
+/// Connect a checked seed through an injected transport. This path does not
+/// load or publish a tree summary.
+pub fn connect_via_seed(
+  tenant tenant: String,
+  document document: String,
+  user_id user_id: String,
+  transport transport: runtime_beam.Transport,
+  seed seed: runtime_core.BootstrapSeed,
+) -> Result(Document(root), String) {
+  connect_via_with_seed(tenant, document, user_id, transport, Some(seed))
+}
+
+@target(erlang)
+fn connect_via_with_seed(
+  tenant: String,
+  document: String,
+  user_id: String,
+  transport: runtime_beam.Transport,
+  seed: option.Option(runtime_core.BootstrapSeed),
+) -> Result(Document(root), String) {
   let connect_message = build_connect_message(tenant, document, user_id, None)
-  case
-    runtime_beam.start_with_transport(
-      host: "sluice",
-      port: 0,
-      connect_message: connect_message,
-      transport: transport,
-    )
-  {
+  let started = case seed {
+    None ->
+      runtime_beam.start_with_transport(
+        host: "sluice",
+        port: 0,
+        connect_message: connect_message,
+        transport: transport,
+      )
+    Some(seed) ->
+      runtime_beam.start_with_transport_and_seed(
+        host: "sluice",
+        port: 0,
+        connect_message: connect_message,
+        transport: transport,
+        seed: seed,
+      )
+  }
+  case started {
     Error(_) -> Error("failed to start document runtime")
     Ok(subject) -> Ok(Document(runtime: subject))
   }
@@ -516,9 +552,19 @@ pub fn runtime_subject(document: Document(root)) -> Subject(runtime_beam.Msg) {
 }
 
 @target(erlang)
-/// The native root map, at the channel address `"watershed/root"`.
+/// The native root map, at `"watershed/root"`. For a routed seed, use
+/// `resolve_root`. This signature is kept for native-map documents.
 pub fn root(document: Document(root)) -> SharedMap {
   SharedMap(runtime: document.runtime, address: "watershed/root")
+}
+
+@target(erlang)
+/// Find the checked bootstrap map of a ready document, including routed seeds.
+pub fn resolve_root(document: Document(root)) -> Result(SharedMap, String) {
+  runtime_beam.resolve_root(document.runtime)
+  |> result.map(fn(address) {
+    SharedMap(runtime: document.runtime, address: address)
+  })
 }
 
 @target(erlang)

@@ -132,6 +132,11 @@ pub fn local_session(state: Compressor) -> SessionId {
   state.local
 }
 
+/// A restored local session has generated IDs that must keep their identity.
+pub fn has_local_state(state: Compressor) -> Bool {
+  state.generated > 0 || state.taken > 0 || state.locals != []
+}
+
 /// Write the upstream format-2 base64 string as a JSON string.
 /// Summaries exclude pending IDs and omit an empty local session.
 pub fn serialize(
