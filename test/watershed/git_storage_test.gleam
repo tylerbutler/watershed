@@ -58,24 +58,6 @@ pub fn published_commit_resolves_its_tree_test() -> Nil {
   )
 }
 
-pub fn missing_commit_falls_back_to_legacy_tree_id_test() -> Nil {
-  git_storage.resolve_summary_tree_id(
-    "legacy-tree",
-    Error(git_storage.UnexpectedStatus("commit-url", 404, "not found")),
-  )
-  |> expect.to_equal(Ok("legacy-tree"))
-}
-
-pub fn non_missing_commit_error_does_not_fall_back_test() -> Nil {
-  let forbidden = git_storage.UnexpectedStatus("commit-url", 403, "forbidden")
-  git_storage.resolve_summary_tree_id("legacy-tree", Error(forbidden))
-  |> expect.to_equal(Error(forbidden))
-
-  let malformed = git_storage.ResponseDecodeFailed("commit-url", "bad tree")
-  git_storage.resolve_summary_tree_id("legacy-tree", Error(malformed))
-  |> expect.to_equal(Error(malformed))
-}
-
 pub fn shared_tree_storage_decodes_binary_and_utf8_blobs_test() -> Nil {
   git_storage.decode_hierarchy_blob(
     "/binary",

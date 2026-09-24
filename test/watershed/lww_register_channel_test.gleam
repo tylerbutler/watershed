@@ -10,14 +10,15 @@ import spillway/message
 import spillway/types
 import startest/expect
 import watershed/channel
+import watershed/fluid_ids
 import watershed/handle
 import watershed/lww_clock
 import watershed/lww_register_kernel as register
 import watershed/runtime_core
 import watershed/tree/checked_test as checked
 import watershed/wire
+import watershed/wire/fluid_document
 import watershed/wire/op
-import watershed/wire/summary_blob
 
 const client_id = "default_doc_1"
 
@@ -215,14 +216,20 @@ pub fn register_summary_load_retains_winner_but_uses_the_joining_author_test() -
   let #(core, _) = acknowledge(core, reference)
   let assert Ok(#(core, _, [_])) =
     runtime_core.lww_register_set(core, "watershed/cell", "pending", 200)
-  let assert Ok(blob) =
-    checked.value(summary_blob.encode_channels(
+  let assert Ok(document) =
+    fluid_document.native(
       core.last_seen_sequence_number,
+      core.minimum_sequence_number,
       runtime_core.summary_members(core),
       checked.value(runtime_core.summary_channels(core)),
-    ))
-    |> json.to_string
-    |> summary_blob.decode
+    )
+  let assert Ok(hierarchy) = fluid_document.encode(document)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(restored) =
+    fluid_document.decode(hierarchy, None, session, view)
   let joining =
     message.ConnectedMessage(
       ..connected(),
@@ -230,7 +237,7 @@ pub fn register_summary_load_retains_winner_but_uses_the_joining_author_test() -
       checkpoint_sequence_number: Some(core.last_seen_sequence_number),
     )
   let assert Ok(runtime_core.Complete(loaded)) =
-    runtime_core.bootstrap(joining, Some(runtime_core.summary_from_blob(blob)))
+    runtime_core.bootstrap_document(joining, restored)
   runtime_core.lww_register_value(loaded, "watershed/cell")
   |> expect.to_equal(Ok("confirmed"))
   let assert Ok(#(_, _, [write])) =

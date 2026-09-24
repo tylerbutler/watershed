@@ -88,6 +88,8 @@ import watershed/channel.{
 @target(erlang)
 import watershed/claims_kernel
 @target(erlang)
+import watershed/fluid_ids
+@target(erlang)
 import watershed/git_storage
 @target(erlang)
 import watershed/id
@@ -116,6 +118,10 @@ import watershed/text_kernel
 import watershed/tree/types as tree_types
 @target(erlang)
 import watershed/wire
+@target(erlang)
+import watershed/wire/fluid_document
+@target(erlang)
+import watershed/wire/fluid_summary
 @target(erlang)
 import watershed/wire/socket
 @target(erlang)
@@ -2461,7 +2467,12 @@ fn handle_inbound(
                 Ok(seed) -> runtime_core.bootstrap_seeded(connected, seed)
                 Error(error) -> Error(error)
               }
-            None -> runtime_core.bootstrap(connected, summary: summary)
+            None ->
+              case summary {
+                Some(summary) ->
+                  runtime_core.bootstrap_document(connected, summary)
+                None -> runtime_core.bootstrap(connected, summary: None)
+              }
           }
           case bootstrapped {
             Ok(bootstrapped) -> {
@@ -3476,7 +3487,7 @@ fn request_operations(
 /// again in `MaybeSummarize` and stops. A lost race costs one
 /// unnecessary upload, and nothing more.
 fn arm_summary(state: State, core: runtime_core.Core) -> State {
-  case runtime_core.has_tree(core) {
+  case runtime_core.has_tree(core) && core.persistence == None {
     True -> state
     False -> arm_native_summary(state, core)
   }
@@ -3509,7 +3520,7 @@ fn handle_summarize(
 ) -> actor.Next(State, Msg) {
   case state.phase {
     Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core) ->
-      case runtime_core.has_tree(core) {
+      case runtime_core.has_tree(core) && core.persistence == None {
         True -> {
           process.send(
             reply,
@@ -3570,10 +3581,12 @@ fn do_summarize(
   channel: TransportHandle,
   reply: Option(Subject(Result(String, String))),
 ) -> Result(#(runtime_core.Core, PendingSummary), String) {
-  use _ <- result.try(case runtime_core.has_tree(core) {
-    True -> Error("tree summary publication is not supported")
-    False -> Ok(Nil)
-  })
+  use _ <- result.try(
+    case runtime_core.has_tree(core) && core.persistence == None {
+      True -> Error("tree summary publication is not supported")
+      False -> Ok(Nil)
+    },
+  )
   use token <- result.try(option.to_result(
     state.connect_message.token,
     "summarize requires an auth token",
@@ -3586,17 +3599,18 @@ fn do_summarize(
         <> "in-flight edits have been acknowledged",
       )
   })
-  use channels <- result.try(
-    runtime_core.summary_channels(core) |> result.map_error(string.inspect),
+  use captured <- result.try(
+    runtime_core.capture_summary(core) |> result.map_error(string.inspect),
+  )
+  use hierarchy <- result.try(
+    fluid_document.encode(captured) |> result.map_error(string.inspect),
   )
   use tree_sha <- result.try(
-    git_storage.upload_summary(
+    git_storage.stage_hierarchy(
       base_url: http_base_url(state),
       tenant: state.connect_message.tenant_id,
       token: token,
-      sequence_number: core.last_seen_sequence_number,
-      members: runtime_core.summary_members(core),
-      channels: channels,
+      tree: hierarchy,
     )
     |> result.map_error(git_storage.error_to_string),
   )
@@ -3605,6 +3619,7 @@ fn do_summarize(
       core,
       handle: tree_sha,
       message: "watershed summary",
+      reference_sequence_number: fluid_document.sequence_number(captured),
     )
   push(
     channel,
@@ -3716,14 +3731,18 @@ fn fetch_version_blob(
 ) -> Result(summary_blob.SummaryBlob, String) {
   case state.connect_message.token {
     None -> Error("loading a version requires an auth token")
-    Some(token) ->
-      git_storage.fetch_summary(
-        base_url: http_base_url(state),
-        tenant: state.connect_message.tenant_id,
-        token: token,
-        handle: handle,
+    Some(token) -> {
+      use tree <- result.try(
+        git_storage.fetch_hierarchy(
+          base_url: http_base_url(state),
+          tenant: state.connect_message.tenant_id,
+          token: token,
+          commit_id: handle,
+        )
+        |> result.map_error(git_storage.error_to_string),
       )
-      |> result.map_error(git_storage.error_to_string)
+      decode_document(tree) |> result.map(fluid_document.inspect)
+    }
   }
 }
 
@@ -3731,22 +3750,36 @@ fn fetch_version_blob(
 fn fetch_summary(
   state: State,
   context: SummaryContext,
-) -> Result(runtime_core.Summary, String) {
+) -> Result(fluid_document.DocumentSummary, String) {
   case state.connect_message.token {
     None -> Error("loading a summarized document requires an auth token")
-    Some(token) ->
-      git_storage.fetch_summary(
-        base_url: http_base_url(state),
-        tenant: state.connect_message.tenant_id,
-        token: token,
-        handle: context.handle,
+    Some(token) -> {
+      use tree <- result.try(
+        git_storage.fetch_hierarchy(
+          base_url: http_base_url(state),
+          tenant: state.connect_message.tenant_id,
+          token: token,
+          commit_id: context.handle,
+        )
+        |> result.map_error(git_storage.error_to_string),
       )
-      |> result.map_error(git_storage.error_to_string)
-      // `context` locates the blob; the blob says what it holds and when it was
-      // captured. See `runtime_core.summary_from_blob` for why the context's
-      // sequence number is deliberately not the load point.
-      |> result.map(runtime_core.summary_from_blob)
+      decode_document(tree)
+    }
   }
+}
+
+@target(erlang)
+fn decode_document(
+  tree: fluid_summary.SummaryEntry,
+) -> Result(fluid_document.DocumentSummary, String) {
+  use session <- result.try(
+    fluid_ids.session_id(id.uuid_v4()) |> result.map_error(string.inspect),
+  )
+  use view <- result.try(
+    fluid_ids.stable_id(id.uuid_v4()) |> result.map_error(string.inspect),
+  )
+  fluid_document.decode(tree, None, session, view)
+  |> result.map_error(string.inspect)
 }
 
 @target(erlang)

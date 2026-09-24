@@ -2,6 +2,9 @@ import assert from "node:assert/strict";
 
 // Let all reactions to released responses finish, without a clock or server.
 const settle = () => new Promise(setImmediate);
+const settleHierarchy = async () => {
+  for (let index = 0; index < 32; index++) await settle();
+};
 
 export async function run(makeFixture, summary, encodeOperation) {
   const previousFetch = globalThis.fetch;
@@ -12,26 +15,57 @@ export async function run(makeFixture, summary, encodeOperation) {
     JSON.parse(encodeOperation(sequence, value));
   const receive = (fixture, ...messages) =>
     fixture.receive(JSON.stringify(messages));
-  const blob = { content: Buffer.from(summary).toString("base64") };
+  const trees = new Map();
+  const blobs = new Map();
+  let nextTree = 2;
+  let nextBlob = 1;
+  const store = (value, sha = `tree-${nextTree++}`) => {
+    const entries = Object.entries(value).map(([name, child]) => {
+      const isBlob = typeof child === "string";
+      const childSha = isBlob ? `blob-${nextBlob++}` : store(child);
+      if (isBlob) blobs.set(childSha, { content: child, encoding: "base64" });
+      return {
+        path: encodeURIComponent(name),
+        sha: childSha,
+        type: isBlob ? "blob" : "tree",
+        mode: isBlob ? "100644" : "040000",
+      };
+    });
+    trees.set(sha, { tree: entries });
+    return sha;
+  };
+  store(JSON.parse(summary), "tree-1");
+  const blob = blobs.get("blob-1");
+  assert(blob, "native summary needs a metadata blob");
   globalThis.fetch = (request) => {
     const url = new URL(typeof request === "string" ? request : request.url);
     const allowed = url.origin === "https://bootstrap.invalid" &&
-      (/\/trees\/tree-1$/.test(url.pathname) ||
-       /\/blobs\/blob-1$/.test(url.pathname) ||
+      (/\/commits\/tree-1$/.test(url.pathname) ||
+       /\/trees\/tree-\d+$/.test(url.pathname) ||
+       /\/blobs\/blob-\d+$/.test(url.pathname) ||
        url.pathname === "/deltas/test/bootstrap");
     if (!allowed) {
       unexpected.push(url.href);
       return Promise.reject(new Error(`Unexpected request: ${url}`));
     }
+    const response = (body, status = 200) =>
+      new Response(JSON.stringify(body), { status });
+    if (url.pathname.endsWith("/commits/tree-1"))
+      return Promise.resolve(response({ tree: { sha: "tree-1" } }));
+    const treeSha = url.pathname.match(/\/trees\/(tree-\d+)$/)?.[1];
+    if (treeSha && treeSha !== "tree-1")
+      return Promise.resolve(response(trees.get(treeSha)));
+    const blobSha = url.pathname.match(/\/blobs\/(blob-\d+)$/)?.[1];
+    if (blobSha && blobSha !== "blob-1")
+      return Promise.resolve(response(blobs.get(blobSha)));
     return new Promise((resolve) => pending.push({
       url,
-      release: (body, status = 200) =>
-        resolve(new Response(JSON.stringify(body), { status })),
+      release: (body, status = 200) => resolve(response(body, status)),
     }));
   };
   const take = (part) => {
     const index = pending.findIndex(({ url }) => url.href.includes(part));
-    assert.notEqual(index, -1, `Missing HTTP request ${part}`);
+    assert.notEqual(index, -1, `Missing HTTP request ${part}; pending: ${pending.map(({url}) => url.href)}; unexpected: ${unexpected}`);
     return pending.splice(index, 1)[0];
   };
   const start = async (initial = 0, checkpoint = 1) => {
@@ -39,8 +73,9 @@ export async function run(makeFixture, summary, encodeOperation) {
     fixtures.push(fixture);
     fixture.connect(true, checkpoint, initial);
     await settle();
-    take("/trees/").release({ tree: [{ path: "header", sha: "blob-1" }] });
-    await settle();
+    take("/trees/").release(trees.get("tree-1"));
+    for (let index = 0; index < 32 && pending.length === 0; index++) await settle();
+    assert.equal(fixture.failure(), "", `summary fetch failed before delayed blob: ${JSON.stringify(trees.get("tree-1"))}`);
     return [fixture, take("/blobs/")];
   };
   try {
@@ -48,8 +83,8 @@ export async function run(makeFixture, summary, encodeOperation) {
       const [fixture, response] = await start();
       receive(fixture, operation(2));
       response.release(blob);
-      await settle();
-      assert.equal(fixture.ready(), 1);
+      await settleHierarchy();
+      assert.equal(fixture.ready(), 1, fixture.failure());
       assert.equal(fixture.sequence(), 2, "live operation must survive summary loading");
       assert.equal(fixture.value(), "live");
       assert.equal(fixture.changes(), 1);
@@ -59,7 +94,7 @@ export async function run(makeFixture, summary, encodeOperation) {
       const [fixture, response] = await start();
       receive(fixture, operation(3, "third"));
       response.release(blob);
-      await settle();
+      await settleHierarchy();
       assert.equal(fixture.ready(), 0, "readiness must wait for a contiguous buffer");
       assert.equal(fixture.requests(), 1, "buffered gap must request missing history");
       receive(fixture, operation(2, "second"));
@@ -73,7 +108,7 @@ export async function run(makeFixture, summary, encodeOperation) {
       const [fixture, response] = await start(2, 2);
       receive(fixture, operation(2, "initial"));
       response.release(blob);
-      await settle();
+      await settleHierarchy();
       assert.equal(fixture.ready(), 1);
       assert.equal(fixture.value(), "initial");
       assert.equal(fixture.changes(), 0, "history duplicate must not notify again");
@@ -82,7 +117,7 @@ export async function run(makeFixture, summary, encodeOperation) {
     {
       const [fixture, response] = await start(6, 6);
       response.release(blob);
-      await settle();
+      await settleHierarchy();
       take("?from=1&to=5").release({ value: [operation(2), operation(3)] });
       await settle();
       const page = take("?from=3&to=5");
@@ -102,7 +137,7 @@ export async function run(makeFixture, summary, encodeOperation) {
       fixture.connect(false, 1, 1);
       assert.equal(fixture.ready(), 1);
       oldResponse.release(blob);
-      await settle();
+      await settleHierarchy();
       assert.equal(fixture.ready(), 1);
       assert.equal(fixture.sequence(), 1);
       assert.equal(fixture.value(), "initial", "old HTTP completion must not replace the new session");
@@ -112,7 +147,7 @@ export async function run(makeFixture, summary, encodeOperation) {
       const [fixture, response] = await start();
       fixture.close();
       response.release(blob);
-      await settle();
+      await settleHierarchy();
       assert.equal(fixture.ready(), 0);
       assert.equal(fixture.sequence(), -1);
     }
@@ -136,7 +171,7 @@ export async function run(makeFixture, summary, encodeOperation) {
         fixture.receive("[]");
         response.release(blob);
       }
-      await settle();
+      await settleHierarchy();
       assert.equal(fixture.ready(), 0);
       assert.match(fixture.failure(), kind === "http" ? /summary load failed/ : /bootstrap.*limit/);
       assert.equal(fixture.sequence(), -1);

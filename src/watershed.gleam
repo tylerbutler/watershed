@@ -4054,10 +4054,10 @@ pub fn get_versions(
 @target(javascript)
 /// Read the confirmed state that a published summary commit captured.
 /// `get_versions` and the resolution of `summarize` both give the commit ID.
-/// The function returns the stored snapshot blob, which holds the
-/// entries in insertion order with the sequence number that the writer captured
-/// them at. The read is at one point in time, and it does not change the live
-/// document.
+/// The result is a snapshot inspection of the full document summary.
+/// It includes sequenced channel values and member IDs in stored order.
+/// It omits routing, protocol state, and the tree ID compressor.
+/// This read does not change the live document.
 pub fn load_version(
   document: Document(root),
   handle handle: String,

@@ -20,7 +20,6 @@ import watershed/tree/types.{
 import watershed/tree_kernel
 import watershed/wire/fluid_container
 import watershed/wire/op as wire_op
-import watershed/wire/summary_blob
 
 const schema_text = "{\"version\":2,\"nodes\":{\"com.fluidframework.leaf.number\":{\"kind\":{\"leaf\":0}},\"Root\":{\"kind\":{\"object\":{\"x\":{\"kind\":\"Value\",\"types\":[\"com.fluidframework.leaf.number\"]}}}}},\"root\":{\"kind\":\"Value\",\"types\":[\"Root\"]}}"
 
@@ -166,15 +165,11 @@ pub fn shared_tree_generic_wire_and_summary_refuse_missing_context_test() {
   let state = tree_state()
   let assert Ok(channel.TreeSnapshot(snapshot)) =
     channel.snapshot(channel.TreeState(state))
-  summary_blob.encode_channels(0, [], [
-    #("A/_C", channel.TreeSnapshot(snapshot)),
-  ])
+  channel.encode_snapshot(channel.TreeSnapshot(snapshot))
   |> expect.to_be_error()
   wire_op.encode_attach("A/_C", channel.TreeSnapshot(snapshot))
   |> expect.to_be_error()
-  summary_blob.decode(
-    "{\"watershedSummaryVersion\":4,\"sequenceNumber\":0,\"members\":[],\"channels\":[{\"address\":\"A/_C\",\"type\":\"tree\",\"data\":{}}]}",
-  )
+  channel.snapshot_decoder(channel.TreeChannel)
   |> expect.to_be_error()
   let assert Ok(session) =
     fluid_ids.session_id("00000000-0000-4000-8000-000000000001")

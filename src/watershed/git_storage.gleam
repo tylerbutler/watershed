@@ -1,21 +1,12 @@
 //// The HTTP client for the storage REST endpoints of floodgate. There are two
-//// of them. The git-storage (Historian) API reads and writes the SharedMap
-//// summaries. The deltas API (`GET /deltas/:tenant_id/:id`) fetches the
+//// of them. The git-storage (Historian) API reads and writes full Fluid
+//// summary hierarchies. The deltas API (`GET /deltas/:tenant_id/:id`) fetches the
 //// sequenced operations that are older than the in-band history window of the
 //// server.
 ////
-//// A watershed summary is one JSON blob. See `summary_blob.encode_channels`.
-//// A git tree holds that blob at the path `"header"`. The client stages that
-//// tree in the `handle` field of a summarize proposal. Floodgate publishes a
-//// commit over the tree. To load a published summary, the client resolves the
-//// commit to its tree, reads the `header` blob, and decodes the summary.
-////
-//// A write with `upload_summary` needs the `summary:write` scope on the token.
-//// A read with `fetch_summary` needs the `doc:read` scope.
-////
-//// `fetch_hierarchy` and `stage_hierarchy` are additive foundations for Fluid
-//// summary trees. They do not decode a document summary. Staging writes blobs
-//// and trees only. It does not publish a commit.
+//// Staging writes blobs and trees only. The summarize operation publishes
+//// a commit over the staged root tree. A read needs the `doc:read` scope;
+//// a write needs the `summary:write` scope.
 ////
 //// This module is a **cross-target seam**. The request construction, the
 //// response decoders, and the blob serialization are shared. The network
@@ -39,10 +30,8 @@ import gleam/uri
 
 import spillway/types.{type SequencedDocumentMessage}
 
-import watershed/channel
 import watershed/wire/fluid_summary
 import watershed/wire/socket
-import watershed/wire/summary_blob.{type SummaryBlob}
 
 @target(erlang)
 import gleam/httpc
@@ -51,9 +40,6 @@ import gleam/httpc
 import gleam/fetch
 @target(javascript)
 import gleam/javascript/promise.{type Promise}
-
-/// The tree entry path that stores a watershed summary blob.
-const summary_blob_path = "header"
 
 /// One published summary version from the document's commit history.
 /// `id` is the published commit SHA. `tree_id` is its root tree SHA.
@@ -79,7 +65,6 @@ pub type HierarchyTreeEntry {
 /// storage protocol that failed, and it carries the data that a reader needs
 /// to find the fault.
 pub type StorageError {
-  UnsupportedSummaryChannel(error: channel.ChannelError)
   /// A version history request must ask for at least one version.
   InvalidVersionCount(count: Int)
   /// The client could not build the request. The URL is not a valid one.
@@ -92,13 +77,6 @@ pub type StorageError {
   UnexpectedStatus(url: String, status: Int, body: String)
   /// The body of the response is not the JSON that this client expects.
   ResponseDecodeFailed(url: String, detail: String)
-  /// The summary tree holds no entry at the summary blob path.
-  SummaryBlobMissing(handle: String, path: String)
-  /// The content of the summary blob is not base64, or the bytes in it are
-  /// not UTF-8 text.
-  SummaryBlobUnreadable(blob_sha: String, detail: String)
-  /// The summary blob is text, but it is not a summary.
-  SummaryBlobInvalid(blob_sha: String, detail: String)
   /// A summary hierarchy has an invalid structure.
   SummaryStructure(error: fluid_summary.SummaryError)
   /// A hierarchy blob could not be decoded without losing bytes.
@@ -115,7 +93,6 @@ pub type StorageError {
 /// String.
 pub fn error_to_string(error: StorageError) -> String {
   case error {
-    UnsupportedSummaryChannel(error) -> string.inspect(error)
     InvalidVersionCount(count) ->
       "version count must be positive: " <> int.to_string(count)
     BadRequestUrl(url) -> "storage url is not valid: " <> url
@@ -132,12 +109,6 @@ pub fn error_to_string(error: StorageError) -> String {
       <> body
     ResponseDecodeFailed(url, detail) ->
       "storage response from " <> url <> " did not decode: " <> detail
-    SummaryBlobMissing(handle, path) ->
-      "summary tree " <> handle <> " has no '" <> path <> "' entry"
-    SummaryBlobUnreadable(blob_sha, detail) ->
-      "summary blob " <> blob_sha <> " could not be read: " <> detail
-    SummaryBlobInvalid(blob_sha, detail) ->
-      "summary blob " <> blob_sha <> " did not decode: " <> detail
     SummaryStructure(error) ->
       "summary hierarchy is invalid: " <> summary_error_to_string(error)
     HierarchyBlobUnreadable(path, blob_sha, detail) ->
@@ -190,75 +161,6 @@ fn hierarchy_kind_to_string(kind: HierarchyEntryKind) -> String {
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API — erlang (synchronous, runs inside the OTP actor)
 // ─────────────────────────────────────────────────────────────────────────────
-
-@target(erlang)
-/// Fetch and decode the summary that a published commit identifies.
-/// A missing commit falls back to the supplied ID as a legacy tree SHA.
-pub fn fetch_summary(
-  base_url base_url: String,
-  tenant tenant: String,
-  token token: String,
-  handle handle: String,
-) -> Result(SummaryBlob, StorageError) {
-  use tree_id <- result.try(resolve_summary_tree_id(
-    handle,
-    get_json(commit_url(base_url, tenant, handle), token, commit_tree_decoder()),
-  ))
-  fetch_tree_summary(base_url, tenant, token, tree_id)
-}
-
-@target(erlang)
-fn fetch_tree_summary(
-  base_url: String,
-  tenant: String,
-  token: String,
-  tree_id: String,
-) -> Result(SummaryBlob, StorageError) {
-  use tree <- result.try(get_json(
-    tree_url(base_url, tenant, tree_id),
-    token,
-    tree_decoder(),
-  ))
-  use blob_sha <- result.try(find_blob_sha(tree, tree_id))
-  use blob <- result.try(get_json(
-    blob_url(base_url, tenant, blob_sha),
-    token,
-    blob_content_decoder(),
-  ))
-  decode_blob(blob_sha, blob)
-}
-
-@target(erlang)
-/// Serialize the supplied channel state as a summary blob. Upload that blob as
-/// a git blob in a tree with one entry. Return the staged tree SHA for the
-/// `handle` field of the summarize operation.
-///
-/// `members` is the connected roster at `sequence_number`. It travels with the
-/// snapshots, and not beside them, because it is checkpoint state of the same
-/// kind. The consensus kernels read it when they replay an operation that
-/// sequenced after this point.
-pub fn upload_summary(
-  base_url base_url: String,
-  tenant tenant: String,
-  token token: String,
-  sequence_number sequence_number: Int,
-  members members: List(Int),
-  channels channels: List(#(String, channel.Snapshot)),
-) -> Result(String, StorageError) {
-  use body <- result.try(blob_body(sequence_number, members, channels))
-  use blob_sha <- result.try(post_json(
-    blobs_url(base_url, tenant),
-    token,
-    body,
-    sha_decoder(),
-  ))
-  post_json(
-    trees_url(base_url, tenant),
-    token,
-    tree_body(blob_sha),
-    sha_decoder(),
-  )
-}
 
 @target(erlang)
 /// Fetch a complete summary hierarchy from a published commit.
@@ -317,7 +219,7 @@ pub fn fetch_deltas(
 
 @target(erlang)
 /// List the published summary commits of the document, newest first. Give the
-/// `id` of a version to `fetch_summary` to read its snapshot.
+/// `id` of a version to `fetch_hierarchy` to read its full snapshot.
 pub fn fetch_versions(
   base_url base_url: String,
   tenant tenant: String,
@@ -336,81 +238,6 @@ pub fn fetch_versions(
 // ─────────────────────────────────────────────────────────────────────────────
 // Public API — JavaScript (asynchronous, returns a Promise)
 // ─────────────────────────────────────────────────────────────────────────────
-
-@target(javascript)
-/// Fetch and decode the summary that a published commit identifies.
-/// A missing commit falls back to the supplied ID as a legacy tree SHA.
-pub fn fetch_summary(
-  base_url base_url: String,
-  tenant tenant: String,
-  token token: String,
-  handle handle: String,
-) -> Promise(Result(SummaryBlob, StorageError)) {
-  use commit_result <- promise.await(get_json(
-    commit_url(base_url, tenant, handle),
-    token,
-    commit_tree_decoder(),
-  ))
-  use tree_id <- promise_try(resolve_summary_tree_id(handle, commit_result))
-  fetch_tree_summary(base_url, tenant, token, tree_id)
-}
-
-@target(javascript)
-fn fetch_tree_summary(
-  base_url: String,
-  tenant: String,
-  token: String,
-  tree_id: String,
-) -> Promise(Result(SummaryBlob, StorageError)) {
-  use tree <- promise.try_await(get_json(
-    tree_url(base_url, tenant, tree_id),
-    token,
-    tree_decoder(),
-  ))
-  use blob_sha <- promise_try(find_blob_sha(tree, tree_id))
-  use blob <- promise.try_await(get_json(
-    blob_url(base_url, tenant, blob_sha),
-    token,
-    blob_content_decoder(),
-  ))
-  promise.resolve(decode_blob(blob_sha, blob))
-}
-
-@target(javascript)
-/// Serialize the supplied channel state as a summary blob. Upload that blob as
-/// a git blob in a tree with one entry. Return the staged tree SHA for the
-/// `handle` field of the summarize operation.
-///
-/// `members` is the connected roster at `sequence_number`. It travels with the
-/// snapshots, and not beside them, because it is checkpoint state of the same
-/// kind. The consensus kernels read it when they replay an operation that
-/// sequenced after this point.
-pub fn upload_summary(
-  base_url base_url: String,
-  tenant tenant: String,
-  token token: String,
-  sequence_number sequence_number: Int,
-  members members: List(Int),
-  channels channels: List(#(String, channel.Snapshot)),
-) -> Promise(Result(String, StorageError)) {
-  case blob_body(sequence_number, members, channels) {
-    Error(error) -> promise.resolve(Error(error))
-    Ok(body) -> {
-      use blob_sha <- promise.try_await(post_json(
-        blobs_url(base_url, tenant),
-        token,
-        body,
-        sha_decoder(),
-      ))
-      post_json(
-        trees_url(base_url, tenant),
-        token,
-        tree_body(blob_sha),
-        sha_decoder(),
-      )
-    }
-  }
-}
 
 @target(javascript)
 /// Fetch a complete summary hierarchy from a published commit.
@@ -474,7 +301,7 @@ pub fn fetch_deltas(
 
 @target(javascript)
 /// List the published summary commits of the document, newest first. Give the
-/// `id` of a version to `fetch_summary` to read its snapshot.
+/// `id` of a version to `fetch_hierarchy` to read its full snapshot.
 pub fn fetch_versions(
   base_url base_url: String,
   tenant tenant: String,
@@ -563,42 +390,6 @@ pub fn validate_version_count(count: Int) -> Result(Nil, StorageError) {
 // ─────────────────────────────────────────────────────────────────────────────
 // Shared request-body construction
 // ─────────────────────────────────────────────────────────────────────────────
-
-fn blob_body(
-  sequence_number: Int,
-  members: List(Int),
-  channels: List(#(String, channel.Snapshot)),
-) -> Result(String, StorageError) {
-  use blob <- result.try(
-    summary_blob.encode_channels(sequence_number, members, channels)
-    |> result.map_error(UnsupportedSummaryChannel),
-  )
-  let blob_json = json.to_string(blob)
-  let content = bit_array.base64_encode(<<blob_json:utf8>>, True)
-  Ok(
-    json.object([
-      #("content", json.string(content)),
-      #("encoding", json.string("base64")),
-    ])
-    |> json.to_string,
-  )
-}
-
-fn tree_body(blob_sha: String) -> String {
-  json.object([
-    #(
-      "tree",
-      json.array([blob_sha], fn(sha) {
-        json.object([
-          #("path", json.string(summary_blob_path)),
-          #("sha", json.string(sha)),
-          #("type", json.string("blob")),
-        ])
-      }),
-    ),
-  ])
-  |> json.to_string
-}
 
 pub fn hierarchy_blob_body(bytes: BitArray) -> String {
   json.object([
@@ -1070,42 +861,6 @@ pub fn decode_hierarchy_tree(
 }
 
 /// Find the SHA of the summary blob in a decoded tree.
-fn find_blob_sha(
-  tree: List(#(String, String)),
-  handle: String,
-) -> Result(String, StorageError) {
-  case list.find(tree, fn(entry) { entry.0 == summary_blob_path }) {
-    Ok(#(_, sha)) -> Ok(sha)
-    Error(Nil) -> Error(SummaryBlobMissing(handle, summary_blob_path))
-  }
-}
-
-/// Decode the content of a blob from base64, then decode the summary blob in
-/// it.
-fn decode_blob(
-  blob_sha: String,
-  blob: BlobContent,
-) -> Result(SummaryBlob, StorageError) {
-  use bits <- result.try(
-    bit_array.base64_decode(blob.content)
-    |> result.replace_error(SummaryBlobUnreadable(
-      blob_sha,
-      "the content is not base64",
-    )),
-  )
-  use raw <- result.try(
-    bit_array.to_string(bits)
-    |> result.replace_error(SummaryBlobUnreadable(
-      blob_sha,
-      "the bytes are not UTF-8 text",
-    )),
-  )
-  summary_blob.decode(raw)
-  |> result.map_error(fn(error) {
-    SummaryBlobInvalid(blob_sha, string.inspect(error))
-  })
-}
-
 fn is_success(response: Response(String)) -> Bool {
   response.status >= 200 && response.status < 300
 }
@@ -1345,34 +1100,12 @@ fn promise_try(
 // Response decoders (shared)
 // ─────────────────────────────────────────────────────────────────────────────
 
-/// The tree response `{sha, url, tree: [{path, sha, type, ...}]}`, decoded to
-/// `[#(path, sha)]`.
-fn tree_decoder() -> Decoder(List(#(String, String))) {
-  decode.at(["tree"], decode.list(tree_entry_decoder()))
-}
-
-fn tree_entry_decoder() -> Decoder(#(String, String)) {
-  use path <- decode.field("path", decode.string)
-  use sha <- decode.field("sha", decode.string)
-  decode.success(#(path, sha))
-}
-
-type BlobContent {
-  BlobContent(content: String)
-}
-
 type HierarchyBlobContent {
   HierarchyBlobContent(content: String, encoding: String)
 }
 
 type HierarchyRawTreeEntry {
   HierarchyRawTreeEntry(path: String, sha: String, kind: String, mode: String)
-}
-
-/// The blob response `{sha, size, content: <base64>, encoding, url}`.
-fn blob_content_decoder() -> Decoder(BlobContent) {
-  use content <- decode.field("content", decode.string)
-  decode.success(BlobContent(content: content))
 }
 
 fn hierarchy_blob_content_decoder() -> Decoder(HierarchyBlobContent) {
@@ -1409,18 +1142,6 @@ fn deltas_decoder() -> Decoder(List(SequencedDocumentMessage)) {
 /// Decode a commit response to its root tree SHA.
 pub fn commit_tree_decoder() -> Decoder(String) {
   decode.subfield(["tree", "sha"], decode.string, decode.success)
-}
-
-/// Use a published commit's tree, or a legacy tree ID after a commit 404.
-pub fn resolve_summary_tree_id(
-  version_id: String,
-  commit_result: Result(String, StorageError),
-) -> Result(String, StorageError) {
-  case commit_result {
-    Ok(tree_id) -> Ok(tree_id)
-    Error(UnexpectedStatus(_, 404, _)) -> Ok(version_id)
-    Error(error) -> Error(error)
-  }
 }
 
 /// Decode the newest-first commit history response.

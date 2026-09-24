@@ -1,4 +1,6 @@
 @target(javascript)
+import gleam/bit_array
+@target(javascript)
 import gleam/dict
 @target(javascript)
 import gleam/dynamic/decode
@@ -6,6 +8,8 @@ import gleam/dynamic/decode
 import gleam/javascript/promise.{type Promise}
 @target(javascript)
 import gleam/json
+@target(javascript)
+import gleam/list
 @target(javascript)
 import gleam/option.{None, Some}
 @target(javascript)
@@ -27,13 +31,13 @@ import watershed/sluice/frame
 @target(javascript)
 import watershed/transport_js
 @target(javascript)
-import watershed/tree/checked_test as checked
-@target(javascript)
 import watershed/wire
 @target(javascript)
-import watershed/wire/op
+import watershed/wire/fluid_document
 @target(javascript)
-import watershed/wire/summary_blob
+import watershed/wire/fluid_summary
+@target(javascript)
+import watershed/wire/op
 
 @target(javascript)
 pub type Fixture {
@@ -220,19 +224,33 @@ fn run_ffi(
 
 @target(javascript)
 pub fn run() -> Promise(Nil) {
+  let assert Ok(document) =
+    fluid_document.native(1, 0, [], [
+      #(
+        "watershed/root",
+        channel.MapSnapshot([#("value", json.string("summary"))]),
+      ),
+    ])
+  let assert Ok(hierarchy) = fluid_document.encode(document)
   run_ffi(
     make_fixture,
-    checked.value(
-      summary_blob.encode_channels(1, [], [
-        #(
-          "watershed/root",
-          channel.MapSnapshot([#("value", json.string("summary"))]),
-        ),
-      ]),
-    )
-      |> json.to_string,
+    hierarchy_json(hierarchy) |> json.to_string,
     fn(sequence, value) {
       operation(sequence, value) |> frame.encode_sequenced |> json.to_string
     },
   )
+}
+
+@target(javascript)
+fn hierarchy_json(entry: fluid_summary.SummaryEntry) -> json.Json {
+  case entry {
+    fluid_summary.SummaryTree(entries) ->
+      json.object(
+        list.map(entries, fn(entry) { #(entry.0, hierarchy_json(entry.1)) }),
+      )
+    fluid_summary.SummaryBlob(bytes) ->
+      json.string(bit_array.base64_encode(bytes, True))
+    fluid_summary.SummaryHandle(_, _) ->
+      panic as "native summary must contain no handles"
+  }
 }

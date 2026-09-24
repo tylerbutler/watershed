@@ -38,6 +38,7 @@ import lattice_text/text
 import watershed/channel
 import watershed/claims_kernel
 import watershed/counter_kernel
+import watershed/fluid_ids
 import watershed/g_counter_kernel
 import watershed/lww_map_kernel
 import watershed/lww_register_kernel
@@ -51,6 +52,7 @@ import watershed/sequence_kernel
 import watershed/text_kernel
 import watershed/wire
 import watershed/wire/fluid_container
+import watershed/wire/fluid_document
 import watershed/wire/op as wire_op
 import watershed/wire/socket
 import watershed/wire/summary
@@ -797,46 +799,6 @@ pub fn malformed_summary_responses_are_rejected_test() -> Nil {
     let contents = fixture.1 |> json.to_string |> parse(decode.dynamic)
     summary.decode_message(fixture.0, contents) |> expect.to_be_error()
   })
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
-// summary blob codec
-// ─────────────────────────────────────────────────────────────────────────────
-
-pub fn summary_blob_round_trips_test() -> Nil {
-  let entries = [
-    #("die", json.int(4)),
-    #("label", json.string("hello")),
-    #("nested", json.object([#("a", json.array([1, 2], json.int))])),
-  ]
-  let encoded =
-    checked.value(
-      summary_blob.encode_channels(7, [11, 12], [
-        #("watershed/root", channel.MapSnapshot(entries)),
-      ]),
-    )
-    |> json.to_string
-  let assert Ok(blob) = summary_blob.decode(encoded)
-  blob.sequence_number |> expect.to_equal(7)
-  blob.members |> expect.to_equal([11, 12])
-  let assert [decoded_channel] = blob.channels
-  decoded_channel.address |> expect.to_equal("watershed/root")
-  let assert channel.MapSnapshot(decoded_entries) = decoded_channel.snapshot
-  // Values compare structurally by re-encoding through the same codec.
-  let normalize = fn(pairs: List(#(String, json.Json))) {
-    list.map(pairs, fn(pair) { #(pair.0, json.to_string(pair.1)) })
-  }
-  normalize(decoded_entries) |> expect.to_equal(normalize(entries))
-}
-
-pub fn summary_blob_rejects_unknown_version_test() -> Nil {
-  let raw =
-    "{\"watershedSummaryVersion\": 999, \"address\": \"root\","
-    <> " \"sequenceNumber\": 1, \"entries\": []}"
-  case summary_blob.decode(raw) {
-    Error(_) -> Nil
-    Ok(_) -> panic as "expected unknown summary version to be rejected"
-  }
 }
 
 pub fn encode_summarize_operation_test() -> Nil {
@@ -1682,104 +1644,6 @@ pub fn decode_operation_contents_rejects_bad_attach_test() -> Nil {
   }
 }
 
-pub fn summary_blob_v4_round_trips_test() -> Nil {
-  let entries = [#("a", json.int(1))]
-  let channel_json =
-    json.object([
-      #("address", json.string("watershed/root")),
-      #("type", json.string(wire.channel_type_map)),
-      #(
-        "data",
-        json.array(entries, fn(e) {
-          json.object([#("key", json.string(e.0)), #("value", e.1)])
-        }),
-      ),
-    ])
-  let raw =
-    json.object([
-      #("watershedSummaryVersion", json.int(4)),
-      #("sequenceNumber", json.int(5)),
-      #("members", json.array([2, 7], json.int)),
-      #("channels", json.array([channel_json], fn(c) { c })),
-    ])
-    |> json.to_string
-  case summary_blob.decode(raw) {
-    Ok(blob) -> {
-      blob.sequence_number |> expect.to_equal(5)
-      blob.members |> expect.to_equal([2, 7])
-      let assert [ch] = blob.channels
-      ch.address |> expect.to_equal("watershed/root")
-      ch.snapshot |> expect.to_equal(channel.MapSnapshot(entries))
-    }
-    Error(_) -> panic as "v4 decode failed"
-  }
-}
-
-pub fn summary_blob_rejects_superseded_versions_test() -> Nil {
-  // Neither the v2 shape (per-channel `entries`) nor v3 (channels but no
-  // roster) has a loader: formats are cut clean while nothing external
-  // consumes them, and stored documents are reset rather than migrated.
-  let v2 =
-    "{\"watershedSummaryVersion\": 2, \"sequenceNumber\": 5,"
-    <> " \"channels\": [{\"address\": \"root\", \"type\": \"map\","
-    <> " \"entries\": [{\"key\": \"a\", \"value\": 1}]}]}"
-  case summary_blob.decode(v2) {
-    Error(_) -> Nil
-    Ok(_) -> panic as "expected the superseded v2 format to be rejected"
-  }
-
-  // v3 is well-formed apart from the missing roster, which is exactly why it
-  // must be refused rather than read as an empty room: an empty roster settles
-  // pacts the room is still deciding.
-  let v3 =
-    "{\"watershedSummaryVersion\": 3, \"sequenceNumber\": 5,"
-    <> " \"channels\": [{\"address\": \"root\", \"type\": \"map\","
-    <> " \"data\": [{\"key\": \"a\", \"value\": 1}]}]}"
-  case summary_blob.decode(v3) {
-    Error(_) -> Nil
-    Ok(_) -> panic as "expected the superseded v3 format to be rejected"
-  }
-}
-
-/// A v4 blob missing `members` entirely is refused rather than defaulted to an
-/// empty roster — the same reason v3 is.
-pub fn summary_blob_v4_requires_members_test() -> Nil {
-  let raw =
-    "{\"watershedSummaryVersion\": 4, \"sequenceNumber\": 5,"
-    <> " \"channels\": []}"
-  case summary_blob.decode(raw) {
-    Error(_) -> Nil
-    Ok(_) -> panic as "expected a v4 blob without members to be rejected"
-  }
-}
-
-pub fn summary_blob_unknown_channel_type_rejected_test() -> Nil {
-  let entries = [#("a", json.int(1))]
-  let channel_json =
-    json.object([
-      #("address", json.string("root")),
-      #("type", json.string("weird")),
-      #(
-        "data",
-        json.array(entries, fn(e) {
-          json.object([#("key", json.string(e.0)), #("value", e.1)])
-        }),
-      ),
-    ])
-  let raw =
-    json.object([
-      #("watershedSummaryVersion", json.int(4)),
-      #("sequenceNumber", json.int(5)),
-      #("members", json.array([], json.int)),
-      #("channels", json.array([channel_json], fn(c) { c })),
-    ])
-    |> json.to_string
-  case summary_blob.decode(raw) {
-    Error(_) -> Nil
-    Ok(_) -> panic as "expected unknown channel type to be rejected"
-  }
-}
-
 // ─────────────────────────────────────────────────────────────────────────────
 // Counter channels (R2)
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2219,9 +2083,9 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() -> Nil {
     or_map_kernel.new(replica_id.new("client-a"), or_map_kernel.TallyMode)
   let assert Ok(#(or_map, _, _, _)) =
     or_map_kernel.increment(or_map, "score", 2)
-  let encoded =
+  let document =
     checked.value(
-      summary_blob.encode_channels(9, [3], [
+      fluid_document.native(9, 0, [3], [
         #("watershed/root", channel.MapSnapshot([#("k", json.int(1))])),
         #("watershed/tally", channel.CounterSnapshot(7)),
         #(
@@ -2234,12 +2098,14 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() -> Nil {
         ),
       ]),
     )
-    |> json.to_string
-  string_contains(encoded, "\"type\":\"counter\"") |> expect.to_be_true()
-  string_contains(encoded, "\"type\":\"ormap\"") |> expect.to_be_true()
-  string_contains(encoded, "\"type\":\"claims\"") |> expect.to_be_true()
-  case summary_blob.decode(encoded) {
+  let assert Ok(encoded) = fluid_document.encode(document)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  case fluid_document.decode(encoded, None, session, view) {
     Ok(blob) -> {
+      let blob = fluid_document.inspect(blob)
       blob.sequence_number |> expect.to_equal(9)
       let assert [
         root,
@@ -2274,7 +2140,7 @@ pub fn summary_blob_mixed_channel_types_round_trip_test() -> Nil {
       ))
     }
 
-    Error(_) -> panic as "mixed summary decode failed"
+    Error(_) -> panic as "mixed document summary decode failed"
   }
 }
 

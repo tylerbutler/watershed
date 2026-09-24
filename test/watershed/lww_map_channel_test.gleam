@@ -12,13 +12,14 @@ import spillway/message
 import spillway/types
 import startest/expect
 import watershed/channel
+import watershed/fluid_ids
 import watershed/handle
 import watershed/lww_map_kernel as kernel
 import watershed/runtime_core
 import watershed/tree/checked_test as checked
 import watershed/wire
+import watershed/wire/fluid_document
 import watershed/wire/op
-import watershed/wire/summary_blob
 
 fn connected() -> message.ConnectedMessage {
   message.ConnectedMessage(
@@ -217,21 +218,27 @@ pub fn lww_map_core_attach_reconnect_summary_and_errors_test() -> Nil {
   runtime_core.lww_map_keys(core, "watershed/map") |> expect.to_equal(["k"])
   let assert Ok(#(core, [], [_])) =
     runtime_core.lww_map_set(core, "watershed/map", "k", "restored", 200)
-  let assert Ok(blob) =
-    checked.value(summary_blob.encode_channels(
+  let assert Ok(document) =
+    fluid_document.native(
       core.last_seen_sequence_number,
+      core.minimum_sequence_number,
       runtime_core.summary_members(core),
       checked.value(runtime_core.summary_channels(core)),
-    ))
-    |> json.to_string
-    |> summary_blob.decode
+    )
+  let assert Ok(hierarchy) = fluid_document.encode(document)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(restored) =
+    fluid_document.decode(hierarchy, None, session, view)
   let joining =
     message.ConnectedMessage(
       ..connected(),
       checkpoint_sequence_number: Some(core.last_seen_sequence_number),
     )
   let assert Ok(runtime_core.Complete(loaded)) =
-    runtime_core.bootstrap(joining, Some(runtime_core.summary_from_blob(blob)))
+    runtime_core.bootstrap_document(joining, restored)
   let assert Ok(#(_, _, [next])) =
     runtime_core.lww_map_remove(loaded, "watershed/map", "k", 0)
   let assert Ok(#(_, kernel.Remove("k", 102, _))) =

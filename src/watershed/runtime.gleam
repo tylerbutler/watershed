@@ -65,6 +65,8 @@ import watershed/channel.{
 @target(javascript)
 import watershed/claims_kernel
 @target(javascript)
+import watershed/fluid_ids
+@target(javascript)
 import watershed/git_storage
 @target(javascript)
 import watershed/id
@@ -94,6 +96,10 @@ import watershed/transport_js.{type Cell}
 import watershed/tree/types as tree_types
 @target(javascript)
 import watershed/wire
+@target(javascript)
+import watershed/wire/fluid_document
+@target(javascript)
+import watershed/wire/fluid_summary
 @target(javascript)
 import watershed/wire/socket
 @target(javascript)
@@ -229,6 +235,8 @@ type PendingSummary {
     tree_id: String,
     client_sequence_number: Int,
     proposal_sequence_number: Option(Int),
+    snapshot_sequence_number: Int,
+    attempt_id: Int,
     resolve: fn(Result(String, String)) -> Nil,
   )
 }
@@ -281,6 +289,7 @@ type State {
     /// a busy document would arm a new timer for every sequenced operation.
     summary_armed: Bool,
     pending_summary: Option(PendingSummary),
+    next_summary_attempt_id: Int,
     /// How the runtime schedules delayed work. In production it uses the real
     /// `setTimeout` function. The in-memory hub substitutes its logical clock,
     /// so `sluice_js.advance` drives the delay window of the policy, and not
@@ -451,6 +460,7 @@ fn start_with_optional_seed(
       },
       summary_armed: False,
       pending_summary: None,
+      next_summary_attempt_id: 0,
       scheduler: transport_js.real_scheduler(),
     ))
 
@@ -2360,6 +2370,7 @@ pub fn close(runtime: Runtime) -> Nil {
       claim_waiters: dict.new(),
       acquire_waiters: dict.new(),
       pending_summary: None,
+      next_summary_attempt_id: 0,
       bootstrap: None,
       bootstrap_generation: state.bootstrap_generation + 1,
     ),
@@ -2602,7 +2613,7 @@ pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
   let state = cell_get(cell)
   case state.phase {
     Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core) ->
-      case runtime_core.has_tree(core) {
+      case runtime_core.has_tree(core) && core.persistence == None {
         True ->
           promise.resolve(Error("tree summary publication is not supported"))
         False -> summarize_native(cell, state)
@@ -2632,43 +2643,54 @@ fn summarize_native(
                     <> "in-flight edits have been acknowledged",
                   ))
                 True ->
-                  case runtime_core.summary_channels(core) {
+                  case runtime_core.capture_summary(core) {
                     Error(error) ->
                       promise.resolve(Error(string.inspect(error)))
-                    Ok(channels) -> {
-                      let #(published, resolve) = promise.start()
-                      cell_set(
-                        cell,
-                        State(
-                          ..state,
-                          pending_summary: Some(PendingSummary(
-                            "",
-                            -1,
-                            None,
-                            resolve,
-                          )),
-                        ),
-                      )
-                      let _ =
-                        git_storage.upload_summary(
-                          base_url: state.http_base_url,
-                          tenant: state.connect_message.tenant_id,
-                          token: token,
-                          sequence_number: core.last_seen_sequence_number,
-                          members: runtime_core.summary_members(core),
-                          channels: channels,
-                        )
-                        |> promise.map(fn(result) {
-                          case result {
-                            Error(error) ->
-                              resolve_pending_summary(
-                                cell,
-                                Error(git_storage.error_to_string(error)),
-                              )
-                            Ok(tree_sha) -> finish_summarize(cell, tree_sha)
-                          }
-                        })
-                      published
+                    Ok(captured) -> {
+                      let hierarchy = fluid_document.encode(captured)
+                      case hierarchy {
+                        Error(error) ->
+                          promise.resolve(Error(string.inspect(error)))
+                        Ok(hierarchy) -> {
+                          let #(published, resolve) = promise.start()
+                          let attempt_id = state.next_summary_attempt_id
+                          cell_set(
+                            cell,
+                            State(
+                              ..state,
+                              pending_summary: Some(PendingSummary(
+                                "",
+                                -1,
+                                None,
+                                fluid_document.sequence_number(captured),
+                                attempt_id,
+                                resolve,
+                              )),
+                              next_summary_attempt_id: attempt_id + 1,
+                            ),
+                          )
+                          let _ =
+                            git_storage.stage_hierarchy(
+                              base_url: state.http_base_url,
+                              tenant: state.connect_message.tenant_id,
+                              token: token,
+                              tree: hierarchy,
+                            )
+                            |> promise.map(fn(result) {
+                              case result {
+                                Error(error) ->
+                                  resolve_summary_attempt(
+                                    cell,
+                                    attempt_id,
+                                    Error(git_storage.error_to_string(error)),
+                                  )
+                                Ok(tree_sha) ->
+                                  finish_summarize(cell, tree_sha, attempt_id)
+                              }
+                            })
+                          published
+                        }
+                      }
                     }
                   }
               }
@@ -2711,10 +2733,10 @@ pub fn get_versions(
 }
 
 @target(javascript)
-/// Read the snapshot that a published summary commit captured.
+/// Inspect the snapshot that a published summary commit captured.
 /// `get_versions` and the resolution of `summarize` both give the commit ID.
 /// The function does not change the live document. It reads the stored
-/// blob at one point in time.
+/// channels at one point in time. It omits the document restore context.
 pub fn load_version(
   runtime: Runtime,
   handle: String,
@@ -2723,13 +2745,18 @@ pub fn load_version(
   case state.connect_message.token {
     None -> promise.resolve(Error("loading a version requires an auth token"))
     Some(token) ->
-      git_storage.fetch_summary(
+      git_storage.fetch_hierarchy(
         base_url: state.http_base_url,
         tenant: state.connect_message.tenant_id,
         token: token,
-        handle: handle,
+        commit_id: handle,
       )
-      |> promise.map(result.map_error(_, git_storage.error_to_string))
+      |> promise.map(fn(result) {
+        use tree <- result.try(
+          result |> result.map_error(git_storage.error_to_string),
+        )
+        decode_document(tree) |> result.map(fluid_document.inspect)
+      })
   }
 }
 
@@ -2739,15 +2766,22 @@ pub fn load_version(
 /// operation from the current core. The client sequence number of that
 /// operation thus stays above the number of every edit that arrived during the
 /// asynchronous upload.
-fn finish_summarize(cell: Cell(State), tree_sha: String) -> Nil {
+fn finish_summarize(
+  cell: Cell(State),
+  tree_sha: String,
+  attempt_id: Int,
+) -> Nil {
   let state = cell_get(cell)
   case state.phase, state.channel, state.pending_summary {
-    Ready(core, None), Some(channel), Some(pending) -> {
+    Ready(core, None), Some(channel), Some(pending)
+      if pending.attempt_id == attempt_id
+    -> {
       let #(core, outbound) =
         runtime_core.build_summarize(
           core,
           handle: tree_sha,
           message: "watershed summary",
+          reference_sequence_number: pending.snapshot_sequence_number,
         )
       cell_set(
         cell,
@@ -2770,6 +2804,7 @@ fn finish_summarize(cell: Cell(State), tree_sha: String) -> Nil {
       )
     }
     Ready(_, None), Some(_), None -> Nil
+    Ready(_, None), Some(_), Some(_) -> Nil
     Ready(_, None), None, _
     | Ready(_, Some(_)), _, _
     | Connecting, _, _
@@ -2777,8 +2812,9 @@ fn finish_summarize(cell: Cell(State), tree_sha: String) -> Nil {
     | SuspendedPendingTree(_), _, _
     | Failed(_), _, _
     ->
-      resolve_pending_summary(
+      resolve_summary_attempt(
         cell,
+        attempt_id,
         Error("summary publication was interrupted"),
       )
   }
@@ -2796,6 +2832,19 @@ fn resolve_pending_summary(
       cell_set(cell, State(..state, pending_summary: None))
       observe("summary publication", fn() { pending.resolve(outcome) })
     }
+  }
+}
+
+@target(javascript)
+fn resolve_summary_attempt(
+  cell: Cell(State),
+  attempt_id: Int,
+  outcome: Result(String, String),
+) -> Nil {
+  case cell_get(cell).pending_summary {
+    Some(pending) if pending.attempt_id == attempt_id ->
+      resolve_pending_summary(cell, outcome)
+    _ -> Nil
   }
 }
 
@@ -2940,6 +2989,20 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
 @target(javascript)
 /// Fetch the summary under the current bootstrap generation. Live operations
 /// remain buffered until the summary and all prefix pages have loaded.
+fn decode_document(
+  tree: fluid_summary.SummaryEntry,
+) -> Result(fluid_document.DocumentSummary, String) {
+  use session <- result.try(
+    fluid_ids.session_id(id.uuid_v4()) |> result.map_error(string.inspect),
+  )
+  use view <- result.try(
+    fluid_ids.stable_id(id.uuid_v4()) |> result.map_error(string.inspect),
+  )
+  fluid_document.decode(tree, None, session, view)
+  |> result.map_error(string.inspect)
+}
+
+@target(javascript)
 fn load_summary_then_bootstrap(
   cell: Cell(State),
   state: State,
@@ -2951,11 +3014,11 @@ fn load_summary_then_bootstrap(
     None -> fail(cell, "loading a summarized document requires an auth token")
     Some(token) -> {
       let _ =
-        git_storage.fetch_summary(
+        git_storage.fetch_hierarchy(
           base_url: state.http_base_url,
           tenant: state.connect_message.tenant_id,
           token: token,
-          handle: context.handle,
+          commit_id: context.handle,
         )
         |> promise.map(fn(result) {
           use <- bool.guard(!bootstrap_current(cell, generation), Nil)
@@ -2965,17 +3028,12 @@ fn load_summary_then_bootstrap(
                 cell,
                 "summary load failed: " <> git_storage.error_to_string(error),
               )
-            Ok(blob) ->
-              // `context` locates the blob; the blob says what it holds and when
-              // it was captured. See `runtime_core.summary_from_blob` for why
-              // the context's sequence number is deliberately not the load
-              // point.
-              finish_bootstrap(
-                cell,
-                connected,
-                Some(runtime_core.summary_from_blob(blob)),
-                generation,
-              )
+            Ok(tree) ->
+              case decode_document(tree) {
+                Error(error) -> fail(cell, "summary decode failed: " <> error)
+                Ok(summary) ->
+                  finish_bootstrap(cell, connected, Some(summary), generation)
+              }
           }
         })
       Nil
@@ -2988,7 +3046,7 @@ fn load_summary_then_bootstrap(
 fn finish_bootstrap(
   cell: Cell(State),
   connected: ConnectedMessage,
-  summary: Option(runtime_core.Summary),
+  summary: Option(fluid_document.DocumentSummary),
   generation: Int,
 ) -> Nil {
   use <- bool.guard(!bootstrap_current(cell, generation), Nil)
@@ -2998,7 +3056,11 @@ fn finish_bootstrap(
         Ok(seed) -> runtime_core.bootstrap_seeded(connected, seed)
         Error(error) -> Error(error)
       }
-    None -> runtime_core.bootstrap(connected, summary: summary)
+    None ->
+      case summary {
+        Some(summary) -> runtime_core.bootstrap_document(connected, summary)
+        None -> runtime_core.bootstrap(connected, summary: None)
+      }
   }
   case bootstrapped {
     Ok(bootstrapped) -> continue_bootstrap(cell, bootstrapped, generation)
