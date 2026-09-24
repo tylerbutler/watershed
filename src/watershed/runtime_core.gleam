@@ -1667,11 +1667,19 @@ fn resubmit_tree_batch(
   })
   let rebuilt = case creation {
     None -> rebuilt
-    Some(range) ->
-      list.append(list.take(rebuilt, 1), [
+    Some(range) -> {
+      let #(allocations, operations) =
+        list.partition(rebuilt, fn(item) {
+          case item {
+            fluid_container.IdAllocation(_) -> True
+            _ -> False
+          }
+        })
+      list.append(allocations, [
         fluid_container.IdAllocation(range),
-        ..list.drop(rebuilt, 1)
+        ..operations
       ])
+    }
   }
   let metadata =
     json.object([

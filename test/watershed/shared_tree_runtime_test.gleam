@@ -1,5 +1,6 @@
 import gleam/dict
 import gleam/dynamic/decode
+import gleam/int
 import gleam/json
 import gleam/list
 import gleam/option.{None, Some}
@@ -294,6 +295,77 @@ pub fn shared_tree_resubmit_allocates_in_original_batch_order_after_rebase_test(
       ..from_outbound(second_sent),
       client_id: Some("rejoined"),
       sequence_number: 5,
+    )
+  let #(after_second, _) =
+    runtime_core.handle_sequenced(after_first, second_ack) |> expect.to_be_ok
+  after_second.in_flight |> expect.to_equal([])
+}
+
+pub fn shared_tree_resubmit_orders_allocations_after_repeated_rebases_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(first, _, [_])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("local-one")),
+    ])
+  let assert Ok(#(pending, _, [_])) =
+    runtime_core.submit_tree_edits(first, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("local-two")),
+    ])
+  let assert [
+    runtime_core.InFlightBatch(batch_id: first_id, ..),
+    runtime_core.InFlightBatch(batch_id: second_id, ..),
+  ] = pending.in_flight
+  let assert #(recovered, _, [first_sent, second_sent]) =
+    list.fold([1, 2, 3], #(pending, remote_writer_core(), []), fn(acc, round) {
+      let #(reader, writer, _) = acc
+      let assert Ok(#(writer, _, [remote_outbound])) =
+        runtime_core.submit_tree_edits(writer, "A/_C", [
+          tree_types.SetField(
+            ["title"],
+            tree_types.StringValue("remote-" <> int.to_string(round)),
+          ),
+        ])
+      let remote =
+        types.SequencedDocumentMessage(
+          ..from_outbound(remote_outbound),
+          sequence_number: 2 + round,
+        )
+      let #(writer, _) =
+        runtime_core.handle_sequenced(writer, remote) |> expect.to_be_ok
+      let rejoined =
+        runtime_core.adopt_reconnect(
+          reader,
+          runtime_fixture.connected(
+            "reader-" <> int.to_string(round),
+            [],
+            2 + round,
+          ),
+        )
+      let #(caught_up, _) =
+        runtime_core.handle_sequenced(rejoined, remote) |> expect.to_be_ok
+      let assert Ok(#(ready, [first_sent, second_sent])) =
+        runtime_core.resubmit(runtime_core.go_live(caught_up))
+      #(ready, writer, [first_sent, second_sent])
+    })
+  let assert [
+    runtime_core.InFlightBatch(batch_id: first_rebuilt, ..),
+    runtime_core.InFlightBatch(batch_id: second_rebuilt, ..),
+  ] = recovered.in_flight
+  first_rebuilt |> expect.to_equal(first_id)
+  second_rebuilt |> expect.to_equal(second_id)
+  let first_ack =
+    types.SequencedDocumentMessage(
+      ..from_outbound(first_sent),
+      client_id: Some("reader-3"),
+      sequence_number: 6,
+    )
+  let #(after_first, _) =
+    runtime_core.handle_sequenced(recovered, first_ack) |> expect.to_be_ok
+  let second_ack =
+    types.SequencedDocumentMessage(
+      ..from_outbound(second_sent),
+      client_id: Some("reader-3"),
+      sequence_number: 7,
     )
   let #(after_second, _) =
     runtime_core.handle_sequenced(after_first, second_ack) |> expect.to_be_ok

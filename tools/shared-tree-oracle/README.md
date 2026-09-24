@@ -67,7 +67,9 @@ visible values, pending counts, changed transport IDs, sequenced batch
 identity, and upstream continuation. The repeated-reconnect case forwards
 the replacement handshake before it pauses inbound catch-up, then checks the
 new identity and catching-up phase before dropping that transport. The
-detached-repair case compares two separate resubmitted child commits with
+deterministic core test covers three rebases without an intervening ack and
+acknowledges both retained batches; the live case covers transport interruption.
+The detached-repair case compares two separate resubmitted child commits with
 their withheld original revisions and batch IDs, then checks each encoded
 refresher against the pinned upstream predecessor state. An exact twelve-cell validator rejects
 missing, duplicated, stale, skipped, failed, or wrong-profile results. A

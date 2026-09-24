@@ -1960,6 +1960,21 @@ and 2255 JavaScript tests; both builds, 83 oracle unit tests, runtime and
 retained-summary gates, storage/bootstrap smokes, compile-fail checks,
 formatting, and website type checks passed.
 
+A second review found that another rebase could insert a fresh rollback range
+ahead of an unacknowledged range retained in the same batch. Resubmission now
+places all retained allocation ranges before the new range and before dependent
+operations. A three-rebase regression with no intervening acknowledgements
+acks both original batches on JavaScript and Erlang; the reviewer's two-rebase
+probe also acks both. The root suites passed 1984 Erlang and 2256 JavaScript
+tests; both root builds, 83 oracle tests, runtime and retained-summary gates,
+and all twelve live cases passed (run
+`fcce7d4d-9d9f-4a4b-9492-a2f02ae556ff`). Repository-wide `just build` and
+`just test` could not finish: Hex rate-limited dependency downloads for
+unrelated Lustre examples. The root package suites and builds passed
+independently, as did the storage/bootstrap smokes and compile-fail checks.
+The website subtarget failed its snippet coverage check for the unrelated
+`tools/website-samples/test/website_samples_test.gleam` source.
+
 ### Task 15: prove mixed-client and cross-writer interoperability
 
 **Files:** Extend `tools/shared-tree-oracle/service.mjs`; create
