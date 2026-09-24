@@ -1505,6 +1505,7 @@ export function validateCases(cases) {
     if (value.id === "modular-nested-algebra") validateModularCase(value);
     if (value.id === "history-reconciliation") validateHistoryCase(value);
     if (value.id === "tree-codecs") validateCodecCase(value);
+    if (value.id === "summary-writer-matrix") validateSummaryPersistence(value);
     if (value.id === "id-ranges") {
       assert(object(value.input.sessions) && typeof value.input.sessions.summaryRestoration === "string"
         && nonemptyArray(value.input.schedule)
@@ -1650,6 +1651,59 @@ function messageInventory(cases) {
     treeVersions: [...treeVersions],
     fieldKinds: [...fieldKinds].sort(),
   };
+}
+
+function validateSummaryPersistence(value) {
+  const detail = `${value.id}: persistence`;
+  const ids = ["initial", "concurrent-detached", "after-peer-leave", "after-nontree-tail"];
+  const states = value.input.persistenceStates;
+  assert(Array.isArray(states), `${detail} states are missing`);
+  assert.deepEqual(states.map(({ id }) => id), ids, `${detail} states are incomplete`);
+  const observations = value.expected.persistenceObservations;
+  assert(Array.isArray(observations), `${detail} observations are missing`);
+  assert.deepEqual(observations.map(({ id }) => id), ids, `${detail} observations are incomplete`);
+  for (const [index, state] of states.entries()) {
+    const snapshot = state.snapshot;
+    assert(object(snapshot?.tree) && snapshot.blobEncoding === "base64"
+      && object(snapshot.blobs), `${detail} snapshot is missing`);
+    function checkTree(tree) {
+      assert(object(tree.blobs) && object(tree.trees), `${detail} invalid snapshot tree`);
+      for (const id of Object.values(tree.blobs)) {
+        const bytes = snapshot.blobs[id];
+        assert(typeof bytes === "string"
+          && Buffer.from(bytes, "base64").toString("base64") === bytes,
+        `${detail} missing or invalid blob bytes`);
+      }
+      for (const child of Object.values(tree.trees)) checkTree(child);
+    }
+    checkTree(snapshot.tree);
+    const protocol = snapshot.tree.trees[".protocol"];
+    assert(protocol && typeof protocol.blobs.attributes === "string",
+      `${detail} protocol attributes are missing`);
+    let attributes;
+    assert.doesNotThrow(() => {
+      attributes = JSON.parse(Buffer.from(snapshot.blobs[protocol.blobs.attributes], "base64"));
+    }, `${detail} invalid protocol attributes`);
+    assert(Number.isSafeInteger(state.sequenceNumber)
+      && Number.isSafeInteger(state.minimumSequenceNumber)
+      && state.minimumSequenceNumber >= 0
+      && state.minimumSequenceNumber <= state.sequenceNumber
+      && attributes.sequenceNumber === state.sequenceNumber
+      && attributes.minimumSequenceNumber === state.minimumSequenceNumber,
+    `${detail} snapshot watermark differs`);
+    assert(nonemptyArray(state.tail) && state.tail.every((message, offset) =>
+      message.sequenceNumber === state.sequenceNumber + offset + 1),
+    `${detail} tail is incomplete`);
+    assert.deepEqual(state.continuationEdit?.path, ["rating"], `${detail} continuation path`);
+    assert(state.continuationEdit.value?.kind === "number"
+      && Number.isFinite(state.continuationEdit.value.value),
+    `${detail} continuation value`);
+    const observation = observations[index];
+    assert(observation.continuationObserved === true && object(observation.before)
+      && object(observation.after)
+      && observation.after.rating === state.continuationEdit.value.value,
+    `${detail} continuation was not observed`);
+  }
 }
 
 export async function writeCorpus(output, cases, smoke) {

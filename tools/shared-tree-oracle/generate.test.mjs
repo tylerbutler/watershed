@@ -48,6 +48,21 @@ function cases(exclude = []) {
   )));
 }
 
+test("summary persistence validation refuses missing or nonreplayable inputs", () => {
+  for (const mutate of [
+    (value) => { delete value.input.persistenceStates; },
+    (value) => { value.input.persistenceStates.pop(); },
+    (value) => { value.input.persistenceStates[1].tail.shift(); },
+    (value) => { value.input.persistenceStates[1].sequenceNumber += 1; },
+    (value) => { value.input.persistenceStates[1].snapshot.blobs = {}; },
+    (value) => { value.expected.persistenceObservations[1].continuationObserved = false; },
+  ]) {
+    const values = cases();
+    mutate(values.find(({ id }) => id === "summary-writer-matrix"));
+    assert.throws(() => validateCases(values), /summary-writer-matrix.*persistence/);
+  }
+});
+
 function codecCaseFixture() {
   const summary = {
     type: 1,

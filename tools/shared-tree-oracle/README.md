@@ -253,6 +253,49 @@ registered on both targets.
 Native document summary publication and the complete writer matrix remain
 future work.
 
+### Complete summary restoration inputs
+
+`summary-writer-matrix.input.persistenceStates` adds four whole-container
+snapshots with contiguous operation tails and explicit continuation edits.
+The corresponding upstream observations are separate in
+`expected.persistenceObservations`; a native runner must not read them.
+
+| State | What the snapshot exercises |
+| --- | --- |
+| `initial` | Empty tree history at a nonzero document sequence. |
+| `concurrent-detached` | Concurrent parent replacement and child editing, retained detached fields, trunk commits, and peer branch bases. |
+| `after-peer-leave` | Changed protocol membership, grouped edits, a bootstrap-map handle, and a later summary number. |
+| `after-nontree-tail` | Document progress beyond the tree's retention watermark, after sequenced bootstrap-map edits. |
+
+Each snapshot is published by upstream and loaded by a fresh upstream reader.
+That reader authors a continuation, and another client must observe it. These
+are restoration inputs, not evidence of native document loading or publication.
+The existing `tree-codecs` inputs additionally cover retained initialization
+schema changes and a peer branch with nonempty commits.
+
+The last state matters: `SharedTreeCore.processMessages` advances the tree edit
+manager's minimum sequence only when it processes tree envelopes. A summary can
+therefore contain trunk commits older than `.protocol/attributes`'s minimum
+sequence. A native loader must not reject or prematurely evict that history.
+The document snapshot point is also not the sequence of its last tree commit.
+
+The production conversion must follow these pinned-source contracts:
+
+| State | Source and ownership rule |
+| --- | --- |
+| Tree history | `shared-tree-core/editManager.ts`: restore the trunk first, then each peer branch from its recorded base. `"root"` denotes the new sentinel, not a UUID. Summary generation trims according to the tree's own retention state. |
+| Detached index | `core/tree/detachedFieldIndex.ts` and `util/idAllocator.ts`: `maxId` is the last allocated root ID; the next allocation is `maxId + 1`, even when no detached entries remain. |
+| Loaded repair lifetime | `shared-tree/treeCheckout.ts`, `load()`: associate loaded detached roots with the restored trunk tip so later trimming can reclaim them. Leaving every latest-relevant revision absent changes retention. |
+| Compressor | `containerRuntime.ts`, `addContainerStateToSummary`: serialize without local state. The document owns it; individual tree snapshots do not. |
+| Runtime metadata | `containerRuntime.ts`, `addMetadataToSummary`: preserve creation metadata, advance the summary-attempt number, and derive the last processed message and document schema. Explicit schema control uses `message: {sequenceNumber: -1}` plus `lastMessage`. |
+| Batch identities | `opLifecycle/duplicateBatchDetector.ts`: persist `[sequenceNumber, batchId]` pairs. On an inbound batch, remove entries strictly below its minimum sequence, then detect duplicates using the effective batch ID. |
+| Protocol | `container-loader/src/protocol.ts`: restore full quorum members, proposals, values, and snapshot attributes. A hashed membership list alone cannot reproduce this state. |
+| Routes and GC | Container aliases, datastore/channel metadata, and `gc/__gc_root` describe the graph at capture. Preserve immutable configuration, but regenerate changed routes and retain relevant unreferenced timestamps; disabling sweep does not permit omitting GC. |
+
+Tree source paths above are relative to `packages/dds/tree/src/`; container
+runtime paths are relative to `packages/runtime/container-runtime/src/`. All
+references use the pinned source commit, not the currently released package.
+
 ### Native runtime interoperability
 
 `npm run runtime:interop` creates fresh pinned upstream containers and gives

@@ -291,3 +291,58 @@ test("container producer supplies separate foundation cases without claiming run
     assert(!Object.hasOwn(value.expected, "writerMatrix"));
   }
 });
+
+function snapshotBlob(snapshot, path) {
+  const parts = path.split("/").filter(Boolean);
+  let tree = snapshot.tree;
+  for (const part of parts.slice(0, -1)) tree = tree.trees[part];
+  const id = tree.blobs[parts.at(-1)];
+  assert.equal(typeof snapshot.blobs[id], "string", `Missing ${path}`);
+  return JSON.parse(Buffer.from(snapshot.blobs[id], "base64").toString("utf8"));
+}
+
+test("summary persistence inputs retain detached history and advance enclosing metadata", async (t) => {
+  const output = await mkdtemp(join(tmpdir(), "watershed-summary-persistence-"));
+  t.after(() => rm(output, { recursive: true, force: true }));
+  const matrix = (await capture(output)).find(({ id }) => id === "summary-writer-matrix");
+  assert(Array.isArray(matrix.input.persistenceStates), "Missing complete persistence inputs");
+  const states = matrix.input.persistenceStates;
+  assert.deepEqual(states.map(({ id }) => id),
+    ["initial", "concurrent-detached", "after-peer-leave", "after-nontree-tail"]);
+  for (const state of states) {
+    assertSnapshot(state.snapshot);
+    const attributes = snapshotBlob(state.snapshot, "/.protocol/attributes");
+    assert.equal(state.sequenceNumber, attributes.sequenceNumber);
+    assert.equal(state.minimumSequenceNumber, attributes.minimumSequenceNumber);
+    assert(state.tail.every(({ sequenceNumber }, index) =>
+      sequenceNumber === state.sequenceNumber + index + 1));
+  }
+  assert.deepEqual(matrix.expected.persistenceObservations.map(({ id }) => id),
+    states.map(({ id }) => id));
+  assert(matrix.expected.persistenceObservations.every(({ continuationObserved }) =>
+    continuationObserved === true));
+  const retained = snapshotBlob(states[1].snapshot,
+    "/.channels/A/.channels/_C/indexes/DetachedFieldIndex/DetachedFieldIndexBlob");
+  assert(retained.data.length > 0, "Summary lost detached fields");
+  const history = snapshotBlob(states[1].snapshot,
+    "/.channels/A/.channels/_C/indexes/EditManager/String");
+  assert(history.trunk.length > 0, "Summary lost retained trunk");
+  assert(history.branches.length > 0, "Summary lost peer branch bases");
+  const initialHistory = snapshotBlob(states[0].snapshot,
+    "/.channels/A/.channels/_C/indexes/EditManager/String");
+  assert.deepEqual(initialHistory.trunk, []);
+  assert(states[0].sequenceNumber > 0, "Empty history must not imply an empty document");
+  const retainedAfterTail = snapshotBlob(states[3].snapshot,
+    "/.channels/A/.channels/_C/indexes/EditManager/String");
+  assert(retainedAfterTail.trunk.some(({ sequenceNumber }) =>
+    sequenceNumber < states[3].minimumSequenceNumber),
+  "Non-tree messages must not be mistaken for tree retention advancement");
+  const metadata = states.map(({ snapshot }) => snapshotBlob(snapshot, "/.metadata"));
+  assert(metadata[2].summaryNumber > metadata[1].summaryNumber);
+  assert.equal(metadata[2].lastMessage.sequenceNumber, states[2].sequenceNumber);
+  const members = states.slice(1).map(({ snapshot }) =>
+    snapshotBlob(snapshot, "/.protocol/quorumMembers").map(([id]) => id));
+  assert(members[0].includes(matrix.input.departedPeer));
+  assert(!members[1].includes(matrix.input.departedPeer));
+  assert(states[2].minimumSequenceNumber > states[1].minimumSequenceNumber);
+});

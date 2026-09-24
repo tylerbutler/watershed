@@ -968,6 +968,95 @@ async function captureSummaryTail(environment) {
   }
 }
 
+async function capturePersistenceStates(environment) {
+  const documentId = "summary-persistence";
+  const writer = await environment.open(documentId, { create: true });
+  const peer = await environment.open(documentId);
+  const states = [];
+  const observations = [];
+  let summarizer;
+  let reader;
+
+  async function record(id) {
+    const snapshot = await readSnapshot(environment, writer.container.resolvedUrl);
+    const attributes = JSON.parse(Buffer.from(
+      snapshot.blobs[snapshot.tree.trees[".protocol"].blobs.attributes], "base64",
+    ));
+    reader = await environment.open(documentId);
+    await synchronize(environment, [writer, reader], `${id} reader catch-up`);
+    const before = rootState(reader);
+    assert.deepEqual(before, rootState(writer), `${id}: fresh reader differs`);
+    const rating = before.rating + 1;
+    reader.data.view.root.rating = rating;
+    await synchronize(environment, [writer, reader], `${id} continuation`);
+    assert.equal(writer.data.view.root.rating, rating, `${id}: continuation was not observed`);
+    const messages = await readMessages(environment, writer.container.resolvedUrl);
+    states.push({
+      id,
+      snapshot,
+      sequenceNumber: attributes.sequenceNumber,
+      minimumSequenceNumber: attributes.minimumSequenceNumber,
+      continuationEdit: { path: ["rating"], value: { kind: "number", value: rating } },
+      tail: messages.filter(({ sequenceNumber }) => sequenceNumber > attributes.sequenceNumber),
+    });
+    observations.push({
+      id, before, after: rootState(reader), continuationObserved: true,
+    });
+    environment.dispose(reader);
+    reader = undefined;
+  }
+
+  try {
+    await synchronize(environment, [writer, peer], "persistence initialization");
+    const initial = await publishSummary(environment, documentId, "persistence empty history");
+    summarizer = initial.summarizer;
+    await record("initial");
+    environment.dispose(summarizer);
+    summarizer = undefined;
+    await Promise.all([
+      writer.container.deltaManager.inbound.pause(),
+      peer.container.deltaManager.inbound.pause(),
+    ]);
+    writer.data.view.root.point = { x: 10, y: 20 };
+    peer.data.view.root.point.y = 7;
+    writer.container.deltaManager.inbound.resume();
+    peer.container.deltaManager.inbound.resume();
+    await synchronize(environment, [writer, peer], "persistence concurrent replacement");
+    const first = await publishSummary(environment, documentId, "persistence retained state");
+    summarizer = first.summarizer;
+    await record("concurrent-detached");
+    const departedPeer = peer.container.clientId;
+    environment.dispose(peer);
+    environment.dispose(summarizer);
+    summarizer = undefined;
+    await synchronize(environment, [writer], "persistence peer leave");
+    writer.runtime.orderSequentially(() => {
+      writer.data.view.root.title = "after-peer-leave";
+      writer.data.view.root.enabled = true;
+      writer.data.bootstrap.set("self", writer.data.bootstrap.handle);
+    });
+    await synchronize(environment, [writer], "persistence grouped metadata changes");
+    const second = await publishSummary(environment, documentId, "persistence advanced state");
+    summarizer = second.summarizer;
+    await record("after-peer-leave");
+    environment.dispose(summarizer);
+    summarizer = undefined;
+    await synchronize(environment, [writer], "persistence readers leave");
+    for (const value of [1, 2]) {
+      writer.data.bootstrap.set("historyFence", value);
+      await synchronize(environment, [writer], "persistence history fence");
+    }
+    const third = await publishSummary(environment, documentId, "persistence non-tree tail");
+    summarizer = third.summarizer;
+    await record("after-nontree-tail");
+    return { states, observations, departedPeer };
+  } finally {
+    for (const session of [reader, summarizer, peer, writer]) {
+      if (session !== undefined && !session.container.closed) environment.dispose(session);
+    }
+  }
+}
+
 async function captureWriterMatrix(environment) {
   const documentId = "summary-writer-matrix";
   const writer = await environment.open(documentId, { create: true });
@@ -1009,6 +1098,7 @@ async function captureWriterMatrix(environment) {
     const laterTailMessages = raw.messages.filter(
       ({ sequenceNumber }) => sequenceNumber > publicationSequenceNumber,
     );
+    const persistence = await capturePersistenceStates(environment);
 
     return {
       ...caseRecord(
@@ -1053,9 +1143,12 @@ async function captureWriterMatrix(environment) {
             publicationSequenceNumber,
             laterTailMessages,
           },
+          persistenceStates: persistence.states,
+          departedPeer: persistence.departedPeer,
         },
       ),
       expected: {
+        persistenceObservations: persistence.observations,
         observations: [
           {
             checkpoint: "upstream-reader-loaded-summary",
