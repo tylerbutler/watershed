@@ -130,6 +130,34 @@ pub fn decode(
   }
 }
 
+pub fn validate_profile_batch(
+  batch: DecodedBatch,
+) -> Result(Nil, ContainerError) {
+  case batch.grouped {
+    True -> validate_group_metadata(batch.metadata, batch.messages)
+    False ->
+      case batch.metadata {
+        None -> Ok(Nil)
+        Some(value) -> {
+          use #(marker, _) <- result.try(
+            json.parse(json.to_string(value), item_batch_decoder())
+            |> result.map_error(fn(_) {
+              MalformedMessage("batch", "invalid ungrouped metadata")
+            }),
+          )
+          case marker {
+            None -> Ok(Nil)
+            Some(_) ->
+              Error(MalformedMessage(
+                "batch",
+                "ungrouped batch boundary is not supported",
+              ))
+          }
+        }
+      }
+  }
+}
+
 fn compression_decoder() -> Decoder(Option(String)) {
   use compression <- decode.optional_field(
     "compression",
@@ -298,6 +326,99 @@ fn decode_group(
     }),
   )
   Ok(DecodedBatch(True, metadata, messages))
+}
+
+fn validate_group_metadata(
+  metadata: Option(Json),
+  messages: List(ContainerMessage),
+) -> Result(Nil, ContainerError) {
+  use outer <- result.try(case metadata {
+    None -> Ok(None)
+    Some(value) ->
+      json.parse(json.to_string(value), outer_batch_decoder())
+      |> result.map(Some)
+      |> result.map_error(fn(_) {
+        MalformedMessage(
+          "groupedBatch.metadata",
+          "invalid batch identity or count",
+        )
+      })
+  })
+  let count = list.length(messages)
+  use _ <- result.try(case outer {
+    Some(#(id, actual))
+      if id != Some("") && actual == count && { count == 0 || count >= 2 }
+    -> Ok(Nil)
+    Some(_) ->
+      Error(MalformedMessage(
+        "groupedBatch.metadata",
+        "batch count or identity does not match",
+      ))
+    _ -> Ok(Nil)
+  })
+  use _ <- result.try(
+    messages
+    |> list.index_map(fn(message, index) { #(message, index) })
+    |> list.try_each(fn(entry) {
+      let #(ContainerMessage(_, _, item_metadata), index) = entry
+      case item_metadata {
+        None ->
+          case outer, index {
+            Some(_), 0 ->
+              Error(MalformedMessage(
+                "groupedBatch",
+                "missing first batch marker",
+              ))
+            Some(_), index if index == count - 1 ->
+              Error(MalformedMessage(
+                "groupedBatch",
+                "missing final batch marker",
+              ))
+            _, _ -> Ok(Nil)
+          }
+        Some(value) -> {
+          use #(marker, item_id) <- result.try(
+            json.parse(json.to_string(value), item_batch_decoder())
+            |> result.map_error(fn(_) {
+              MalformedMessage("groupedBatch", "invalid inner batch metadata")
+            }),
+          )
+          case marker, outer, index {
+            Some(True), Some(#(id, _)), 0 if item_id == id -> Ok(Nil)
+            Some(False), Some(_), index if index == count - 1 -> Ok(Nil)
+            None, None, _ -> Ok(Nil)
+            _, _, _ ->
+              Error(MalformedMessage("groupedBatch", "invalid batch boundary"))
+          }
+        }
+      }
+    }),
+  )
+  Ok(Nil)
+}
+
+fn outer_batch_decoder() -> Decoder(#(Option(String), Int)) {
+  use id <- decode.optional_field(
+    "batchId",
+    None,
+    decode.map(decode.string, Some),
+  )
+  use count <- decode.field("groupedOpCount", decode.int)
+  decode.success(#(id, count))
+}
+
+fn item_batch_decoder() -> Decoder(#(Option(Bool), Option(String))) {
+  use marker <- decode.optional_field(
+    "batch",
+    None,
+    decode.map(decode.bool, Some),
+  )
+  use id <- decode.optional_field(
+    "batchId",
+    None,
+    decode.map(decode.string, Some),
+  )
+  decode.success(#(marker, id))
 }
 
 fn grouped_item_decoder() -> Decoder(GroupedItem) {

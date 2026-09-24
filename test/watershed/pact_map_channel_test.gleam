@@ -354,6 +354,8 @@ fn apply(
       quorum: quorum,
       roster: quorum,
       reference_sequence_number: 0,
+      container_index_in_batch: 0,
+      transport_author: None,
     )
   case channel.apply_remote(state, operation, meta) {
     Ok(result) -> result

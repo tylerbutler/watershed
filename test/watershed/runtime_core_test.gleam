@@ -38,6 +38,7 @@ import watershed/runtime_core.{type Core}
 import watershed/summary_policy
 import watershed/text_kernel
 import watershed/wire
+import watershed/wire/fluid_container
 import watershed/wire/op as wire_op
 import watershed/wire/summary_blob
 
@@ -221,9 +222,9 @@ fn apply(
   core: Core,
   sequenced: types.SequencedDocumentMessage,
 ) -> #(Core, List(map_kernel.MapEvent)) {
-  case runtime_core.handle_sequenced(core, sequenced) {
+  case runtime_core.handle_sequenced(core, with_pending_rsn(core, sequenced)) {
     Ok(#(core, ingested)) -> #(core, root_events(ingested.events))
-    Error(_) -> panic as "expected handle_sequenced to succeed"
+    Error(error) -> panic as string.inspect(error)
   }
 }
 
@@ -231,7 +232,7 @@ fn apply_tagged(
   core: Core,
   sequenced: types.SequencedDocumentMessage,
 ) -> #(Core, List(#(String, channel.ChannelEvent))) {
-  case runtime_core.handle_sequenced(core, sequenced) {
+  case runtime_core.handle_sequenced(core, with_pending_rsn(core, sequenced)) {
     Ok(#(core, ingested)) -> #(core, ingested.events)
     Error(_) -> panic as "expected handle_sequenced to succeed"
   }
@@ -251,7 +252,7 @@ fn ingest(
   core: Core,
   sequenced: types.SequencedDocumentMessage,
 ) -> #(Core, List(map_kernel.MapEvent), option.Option(Int)) {
-  case runtime_core.handle_sequenced(core, sequenced) {
+  case runtime_core.handle_sequenced(core, with_pending_rsn(core, sequenced)) {
     Ok(#(core, ingested)) -> #(
       core,
       root_events(ingested.events),
@@ -259,6 +260,39 @@ fn ingest(
     )
     Error(_) -> panic as "expected handle_sequenced to succeed"
   }
+}
+
+fn with_pending_rsn(
+  core: Core,
+  sequenced: types.SequencedDocumentMessage,
+) -> types.SequencedDocumentMessage {
+  case sequenced.client_id, core.in_flight {
+    Some(client),
+      [
+        runtime_core.InFlightBatch(
+          client_id: pending_client,
+          reference_sequence_number: rsn,
+          ..,
+        ),
+        ..
+      ]
+      if client == pending_client
+    ->
+      types.SequencedDocumentMessage(
+        ..sequenced,
+        reference_sequence_number: rsn,
+      )
+    _, _ -> sequenced
+  }
+}
+
+fn pending_items(core: Core) -> List(runtime_core.InFlight) {
+  list.flat_map(core.in_flight, fn(entry) {
+    case entry {
+      runtime_core.InFlightBatch(pending: pending, ..) -> pending
+      _ -> panic as "in-flight entry is not an outer submission"
+    }
+  })
 }
 
 fn root_events(
@@ -492,7 +526,9 @@ fn is_ack_mismatch(core_error: runtime_core.CoreError) -> Bool {
     | runtime_core.ContainerOperationFailed(..)
     | runtime_core.ChannelBoundaryFailed(..)
     | runtime_core.LwwRegisterOperationFailed(..)
-    | runtime_core.LwwMapOperationFailed(..) -> False
+    | runtime_core.LwwMapOperationFailed(..)
+    | runtime_core.TreeOperationFailed(..)
+    | runtime_core.EmptyTreeEditBatch -> False
   }
 }
 
@@ -1097,6 +1133,26 @@ pub fn local_operations_stamp_client_sequence_number_and_reference_sequence_numb
   root_get(core, "die") |> expect.to_equal(Ok(json.int(4)))
 }
 
+pub fn singleton_dds_write_is_one_outer_submission_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _, outbound) = root_set(core, "one", json.int(1))
+  let assert [
+    runtime_core.InFlightBatch(
+      client_id: client_id,
+      client_sequence_number: csn,
+      reference_sequence_number: rsn,
+      grouped: False,
+      batch_id: None,
+      items: [fluid_container.ChannelOperation(route, _)],
+      pending: [runtime_core.InFlightOperation(address: "watershed/root", ..)],
+    ),
+  ] = core.in_flight
+  client_id |> expect.to_equal(our_client_id)
+  csn |> expect.to_equal(outbound.client_sequence_number)
+  rsn |> expect.to_equal(outbound.reference_sequence_number)
+  route |> expect.to_equal(fluid_container.Route("watershed", "root"))
+}
+
 pub fn ack_commits_pending_without_events_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let #(core, _, _) = root_set(core, "die", json.int(4))
@@ -1135,7 +1191,7 @@ pub fn acks_match_fifo_across_multiple_operations_test() -> Nil {
         operation: Set("a", json.int(1)),
       ),
     )
-  core.in_flight
+  pending_items(core)
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,
@@ -1204,6 +1260,46 @@ pub fn ack_with_wrong_shape_is_fatal_test() -> Nil {
     ),
   )
   |> expect_error(is_ack_mismatch)
+}
+
+pub fn ack_with_same_key_but_forged_value_is_fatal_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _, _) = root_set(core, "key", json.string("original"))
+  let forged =
+    map_operation_message(
+      client_id: our_client_id,
+      sequence_number: 2,
+      client_sequence_number: 1,
+      operation: Set("key", json.string("forged")),
+    )
+  runtime_core.handle_sequenced(core, with_pending_rsn(core, forged))
+  |> expect.to_equal(
+    Error(runtime_core.AckMismatch(
+      "outer submission does not match pending items",
+    )),
+  )
+  pending_items(core)
+  |> list.length
+  |> expect.to_equal(1)
+}
+
+pub fn ack_with_wrong_outer_reference_is_fatal_test() {
+  let core = bootstrap(initial_messages: [], checkpoint: 1)
+  let #(core, _, _) = root_set(core, "key", json.int(1))
+  let forged =
+    map_operation_message(
+      client_id: our_client_id,
+      sequence_number: 2,
+      client_sequence_number: 1,
+      operation: Set("key", json.int(1)),
+    )
+  runtime_core.handle_sequenced(core, forged)
+  |> expect.to_equal(
+    Error(runtime_core.AckMismatch(
+      "outer submission does not match pending items",
+    )),
+  )
+  pending_items(core) |> list.length |> expect.to_equal(1)
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1278,7 +1374,7 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
     )
   events |> expect.to_equal([])
   request_operations_from |> expect.to_equal(None)
-  core.in_flight
+  pending_items(core)
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,
@@ -1296,7 +1392,7 @@ pub fn reconnect_reconciles_then_resubmits_test() -> Nil {
 
   // Resubmit the survivor with a fresh CSN under the new client id.
   let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
-  core.in_flight
+  pending_items(core)
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
@@ -1427,7 +1523,7 @@ pub fn resubmit_restamps_in_flight_in_order_test() -> Nil {
 
   // Fresh sequential CSNs, new client id, order preserved, RSN = last_seen.
   core.next_client_sequence_number |> expect.to_equal(7)
-  core.in_flight
+  pending_items(core)
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: reconnect_client_id,
@@ -1623,18 +1719,21 @@ pub fn attached_rich_text_submit_buffers_and_ack_promotes_through_collect_test()
   let assert Ok(#(core, ingested)) =
     runtime_core.handle_sequenced(
       core,
-      rich_text_operation_message(
-        client_id: our_client_id,
-        sequence_number: 2,
-        client_sequence_number: 1,
-        address: "watershed/rich",
-        operation: rich_text_kernel.RichTextWireOperation(1, first),
+      with_pending_rsn(
+        core,
+        rich_text_operation_message(
+          client_id: our_client_id,
+          sequence_number: 2,
+          client_sequence_number: 1,
+          address: "watershed/rich",
+          operation: rich_text_kernel.RichTextWireOperation(1, first),
+        ),
       ),
     )
   let assert [promoted] = ingested.outbound
   promoted.client_sequence_number |> expect.to_equal(2)
   promoted.reference_sequence_number |> expect.to_equal(2)
-  core.in_flight
+  pending_items(core)
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,
@@ -1856,7 +1955,7 @@ pub fn edits_between_attach_submit_and_ack_queue_fifo_test() -> Nil {
     address: "watershed/child",
     operation: channel.MapOperation(Set("a", json.int(2))),
   ))
-  core.in_flight
+  pending_items(core)
   |> expect.to_equal([
     runtime_core.InFlightAttach(
       client_id: our_client_id,
@@ -1972,7 +2071,7 @@ pub fn attach_ack_pops_with_no_events_test() -> Nil {
   events |> expect.to_equal([])
   runtime_core.entries(core, "watershed/child")
   |> expect.to_equal([#("a", json.int(1))])
-  core.in_flight
+  pending_items(core)
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,
@@ -2067,7 +2166,7 @@ pub fn reconnect_resubmit_preserves_interleaved_attach_and_operation_queue_test(
     )
   let #(core, outbound) = expect.to_be_ok(runtime_core.resubmit(core))
 
-  core.in_flight
+  pending_items(core)
   |> expect.to_equal([
     runtime_core.InFlightAttach(
       client_id: reconnect_client_id,
@@ -2592,7 +2691,8 @@ pub fn reconnect_resubmits_pending_claim_and_surfaces_resolution_test() -> Nil {
       client_sequence_number: 2,
       operation: claims_kernel.Claim("owner", json.string("alice"), 2),
     )
-  let assert Ok(#(core, ingested)) = runtime_core.handle_sequenced(core, ack)
+  let assert Ok(#(core, ingested)) =
+    runtime_core.handle_sequenced(core, with_pending_rsn(core, ack))
   ingested.events
   |> expect.to_equal([
     #(
@@ -2844,12 +2944,15 @@ pub fn or_map_set_detached_promotion_and_member_ack_test() -> Nil {
   let assert #(core, []) =
     apply_tagged(
       core,
-      or_map_operation_message(
-        address: "watershed/sets",
-        client_id: our_client_id,
-        sequence_number: 4,
-        client_sequence_number: 3,
-        operation: operation,
+      with_pending_rsn(
+        core,
+        or_map_operation_message(
+          address: "watershed/sets",
+          client_id: our_client_id,
+          sequence_number: 4,
+          client_sequence_number: 3,
+          operation: operation,
+        ),
       ),
     )
   core.in_flight |> expect.to_equal([])
@@ -2992,12 +3095,15 @@ pub fn or_map_invalid_set_state_error_survives_remote_and_ack_dispatch_test() ->
     )) =
       runtime_core.handle_sequenced(
         core,
-        or_map_operation_message(
-          address: "watershed/sets",
-          client_id: pair.1,
-          sequence_number: 2,
-          client_sequence_number: 1,
-          operation: operation,
+        with_pending_rsn(
+          core,
+          or_map_operation_message(
+            address: "watershed/sets",
+            client_id: pair.1,
+            sequence_number: 2,
+            client_sequence_number: 1,
+            operation: operation,
+          ),
         ),
       )
     string.is_empty(detail) |> expect.to_be_false
@@ -3147,7 +3253,9 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
     | Error(runtime_core.ChannelBoundaryFailed(..))
-    | Error(runtime_core.ContainerOperationFailed(..)) ->
+    | Error(runtime_core.ContainerOperationFailed(..))
+    | Error(runtime_core.TreeOperationFailed(..))
+    | Error(runtime_core.EmptyTreeEditBatch) ->
       panic as "expected increment on RegisterMode to be rejected"
   }
 
@@ -3180,7 +3288,9 @@ pub fn or_map_mode_mismatch_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
     | Error(runtime_core.ChannelBoundaryFailed(..))
-    | Error(runtime_core.ContainerOperationFailed(..)) ->
+    | Error(runtime_core.ContainerOperationFailed(..))
+    | Error(runtime_core.TreeOperationFailed(..))
+    | Error(runtime_core.EmptyTreeEditBatch) ->
       panic as "expected set on TallyMode to be rejected"
   }
 }
@@ -3421,7 +3531,9 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
     | Error(runtime_core.ChannelBoundaryFailed(..))
-    | Error(runtime_core.ContainerOperationFailed(..)) ->
+    | Error(runtime_core.ContainerOperationFailed(..))
+    | Error(runtime_core.TreeOperationFailed(..))
+    | Error(runtime_core.EmptyTreeEditBatch) ->
       panic as "expected set on a counter channel to be rejected"
   }
   case runtime_core.delete(core, "watershed/tally", "k") {
@@ -3444,7 +3556,9 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
     | Error(runtime_core.ChannelBoundaryFailed(..))
-    | Error(runtime_core.ContainerOperationFailed(..)) ->
+    | Error(runtime_core.ContainerOperationFailed(..))
+    | Error(runtime_core.TreeOperationFailed(..))
+    | Error(runtime_core.EmptyTreeEditBatch) ->
       panic as "expected delete on a counter channel to be rejected"
   }
   case runtime_core.clear(core, "watershed/tally") {
@@ -3467,7 +3581,9 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
     | Error(runtime_core.ChannelBoundaryFailed(..))
-    | Error(runtime_core.ContainerOperationFailed(..)) ->
+    | Error(runtime_core.ContainerOperationFailed(..))
+    | Error(runtime_core.TreeOperationFailed(..))
+    | Error(runtime_core.EmptyTreeEditBatch) ->
       panic as "expected clear on a counter channel to be rejected"
   }
   // And the counter verb on a map channel likewise.
@@ -3496,7 +3612,9 @@ pub fn wrong_channel_type_edits_are_rejected_test() -> Nil {
     | Error(runtime_core.BadSummaryChannel(..))
     | Error(runtime_core.BadBootstrapSeed(..))
     | Error(runtime_core.ChannelBoundaryFailed(..))
-    | Error(runtime_core.ContainerOperationFailed(..)) ->
+    | Error(runtime_core.ContainerOperationFailed(..))
+    | Error(runtime_core.TreeOperationFailed(..))
+    | Error(runtime_core.EmptyTreeEditBatch) ->
       panic as "expected increment on a map channel to be rejected"
   }
   // Reads on the wrong channel type return empty defaults.
@@ -3923,7 +4041,7 @@ pub fn owed_operation_is_auto_submitted_after_sequenced_batch_test() -> Nil {
   ))
 
   // It is recorded in-flight so the ordinary ack path reclaims it, ...
-  core.in_flight
+  pending_items(core)
   |> expect.to_equal([
     runtime_core.InFlightOperation(
       client_id: our_client_id,

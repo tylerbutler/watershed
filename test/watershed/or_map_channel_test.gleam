@@ -25,7 +25,7 @@ pub fn mv_or_map_wire_stash_rollback_preserves_the_authored_operation_test() -> 
   let assert Ok(#(state, _, outgoing, replay_id)) =
     kernel.apply_stashed_operation(state, replayed)
   outgoing |> expect.to_equal(second)
-  let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0)
+  let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0, 0, None)
   let assert Ok(#(state, [], None)) =
     channel.ack_local(
       channel.OrMapState(state),
@@ -68,7 +68,7 @@ pub fn mv_or_map_channel_snapshot_attach_and_ack_test() -> Nil {
   |> expect.to_be_true()
   channel.handle_addresses(wrapped) |> expect.to_equal([])
   let operation = channel.OrMapOperation(operation)
-  let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0)
+  let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0, 0, None)
   let assert Ok(#(channel.OrMapState(acked), [], None)) =
     channel.ack_local(wrapped, operation, channel.OrMapMeta(message_id), meta)
   acked.pending |> expect.to_equal([])

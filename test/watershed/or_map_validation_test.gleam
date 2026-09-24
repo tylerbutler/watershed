@@ -1,6 +1,7 @@
 import gleam/dynamic/decode
 import gleam/json
 import gleam/list
+import gleam/option.{None}
 import gleam/result
 import gleam/string
 import lattice_core/replica_id
@@ -184,7 +185,7 @@ pub fn direct_and_p2p_channels_reject_forged_operations_test() -> Nil {
   |> list.each(fn(pair) {
     let state = channel.OrMapState(pair.0)
     let operation = channel.OrMapOperation(kernel.Remove("gate", delta(pair.1)))
-    let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0)
+    let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0, 0, None)
     let direct = channel.apply_remote(state, operation, meta)
     let p2p = channel.apply_p2p_remote(state, operation)
     case pair.0.mode {
@@ -459,7 +460,7 @@ pub fn set_history_survives_wire_and_both_channel_paths_test() -> Nil {
           )
         operation |> expect.to_equal(step.0)
         let operation = channel.OrMapOperation(operation)
-        let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0)
+        let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0, 0, None)
         let assert Ok(#(channel.OrMapState(direct), _, _)) =
           channel.apply_remote(channels.0, operation, meta)
         let assert Ok(#(channel.OrMapState(p2p), _)) =

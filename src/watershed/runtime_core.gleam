@@ -57,6 +57,7 @@ import watershed/task_manager_kernel
 import watershed/text_kernel
 import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema as tree_schema
+import watershed/tree/types as tree_types
 import watershed/tree_kernel
 import watershed/two_p_set_kernel
 import watershed/wire
@@ -145,6 +146,15 @@ pub type Core {
 }
 
 pub type InFlight {
+  InFlightBatch(
+    client_id: String,
+    client_sequence_number: Int,
+    reference_sequence_number: Int,
+    grouped: Bool,
+    batch_id: Option(String),
+    items: List(fluid_container.MessageKind),
+    pending: List(InFlight),
+  )
   InFlightOperation(
     client_id: String,
     client_sequence_number: Int,
@@ -197,6 +207,8 @@ pub type CoreError {
   /// corrupt. A valid empty edit never reaches this path. The kernel reports
   /// such an edit as a success that changes nothing. See `text_kernel`.
   TextOperationFailed(address: String, detail: String)
+  TreeOperationFailed(address: String, error: tree_types.TreeError)
+  EmptyTreeEditBatch
   /// A channel snapshot in the summary does not describe a channel that this
   /// client can build. The document cannot start from that summary.
   BadSummaryChannel(address: String, detail: String)
@@ -1168,6 +1180,25 @@ fn roster_of(connected: ConnectedMessage) -> Set(Int) {
 pub fn resubmit(
   core: Core,
 ) -> Result(#(Core, List(wire.OutboundOperation)), CoreError) {
+  use _ <- result.try(
+    case
+      list.any(core.in_flight, fn(entry) {
+        case entry {
+          InFlightBatch(pending: [], ..) -> True
+          InFlightBatch(pending: [_, _, ..], ..) -> True
+          _ -> False
+        }
+      })
+    {
+      True ->
+        Error(
+          ChannelBoundaryFailed(channel.UnsupportedTreeOperation(
+            "pending tree resubmission requires runtime lifecycle support",
+          )),
+        )
+      False -> Ok(Nil)
+    },
+  )
   use #(core, next_client_sequence_number, new_in_flight, outbound) <- result.try(
     list.try_fold(
       core.in_flight,
@@ -1180,6 +1211,27 @@ pub fn resubmit(
           list.try_map(outbound, fn(outbound) {
             result.map_error(outbound, ContainerOperationFailed)
           }),
+        )
+        use restamped <- result.try(
+          list.try_map(
+            list.index_map(restamped, fn(item, index) { #(item, index) }),
+            fn(entry) {
+              use sent <- result.try(
+                list.drop(outbound, entry.1)
+                |> list.first
+                |> result.map_error(fn(_) {
+                  AckMismatch("resubmit lost a pending outbound operation")
+                }),
+              )
+              pending_submission(
+                core.client_id,
+                client_sequence_number + entry.1,
+                core.last_seen_sequence_number,
+                entry.0,
+                sent,
+              )
+            },
+          ),
         )
         Ok(#(
           core,
@@ -1212,6 +1264,9 @@ fn restamp_in_flight(
   List(Result(wire.OutboundOperation, fluid_container.ContainerError)),
 ) {
   case entry {
+    InFlightBatch(pending: [item], ..) ->
+      restamp_in_flight(core, item, client_sequence_number)
+    InFlightBatch(..) -> #(core, client_sequence_number, [entry], [])
     InFlightOperation(
       address: address,
       operation: channel.TaskManagerOperation(operation),
@@ -1555,21 +1610,60 @@ fn stamp_outbound(
     )
     |> result.map_error(ContainerOperationFailed),
   )
+  use pending <- result.try(pending_submission(
+    core.client_id,
+    client_sequence_number,
+    core.last_seen_sequence_number,
+    InFlightOperation(
+      core.client_id,
+      client_sequence_number,
+      address,
+      operation,
+      channel.NoMeta,
+    ),
+    outbound,
+  ))
   let core =
     Core(
       ..core,
       next_client_sequence_number: client_sequence_number + 1,
       in_flight: list.append(core.in_flight, [
-        InFlightOperation(
-          client_id: core.client_id,
-          client_sequence_number: client_sequence_number,
-          address: address,
-          operation: operation,
-          meta: channel.NoMeta,
-        ),
+        pending,
       ]),
     )
   Ok(#(core, outbound))
+}
+
+fn pending_submission(
+  client_id: String,
+  client_sequence_number: Int,
+  reference_sequence_number: Int,
+  pending: InFlight,
+  outbound: wire.OutboundOperation,
+) -> Result(InFlight, CoreError) {
+  use batch <- result.try(
+    fluid_container.decode(outbound.contents, outbound.metadata)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  case batch {
+    fluid_container.DecodedBatch(
+      False,
+      None,
+      [fluid_container.ContainerMessage(kind, 0, _)],
+    ) ->
+      Ok(
+        InFlightBatch(
+          client_id,
+          client_sequence_number,
+          reference_sequence_number,
+          False,
+          None,
+          [kind],
+          [pending],
+        ),
+      )
+    _ -> Error(AckMismatch("singleton outbound is not one outer operation"))
+  }
 }
 
 fn apply_one(
@@ -1584,24 +1678,40 @@ fn apply_one(
   ),
   CoreError,
 ) {
+  let before = core
   let core = Core(..core, last_seen_sequence_number: msg.sequence_number)
-  case msg.message_type {
-    "op" -> without_summary_events(handle_operation(core, msg))
-    "join" -> without_summary_events(handle_join(core, msg))
-    "leave" -> without_summary_events(handle_leave(core, msg))
-    "summarize" ->
-      Ok(
-        #(core, [], [], [
-          SummaryProposalSequenced(
-            msg.client_id,
-            msg.client_sequence_number,
-            msg.sequence_number,
-          ),
-        ]),
-      )
-    "summaryAck" | "summaryNack" -> apply_summary_response(core, msg)
-    _ -> Ok(#(core, [], [], []))
-  }
+  use #(core, events, resolutions, summary_events) <- result.try(
+    case msg.message_type {
+      "op" -> without_summary_events(handle_operation(core, msg))
+      "join" -> without_summary_events(handle_join(core, msg))
+      "leave" -> without_summary_events(handle_leave(core, msg))
+      "summarize" ->
+        Ok(
+          #(core, [], [], [
+            SummaryProposalSequenced(
+              msg.client_id,
+              msg.client_sequence_number,
+              msg.sequence_number,
+            ),
+          ]),
+        )
+      "summaryAck" | "summaryNack" -> apply_summary_response(core, msg)
+      "noop" | "noClient" -> Ok(#(core, [], [], []))
+      _ -> Error(BadOperationContents(msg.sequence_number))
+    },
+  )
+  use #(core, tree_events) <- result.try(advance_trees(
+    before,
+    core,
+    msg.sequence_number,
+    msg.minimum_sequence_number,
+  ))
+  Ok(#(
+    Core(..core, minimum_sequence_number: msg.minimum_sequence_number),
+    list.append(events, tree_events),
+    resolutions,
+    summary_events,
+  ))
 }
 
 fn without_summary_events(
@@ -1676,7 +1786,11 @@ fn handle_join(
   CoreError,
 ) {
   case system_payload(msg.data, decode.at(["clientId"], decode.string)) {
-    Error(Nil) -> Ok(#(core, [], []))
+    Error(Nil) ->
+      case core.compressor {
+        Some(_) -> Error(BadOperationContents(msg.sequence_number))
+        None -> Ok(#(core, [], []))
+      }
     Ok(joining_client_id) ->
       Ok(
         #(
@@ -1700,8 +1814,8 @@ fn handle_join(
 /// replica thus settles the per-client kernel state deterministically at the
 /// same `leave_sequence_number` value. That state is the queue jobs that a
 /// kernel releases again, and the consensus signoffs that it removes. A channel
-/// with no membership behaviour does nothing. The function ignores a malformed
-/// payload, and it does not fail the whole batch.
+/// with no membership behaviour does nothing. A routed tree document rejects
+/// a malformed payload. Native map documents retain their existing behavior.
 fn handle_leave(
   core: Core,
   msg: SequencedDocumentMessage,
@@ -1710,7 +1824,11 @@ fn handle_leave(
   CoreError,
 ) {
   case system_payload(msg.data, decode.string) {
-    Error(Nil) -> Ok(#(core, [], []))
+    Error(Nil) ->
+      case core.compressor {
+        Some(_) -> Error(BadOperationContents(msg.sequence_number))
+        None -> Ok(#(core, [], []))
+      }
     Ok(leaving_client_id) -> {
       let client_int = client_id_to_int(leaving_client_id)
       let core = Core(..core, members: set.delete(core.members, client_int))
@@ -1736,10 +1854,8 @@ fn handle_leave(
 
 /// Decode the payload of a system message. The server carries such a payload in
 /// `data`, as JSON *text*, and `contents` is null on those messages. This
-/// function thus parses the string, and it does not read the dynamic value. To
-/// read `contents` here fails the decode against every real server, and that
-/// failure reports nothing, because a malformed payload changes nothing on
-/// purpose.
+/// function parses the string and does not read `contents`. The caller decides
+/// whether a malformed payload stops the document.
 fn system_payload(
   data: Option(String),
   decoder: decode.Decoder(a),
@@ -1827,111 +1943,463 @@ fn handle_operation(
     fluid_container.decode(contents, metadata)
     |> result.map_error(ContainerOperationFailed),
   )
-  list.try_fold(batch.messages, #(core, [], []), fn(acc, message) {
-    let #(core, events, resolutions) = acc
-    use #(core, more_events, more_resolutions) <- result.try(case message.kind {
-      fluid_container.ChannelOperation(..)
-      | fluid_container.ChannelAttach(..) -> {
-        use operation <- result.try(
-          wire_op.decode_channel_message(message.kind)
-          |> result.map_error(ContainerOperationFailed),
-        )
-        handle_channel_operation(core, msg, operation)
+  use _ <- result.try(
+    fluid_container.validate_profile_batch(batch)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  let own = is_own_operation(core, msg.client_id)
+  use _ <- result.try(case own, core.in_flight {
+    True,
+      [
+        InFlightBatch(
+          client_id: client_id,
+          client_sequence_number: csn,
+          reference_sequence_number: rsn,
+          grouped: grouped,
+          batch_id: batch_id,
+          items: items,
+          pending: _,
+        ),
+        ..
+      ]
+    -> {
+      let actual = list.map(batch.messages, fn(item) { item.kind })
+      use same_items <- result.try(same_batch_items(core, actual, items))
+      use actual_id <- result.try(case batch.metadata {
+        None -> Ok(None)
+        Some(value) ->
+          json.parse(json.to_string(value), {
+            use id <- decode.optional_field(
+              "batchId",
+              None,
+              decode.map(decode.string, Some),
+            )
+            decode.success(id)
+          })
+          |> result.map_error(fn(_) {
+            AckMismatch("invalid outer batch identity")
+          })
+      })
+      case
+        msg.client_id == Some(client_id)
+        && msg.client_sequence_number == csn
+        && msg.reference_sequence_number == rsn
+        && batch.grouped == grouped
+        && actual_id == batch_id
+        && same_items
+      {
+        True -> Ok(Nil)
+        False ->
+          Error(AckMismatch("outer submission does not match pending items"))
       }
-      fluid_container.DatastoreAlias(datastore, alias) -> {
-        use _ <- result.try(seed_requirement(
-          !dict.has_key(core.routing.datastores, alias) || alias == datastore,
-          "alias conflicts with a datastore identity",
-        ))
-        use _ <- result.try(seed_requirement(
-          dict.has_key(core.routing.datastores, datastore)
-            && result.is_ok(
-            fluid_container.route_key(fluid_container.Route(alias, "root")),
-          ),
-          "invalid datastore alias",
-        ))
-        use _ <- result.try(seed_requirement(
-          !dict.has_key(core.routing.aliases, alias)
-            || dict.get(core.routing.aliases, alias) == Ok(datastore),
-          "datastore alias is already registered",
-        ))
-        Ok(
-          #(
-            Core(
-              ..core,
-              routing: Routing(
-                ..core.routing,
-                aliases: dict.insert(core.routing.aliases, alias, datastore),
-              ),
-            ),
-            [],
-            [],
-          ),
-        )
-      }
-      fluid_container.DatastoreAttach(datastore, contents) -> {
-        use _ <- result.try(seed_requirement(
-          result.is_ok(
-            fluid_container.route_key(fluid_container.Route(datastore, "root")),
-          )
-            && !dict.has_key(core.routing.datastores, datastore)
-            && !dict.has_key(core.routing.aliases, datastore),
-          "invalid or duplicate datastore identity",
-        ))
-        use #(package_path, channels) <- result.try(
-          wire_op.decode_datastore_attach(contents)
-          |> result.map_error(ContainerOperationFailed),
-        )
-        let candidate =
-          Core(
-            ..core,
-            routing: Routing(
-              ..core.routing,
-              datastores: dict.insert(
-                core.routing.datastores,
-                datastore,
-                package_path,
-              ),
-            ),
-          )
-        use candidate <- result.try(
-          list.try_fold(channels, candidate, fn(candidate, entry) {
+    }
+    True, [_, ..] ->
+      Error(AckMismatch("own pending entry is not an outer submission"))
+    True, [] -> Error(AckMismatch("own outer submission has no pending entry"))
+    False, _ -> Ok(Nil)
+  })
+  use #(candidate, events, resolutions, _) <- result.try(
+    list.try_fold(batch.messages, #(core, [], [], dict.new()), fn(acc, message) {
+      let #(core, events, resolutions, ordinals) = acc
+      use #(core, more_events, more_resolutions) <- result.try(
+        case message.kind {
+          fluid_container.ChannelOperation(route, contents) -> {
             use address <- result.try(
-              fluid_container.route_key(fluid_container.Route(
-                datastore,
-                entry.0,
-              ))
+              fluid_container.route_key(route)
               |> result.map_error(ContainerOperationFailed),
             )
-            use #(candidate, _, _) <- result.try(remote_attach(
-              candidate,
-              msg.sequence_number,
-              address,
-              entry.1,
+            case dict.get(core.channels, address) {
+              Ok(channel.TreeState(state)) -> {
+                use compressor <- result.try(case core.compressor {
+                  Some(value) -> Ok(value)
+                  None ->
+                    Error(BadBootstrapSeed(
+                      "tree channel has no document compressor",
+                    ))
+                })
+                use #(commit, _) <- result.try(
+                  tree_runtime.decode_message(
+                    json.to_string(contents),
+                    state,
+                    compressor,
+                  )
+                  |> result.map_error(fn(error) {
+                    TreeOperationFailed(address, error)
+                  }),
+                )
+                use _ <- result.try(
+                  case
+                    !own
+                    && commit.originator == fluid_ids.local_session(compressor)
+                  {
+                    True ->
+                      Error(AckMismatch(
+                        "local tree commit requires its own transport submission",
+                      ))
+                    False -> Ok(Nil)
+                  },
+                )
+                let ordinal = dict.get(ordinals, address) |> result.unwrap(0)
+                use #(state, _, compressor) <- result.try(
+                  tree_runtime.receive_commit(
+                    state,
+                    commit,
+                    tree_types.SequencePoint(msg.sequence_number, ordinal),
+                    msg.reference_sequence_number,
+                    msg.minimum_sequence_number,
+                    compressor,
+                  )
+                  |> result.map_error(fn(error) {
+                    TreeOperationFailed(address, error)
+                  }),
+                )
+                Ok(
+                  #(
+                    Core(
+                      ..core,
+                      channels: dict.insert(
+                        core.channels,
+                        address,
+                        channel.TreeState(state),
+                      ),
+                      compressor: Some(compressor),
+                    ),
+                    [],
+                    [],
+                  ),
+                )
+              }
+              _ -> {
+                use operation <- result.try(
+                  wire_op.decode_channel_message(message.kind)
+                  |> result.map_error(ContainerOperationFailed),
+                )
+                handle_channel_operation(
+                  core,
+                  msg,
+                  message.index_in_batch,
+                  operation,
+                )
+              }
+            }
+          }
+          fluid_container.ChannelAttach(..) -> {
+            use operation <- result.try(
+              wire_op.decode_channel_message(message.kind)
+              |> result.map_error(ContainerOperationFailed),
+            )
+            handle_channel_operation(
+              core,
+              msg,
+              message.index_in_batch,
+              operation,
+            )
+          }
+          fluid_container.DatastoreAlias(datastore, alias) -> {
+            use _ <- result.try(seed_requirement(
+              !dict.has_key(core.routing.datastores, alias)
+                || alias == datastore,
+              "alias conflicts with a datastore identity",
             ))
-            Ok(candidate)
-          }),
-        )
-        Ok(#(candidate, [], []))
+            use _ <- result.try(seed_requirement(
+              dict.has_key(core.routing.datastores, datastore)
+                && result.is_ok(
+                fluid_container.route_key(fluid_container.Route(alias, "root")),
+              ),
+              "invalid datastore alias",
+            ))
+            use _ <- result.try(seed_requirement(
+              !dict.has_key(core.routing.aliases, alias)
+                || dict.get(core.routing.aliases, alias) == Ok(datastore),
+              "datastore alias is already registered",
+            ))
+            Ok(
+              #(
+                Core(
+                  ..core,
+                  routing: Routing(
+                    ..core.routing,
+                    aliases: dict.insert(core.routing.aliases, alias, datastore),
+                  ),
+                ),
+                [],
+                [],
+              ),
+            )
+          }
+          fluid_container.DatastoreAttach(datastore, contents) -> {
+            use _ <- result.try(seed_requirement(
+              result.is_ok(
+                fluid_container.route_key(fluid_container.Route(
+                  datastore,
+                  "root",
+                )),
+              )
+                && !dict.has_key(core.routing.datastores, datastore)
+                && !dict.has_key(core.routing.aliases, datastore),
+              "invalid or duplicate datastore identity",
+            ))
+            use #(package_path, channels) <- result.try(
+              wire_op.decode_datastore_attach(contents)
+              |> result.map_error(ContainerOperationFailed),
+            )
+            let candidate =
+              Core(
+                ..core,
+                routing: Routing(
+                  ..core.routing,
+                  datastores: dict.insert(
+                    core.routing.datastores,
+                    datastore,
+                    package_path,
+                  ),
+                ),
+              )
+            use candidate <- result.try(
+              list.try_fold(channels, candidate, fn(candidate, entry) {
+                use address <- result.try(
+                  fluid_container.route_key(fluid_container.Route(
+                    datastore,
+                    entry.0,
+                  ))
+                  |> result.map_error(ContainerOperationFailed),
+                )
+                use #(candidate, _, _) <- result.try(remote_attach(
+                  candidate,
+                  msg.sequence_number,
+                  address,
+                  entry.1,
+                ))
+                Ok(candidate)
+              }),
+            )
+            Ok(#(candidate, [], []))
+          }
+          fluid_container.IdAllocation(range) -> {
+            use compressor <- result.try(case core.compressor {
+              Some(value) -> Ok(value)
+              None ->
+                Error(BadBootstrapSeed(
+                  "id allocation requires a document compressor",
+                ))
+            })
+            use compressor <- result.try(
+              fluid_ids.finalize(compressor, range)
+              |> result.map_error(fn(error) {
+                ContainerOperationFailed(fluid_container.MalformedMessage(
+                  "idAllocation",
+                  string.inspect(error),
+                ))
+              }),
+            )
+            Ok(#(Core(..core, compressor: Some(compressor)), [], []))
+          }
+        },
+      )
+      let ordinals = case message.kind {
+        fluid_container.ChannelOperation(route, _) -> {
+          use address <- result.try(
+            fluid_container.route_key(route)
+            |> result.map_error(ContainerOperationFailed),
+          )
+          case dict.get(core.channels, address) {
+            Ok(channel.TreeState(_)) -> {
+              let prior = dict.get(ordinals, address) |> result.unwrap(0)
+              Ok(dict.insert(ordinals, address, prior + 1))
+            }
+            _ -> Ok(ordinals)
+          }
+        }
+        _ -> Ok(ordinals)
       }
-      fluid_container.IdAllocation(_) ->
-        Error(
-          ContainerOperationFailed(fluid_container.UnsupportedMessage(
-            "id allocation without tree runtime",
-          )),
+      use ordinals <- result.try(ordinals)
+      Ok(#(
+        core,
+        list.append(events, more_events),
+        list.append(resolutions, more_resolutions),
+        ordinals,
+      ))
+    }),
+  )
+  use candidate <- result.try(case own, candidate.in_flight {
+    True, [InFlightBatch(..), ..rest] -> Ok(Core(..candidate, in_flight: rest))
+    True, _ -> Error(AckMismatch("own outer submission was not pending"))
+    False, _ -> Ok(candidate)
+  })
+  Ok(#(candidate, events, resolutions))
+}
+
+fn same_batch_items(
+  core: Core,
+  actual: List(fluid_container.MessageKind),
+  expected: List(fluid_container.MessageKind),
+) -> Result(Bool, CoreError) {
+  case actual, expected {
+    [], [] -> Ok(True)
+    [fluid_container.ChannelOperation(route, received), ..rest],
+      [fluid_container.ChannelOperation(expected_route, sent), ..expected_rest]
+      if route == expected_route
+    -> {
+      use same <- result.try(case fluid_container.route_key(route) {
+        Ok(address) ->
+          case dict.get(core.channels, address), core.compressor {
+            Ok(channel.TreeState(state)), Some(compressor) -> {
+              use #(a, received_message) <- result.try(
+                tree_runtime.decode_message(
+                  json.to_string(received),
+                  state,
+                  compressor,
+                )
+                |> result.map_error(fn(error) {
+                  TreeOperationFailed(address, error)
+                }),
+              )
+              use #(b, sent_message) <- result.try(
+                tree_runtime.decode_message(
+                  json.to_string(sent),
+                  state,
+                  compressor,
+                )
+                |> result.map_error(fn(error) {
+                  TreeOperationFailed(address, error)
+                }),
+              )
+              Ok(
+                a == b
+                && received_message.commit.custom_metadata
+                == sent_message.commit.custom_metadata,
+              )
+            }
+            Ok(state), _ -> {
+              use decoder <- result.try(
+                wire_op.channel_operation_decoder(channel.channel_type(state))
+                |> result.map_error(ChannelBoundaryFailed),
+              )
+              use received_operation <- result.try(
+                json.parse(json.to_string(received), decoder)
+                |> result.map_error(fn(_) {
+                  AckMismatch("invalid echoed channel contents")
+                }),
+              )
+              use sent_operation <- result.try(
+                json.parse(json.to_string(sent), decoder)
+                |> result.map_error(fn(_) {
+                  AckMismatch("invalid pending channel contents")
+                }),
+              )
+              Ok(
+                channel.same_shape(received_operation, sent_operation)
+                && wire.json_semantically_equal(received, sent),
+              )
+            }
+            _, _ -> Ok(False)
+          }
+        Error(error) -> Error(ContainerOperationFailed(error))
+      })
+      use remaining <- result.try(same_batch_items(core, rest, expected_rest))
+      Ok(same && remaining)
+    }
+    [fluid_container.ChannelAttach(route, type_name, snapshot), ..rest],
+      [
+        fluid_container.ChannelAttach(expected_route, expected_type, sent),
+        ..expected_rest
+      ]
+    -> {
+      use remaining <- result.try(same_batch_items(core, rest, expected_rest))
+      Ok(
+        route == expected_route
+        && type_name == expected_type
+        && wire.json_semantically_equal(snapshot, sent)
+        && remaining,
+      )
+    }
+    [fluid_container.DatastoreAttach(datastore, contents), ..rest],
+      [
+        fluid_container.DatastoreAttach(expected_datastore, sent),
+        ..expected_rest
+      ]
+    -> {
+      use remaining <- result.try(same_batch_items(core, rest, expected_rest))
+      Ok(
+        datastore == expected_datastore
+        && wire.json_semantically_equal(contents, sent)
+        && remaining,
+      )
+    }
+    [first, ..rest], [second, ..expected_rest] -> {
+      use remaining <- result.try(same_batch_items(core, rest, expected_rest))
+      Ok(first == second && remaining)
+    }
+    _, _ -> Ok(False)
+  }
+}
+
+fn advance_trees(
+  before: Core,
+  core: Core,
+  sequence_number: Int,
+  minimum_sequence_number: Int,
+) -> Result(#(Core, List(#(String, ChannelEvent))), CoreError) {
+  list.try_fold(core.channel_order, #(core, []), fn(acc, address) {
+    let #(core, events) = acc
+    case dict.get(core.channels, address) {
+      Ok(channel.TreeState(state)) -> {
+        use compressor <- result.try(case core.compressor {
+          Some(value) -> Ok(value)
+          None ->
+            Error(BadBootstrapSeed("tree channel has no document compressor"))
+        })
+        use #(state, compressor) <- result.try(
+          tree_runtime.advance_document(
+            state,
+            sequence_number,
+            minimum_sequence_number,
+            compressor,
+          )
+          |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
         )
-    })
-    Ok(#(
-      core,
-      list.append(events, more_events),
-      list.append(resolutions, more_resolutions),
-    ))
+        use after <- result.try(
+          tree_kernel.read(state, [])
+          |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+        )
+        use prior <- result.try(case dict.get(before.channels, address) {
+          Ok(channel.TreeState(original)) ->
+            tree_kernel.read(original, [])
+            |> result.map_error(fn(error) {
+              TreeOperationFailed(address, error)
+            })
+            |> result.map(Some)
+          _ -> Ok(None)
+        })
+        let events = case prior {
+          Some(data) if data != after ->
+            list.append(events, [
+              #(address, channel.TreeEvent(tree_kernel.TreeChanged(False))),
+            ])
+          _ -> events
+        }
+        Ok(#(
+          Core(
+            ..core,
+            compressor: Some(compressor),
+            channels: dict.insert(
+              core.channels,
+              address,
+              channel.TreeState(state),
+            ),
+          ),
+          events,
+        ))
+      }
+      _ -> Ok(acc)
+    }
   })
 }
 
 fn handle_channel_operation(
   core: Core,
   msg: SequencedDocumentMessage,
+  container_index_in_batch: Int,
   operation: wire_op.OperationContents,
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
@@ -1941,13 +2409,15 @@ fn handle_channel_operation(
     wire_op.AttachOperation(address, snapshot) ->
       case is_own_operation(core, msg.client_id) {
         True ->
-          ack_own_attach(
-            core,
-            msg.client_id,
-            msg.client_sequence_number,
-            address,
-            snapshot,
-          )
+          with_pending_item(core, container_index_in_batch, fn(core) {
+            ack_own_attach(
+              core,
+              msg.client_id,
+              msg.client_sequence_number,
+              address,
+              snapshot,
+            )
+          })
         False -> remote_attach(core, msg.sequence_number, address, snapshot)
       }
     wire_op.ChannelOperation(address, raw_contents) ->
@@ -1966,16 +2436,20 @@ fn handle_channel_operation(
             Ok(operation) ->
               case is_own_operation(core, msg.client_id) {
                 True ->
-                  ack_own_operation(
-                    core,
-                    msg.client_id,
-                    msg.client_sequence_number,
-                    address,
-                    state,
-                    operation,
-                    msg.sequence_number,
-                    msg.minimum_sequence_number,
-                  )
+                  with_pending_item(core, container_index_in_batch, fn(core) {
+                    ack_own_operation(
+                      core,
+                      msg.client_id,
+                      msg.client_sequence_number,
+                      address,
+                      state,
+                      operation,
+                      msg.sequence_number,
+                      msg.minimum_sequence_number,
+                      msg.reference_sequence_number,
+                      container_index_in_batch,
+                    )
+                  })
                 False ->
                   apply_remote_channel(
                     core,
@@ -1983,6 +2457,7 @@ fn handle_channel_operation(
                     msg.sequence_number,
                     msg.minimum_sequence_number,
                     msg.reference_sequence_number,
+                    container_index_in_batch,
                     address,
                     state,
                     operation,
@@ -1991,6 +2466,36 @@ fn handle_channel_operation(
           }
         }
       }
+  }
+}
+
+fn with_pending_item(
+  core: Core,
+  index: Int,
+  apply: fn(Core) ->
+    Result(
+      #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+      CoreError,
+    ),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
+  CoreError,
+) {
+  case core.in_flight {
+    [InFlightBatch(pending: pending, ..), ..] -> {
+      use item <- result.try(
+        list.drop(pending, index)
+        |> list.first
+        |> result.map_error(fn(_) {
+          AckMismatch("pending batch item is missing")
+        }),
+      )
+      use #(applied, events, resolutions) <- result.try(apply(
+        Core(..core, in_flight: [item]),
+      ))
+      Ok(#(Core(..applied, in_flight: core.in_flight), events, resolutions))
+    }
+    _ -> Error(AckMismatch("own outer submission is not pending"))
   }
 }
 
@@ -2008,6 +2513,7 @@ fn is_own_operation(core: Core, message_client_id: Option(String)) -> Bool {
 
 fn in_flight_client_id(entry: InFlight) -> String {
   case entry {
+    InFlightBatch(client_id: client_id, ..) -> client_id
     InFlightOperation(client_id: client_id, ..) -> client_id
     InFlightAttach(client_id: client_id, ..) -> client_id
   }
@@ -2050,6 +2556,7 @@ fn apply_remote_channel(
   sequence_number: Int,
   minimum_sequence_number: Int,
   reference_sequence_number: Int,
+  container_index_in_batch: Int,
   address: String,
   state: ChannelState,
   operation: channel.ChannelOperation,
@@ -2068,6 +2575,8 @@ fn apply_remote_channel(
       quorum: quorum_of(core, message_client_id),
       roster: set.to_list(core.members),
       reference_sequence_number: reference_sequence_number,
+      container_index_in_batch: container_index_in_batch,
+      transport_author: message_client_id,
     )
   case channel.apply_remote(state, operation, meta) {
     Ok(#(state, events, owed)) ->
@@ -2133,6 +2642,7 @@ fn ack_own_attach(
       ))
     [head, ..rest] ->
       case head {
+        InFlightBatch(..) -> Error(AckMismatch("expected grouped batch ack"))
         InFlightAttach(
           client_id: client_id,
           client_sequence_number: head_client_sequence_number,
@@ -2177,6 +2687,8 @@ fn ack_own_operation(
   echoed: channel.ChannelOperation,
   sequence_number: Int,
   minimum_sequence_number: Int,
+  reference_sequence_number: Int,
+  container_index_in_batch: Int,
 ) -> Result(
   #(Core, List(#(String, ChannelEvent)), List(#(String, Resolution))),
   CoreError,
@@ -2190,6 +2702,7 @@ fn ack_own_operation(
       ))
     [head, ..rest] ->
       case head {
+        InFlightBatch(..) -> Error(AckMismatch("expected grouped batch ack"))
         InFlightOperation(
           client_id: client_id,
           client_sequence_number: head_client_sequence_number,
@@ -2220,7 +2733,9 @@ fn ack_own_operation(
                   self: client_id_to_int(core.client_id),
                   quorum: quorum_of(core, Some(core.client_id)),
                   roster: set.to_list(core.members),
-                  reference_sequence_number: core.last_seen_sequence_number,
+                  reference_sequence_number: reference_sequence_number,
+                  container_index_in_batch: container_index_in_batch,
+                  transport_author: message_client_id,
                 )
               case channel.applies_own_on_sequence(state) {
                 // Consensus kernels (PactMap) take effect only on sequencing,
@@ -2350,6 +2865,163 @@ pub fn create_detached(
 
 pub fn has_channel(core: Core, address: String) -> Bool {
   dict.has_key(core.channels, address) || dict.has_key(core.detached, address)
+}
+
+pub fn tree_read(
+  core: Core,
+  address: String,
+  path: tree_types.FieldPath,
+) -> Result(Option(tree_types.TreeValue), CoreError) {
+  use state <- result.try(tree_channel(core, address))
+  tree_kernel.read(state, path)
+  |> result.map_error(fn(error) { TreeOperationFailed(address, error) })
+}
+
+fn tree_channel(
+  core: Core,
+  address: String,
+) -> Result(tree_kernel.TreeState, CoreError) {
+  case dict.get(core.channels, address) {
+    Error(_) -> Error(UnknownChannel(address, core.last_seen_sequence_number))
+    Ok(channel.TreeState(state)) -> Ok(state)
+    Ok(other) ->
+      Error(WrongChannelType(
+        address,
+        channel.TreeChannel,
+        channel.channel_type(other),
+      ))
+  }
+}
+
+pub fn submit_tree_edits(
+  core: Core,
+  address: String,
+  edits: List(tree_types.Edit),
+) -> Result(
+  #(Core, List(#(String, ChannelEvent)), List(wire.OutboundOperation)),
+  CoreError,
+) {
+  use _ <- result.try(case edits {
+    [] -> Error(EmptyTreeEditBatch)
+    _ -> Ok(Nil)
+  })
+  use state <- result.try(tree_channel(core, address))
+  use compressor <- result.try(case core.compressor {
+    Some(compressor) -> Ok(compressor)
+    None -> Error(BadBootstrapSeed("tree channel has no document compressor"))
+  })
+  use route <- result.try(
+    fluid_container.route_from_path("/" <> address)
+    |> result.map_error(ContainerOperationFailed),
+  )
+  use before <- result.try(
+    tree_kernel.read(state, [])
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  use #(state, compressor, commits) <- result.try(
+    list.try_fold(edits, #(state, compressor, []), fn(acc, edit) {
+      let #(state, compressor, commits) = acc
+      use #(state, commit, _, compressor) <- result.try(
+        tree_runtime.author_edit(state, edit, compressor)
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(#(state, compressor, list.append(commits, [commit])))
+    }),
+  )
+  let #(compressor, range) = fluid_ids.take_creation_range(compressor)
+  use allocation <- result.try(case range {
+    Some(range) -> Ok(range)
+    None ->
+      Error(
+        ContainerOperationFailed(fluid_container.MalformedMessage(
+          "idAllocation",
+          "tree edit produced no creation range",
+        )),
+      )
+  })
+  use encoded <- result.try(
+    list.try_map(commits, fn(commit) {
+      use contents <- result.try(
+        tree_runtime.encode_commit(commit, state, compressor)
+        |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+      )
+      Ok(fluid_container.ChannelOperation(route, contents))
+    }),
+  )
+  let kinds = [fluid_container.IdAllocation(allocation), ..encoded]
+  let batch_id =
+    core.client_id
+    <> "_["
+    <> int.to_string(core.next_client_sequence_number)
+    <> "]"
+  let count = list.length(kinds)
+  let outer_metadata =
+    json.object([
+      #("batchId", json.string(batch_id)),
+      #("groupedOpCount", json.int(count)),
+    ])
+  use contents <- result.try(
+    fluid_container.encode_batch(fluid_container.DecodedBatch(
+      True,
+      Some(outer_metadata),
+      list.index_map(kinds, fn(kind, index) {
+        let metadata = case index {
+          0 ->
+            Some(
+              json.object([
+                #("batch", json.bool(True)),
+                #("batchId", json.string(batch_id)),
+              ]),
+            )
+          index if index == count - 1 ->
+            Some(json.object([#("batch", json.bool(False))]))
+          _ -> None
+        }
+        fluid_container.ContainerMessage(kind, index, metadata)
+      }),
+    ))
+    |> result.map_error(ContainerOperationFailed),
+  )
+  let csn = core.next_client_sequence_number
+  let outbound =
+    wire.OutboundOperation(
+      csn,
+      core.last_seen_sequence_number,
+      "op",
+      contents,
+      Some(outer_metadata),
+    )
+  use after <- result.try(
+    tree_kernel.read(state, [])
+    |> result.map_error(fn(error) { TreeOperationFailed(address, error) }),
+  )
+  let events = case before == after {
+    True -> []
+    False -> [#(address, channel.TreeEvent(tree_kernel.TreeChanged(True)))]
+  }
+  Ok(
+    #(
+      Core(
+        ..core,
+        channels: dict.insert(core.channels, address, channel.TreeState(state)),
+        compressor: Some(compressor),
+        next_client_sequence_number: csn + 1,
+        in_flight: list.append(core.in_flight, [
+          InFlightBatch(
+            core.client_id,
+            csn,
+            core.last_seen_sequence_number,
+            True,
+            Some(batch_id),
+            kinds,
+            [],
+          ),
+        ]),
+      ),
+      events,
+      [outbound],
+    ),
+  )
 }
 
 pub fn set(
@@ -4944,6 +5616,18 @@ fn submit_attaches(
           )
           |> result.map_error(ContainerOperationFailed),
         )
+        use pending <- result.try(pending_submission(
+          core.client_id,
+          client_sequence_number,
+          core.last_seen_sequence_number,
+          InFlightAttach(
+            core.client_id,
+            client_sequence_number,
+            address,
+            snapshot,
+          ),
+          outbound_operation,
+        ))
         use attached <- result.try(
           channel.attach_state(state, replica: core.client_id)
           |> result.map_error(ChannelBoundaryFailed),
@@ -4955,12 +5639,7 @@ fn submit_attaches(
             detached: dict.delete(core.detached, address),
             next_client_sequence_number: client_sequence_number + 1,
             in_flight: list.append(core.in_flight, [
-              InFlightAttach(
-                client_id: core.client_id,
-                client_sequence_number: client_sequence_number,
-                address: address,
-                snapshot: snapshot,
-              ),
+              pending,
             ]),
           )
         Ok(#(core, list.append(outbound, [outbound_operation])))
@@ -4990,19 +5669,26 @@ fn stamp_attached(
     )
     |> result.map_error(ContainerOperationFailed),
   )
+  use pending <- result.try(pending_submission(
+    core.client_id,
+    client_sequence_number,
+    core.last_seen_sequence_number,
+    InFlightOperation(
+      core.client_id,
+      client_sequence_number,
+      address,
+      operation,
+      meta,
+    ),
+    outbound,
+  ))
   let core =
     Core(
       ..core,
       channels: dict.insert(core.channels, address, state),
       next_client_sequence_number: client_sequence_number + 1,
       in_flight: list.append(core.in_flight, [
-        InFlightOperation(
-          client_id: core.client_id,
-          client_sequence_number: client_sequence_number,
-          address: address,
-          operation: operation,
-          meta: meta,
-        ),
+        pending,
       ]),
     )
   Ok(#(core, events, [outbound]))

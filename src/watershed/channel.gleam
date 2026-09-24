@@ -496,6 +496,10 @@ pub type SequencedMeta {
     /// `last_seen_sequence_number` is the watermark of the *local* client, and
     /// you cannot use it in place of this field.
     reference_sequence_number: Int,
+    /// This is the container position, not the SharedTree commit ordinal.
+    container_index_in_batch: Int,
+    /// Keep the transport identity because consensus kernels use integer IDs.
+    transport_author: Option(String),
   )
 }
 
@@ -2272,6 +2276,8 @@ fn zeroed_meta() -> SequencedMeta {
     quorum: [],
     roster: [],
     reference_sequence_number: 0,
+    container_index_in_batch: 0,
+    transport_author: None,
   )
 }
 

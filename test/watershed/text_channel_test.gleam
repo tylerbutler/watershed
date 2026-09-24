@@ -82,6 +82,8 @@ fn no_operation_meta() -> channel.SequencedMeta {
     quorum: [1],
     roster: [1],
     reference_sequence_number: 0,
+    container_index_in_batch: 0,
+    transport_author: None,
   )
 }
 

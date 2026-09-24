@@ -135,7 +135,7 @@ pub fn lww_map_ack_metadata_and_operation_matching_test() -> Nil {
     kernel.set(kernel.new(replica_id.new("a")), "k", "v", 10)
   let state = channel.LwwMapState(state)
   let operation = channel.LwwMapOperation(operation)
-  let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0)
+  let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0, 0, None)
   [
     channel.NoMeta,
     channel.LwwRegisterMeta(message_id),

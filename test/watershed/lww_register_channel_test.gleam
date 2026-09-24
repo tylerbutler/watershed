@@ -307,7 +307,7 @@ pub fn register_ack_requires_matching_operation_and_local_metadata_test() -> Nil
     register.set(register.new(replica_id.new("a")), "value", 10)
   let state = channel.LwwRegisterState(state)
   let operation = channel.LwwRegisterOperation(operation)
-  let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0)
+  let meta = channel.SequencedMeta(1, 0, 0, 1, 1, [], [], 0, 0, None)
   [
     channel.NoMeta,
     channel.MvRegisterMeta(message_id),

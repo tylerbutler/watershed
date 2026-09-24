@@ -256,6 +256,72 @@ pub fn shared_tree_runtime_alias_dependencies_attach_actual_route_test() -> Nil 
   dict.has_key(next.detached, "A/child") |> expect.to_be_false()
 }
 
+pub fn shared_tree_runtime_rejects_malformed_group_boundary_test() {
+  let first =
+    json.object([
+      #("batch", json.bool(True)),
+      #("batchId", json.string("group")),
+    ])
+  let assert Ok(contents) =
+    fluid_container.encode_batch(
+      fluid_container.DecodedBatch(
+        True,
+        Some(
+          json.object([
+            #("batchId", json.string("group")),
+            #("groupedOpCount", json.int(2)),
+          ]),
+        ),
+        [
+          fluid_container.ContainerMessage(
+            fluid_container.DatastoreAlias("A", "alias1"),
+            0,
+            Some(first),
+          ),
+          fluid_container.ContainerMessage(
+            fluid_container.DatastoreAlias("A", "alias2"),
+            1,
+            None,
+          ),
+        ],
+      ),
+    )
+  let assert Ok(batch) =
+    fluid_container.decode(
+      contents,
+      Some(
+        json.object([
+          #("batchId", json.string("group")),
+          #("groupedOpCount", json.int(2)),
+        ]),
+      ),
+    )
+  fluid_container.validate_profile_batch(batch)
+  |> expect.to_equal(
+    Error(fluid_container.MalformedMessage(
+      "groupedBatch",
+      "missing final batch marker",
+    )),
+  )
+}
+
+pub fn shared_tree_runtime_rejects_unfinished_outer_boundary_test() {
+  let assert Ok(contents) =
+    fluid_container.encode(fluid_container.DatastoreAlias("A", "alias"))
+  let assert Ok(batch) =
+    fluid_container.decode(
+      contents,
+      Some(json.object([#("batch", json.bool(True))])),
+    )
+  fluid_container.validate_profile_batch(batch)
+  |> expect.to_equal(
+    Error(fluid_container.MalformedMessage(
+      "batch",
+      "ungrouped batch boundary is not supported",
+    )),
+  )
+}
+
 pub fn shared_tree_runtime_relative_handle_cannot_cross_datastores_test() -> Nil {
   let core = core_from(seed_input())
   let assert Ok(core) =
@@ -731,7 +797,9 @@ pub fn shared_tree_runtime_socket_preserves_real_group_positions_test() -> Nil {
   let assert Ok(input) = runtime_fixture.read(fixture.input, session)
   let assert [group] = input.operations
   let assert Ok(contents) = socket.container_contents(group.contents)
-  let assert Ok(decoded) = fluid_container.decode(contents, None)
+  let assert Some(raw_metadata) = group.metadata
+  let assert Ok(metadata) = decode.run(raw_metadata, wire.json_value_decoder())
+  let assert Ok(decoded) = fluid_container.decode(contents, Some(metadata))
   let assert [
     fluid_container.ContainerMessage(fluid_container.IdAllocation(_), 0, _),
     fluid_container.ContainerMessage(
@@ -763,7 +831,9 @@ pub fn shared_tree_runtime_bridge_decodes_captured_group_with_allocation_test() 
     runtime_fixture.read(fixture.input, fluid_ids.local_session(compressor))
   let assert [group] = input.operations
   let assert Ok(contents) = socket.container_contents(group.contents)
-  let assert Ok(decoded) = fluid_container.decode(contents, None)
+  let assert Some(raw_metadata) = group.metadata
+  let assert Ok(metadata) = decode.run(raw_metadata, wire.json_value_decoder())
+  let assert Ok(decoded) = fluid_container.decode(contents, Some(metadata))
   let assert [
     fluid_container.ContainerMessage(fluid_container.IdAllocation(range), 0, _),
     fluid_container.ContainerMessage(
@@ -780,23 +850,737 @@ pub fn shared_tree_runtime_bridge_decodes_captured_group_with_allocation_test() 
   commit.revision |> expect.to_equal(message.commit.revision)
   commit.originator |> expect.to_equal(message.commit.originator)
   let assert Ok(_) = tree_runtime.identity_order(state, commit, compressor)
-  let assert Ok(#(after_one, compressor)) =
-    tree_runtime.advance_document(state, 1, 0, compressor)
-  let assert Ok(#(after_two, compressor)) =
-    tree_runtime.advance_document(after_one, 2, 0, compressor)
-  let assert Ok(#(received, _, _)) =
+  let #(received, _, _) =
     tree_runtime.receive_commit(
-      after_two,
+      state,
       commit,
-      tree_types.SequencePoint(group.sequence_number, 1),
+      tree_types.SequencePoint(group.sequence_number, 0),
       group.reference_sequence_number,
       group.minimum_sequence_number,
       compressor,
     )
+    |> expect.to_be_ok
   tree_kernel.history_view(received).sequenced.trunk
   |> list.length
   |> expect.to_equal(1)
   Nil
+}
+
+pub fn shared_tree_runtime_allocates_before_content_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(next, events, [outbound])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("native")),
+    ])
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let assert [
+    fluid_container.ContainerMessage(fluid_container.IdAllocation(_), 0, _),
+    fluid_container.ContainerMessage(
+      fluid_container.ChannelOperation(fluid_container.Route("A", "_C"), _),
+      1,
+      _,
+    ),
+  ] = batch.messages
+  let assert Some(outer) = outbound.metadata
+  json.parse(json.to_string(outer), decode.at(["groupedOpCount"], decode.int))
+  |> expect.to_equal(Ok(2))
+  let assert [
+    fluid_container.ContainerMessage(_, _, Some(first)),
+    fluid_container.ContainerMessage(_, _, Some(last)),
+  ] = batch.messages
+  json.parse(json.to_string(first), decode.at(["batch"], decode.bool))
+  |> expect.to_equal(Ok(True))
+  json.parse(json.to_string(last), decode.at(["batch"], decode.bool))
+  |> expect.to_equal(Ok(False))
+  next.next_client_sequence_number
+  |> expect.to_equal(core.next_client_sequence_number + 1)
+  list.length(next.in_flight) |> expect.to_equal(1)
+  list.length(events) |> expect.to_equal(1)
+  let assert Some(compressor) = next.compressor
+  let #(_, unfinalized) = fluid_ids.take_unfinalized_range(compressor)
+  let assert Some(fluid_ids.CreationRange(_, Some(_))) = unfinalized
+  runtime_core.tree_read(next, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("native"))))
+}
+
+pub fn shared_tree_runtime_receives_captured_group_with_tree_ordinals_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(fixture) = fixtures.load("batched-commits")
+  let assert Some(compressor) = core.compressor
+  let assert Ok(input) =
+    runtime_fixture.read(fixture.input, fluid_ids.local_session(compressor))
+  let assert [group] = input.operations
+  let #(next, ingested) =
+    runtime_core.handle_sequenced(core, group) |> expect.to_be_ok
+  let assert Ok(channel.TreeState(tree)) = dict.get(next.channels, "A/_C")
+  let history = tree_kernel.history_view(tree)
+  list.map(history.sequenced.trunk, fn(entry) { entry.point })
+  |> expect.to_equal([
+    tree_types.SequencePoint(3, 0),
+    tree_types.SequencePoint(3, 1),
+    tree_types.SequencePoint(3, 2),
+  ])
+  next.last_seen_sequence_number |> expect.to_equal(3)
+  next.minimum_sequence_number |> expect.to_equal(group.minimum_sequence_number)
+  list.length(ingested.events) |> expect.to_equal(1)
+}
+
+pub fn shared_tree_runtime_tree_ordinals_ignore_other_routes_test() {
+  let assert Ok(#(input, prefix)) = runtime_fixture.routed_seed_input()
+  let assert [_, runtime_core.ChannelSeed(_, attributes, snapshot)] =
+    input.channels
+  let assert [view] = input.tree_views
+  let route = fluid_container.Route("A", "_D")
+  let assert Ok(second_id) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(seed) =
+    runtime_core.bootstrap_seed(
+      runtime_core.BootstrapSeedInput(
+        ..input,
+        channels: list.append(input.channels, [
+          runtime_core.ChannelSeed(route, attributes, snapshot),
+        ]),
+        tree_views: list.append(input.tree_views, [
+          runtime_core.TreeViewSeed(route, second_id, view.view),
+        ]),
+      ),
+    )
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_seeded(
+      runtime_fixture.connected("reader", prefix, 2),
+      seed,
+    )
+  let assert Some(compressor) = core.compressor
+  let assert Ok(fixture) = fixtures.load("batched-commits")
+  let assert Ok(fixture_input) =
+    runtime_fixture.read(fixture.input, fluid_ids.local_session(compressor))
+  let assert [group] = fixture_input.operations
+  let assert Ok(contents) = socket.container_contents(group.contents)
+  let assert Some(raw_metadata) = group.metadata
+  let assert Ok(metadata) = decode.run(raw_metadata, wire.json_value_decoder())
+  let assert Ok(batch) = fluid_container.decode(contents, Some(metadata))
+  let assert [
+    fluid_container.ContainerMessage(allocation, _, _),
+    fluid_container.ContainerMessage(first, _, _),
+    fluid_container.ContainerMessage(second, _, _),
+    fluid_container.ContainerMessage(third, _, _),
+  ] = batch.messages
+  let assert fluid_container.ChannelOperation(_, first_contents) = first
+  let also_first = fluid_container.ChannelOperation(route, first_contents)
+  let map =
+    fluid_container.ChannelOperation(
+      fluid_container.Route("A", "root"),
+      wire_op.encode_map_operation(map_kernel.Set("label", json.string("map"))),
+    )
+  let encoded =
+    batch_message([allocation, first, map, also_first, second, third])
+  let message =
+    types.SequencedDocumentMessage(
+      ..encoded,
+      sequence_number: 3,
+      reference_sequence_number: group.reference_sequence_number,
+    )
+  let #(next, _) =
+    runtime_core.handle_sequenced(core, message) |> expect.to_be_ok
+  let assert Ok(channel.TreeState(one)) = dict.get(next.channels, "A/_C")
+  let assert Ok(channel.TreeState(two)) = dict.get(next.channels, "A/_D")
+  list.map(tree_kernel.history_view(one).sequenced.trunk, fn(item) {
+    item.point
+  })
+  |> expect.to_equal([
+    tree_types.SequencePoint(3, 0),
+    tree_types.SequencePoint(3, 1),
+    tree_types.SequencePoint(3, 2),
+  ])
+  list.map(tree_kernel.history_view(two).sequenced.trunk, fn(item) {
+    item.point
+  })
+  |> expect.to_equal([tree_types.SequencePoint(3, 0)])
+}
+
+pub fn shared_tree_runtime_refuses_invalid_local_batch_atomically_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Some(compressor) = core.compressor
+  let assert Ok(before) = fluid_ids.serialize(compressor, True)
+  runtime_core.submit_tree_edits(core, "A/_C", [
+    tree_types.SetField(["title"], tree_types.StringValue("valid")),
+    tree_types.ClearField(["title"]),
+  ])
+  |> expect.to_be_error()
+  let assert Some(compressor) = core.compressor
+  fluid_ids.serialize(compressor, True) |> expect.to_equal(Ok(before))
+  core.in_flight |> expect.to_equal([])
+  core.next_client_sequence_number |> expect.to_equal(1)
+  runtime_core.tree_read(core, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+}
+
+pub fn shared_tree_runtime_invalid_edits_do_not_allocate_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Some(compressor) = core.compressor
+  let assert Ok(before) = fluid_ids.serialize(compressor, True)
+  let assert Ok(channel.TreeState(tree)) = dict.get(core.channels, "A/_C")
+  let assert Ok(snapshot) = tree_kernel.snapshot(tree)
+  let invalid = [
+    tree_types.SetField(["title"], tree_types.BooleanValue(True)),
+    tree_types.SetField(
+      ["title"],
+      tree_types.ObjectValue("not-in-stored-schema", []),
+    ),
+    tree_types.ClearField(["title"]),
+    tree_types.SetField(["unknown"], tree_types.StringValue("bad")),
+  ]
+  list.each(invalid, fn(edit) {
+    runtime_core.submit_tree_edits(core, "A/_C", [edit])
+    |> expect.to_be_error()
+    let assert Some(current) = core.compressor
+    fluid_ids.serialize(current, True) |> expect.to_equal(Ok(before))
+    let assert Ok(channel.TreeState(current_tree)) =
+      dict.get(core.channels, "A/_C")
+    tree_kernel.snapshot(current_tree) |> expect.to_equal(Ok(snapshot))
+    core.in_flight |> expect.to_equal([])
+    core.next_client_sequence_number |> expect.to_equal(1)
+  })
+}
+
+pub fn shared_tree_runtime_reads_report_channel_and_path_errors_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  runtime_core.tree_read(core, "A/missing", [])
+  |> expect.to_equal(Error(runtime_core.UnknownChannel("A/missing", 2)))
+  runtime_core.tree_read(core, "A/root", [])
+  |> expect.to_equal(
+    Error(runtime_core.WrongChannelType(
+      "A/root",
+      channel.TreeChannel,
+      channel.MapChannel,
+    )),
+  )
+  runtime_core.tree_read(core, "A/_C", ["missing", "nested"])
+  |> expect.to_equal(
+    Error(runtime_core.TreeOperationFailed(
+      "A/_C",
+      tree_types.InvalidEdit(
+        ["missing", "nested"],
+        "field is not an optional field",
+      ),
+    )),
+  )
+}
+
+pub fn shared_tree_runtime_acknowledges_local_group_once_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("new")),
+      tree_types.SetField(["title"], tree_types.StringValue("final")),
+    ])
+  let assert Ok(contents) =
+    json.parse(json.to_string(outbound.contents), decode.dynamic)
+  let assert Some(raw_metadata) = outbound.metadata
+  let assert Ok(metadata) =
+    json.parse(json.to_string(raw_metadata), decode.dynamic)
+  let message =
+    types.SequencedDocumentMessage(
+      ..batch_message([]),
+      client_id: Some(pending.client_id),
+      sequence_number: 3,
+      client_sequence_number: outbound.client_sequence_number,
+      reference_sequence_number: outbound.reference_sequence_number,
+      contents: contents,
+      metadata: Some(metadata),
+    )
+  let #(settled, ingested) =
+    runtime_core.handle_sequenced(pending, message) |> expect.to_be_ok
+  settled.in_flight |> expect.to_equal([])
+  ingested.events |> expect.to_equal([])
+  let assert Ok(channel.TreeState(tree)) = dict.get(settled.channels, "A/_C")
+  list.length(tree_kernel.history_view(tree).sequenced.trunk)
+  |> expect.to_equal(2)
+}
+
+pub fn shared_tree_runtime_foreign_author_cannot_ack_local_tree_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("local")),
+    ])
+  let foreign = from_outbound(outbound)
+  runtime_core.handle_sequenced(pending, foreign) |> expect.to_be_error()
+  let genuine =
+    types.SequencedDocumentMessage(
+      ..foreign,
+      client_id: Some(pending.client_id),
+    )
+  let #(settled, ingested) =
+    runtime_core.handle_sequenced(pending, genuine) |> expect.to_be_ok()
+  settled.in_flight |> expect.to_equal([])
+  ingested.events |> expect.to_equal([])
+}
+
+pub fn shared_tree_runtime_group_without_explicit_id_test() {
+  let core = core_from(seed_input())
+  let operation =
+    fluid_container.ChannelOperation(
+      fluid_container.Route("A", "root"),
+      wire_op.encode_map_operation(map_kernel.Set("status", json.string("live"))),
+    )
+  let assert Ok(encoded) =
+    fluid_container.encode_batch(
+      fluid_container.DecodedBatch(True, None, [
+        fluid_container.ContainerMessage(
+          operation,
+          0,
+          Some(json.object([#("batch", json.bool(True))])),
+        ),
+        fluid_container.ContainerMessage(
+          operation,
+          1,
+          Some(json.object([#("batch", json.bool(False))])),
+        ),
+      ]),
+    )
+  let assert Ok(contents) = json.parse(json.to_string(encoded), decode.dynamic)
+  let assert Ok(metadata) = json.parse("{\"groupedOpCount\":2}", decode.dynamic)
+  let #(next, _) =
+    runtime_core.handle_sequenced(
+      core,
+      types.SequencedDocumentMessage(
+        ..batch_message([]),
+        contents: contents,
+        metadata: Some(metadata),
+      ),
+    )
+    |> expect.to_be_ok()
+  next.last_seen_sequence_number |> expect.to_equal(1)
+}
+
+pub fn shared_tree_runtime_allocation_only_advances_document_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(session) =
+    fluid_ids.session_id("50000000-0000-4000-8000-000000000005")
+  let assert Ok(#(compressor, _)) = fluid_ids.generate(fluid_ids.new(session))
+  let assert #(_, Some(range)) = fluid_ids.take_creation_range(compressor)
+  let message =
+    types.SequencedDocumentMessage(
+      ..batch_message([fluid_container.IdAllocation(range)]),
+      sequence_number: 3,
+    )
+  let #(next, ingested) =
+    runtime_core.handle_sequenced(core, message) |> expect.to_be_ok
+  next.last_seen_sequence_number |> expect.to_equal(3)
+  ingested.events |> expect.to_equal([])
+  let assert Some(compressor) = next.compressor
+  let assert Ok(_) = fluid_ids.serialize(compressor, False)
+  let assert Ok(channel.TreeState(tree)) = dict.get(next.channels, "A/_C")
+  tree_kernel.history_view(tree).sequenced.sequence_number |> expect.to_equal(3)
+}
+
+pub fn shared_tree_runtime_rejects_bad_later_child_without_allocation_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Some(compressor) = core.compressor
+  let assert Ok(before) = fluid_ids.serialize(compressor, True)
+  let assert Ok(#(_, _, [outbound])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("candidate")),
+    ])
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let assert [fluid_container.ContainerMessage(allocation, _, _), ..] =
+    batch.messages
+  let bad =
+    fluid_container.ChannelOperation(
+      fluid_container.Route("A", "_C"),
+      json.object([#("version", json.int(999))]),
+    )
+  let message =
+    types.SequencedDocumentMessage(
+      ..batch_message([allocation, bad]),
+      sequence_number: 3,
+    )
+  runtime_core.handle_sequenced(core, message) |> expect.to_be_error()
+  fluid_ids.serialize(compressor, True) |> expect.to_equal(Ok(before))
+  core.last_seen_sequence_number |> expect.to_equal(2)
+  core.in_flight |> expect.to_equal([])
+}
+
+pub fn shared_tree_runtime_bad_final_child_rolls_back_tree_and_map_test() {
+  let assert Ok(reader) = runtime_fixture.routed_core()
+  let writer = remote_writer_core()
+  let assert Ok(#(_, _, [outbound])) =
+    runtime_core.submit_tree_edits(writer, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("rejected")),
+    ])
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let assert [
+    fluid_container.ContainerMessage(allocation, _, _),
+    fluid_container.ContainerMessage(commit, _, _),
+  ] = batch.messages
+  let map =
+    fluid_container.ChannelOperation(
+      fluid_container.Route("A", "root"),
+      wire_op.encode_map_operation(map_kernel.Set("marker", json.int(1))),
+    )
+  let invalid =
+    fluid_container.ChannelOperation(
+      fluid_container.Route("missing", "root"),
+      wire_op.encode_map_operation(map_kernel.Clear),
+    )
+  let message =
+    types.SequencedDocumentMessage(
+      ..batch_message([allocation, commit, map, invalid]),
+      sequence_number: 3,
+      reference_sequence_number: 2,
+    )
+  runtime_core.handle_sequenced(reader, message)
+  |> expect.to_equal(Error(runtime_core.UnknownChannel("missing/root", 3)))
+  runtime_core.tree_read(reader, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue(""))))
+  runtime_core.get(reader, "A/root", "marker") |> expect.to_equal(Error(Nil))
+  reader.last_seen_sequence_number |> expect.to_equal(2)
+  let assert Some(compressor) = reader.compressor
+  let #(_, unsubmitted) = fluid_ids.take_unfinalized_range(compressor)
+  unsubmitted |> expect.to_equal(None)
+}
+
+pub fn shared_tree_runtime_rejects_forged_own_child_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("one")),
+    ])
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let assert [fluid_container.ContainerMessage(allocation, _, _), _] =
+    batch.messages
+  let message =
+    types.SequencedDocumentMessage(
+      ..batch_message([allocation]),
+      client_id: Some(pending.client_id),
+      sequence_number: 3,
+      client_sequence_number: outbound.client_sequence_number,
+      reference_sequence_number: outbound.reference_sequence_number,
+    )
+  runtime_core.handle_sequenced(pending, message)
+  |> expect.to_equal(
+    Error(runtime_core.AckMismatch(
+      "outer submission does not match pending items",
+    )),
+  )
+  list.length(pending.in_flight) |> expect.to_equal(1)
+}
+
+pub fn shared_tree_runtime_refuses_tree_commit_without_allocation_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(fixture) = fixtures.load("batched-commits")
+  let assert Some(compressor) = core.compressor
+  let assert Ok(input) =
+    runtime_fixture.read(fixture.input, fluid_ids.local_session(compressor))
+  let assert [group] = input.operations
+  let assert Ok(contents) = socket.container_contents(group.contents)
+  let assert Some(raw_metadata) = group.metadata
+  let assert Ok(metadata) = decode.run(raw_metadata, wire.json_value_decoder())
+  let assert Ok(batch) = fluid_container.decode(contents, Some(metadata))
+  let assert [_, fluid_container.ContainerMessage(commit, _, _), ..] =
+    batch.messages
+  let message =
+    types.SequencedDocumentMessage(
+      ..batch_message([commit]),
+      sequence_number: 3,
+      reference_sequence_number: group.reference_sequence_number,
+    )
+  runtime_core.handle_sequenced(core, message) |> expect.to_be_error()
+  core.last_seen_sequence_number |> expect.to_equal(2)
+}
+
+fn remote_writer_core() -> runtime_core.Core {
+  let assert Ok(#(input, prefix)) = runtime_fixture.routed_seed_input()
+  let assert Some(compressor) = input.compressor
+  let assert Ok(serialized) = fluid_ids.serialize(compressor, False)
+  let assert Ok(session) =
+    fluid_ids.session_id("50000000-0000-4000-8000-000000000005")
+  let assert Ok(remote_compressor) = fluid_ids.deserialize(serialized, session)
+  let assert Ok(seed) =
+    runtime_core.bootstrap_seed(
+      runtime_core.BootstrapSeedInput(
+        ..input,
+        compressor: Some(remote_compressor),
+      ),
+    )
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_seeded(
+      runtime_fixture.connected("remote-writer", prefix, 2),
+      seed,
+    )
+  core
+}
+
+fn from_outbound(
+  outbound: wire.OutboundOperation,
+) -> types.SequencedDocumentMessage {
+  let assert Ok(contents) =
+    json.parse(json.to_string(outbound.contents), decode.dynamic)
+  let metadata = case outbound.metadata {
+    None -> None
+    Some(value) -> {
+      let assert Ok(decoded) = json.parse(json.to_string(value), decode.dynamic)
+      Some(decoded)
+    }
+  }
+  types.SequencedDocumentMessage(
+    ..batch_message([]),
+    client_id: Some("remote-writer"),
+    sequence_number: 3,
+    client_sequence_number: outbound.client_sequence_number,
+    reference_sequence_number: outbound.reference_sequence_number,
+    contents: contents,
+    metadata: metadata,
+  )
+}
+
+pub fn shared_tree_runtime_remote_group_emits_one_tree_event_test() {
+  let assert Ok(reader) = runtime_fixture.routed_core()
+  let writer = remote_writer_core()
+  let assert Ok(#(_, local_events, [outbound])) =
+    runtime_core.submit_tree_edits(writer, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("first")),
+      tree_types.SetField(["title"], tree_types.StringValue("second")),
+      tree_types.SetField(["title"], tree_types.StringValue("third")),
+    ])
+  list.length(local_events) |> expect.to_equal(1)
+  let #(reader, ingested) =
+    runtime_core.handle_sequenced(reader, from_outbound(outbound))
+    |> expect.to_be_ok
+  ingested.events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
+  ])
+  runtime_core.tree_read(reader, "A/_C", ["title"])
+  |> expect.to_equal(Ok(Some(tree_types.StringValue("third"))))
+  let assert Ok(channel.TreeState(tree)) = dict.get(reader.channels, "A/_C")
+  list.length(tree_kernel.history_view(tree).sequenced.trunk)
+  |> expect.to_equal(3)
+}
+
+pub fn shared_tree_runtime_net_zero_group_retains_history_without_events_test() {
+  let assert Ok(reader) = runtime_fixture.routed_core()
+  let writer = remote_writer_core()
+  let assert Ok(#(_, local_events, [outbound])) =
+    runtime_core.submit_tree_edits(writer, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("temporary")),
+      tree_types.SetField(["title"], tree_types.StringValue("")),
+    ])
+  local_events |> expect.to_equal([])
+  let #(reader, ingested) =
+    runtime_core.handle_sequenced(reader, from_outbound(outbound))
+    |> expect.to_be_ok
+  ingested.events |> expect.to_equal([])
+  let assert Ok(channel.TreeState(tree)) = dict.get(reader.channels, "A/_C")
+  list.length(tree_kernel.history_view(tree).sequenced.trunk)
+  |> expect.to_equal(2)
+}
+
+pub fn shared_tree_runtime_next_range_includes_rollback_revisions_test() {
+  let writer = remote_writer_core()
+  let assert Ok(#(pending, _, [_])) =
+    runtime_core.submit_tree_edits(writer, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("pending")),
+    ])
+  let assert Ok(fixture) = fixtures.load("batched-commits")
+  let assert Some(compressor) = pending.compressor
+  let assert Ok(input) =
+    runtime_fixture.read(fixture.input, fluid_ids.local_session(compressor))
+  let assert [group] = input.operations
+  let #(rebased, _) =
+    runtime_core.handle_sequenced(pending, group) |> expect.to_be_ok
+  let assert Some(compressor) = rebased.compressor
+  let #(_, unsubmitted) = fluid_ids.take_creation_range(compressor)
+  let assert Some(fluid_ids.CreationRange(_, Some(rollbacks))) = unsubmitted
+  let assert Ok(#(_, _, [outbound])) =
+    runtime_core.submit_tree_edits(rebased, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("next")),
+    ])
+  let assert Ok(batch) =
+    fluid_container.decode(outbound.contents, outbound.metadata)
+  let assert [
+    fluid_container.ContainerMessage(
+      fluid_container.IdAllocation(fluid_ids.CreationRange(_, Some(ids))),
+      0,
+      _,
+    ),
+    ..
+  ] = batch.messages
+  ids.first_gen_count |> expect.to_equal(rollbacks.first_gen_count)
+  { ids.count > rollbacks.count } |> expect.to_be_true()
+}
+
+pub fn shared_tree_runtime_gap_drains_tree_batch_once_test() {
+  let assert Ok(reader) = runtime_fixture.routed_core()
+  let writer = remote_writer_core()
+  let assert Ok(#(_, _, [outbound])) =
+    runtime_core.submit_tree_edits(writer, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("after-gap")),
+    ])
+  let future =
+    types.SequencedDocumentMessage(
+      ..from_outbound(outbound),
+      sequence_number: 4,
+    )
+  let #(buffered, ingested) =
+    runtime_core.handle_sequenced(reader, future) |> expect.to_be_ok
+  ingested.request_operations_from |> expect.to_equal(Some(2))
+  ingested.events |> expect.to_equal([])
+  let earlier =
+    types.SequencedDocumentMessage(..batch_message([]), sequence_number: 3)
+  let #(drained, ingested) =
+    runtime_core.handle_sequenced(buffered, earlier) |> expect.to_be_ok
+  drained.last_seen_sequence_number |> expect.to_equal(4)
+  ingested.events
+  |> expect.to_equal([
+    #("A/_C", channel.TreeEvent(tree_kernel.TreeChanged(False))),
+  ])
+  let #(duplicate, ignored) =
+    runtime_core.handle_sequenced(drained, future) |> expect.to_be_ok
+  duplicate.last_seen_sequence_number |> expect.to_equal(4)
+  ignored.events |> expect.to_equal([])
+}
+
+pub fn shared_tree_runtime_all_outer_messages_advance_tree_watermarks_test() {
+  let assert Ok(reader) = runtime_fixture.routed_core()
+  let assert Ok(#(_, prefix)) = runtime_fixture.routed_seed_input()
+  let assert [joined, ..] = prefix
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(#(compressor, _)) = fluid_ids.generate(fluid_ids.new(session))
+  let assert #(_, Some(range)) = fluid_ids.take_creation_range(compressor)
+  let map =
+    fluid_container.ChannelOperation(
+      fluid_container.Route("A", "root"),
+      wire_op.encode_map_operation(map_kernel.Set("status", json.string("live"))),
+    )
+  let messages = [
+    types.SequencedDocumentMessage(
+      ..joined,
+      sequence_number: 3,
+      minimum_sequence_number: 1,
+    ),
+    types.SequencedDocumentMessage(
+      ..batch_message([map]),
+      sequence_number: 4,
+      minimum_sequence_number: 1,
+    ),
+    types.SequencedDocumentMessage(
+      ..batch_message([]),
+      sequence_number: 5,
+      minimum_sequence_number: 2,
+      message_type: "noop",
+    ),
+    types.SequencedDocumentMessage(
+      ..batch_message([]),
+      sequence_number: 6,
+      minimum_sequence_number: 2,
+    ),
+    types.SequencedDocumentMessage(
+      ..batch_message([fluid_container.IdAllocation(range)]),
+      sequence_number: 7,
+      minimum_sequence_number: 3,
+    ),
+    types.SequencedDocumentMessage(
+      ..batch_message([]),
+      sequence_number: 8,
+      minimum_sequence_number: 3,
+      message_type: "leave",
+      data: Some("\"departing\""),
+    ),
+    types.SequencedDocumentMessage(
+      ..batch_message([]),
+      sequence_number: 9,
+      minimum_sequence_number: 9,
+      message_type: "noClient",
+      client_id: None,
+    ),
+  ]
+  let #(reader, _) =
+    list.fold(messages, #(reader, 2), fn(acc, message) {
+      let #(core, previous) = acc
+      let #(core, _) =
+        runtime_core.handle_sequenced(core, message) |> expect.to_be_ok
+      let assert Ok(channel.TreeState(tree)) = dict.get(core.channels, "A/_C")
+      tree_kernel.history_view(tree).sequenced.sequence_number
+      |> expect.to_equal(previous + 1)
+      tree_kernel.history_view(tree).sequenced.minimum_sequence_number
+      |> expect.to_equal(message.minimum_sequence_number)
+      #(core, previous + 1)
+    })
+  reader.last_seen_sequence_number |> expect.to_equal(9)
+}
+
+pub fn shared_tree_runtime_empty_group_with_count_advances_tree_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(metadata) =
+    json.parse(
+      "{\"batchId\":\"empty-batch\",\"groupedOpCount\":0}",
+      decode.dynamic,
+    )
+  let empty =
+    types.SequencedDocumentMessage(
+      ..batch_message([]),
+      sequence_number: 3,
+      metadata: Some(metadata),
+    )
+  let #(core, ingested) =
+    runtime_core.handle_sequenced(core, empty) |> expect.to_be_ok
+  core.last_seen_sequence_number |> expect.to_equal(3)
+  ingested.events |> expect.to_equal([])
+  let assert Ok(channel.TreeState(tree)) = dict.get(core.channels, "A/_C")
+  tree_kernel.history_view(tree).sequenced.sequence_number |> expect.to_equal(3)
+}
+
+pub fn shared_tree_runtime_rejects_regressing_document_minimum_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let first =
+    types.SequencedDocumentMessage(
+      ..batch_message([]),
+      sequence_number: 3,
+      minimum_sequence_number: 2,
+    )
+  let #(core, _) = runtime_core.handle_sequenced(core, first) |> expect.to_be_ok
+  let invalid =
+    types.SequencedDocumentMessage(
+      ..batch_message([]),
+      sequence_number: 4,
+      minimum_sequence_number: 1,
+    )
+  runtime_core.handle_sequenced(core, invalid)
+  |> expect.to_equal(
+    Error(runtime_core.TreeOperationFailed(
+      "A/_C",
+      tree_types.InvalidHistory("minimum sequence number regresses"),
+    )),
+  )
+  core.last_seen_sequence_number |> expect.to_equal(3)
+}
+
+pub fn shared_tree_runtime_refuses_malformed_membership_message_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  list.each(["join", "leave"], fn(message_type) {
+    let malformed =
+      types.SequencedDocumentMessage(
+        ..batch_message([]),
+        sequence_number: 3,
+        message_type: message_type,
+        data: Some("{}"),
+      )
+    runtime_core.handle_sequenced(core, malformed)
+    |> expect.to_equal(Error(runtime_core.BadOperationContents(3)))
+  })
+}
+
+pub fn shared_tree_runtime_rejects_empty_edit_batch_test() {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  runtime_core.submit_tree_edits(core, "A/_C", [])
+  |> expect.to_equal(Error(runtime_core.EmptyTreeEditBatch))
 }
 
 pub fn shared_tree_runtime_rejects_ungrouped_compression_test() -> Nil {

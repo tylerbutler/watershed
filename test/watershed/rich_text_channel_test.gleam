@@ -54,6 +54,8 @@ fn meta(
     quorum: [author, self_id],
     roster: [author, self_id],
     reference_sequence_number: 0,
+    container_index_in_batch: 0,
+    transport_author: None,
   )
 }
 
