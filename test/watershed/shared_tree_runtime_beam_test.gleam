@@ -79,6 +79,26 @@ fn connect_message() -> message.ConnectMessage {
 }
 
 @target(erlang)
+fn membership_frame(
+  sequence_number: Int,
+  operation_type: String,
+  data: String,
+) -> frame.Sequenced {
+  frame.Sequenced(
+    client_id: None,
+    sequence_number: sequence_number,
+    minimum_sequence_number: 0,
+    client_sequence_number: -1,
+    reference_sequence_number: 0,
+    operation_type: operation_type,
+    contents: json.null(),
+    metadata: None,
+    timestamp: 0,
+    data: Some(data),
+  )
+}
+
+@target(erlang)
 pub fn seeded_actor_resolves_routed_root_before_publication_test() {
   let assert Ok(#(input, prefix)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
@@ -196,9 +216,7 @@ pub fn seeded_actor_resolves_routed_root_before_publication_test() {
     ]),
   )
   runtime_beam.await_ready(actor)
-  |> expect.to_equal(Error(
-    "pending tree reconnect and resubmission are not supported",
-  ))
+  |> expect.to_equal(Ok(Nil))
   process.send(actor, runtime_beam.Shutdown)
 }
 
@@ -470,6 +488,7 @@ pub fn pending_tree_actor_retains_content_after_transport_loss_test() {
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
   let callbacks_subject = process.new_subject()
+  let submissions = process.new_subject()
   let assert Ok(actor) =
     runtime_beam.start_with_transport_and_seed(
       host: "seed.invalid",
@@ -483,7 +502,13 @@ pub fn pending_tree_actor_retains_content_after_transport_loss_test() {
   let assert Ok(callbacks) = process.receive(callbacks_subject, 1000)
   callbacks.on_ready(
     runtime_beam.TransportHandle(
-      push: fn(_, _) { Ok(Nil) },
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(submissions, payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
       close: fn() { Nil },
       drop: fn() { Nil },
     ),
@@ -509,11 +534,12 @@ pub fn pending_tree_actor_retains_content_after_transport_loss_test() {
     tree_types.SetField(["title"], tree_types.StringValue("retained")),
   )
   |> expect.to_equal(Ok(Nil))
+  process.receive(submissions, 1000) |> expect.to_be_ok()
   callbacks.on_close("transport lost")
-  runtime_beam.await_ready(actor)
-  |> expect.to_equal(Error(
-    "pending tree reconnect and resubmission are not supported",
-  ))
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("reconnecting")
+  runtime_beam.connection_observation(actor).pending_tree_count
+  |> expect.to_equal(1)
   runtime_beam.tree_read(actor, "A/_C", ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("retained"))))
   runtime_beam.tree_edit(
@@ -521,11 +547,75 @@ pub fn pending_tree_actor_retains_content_after_transport_loss_test() {
     "A/_C",
     tree_types.SetField(["title"], tree_types.StringValue("lost")),
   )
-  |> expect.to_equal(Error(
-    "pending tree reconnect and resubmission are not supported",
-  ))
+  |> expect.to_be_error()
   runtime_beam.is_synced(actor) |> expect.to_equal(False)
   runtime_beam.client_id(actor) |> expect.to_equal(Some("reader"))
+  let assert Ok(rejoined) = process.receive(callbacks_subject, 1000)
+  rejoined.on_ready(
+    runtime_beam.TransportHandle(
+      push: fn(event, payload) {
+        case event {
+          "submitOp" -> process.send(submissions, payload)
+          _ -> Nil
+        }
+        Ok(Nil)
+      },
+      close: fn() { Nil },
+      drop: fn() { Nil },
+    ),
+  )
+  rejoined.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    ),
+  )
+  rejoined.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+    ]),
+  )
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("catching-up")
+  process.receive(submissions, 0) |> expect.to_equal(Error(Nil))
+  rejoined.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(2, "leave", "\"reader\""),
+    ]),
+  )
+  let assert Ok(payload) = process.receive(submissions, 1000)
+  let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
+  let assert Ok(frame.SubmitOperation("reader-2", [[submitted]])) =
+    frame.decode_submit_operation(dynamic)
+  submitted.reference_sequence_number |> expect.to_equal(2)
+  rejoined.on_event(
+    "op",
+    frame.encode_operation_event([
+      frame.Sequenced(
+        client_id: Some("reader-2"),
+        sequence_number: 3,
+        minimum_sequence_number: 0,
+        client_sequence_number: submitted.client_sequence_number,
+        reference_sequence_number: submitted.reference_sequence_number,
+        operation_type: submitted.operation_type,
+        contents: submitted.contents,
+        metadata: submitted.metadata,
+        timestamp: 0,
+        data: None,
+      ),
+    ]),
+  )
+  runtime_beam.connection_observation(actor).synced |> expect.to_equal(True)
   process.send(actor, runtime_beam.Shutdown)
 }
 
@@ -587,7 +677,7 @@ pub fn failed_tree_send_retains_candidate_and_refuses_more_edits_test() {
     "A/_C",
     tree_types.SetField(["title"], tree_types.StringValue("retained")),
   )
-  |> expect.to_equal(Error("send refused"))
+  |> expect.to_equal(Ok(Nil))
   let assert Ok(payload) = process.receive(submissions, 1000)
   let assert Ok(dynamic) = json.parse(json.to_string(payload), decode.dynamic)
   let assert Ok(frame.SubmitOperation(_, [[submitted]])) =
@@ -606,9 +696,7 @@ pub fn failed_tree_send_retains_candidate_and_refuses_more_edits_test() {
   range.session_id
   |> expect.to_not_equal(fluid_ids.local_session(snapshot_compressor))
   runtime_beam.await_ready(actor)
-  |> expect.to_equal(Error(
-    "pending tree reconnect and resubmission are not supported",
-  ))
+  |> expect.to_equal(Ok(Nil))
   runtime_beam.tree_read(actor, "A/_C", ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("retained"))))
   runtime_beam.tree_edit(
@@ -616,9 +704,7 @@ pub fn failed_tree_send_retains_candidate_and_refuses_more_edits_test() {
     "A/_C",
     tree_types.SetField(["title"], tree_types.StringValue("lost")),
   )
-  |> expect.to_equal(Error(
-    "pending tree reconnect and resubmission are not supported",
-  ))
+  |> expect.to_be_error()
   runtime_beam.is_synced(actor) |> expect.to_equal(False)
   runtime_beam.client_id(actor) |> expect.to_equal(Some("reader"))
   process.receive(events, 1000)
@@ -687,9 +773,7 @@ pub fn failed_heartbeat_with_pending_tree_keeps_actor_and_core_test() {
   |> expect.to_equal(Ok(Nil))
   process.send(actor, runtime_beam.Heartbeat)
   runtime_beam.await_ready(actor)
-  |> expect.to_equal(Error(
-    "pending tree reconnect and resubmission are not supported",
-  ))
+  |> expect.to_equal(Ok(Nil))
   process.receive(sends, 1000) |> expect.to_equal(Ok("noop"))
   runtime_beam.tree_read(actor, "A/_C", ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("retained"))))
@@ -698,9 +782,7 @@ pub fn failed_heartbeat_with_pending_tree_keeps_actor_and_core_test() {
     "A/_C",
     tree_types.SetField(["title"], tree_types.StringValue("discarded")),
   )
-  |> expect.to_equal(Error(
-    "pending tree reconnect and resubmission are not supported",
-  ))
+  |> expect.to_be_error()
   runtime_beam.is_synced(actor) |> expect.to_equal(False)
   runtime_beam.client_id(actor) |> expect.to_equal(Some("reader"))
   process.send(actor, runtime_beam.Put("A/root", "ignored", json.int(1)))
@@ -718,7 +800,8 @@ pub fn failed_heartbeat_with_pending_tree_keeps_actor_and_core_test() {
     ),
   )
   callbacks.on_fail("late failure")
-  runtime_beam.await_ready(actor) |> expect.to_be_error()
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("reconnecting")
   runtime_beam.tree_read(actor, "A/_C", ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("retained"))))
   process.receive(sends, 0) |> expect.to_equal(Error(Nil))
@@ -815,9 +898,7 @@ fn failed_sibling_send_with_pending_tree(event: String) -> Nil {
     _ -> panic as "invalid sibling send test event"
   }
   runtime_beam.await_ready(actor)
-  |> expect.to_equal(Error(
-    "pending tree reconnect and resubmission are not supported",
-  ))
+  |> expect.to_equal(Ok(Nil))
   process.receive(sends, 1000) |> expect.to_equal(Ok(event))
   runtime_beam.tree_read(actor, "A/_C", ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("retained"))))
@@ -833,7 +914,8 @@ fn failed_sibling_send_with_pending_tree(event: String) -> Nil {
   process.send(actor, runtime_beam.Put("A/root", "ignored", json.int(1)))
   process.send(actor, runtime_beam.SubmitRipple("test", json.null()))
   process.send(actor, runtime_beam.Heartbeat)
-  runtime_beam.await_ready(actor) |> expect.to_be_error()
+  runtime_beam.connection_observation(actor).phase
+  |> expect.to_equal("reconnecting")
   process.receive(sends, 0) |> expect.to_equal(Error(Nil))
   process.send(actor, runtime_beam.Shutdown)
 }

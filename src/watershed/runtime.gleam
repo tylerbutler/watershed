@@ -51,6 +51,7 @@ import spillway/message.{
   type ConnectMessage, type ConnectedMessage, type SignalMessage,
   type SummaryContext,
 }
+
 @target(javascript)
 import spillway/nack.{type Nack}
 @target(javascript)
@@ -222,7 +223,7 @@ type Phase {
   /// The socket is closed and the runtime is doing the handshake again. This
   /// state holds the core from before the reconnect.
   Reconnecting(core: runtime_core.Core)
-  SuspendedPendingTree(core: runtime_core.Core)
+  SuspendedPendingTree(core: runtime_core.Core, reason: String)
   /// The runtime is connected. `resubmit_at` is `Some(checkpoint)` while a
   /// reconnect still catches up to the point at which the runtime can resubmit
   /// the operations with no ack. It is `None` after the runtime is
@@ -516,7 +517,7 @@ fn drain_transport_start(
 @target(javascript)
 fn deliver_transport_event(cell: Cell(State), event: TransportEvent) -> Nil {
   case cell_get(cell).phase {
-    Failed(_) | SuspendedPendingTree(_) -> Nil
+    Failed(_) | SuspendedPendingTree(_, _) -> Nil
     _ ->
       case event {
         TransportJoined -> on_join(cell)
@@ -924,7 +925,7 @@ pub fn ordered_acquire_with_outcome(
           acquire_id
         }
       }
-    Connecting | Failed(_) | SuspendedPendingTree(_) -> {
+    Connecting | Failed(_) | SuspendedPendingTree(_, _) -> {
       observe("acquire outcome", fn() {
         on_outcome(ordered_collection_kernel.Aborted)
       })
@@ -1666,7 +1667,7 @@ pub fn task_manager_volunteer(
           outcome
         }
       }
-    Connecting | Failed(_) | SuspendedPendingTree(_) ->
+    Connecting | Failed(_) | SuspendedPendingTree(_, _) ->
       task_manager_kernel.DisconnectedBeforeAssignment
   }
 }
@@ -1721,7 +1722,7 @@ pub fn task_manager_complete(
           Ok(Nil)
         }
       }
-    Connecting | Failed(_) | SuspendedPendingTree(_) ->
+    Connecting | Failed(_) | SuspendedPendingTree(_, _) ->
       Error("complete_task requires a ready document connection")
   }
 }
@@ -1940,7 +1941,7 @@ fn claim_submit(
           Pending(promise_outcome)
         }
       }
-    Connecting | Failed(_) | SuspendedPendingTree(_) -> WrongChannelType
+    Connecting | Failed(_) | SuspendedPendingTree(_, _) -> WrongChannelType
   }
 }
 
@@ -1976,7 +1977,7 @@ fn create_channel(
       cell_set(runtime.cell, State(..state, phase: Reconnecting(core)))
       Ok(address)
     }
-    Connecting | Failed(_) | SuspendedPendingTree(_) ->
+    Connecting | Failed(_) | SuspendedPendingTree(_, _) ->
       Error(verb <> " requires a ready document connection")
   }
 }
@@ -2082,8 +2083,7 @@ pub fn tree_edit(
               Ok(Nil)
             }
             Failed(reason) -> Error(reason)
-            SuspendedPendingTree(_) ->
-              Error("pending tree reconnect and resubmission are not supported")
+            SuspendedPendingTree(_, reason) -> Error(reason)
             Connecting ->
               Error("tree edit requires a ready document connection")
           }
@@ -2091,8 +2091,9 @@ pub fn tree_edit(
       }
     Ready(_, None), Some(_) | Connecting, _ | Failed(_), _ ->
       Error("tree edit requires a ready document connection")
-    Ready(_, Some(_)), _ | Reconnecting(_), _ | SuspendedPendingTree(_), _ ->
-      Error("pending tree reconnect and resubmission are not supported")
+    Ready(_, Some(_)), _ | Reconnecting(_), _ ->
+      Error("tree edit requires a ready document connection")
+    SuspendedPendingTree(_, reason), _ -> Error(reason)
   }
 }
 
@@ -2119,7 +2120,7 @@ pub fn resolve_sequence(
 ) -> Result(Nil, String) {
   let state = cell_get(runtime.cell)
   case state.phase {
-    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core) ->
+    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
       case
         runtime_core.require_channel_type(
           core,
@@ -2139,7 +2140,7 @@ pub fn resolve_sequence(
 pub fn resolve_text(runtime: Runtime, address: String) -> Result(Nil, String) {
   let state = cell_get(runtime.cell)
   case state.phase {
-    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core) ->
+    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
       case
         runtime_core.require_channel_type(core, address, channel.TextChannel)
       {
@@ -2203,7 +2204,7 @@ pub fn client_id(runtime: Runtime) -> Option(String) {
 fn client_id_of(state: State) -> Option(String) {
   case state.phase {
     Ready(core, _) -> Some(core.client_id)
-    Reconnecting(core) | SuspendedPendingTree(core) -> Some(core.client_id)
+    Reconnecting(core) | SuspendedPendingTree(core, _) -> Some(core.client_id)
     Connecting | Failed(_) -> None
   }
 }
@@ -2305,10 +2306,7 @@ pub fn force_reconnect(runtime: Runtime) -> Nil {
   let state = cell_get(runtime.cell)
   case state.phase, state.channel {
     Ready(core, _), Some(channel) -> {
-      let phase = case runtime_core.has_pending_tree(core) {
-        True -> SuspendedPendingTree(core)
-        False -> Reconnecting(core)
-      }
+      let phase = Reconnecting(core)
       cell_set(runtime.cell, State(..state, phase: phase))
       notify_session_lost(runtime.cell, state.phase)
       channel.drop()
@@ -2316,7 +2314,7 @@ pub fn force_reconnect(runtime: Runtime) -> Nil {
     Ready(_, _), None
     | Connecting, _
     | Reconnecting(_), _
-    | SuspendedPendingTree(_), _
+    | SuspendedPendingTree(_, _), _
     | Failed(_), _
     -> Nil
   }
@@ -2341,10 +2339,7 @@ pub fn go_offline(runtime: Runtime) -> Nil {
   let state = cell_get(runtime.cell)
   case state.phase, state.channel {
     Ready(core, _), Some(channel) -> {
-      let phase = case runtime_core.has_pending_tree(core) {
-        True -> SuspendedPendingTree(core)
-        False -> Reconnecting(core)
-      }
+      let phase = Reconnecting(core)
       cell_set(runtime.cell, State(..state, phase: phase))
       notify_session_lost(runtime.cell, state.phase)
       channel.hold()
@@ -2352,7 +2347,7 @@ pub fn go_offline(runtime: Runtime) -> Nil {
     Ready(_, _), None
     | Connecting, _
     | Reconnecting(_), _
-    | SuspendedPendingTree(_), _
+    | SuspendedPendingTree(_, _), _
     | Failed(_), _
     -> Nil
   }
@@ -2369,7 +2364,7 @@ pub fn go_online(runtime: Runtime) -> Nil {
     Reconnecting(_), None
     | Connecting, _
     | Ready(_, _), _
-    | SuspendedPendingTree(_), _
+    | SuspendedPendingTree(_, _), _
     | Failed(_), _
     -> Nil
   }
@@ -2413,8 +2408,32 @@ pub fn is_synced(runtime: Runtime) -> Bool {
     Ready(_, Some(_))
     | Connecting
     | Reconnecting(_)
-    | SuspendedPendingTree(_)
+    | SuspendedPendingTree(_, _)
     | Failed(_) -> False
+  }
+}
+
+@target(javascript)
+pub fn connection_observation(
+  runtime: Runtime,
+) -> runtime_core.ConnectionObservation {
+  let state = cell_get(runtime.cell)
+  case state.phase {
+    Connecting -> runtime_core.connection_observation(None, "connecting", None)
+    Reconnecting(core) ->
+      runtime_core.connection_observation(Some(core), "reconnecting", None)
+    Ready(core, Some(_)) ->
+      runtime_core.connection_observation(Some(core), "catching-up", None)
+    Ready(core, None) ->
+      case state.bootstrap {
+        Some(_) ->
+          runtime_core.connection_observation(Some(core), "catching-up", None)
+        None -> runtime_core.connection_observation(Some(core), "ready", None)
+      }
+    SuspendedPendingTree(core, reason) ->
+      runtime_core.connection_observation(Some(core), "suspended", Some(reason))
+    Failed(reason) ->
+      runtime_core.connection_observation(None, "failed", Some(reason))
   }
 }
 
@@ -2440,10 +2459,10 @@ pub fn diagnostics(runtime: Runtime) -> Diagnostics {
       )
     Reconnecting(core) ->
       diagnostics_from_core(core, "reconnecting", None, False, state)
-    SuspendedPendingTree(core) ->
+    SuspendedPendingTree(core, reason) ->
       diagnostics_from_core(
         core,
-        "suspended-pending-tree: pending tree reconnect and resubmission are not supported",
+        "suspended-pending-tree: " <> reason,
         None,
         False,
         state,
@@ -2550,7 +2569,7 @@ pub fn auto_summarize(
 /// about. The result is zero before the first handshake.
 pub fn operations_since_summary(runtime: Runtime) -> Int {
   case cell_get(runtime.cell).phase {
-    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core) ->
+    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
       runtime_core.operations_since_summary(core)
     Connecting | Failed(_) -> 0
   }
@@ -2610,7 +2629,7 @@ fn attempt_summary(cell: Cell(State)) -> Nil {
     | Ready(_, Some(_)), _, _
     | Connecting, _, _
     | Reconnecting(_), _, _
-    | SuspendedPendingTree(_), _, _
+    | SuspendedPendingTree(_, _), _, _
     | Failed(_), _, _
     -> Nil
   }
@@ -2630,7 +2649,7 @@ pub fn summarize(runtime: Runtime) -> Promise(Result(String, String)) {
   let cell = runtime.cell
   let state = cell_get(cell)
   case state.phase {
-    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core) ->
+    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
       case runtime_core.has_tree(core) && core.persistence == None {
         True ->
           promise.resolve(Error("tree summary publication is not supported"))
@@ -2717,7 +2736,7 @@ fn summarize_native(
         | Ready(_, Some(_)), _
         | Connecting, _
         | Reconnecting(_), _
-        | SuspendedPendingTree(_), _
+        | SuspendedPendingTree(_, _), _
         | Failed(_), _
         ->
           promise.resolve(Error(
@@ -2827,7 +2846,7 @@ fn finish_summarize(
     | Ready(_, Some(_)), _, _
     | Connecting, _, _
     | Reconnecting(_), _, _
-    | SuspendedPendingTree(_), _, _
+    | SuspendedPendingTree(_, _), _, _
     | Failed(_), _, _
     ->
       resolve_summary_attempt(
@@ -2891,10 +2910,7 @@ fn on_join(cell: Cell(State)) -> Nil {
           )
         Ready(core, _) -> {
           // Rejoin without an intervening close event; treat as reconnect.
-          let phase = case runtime_core.has_pending_tree(core) {
-            True -> SuspendedPendingTree(core)
-            False -> Reconnecting(core)
-          }
+          let phase = Reconnecting(core)
           cell_set(cell, State(..state, phase: phase))
           notify_session_lost(cell, state.phase)
           let current = cell_get(cell)
@@ -2902,17 +2918,13 @@ fn on_join(cell: Cell(State)) -> Nil {
             current.bootstrap_generation != state.bootstrap_generation,
             Nil,
           )
-          case phase {
-            Reconnecting(_) ->
-              push_connect(
-                channel,
-                state.connect_message,
-                Some(core.last_seen_sequence_number),
-              )
-            _ -> Nil
-          }
+          push_connect(
+            channel,
+            state.connect_message,
+            Some(core.last_seen_sequence_number),
+          )
         }
-        Failed(_) | SuspendedPendingTree(_) -> Nil
+        Failed(_) | SuspendedPendingTree(_, _) -> Nil
       }
   }
 }
@@ -2924,16 +2936,13 @@ fn on_close(cell: Cell(State)) -> Nil {
   case state.phase {
     // Preserve the core so kernel/pending/in-flight survive the reconnect.
     Ready(core, _) | Reconnecting(core) -> {
-      let phase = case runtime_core.has_pending_tree(core) {
-        True -> SuspendedPendingTree(core)
-        False -> Reconnecting(core)
-      }
+      let phase = Reconnecting(core)
       cell_set(cell, State(..state, phase: phase, pending_summary: None))
       abort_pending_summary(state)
       notify_session_lost(cell, state.phase)
     }
     // Not yet connected: Phoenix will retry the join, which re-fires on_join.
-    Connecting | Failed(_) | SuspendedPendingTree(_) -> Nil
+    Connecting | Failed(_) | SuspendedPendingTree(_, _) -> Nil
   }
 }
 
@@ -2981,6 +2990,17 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
           // and the reactive `requestOps` in `on_operation` needs an operation
           // to react to. See `runtime_core.catch_up_from`.
           settle_reconnect(cell, core, checkpoint)
+          case runtime_core.reconnect_barrier_active(core) {
+            True -> {
+              let _ =
+                state.scheduler.schedule(
+                  fn() { reconnect_deadline(cell, core.client_id) },
+                  10_000,
+                )
+              Nil
+            }
+            False -> Nil
+          }
           maybe_request_operations(
             state.channel,
             runtime_core.catch_up_from(core, checkpoint),
@@ -2998,7 +3018,7 @@ fn on_connect_success(cell: Cell(State), payload: String) -> Nil {
             Some(_) -> begin_bootstrap(cell, connected)
             None -> Nil
           }
-        Failed(_) | SuspendedPendingTree(_) -> Nil
+        Failed(_) | SuspendedPendingTree(_, _) -> Nil
       }
     }
   }
@@ -3308,7 +3328,7 @@ fn on_operation(cell: Cell(State), payload: String) -> Nil {
             Error(_) -> fail(cell, "malformed op payload")
             Ok(message) -> apply_received_operations(cell, message.ops)
           }
-        Connecting | Reconnecting(_) | SuspendedPendingTree(_) | Failed(_) ->
+        Connecting | Reconnecting(_) | SuspendedPendingTree(_, _) | Failed(_) ->
           Nil
       }
   }
@@ -3377,7 +3397,7 @@ fn apply_received_operations(
       }
     // Operations before a connected session (or while reconnecting) carry no
     // state we can trust; ignore them.
-    Connecting | Reconnecting(_) | SuspendedPendingTree(_) | Failed(_) -> Nil
+    Connecting | Reconnecting(_) | SuspendedPendingTree(_, _) | Failed(_) -> Nil
   }
 }
 
@@ -3392,22 +3412,15 @@ fn on_nack(cell: Cell(State), payload: String) -> Nil {
           let state = cell_get(cell)
           case state.phase, state.channel {
             Ready(core, _), Some(channel) -> {
-              let phase = case runtime_core.has_pending_tree(core) {
-                True -> SuspendedPendingTree(core)
-                False -> Reconnecting(core)
-              }
+              let phase = Reconnecting(core)
               cell_set(cell, State(..state, phase: phase))
               notify_session_lost(cell, state.phase)
-              case phase {
-                Reconnecting(_) -> channel.drop()
-                SuspendedPendingTree(_) -> Nil
-                _ -> Nil
-              }
+              channel.drop()
             }
             Ready(_, _), None
             | Connecting, _
             | Reconnecting(_), _
-            | SuspendedPendingTree(_), _
+            | SuspendedPendingTree(_, _), _
             | Failed(_), _
             -> Nil
           }
@@ -3427,7 +3440,7 @@ fn settle_reconnect(
   checkpoint: Int,
 ) -> Nil {
   let state = cell_get(cell)
-  case core.last_seen_sequence_number >= checkpoint {
+  case runtime_core.reconnect_ready(core, checkpoint) {
     True -> {
       case runtime_core.resubmit(runtime_core.go_live(core)) {
         Ok(#(core, outbound)) -> {
@@ -3437,13 +3450,42 @@ fn settle_reconnect(
         Error(error) ->
           case runtime_core.has_pending_tree(core) {
             True ->
-              cell_set(cell, State(..state, phase: SuspendedPendingTree(core)))
+              cell_set(
+                cell,
+                State(
+                  ..state,
+                  phase: SuspendedPendingTree(core, string.inspect(error)),
+                ),
+              )
             False -> fail(cell, string.inspect(error))
           }
       }
     }
     False ->
       cell_set(cell, State(..state, phase: Ready(core, Some(checkpoint))))
+  }
+}
+
+@target(javascript)
+fn reconnect_deadline(cell: Cell(State), client_id: String) -> Nil {
+  let state = cell_get(cell)
+  case state.phase {
+    Ready(core, Some(_)) if core.client_id == client_id ->
+      case runtime_core.reconnect_barrier_active(core) {
+        True ->
+          cell_set(
+            cell,
+            State(
+              ..state,
+              phase: SuspendedPendingTree(
+                core,
+                "Reconnect timed out before the old session closed.",
+              ),
+            ),
+          )
+        False -> Nil
+      }
+    _ -> Nil
   }
 }
 
@@ -3732,7 +3774,7 @@ fn edit(
       }
     }
     // Edits before ready are dropped (the demo gates edits behind on_ready).
-    Connecting | Failed(_) | SuspendedPendingTree(_) -> Nil
+    Connecting | Failed(_) | SuspendedPendingTree(_, _) -> Nil
   }
 }
 
@@ -3779,7 +3821,7 @@ fn edit_sequence_with_result(
           Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
-    Connecting | Failed(_) | SuspendedPendingTree(_) ->
+    Connecting | Failed(_) | SuspendedPendingTree(_, _) ->
       Error("sequence edit before the document connection is ready")
   }
 }
@@ -3823,7 +3865,7 @@ fn edit_text_with_result(
         Error(runtime_core.TextOperationFailed(_, detail)) -> Error(detail)
         Error(error) -> Error(string.inspect(error))
       }
-    Connecting | Failed(_) | SuspendedPendingTree(_) ->
+    Connecting | Failed(_) | SuspendedPendingTree(_, _) ->
       Error("text edit before the document connection is ready")
   }
 }
@@ -3836,7 +3878,7 @@ fn read(
 ) -> t {
   case cell_get(cell).phase {
     Ready(core, _) -> extract(core)
-    Reconnecting(core) | SuspendedPendingTree(core) -> extract(core)
+    Reconnecting(core) | SuspendedPendingTree(core, _) -> extract(core)
     Connecting | Failed(_) -> default
   }
 }
@@ -4015,7 +4057,7 @@ fn notify_presence_session(cell: Cell(State), core: runtime_core.Core) -> Nil {
 fn notify_session_lost(cell: Cell(State), previous: Phase) -> Nil {
   case previous {
     Ready(_, _) -> notify_presence(cell, PresenceSessionLost)
-    Connecting | Reconnecting(_) | SuspendedPendingTree(_) | Failed(_) -> Nil
+    Connecting | Reconnecting(_) | SuspendedPendingTree(_, _) | Failed(_) -> Nil
   }
 }
 

@@ -97,6 +97,7 @@ pub type Core {
     last_seen_sequence_number: Int,
     in_flight: List(InFlight),
     out_of_order: List(SequencedDocumentMessage),
+    reconnect_barrier: Option(ReconnectBarrier),
     /// The connected roster, as the integer ids that the kernels use to
     /// tie-break. The `initialClients` field of the handshake fills it, and the
     /// sequenced `"join"` and `"leave"` system messages maintain it. Every
@@ -146,6 +147,57 @@ pub type Core {
     /// `channel.apply_remote` can add to it, by returning owed operations.
     owed: Dict(String, List(channel.ChannelOperation)),
   )
+}
+
+pub opaque type ReconnectBarrier {
+  ReconnectBarrier(previous_clients: List(String), new_joined: Bool)
+}
+
+pub type ConnectionObservation {
+  ConnectionObservation(
+    phase: String,
+    client_id: Option(String),
+    sequence_number: Option(Int),
+    in_flight_count: Int,
+    pending_tree_count: Int,
+    synced: Bool,
+    error: Option(String),
+  )
+}
+
+pub fn connection_observation(
+  core: Option(Core),
+  phase: String,
+  error: Option(String),
+) -> ConnectionObservation {
+  case core {
+    None -> ConnectionObservation(phase, None, None, 0, 0, False, error)
+    Some(core) -> {
+      let pending =
+        core.channels
+        |> dict.values
+        |> list.fold(0, fn(count, state) {
+          case state {
+            channel.TreeState(tree) ->
+              count + list.length(tree_kernel.history_view(tree).pending)
+            _ -> count
+          }
+        })
+      ConnectionObservation(
+        phase,
+        Some(core.client_id),
+        Some(core.last_seen_sequence_number),
+        list.length(core.in_flight),
+        pending,
+        phase == "ready"
+          && is_synced(core)
+          && pending == 0
+          && core.out_of_order == []
+          && core.reconnect_barrier == None,
+        error,
+      )
+    }
+  }
 }
 
 pub type InFlight {
@@ -832,6 +884,7 @@ fn start_core(
       },
       in_flight: [],
       out_of_order: [],
+      reconnect_barrier: None,
       // Seeded from the checkpoint, **not** from the handshake's roster, and
       // advanced by the `join`/`leave` messages in the replay itself. Seeding
       // from `initialClients` — the room as it is *now* — time-shifts every
@@ -1257,6 +1310,15 @@ pub fn adopt_reconnect(core: Core, connected: ConnectedMessage) -> Core {
   Core(
     ..core,
     client_id: connected.client_id,
+    reconnect_barrier: case core.reconnect_barrier, has_pending_tree(core) {
+      Some(barrier), _ ->
+        Some(ReconnectBarrier(
+          list.unique([core.client_id, ..barrier.previous_clients]),
+          False,
+        ))
+      None, True -> Some(ReconnectBarrier([core.client_id], False))
+      None, False -> None
+    },
     live_members: roster_of(connected),
     // The gap about to be replayed is history, not live traffic, so the
     // defences in `quorum_of` must be off for it. They exist for a hazard that
@@ -1299,6 +1361,20 @@ pub fn catch_up_from(core: Core, checkpoint: Int) -> Option(Int) {
   }
 }
 
+/// A pending tree can replay only after the old submitting session closes.
+pub fn reconnect_ready(core: Core, checkpoint: Int) -> Bool {
+  core.last_seen_sequence_number >= checkpoint
+  && case core.reconnect_barrier {
+    None -> True
+    Some(barrier) ->
+      barrier.new_joined && list.is_empty(barrier.previous_clients)
+  }
+}
+
+pub fn reconnect_barrier_active(core: Core) -> Bool {
+  core.reconnect_barrier != None
+}
+
 /// The hand-off from the catch-up of a reconnect to the live traffic.
 ///
 /// This function is the equivalent of `settle_bootstrap`, for the route that
@@ -1306,7 +1382,7 @@ pub fn catch_up_from(core: Core, checkpoint: Int) -> Option(Int) {
 /// puts `ingest` back at `Live`. The replay position thus cannot outlast the
 /// gap and disable `quorum_of` for the rest of the session.
 pub fn go_live(core: Core) -> Core {
-  Core(..core, ingest: Live)
+  Core(..core, ingest: Live, reconnect_barrier: None)
 }
 
 /// The quorum that the core judges a sequenced operation against: the roster at
@@ -2255,6 +2331,11 @@ fn handle_join(
         #(
           Core(
             ..core,
+            reconnect_barrier: case core.reconnect_barrier {
+              Some(barrier) if joining_client_id == core.client_id ->
+                Some(ReconnectBarrier(..barrier, new_joined: True))
+              other -> other
+            },
             members: set.insert(
               core.members,
               client_id_to_int(joining_client_id),
@@ -2290,7 +2371,24 @@ fn handle_leave(
       }
     Ok(leaving_client_id) -> {
       let client_int = client_id_to_int(leaving_client_id)
-      let core = Core(..core, members: set.delete(core.members, client_int))
+      let core =
+        Core(
+          ..core,
+          reconnect_barrier: case core.reconnect_barrier {
+            Some(barrier) ->
+              Some(
+                ReconnectBarrier(
+                  ..barrier,
+                  previous_clients: list.filter(
+                    barrier.previous_clients,
+                    fn(id) { id != leaving_client_id },
+                  ),
+                ),
+              )
+            None -> None
+          },
+          members: set.delete(core.members, client_int),
+        )
       let #(core, events) =
         list.fold(core.channel_order, #(core, []), fn(acc, address) {
           let #(core, events) = acc

@@ -211,6 +211,7 @@ pub type ClaimSubmitReply {
 @target(erlang)
 pub type Msg {
   Heartbeat
+  ReconnectTimedOut(client_id: String)
   /// A wake-up from the automatic summarization policy, after a delay that
   /// differs for each client. The message carries no state. The actor makes the
   /// decision again against the core as it is at that moment, so a summary from
@@ -224,10 +225,10 @@ pub type Msg {
   /// knows about.
   OperationsSinceSummary(reply: Subject(Int))
   // Receiver-process lifecycle
-  ChannelReady(TransportHandle)
-  ChannelFailed(String)
-  Inbound(event: String, payload: Json)
-  ChannelClosed(String)
+  ChannelReady(generation: Int, channel: TransportHandle)
+  ChannelFailed(generation: Int, reason: String)
+  Inbound(generation: Int, event: String, payload: Json)
+  ChannelClosed(generation: Int, reason: String)
   // Local edits
   Put(address: String, key: String, value: Json)
   Remove(address: String, key: String)
@@ -422,6 +423,9 @@ pub type Msg {
   ResolveSequence(address: String, reply: Subject(Result(Nil, String)))
   ResolveText(address: String, reply: Subject(Result(Nil, String)))
   ResolveRoot(reply: Subject(Result(String, String)))
+  ConnectionObservationRequested(
+    reply: Subject(runtime_core.ConnectionObservation),
+  )
   ResolveTree(
     value: Json,
     view: tree_schema.ViewSchema,
@@ -684,7 +688,7 @@ type Phase {
   /// state holds the core from before the reconnect, so its kernels, its
   /// pending entries, and its in-flight operations all stay.
   Reconnecting(core: runtime_core.Core)
-  SuspendedPendingTree(core: runtime_core.Core)
+  SuspendedPendingTree(core: runtime_core.Core, reason: String)
   /// The runtime is connected. `resubmit_at` is `Some(checkpoint)` while a
   /// reconnect still catches up to the point at which the runtime can
   /// resubmit the operations with no ack. It is `None` after the runtime is
@@ -714,6 +718,7 @@ type State {
     connect_message: ConnectMessage,
     seed: Option(runtime_core.BootstrapSeed),
     transport: Transport,
+    generation: Int,
     channel: Option(TransportHandle),
     phase: Phase,
     subscribers: List(#(String, fn(ChannelEvent) -> Nil)),
@@ -839,6 +844,7 @@ fn start_with_optional_seed(
         connect_message: connect_message,
         seed: seed,
         transport: transport,
+        generation: 0,
         channel: None,
         phase: Connecting([]),
         subscribers: [],
@@ -860,7 +866,7 @@ fn start_with_optional_seed(
         self: self,
       )
     let _ = process.send_after(self, heartbeat_interval_milliseconds, Heartbeat)
-    connect_transport(transport, self)
+    connect_transport(transport, self, 0)
     Ok(actor.initialised(state) |> actor.returning(self))
   })
   |> actor.on_message(handle)
@@ -875,6 +881,17 @@ pub fn await_ready(runtime: Subject(Msg)) -> Result(Nil, String) {
     runtime,
     waiting: connect_timeout_milliseconds,
     sending: AwaitReady,
+  )
+}
+
+@target(erlang)
+pub fn connection_observation(
+  runtime: Subject(Msg),
+) -> runtime_core.ConnectionObservation {
+  process.call(
+    runtime,
+    waiting: connect_timeout_milliseconds,
+    sending: ConnectionObservationRequested,
   )
 }
 
@@ -1048,7 +1065,7 @@ pub fn client_id(runtime: Subject(Msg)) -> Option(String) {
 fn client_id_of(state: State) -> Option(String) {
   case state.phase {
     Ready(core, _) -> Some(core.client_id)
-    Reconnecting(core) | SuspendedPendingTree(core) -> Some(core.client_id)
+    Reconnecting(core) | SuspendedPendingTree(core, _) -> Some(core.client_id)
     Connecting(_) | Failed(_) -> None
   }
 }
@@ -1219,15 +1236,25 @@ pub fn load_version(
 /// Ask the transport to connect, and route its lifecycle callbacks into actor
 /// messages. The runtime calls this function at startup and at every
 /// reconnect.
-fn connect_transport(transport: Transport, runtime: Subject(Msg)) -> Nil {
+fn connect_transport(
+  transport: Transport,
+  runtime: Subject(Msg),
+  generation: Int,
+) -> Nil {
   transport.connect(
     TransportCallbacks(
-      on_ready: fn(handle) { process.send(runtime, ChannelReady(handle)) },
-      on_event: fn(event, payload) {
-        process.send(runtime, Inbound(event, payload))
+      on_ready: fn(handle) {
+        process.send(runtime, ChannelReady(generation, handle))
       },
-      on_fail: fn(reason) { process.send(runtime, ChannelFailed(reason)) },
-      on_close: fn(reason) { process.send(runtime, ChannelClosed(reason)) },
+      on_event: fn(event, payload) {
+        process.send(runtime, Inbound(generation, event, payload))
+      },
+      on_fail: fn(reason) {
+        process.send(runtime, ChannelFailed(generation, reason))
+      },
+      on_close: fn(reason) {
+        process.send(runtime, ChannelClosed(generation, reason))
+      },
     ),
   )
 }
@@ -1343,12 +1370,31 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         | Ready(_, Some(_)), _
         | Connecting(_), _
         | Reconnecting(_), _
-        | SuspendedPendingTree(_), _
+        | SuspendedPendingTree(_, _), _
         | Failed(_), _
         -> state
       }
       actor.continue(state)
     }
+
+    ReconnectTimedOut(client_id) ->
+      case state.phase {
+        Ready(core, Some(_)) if core.client_id == client_id ->
+          case runtime_core.reconnect_barrier_active(core) {
+            True ->
+              actor.continue(
+                State(
+                  ..state,
+                  phase: SuspendedPendingTree(
+                    core,
+                    "Reconnect timed out before the old session closed.",
+                  ),
+                ),
+              )
+            False -> actor.continue(state)
+          }
+        _ -> actor.continue(state)
+      }
 
     OperationsSinceSummary(reply) -> {
       process.send(reply, read(state, 0, runtime_core.operations_since_summary))
@@ -1395,7 +1441,7 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         | Ready(_, Some(_)), _, _, _
         | Connecting(_), _, _, _
         | Reconnecting(_), _, _, _
-        | SuspendedPendingTree(_), _, _, _
+        | SuspendedPendingTree(_, _), _, _, _
         | Failed(_), _, _, _
         | _, _, _, Some(_)
         -> actor.continue(state)
@@ -1414,9 +1460,13 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         None | Some(_) -> actor.continue(state)
       }
 
-    ChannelReady(channel) ->
+    ChannelReady(generation, channel) if generation != state.generation -> {
+      channel.close()
+      actor.continue(state)
+    }
+    ChannelReady(_, channel) ->
       case state.phase {
-        SuspendedPendingTree(_) -> {
+        SuspendedPendingTree(_, _) -> {
           channel.close()
           actor.continue(state)
         }
@@ -1447,22 +1497,32 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         }
       }
 
-    ChannelFailed(reason) ->
+    ChannelFailed(generation, _) if generation != state.generation ->
+      actor.continue(state)
+    ChannelFailed(_, reason) ->
       actor.continue(connection_failed(
         state,
         "channel connect failed: " <> reason,
       ))
 
-    ChannelClosed(reason) ->
+    ChannelClosed(generation, _) if generation != state.generation ->
+      actor.continue(state)
+    ChannelClosed(_, reason) ->
       case state.phase {
-        Ready(core, _) | Reconnecting(core) ->
-          actor.continue(begin_reconnect(state, core))
-        SuspendedPendingTree(_) -> actor.continue(state)
+        Ready(core, _) -> actor.continue(begin_reconnect(state, core))
+        Reconnecting(core) ->
+          case state.channel {
+            Some(_) -> actor.continue(begin_reconnect(state, core))
+            None -> actor.continue(state)
+          }
+        SuspendedPendingTree(_, _) -> actor.continue(state)
         Connecting(_) | Failed(_) ->
           actor.continue(fail(state, "channel closed: " <> reason))
       }
 
-    Inbound(event, payload) -> handle_inbound(state, event, payload)
+    Inbound(generation, _, _) if generation != state.generation ->
+      actor.continue(state)
+    Inbound(_, event, payload) -> handle_inbound(state, event, payload)
 
     ResolveRoot(reply) -> {
       process.send(
@@ -1476,6 +1536,28 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           },
         ),
       )
+      actor.continue(state)
+    }
+    ConnectionObservationRequested(reply) -> {
+      let observation = case state.phase {
+        Connecting(_) ->
+          runtime_core.connection_observation(None, "connecting", None)
+        Reconnecting(core) ->
+          runtime_core.connection_observation(Some(core), "reconnecting", None)
+        Ready(core, Some(_)) ->
+          runtime_core.connection_observation(Some(core), "catching-up", None)
+        Ready(core, None) ->
+          runtime_core.connection_observation(Some(core), "ready", None)
+        SuspendedPendingTree(core, reason) ->
+          runtime_core.connection_observation(
+            Some(core),
+            "suspended",
+            Some(reason),
+          )
+        Failed(reason) ->
+          runtime_core.connection_observation(None, "failed", Some(reason))
+      }
+      process.send(reply, observation)
       actor.continue(state)
     }
     ResolveTree(value, view, reply) -> {
@@ -1521,16 +1603,23 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
                   core,
                   send_outbound_checked(state.channel, core.client_id, outbound),
                 )
-              process.send(reply, outcome)
+              process.send(reply, case next.phase {
+                Reconnecting(_) -> Ok(Nil)
+                _ -> outcome
+              })
               fan_out(state.subscribers, events)
               actor.continue(next)
             }
           }
-        Ready(_, Some(_)) | Reconnecting(_) | SuspendedPendingTree(_) -> {
+        Ready(_, Some(_)) | Reconnecting(_) -> {
           process.send(
             reply,
-            Error("pending tree reconnect and resubmission are not supported"),
+            Error("tree edit requires a ready document connection"),
           )
+          actor.continue(state)
+        }
+        SuspendedPendingTree(_, reason) -> {
+          process.send(reply, Error(reason))
           actor.continue(state)
         }
         Connecting(_) | Failed(_) -> {
@@ -2351,11 +2440,8 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
           process.send(reply, Ok(Nil))
           actor.continue(state)
         }
-        SuspendedPendingTree(_) -> {
-          process.send(
-            reply,
-            Error("pending tree reconnect and resubmission are not supported"),
-          )
+        SuspendedPendingTree(_, reason) -> {
+          process.send(reply, Error(reason))
           actor.continue(state)
         }
       }
@@ -2365,8 +2451,10 @@ fn handle(state: State, msg: Msg) -> actor.Next(State, Msg) {
         // Reuse the retryable-nack path: close the channel and enter the
         // reconnecting phase; the receiver's ChannelClosed drives the rejoin.
         Ready(core, _) -> actor.continue(reconnect_after_nack(state, core))
-        Connecting(_) | Reconnecting(_) | SuspendedPendingTree(_) | Failed(_) ->
-          actor.continue(state)
+        Connecting(_)
+        | Reconnecting(_)
+        | SuspendedPendingTree(_, _)
+        | Failed(_) -> actor.continue(state)
       }
 
     Shutdown -> {
@@ -2416,7 +2504,7 @@ fn create_channel(
         }
       }
     }
-    Connecting(_) | Failed(_) | SuspendedPendingTree(_) -> {
+    Connecting(_) | Failed(_) | SuspendedPendingTree(_, _) -> {
       process.send(
         reply,
         Error(verb <> " requires a ready document connection"),
@@ -2448,7 +2536,7 @@ fn resolve_sequence_address(
   address: String,
 ) -> Result(Nil, String) {
   case state.phase {
-    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core) ->
+    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
       runtime_core.require_channel_type(core, address, SequenceChannel)
       |> result.map_error(string.inspect)
     Connecting(_) | Failed(_) ->
@@ -2459,7 +2547,7 @@ fn resolve_sequence_address(
 @target(erlang)
 fn resolve_text_address(state: State, address: String) -> Result(Nil, String) {
   case state.phase {
-    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core) ->
+    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
       runtime_core.require_channel_type(core, address, TextChannel)
       |> result.map_error(string.inspect)
     Connecting(_) | Failed(_) ->
@@ -2529,6 +2617,18 @@ fn handle_inbound(
               connected.checkpoint_sequence_number,
               core.last_seen_sequence_number,
             )
+          case runtime_core.reconnect_barrier_active(core) {
+            True -> {
+              let _ =
+                process.send_after(
+                  state.self,
+                  connect_timeout_milliseconds,
+                  ReconnectTimedOut(core.client_id),
+                )
+              Nil
+            }
+            False -> Nil
+          }
           // Ask for the gap. Nothing else will: no server pushes it unprompted,
           // and the reactive `requestOps` in the `"op"` handler below needs an
           // operation to react to. See `runtime_core.catch_up_from`.
@@ -2542,7 +2642,7 @@ fn handle_inbound(
           // catch-up `settle_reconnect` may still be pending — rejoining now is
           // both correct and the fastest way back to a roster.
           case state.phase {
-            SuspendedPendingTree(_) -> actor.continue(state)
+            SuspendedPendingTree(_, _) -> actor.continue(state)
             _ -> {
               notify_presence_session(state, core)
               settle_reconnect(state, core, checkpoint)
@@ -2550,14 +2650,14 @@ fn handle_inbound(
           }
         }
         // A late duplicate success; nothing to do.
-        Ready(_, _) | SuspendedPendingTree(_) | Failed(_) ->
+        Ready(_, _) | SuspendedPendingTree(_, _) | Failed(_) ->
           actor.continue(state)
       }
     }
 
     "connect_document_error" ->
       case state.phase {
-        SuspendedPendingTree(_) -> actor.continue(state)
+        SuspendedPendingTree(_, _) -> actor.continue(state)
         _ -> {
           let connect_error =
             require(
@@ -2593,7 +2693,7 @@ fn handle_inbound(
               request_from,
             )
           case state.phase, resubmit_at {
-            SuspendedPendingTree(_), _ -> actor.continue(state)
+            SuspendedPendingTree(_, _), _ -> actor.continue(state)
             // Mid-reconnect: the operations a kernel just released are already
             // in the in-flight queue, and `settle_reconnect` is about to
             // restamp that whole queue with fresh client sequence numbers and
@@ -2616,8 +2716,10 @@ fn handle_inbound(
         }
         // Operations before/without a connected session (or while reconnecting)
         // carry no state we can trust; ignore them.
-        Connecting(_) | Reconnecting(_) | SuspendedPendingTree(_) | Failed(_) ->
-          actor.continue(state)
+        Connecting(_)
+        | Reconnecting(_)
+        | SuspendedPendingTree(_, _)
+        | Failed(_) -> actor.continue(state)
       }
 
     "nack" -> {
@@ -2635,7 +2737,7 @@ fn handle_inbound(
             // Already tearing the channel down; the pending reconnect covers it.
             Connecting(_)
             | Reconnecting(_)
-            | SuspendedPendingTree(_)
+            | SuspendedPendingTree(_, _)
             | Failed(_) -> actor.continue(state)
           }
       }
@@ -2683,7 +2785,7 @@ fn settle_reconnect(
   core: runtime_core.Core,
   checkpoint: Int,
 ) -> actor.Next(State, Msg) {
-  case core.last_seen_sequence_number >= checkpoint {
+  case runtime_core.reconnect_ready(core, checkpoint) {
     True -> {
       case runtime_core.resubmit(runtime_core.go_live(core)) {
         Ok(#(core, outbound)) -> {
@@ -2693,7 +2795,12 @@ fn settle_reconnect(
         Error(error) ->
           case runtime_core.has_pending_tree(core) {
             True ->
-              actor.continue(State(..state, phase: SuspendedPendingTree(core)))
+              actor.continue(
+                State(
+                  ..state,
+                  phase: SuspendedPendingTree(core, string.inspect(error)),
+                ),
+              )
             False -> actor.continue(fail(state, string.inspect(error)))
           }
       }
@@ -2910,7 +3017,7 @@ fn handle_claim_submit(
 
     // The connection is not ready yet. The actor refuses the claim instead
     // of a crash.
-    Connecting(_) | Failed(_) | SuspendedPendingTree(_) -> {
+    Connecting(_) | Failed(_) | SuspendedPendingTree(_, _) -> {
       process.send(reply, WrongChannelType)
       actor.continue(state)
     }
@@ -3054,7 +3161,7 @@ fn handle_ordered_acquire_with_outcome(
           actor.continue(State(..state, phase: Reconnecting(core)))
         }
       }
-    Connecting(_) | Failed(_) | SuspendedPendingTree(_) -> {
+    Connecting(_) | Failed(_) | SuspendedPendingTree(_, _) -> {
       process.send(outcome, ordered_collection_kernel.Aborted)
       actor.continue(state)
     }
@@ -3152,7 +3259,7 @@ fn handle_task_volunteer(
         }
       }
     // The connection is not ready yet, so no assignment can happen.
-    Connecting(_) | Failed(_) | SuspendedPendingTree(_) -> {
+    Connecting(_) | Failed(_) | SuspendedPendingTree(_, _) -> {
       process.send(reply, task_manager_kernel.DisconnectedBeforeAssignment)
       actor.continue(state)
     }
@@ -3219,7 +3326,8 @@ fn edit(
     // Edits are only reachable through handles returned after await_ready,
     // so this is either a race with a failure or API misuse. The actor drops
     // the edit and stays alive.
-    Connecting(_) | SuspendedPendingTree(_) | Failed(_) -> actor.continue(state)
+    Connecting(_) | SuspendedPendingTree(_, _) | Failed(_) ->
+      actor.continue(state)
   }
 }
 
@@ -3278,7 +3386,7 @@ fn edit_sequence_with_result(
           actor.continue(state)
         }
       }
-    Connecting(_) | Failed(_) | SuspendedPendingTree(_) -> {
+    Connecting(_) | Failed(_) | SuspendedPendingTree(_, _) -> {
       process.send(
         reply,
         Error(verb <> " before the document connection is ready"),
@@ -3343,7 +3451,7 @@ fn edit_text_with_result(
           actor.continue(state)
         }
       }
-    Connecting(_) | Failed(_) | SuspendedPendingTree(_) -> {
+    Connecting(_) | Failed(_) | SuspendedPendingTree(_, _) -> {
       process.send(
         reply,
         Error(verb <> " before the document connection is ready"),
@@ -3410,7 +3518,7 @@ fn edit_with_result(
         }
       }
     }
-    Connecting(_) | Failed(_) | SuspendedPendingTree(_) -> {
+    Connecting(_) | Failed(_) | SuspendedPendingTree(_, _) -> {
       process.send(
         reply,
         Error(verb <> " requires a ready document connection"),
@@ -3424,7 +3532,7 @@ fn edit_with_result(
 fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
   case state.phase {
     Ready(core, _) -> extract(core)
-    Reconnecting(core) | SuspendedPendingTree(core) -> extract(core)
+    Reconnecting(core) | SuspendedPendingTree(core, _) -> extract(core)
     Connecting(_) | Failed(_) -> default
   }
 }
@@ -3438,18 +3546,11 @@ fn read(state: State, default: t, extract: fn(runtime_core.Core) -> t) -> t {
 /// and start a new receiver. That receiver does the handshake again, with the
 /// last sequence number that this client saw.
 fn begin_reconnect(state: State, core: runtime_core.Core) -> State {
-  let suspended = runtime_core.has_pending_tree(core)
-  case suspended {
-    False -> connect_transport(state.transport, state.self)
-    True -> Nil
-  }
+  let generation = state.generation + 1
+  connect_transport(state.transport, state.self, generation)
   notify_session_lost(state)
   let state = abort_pending_summary(state)
-  let phase = case suspended {
-    True -> SuspendedPendingTree(core)
-    False -> Reconnecting(core)
-  }
-  State(..state, channel: None, phase: phase)
+  State(..state, channel: None, phase: Reconnecting(core), generation:)
 }
 
 @target(erlang)
@@ -3460,7 +3561,7 @@ fn connection_failed(state: State, reason: String) -> State {
         True -> begin_reconnect(state, core)
         False -> fail(state, reason)
       }
-    SuspendedPendingTree(_) -> state
+    SuspendedPendingTree(_, _) -> state
     Connecting(_) | Failed(_) -> fail(state, reason)
   }
 }
@@ -3470,17 +3571,15 @@ fn connection_failed(state: State, reason: String) -> State {
 /// phase. The `ChannelClosed` message from the receiver then drives the
 /// reconnect, so this function does not start a second receiver.
 fn reconnect_after_nack(state: State, core: runtime_core.Core) -> State {
+  let generation = state.generation + 1
+  connect_transport(state.transport, state.self, generation)
   case state.channel {
     Some(channel) -> channel.close()
     None -> Nil
   }
   notify_session_lost(state)
   let state = abort_pending_summary(state)
-  let phase = case runtime_core.has_pending_tree(core) {
-    True -> SuspendedPendingTree(core)
-    False -> Reconnecting(core)
-  }
-  State(..state, channel: None, phase: phase)
+  State(..state, channel: None, phase: Reconnecting(core), generation:)
 }
 
 @target(erlang)
@@ -3556,7 +3655,7 @@ fn handle_summarize(
   reply: Subject(Result(String, String)),
 ) -> actor.Next(State, Msg) {
   case state.phase {
-    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core) ->
+    Ready(core, _) | Reconnecting(core) | SuspendedPendingTree(core, _) ->
       case runtime_core.has_tree(core) && core.persistence == None {
         True -> {
           process.send(
@@ -3597,7 +3696,7 @@ fn handle_native_summarize(
     | Ready(_, Some(_)), _, _
     | Connecting(_), _, _
     | Reconnecting(_), _, _
-    | SuspendedPendingTree(_), _, _
+    | SuspendedPendingTree(_, _), _, _
     | Failed(_), _, _
     -> {
       process.send(
@@ -3864,17 +3963,13 @@ fn send_or_suspend(
       case runtime_core.has_pending_tree(core) {
         False -> panic as reason
         True -> {
-          notify_session_lost(state)
-          let state = abort_pending_summary(state)
-          let state = abort_outcome_waiters(state)
+          let next = begin_reconnect(state, core)
+          let next = abort_outcome_waiters(next)
           case state.channel {
             Some(channel) -> channel.close()
             None -> Nil
           }
-          #(
-            State(..state, channel: None, phase: SuspendedPendingTree(core)),
-            outcome,
-          )
+          #(next, outcome)
         }
       }
   }
@@ -3963,7 +4058,8 @@ fn notify_presence_session(state: State, core: runtime_core.Core) -> Nil {
 fn notify_session_lost(state: State) -> Nil {
   case state.phase {
     Ready(_, _) -> notify_presence(state, PresenceSessionLost)
-    Connecting(_) | Reconnecting(_) | SuspendedPendingTree(_) | Failed(_) -> Nil
+    Connecting(_) | Reconnecting(_) | SuspendedPendingTree(_, _) | Failed(_) ->
+      Nil
   }
 }
 
@@ -3971,7 +4067,8 @@ fn notify_session_lost(state: State) -> Nil {
 fn notify_waiters(phase: Phase, result: Result(Nil, String)) -> Nil {
   case phase {
     Connecting(waiters) -> list.each(waiters, process.send(_, result))
-    Ready(_, _) | Reconnecting(_) | SuspendedPendingTree(_) | Failed(_) -> Nil
+    Ready(_, _) | Reconnecting(_) | SuspendedPendingTree(_, _) | Failed(_) ->
+      Nil
   }
 }
 

@@ -83,6 +83,26 @@ fn connect_message() -> message.ConnectMessage {
 }
 
 @target(javascript)
+fn membership_frame(
+  sequence_number: Int,
+  operation_type: String,
+  data: String,
+) -> frame.Sequenced {
+  frame.Sequenced(
+    client_id: None,
+    sequence_number: sequence_number,
+    minimum_sequence_number: 0,
+    client_sequence_number: -1,
+    reference_sequence_number: 0,
+    operation_type: operation_type,
+    contents: json.null(),
+    metadata: None,
+    timestamp: 0,
+    data: Some(data),
+  )
+}
+
+@target(javascript)
 pub type BootstrapTreeFixture {
   BootstrapTreeFixture(
     connect: fn() -> Nil,
@@ -296,9 +316,7 @@ pub fn seeded_runtime_resolves_routed_root_before_publication_test() {
     "{\"nacks\":[{\"sequenceNumber\":1,\"content\":{\"code\":400,\"type\":\"BadRequestError\",\"message\":\"retry\"}}]}",
   )
   runtime.diagnostics(runtime).phase
-  |> expect.to_equal(
-    "suspended-pending-tree: pending tree reconnect and resubmission are not supported",
-  )
+  |> expect.to_equal("reconnecting")
   runtime.diagnostics(runtime).in_flight_count |> expect.to_equal(1)
   runtime.close(runtime)
 }
@@ -559,6 +577,7 @@ pub fn pending_tree_disconnect_retains_optimistic_content_and_rejects_edits_test
   let assert Ok(#(input, _)) = runtime_fixture.routed_seed_input()
   let assert Ok(seed) = runtime_core.bootstrap_seed(input)
   let callbacks = transport_js.new_cell(None)
+  let submissions = transport_js.new_cell([])
   let owner =
     runtime.start_with_transport_and_seed(
       http_base_url: "https://seed.invalid",
@@ -567,7 +586,16 @@ pub fn pending_tree_disconnect_retains_optimistic_content_and_rejects_edits_test
       transport: runtime.Transport(connect: fn(handlers) {
         transport_js.set_cell(callbacks, Some(handlers))
         runtime.TransportHandle(
-          push: fn(_, _) { Nil },
+          push: fn(event, payload) {
+            case event {
+              "submitOp" ->
+                transport_js.set_cell(submissions, [
+                  payload,
+                  ..transport_js.get_cell(submissions)
+                ])
+              _ -> Nil
+            }
+          },
           close: fn() { Nil },
           drop: fn() { Nil },
           hold: fn() { Nil },
@@ -600,10 +628,8 @@ pub fn pending_tree_disconnect_retains_optimistic_content_and_rejects_edits_test
   |> expect.to_equal(Ok(Nil))
   runtime.diagnostics(owner).in_flight_count |> expect.to_equal(1)
   callbacks.on_close()
-  runtime.diagnostics(owner).phase
-  |> expect.to_equal(
-    "suspended-pending-tree: pending tree reconnect and resubmission are not supported",
-  )
+  runtime.connection_observation(owner).phase |> expect.to_equal("reconnecting")
+  runtime.connection_observation(owner).pending_tree_count |> expect.to_equal(1)
   runtime.diagnostics(owner).in_flight_count |> expect.to_equal(1)
   runtime.is_synced(owner) |> expect.to_equal(False)
   runtime.tree_read(owner, "A/_C", ["title"])
@@ -613,11 +639,69 @@ pub fn pending_tree_disconnect_retains_optimistic_content_and_rejects_edits_test
     "A/_C",
     tree_types.SetField(["title"], tree_types.StringValue("lost")),
   )
-  |> expect.to_equal(Error(
-    "pending tree reconnect and resubmission are not supported",
-  ))
+  |> expect.to_be_error()
   runtime.tree_read(owner, "A/_C", ["title"])
   |> expect.to_equal(Ok(Some(tree_types.StringValue("retained"))))
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
+  callbacks.on_join()
+  callbacks.on_event(
+    "connect_document_success",
+    frame.encode_connected(
+      client_id: "reader-2",
+      tenant_id: "default",
+      document_id: "tree",
+      scopes: ["doc:read", "doc:write"],
+      checkpoint_sequence_number: 1,
+      initial_clients: ["reader-2"],
+      initial_messages: [],
+      timestamp: 0,
+      presence_v1: False,
+    )
+      |> json.to_string,
+  )
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(1, "join", "{\"clientId\":\"reader-2\",\"detail\":{}}"),
+    ])
+      |> json.to_string,
+  )
+  runtime.connection_observation(owner).phase
+  |> expect.to_equal("catching-up")
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(1)
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      membership_frame(2, "leave", "\"reader\""),
+    ])
+      |> json.to_string,
+  )
+  runtime.connection_observation(owner).phase |> expect.to_equal("ready")
+  transport_js.get_cell(submissions) |> list.length |> expect.to_equal(2)
+  let assert [resent, _] = transport_js.get_cell(submissions)
+  let assert Ok(dynamic) = json.parse(json.to_string(resent), decode.dynamic)
+  let assert Ok(frame.SubmitOperation("reader-2", [[submitted]])) =
+    frame.decode_submit_operation(dynamic)
+  submitted.reference_sequence_number |> expect.to_equal(2)
+  callbacks.on_event(
+    "op",
+    frame.encode_operation_event([
+      frame.Sequenced(
+        client_id: Some("reader-2"),
+        sequence_number: 3,
+        minimum_sequence_number: 0,
+        client_sequence_number: submitted.client_sequence_number,
+        reference_sequence_number: submitted.reference_sequence_number,
+        operation_type: submitted.operation_type,
+        contents: submitted.contents,
+        metadata: submitted.metadata,
+        timestamp: 0,
+        data: None,
+      ),
+    ])
+      |> json.to_string,
+  )
+  runtime.connection_observation(owner).synced |> expect.to_equal(True)
   runtime.close(owner)
 }
 

@@ -273,6 +273,52 @@ pub fn shared_tree_resubmit_preserves_interleaved_map_submission_test() -> Nil {
   |> expect.to_equal(Ok(json.string("map")))
 }
 
+pub fn shared_tree_reconnect_waits_for_old_leave_after_new_join_test() -> Nil {
+  let assert Ok(core) = runtime_fixture.routed_core()
+  let assert Ok(#(pending, _, [outbound])) =
+    runtime_core.submit_tree_edits(core, "A/_C", [
+      tree_types.SetField(["title"], tree_types.StringValue("accepted")),
+    ])
+  let rejoined =
+    runtime_core.adopt_reconnect(
+      pending,
+      runtime_fixture.connected(
+        "rejoined",
+        [],
+        pending.last_seen_sequence_number,
+      ),
+    )
+  let joining =
+    types.SequencedDocumentMessage(
+      ..batch_message([]),
+      message_type: "join",
+      sequence_number: 3,
+      data: Some("{\"clientId\":\"rejoined\",\"detail\":{}}"),
+    )
+  let #(joined, _) =
+    runtime_core.handle_sequenced(rejoined, joining) |> expect.to_be_ok
+  runtime_core.reconnect_ready(joined, 3) |> expect.to_equal(False)
+  let old_ack =
+    types.SequencedDocumentMessage(
+      ..from_outbound(outbound),
+      client_id: Some(pending.client_id),
+      sequence_number: 4,
+    )
+  let #(acknowledged, _) =
+    runtime_core.handle_sequenced(joined, old_ack) |> expect.to_be_ok
+  runtime_core.reconnect_ready(acknowledged, 3) |> expect.to_equal(False)
+  let leaving =
+    types.SequencedDocumentMessage(
+      ..batch_message([]),
+      message_type: "leave",
+      sequence_number: 5,
+      data: Some(json.to_string(json.string(pending.client_id))),
+    )
+  let #(closed, _) =
+    runtime_core.handle_sequenced(acknowledged, leaving) |> expect.to_be_ok
+  runtime_core.reconnect_ready(closed, 3) |> expect.to_equal(True)
+}
+
 pub fn shared_tree_runtime_route_identity_test() -> Nil {
   fluid_container.route_key(fluid_container.Route("A", "root"))
   |> expect.to_equal(Ok("A/root"))
