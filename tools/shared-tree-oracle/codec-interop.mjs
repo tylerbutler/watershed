@@ -29,6 +29,7 @@ const requiredItemIds = [
   "summary-initial",
   "summary-settled-detached",
   "summary-native-authored",
+  "summary-restored-detached",
 ];
 const point = (x, y) => ({
   type: "org.watershed.shared-tree.m1.Point",
@@ -214,6 +215,14 @@ const expectedObservations = [
       ],
       peers: settledHistory.peers,
     },
+    continued: "upstream-continuation",
+  },
+  {
+    id: "summary-restored-detached",
+    kind: "summary",
+    visible: visibleRoot({ pointValue: { x: 10, y: 20 } }),
+    removed: [pointRemoval, numberRemoval],
+    history: settledHistory,
     continued: "upstream-continuation",
   },
 ];

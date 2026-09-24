@@ -1213,6 +1213,21 @@ pub fn advance_minimum(
   Ok(#(HistoryUpdate(prune_rollbacks(next), None, None, trimmed), allocation))
 }
 
+pub fn advance_processed(
+  state: History,
+  sequence_number: Int,
+) -> Result(History, TreeError) {
+  use _ <- result.try(validate_safe(
+    sequence_number,
+    "processed sequence number is outside the safe integer range",
+  ))
+  use _ <- result.try(check(
+    sequence_number >= state.sequence_number,
+    "processed sequence number regresses",
+  ))
+  Ok(History(..state, sequence_number:))
+}
+
 pub fn pending(state: History) -> List(Commit) {
   list.map(state.pending, fn(entry) { entry.current.commit })
 }

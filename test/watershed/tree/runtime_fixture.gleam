@@ -102,32 +102,7 @@ pub fn read(
 ) -> Result(RuntimeInput, String) {
   use decoder_input <- result.try(field(input, "decoderInput"))
   use snapshot <- result.try(field(decoder_input, "initialSnapshot"))
-  use encoding <- result.try(read_field(snapshot, "blobEncoding", decode.string))
-  use Nil <- result.try(case encoding {
-    "base64" -> Ok(Nil)
-    _ -> Error("runtime fixture snapshot is not base64")
-  })
-  use tree_json <- result.try(field(snapshot, "tree"))
-  use encoded_blobs <- result.try(read_field(
-    snapshot,
-    "blobs",
-    decode.dict(decode.string, decode.string),
-  ))
-  use blobs <- result.try(
-    encoded_blobs
-    |> dict.to_list
-    |> list.try_map(fn(entry) {
-      use bytes <- result.try(
-        bit_array.base64_decode(entry.1)
-        |> result.replace_error("runtime fixture has invalid blob bytes"),
-      )
-      Ok(#(entry.0, bytes))
-    }),
-  )
-  use document <- result.try(
-    fluid_summary.from_snapshot(tree_json, dict.from_list(blobs))
-    |> result.map_error(string.inspect),
-  )
+  use document <- result.try(read_snapshot(snapshot))
   use attributes <- result.try(blob(document, "/.protocol/attributes"))
   use sequence_number <- result.try(read_field(
     attributes,
@@ -237,6 +212,35 @@ pub fn read(
     prefix:,
     operations:,
   ))
+}
+
+pub fn read_snapshot(
+  snapshot: Json,
+) -> Result(fluid_summary.SummaryEntry, String) {
+  use encoding <- result.try(read_field(snapshot, "blobEncoding", decode.string))
+  use Nil <- result.try(case encoding {
+    "base64" -> Ok(Nil)
+    _ -> Error("runtime fixture snapshot is not base64")
+  })
+  use tree_json <- result.try(field(snapshot, "tree"))
+  use encoded_blobs <- result.try(read_field(
+    snapshot,
+    "blobs",
+    decode.dict(decode.string, decode.string),
+  ))
+  use blobs <- result.try(
+    encoded_blobs
+    |> dict.to_list
+    |> list.try_map(fn(entry) {
+      use bytes <- result.try(
+        bit_array.base64_decode(entry.1)
+        |> result.replace_error("runtime fixture has invalid blob bytes"),
+      )
+      Ok(#(entry.0, bytes))
+    }),
+  )
+  fluid_summary.from_snapshot(tree_json, dict.from_list(blobs))
+  |> result.map_error(string.inspect)
 }
 
 pub fn routed_seed_input() -> Result(

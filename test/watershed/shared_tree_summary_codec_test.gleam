@@ -10,8 +10,11 @@ import watershed/json_ot.{
 import watershed/tree/codec
 import watershed/tree/codec/summary
 import watershed/tree/fixtures
+import watershed/tree/runtime as tree_runtime
 import watershed/tree/schema
+import watershed/tree/summary as tree_summary
 import watershed/tree/types
+import watershed/tree_kernel
 import watershed/wire/fluid_summary
 
 fn summary_fixture(
@@ -97,6 +100,47 @@ pub fn shared_tree_summary_decodes_initial_bootstrap_test() {
     )
   list.map(fields, fn(field) { field.0 })
   |> expect.to_equal(["rootFieldKey"])
+}
+
+pub fn shared_tree_summary_restores_and_reexports_retained_history_test() {
+  let #(entry, session, compressor) = summary_fixture("settled-detached")
+  let context = codec.DecodeContext(codec.Fluid310, compressor)
+  let assert Ok(decoded) = summary.decode(entry, None, session, context)
+  let assert Ok(view_id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000012")
+  let assert Ok(snapshot) =
+    tree_summary.from_wire(decoded, view_id, compressor, 8, 7)
+  let #(_, data, history) = tree_kernel.snapshot_parts(snapshot)
+  data.next_detached_root_id |> expect.to_equal(5)
+  history.sequence_number |> expect.to_equal(8)
+  history.minimum_sequence_number |> expect.to_equal(7)
+  list.length(history.peers) |> expect.to_equal(1)
+  let assert Ok(output) = tree_summary.to_wire(snapshot)
+  output.forest |> expect.to_equal(decoded.forest)
+  output.detached |> expect.to_equal(decoded.detached)
+  output.history |> expect.to_equal(decoded.history)
+}
+
+pub fn shared_tree_summary_restores_initial_schema_commit_test() {
+  let #(entry, session, compressor) = summary_fixture("initial")
+  let assert Ok(decoded) =
+    summary.decode(
+      entry,
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+  let assert Ok(view_id) =
+    fluid_ids.stable_id("00000000-0000-4000-8000-000000000012")
+  let assert Ok(snapshot) =
+    tree_summary.from_wire(decoded, view_id, compressor, 2, 0)
+  let assert Ok(view) =
+    schema.view_from_json(schema.stored_to_json(decoded.schema))
+  let assert Ok(state) =
+    tree_runtime.restore(snapshot, view_id, view, compressor)
+  let assert Ok(resnapshot) = tree_kernel.snapshot(state)
+  let assert Ok(written) = tree_summary.to_wire(resnapshot)
+  written |> expect.to_equal(decoded)
 }
 
 pub fn shared_tree_summary_decodes_settled_history_and_repairs_test() {

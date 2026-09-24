@@ -4,6 +4,7 @@ import gleam/option.{type Option, None, Some}
 import gleam/result
 import watershed/fluid_ids
 import watershed/tree/change
+import watershed/tree/codec/summary as summary_codec
 import watershed/tree/forest
 import watershed/tree/history
 import watershed/tree/schema
@@ -16,6 +17,7 @@ pub opaque type TreeSnapshot {
     stored: schema.StoredSchema,
     forest_data: forest.ForestData,
     history_snapshot: history.HistorySnapshot,
+    retained_wire: summary_codec.EditManagerSummary,
   )
 }
 
@@ -27,6 +29,7 @@ pub opaque type TreeState {
     history: history.History,
     local_session: fluid_ids.SessionId,
     next_local_id: Int,
+    retained_wire: summary_codec.EditManagerSummary,
   )
 }
 
@@ -41,7 +44,28 @@ pub fn snapshot_from_parts(
   history_snapshot: history.HistorySnapshot,
 ) -> Result(TreeSnapshot, TreeError) {
   use _ <- result.try(forest.import_data(view_id, stored, forest_data))
-  Ok(TreeSnapshot(stored, forest_data, history_snapshot))
+  Ok(TreeSnapshot(
+    stored,
+    forest_data,
+    history_snapshot,
+    summary_codec.EditManagerSummary([], []),
+  ))
+}
+
+pub fn snapshot_from_summary(
+  view_id: fluid_ids.StableId,
+  stored: schema.StoredSchema,
+  forest_data: forest.ForestData,
+  history_snapshot: history.HistorySnapshot,
+  retained_wire: summary_codec.EditManagerSummary,
+) -> Result(TreeSnapshot, TreeError) {
+  use snapshot <- result.try(snapshot_from_parts(
+    view_id,
+    stored,
+    forest_data,
+    history_snapshot,
+  ))
+  Ok(TreeSnapshot(..snapshot, retained_wire:))
 }
 
 pub fn restore(
@@ -60,7 +84,15 @@ pub fn restore(
     snapshot.history_snapshot,
     local_session,
   ))
-  Ok(TreeState(snapshot.stored, visible, visible, history, local_session, 0))
+  Ok(TreeState(
+    snapshot.stored,
+    visible,
+    visible,
+    history,
+    local_session,
+    0,
+    snapshot.retained_wire,
+  ))
 }
 
 pub fn read(
@@ -97,7 +129,18 @@ pub fn ensure_attached(
 
 pub fn snapshot(state: TreeState) -> Result(TreeSnapshot, TreeError) {
   use data <- result.try(forest.export_data(state.sequenced))
-  Ok(TreeSnapshot(state.stored, data, history.inspect(state.history).sequenced))
+  Ok(TreeSnapshot(
+    state.stored,
+    data,
+    history.inspect(state.history).sequenced,
+    state.retained_wire,
+  ))
+}
+
+pub fn retained_wire(
+  snapshot: TreeSnapshot,
+) -> summary_codec.EditManagerSummary {
+  snapshot.retained_wire
 }
 
 pub fn snapshot_parts(
@@ -145,6 +188,17 @@ pub fn advance_document(
     mint,
   ))
   Ok(#(TreeState(..state, history: update.history), allocation))
+}
+
+pub fn advance_processed(
+  state: TreeState,
+  sequence_number: Int,
+) -> Result(TreeState, TreeError) {
+  use history <- result.try(history.advance_processed(
+    state.history,
+    sequence_number,
+  ))
+  Ok(TreeState(..state, history:))
 }
 
 pub fn validate_edit(state: TreeState, edit: Edit) -> Result(Nil, TreeError) {

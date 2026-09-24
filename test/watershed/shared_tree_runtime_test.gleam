@@ -1510,7 +1510,7 @@ pub fn shared_tree_runtime_gap_drains_tree_batch_once_test() {
   ignored.events |> expect.to_equal([])
 }
 
-pub fn shared_tree_runtime_all_outer_messages_advance_tree_watermarks_test() {
+pub fn shared_tree_runtime_non_tree_messages_keep_tree_history_test() {
   let assert Ok(reader) = runtime_fixture.routed_core()
   let assert Ok(#(_, prefix)) = runtime_fixture.routed_seed_input()
   let assert [joined, ..] = prefix
@@ -1574,13 +1574,13 @@ pub fn shared_tree_runtime_all_outer_messages_advance_tree_watermarks_test() {
       tree_kernel.history_view(tree).sequenced.sequence_number
       |> expect.to_equal(previous + 1)
       tree_kernel.history_view(tree).sequenced.minimum_sequence_number
-      |> expect.to_equal(message.minimum_sequence_number)
+      |> expect.to_equal(0)
       #(core, previous + 1)
     })
   reader.last_seen_sequence_number |> expect.to_equal(9)
 }
 
-pub fn shared_tree_runtime_empty_group_with_count_advances_tree_test() {
+pub fn shared_tree_runtime_empty_group_keeps_tree_watermark_test() {
   let assert Ok(core) = runtime_fixture.routed_core()
   let assert Ok(metadata) =
     json.parse(
@@ -1618,10 +1618,7 @@ pub fn shared_tree_runtime_rejects_regressing_document_minimum_test() {
     )
   runtime_core.handle_sequenced(core, invalid)
   |> expect.to_equal(
-    Error(runtime_core.TreeOperationFailed(
-      "A/_C",
-      tree_types.InvalidHistory("minimum sequence number regresses"),
-    )),
+    Error(runtime_core.HistoryGap("minimum sequence number regresses")),
   )
   core.last_seen_sequence_number |> expect.to_equal(3)
 }

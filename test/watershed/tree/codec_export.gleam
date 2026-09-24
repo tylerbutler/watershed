@@ -18,6 +18,7 @@ import watershed/tree/codec
 import watershed/tree/codec/field_batch
 import watershed/tree/codec/summary
 import watershed/tree/forest
+import watershed/tree/summary as tree_summary
 import watershed/tree/types.{AtomId, ClearField, SetField, StringValue}
 import watershed/wire/fluid_summary
 
@@ -140,13 +141,14 @@ fn build_artifact(input: Input) -> Result(Json, String) {
   use settled <- result.try(summary_state(summaries, "settled-detached"))
   use message_items <- result.try(native_messages(initial, note))
   use authored_summary <- result.try(native_summary(settled))
+  use restored_summary <- result.try(restored_summary_item(summaries))
   let items =
     list.flatten([
       schema_items,
       batch_items,
       message_items,
       summary_items,
-      [authored_summary],
+      [authored_summary, restored_summary],
     ])
   case items {
     [] -> Error("codec artifact has no items")
@@ -167,6 +169,59 @@ fn build_artifact(input: Input) -> Result(Json, String) {
         ]),
       )
   }
+}
+
+fn restored_summary_item(
+  sources: List(#(String, JsonValue, String, String)),
+) -> Result(Json, String) {
+  use source <- result.try(
+    list.find(sources, fn(source) { source.0 == "settled-detached" })
+    |> result.map_error(fn(_) { "missing settled-detached summary" }),
+  )
+  let #(_, encoded, session_raw, compressor_raw) = source
+  use session <- result.try(
+    fluid_ids.session_id(session_raw) |> result.map_error(string.inspect),
+  )
+  use #(_, compressor) <- result.try(restore_summary_compressor(
+    compressor_raw,
+    session,
+  ))
+  use decoded <- result.try(
+    summary.decode(
+      summary_entry(encoded),
+      None,
+      session,
+      codec.DecodeContext(codec.Fluid310, compressor),
+    )
+    |> native,
+  )
+  use view <- result.try(
+    fluid_ids.stable_id(native_summary_consumer_session)
+    |> result.map_error(string.inspect),
+  )
+  use snapshot <- result.try(
+    tree_summary.from_wire(decoded, view, compressor, 6, 0)
+    |> result.map_error(string.inspect),
+  )
+  use restored <- result.try(
+    tree_summary.to_wire(snapshot) |> result.map_error(string.inspect),
+  )
+  use encoded <- result.try(
+    summary.encode(
+      restored,
+      session,
+      codec.EncodeContext(codec.Fluid310, compressor, Some(restored.schema)),
+    )
+    |> native,
+  )
+  use serialized <- result.try(serialize_compressor(compressor, False))
+  Ok(
+    item("summary-restored-detached", "summary", summary_json(encoded), [
+      #("compressor", json.string(serialized)),
+      #("compressorMode", json.string("summary")),
+      #("session", json.string(native_summary_consumer_session)),
+    ]),
+  )
 }
 
 fn summary_item(
