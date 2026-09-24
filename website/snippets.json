@@ -6,7 +6,7 @@
     "test",
     "examples",
     "watershed_lustre",
-    "tools/website-samples/src"
+    "tools/website-samples"
   ],
   "extensions": [
     ".gleam",
