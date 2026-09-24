@@ -2535,6 +2535,116 @@ pub fn loaded_document_captures_sequenced_datastore_test() -> Nil {
   store.package_path |> expect.to_equal(["other"])
 }
 
+pub fn loaded_document_rejects_duplicate_explicit_batch_before_map_apply_test() -> Nil {
+  let assert Ok(initial) =
+    fluid_document.native(2, 0, [], [
+      #("watershed/root", channel.MapSnapshot([#("x", json.int(1))])),
+    ])
+  let old =
+    map_operation_message(
+      client_id: "old-client",
+      sequence_number: 3,
+      client_sequence_number: 1,
+      operation: Set("x", json.int(1)),
+    )
+  let assert Ok(initial) = fluid_document.advance(initial, old)
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(connected_message([], 3), initial)
+  let assert Ok(#(core, _)) =
+    runtime_core.handle_sequenced(
+      core,
+      map_operation_message(
+        client_id: other_client_id,
+        sequence_number: 4,
+        client_sequence_number: 7,
+        operation: Set("x", json.int(2)),
+      ),
+    )
+  let duplicate =
+    types.SequencedDocumentMessage(
+      ..map_operation_message(
+        client_id: "resubmitted-client",
+        sequence_number: 5,
+        client_sequence_number: 2,
+        operation: Set("x", json.int(1)),
+      ),
+      metadata: Some(
+        json_to_dynamic(
+          json.object([#("batchId", json.string("old-client_[1]"))]),
+        ),
+      ),
+    )
+  case runtime_core.handle_sequenced(core, duplicate) {
+    Error(_) -> Nil
+    Ok(#(applied, _)) ->
+      runtime_core.get(applied, "watershed/root", "x")
+      |> expect.to_equal(Ok(json.int(2)))
+  }
+  runtime_core.get(core, "watershed/root", "x")
+  |> expect.to_equal(Ok(json.int(2)))
+  core.last_seen_sequence_number |> expect.to_equal(4)
+  let assert Ok(summary) = runtime_core.capture_summary(core)
+  let assert Ok(encoded) = fluid_document.encode(summary)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(reloaded) = fluid_document.decode(encoded, None, session, view)
+  let assert Ok(runtime_core.Complete(reloaded)) =
+    runtime_core.bootstrap_document(connected_message([], 4), reloaded)
+  runtime_core.get(reloaded, "watershed/root", "x")
+  |> expect.to_equal(Ok(json.int(2)))
+}
+
+pub fn loaded_document_tracks_explicit_batch_id_until_window_passes_test() -> Nil {
+  let assert Ok(initial) =
+    fluid_document.native(2, 0, [], [
+      #("watershed/root", channel.MapSnapshot([#("x", json.int(0))])),
+    ])
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(connected_message([], 2), initial)
+  let first =
+    types.SequencedDocumentMessage(
+      ..map_operation_message(
+        client_id: "first-session",
+        sequence_number: 3,
+        client_sequence_number: 1,
+        operation: Set("x", json.int(1)),
+      ),
+      metadata: Some(
+        json_to_dynamic(
+          json.object([#("batchId", json.string("original-session_[6]"))]),
+        ),
+      ),
+    )
+  let assert Ok(#(core, _)) = runtime_core.handle_sequenced(core, first)
+  let retry =
+    types.SequencedDocumentMessage(
+      ..map_operation_message(
+        client_id: "second-session",
+        sequence_number: 4,
+        client_sequence_number: 1,
+        operation: Set("x", json.int(99)),
+      ),
+      metadata: Some(
+        json_to_dynamic(
+          json.object([#("batchId", json.string("original-session_[6]"))]),
+        ),
+      ),
+    )
+  let assert Error(_) = runtime_core.handle_sequenced(core, retry)
+  runtime_core.get(core, "watershed/root", "x")
+  |> expect.to_equal(Ok(json.int(1)))
+  let expired =
+    types.SequencedDocumentMessage(..retry, minimum_sequence_number: 4)
+  let assert Ok(#(core, _)) = runtime_core.handle_sequenced(core, expired)
+  runtime_core.get(core, "watershed/root", "x")
+  |> expect.to_equal(Ok(json.int(99)))
+  let assert Ok(summary) = runtime_core.capture_summary(core)
+  let assert Ok(_) = fluid_document.encode(summary)
+  Nil
+}
+
 pub fn detached_counter_increment_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core =

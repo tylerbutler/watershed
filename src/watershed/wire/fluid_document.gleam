@@ -796,6 +796,7 @@ pub fn advance(
     "/.protocol/attributes",
     "invalid sequenced message watermark",
   ))
+  use _ <- result.try(check_batch(summary, message))
   use #(protocol_members, member_ids) <- result.try(advance_members(
     summary.protocol_members,
     summary.member_ids,
@@ -1175,6 +1176,88 @@ fn last_message(
   )
 }
 
+pub fn check_batch(
+  summary: DocumentSummary,
+  message: SequencedDocumentMessage,
+) -> Result(Nil, SummaryError) {
+  use identity <- result.try(effective_batch_id(message))
+  case identity, summary.recent_batches {
+    Some(identity), Some(records) -> {
+      use entries <- result.try(
+        json.parse(
+          json.to_string(records),
+          decode.list(decode.list(wire.json_value_decoder())),
+        )
+        |> result.map_error(fn(_) {
+          fluid_summary.MalformedEntry(
+            "/.recentBatchInfo",
+            "invalid batch table",
+          )
+        }),
+      )
+      require(
+        !list.any(entries, fn(entry) {
+          case entry {
+            [position, recorded] ->
+              case json.parse(json.to_string(position), decode.int) {
+                Ok(sequence) ->
+                  sequence >= message.minimum_sequence_number
+                  && recorded == json.string(identity)
+                Error(_) -> False
+              }
+            _ -> False
+          }
+        }),
+        "/.recentBatchInfo",
+        "duplicate batch identity",
+      )
+    }
+    _, _ -> Ok(Nil)
+  }
+}
+
+fn effective_batch_id(
+  message: SequencedDocumentMessage,
+) -> Result(Option(String), SummaryError) {
+  case message.message_type, message.client_id {
+    "op", Some(id) -> {
+      use explicit <- result.try(case message.metadata {
+        Some(raw) ->
+          decode.run(raw, {
+            use id <- decode.optional_field(
+              "batchId",
+              None,
+              decode.map(decode.string, Some),
+            )
+            decode.success(id)
+          })
+          |> result.map_error(fn(_) {
+            fluid_summary.MalformedEntry(
+              "/.recentBatchInfo",
+              "invalid batch ID",
+            )
+          })
+        None -> Ok(None)
+      })
+      case explicit {
+        Some(id) -> {
+          use _ <- result.try(require(
+            id != "",
+            "/.recentBatchInfo",
+            "empty batch ID",
+          ))
+          Ok(Some(id))
+        }
+        None ->
+          Ok(Some(
+            id <> "_[" <> int.to_string(message.client_sequence_number) <> "]",
+          ))
+      }
+    }
+    _, _ -> Ok(None)
+  }
+}
+
 fn advance_batches(
   previous: Option(Json),
   message: SequencedDocumentMessage,
@@ -1213,17 +1296,16 @@ fn advance_batches(
       })
     }),
   )
-  let retained = case message.message_type, message.client_id {
-    "op", Some(id) ->
+  use identity <- result.try(effective_batch_id(message))
+  let retained = case identity {
+    Some(id) ->
       list.append(retained, [
         [
           json.int(message.sequence_number),
-          json.string(
-            id <> "_[" <> int.to_string(message.client_sequence_number) <> "]",
-          ),
+          json.string(id),
         ],
       ])
-    _, _ -> retained
+    None -> retained
   }
   Ok(case retained {
     [] -> None

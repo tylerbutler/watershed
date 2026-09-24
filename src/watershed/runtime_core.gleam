@@ -1859,6 +1859,12 @@ fn apply_one(
     },
   )
   let core = Core(..core, last_seen_sequence_number: msg.sequence_number)
+  use _ <- result.try(case core.persistence {
+    Some(summary) ->
+      fluid_document.check_batch(summary, msg)
+      |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
+    None -> Ok(Nil)
+  })
   use #(core, events, resolutions, summary_events) <- result.try(
     case msg.message_type {
       "op" -> without_summary_events(handle_operation(core, msg))
