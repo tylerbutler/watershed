@@ -19,8 +19,8 @@
 ////   remainder with new CSN values after it reaches the reconnect checkpoint.
 ////   The actor applies an edit from the connecting interval optimistically,
 ////   and it delays the push of that edit to the same resubmit.
-////   A pending tree edit is an exception. The actor keeps its core and refuses
-////   resubmission until a later milestone supports it.
+////   A pending tree edit keeps its core and compressor. The actor waits for
+////   the old session to leave before it resubmits unaccepted tree edits.
 //// - **Nacks.** A fatal nack, which reports a bad scope, a bad size, or a hard
 ////   limit, crashes the actor. Every other nack causes a reconnect and a
 ////   reconcile.

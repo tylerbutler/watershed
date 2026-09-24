@@ -30,6 +30,8 @@ export class JsonLinesChannel {
     child.stdout.on("end", () => this.#abort(new Error("Native client closed stdout")));
   }
 
+  get failure() { return this.#failure; }
+
   #abort(error) {
     if (this.#failure) return;
     this.#failure = error;
@@ -119,6 +121,7 @@ export class TcpGate {
   }
 
   get port() { return this.#server.address().port; }
+  get connections() { return this.#pairs.size; }
 
   #accept(client) {
     client.on("error", () => client.destroy());
@@ -160,9 +163,9 @@ export class TcpGate {
     this.#pairs.clear();
   }
 
-  async reconnect() {
+  async reconnect({ pauseInbound = false } = {}) {
     this.#withheld = false;
-    this.#inbound = false;
+    this.#inbound = pauseInbound;
     this.#outbound = false;
     for (const client of this.#waiting) {
       this.#waiting.delete(client);
@@ -206,54 +209,67 @@ export async function startClient(target, descriptor, environment) {
     WATERSHED_TOKEN: environment.token,
     ERL_CRASH_DUMP: join(directory, "erl-crash.dump"),
   };
-  let command;
-  let args;
-  if (target === "javascript") {
-    const entry = join(repository,
-      "build/dev/javascript/watershed/watershed/tree/client_js.mjs");
-    assert(existsSync(entry), `Missing native JavaScript client: ${entry}`);
-    command = process.execPath;
-    args = ["--input-type=module", "-e",
-      `import(${JSON.stringify(pathToFileURL(entry).href)}).then((module) => module.main())`];
-  } else {
-    const erlang = join(repository, "build/dev/erlang");
-    const libraries = (await readdir(erlang, { withFileTypes: true }))
-      .filter((entry) => entry.isDirectory())
-      .map((entry) => join(erlang, entry.name, "ebin"));
-    assert(libraries.length > 0, "Missing BEAM build artifacts");
-    command = "erl";
-    args = ["-noshell", "-pa", ...libraries,
-      "-eval", "ok = logger:remove_handler(default), ok = logger:add_handler(default, logger_std_h, #{config => #{type => standard_error}}), {ok, _} = application:ensure_all_started(watershed), 'watershed@tree@client_beam':main(), init:stop()."];
-  }
-  const child = spawn(command, args, {
-    cwd: repository, env, stdio: ["pipe", "pipe", "inherit"],
-  });
-  const channel = new JsonLinesChannel(child);
-  return {
-    gate,
-    request: (command) => channel.request(command),
-    async close() {
-      try {
-        if (child.exitCode === null && !child.killed) {
-          try {
+  try {
+    let command;
+    let args;
+    if (target === "javascript") {
+      const entry = join(repository,
+        "build/dev/javascript/watershed/watershed/tree/client_js.mjs");
+      assert(existsSync(entry), `Missing native JavaScript client: ${entry}`);
+      command = process.execPath;
+      args = ["--input-type=module", "-e",
+        `import(${JSON.stringify(pathToFileURL(entry).href)}).then((module) => module.main())`];
+    } else {
+      const erlang = join(repository, "build/dev/erlang");
+      const libraries = (await readdir(erlang, { withFileTypes: true }))
+        .filter((entry) => entry.isDirectory())
+        .map((entry) => join(erlang, entry.name, "ebin"));
+      assert(libraries.length > 0, "Missing BEAM build artifacts");
+      command = "erl";
+      args = ["-noshell", "-pa", ...libraries,
+        "-eval", "ok = logger:remove_handler(default), ok = logger:add_handler(default, logger_std_h, #{config => #{type => standard_error}}), {ok, _} = application:ensure_all_started(watershed), 'watershed@tree@client_beam':main(), init:stop()."];
+    }
+    const child = spawn(command, args, {
+      cwd: repository, env, stdio: ["pipe", "pipe", "inherit"],
+    });
+    const channel = new JsonLinesChannel(child);
+    return {
+      gate,
+      request: (command) => channel.request(command),
+      async close() {
+        let closeError;
+        try {
+          if (child.exitCode === null && !child.killed && !channel.failure) {
             await channel.request({ command: "close" });
             channel.end();
             if (child.exitCode === null) {
-              await Promise.race([
-                once(child, "exit"),
-                new Promise((_resolve, reject) =>
-                  setTimeout(() => reject(new Error("Native client did not exit")), 5000)),
-              ]);
+              let timer;
+              try {
+                await Promise.race([
+                  once(child, "exit"),
+                  new Promise((_resolve, reject) => {
+                    timer = setTimeout(
+                      () => reject(new Error("Native client did not exit")), 5000);
+                  }),
+                ]);
+              } finally {
+                clearTimeout(timer);
+              }
             }
-          } catch {
-            child.kill();
           }
+        } catch (error) {
+          closeError = error;
+        } finally {
+          if (child.exitCode === null) child.kill();
+          await gate.close();
+          await rm(directory, { recursive: true, force: true });
         }
-      } finally {
-        if (child.exitCode === null) child.kill();
-        await gate.close();
-        await rm(directory, { recursive: true, force: true });
-      }
-    },
-  };
+        if (closeError) throw closeError;
+      },
+    };
+  } catch (error) {
+    await gate.close();
+    await rm(directory, { recursive: true, force: true });
+    throw error;
+  }
 }

@@ -24,6 +24,8 @@ export async function lines(handle, finish) {
   } finally {
     finish();
   }
+  await new Promise((resolve) => process.stdout.write("", resolve));
+  process.exit(0);
 }
 
 export function fail(message) {

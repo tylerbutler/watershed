@@ -11,6 +11,8 @@ import gleam/list
 @target(erlang)
 import gleam/option.{None, Some}
 @target(erlang)
+import gleam/result
+@target(erlang)
 import signet/types as token
 @target(erlang)
 import spillway/message
@@ -30,6 +32,8 @@ import watershed/map_kernel
 import watershed/runtime_beam
 @target(erlang)
 import watershed/runtime_core
+@target(erlang)
+import watershed/schema
 @target(erlang)
 import watershed/sluice/frame
 @target(erlang)
@@ -281,6 +285,24 @@ pub fn routed_beam_facade_root_serializes_absolute_handle_test() {
   let assert Ok(tree) = watershed_beam.resolve_tree(document, marker, view.view)
   watershed_beam.tree_handle_of(tree)
   |> expect.to_equal(handle.encode_handle("A/_C"))
+  let typed = watershed_beam.typed(root)
+  watershed_beam.resolve_tree_field(
+    document,
+    typed,
+    schema.channel_field("tree"),
+    view.view,
+  )
+  |> result.map(fn(value) { option.map(value, watershed_beam.tree_handle_of) })
+  |> expect.to_equal(Ok(Some(marker)))
+  watershed_beam.resolve_tree_field(
+    document,
+    typed,
+    schema.channel_field("absent-tree"),
+    view.view,
+  )
+  |> expect.to_equal(Ok(None))
+  watershed_beam.set_tree_field(typed, schema.channel_field("tree"), tree)
+  watershed_beam.get(root, "tree") |> expect.to_equal(Ok(marker))
   let events = watershed_beam.subscribe_tree(tree)
   runtime_beam.resolve_root(actor) |> expect.to_be_ok()
   watershed_beam.tree_set(tree, ["unknown"], tree_types.StringValue("invalid"))

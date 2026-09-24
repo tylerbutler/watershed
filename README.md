@@ -95,8 +95,8 @@ then returns an upstream edit to the native core.
 Ordinary connections can load published upstream SharedTree summaries for this
 fixed container and schema profile without a caller-supplied seed. The checked
 `runtime_core.BootstrapSeed` and `connect_via_seed` remain available for injected
-transports. Arbitrary Fluid containers, native tree creation, and public typed
-tree handles are not supported.
+transports. Arbitrary Fluid containers and native tree creation are not
+supported.
 
 On either facade, `resolve_root(document)` returns the checked bootstrap
 `SharedMap` or an error before readiness. Its handle preserves the full route,
@@ -106,14 +106,30 @@ resolution requires an absolute marker. Use
 `bind_handle(document, source_handle, value)` to resolve a relative marker in
 its source channel's datastore.
 
+After readiness, use `resolve_root(document)`, `get(root, "tree")`, and
+`resolve_tree(document, handle, view)` to reach an upstream-created tree.
+`tree_get(tree, path)` returns `Result(Option(TreeValue), String)`: `None` is
+an absent optional field, not a null leaf. `tree_set` and `tree_clear` check
+the stored schema before changing the optimistic value; required fields cannot
+be cleared. `tree_handle_of` preserves the tree route. Typed-map declarations
+can use `schema.TreeChannel` with `set_tree_field` and
+`resolve_tree_field(document, map, field, view)`. JavaScript's
+`subscribe_tree(tree, handler)` returns a `SubscriptionToken` for `unsubscribe`;
+BEAM's `subscribe_tree(tree)` returns `Subject(TreeEvent)`.
+
 Manual `summarize` publishes a complete tree document when it is synchronized
 and has its original routing and protocol metadata. Automatic summary policy
-still skips tree documents. A transport loss or failed send with pending tree
-edits retains the core and compressor in a suspended state. Further edits fail with
-`"pending tree reconnect and resubmission are not supported"`. A tree document
-without pending edits can catch up using the same compressor session.
-Full reconnect/resubmission and broader mixed-client schedules remain open.
-SharedTree has no P2P mode.
+still skips tree documents. New tree edits require the ready phase: disconnected,
+bootstrapping, and catching-up clients reject them without changing visible
+state. Accepted local edits remain visible across a transport loss. Reconnect
+keeps their core and compressor, replays the sequenced tail, waits for the old
+submitting session's sequenced leave and the new join, and resubmits only edits
+that the server has not accepted. Missing history or failed repair retains the
+pending state with an explicit error; it does not report a synchronized tree.
+This is in-memory reconnect, not disk recovery or offline authoring.
+The focused `client:interop -- --local-floodgate` oracle exercises six live
+schedules on each native target; broader mixed-client matrices and permanent
+CI gates remain open. SharedTree has no P2P mode.
 
 ## Data structures
 
@@ -502,8 +518,8 @@ restoration object; ordinary connections load the full published hierarchy.
 A checkpoint captures confirmed channel state and membership at the blob's
 own sequence number. A later client loads it and replays subsequent messages,
 including those sequenced during upload. Pending local edits are not in the
-checkpoint; non-tree reconnect preserves and resubmits them, while pending
-SharedTree reconnect remains unsupported. See
+checkpoint; reconnect preserves and resubmits unaccepted pending operations,
+including fixed-profile tree edits after the old-session closure barrier. See
 [reconnect and summaries](https://watershed.tylerbutler.com/runtime/reconnect)
 for the boundary and retry behavior.
 

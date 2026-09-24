@@ -19,7 +19,7 @@
 //// other observers.
 ////
 //// A seeded tree uses the checked bootstrap path. It does not load or publish
-//// a Fluid summary. A pending tree edit stops reconnect and keeps the core.
+//// a Fluid summary. Reconnect retains pending tree edits and the compressor.
 ////
 //// JavaScript target only. `@target(javascript)` gates the module.
 

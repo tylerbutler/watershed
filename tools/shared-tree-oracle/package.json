@@ -14,6 +14,7 @@
     "codec:interop": "node codec-interop.mjs",
     "runtime:interop": "node runtime-interop.mjs",
     "summary:interop": "node summary-interop.mjs",
+    "client:interop": "node client-interop.mjs",
     "preflight": "node service.mjs preflight"
   },
   "dependencies": {

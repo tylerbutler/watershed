@@ -3946,9 +3946,9 @@ pub fn force_reconnect(document: Document(root)) -> Nil {
 }
 
 @target(javascript)
-/// Go offline and stay offline. The document continues to answer a read and to
-/// accept an edit. The edits queue as pending entries, and they go out when
-/// `go_online` reconnects.
+/// Go offline and stay offline. The document continues to answer a read.
+/// Non-tree edits queue as pending entries until `go_online` reconnects.
+/// Tree edits require a ready connection and return an error while offline.
 ///
 /// This function is `force_reconnect` with a pause. `force_reconnect` goes away
 /// and comes back in one step, which leaves no interval to edit in. `close`

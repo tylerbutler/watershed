@@ -74,9 +74,9 @@ both targets. `history-reconciliation`, `tree-codecs`, `tree-kernel`,
 `bootstrap-map-handles`, and `batched-commits` bring that count to twelve.
 The other generated cases are not evidence of implemented native semantics.
 
-The foundation lanes and their Task 11/12 runtime join are complete.
-Task 13's compatible summaries are next. The diagram retains the original
-dependency split:
+The foundation lanes, Task 11/12 runtime join, Task 13 compatible summaries,
+and Task 14 facades and in-memory reconnect are complete. Tasks 15 and 16
+remain open. The diagram retains the original dependency split:
 
 ```text
 Completed Tasks 1-6 -> contract and ownership check
@@ -90,11 +90,11 @@ Completed Tasks 1-6 -> contract and ownership check
      |                            |                            |
      +----------------------------+----------------------------+
                                   |
-                   remaining 11 + 12 runtime cutover
+                   completed 11 + 12 runtime cutover
                                   |
-                   remaining 13 compatible summaries
+                   completed 13 compatible summaries
                                   |
-                       14 facades + reconnect
+                       completed 14 facades + reconnect
                                   |
                        15 mixed-client acceptance
                                   |
@@ -1765,7 +1765,7 @@ writer-to-reader pairs on pinned Floodgate. Each reader edits and an independent
 peer observes the change. A second native publication reloads and continues
 on BEAM and upstream. A BEAM client with a zero-jitter automatic policy must
 not publish an ordinarily loaded tree, while synchronized manual publication
-remains available. Arbitrary Fluid document profiles, public tree facades,
+remains available. Arbitrary Fluid document profiles, the Task 14 public tree facades and
 pending-tree reconnect, the wider service schedule, and permanent CI gates
 remain outside Task 13 (Tasks 14–16).
 
@@ -1807,8 +1807,8 @@ cutover, production dependency, or production FFI was added in this wave.
 **Files:** Modify `src/watershed.gleam`, `src/watershed_beam.gleam`,
 `src/watershed/schema.gleam`, both runtimes, and
 `test/watershed/facade_parity_test.gleam`. Add
-`test/watershed/shared_tree_facade_test.gleam` and
-`test/watershed/shared_tree_client.gleam`.
+target runtime/facade regressions and test-only
+`test/watershed/tree/client_{js,beam}.gleam` command clients.
 
 **Interfaces:** Both facades expose opaque `SharedTree` and these operations,
 using each facade's existing `Document` type:
@@ -1839,7 +1839,10 @@ BEAM subscription returns the existing subject-style event stream:
 
 ```gleam
 // JavaScript
-pub fn subscribe_tree(tree: SharedTree, handler: fn(TreeEvent) -> Nil) -> Nil
+pub fn subscribe_tree(
+  tree: SharedTree,
+  handler: fn(TreeEvent) -> Nil,
+) -> SubscriptionToken
 // BEAM
 pub fn subscribe_tree(tree: SharedTree) -> Subject(TreeEvent)
 ```
@@ -1871,13 +1874,13 @@ The first milestone resolves the upstream-created tree. Do not add fake
 native-creation lifecycle. Add a parity-test entry that states this supported
 lifecycle subset on both targets without weakening checks for existing kinds.
 
-- [ ] **1. Add facade reads/edits and schema refusal tests.**
+- [x] **1. Add facade reads/edits and schema refusal tests.**
 
 Resolve the correct tree and reject a mismatched channel kind or incompatible
 view. Exercise set/clear/nested replacement and subscriptions on both facades.
 Check that `tree_clear` on a required field returns an error and changes nothing.
 
-- [ ] **2. Implement reconnect with stable compressor and commit identity.**
+- [x] **2. Implement reconnect with stable compressor and commit identity.**
 
 Preserve the compressor session and pending tree history across transport
 reconnect. Bootstrap the summary/tail, reconcile already-sequenced revisions,
@@ -1888,7 +1891,7 @@ Exercise both server-accepted/lost-ack and never-submitted cases. Report unrecov
 reference-history or session-state loss explicitly; do not discard edits and
 present a synchronized document.
 
-- [ ] **3. Add the dual-target acceptance runner.**
+- [x] **3. Add the dual-target acceptance runner.**
 
 Use one logical JSON-lines command protocol for both compiled targets:
 
@@ -1910,9 +1913,34 @@ through actual pending/runtime state, not fixed sleeps.
 Use test-only FFI for Node/Erlang process I/O if necessary. Tree operations must
 go through the production facades on both targets.
 
-- [ ] **4. Run facade parity and reconnect scenarios; commit.**
+- [x] **4. Run facade parity and reconnect scenarios; commit.**
 
-Commit subject: `feat(tree): expose dual-target tree editing and reconnect`.
+Implemented in `d83e6f34` (facades), `94cab5c2` (pending repair),
+`d3b14d48` (runtime reconnect), and `434b4080` (dual-target command clients).
+The native clients use a run-specific fixed-view descriptor and a token
+supplied only in the subprocess environment. The focused Floodgate gate has
+six schedules per target, including published upstream continuation,
+accepted-before-ack, never-submitted, interleaved pending edits, detached
+repair, and a second reconnect. Each checkpoint includes visible tagged
+fields, pending counts, connection identity, and captured notifications.
+Sequenced service history supplies batch IDs and revisions. Task 15's wider
+mixed-client and cross-writer matrix and Task 16's permanent gates remain open.
+
+Task 14 closure: `npm --prefix tools/shared-tree-oracle run client:interop
+-- --local-floodgate` returned twelve passing results in run
+`3984d2f8-9a3e-4e61-b16f-9f545a4cb7b3`: all six case IDs above on
+`javascript` and all six on `erlang`. The run used the pinned Fluid 3.1.0
+object profile and pinned local Floodgate; it checked upstream publication,
+server history batch/revision identities, changed reconnect transport IDs,
+pending counts, and native/upstream continuation. The root suites passed
+1977 BEAM and 2253 JavaScript tests; both native builds, 81 oracle tests,
+the runtime and retained-summary gates, all three storage/bootstrap smokes,
+compile-fail checks, formatting, and website type checks passed. The live
+`repeated-reconnect` gate cuts a newly opened recovery transport before it
+can receive its inbound catch-up; it then verifies the queued remote tail and
+the local edit, and repeats a second pending edit and transport loss. The
+old-session join-before-leave race is covered by deterministic runtime tests
+rather than induced by the live gate.
 
 ### Task 15: prove mixed-client and cross-writer interoperability
 

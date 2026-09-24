@@ -5,6 +5,8 @@ production dependency. The runtime gate tests DDS-level native outbound and
 replay. The summary gate checks fresh full-hierarchy artifacts on both native
 targets and, in its focused service mode, actual native publication and
 continuation by fresh clients.
+The `client:interop` gate uses the public SharedTree facades of both native
+targets with a byte-transparent, per-client TCP gate to exercise reconnect.
 
 The public collaboration test uses an in-memory service. The source capture uses
 upstream's deterministic DDS test runtimes. Container fixtures use complete
@@ -41,7 +43,32 @@ npm --prefix tools/shared-tree-oracle run codec:interop
 npm --prefix tools/shared-tree-oracle run runtime:interop
 npm --prefix tools/shared-tree-oracle run summary:interop
 npm --prefix tools/shared-tree-oracle run summary:interop -- --service floodgate --local
+npm --prefix tools/shared-tree-oracle run client:interop -- --local-floodgate
 ```
+
+`client:interop` builds long-lived JavaScript and BEAM test clients once, then
+creates a fresh upstream document for each schedule. The upstream summarizer
+publishes an acknowledged bootstrap summary before the native client loads it.
+The native path is `connect` → `resolve_root` → `get(root, "tree")` →
+`resolve_tree(document, handle, view)`; it does not guess a channel address.
+Its JSON-lines protocol has integer `requestId`, `command`, and tagged tree
+values (`string`, `number`, `boolean`, `null`, or an ordered `object` with
+`schemaId` and field pairs). It supports `read`, `set`, `clear`, `subscribe`,
+`unsubscribe`, `checkpoint`, `await-synced`, `summarize`, `disconnect`,
+`reconnect`, and `close`. Replies correlate the ID and include either a result
+or an error, the sequence number, and a connection observation. Checkpoints
+include typed field values, presence flags, and captured local/remote events;
+`await-synced` checks actual runtime status and a requested sequence watermark.
+
+For each of JavaScript and BEAM, the gate requires
+`facade-and-summary-continuation`, `accepted-before-ack`, `never-submitted`,
+`interleaved-pending`, `detached-repair`, and `repeated-reconnect`. It checks
+visible values, pending counts, changed transport IDs, sequenced batch
+identity, and upstream continuation. An exact twelve-cell validator rejects
+missing, duplicated, stale, skipped, failed, or wrong-profile results. A
+missing service, compiler, BEAM executable, or pinned dependency fails the run.
+The TCP gate never parses or fabricates the service's wire protocol. This is
+not the broader Task 15 cross-writer matrix or a permanent CI gate.
 
 The default summary gate exports all four input-only `summary-writer-matrix`
 persistence states on JavaScript and BEAM. Each exporter decodes the captured

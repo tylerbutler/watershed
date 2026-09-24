@@ -11,6 +11,8 @@ import gleam/list
 @target(javascript)
 import gleam/option.{None, Some}
 @target(javascript)
+import gleam/result
+@target(javascript)
 import gleam/string
 @target(javascript)
 import signet/types as token
@@ -34,6 +36,8 @@ import watershed/map_kernel
 import watershed/runtime
 @target(javascript)
 import watershed/runtime_core
+@target(javascript)
+import watershed/schema
 @target(javascript)
 import watershed/sluice/frame
 @target(javascript)
@@ -382,6 +386,24 @@ pub fn routed_facade_root_serializes_its_absolute_handle_test() {
   let assert Ok(tree) = watershed.resolve_tree(document, marker, view.view)
   watershed.tree_handle_of(tree)
   |> expect.to_equal(handle.encode_handle("A/_C"))
+  let typed = watershed.typed(root)
+  watershed.resolve_tree_field(
+    document,
+    typed,
+    schema.channel_field("tree"),
+    view.view,
+  )
+  |> result.map(fn(value) { option.map(value, watershed.tree_handle_of) })
+  |> expect.to_equal(Ok(Some(marker)))
+  watershed.resolve_tree_field(
+    document,
+    typed,
+    schema.channel_field("absent-tree"),
+    view.view,
+  )
+  |> expect.to_equal(Ok(None))
+  watershed.set_tree_field(typed, schema.channel_field("tree"), tree)
+  watershed.get(root, "tree") |> expect.to_equal(Ok(marker))
   let changed = transport_js.new_cell([])
   let subscription =
     watershed.subscribe_tree(tree, fn(event) {
