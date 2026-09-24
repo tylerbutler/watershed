@@ -199,6 +199,14 @@ pub type Channel {
   Channel(id: String, attributes: Json, snapshot: channel.Snapshot)
 }
 
+pub type CaptureRouting {
+  CaptureRouting(
+    aliases: List(#(String, String)),
+    datastores: List(#(String, List(String))),
+    channel_attributes: List(#(String, Json)),
+  )
+}
+
 pub opaque type DocumentSummary {
   DocumentSummary(
     sequence_number: Int,
@@ -818,7 +826,39 @@ pub fn capture(
   summary: DocumentSummary,
   channels: List(#(String, channel.Snapshot)),
   compressor: Option(fluid_ids.Compressor),
+  routing: CaptureRouting,
 ) -> Result(DocumentSummary, SummaryError) {
+  let CaptureRouting(current_aliases, stores, attributes) = routing
+  use _ <- result.try(
+    list.try_each(summary.aliases, fn(alias) {
+      require(
+        list.key_find(current_aliases, alias.0) == Ok(alias.1),
+        "/.aliases",
+        "stored alias changed",
+      )
+    }),
+  )
+  let aliases =
+    list.append(
+      summary.aliases,
+      list.filter(current_aliases, fn(alias) {
+        !list.any(summary.aliases, fn(existing) { existing.0 == alias.0 })
+      }),
+    )
+  use _ <- result.try(
+    list.try_each(aliases, fn(alias) {
+      require(
+        list.key_find(stores, alias.1) != Error(Nil),
+        "/.aliases",
+        "alias names an unknown datastore",
+      )
+    }),
+  )
+  use _ <- result.try(require(
+    list.key_find(aliases, "root") != Error(Nil),
+    "/.aliases/root",
+    "root alias is missing",
+  ))
   use count <- result.try(integer(
     summary.metadata,
     ["summaryNumber"],
@@ -830,26 +870,86 @@ pub fn capture(
     json.int(count + 1),
     "/.metadata",
   ))
+  use newly_attached <- result.try(
+    list.try_map(
+      list.filter(stores, fn(entry) {
+        !list.any(summary.datastores, fn(store) { store.id == entry.0 })
+      }),
+      fn(entry) {
+        use _ <- result.try(require(
+          entry.1 != [],
+          "/.channels/" <> entry.0 <> "/.component",
+          "empty datastore package",
+        ))
+        Ok(
+          Datastore(
+            entry.0,
+            json.object([
+              #(
+                "pkg",
+                json.string(json.to_string(json.array(entry.1, json.string))),
+              ),
+              #("summaryFormatVersion", json.int(2)),
+              #("isRootDataStore", json.bool(False)),
+            ]),
+            entry.1,
+            [],
+          ),
+        )
+      },
+    ),
+  )
   use datastores <- result.try(
-    list.try_map(summary.datastores, fn(store) {
-      use channels <- result.try(
-        list.try_map(store.channels, fn(item) {
-          let path = store.id <> "/" <> item.id
-          use snapshot <- result.try(
-            list.key_find(channels, path)
-            |> result.replace_error(fluid_summary.MissingEntry(
-              "/.channels/" <> path,
-            )),
+    list.try_map(list.append(summary.datastores, newly_attached), fn(store) {
+      use package_path <- result.try(
+        list.key_find(stores, store.id)
+        |> result.replace_error(fluid_summary.MissingEntry(
+          "/.channels/" <> store.id,
+        )),
+      )
+      use _ <- result.try(require(
+        store.package_path == package_path,
+        "/.channels/" <> store.id <> "/.component",
+        "datastore package changed",
+      ))
+      use snapshots <- result.try(
+        list.try_map(
+          list.filter(channels, fn(entry) {
+            string.starts_with(entry.0, store.id <> "/")
+          }),
+          fn(entry) {
+            use attributes <- result.try(
+              list.key_find(attributes, entry.0)
+              |> result.replace_error(fluid_summary.MissingEntry(
+                "/.channels/" <> entry.0 <> "/.attributes",
+              )),
+            )
+            use _ <- result.try(validate_attributes(
+              attributes,
+              entry.1,
+              "/.channels/" <> entry.0,
+            ))
+            case string.split(entry.0, "/") {
+              [_, id] -> Ok(Channel(id, attributes, entry.1))
+              _ ->
+                Error(fluid_summary.MalformedEntry(
+                  "/.channels/" <> entry.0,
+                  "invalid channel route",
+                ))
+            }
+          },
+        ),
+      )
+      use _ <- result.try(
+        list.try_each(store.channels, fn(item) {
+          require(
+            list.any(snapshots, fn(snapshot) { snapshot.id == item.id }),
+            "/.channels/" <> store.id <> "/.channels/" <> item.id,
+            "stored channel disappeared",
           )
-          use _ <- result.try(validate_attributes(
-            item.attributes,
-            snapshot,
-            "/.channels/" <> path,
-          ))
-          Ok(Channel(..item, snapshot:))
         }),
       )
-      Ok(Datastore(..store, channels:))
+      Ok(Datastore(..store, channels: snapshots))
     }),
   )
   use _ <- result.try(require(
@@ -860,7 +960,8 @@ pub fn capture(
     "/.channels",
     "unregistered channel snapshot",
   ))
-  let next = DocumentSummary(..summary, datastores:, compressor:, metadata:)
+  let next =
+    DocumentSummary(..summary, aliases:, datastores:, compressor:, metadata:)
   use gc <- result.try(refresh_gc(next))
   Ok(DocumentSummary(..next, gc:))
 }

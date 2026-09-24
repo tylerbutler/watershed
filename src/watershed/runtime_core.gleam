@@ -1057,7 +1057,16 @@ pub fn capture_summary(
   use channels <- result.try(summary_channels(core))
   case core.persistence {
     Some(previous) ->
-      fluid_document.capture(previous, channels, core.compressor)
+      fluid_document.capture(
+        previous,
+        channels,
+        core.compressor,
+        fluid_document.CaptureRouting(
+          dict.to_list(core.routing.aliases),
+          dict.to_list(core.routing.datastores),
+          dict.to_list(core.routing.channel_attributes),
+        ),
+      )
       |> result.map_error(fn(error) { BadBootstrapSeed(string.inspect(error)) })
     None ->
       fluid_document.native(

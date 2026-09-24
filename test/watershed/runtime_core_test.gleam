@@ -2361,6 +2361,180 @@ fn counter_attach_message(
   )
 }
 
+pub fn loaded_document_captures_sequenced_counter_attachment_test() -> Nil {
+  let assert Ok(initial) =
+    fluid_document.native(1, 0, [], [
+      #("watershed/root", channel.MapSnapshot([])),
+    ])
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(connected_message([], 1), initial)
+  let assert Ok(#(core, _)) =
+    runtime_core.handle_sequenced(
+      core,
+      counter_attach_message(
+        client_id: other_client_id,
+        sequence_number: 2,
+        client_sequence_number: 1,
+        address: "watershed/tally",
+        value: 9,
+      ),
+    )
+  let summary = case runtime_core.capture_summary(core) {
+    Ok(summary) -> summary
+    Error(error) ->
+      panic as { "loaded attachment capture: " <> string.inspect(error) }
+  }
+  let assert Ok(encoded) = fluid_document.encode(summary)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(restored) = fluid_document.decode(encoded, None, session, view)
+  let assert Ok(runtime_core.Complete(reloaded)) =
+    runtime_core.bootstrap_document(connected_message([], 2), restored)
+  runtime_core.counter_value(reloaded, "watershed/tally")
+  |> expect.to_equal(Ok(9))
+}
+
+pub fn loaded_document_captures_sequenced_alias_test() -> Nil {
+  let assert Ok(initial) =
+    fluid_document.native(1, 0, [], [
+      #("watershed/root", channel.MapSnapshot([])),
+    ])
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(connected_message([], 1), initial)
+  let alias =
+    fluid_container.DecodedBatch(False, None, [
+      fluid_container.ContainerMessage(
+        fluid_container.DatastoreAlias("watershed", "second"),
+        0,
+        None,
+      ),
+    ])
+  let assert Ok(contents) = fluid_container.encode_batch(alias)
+  let assert Ok(#(core, _)) =
+    runtime_core.handle_sequenced(
+      core,
+      sequenced_message(
+        client_id: Some(other_client_id),
+        sequence_number: 2,
+        client_sequence_number: 1,
+        message_type: "op",
+        contents: json_to_dynamic(contents),
+      ),
+    )
+  let assert Ok(summary) = runtime_core.capture_summary(core)
+  fluid_document.aliases(summary)
+  |> expect.to_equal([#("root", "watershed"), #("second", "watershed")])
+  let assert Ok(encoded) = fluid_document.encode(summary)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let assert Ok(restored) = fluid_document.decode(encoded, None, session, view)
+  fluid_document.aliases(restored)
+  |> expect.to_equal(fluid_document.aliases(summary))
+}
+
+pub fn loaded_document_captures_sequenced_datastore_test() -> Nil {
+  let assert Ok(initial) =
+    fluid_document.native(1, 0, [], [
+      #("watershed/root", channel.MapSnapshot([])),
+    ])
+  let assert Ok(runtime_core.Complete(core)) =
+    runtime_core.bootstrap_document(connected_message([], 1), initial)
+  let component =
+    json.object([
+      #("pkg", json.string("[\"other\"]")),
+      #("summaryFormatVersion", json.int(2)),
+      #("isRootDataStore", json.bool(False)),
+    ])
+  let contents =
+    json.object([
+      #("id", json.string("other-store")),
+      #("type", json.string("other")),
+      #(
+        "snapshot",
+        json.object([
+          #(
+            "entries",
+            json.array(
+              [
+                json.object([
+                  #("path", json.string(".component")),
+                  #("mode", json.string("100644")),
+                  #("type", json.string("Blob")),
+                  #(
+                    "value",
+                    json.object([
+                      #("contents", json.string(json.to_string(component))),
+                      #("encoding", json.string("utf-8")),
+                    ]),
+                  ),
+                ]),
+                json.object([
+                  #("path", json.string(".channels")),
+                  #("mode", json.string("040000")),
+                  #("type", json.string("Tree")),
+                  #(
+                    "value",
+                    json.object([#("entries", json.array([], fn(x) { x }))]),
+                  ),
+                ]),
+              ],
+              fn(value) { value },
+            ),
+          ),
+        ]),
+      ),
+    ])
+  let batch =
+    fluid_container.DecodedBatch(False, None, [
+      fluid_container.ContainerMessage(
+        fluid_container.DatastoreAttach("other-store", contents),
+        0,
+        None,
+      ),
+    ])
+  let assert Ok(encoded) = fluid_container.encode_batch(batch)
+  let core = case
+    runtime_core.handle_sequenced(
+      core,
+      sequenced_message(
+        client_id: Some(other_client_id),
+        sequence_number: 2,
+        client_sequence_number: 1,
+        message_type: "op",
+        contents: json_to_dynamic(encoded),
+      ),
+    )
+  {
+    Ok(#(core, _)) -> core
+    Error(error) ->
+      panic as { "datastore attach rejected: " <> string.inspect(error) }
+  }
+  let summary = case runtime_core.capture_summary(core) {
+    Ok(summary) -> summary
+    Error(error) ->
+      panic as { "datastore capture rejected: " <> string.inspect(error) }
+  }
+  let assert Ok(encoded) = fluid_document.encode(summary)
+  let assert Ok(session) =
+    fluid_ids.session_id("70000000-0000-4000-8000-000000000007")
+  let assert Ok(view) =
+    fluid_ids.stable_id("60000000-0000-4000-8000-000000000006")
+  let restored = case fluid_document.decode(encoded, None, session, view) {
+    Ok(restored) -> restored
+    Error(error) ->
+      panic as { "datastore reload rejected: " <> string.inspect(error) }
+  }
+  let assert Ok(store) =
+    list.find(fluid_document.datastores(restored), fn(store) {
+      store.id == "other-store"
+    })
+  store.package_path |> expect.to_equal(["other"])
+}
+
 pub fn detached_counter_increment_produces_no_outbound_test() -> Nil {
   let core = bootstrap(initial_messages: [], checkpoint: 1)
   let core =

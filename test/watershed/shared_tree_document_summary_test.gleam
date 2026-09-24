@@ -234,6 +234,17 @@ pub fn shared_tree_document_summary_rebuilds_gc_after_handle_removal_test() {
       summary,
       channels,
       fluid_document.compressor(summary),
+      fluid_document.CaptureRouting(
+        fluid_document.aliases(summary),
+        list.map(fluid_document.datastores(summary), fn(store) {
+          #(store.id, store.package_path)
+        }),
+        list.flat_map(fluid_document.datastores(summary), fn(store) {
+          list.map(store.channels, fn(item) {
+            #(store.id <> "/" <> item.id, item.attributes)
+          })
+        }),
+      ),
     )
   let assert Ok(routes) =
     json.parse(
