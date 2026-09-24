@@ -1773,10 +1773,20 @@ The review worktree passed 1962 Erlang and 2238 JavaScript root tests, both
 production builds, storage/bootstrap smokes, 73 oracle tests, 26 pinned
 upstream cases, codec/runtime interoperability, the six fresh retained
 artifact upstream continuations, the split-map upstream load, and the nine-cell
-real-service mode with the BEAM automatic-policy check. Workspace-wide
-`just build` and `just test` involve example projects; their prior run hit
-external Hex API rate limits. The parent is resolving those example dependencies
-and will retry the workspace-wide commands separately.
+real-service mode with the BEAM automatic-policy check. An independent review
+confirmed that all five reported correctness gaps were resolved. Fresh final
+artifact and real-service runs reproduced the persistence results.
+
+Workspace-wide `just build` passes after resolving the example dependencies
+serially. `just test` passes the native suites, storage/bootstrap smokes,
+compile-fail checks, and website type checks, but the website unit suite has one
+pre-existing failure: `website/scripts/snippet-config.test.mjs:257` reports
+`tools/website-samples/test/website_samples_test.gleam` outside every snippet
+marker root and exclusion. The same failure reproduces on unchanged base
+`d3570e0e`; none of those files changed in Task 13. The browser gate also stops
+at this website prebuild check, before browser scenarios run. This unrelated
+snippet configuration issue remains open; the full `just test` gate is not
+green.
 
 #### Foundation-wave closure
 
