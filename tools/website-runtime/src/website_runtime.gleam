@@ -18,6 +18,7 @@ import watershed/json_ot
 import watershed/or_map_kernel
 import watershed/runtime_core
 import watershed/wire
+import watershed/wire/fluid_summary
 
 pub opaque type CounterCore {
   CounterCore(core: runtime_core.Core)
@@ -127,7 +128,10 @@ pub fn counter_core(
   let summary =
     runtime_core.Summary(
       sequence_number: 0,
-      channels: [#(address, channel.CounterSnapshot(initial_value))],
+      channels: [
+        #("watershed/root", channel.MapSnapshot([])),
+        #(counter_address(address), channel.CounterSnapshot(initial_value)),
+      ],
       members: [],
     )
   let connected =
@@ -179,7 +183,7 @@ pub fn counter_increment(
   amount: Int,
 ) -> Result(CounterChange, String) {
   let CounterCore(core) = core
-  case runtime_core.increment(core, address, amount) {
+  case runtime_core.increment(core, counter_address(address), amount) {
     Ok(#(core, _events, [outbound])) ->
       Ok(CounterChange(
         CounterCore(core),
@@ -192,8 +196,16 @@ pub fn counter_increment(
 
 pub fn counter_pending(core: CounterCore, address: String) -> CounterPending {
   let CounterCore(core) = core
+  let address = counter_address(address)
+  let pending_items =
+    list.flat_map(core.in_flight, fn(entry) {
+      case entry {
+        runtime_core.InFlightBatch(pending: items, ..) -> items
+        entry -> [entry]
+      }
+    })
   let #(count, delta) =
-    list.fold(core.in_flight, #(0, 0), fn(pending, entry) {
+    list.fold(pending_items, #(0, 0), fn(pending, entry) {
       case entry {
         runtime_core.InFlightOperation(
           address: entry_address,
@@ -213,8 +225,12 @@ pub fn counter_value(
   address: String,
 ) -> Result(Int, String) {
   let CounterCore(core) = core
-  runtime_core.counter_value(core, address)
+  runtime_core.counter_value(core, counter_address(address))
   |> result.map_error(string.inspect)
+}
+
+fn counter_address(id: String) -> String {
+  "watershed/" <> fluid_summary.encode_component(id)
 }
 
 pub fn deliver_counter(

@@ -48,6 +48,7 @@ _test-gleam:
 _test-js:
     trellis run test --target javascript watershed
     node smoke/shared_tree_storage.mjs
+    node smoke/shared_tree_bootstrap.mjs
     node smoke/runtime_bootstrap.mjs
 
 # The one guarantee no ordinary test can make: that *wrong* code is rejected.

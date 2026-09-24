@@ -56,7 +56,7 @@ pub fn breadcrumbs_nested_test() -> Nil {
 // ── row ordering ─────────────────────────────────────────────────────────────
 
 pub fn rows_put_folders_before_documents_test() -> Nil {
-  let document_handle = handle.encode_handle("doc-1")
+  let document_handle = handle.encode_handle("watershed/doc-1")
   tree.rows("/", ["zeta"], [#("alpha", document_handle)])
   |> should.equal([
     tree.FolderRow("zeta", "/zeta"),
@@ -65,7 +65,7 @@ pub fn rows_put_folders_before_documents_test() -> Nil {
 }
 
 pub fn rows_sort_each_block_alphabetically_test() -> Nil {
-  let document_handle = handle.encode_handle("doc-1")
+  let document_handle = handle.encode_handle("watershed/doc-1")
   tree.rows("/", ["b", "a"], [#("z", document_handle), #("m", document_handle)])
   |> should.equal([
     tree.FolderRow("a", "/a"),
@@ -76,7 +76,7 @@ pub fn rows_sort_each_block_alphabetically_test() -> Nil {
 }
 
 pub fn rows_join_paths_under_the_current_folder_test() -> Nil {
-  let document_handle = handle.encode_handle("doc-1")
+  let document_handle = handle.encode_handle("watershed/doc-1")
   tree.rows("/specs", ["nested"], [#("api", document_handle)])
   |> should.equal([
     tree.FolderRow("nested", "/specs/nested"),
@@ -92,7 +92,7 @@ pub fn a_non_handle_directory_value_is_marked_corrupt_test() -> Nil {
 }
 
 pub fn a_handle_directory_value_is_not_corrupt_test() -> Nil {
-  tree.rows("/", [], [#("config", handle.encode_handle("doc-9"))])
+  tree.rows("/", [], [#("config", handle.encode_handle("watershed/doc-9"))])
   |> should.equal([tree.DocumentRow("config", "/config", corrupt: False)])
 }
 

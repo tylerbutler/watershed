@@ -162,6 +162,11 @@ const COVERAGE_EXCLUSIONS = [
       "the generator and its own throwaway fixtures, whose marker names would collide with the repository's",
   },
   {
+    prefix: "tools/shared-tree-oracle/",
+    reason:
+      "development-only upstream interoperability producers and consumers, not website examples",
+  },
+  {
     prefix: "tools/nostr/",
     reason: "a relay probe run by hand, never quoted on the site",
   },
